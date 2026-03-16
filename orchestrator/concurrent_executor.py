@@ -279,6 +279,9 @@ class ConcurrentPhaseExecutor:
             options=["Retry (respawn agent)", "Abort phase", "Continue without"],
             phase=self.pipeline.current_phase,
         )
+        # Store failed role in context so the resolution handler can call
+        # excuse_reviewer() when "Continue without" is selected.
+        decision.context = f"failed_role:{role}"
 
         logger.warning(
             "Single agent failure, HITL decision created",

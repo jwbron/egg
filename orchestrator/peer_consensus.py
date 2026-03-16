@@ -453,6 +453,9 @@ class PeerConsensusTracker:
     def handle_agent_crash(self, role: str) -> dict[str, Any]:
         """Handle an agent crash mid-protocol."""
         with self._lock:
+            # Always clean up confirmed state on crash, even if we escalate
+            self._confirmed.discard(role)
+
             if self.graph.is_producer(role):
                 # Producer crash: proposal stands, reviewers continue
                 # If reviewers NACK and producer can't respond, escalate
@@ -470,15 +473,18 @@ class PeerConsensusTracker:
                     if not remaining_reviewers:
                         sole_reviewer_for.append(producer)
                     else:
-                        # Check if this reviewer had a pending (non-ACKed) review
-                        entry = self.matrix.get_entry(role, producer)
+                        # Check if this reviewer had a pending (non-ACKed) review.
+                        # Skip producers that haven't proposed yet (version 0) —
+                        # there's nothing to review so no blocking relationship.
                         latest_version = self.matrix.get_proposal_version(producer)
-                        if (
-                            entry is None
-                            or entry.state != ApprovalState.ACKED
-                            or entry.version != latest_version
-                        ):
-                            blocking_producers.append(producer)
+                        if latest_version > 0:
+                            entry = self.matrix.get_entry(role, producer)
+                            if (
+                                entry is None
+                                or entry.state != ApprovalState.ACKED
+                                or entry.version != latest_version
+                            ):
+                                blocking_producers.append(producer)
 
                 if sole_reviewer_for:
                     emit_event(
@@ -510,9 +516,6 @@ class PeerConsensusTracker:
                         "reason": f"Reviewer {role} crashed with pending reviews for {blocking_producers}",
                         "blocking_producers": blocking_producers,
                     }
-
-            # Remove from confirmed set
-            self._confirmed.discard(role)
 
             return {"action": "continue", "crashed_role": role}
 

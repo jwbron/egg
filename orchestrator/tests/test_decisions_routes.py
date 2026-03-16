@@ -638,6 +638,70 @@ class TestResolveEmitsEvent:
         assert data["success"] is True
 
 
+class TestContinueWithoutExcusesReviewer:
+    """Tests for 'Continue without' resolution calling excuse_reviewer."""
+
+    @patch("routes.decisions.get_peer_consensus_tracker")
+    @patch("routes.decisions.emit_event")
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_continue_without_calls_excuse_reviewer(
+        self, mock_get_queue, mock_repo, mock_emit, mock_get_tracker, client, tmp_path
+    ):
+        """Resolving with 'Continue without' calls excuse_reviewer for the failed role."""
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+        resolved_decision = _make_decision(
+            status="resolved",
+            resolution="Continue without",
+        )
+        resolved_decision.context = "failed_role:checker"
+        mock_queue.resolve_decision.return_value = resolved_decision
+        mock_get_queue.return_value = mock_queue
+
+        mock_tracker = MagicMock()
+        mock_tracker.excuse_reviewer.return_value = {
+            "status": "excused",
+            "role": "checker",
+            "affected_producers": ["coder"],
+        }
+        mock_get_tracker.return_value = mock_tracker
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            json={"resolution": "Continue without"},
+        )
+
+        assert response.status_code == 200
+        mock_tracker.excuse_reviewer.assert_called_once_with("checker")
+
+    @patch("routes.decisions.get_peer_consensus_tracker")
+    @patch("routes.decisions.emit_event")
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_non_continue_without_does_not_call_excuse(
+        self, mock_get_queue, mock_repo, mock_emit, mock_get_tracker, client, tmp_path
+    ):
+        """Resolving with other options does not call excuse_reviewer."""
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+        resolved_decision = _make_decision(
+            status="resolved",
+            resolution="Retry (respawn agent)",
+        )
+        resolved_decision.context = "failed_role:checker"
+        mock_queue.resolve_decision.return_value = resolved_decision
+        mock_get_queue.return_value = mock_queue
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            json={"resolution": "Retry (respawn agent)"},
+        )
+
+        assert response.status_code == 200
+        mock_get_tracker.assert_not_called()
+
+
 class TestCancelDecisionEndpoint:
     """Tests for POST cancel-decision endpoint."""
 
