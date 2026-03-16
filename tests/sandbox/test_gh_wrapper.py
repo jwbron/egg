@@ -1111,6 +1111,9 @@ class TestBodyFileArgParsing:
                     ((i++))
                     body_file="${ARGS[$i]}"
                     ;;
+                --body-file=*)
+                    body_file="${ARGS[$i]#--body-file=}"
+                    ;;
                 [0-9]*)
                     if [ -z "$issue_number" ]; then
                         issue_number="${ARGS[$i]}"
@@ -1256,6 +1259,30 @@ print(json.dumps({'issue_number': sys.argv[1], 'body': sys.argv[2]}))
         assert result.returncode != 0
         assert "File not found" in result.stderr
 
+    def test_body_file_equals_syntax(self):
+        """--body-file=<path> (equals syntax) should read body content from file."""
+        content = "Equals syntax body content"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(content)
+            tmpfile = f.name
+
+        try:
+            result = self._run_arg_parser_ok(
+                ["issue", "comment", "42", f"--body-file={tmpfile}"]
+            )
+            assert result["issue_number"] == "42"
+            assert result["body"] == content
+        finally:
+            os.unlink(tmpfile)
+
+    def test_body_file_equals_syntax_not_found_errors(self):
+        """--body-file=<path> pointing to nonexistent file should error."""
+        result = self._run_arg_parser(
+            ["issue", "comment", "42", "--body-file=/nonexistent/file.md"]
+        )
+        assert result.returncode != 0
+        assert "File not found" in result.stderr
+
 
 class TestPrEditBodyFile:
     """Test --body-file/-F support in handle_pr_edit.
@@ -1282,6 +1309,9 @@ class TestPrEditBodyFile:
                 --body-file|-F)
                     ((i++))
                     body_file="${ARGS[$i]}"
+                    ;;
+                --body-file=*)
+                    body_file="${ARGS[$i]#--body-file=}"
                     ;;
                 [0-9]*)
                     if [ -z "$pr_number" ]; then
@@ -1402,6 +1432,23 @@ print(json.dumps({'pr_number': sys.argv[1], 'title': sys.argv[2], 'body': sys.ar
         finally:
             os.unlink(tmpfile)
 
+    def test_body_file_equals_syntax(self):
+        """--body-file=<path> (equals syntax) should read body content from file."""
+        content = "Equals syntax PR edit body"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(content)
+            tmpfile = f.name
+
+        try:
+            result = self._run_arg_parser_ok(
+                ["pr", "edit", "123", f"--body-file={tmpfile}", "--title", "My PR"]
+            )
+            assert result["pr_number"] == "123"
+            assert result["body"] == content
+            assert result["title"] == "My PR"
+        finally:
+            os.unlink(tmpfile)
+
 
 class TestPrCreateBodyFile:
     """Test --body-file/-F support in handle_pr_create.
@@ -1427,6 +1474,9 @@ class TestPrCreateBodyFile:
                 --body-file|-F)
                     ((i++))
                     body_file="${ARGS[$i]}"
+                    ;;
+                --body-file=*)
+                    body_file="${ARGS[$i]#--body-file=}"
                     ;;
                 --base|-B)
                     ((i++))
@@ -1535,6 +1585,22 @@ print(json.dumps({'title': sys.argv[1], 'body': sys.argv[2], 'base': sys.argv[3]
         assert result.returncode != 0
         assert "File not found" in result.stderr
 
+    def test_body_file_equals_syntax(self):
+        """--body-file=<path> (equals syntax) should read body content from file."""
+        content = "Equals syntax PR create body"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(content)
+            tmpfile = f.name
+
+        try:
+            result = self._run_arg_parser_ok(
+                ["pr", "create", "--title", "My PR", f"--body-file={tmpfile}"]
+            )
+            assert result["title"] == "My PR"
+            assert result["body"] == content
+        finally:
+            os.unlink(tmpfile)
+
 
 class TestIssueCreateBodyFile:
     """Test --body-file/-F support in handle_issue_create."""
@@ -1557,6 +1623,9 @@ class TestIssueCreateBodyFile:
                 --body-file|-F)
                     ((i++))
                     body_file="${ARGS[$i]}"
+                    ;;
+                --body-file=*)
+                    body_file="${ARGS[$i]#--body-file=}"
                     ;;
             esac
             ((i++))
@@ -1648,6 +1717,22 @@ print(json.dumps({'title': sys.argv[1], 'body': sys.argv[2]}))
         )
         assert result.returncode != 0
         assert "File not found" in result.stderr
+
+    def test_body_file_equals_syntax(self):
+        """--body-file=<path> (equals syntax) should read body content from file."""
+        content = "Equals syntax issue create body"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(content)
+            tmpfile = f.name
+
+        try:
+            result = self._run_arg_parser_ok(
+                ["issue", "create", "--title", "Bug report", f"--body-file={tmpfile}"]
+            )
+            assert result["title"] == "Bug report"
+            assert result["body"] == content
+        finally:
+            os.unlink(tmpfile)
 
 
 class TestSelfReviewFallbackDetection:
@@ -1815,6 +1900,9 @@ class TestIssueEditBodyFile:
                     ((i++))
                     body_file="${ARGS[$i]}"
                     ;;
+                --body-file=*)
+                    body_file="${ARGS[$i]#--body-file=}"
+                    ;;
                 [0-9]*)
                     if [ -z "$issue_number" ]; then
                         issue_number="${ARGS[$i]}"
@@ -1924,6 +2012,23 @@ print(json.dumps({'issue_number': sys.argv[1], 'title': sys.argv[2], 'body': sys
             result = self._run_arg_parser_ok(["issue", "edit", "100", "--body-file", tmpfile])
             assert "${{ secrets.TOKEN }}" in result["body"]
             assert "${{ github.sha }}" in result["body"]
+        finally:
+            os.unlink(tmpfile)
+
+    def test_body_file_equals_syntax(self):
+        """--body-file=<path> (equals syntax) should read body content from file."""
+        content = "Equals syntax issue edit body"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(content)
+            tmpfile = f.name
+
+        try:
+            result = self._run_arg_parser_ok(
+                ["issue", "edit", "42", f"--body-file={tmpfile}", "--title", "Updated"]
+            )
+            assert result["issue_number"] == "42"
+            assert result["body"] == content
+            assert result["title"] == "Updated"
         finally:
             os.unlink(tmpfile)
 

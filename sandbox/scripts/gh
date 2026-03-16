@@ -268,6 +268,9 @@ handle_pr_create() {
                 ((i++))
                 body_file="${ARGS[$i]}"
                 ;;
+            --body-file=*)
+                body_file="${ARGS[$i]#--body-file=}"
+                ;;
             --base|-B)
                 ((i++))
                 base="${ARGS[$i]}"
@@ -349,6 +352,9 @@ handle_pr_comment() {
                 ((i++))
                 body_file="${ARGS[$i]}"
                 ;;
+            --body-file=*)
+                body_file="${ARGS[$i]#--body-file=}"
+                ;;
             [0-9]*)
                 if [ -z "$pr_number" ]; then
                     pr_number="${ARGS[$i]}"
@@ -424,6 +430,9 @@ handle_pr_edit() {
             --body-file|-F)
                 ((i++))
                 body_file="${ARGS[$i]}"
+                ;;
+            --body-file=*)
+                body_file="${ARGS[$i]#--body-file=}"
                 ;;
             [0-9]*)
                 if [ -z "$pr_number" ]; then
@@ -547,6 +556,9 @@ handle_pr_review() {
             --body-file|-F)
                 ((i++))
                 body_file="${ARGS[$i]}"
+                ;;
+            --body-file=*)
+                body_file="${ARGS[$i]#--body-file=}"
                 ;;
             --approve|-a)
                 review_type="approve"
@@ -783,6 +795,9 @@ handle_issue_create() {
                 ((i++))
                 body_file="${ARGS[$i]}"
                 ;;
+            --body-file=*)
+                body_file="${ARGS[$i]#--body-file=}"
+                ;;
             --label|-l)
                 ((i++))
                 if [ -n "$labels" ]; then
@@ -869,6 +884,9 @@ handle_issue_comment() {
                 ((i++))
                 body_file="${ARGS[$i]}"
                 ;;
+            --body-file=*)
+                body_file="${ARGS[$i]#--body-file=}"
+                ;;
             [0-9]*)
                 if [ -z "$issue_number" ]; then
                     issue_number="${ARGS[$i]}"
@@ -943,6 +961,9 @@ handle_issue_edit() {
             --body-file|-F)
                 ((i++))
                 body_file="${ARGS[$i]}"
+                ;;
+            --body-file=*)
+                body_file="${ARGS[$i]#--body-file=}"
                 ;;
             --add-label)
                 ((i++))
