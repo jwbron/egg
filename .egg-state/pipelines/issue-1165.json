@@ -439,10 +439,10 @@
         {
           "container_id": "b41d57986a2752f195d96c1713e45861a66e6db3021c598b1bf47f35cf109eb5",
           "container_name": "issue-1165-integrator",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-03-16T03:14:26.217220",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-16T04:41:05.518849",
+          "exit_code": 1,
           "agent_role": "integrator",
           "session_token": null
         },
@@ -510,13 +510,13 @@
       "agents": [
         {
           "role": "integrator",
-          "status": "running",
+          "status": "failed",
           "container_id": "b41d57986a2752f195d96c1713e45861a66e6db3021c598b1bf47f35cf109eb5",
           "started_at": "2026-03-16T03:14:26.217228",
-          "completed_at": null,
+          "completed_at": "2026-03-16T04:41:05.534067",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": [],
           "plan_phase_id": null
@@ -651,7 +651,7 @@
     }
   ],
   "created_at": "2026-03-16T02:29:02.276729",
-  "updated_at": "2026-03-16T04:39:32.548206",
+  "updated_at": "2026-03-16T04:41:05.534138",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -659,5 +659,5 @@
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 47
+  "version": 48
 }
