@@ -151,7 +151,8 @@
       "ckpt-d4c4105d7208a38f",
       "ckpt-66f71a424c875a71",
       "ckpt-b917855c22cdf629",
-      "ckpt-3cd727f83d60aa69"
+      "ckpt-3cd727f83d60aa69",
+      "ckpt-7750042c50cfdbd7"
     ]
   },
   "by_commit": {},
@@ -200,7 +201,8 @@
     "issue-1165": [
       "ckpt-66f71a424c875a71",
       "ckpt-b917855c22cdf629",
-      "ckpt-3cd727f83d60aa69"
+      "ckpt-3cd727f83d60aa69",
+      "ckpt-7750042c50cfdbd7"
     ],
     "local-0a770e0f": [
       "ckpt-241ef0fa799dd61d"
@@ -407,7 +409,8 @@
       "ckpt-3cd727f83d60aa69"
     ],
     "issue-1165-failsafe-push": [
-      "ckpt-b917855c22cdf629"
+      "ckpt-b917855c22cdf629",
+      "ckpt-7750042c50cfdbd7"
     ],
     "local-0a770e0f-failsafe-fetch": [
       "ckpt-241ef0fa799dd61d"
@@ -680,7 +683,8 @@
       "ckpt-d4c4105d7208a38f",
       "ckpt-66f71a424c875a71",
       "ckpt-b917855c22cdf629",
-      "ckpt-3cd727f83d60aa69"
+      "ckpt-3cd727f83d60aa69",
+      "ckpt-7750042c50cfdbd7"
     ]
   },
   "by_trigger": {
@@ -835,7 +839,8 @@
       "ckpt-d4c4105d7208a38f",
       "ckpt-66f71a424c875a71",
       "ckpt-b917855c22cdf629",
-      "ckpt-3cd727f83d60aa69"
+      "ckpt-3cd727f83d60aa69",
+      "ckpt-7750042c50cfdbd7"
     ]
   },
   "checkpoints": [
@@ -3707,8 +3712,27 @@
       "tool_call_count": 0,
       "total_tokens": 0,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-03-16T00:14:04.253627Z",
+      "files_touched_count": 0,
+      "id": "ckpt-7750042c50cfdbd7",
+      "issue_number": null,
+      "message_count": 0,
+      "pipeline_id": "issue-1165",
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": null,
+      "session_id": "issue-1165-failsafe-push",
+      "session_status": "completed",
+      "tool_call_count": 0,
+      "total_tokens": 0,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-03-16T00:14:02.977543Z",
+  "last_updated": "2026-03-16T00:14:05.035236Z",
   "schemaVersion": "2.0"
 }
