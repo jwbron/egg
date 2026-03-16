@@ -83,7 +83,6 @@ sandbox/
 │   │   ├── show-metrics.md # /show-metrics — Activity monitoring report
 │   │   ├── coder-mode.md   # /coder-mode — Coder agent mode
 │   │   ├── documenter-mode.md # /documenter-mode — Documenter agent mode
-│   │   ├── integrator-mode.md # /integrator-mode — Integrator agent mode
 │   │   └── tester-mode.md  # /tester-mode — Tester agent mode
 │   └── rules/              # Agent behavior rules
 │       ├── README.md       # Rules documentation

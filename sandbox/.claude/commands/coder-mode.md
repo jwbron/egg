@@ -138,4 +138,4 @@ If a reviewer_code or reviewer_contract sends you feedback that requires changes
 
 ## Next Agent
 
-After you complete, the **Tester**, **Documenter**, **Checker**, **Reviewer (code)**, and **Reviewer (contract)** agents can run in parallel.
+After you complete, the **Tester**, **Documenter**, **Reviewer (code)**, and **Reviewer (contract)** agents can run in parallel.

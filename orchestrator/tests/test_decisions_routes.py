@@ -655,14 +655,14 @@ class TestContinueWithoutExcusesReviewer:
             status="resolved",
             resolution="Continue without",
         )
-        resolved_decision.context = "failed_role:checker"
+        resolved_decision.context = "failed_role:reviewer_contract"
         mock_queue.resolve_decision.return_value = resolved_decision
         mock_get_queue.return_value = mock_queue
 
         mock_tracker = MagicMock()
         mock_tracker.excuse_reviewer.return_value = {
             "status": "excused",
-            "role": "checker",
+            "role": "reviewer_contract",
             "affected_producers": ["coder"],
         }
         mock_get_tracker.return_value = mock_tracker
@@ -673,7 +673,7 @@ class TestContinueWithoutExcusesReviewer:
         )
 
         assert response.status_code == 200
-        mock_tracker.excuse_reviewer.assert_called_once_with("checker")
+        mock_tracker.excuse_reviewer.assert_called_once_with("reviewer_contract")
 
     @patch("routes.decisions.get_peer_consensus_tracker")
     @patch("routes.decisions.emit_event")
@@ -689,7 +689,7 @@ class TestContinueWithoutExcusesReviewer:
             status="resolved",
             resolution="Retry (respawn agent)",
         )
-        resolved_decision.context = "failed_role:checker"
+        resolved_decision.context = "failed_role:reviewer_contract"
         mock_queue.resolve_decision.return_value = resolved_decision
         mock_get_queue.return_value = mock_queue
 

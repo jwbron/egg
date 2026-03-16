@@ -1107,13 +1107,13 @@ class TestReviewerCrashPendingAck:
         graph = ReviewGraph(
             [
                 ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
-                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
             ]
         )
         t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
         t.register_agent("coder")
         t.register_agent("reviewer_code")
-        t.register_agent("checker")
+        t.register_agent("reviewer_contract")
 
         # Coder proposes
         t.handle_propose(
@@ -1121,11 +1121,11 @@ class TestReviewerCrashPendingAck:
             {"summary": "v1", "artifacts": ["src/auth.py"]},
         )
 
-        # Only reviewer_code ACKs; checker hasn't reviewed yet
+        # Only reviewer_code ACKs; reviewer_contract hasn't reviewed yet
         t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
 
-        # Checker crashes with pending review -> should escalate
-        result = t.handle_agent_crash("checker")
+        # reviewer_contract crashes with pending review -> should escalate
+        result = t.handle_agent_crash("reviewer_contract")
         assert result["action"] == "escalate"
         assert "pending reviews" in result["reason"]
         assert "coder" in result["blocking_producers"]
@@ -1135,31 +1135,31 @@ class TestReviewerCrashPendingAck:
         graph = ReviewGraph(
             [
                 ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
-                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
             ]
         )
         t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
         t.register_agent("coder")
         t.register_agent("reviewer_code")
-        t.register_agent("checker")
+        t.register_agent("reviewer_contract")
 
-        # Checker crashes BEFORE coder proposes -> should continue, not escalate
-        result = t.handle_agent_crash("checker")
+        # reviewer_contract crashes BEFORE coder proposes -> should continue, not escalate
+        result = t.handle_agent_crash("reviewer_contract")
         assert result["action"] == "continue"
-        assert result["crashed_role"] == "checker"
+        assert result["crashed_role"] == "reviewer_contract"
 
     def test_reviewer_crash_with_completed_ack_continues(self):
         """Non-sole reviewer crash with completed ACK continues normally."""
         graph = ReviewGraph(
             [
                 ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
-                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
             ]
         )
         t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
         t.register_agent("coder")
         t.register_agent("reviewer_code")
-        t.register_agent("checker")
+        t.register_agent("reviewer_contract")
 
         # Coder proposes
         t.handle_propose(
@@ -1169,25 +1169,25 @@ class TestReviewerCrashPendingAck:
 
         # Both reviewers ACK
         t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
-        t.handle_ack("checker", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_ack("reviewer_contract", "coder", {"artifact_references": ["src/auth.py"]})
 
-        # Checker crashes but already ACKed -> should continue
-        result = t.handle_agent_crash("checker")
+        # reviewer_contract crashes but already ACKed -> should continue
+        result = t.handle_agent_crash("reviewer_contract")
         assert result["action"] == "continue"
-        assert result["crashed_role"] == "checker"
+        assert result["crashed_role"] == "reviewer_contract"
 
     def test_reviewer_crash_clears_confirmed_on_escalation(self):
         """Reviewer crash clears confirmed state even when escalating."""
         graph = ReviewGraph(
             [
                 ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
-                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
             ]
         )
         t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
         t.register_agent("coder")
         t.register_agent("reviewer_code")
-        t.register_agent("checker")
+        t.register_agent("reviewer_contract")
 
         # Coder proposes
         t.handle_propose(
@@ -1195,17 +1195,17 @@ class TestReviewerCrashPendingAck:
             {"summary": "v1", "artifacts": ["src/auth.py"]},
         )
 
-        # Only reviewer_code ACKs; checker hasn't reviewed yet
+        # Only reviewer_code ACKs; reviewer_contract hasn't reviewed yet
         t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
 
-        # Checker confirms (reviewer side — even though it's premature, for test setup)
+        # reviewer_contract confirms (reviewer side — even though it's premature, for test setup)
         # Manually add to confirmed set to simulate pre-crash state
-        t._confirmed.add("checker")
+        t._confirmed.add("reviewer_contract")
 
-        # Checker crashes with pending review -> should escalate AND clear confirmed
-        result = t.handle_agent_crash("checker")
+        # reviewer_contract crashes with pending review -> should escalate AND clear confirmed
+        result = t.handle_agent_crash("reviewer_contract")
         assert result["action"] == "escalate"
-        assert "checker" not in t._confirmed
+        assert "reviewer_contract" not in t._confirmed
 
 
 class TestExcuseReviewer:
@@ -1216,13 +1216,13 @@ class TestExcuseReviewer:
         graph = ReviewGraph(
             [
                 ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
-                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
             ]
         )
         t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
         t.register_agent("coder")
         t.register_agent("reviewer_code")
-        t.register_agent("checker")
+        t.register_agent("reviewer_contract")
 
         # Coder proposes
         t.handle_propose(
@@ -1233,19 +1233,19 @@ class TestExcuseReviewer:
         # Only reviewer_code ACKs
         t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
 
-        # Not fully ACKed yet (checker hasn't reviewed)
+        # Not fully ACKed yet (reviewer_contract hasn't reviewed)
         assert not t.matrix.is_fully_acked("coder")
 
-        # Excuse checker (simulating HITL "Continue without" decision)
-        result = t.excuse_reviewer("checker")
+        # Excuse reviewer_contract (simulating HITL "Continue without" decision)
+        result = t.excuse_reviewer("reviewer_contract")
         assert result["status"] == "excused"
         assert "coder" in result["affected_producers"]
 
         # Now should be fully ACKed
         assert t.matrix.is_fully_acked("coder")
 
-        # Checker should no longer be a reviewer in the graph
-        assert not t.graph.is_reviewer("checker")
+        # reviewer_contract should no longer be a reviewer in the graph
+        assert not t.graph.is_reviewer("reviewer_contract")
 
 
 class TestRemoveEdge:
@@ -1256,16 +1256,16 @@ class TestRemoveEdge:
         graph = ReviewGraph(
             [
                 ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
-                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
             ]
         )
-        assert graph.is_reviewer("checker")
+        assert graph.is_reviewer("reviewer_contract")
         assert len(graph.reviewers_for("coder")) == 2
 
-        result = graph.remove_edge("checker", "coder")
+        result = graph.remove_edge("reviewer_contract", "coder")
         assert result is True
         assert len(graph.reviewers_for("coder")) == 1
-        assert not graph.is_reviewer("checker")
+        assert not graph.is_reviewer("reviewer_contract")
 
     def test_remove_edge_not_found(self):
         """remove_edge returns False for nonexistent edge."""
@@ -1279,10 +1279,10 @@ class TestRemoveEdge:
             [
                 ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
                 ReviewEdge("reviewer_code", "tester", ReviewCriticality.ADVISORY),
-                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
             ]
         )
-        graph.remove_edge("checker", "coder")
+        graph.remove_edge("reviewer_contract", "coder")
         # reviewer_code should still review both coder and tester
         assert graph.is_reviewer("reviewer_code")
         assert "reviewer_code" in graph.reviewers_for("coder")
@@ -1319,13 +1319,13 @@ class TestExcuseReviewerValidation:
         graph = ReviewGraph(
             [
                 ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
-                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
             ]
         )
         t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
         t.register_agent("coder")
         t.register_agent("reviewer_code")
-        t.register_agent("checker")
+        t.register_agent("reviewer_contract")
 
         with pytest.raises(ValueError, match="not a reviewer"):
             t.excuse_reviewer("coder")
@@ -1351,16 +1351,16 @@ class TestSoleReviewerCrashIncludesBlockingProducers:
             [
                 # reviewer_code is sole reviewer for coder
                 ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
-                # reviewer_code also reviews tester (with checker as backup)
+                # reviewer_code also reviews tester (with reviewer_contract as backup)
                 ReviewEdge("reviewer_code", "tester", ReviewCriticality.CRITICAL),
-                ReviewEdge("checker", "tester", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_contract", "tester", ReviewCriticality.CRITICAL),
             ]
         )
         t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
         t.register_agent("coder")
         t.register_agent("tester")
         t.register_agent("reviewer_code")
-        t.register_agent("checker")
+        t.register_agent("reviewer_contract")
 
         # Both producers propose
         t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/a.py"]})
