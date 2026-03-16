@@ -856,12 +856,12 @@ class TestListCheckpointsV2:
             with pytest.raises(ValueError):
                 list_checkpoints_v2(checkpoints_dir, index_path, session_status="bogus")
 
-    def test_invalid_agent_type_raises(self):
-        """Test that an invalid agent_type value raises ValueError."""
+    def test_invalid_agent_type_coerces_to_unknown(self):
+        """Test that an unrecognized agent_type coerces to UNKNOWN and returns empty."""
         with tempfile.TemporaryDirectory() as tmpdir:
             checkpoints_dir, index_path = self._build_index(tmpdir)
-            with pytest.raises(ValueError):
-                list_checkpoints_v2(checkpoints_dir, index_path, agent_type="bogus")
+            results = list_checkpoints_v2(checkpoints_dir, index_path, agent_type="bogus")
+            assert results == []
 
 
 class TestLoadCheckpointByIdV2EdgeCases:

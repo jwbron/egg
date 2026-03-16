@@ -268,6 +268,11 @@ class TestAgentType:
         assert AgentType.REVIEWER == "reviewer"
         assert AgentType.UNKNOWN == "unknown"
 
+    def test_unrecognized_values_coerce_to_unknown(self):
+        """Test that unrecognized agent types fall back to UNKNOWN."""
+        assert AgentType("nonexistent") == AgentType.UNKNOWN
+        assert AgentType("some_future_type") == AgentType.UNKNOWN
+
     def test_serialization(self):
         """Test AgentType values can be used as strings."""
         for agent_type in AgentType:
