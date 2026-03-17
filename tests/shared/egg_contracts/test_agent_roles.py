@@ -87,6 +87,7 @@ class TestAgentRole:
         "overseer",
         "autofixer",
         "conflict_resolver",
+        "inspector",
     }
 
     def test_all_expected_roles_exist(self):
@@ -97,8 +98,8 @@ class TestAgentRole:
         )
 
     def test_role_count(self):
-        """Should have at least 15 roles."""
-        assert len(AgentRole) >= 15
+        """Should have at least 16 roles (15 standard + inspector)."""
+        assert len(AgentRole) >= 16
 
     def test_execution_roles(self):
         assert AgentRole.CODER == "coder"
