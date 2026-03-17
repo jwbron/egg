@@ -320,6 +320,12 @@ class PipelineConfig(BaseModel):
     overseer_decision_maker_model: str = Field(
         default="sonnet", description="LLM model for overseer decision-making tier"
     )
+    overseer_max_respawns: int = Field(
+        default=3,
+        ge=0,
+        le=50,
+        description="Max times to respawn the overseer if it exits mid-pipeline",
+    )
     start_phase: str | None = Field(
         default=None,
         description="Phase to start execution from, skipping earlier phases. "

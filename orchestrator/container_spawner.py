@@ -689,11 +689,18 @@ class ContainerSpawner:
         # up automatically by the SDK via setting_sources=["project","user"].
         overseer_prompt = (
             f"You are the overseer agent for pipeline {pipeline_id}. "
-            "Start your monitoring loop now. Poll the orchestrator for "
-            "progress events, health alerts, and escalation messages. "
-            "Classify anomalies, decide on corrective actions, and execute "
-            "them. Send heartbeats each cycle. Run continuously until the "
-            "pipeline reaches a terminal state (complete, failed, or cancelled)."
+            "CRITICAL: You must run a continuous monitoring loop for the "
+            "ENTIRE lifetime of this pipeline. Producing a single monitoring "
+            "report is NOT completion — you must keep looping. Your first "
+            "action must be to enter a `while True` loop that: "
+            "(1) polls the orchestrator for progress events, health alerts, "
+            "and escalation messages, (2) classifies anomalies and decides "
+            "on corrective actions, (3) sends a heartbeat via "
+            "`egg-orch signal heartbeat`, (4) sleeps for the configured "
+            "poll interval, then repeats. The ONLY condition that exits the "
+            "loop is when `egg-orch pipeline status` returns a terminal "
+            "state: complete, failed, or cancelled. DO NOT exit after a "
+            "single cycle. DO NOT treat the first report as task completion."
         )
         command = build_agent_command(
             prompt=overseer_prompt,

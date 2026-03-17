@@ -40,8 +40,17 @@ sys.modules.setdefault("docker.types", MagicMock())
 # ---------------------------------------------------------------------------
 try:
     from container_spawner import ContainerSpawner, SpawnedContainer
+    from docker_client import ContainerNotFoundError
     from gateway_client import GatewayHealth, SessionInfo
-    from models import AgentRole, ContainerInfo, ContainerStatus, PipelineConfig
+    from models import (
+        AgentRole,
+        ContainerInfo,
+        ContainerStatus,
+        Pipeline,
+        PipelineConfig,
+        PipelineStatus,
+    )
+    from routes.pipelines import _check_and_respawn_overseer
 except ImportError as exc:
     pytest.skip(
         f"Required orchestrator modules not available: {exc}",
@@ -656,3 +665,358 @@ class TestOverseerContainerName:
 
         register_call = mock_gateway_client.register_session.call_args
         assert register_call.kwargs.get("agent_role") == "overseer"
+
+
+# ---------------------------------------------------------------------------
+# Scenario 10: Overseer respawn on premature exit
+# ---------------------------------------------------------------------------
+
+
+class TestOverseerRespawn:
+    """Verify overseer is respawned when it exits mid-pipeline.
+
+    Tests exercise _check_and_respawn_overseer from routes/pipelines.py.
+    Related: issue #1270
+    """
+
+    @pytest.fixture
+    def mock_spawner(self, mock_docker_client):
+        """Create a mock spawner with a mock docker client for respawn tests."""
+        mock = MagicMock()
+        mock.docker = mock_docker_client
+        respawned_id = "overseer-respawned-001"
+        mock.spawn_overseer_container.return_value = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id=respawned_id,
+                container_name="egg-issue-1270-overseer",
+                status=ContainerStatus.RUNNING,
+                started_at=datetime.utcnow(),
+            ),
+            session_info=None,
+            agent_role=AgentRole.OVERSEER,
+            pipeline_id="issue-1270",
+            environment={},
+        )
+        return mock
+
+    @pytest.fixture
+    def mock_store(self):
+        """Create a mock StateStore that returns a RUNNING pipeline."""
+        store = MagicMock()
+        store.load_pipeline.return_value = Pipeline(
+            id="issue-1270",
+            issue_number=1270,
+            status=PipelineStatus.RUNNING,
+        )
+        return store
+
+    @pytest.fixture
+    def running_pipeline(self):
+        """Create a Pipeline object in RUNNING state."""
+        return Pipeline(
+            id="issue-1270",
+            issue_number=1270,
+            status=PipelineStatus.RUNNING,
+            config=PipelineConfig(overseer_max_respawns=3),
+        )
+
+    def test_respawn_on_exited_container_running_pipeline(
+        self, mock_spawner, mock_docker_client, mock_store, running_pipeline
+    ):
+        """Overseer is respawned when container EXITED and pipeline is RUNNING."""
+        original_id = "overseer-original-001"
+
+        mock_docker_client.get_container_info.return_value = ContainerInfo(
+            container_id=original_id,
+            container_name="egg-issue-1270-overseer",
+            status=ContainerStatus.EXITED,
+            exit_code=0,
+        )
+
+        new_id, new_count = _check_and_respawn_overseer(
+            spawner=mock_spawner,
+            store=mock_store,
+            pipeline_id="issue-1270",
+            pipeline=running_pipeline,
+            overseer_container_id=original_id,
+            overseer_respawn_count=0,
+            max_overseer_respawns=3,
+            gateway_mode="public",
+            pipeline_repos=None,
+            certs_volume=None,
+        )
+
+        assert new_id == "overseer-respawned-001", "Container ID should be updated"
+        assert new_count == 1, "Respawn count should increment after successful spawn"
+        mock_spawner.spawn_overseer_container.assert_called_once_with(
+            pipeline_id="issue-1270",
+            issue_number=running_pipeline.issue_number,
+            mode="public",
+            poll_interval=running_pipeline.config.overseer_poll_interval_seconds,
+            decision_model=running_pipeline.config.overseer_decision_maker_model,
+            repos=None,
+            certs_volume=None,
+        )
+
+    def test_respawn_on_awaiting_human_pipeline(
+        self, mock_spawner, mock_docker_client, running_pipeline
+    ):
+        """Overseer is respawned when pipeline is AWAITING_HUMAN."""
+        original_id = "overseer-original-001"
+
+        mock_docker_client.get_container_info.return_value = ContainerInfo(
+            container_id=original_id,
+            container_name="egg-issue-1270-overseer",
+            status=ContainerStatus.EXITED,
+            exit_code=0,
+        )
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = Pipeline(
+            id="issue-1270",
+            issue_number=1270,
+            status=PipelineStatus.AWAITING_HUMAN,
+        )
+
+        new_id, new_count = _check_and_respawn_overseer(
+            spawner=mock_spawner,
+            store=mock_store,
+            pipeline_id="issue-1270",
+            pipeline=running_pipeline,
+            overseer_container_id=original_id,
+            overseer_respawn_count=0,
+            max_overseer_respawns=3,
+            gateway_mode="public",
+            pipeline_repos=None,
+            certs_volume=None,
+        )
+
+        assert new_id == "overseer-respawned-001", "Should respawn during AWAITING_HUMAN"
+        assert new_count == 1
+        mock_spawner.spawn_overseer_container.assert_called_once()
+
+    def test_respawn_on_removed_container(
+        self, mock_spawner, mock_docker_client, mock_store, running_pipeline
+    ):
+        """Overseer is respawned when container is REMOVED (e.g., force-removed externally)."""
+        original_id = "overseer-original-001"
+
+        mock_docker_client.get_container_info.return_value = ContainerInfo(
+            container_id=original_id,
+            container_name="egg-issue-1270-overseer",
+            status=ContainerStatus.REMOVED,
+        )
+
+        new_id, new_count = _check_and_respawn_overseer(
+            spawner=mock_spawner,
+            store=mock_store,
+            pipeline_id="issue-1270",
+            pipeline=running_pipeline,
+            overseer_container_id=original_id,
+            overseer_respawn_count=0,
+            max_overseer_respawns=3,
+            gateway_mode="public",
+            pipeline_repos=None,
+            certs_volume=None,
+        )
+
+        assert new_id == "overseer-respawned-001", "Should respawn on REMOVED container"
+        assert new_count == 1
+        mock_spawner.spawn_overseer_container.assert_called_once()
+
+    def test_respawn_on_container_not_found(
+        self, mock_spawner, mock_docker_client, mock_store, running_pipeline
+    ):
+        """Overseer is respawned when container is completely gone from Docker daemon."""
+        original_id = "overseer-original-001"
+
+        mock_docker_client.get_container_info.side_effect = ContainerNotFoundError(
+            f"Container {original_id} not found"
+        )
+
+        new_id, new_count = _check_and_respawn_overseer(
+            spawner=mock_spawner,
+            store=mock_store,
+            pipeline_id="issue-1270",
+            pipeline=running_pipeline,
+            overseer_container_id=original_id,
+            overseer_respawn_count=0,
+            max_overseer_respawns=3,
+            gateway_mode="public",
+            pipeline_repos=None,
+            certs_volume=None,
+        )
+
+        assert new_id == "overseer-respawned-001", "Should respawn when container not found"
+        assert new_count == 1
+        mock_spawner.spawn_overseer_container.assert_called_once()
+
+    def test_no_respawn_on_terminal_pipeline(
+        self, mock_spawner, mock_docker_client, running_pipeline
+    ):
+        """Overseer is NOT respawned when pipeline is in a terminal state."""
+        original_id = "overseer-original-001"
+
+        mock_docker_client.get_container_info.return_value = ContainerInfo(
+            container_id=original_id,
+            container_name="egg-issue-1270-overseer",
+            status=ContainerStatus.EXITED,
+            exit_code=0,
+        )
+
+        for terminal_status in (
+            PipelineStatus.COMPLETE,
+            PipelineStatus.FAILED,
+            PipelineStatus.CANCELLED,
+        ):
+            mock_store = MagicMock()
+            mock_store.load_pipeline.return_value = Pipeline(
+                id="issue-1270",
+                issue_number=1270,
+                status=terminal_status,
+            )
+            mock_spawner.spawn_overseer_container.reset_mock()
+
+            new_id, new_count = _check_and_respawn_overseer(
+                spawner=mock_spawner,
+                store=mock_store,
+                pipeline_id="issue-1270",
+                pipeline=running_pipeline,
+                overseer_container_id=original_id,
+                overseer_respawn_count=0,
+                max_overseer_respawns=3,
+                gateway_mode="public",
+                pipeline_repos=None,
+                certs_volume=None,
+            )
+
+            assert new_id == original_id, f"Should not respawn when {terminal_status}"
+            assert new_count == 0, f"Count unchanged for {terminal_status}"
+            mock_spawner.spawn_overseer_container.assert_not_called()
+
+    def test_respawn_limit_enforced(
+        self, mock_spawner, mock_docker_client, mock_store, running_pipeline
+    ):
+        """No respawn after max attempts are exhausted."""
+        original_id = "overseer-original-001"
+
+        new_id, new_count = _check_and_respawn_overseer(
+            spawner=mock_spawner,
+            store=mock_store,
+            pipeline_id="issue-1270",
+            pipeline=running_pipeline,
+            overseer_container_id=original_id,
+            overseer_respawn_count=3,
+            max_overseer_respawns=3,
+            gateway_mode="public",
+            pipeline_repos=None,
+            certs_volume=None,
+        )
+
+        assert new_id == original_id, "Should not respawn when limit reached"
+        assert new_count == 3
+        mock_spawner.spawn_overseer_container.assert_not_called()
+        mock_docker_client.get_container_info.assert_not_called()
+
+    def test_respawn_limit_zero_disables(
+        self, mock_spawner, mock_docker_client, mock_store, running_pipeline
+    ):
+        """Setting overseer_max_respawns=0 disables respawning entirely."""
+        new_id, new_count = _check_and_respawn_overseer(
+            spawner=mock_spawner,
+            store=mock_store,
+            pipeline_id="issue-1270",
+            pipeline=running_pipeline,
+            overseer_container_id="overseer-original-001",
+            overseer_respawn_count=0,
+            max_overseer_respawns=0,
+            gateway_mode="public",
+            pipeline_repos=None,
+            certs_volume=None,
+        )
+
+        assert new_count == 0
+        mock_spawner.spawn_overseer_container.assert_not_called()
+
+    def test_no_respawn_when_container_still_running(
+        self, mock_spawner, mock_docker_client, mock_store, running_pipeline
+    ):
+        """No respawn when the overseer container is still running."""
+        original_id = "overseer-original-001"
+
+        mock_docker_client.get_container_info.return_value = ContainerInfo(
+            container_id=original_id,
+            container_name="egg-issue-1270-overseer",
+            status=ContainerStatus.RUNNING,
+            started_at=datetime.utcnow(),
+        )
+
+        new_id, new_count = _check_and_respawn_overseer(
+            spawner=mock_spawner,
+            store=mock_store,
+            pipeline_id="issue-1270",
+            pipeline=running_pipeline,
+            overseer_container_id=original_id,
+            overseer_respawn_count=0,
+            max_overseer_respawns=3,
+            gateway_mode="public",
+            pipeline_repos=None,
+            certs_volume=None,
+        )
+
+        assert new_id == original_id, "Should keep original container"
+        assert new_count == 0
+        mock_spawner.spawn_overseer_container.assert_not_called()
+
+    def test_spawn_failure_does_not_increment_count(
+        self, mock_spawner, mock_docker_client, mock_store, running_pipeline
+    ):
+        """If spawn raises an exception, the respawn count does not increment."""
+        original_id = "overseer-original-001"
+
+        mock_docker_client.get_container_info.return_value = ContainerInfo(
+            container_id=original_id,
+            container_name="egg-issue-1270-overseer",
+            status=ContainerStatus.EXITED,
+            exit_code=1,
+        )
+        mock_spawner.spawn_overseer_container.side_effect = RuntimeError("Docker error")
+
+        new_id, new_count = _check_and_respawn_overseer(
+            spawner=mock_spawner,
+            store=mock_store,
+            pipeline_id="issue-1270",
+            pipeline=running_pipeline,
+            overseer_container_id=original_id,
+            overseer_respawn_count=0,
+            max_overseer_respawns=3,
+            gateway_mode="public",
+            pipeline_repos=None,
+            certs_volume=None,
+        )
+
+        assert new_id == original_id, "Container ID unchanged on spawn failure"
+        assert new_count == 0, "Count should not increment on spawn failure"
+
+    def test_overseer_max_respawns_config_default(self):
+        """Default overseer_max_respawns is 3."""
+        config = PipelineConfig()
+        assert config.overseer_max_respawns == 3
+
+    def test_overseer_max_respawns_upper_bound(self):
+        """overseer_max_respawns rejects values above 50."""
+        with pytest.raises(ValueError):
+            PipelineConfig(overseer_max_respawns=51)
+
+    def test_overseer_prompt_mentions_continuous_loop(self, spawner, mock_docker_client):
+        """Overseer prompt explicitly requires continuous looping."""
+        spawner.spawn_overseer_container(
+            pipeline_id="issue-1270-prompt",
+            issue_number=1270,
+        )
+
+        create_call = mock_docker_client.create_container.call_args
+        command = create_call.kwargs.get("command", [])
+        # The last argument is the prompt
+        prompt = command[-1] if command else ""
+        assert "while True" in prompt, "Prompt must mention while True loop"
+        assert "DO NOT exit" in prompt, "Prompt must have anti-exit instruction"
