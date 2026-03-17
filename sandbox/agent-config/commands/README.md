@@ -4,20 +4,6 @@ This directory contains slash command documentation for Claude Code CLI in the s
 
 ## Available Commands
 
-### /sdlc
-Redirects to the `egg-sdlc` CLI tool for launching SDLC pipelines.
-
-**Usage**: `/sdlc -r <repo_dir> -i <issue_number>`
-
-**What it does**:
-- Provides instructions to use the `egg-sdlc` CLI directly
-- The `egg-sdlc` CLI handles DAG visualization and HITL checkpoints
-- References `egg-pipeline-watch` for monitoring pipeline progress
-
-**Recommended**: Use `egg-sdlc` directly instead of `/sdlc` for better TTY support.
-
-**File**: `sdlc.md`
-
 ### /show-metrics
 Generate a monitoring report showing recent agent activity.
 

@@ -1,13 +1,26 @@
 ---
-name: run-workflow
-description: Guide a full egg pipeline lifecycle — seed prompt, submit, monitor, HITL handling, and completion — using MCP tools (submit_task, get_status, provide_input).
+name: sdlc
+description: "Run an egg SDLC pipeline: full lifecycle (default) or lightweight coder+reviewer with --short."
 disable-model-invocation: true
-argument-hint: "[issue# or description] [--repo owner/name]"
+argument-hint: "[--short <description>] [issue# or description] [--repo owner/name]"
 ---
 
-# Run Workflow
+# SDLC Pipeline
 
-You are guiding the user through a complete egg pipeline lifecycle using MCP tools. Walk through 5 phases: Seed, Submit, Monitor, HITL, and Complete.
+You are guiding the user through an egg SDLC pipeline using MCP tools.
+
+## Argument Parsing (before any phase)
+
+Parse the arguments provided after `/sdlc`. Check for the `--short` flag first:
+
+- If `--short` is present, remove it from the arguments and branch into the **[Short Flow](#short-flow)** below.
+- Otherwise, continue with the **Full Flow** (default) — walk through 5 phases: Seed, Submit, Monitor, HITL, and Complete.
+
+---
+
+# Full Flow
+
+The full pipeline lifecycle with HITL gates, multi-phase execution, and comprehensive monitoring.
 
 ## Phase 1 — Seed
 
@@ -25,15 +38,15 @@ Only ask for the repo if detection fails AND no `--repo` flag was provided.
 
 ### Step 2: Parse arguments (skip questions when possible)
 
-If the user provided arguments after `/run-workflow`, parse them:
+If the user provided arguments after `/sdlc`, parse them:
 
 | Input | Interpretation |
 |-------|---------------|
-| `/run-workflow 1059` | Issue number (bare integer) |
-| `/run-workflow #1059` | Issue number (with hash) |
-| `/run-workflow Add retry logic for API calls` | Free-text task description |
-| `/run-workflow --repo jwbron/egg 1059` | Repo override + issue number |
-| `/run-workflow --issue 1059` | Issue number (legacy flag, same as bare integer) |
+| `/sdlc 1059` | Issue number (bare integer) |
+| `/sdlc #1059` | Issue number (with hash) |
+| `/sdlc Add retry logic for API calls` | Free-text task description |
+| `/sdlc --repo jwbron/egg 1059` | Repo override + issue number |
+| `/sdlc --issue 1059` | Issue number (legacy flag, same as bare integer) |
 
 When an issue number is provided, fetch it immediately with `gh issue view <N> --repo <repo> --json title,body` and use the title+body as the task description. Proceed directly to Phase 2 — no questions needed.
 
@@ -41,7 +54,7 @@ When a free-text description is provided and the repo was auto-detected, proceed
 
 ### Step 3: Ask only what's missing
 
-If the user ran `/run-workflow` with no arguments, ask a **single** `AskUserQuestion`:
+If the user ran `/sdlc` with no arguments, ask a **single** `AskUserQuestion`:
 
 - **Question**: "What should the pipeline work on? Type an issue number or task description below, or browse recent issues."
 - **Header**: "Task"
@@ -559,6 +572,336 @@ When the pipeline is stuck, failing, or behaving unexpectedly, use MCP tools to 
 - **Always use MCP tools** — never call orchestrator/gateway APIs or CLIs directly
 - **Always serialize JSON payloads as strings** for `provide_input` — the `response` parameter is a string, not an object. Pass `'{"action": "approve"}'` not `{"action": "approve"}`
 - **Never skip HITL** — always present decisions to the user and wait for their response
+- **Stop polling on exit** — always exit the monitoring loop when the workflow ends
+- **Handle errors gracefully** — if an MCP tool call fails, inform the user and offer to retry
+- **Keep output concise** — don't flood the user with raw JSON; format status as a readable dashboard
+
+---
+
+# Short Flow
+
+When the `--short` flag is detected, run this lightweight flow instead of the full pipeline. This flow has the Claude Code session itself walk the user through refine → plan → contract generation → validation before submitting to a coder+reviewer pair. Walk through 6 phases: Seed, Refine, Plan & Contract, Submit, Monitor, and Complete.
+
+## Phase S1 — Seed
+
+Collect the **repository** and **task description**. No issue number support — bare integers are treated as free-text descriptions, not issue lookups. Use the Full Flow for issue-based workflows.
+
+### Step 1: Auto-detect the repository (NEVER ask if detectable)
+
+Before asking the user anything, try to detect the repo automatically:
+
+1. Run `git -C "$EGG_REPO_PATH" remote get-url origin 2>/dev/null` (or fall back to `git remote -v` from the working directory)
+2. Parse the `owner/name` from the URL (e.g. `https://github.com/jwbron/egg.git` → `jwbron/egg`)
+3. If a `--repo` flag was passed, use that instead
+
+Only ask for the repo if detection fails AND no `--repo` flag was provided.
+
+### Step 2: Parse arguments (skip questions when possible)
+
+After stripping the `--short` flag, parse remaining arguments:
+
+| Input | Interpretation |
+|-------|---------------|
+| `/sdlc --short Add retry logic to the API client` | Free-text task description |
+| `/sdlc --short --repo jwbron/egg Fix flaky test` | Repo override + task description |
+
+When a free-text description is provided and the repo was auto-detected, proceed directly to Phase S2.
+
+### Step 3: Ask only what's missing
+
+If no task description was provided, ask a **single** `AskUserQuestion`:
+
+- **Question**: "What task should the agent implement?"
+- **Header**: "Task"
+- **Options**:
+  - **"Help me scope the task"** — description: "Ask clarifying questions about requirements before submitting"
+
+The user will type their description in the auto-added "Other" field, or select the scoping option.
+
+Handle each response:
+
+- **Other (text)** → Treat as a free-text task description. Proceed to Phase S2.
+- **Help me scope the task** → Ask 1–2 follow-up questions about scope and acceptance criteria, then proceed to Phase S2.
+
+**Never ask for the repo and the task in separate questions.** If the repo could not be auto-detected, include a repo question in the same `AskUserQuestion` call (multi-question mode).
+
+## Phase S2 — Lightweight Refine
+
+Analyze the task locally — no remote agents. Your goal is to understand scope and surface ambiguity before planning.
+
+1. **Read relevant code files** — Based on the task description, identify and read the most relevant source files (up to 5–10 files). Use `Glob` and `Grep` to find them. Focus on files that will need modification and their immediate dependencies.
+
+2. **Analyze scope** — Determine:
+   - Which files need to change
+   - What the changes involve (new code, modifications, deletions)
+   - Any risks or edge cases (breaking changes, test coverage gaps, dependencies)
+
+3. **Clarify ambiguity** — If the task is ambiguous or underspecified, ask the user 2–3 clarifying questions via `AskUserQuestion` (group into a single call). Skip this if the task is clear and well-scoped.
+
+4. **Present analysis** — Show the user a brief analysis:
+
+```
+### Task Analysis
+
+**Scope**: <1-2 sentence summary of what needs to change>
+
+**Files affected**:
+- `path/to/file1.py` — <what changes>
+- `path/to/file2.ts` — <what changes>
+
+**Risks**: <any concerns, or "None identified">
+```
+
+5. **Confirm** — Ask the user to confirm the analysis is correct before proceeding to planning. Use `AskUserQuestion`:
+   - **Question**: "Does this analysis look correct? Any adjustments before I create the plan?"
+   - **Header**: "Confirm"
+   - **Options**:
+     - **"Looks good, proceed"** — description: "Continue to plan generation"
+     - **"Adjust scope"** — description: "I'll clarify what should change"
+
+If the user adjusts scope, incorporate their feedback and re-present. Then proceed to Phase S3.
+
+## Phase S3 — Lightweight Plan & Contract
+
+Generate a concrete plan with tasks and acceptance criteria, then validate it as a Contract.
+
+### Step 1: Generate the plan
+
+Create a single-phase plan with 1–5 concrete tasks. Each task should be:
+- Specific and actionable (e.g., "Add `retry_with_backoff()` to `api_client.py`", not "Implement retry logic")
+- Scoped to a single logical change
+- Ordered by dependency (tasks that depend on others come later)
+
+Also generate 1–3 acceptance criteria that describe how to verify the work is complete.
+
+### Step 2: Build and validate a Contract
+
+Construct a `Contract` object using the Pydantic model from `egg_contracts.models`. The contract should have:
+
+```python
+from egg_contracts.models import (
+    Contract, Phase, Task, AcceptanceCriterion,
+    PhaseStatus, TaskStatus, PipelinePhase,
+)
+
+contract = Contract(
+    pipeline_id="short-<timestamp>",
+    current_phase=PipelinePhase.IMPLEMENT,
+    phases=[
+        Phase(
+            id="phase-1",
+            name="Implement",
+            status=PhaseStatus.PENDING,
+            tasks=[
+                Task(
+                    id="task-1",
+                    description="<task description>",
+                    status=TaskStatus.PENDING,
+                ),
+                # ... more tasks
+            ],
+        )
+    ],
+    acceptance_criteria=[
+        AcceptanceCriterion(
+            id="ac-1",
+            description="<criterion>",
+        ),
+        # ... more criteria
+    ],
+)
+```
+
+Run the validation by constructing the object. If Pydantic validation fails, fix the errors and retry.
+
+### Step 3: Present to user
+
+Display the plan and contract summary:
+
+```
+### Plan
+
+**Phase**: Implement (single phase)
+
+**Tasks**:
+1. `task-1`: <description>
+2. `task-2`: <description>
+3. `task-3`: <description>
+
+**Acceptance Criteria**:
+- `ac-1`: <description>
+- `ac-2`: <description>
+
+---
+
+**Contract Summary**
+Tasks: <N>
+Acceptance Criteria: <N>
+Phase: implement (single phase)
+Validation: Passed
+```
+
+### Step 4: Ask for approval
+
+Use `AskUserQuestion`:
+- **Question**: "Approve this plan to submit to the coder+reviewer pipeline?"
+- **Header**: "Approve"
+- **Options**:
+  - **"Approve"** — description: "Submit to the pipeline"
+  - **"Request changes"** — description: "I want to adjust the plan"
+  - **"Cancel"** — description: "Abort — don't submit"
+
+Handle each response:
+- **Approve** → Proceed to Phase S4
+- **Request changes** → Ask what to change, update the plan/contract, re-validate, and re-present
+- **Cancel** → Stop the workflow entirely
+
+## Phase S4 — Submit
+
+Call the `submit_task` MCP tool with the gathered parameters and the lightweight config:
+
+```
+Tool: submit_task
+Arguments:
+  description: |
+    <original task description>
+
+    ## Pre-generated Plan
+
+    <the plan from Phase S3, formatted as markdown — include tasks and acceptance criteria
+    so the remote agents have full context>
+  repo: <owner/name>
+  config: {"start_phase": "implement", "implement_roles": ["coder", "reviewer_code"], "hitl_gates": false, "overseer_enabled": false}
+```
+
+The description includes the generated plan context so the remote coder+reviewer agents can use it.
+
+Store the returned `task_id`. Confirm submission to the user:
+
+> Task submitted — coder + reviewer, no gates.
+> **Task ID**: `<task_id>`
+> **Description**: <description summary>
+> **Repository**: <repo>
+
+## Phase S5 — Monitor
+
+Poll the pipeline status in a loop. Wait 60 seconds between each poll. On each poll:
+
+1. Call the `get_status` MCP tool with the `task_id`
+2. Display a compact status dashboard:
+
+```
+--- Pipeline Status ---
+Phase: <current_phase> | Status: <status>
+Agents: <agent statuses from concurrent.agents if available>
+Consensus: <confirmed count>/<total> confirmed
+Recent: <latest message subject from recent_messages>
+```
+
+When `concurrent` data is available in the status response, use it to show agent states and consensus progress. When not available, fall back to basic status:
+
+```
+--- Pipeline Status ---
+Phase: <current_phase> | Status: <status>
+Recent: <latest message subject from recent_messages>
+```
+
+3. Check for state transitions:
+   - If `status` is `complete` → exit the loop, move to Phase S6
+   - If `status` is `failed` → apply the **failed status grace period** (see below) before exiting
+   - If `pending_decisions` is non-empty → handle inline (see below)
+
+Keep the dashboard output concise. Only show changes from the previous poll when possible.
+
+**Important: Run polling sleeps in the foreground (blocking).** Do not use background sleeps or `run_in_background` for the 60-second poll interval.
+
+### Failed Status Grace Period
+
+During phase cycle transitions (e.g., review cycles), the orchestrator may briefly report `status: failed` while spawning new containers. Treating this as terminal prematurely ends monitoring.
+
+**Before treating `failed` as terminal, apply these checks:**
+
+1. If `status` is `failed` but `running_agents` is non-empty → treat as "transitioning", not failed. Log: `"Status shows failed but agents still running — treating as cycle transition."` Continue polling.
+2. If `status` is `failed` and `running_agents` is empty → call `get_pipeline_snapshot` MCP tool with the `task_id` to confirm actual state before exiting. If the snapshot shows active containers or recent messages, continue polling.
+3. Only exit to Phase S6 when `status` is `failed`, `running_agents` is empty, **and** the secondary check confirms the pipeline is genuinely stopped.
+
+### Stall detection
+
+Track the `current_phase` and latest `recent_messages` entry across polls. If **10 consecutive polls** (~10 minutes) pass with no phase change and no new messages, surface a warning:
+
+```
+### Potential Stall Detected
+
+Pipeline has shown no progress for ~10 minutes.
+```
+
+Then offer three options via `AskUserQuestion`:
+
+- **"Check logs"** — description: "View agent logs to diagnose the issue" — call the `get_container_logs` MCP tool with `task_id` and the agent's role (lines: 50). Show the user the output.
+- **"Wait longer"** — description: "Give the agent more time (resets the stall counter)"
+- **"Cancel"** — description: "Cancel this pipeline"
+
+If "Wait longer" is selected, reset the stall counter and resume monitoring. If "Cancel", call `cancel_task` and move to Phase S6 failure handling.
+
+### NACK handling
+
+If the status shows unresolved NACKs in the consensus data, surface them to the user:
+
+> **Reviewer raised concerns** — the coder is iterating on feedback. This is normal BRC behavior.
+
+Only escalate if NACKs persist across 5+ consecutive polls with no progress, at which point offer the same stall detection options.
+
+### Handling unexpected decisions
+
+With `hitl_gates: false`, decisions should not appear. But if they do, handle them gracefully:
+
+- For `choice` type: present the options via `AskUserQuestion`, then call `provide_input` with `{"action": "select", "selected": "<chosen option>"}` serialized as a JSON string.
+- For `feedback` type: present the questions, collect answers, then call `provide_input` with `{"action": "submit_feedback", "answers": {"<id>": "<answer>"}}` serialized as a JSON string.
+- For `phase_gate` type: auto-approve by calling `provide_input` with `{"action": "approve"}` serialized as a JSON string. Log the phase and decision ID, and inform the user.
+
+After resolving any decisions, resume monitoring.
+
+## Phase S6 — Complete
+
+The monitoring loop has exited. Summarize:
+
+### On success:
+```
+Pipeline Complete
+Status: Success
+```
+
+- Show PR link if available in the pipeline data
+- If no PR link is found, check `gh pr list --repo <repo> --state open --json number,title,url --limit 5` to find a recently created PR
+
+### On failure:
+```
+Pipeline Failed
+Phase: <phase where failure occurred>
+```
+
+- Show error information if available
+- Offer the user a choice via `AskUserQuestion`:
+  - **"Re-run"** — description: "Cancel this pipeline and start a new one with the same task"
+  - **"Re-run with changes"** — description: "Cancel and start a new pipeline with modified description"
+  - **"Done"** — description: "No further action needed"
+
+  If re-running:
+  1. Call `cancel_task` with the failed `task_id` and `cleanup: true`
+  2. If "Re-run with changes", ask the user for the updated description
+  3. Call `submit_task` with the description (original or updated) and same repo, plus the same `config`
+  4. Resume from Phase S5 (Monitor) with the new `task_id`
+
+  **Error handling**: If `cancel_task` or `submit_task` fails, inform the user and offer to retry the failed step.
+
+## Short Flow Critical Rules
+
+- **Always use MCP tools** (`submit_task`, `get_status`, `provide_input`, `cancel_task`) — never call orchestrator APIs directly
+- **Always serialize JSON payloads as strings** for `provide_input`
+- **Always pass `config`** with `{"start_phase": "implement", "implement_roles": ["coder", "reviewer_code"], "hitl_gates": false, "overseer_enabled": false}` when calling `submit_task`
+- **Auto-approve phase gates** — this is a no-HITL flow; if a gate appears, approve it automatically and inform the user
+- **Validate the contract** — always construct and validate a `Contract` Pydantic model in Phase S3. The contract is informational — it's not persisted to `.egg-state/` since the remote pipeline will create its own
+- **Include plan context in submit** — the description sent to `submit_task` must include the generated plan so remote agents have it
 - **Stop polling on exit** — always exit the monitoring loop when the workflow ends
 - **Handle errors gracefully** — if an MCP tool call fails, inform the user and offer to retry
 - **Keep output concise** — don't flood the user with raw JSON; format status as a readable dashboard
