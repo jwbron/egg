@@ -2,26 +2,42 @@
 
 All agent roles in egg, their responsibilities, phases, file access permissions, and input/output artifacts.
 
+## Agent Categories
+
+Every agent role belongs to one of five categories. Categories enable dynamic team composition — for example, querying "all review agents" or "all utility agents" — and are defined in the `AgentCategory` enum in `shared/egg_contracts/agent_roles.py`.
+
+| Category | Purpose | Roles |
+|----------|---------|-------|
+| **EXECUTION** | Produce artifacts (code, tests, docs) | `coder`, `tester`, `documenter` |
+| **ANALYSIS** | Analyze tasks and plan work | `refiner`, `architect`, `task_planner`, `risk_analyst` |
+| **REVIEW** | Validate quality and correctness | `reviewer_code`, `reviewer_contract`, `reviewer_refine`, `reviewer_plan`, `reviewer_agent_design` |
+| **UTILITY** | Cross-cutting support tasks | `autofixer`, `conflict_resolver` |
+| **INTERFACE** | Pipeline health and monitoring | `inspector`, `overseer` |
+
+Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by category.
+
 ## Role Overview
 
-| Role | Phase | Parallel? | Depends On |
-|------|-------|-----------|------------|
-| `refiner` | Refine | No | — |
-| `reviewer_refine` | Refine | Yes (with `reviewer_agent_design`) | refiner |
-| `reviewer_agent_design` | Refine (egg repo only) | Yes (with `reviewer_refine`) | refiner |
-| `architect` | Plan | No | — |
-| `task_planner` | Plan | Yes (with `risk_analyst`) | architect |
-| `risk_analyst` | Plan | Yes (with `task_planner`) | architect |
-| `reviewer_plan` | Plan | No | task_planner, risk_analyst |
-| `coder` | Implement | No | — |
-| `tester` | Implement | Yes (with `documenter`) | coder |
-| `documenter` | Implement | Yes (with `tester`) | coder |
-| `reviewer_code` | Implement | Yes (with `reviewer_contract`) | coder, tester |
-| `reviewer_contract` | Implement | Yes (with `reviewer_code`) | coder, tester |
-| `inspector` | Any | — | — (health checks) |
-| `overseer` | All phases | — | — (pipeline health monitoring) |
+| Role | Category | Phase | Parallel? | Depends On |
+|------|----------|-------|-----------|------------|
+| `refiner` | Analysis | Refine | No | — |
+| `reviewer_refine` | Review | Refine | Yes (with `reviewer_agent_design`) | refiner |
+| `reviewer_agent_design` | Review | Refine (egg repo only) | Yes (with `reviewer_refine`) | refiner |
+| `architect` | Analysis | Plan | No | — |
+| `task_planner` | Analysis | Plan | Yes (with `risk_analyst`) | architect |
+| `risk_analyst` | Analysis | Plan | Yes (with `task_planner`) | architect |
+| `reviewer_plan` | Review | Plan | No | task_planner, risk_analyst |
+| `coder` | Execution | Implement | No | — |
+| `tester` | Execution | Implement | Yes (with `documenter`) | coder |
+| `documenter` | Execution | Implement | Yes (with `tester`) | coder |
+| `reviewer_code` | Review | Implement | Yes (with `reviewer_contract`) | coder, tester |
+| `reviewer_contract` | Review | Implement | Yes (with `reviewer_code`) | coder, tester |
+| `autofixer` | Utility | Any | Yes | — |
+| `conflict_resolver` | Utility | Any | Yes | — |
+| `inspector` | Interface | Any | — | — (health checks) |
+| `overseer` | Interface | All phases | — | — (pipeline health monitoring) |
 
-All implement phase agents run concurrently via BRC consensus.
+All agents within a phase run concurrently via BRC consensus. Concurrency is supported across **all phases** — refine, plan, implement, and review — not just the implement phase.
 
 ## Refine Phase
 
@@ -172,13 +188,49 @@ All implement phase agents run concurrently via BRC consensus.
 **Outputs**:
 - `.egg-state/reviews/{identifier}-implement-reviewer_contract-review.json` — Verdict file
 
-## Other Roles
+## Utility Roles
+
+### `autofixer`
+
+**Category**: Utility
+
+**Purpose**: Automatically fix lint errors, formatting issues, and type-check failures in source and config files. Runs on-demand to clean up code without manual intervention.
+
+**File access**:
+- Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `.egg-state/agent-outputs/`
+- Blocked: `docs/`, `**/*.md`, `.egg-state/contracts/`
+
+**Outputs**:
+- Commits with auto-fix changes on the worktree branch
+- `.egg-state/agent-outputs/{identifier}-autofixer-output.json` — Summary of fixes applied
+
+### `conflict_resolver`
+
+**Category**: Utility
+
+**Purpose**: Resolve merge conflicts, inter-agent file conflicts, and coordination issues across concurrent agents. Can write to source, test, doc, and config files to mediate overlapping changes.
+
+**File access**:
+- Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `tests/`, `test/`, `**/tests/`, `**/test/`, `docs/`, `**/*.md`, `.egg-state/agent-outputs/`
+- Blocked: `.egg-state/` (contracts, drafts, reviews, pipelines)
+
+**Outputs**:
+- Conflict resolution commits on the worktree branch
+- `.egg-state/agent-outputs/{identifier}-conflict_resolver-output.json` — Resolution decisions and rationale
+
+## Interface Roles
 
 ### `inspector`
 
-**Purpose**: Health check role used by the Tier 2 semantic health check (`AgentInspectorCheck`). Sends pipeline context to Claude and interprets a structured JSON verdict.
+**Category**: Interface
+
+**Purpose**: Health check role used by the Tier 2 semantic health check (`AgentInspectorCheck`). Runs targeted diagnostics inside a sandbox container, collects health-check data, and reports findings via agent-outputs.
 
 **Usage**: Spawned on-demand by the health check framework, not by standard pipeline dispatch.
+
+**File access**:
+- Allowed writes: `.egg-state/agent-outputs/`
+- Blocked: All source code, tests, docs, configs, contracts, drafts, reviews
 
 ### `overseer`
 
@@ -219,7 +271,9 @@ Agent prompts are scoped to role-relevant context to avoid unnecessary token usa
 | Role group | Context provided |
 |------------|-----------------|
 | Analysis roles (architect, task_planner, risk_analyst) | Full issue body |
-| Execution roles (tester, documenter) | Summarized background + pointers to full context |
+| Execution roles (coder, tester, documenter) | Summarized background + pointers to full context |
+| Utility roles (autofixer, conflict_resolver) | Targeted context (e.g., lint output, conflict details) |
+| Interface roles (inspector, overseer) | Pipeline state, health alerts, agent logs |
 | Reviewers | Full plan/draft/diff relevant to their review scope |
 
 ## Role-Based Contract Mutations
@@ -233,6 +287,43 @@ The gateway enforces which roles can modify which fields of the contract JSON vi
 | `human` | `decisions[].resolved`, `decisions[].resolution`, `decisions[].resolved_by`, `decisions[].resolved_at`, all other fields |
 | `system` | Structural fields (`issue`, `schemaVersion`) |
 
+## Role Registry (Source of Truth)
+
+All agent roles are defined in a single canonical location: `shared/egg_contracts/agent_roles.py`. This module provides:
+
+- **`AgentRole`** — `StrEnum` with all role identifiers
+- **`AgentCategory`** — `StrEnum` categorizing roles (EXECUTION, ANALYSIS, REVIEW, UTILITY, INTERFACE)
+- **`AgentRoleDefinition`** — Dataclass combining role, description, responsibilities, dependencies, file access, and category
+- **`AGENT_ROLES`** — Registry mapping each `AgentRole` to its definition
+- **`get_role_definition(role)`** — Look up a role's full definition
+- **`get_roles_by_category(category)`** — Query all roles in a given category
+- **`get_roles_for_phase(phase)`** — Get roles assigned to a pipeline phase
+- **`detect_write_overlaps(roles)`** — Find file access conflicts between parallel roles
+
+Other modules (`orchestrator/models.py`, `shared/egg_orchestrator/types.py`) import `AgentRole` from this canonical source rather than defining their own copies.
+
+### Removed Roles
+
+The following roles have been removed but are still handled for backward compatibility during deserialization:
+
+| Removed Role | Migration |
+|-------------|-----------|
+| `reviewer_unified` | Split into `reviewer_code` + `reviewer_contract` |
+| `reviewer` (generic) | Mapped to `reviewer_code` |
+| `checker` | Replaced by `tester` |
+| `integrator` | Removed — no replacement needed |
+
+## Team Composition Templates
+
+Common agent team configurations for different workflow types:
+
+| Workflow | Agents | Description |
+|----------|--------|-------------|
+| **Full pipeline** | All phase-specific roles | Complete SDLC with refine → plan → implement |
+| **Coder + reviewer** | `coder`, `reviewer_code` | Lightweight implementation with code review |
+| **Analysis only** | `refiner`, `reviewer_refine` | Task analysis without implementation |
+| **Auto-fix** | `autofixer` | Automated lint/format fixes |
+
 ## File Permission Enforcement
 
 Agent file restrictions are enforced at git push time by the gateway. The default behavior is **warn-only**; set `EGG_AGENT_RESTRICTIONS_ENFORCE=true` to make violations block the push.
@@ -243,4 +334,5 @@ For the exact allowed and blocked patterns per role, see `gateway/agent_restrict
 
 - [SDLC Pipeline Guide](../guides/sdlc-pipeline.md) — Phase execution and agent orchestration
 - [Concurrent Execution Guide](../guides/concurrent-execution.md) — BRC consensus protocol
+- [Agent Development Guide](../guides/agent-development.md) — How to add new agent roles
 - [Architecture Overview](../architecture/README.md) — Role-based access control

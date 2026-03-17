@@ -55,8 +55,8 @@ BRC is a structured consensus protocol inspired by Interactive Consistency, Ack-
 
 Not all agents review all other agents. The review graph is **asymmetric by role type**:
 
-- **Producers** (coder, tester, documenter): Create artifacts and propose them for review
-- **Reviewers** (reviewer_code, reviewer_contract): Evaluate producers' proposals and issue ACK/NACK judgments
+- **Producers** (coder, tester, documenter, autofixer, conflict_resolver): Create artifacts and propose them for review. Includes execution-category and utility-category agents.
+- **Reviewers** (reviewer_code, reviewer_contract): Evaluate producers' proposals and issue ACK/NACK judgments. All review-category agents.
 
 This eliminates circular ACK problems. A coder doesn't ACK a reviewer's review of its own code — it *responds to NACKs* by revising and re-proposing.
 

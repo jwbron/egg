@@ -4,9 +4,10 @@ This guide explains how to add new specialized agents to the multi-agent orchest
 
 ## Overview
 
-The multi-agent system breaks down the implement phase into specialized agents that run in parallel where dependencies allow. Each agent has:
+The multi-agent system runs specialized agents concurrently across all pipeline phases (refine, plan, implement, and review) via BRC consensus. Each agent has:
 
 - **Role**: A unique identifier and description
+- **Category**: One of EXECUTION, ANALYSIS, REVIEW, UTILITY, or INTERFACE (see [Agent Roles Reference](../reference/agent-roles.md))
 - **Responsibilities**: Specific tasks the agent performs
 - **Dependencies**: Which agents must complete first
 - **File access patterns**: What files the agent can read/write
@@ -37,14 +38,19 @@ class AgentRole(StrEnum):
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
+    # Utility roles
+    AUTOFIXER = "autofixer"
+    CONFLICT_RESOLVER = "conflict_resolver"
     MY_NEW_AGENT = "my_new_agent"  # Add your role
 ```
 
 ### Step 2: Create Role Definition
 
-Define the agent's responsibilities and constraints:
+Define the agent's responsibilities, constraints, and **category**:
 
 ```python
+from egg_contracts.agent_roles import AgentCategory
+
 MY_NEW_AGENT_ROLE = AgentRoleDefinition(
     role=AgentRole.MY_NEW_AGENT,
     description="Brief description of what this agent does",
@@ -54,6 +60,7 @@ MY_NEW_AGENT_ROLE = AgentRoleDefinition(
         "Third responsibility",
     ],
     dependencies=[AgentRole.CODER],  # Which agents must complete first
+    category=AgentCategory.UTILITY,  # EXECUTION, ANALYSIS, REVIEW, UTILITY, or INTERFACE
     file_access=FileAccessPattern(
         allowed_read=[],  # Empty = can read all files
         allowed_write=[
@@ -69,6 +76,13 @@ MY_NEW_AGENT_ROLE = AgentRoleDefinition(
     requires_inputs=["changed_files"],  # What handoff data it needs
 )
 ```
+
+**Category assignment guidelines:**
+- **EXECUTION**: Agents that produce primary artifacts (code, tests, docs)
+- **ANALYSIS**: Agents that analyze tasks and plan work (no code output)
+- **REVIEW**: Agents that validate quality and produce verdicts
+- **UTILITY**: Cross-cutting support agents (auto-fixes, conflict resolution)
+- **INTERFACE**: Monitoring and health-check agents
 
 ### Step 3: Register the Role
 
@@ -260,13 +274,17 @@ pytest tests/gateway/test_agent_restrictions.py -v
 
 ## Prompt Context Scoping
 
-Agent prompts are built with role-appropriate context via `_build_role_context()` in `orchestrator/routes/pipelines.py`. When adding a new agent, understand how context is scoped:
+Agent prompts are built with role-appropriate context via `_build_role_context()` in `orchestrator/routes/pipelines.py`. When adding a new agent, understand how context is scoped by category:
 
 **Analysis roles** (architect, task_planner, risk_analyst) receive the full issue body in a `## Task Description` section. They need complete context for problem analysis and planning.
 
-**Execution roles** (tester, documenter, and any new execution agents) receive:
+**Execution roles** (coder, tester, documenter) receive:
 - A `## Background` section with a 1-2 sentence summary extracted from the issue
 - A `## For More Context` section with pointers to the full issue (`gh issue view`), handoff data, and git diff
+
+**Utility roles** (autofixer, conflict_resolver) receive targeted context specific to their task (e.g., lint output, conflict details, list of affected files).
+
+**Interface roles** (inspector, overseer) receive pipeline state, health alerts, and agent logs.
 
 When adding a new execution role, `_build_role_context()` will automatically provide the summarized context. If the role needs phase-specific instructions (like the tester's "Focus your testing on..." or the documenter's "Focus your documentation on..."), add a condition in `_build_role_context()` for the new role.
 

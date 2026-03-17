@@ -8,7 +8,7 @@ The orchestrator manages the end-to-end SDLC pipeline that turns GitHub issues i
 
 - **Manages pipeline state** — persists phase transitions, agent executions, and decisions on a git-backed state branch
 - **Spawns and monitors containers** — creates sandbox containers with proper configuration via the gateway sidecar
-- **Coordinates multi-agent execution** — runs specialized agents (coder, tester, documenter, etc.) in dependency-ordered waves or concurrently with message-based coordination
+- **Coordinates multi-agent execution** — runs specialized agents across five categories (execution, analysis, review, utility, interface) in dependency-ordered waves or concurrently with message-based coordination
 - **Handles HITL decisions** — queues questions for human reviewers and blocks until resolved
 - **Streams real-time status** — provides SSE streams and DAG visualizations for pipeline monitoring
 - **Validates deployments** — manages Docker-in-Docker devserver stacks for pre-merge testing
@@ -49,9 +49,24 @@ Pipelines progress through four SDLC phases:
 | **refine** | Analyze task, evaluate options | Refiner, reviewers |
 | **plan** | Break work into tasks, assess risks | Architect, Task Planner, Risk Analyst, reviewers |
 | **implement** | Write code, tests, docs | Coder, Tester, Documenter, reviewers |
+| **review** | Cross-phase review | Dynamically assigned reviewers |
 | **pr** | Create pull request | Single agent |
 
-Each phase transition requires human approval (except implement → pr when all checks pass).
+Each phase transition requires human approval (except implement → pr when all checks pass). All phases support concurrent agent execution via BRC consensus.
+
+### Agent Categories
+
+Agent roles are organized into five categories defined in `shared/egg_contracts/agent_roles.py`:
+
+| Category | Description | Example Roles |
+|----------|-------------|---------------|
+| **Execution** | Produce primary artifacts | coder, tester, documenter |
+| **Analysis** | Analyze and plan work | refiner, architect, task_planner, risk_analyst |
+| **Review** | Validate quality | reviewer_code, reviewer_contract, reviewer_plan |
+| **Utility** | Cross-cutting support | autofixer, conflict_resolver |
+| **Interface** | Monitoring and health | inspector, overseer |
+
+See [Agent Roles Reference](../docs/reference/agent-roles.md) for the complete roster.
 
 ### State Persistence
 
@@ -59,7 +74,7 @@ Pipeline state is stored on a dedicated `egg/pipeline-state` orphan branch acces
 
 ### Concurrent Execution Mode
 
-When `concurrent_execution: true` is set in the pipeline configuration, agents within a phase run simultaneously rather than in waves. Agents coordinate through:
+By default, agents within the refine, plan, implement, and review phases run simultaneously via BRC consensus (configurable via `concurrent_phases`). When `concurrent_execution: true` is set, this extends to all phases. Agents coordinate through:
 
 - **Message bus** — Agents exchange typed messages (PROGRESS, QUESTION, RESPONSE, STATUS, AGENT_FAILED) via the orchestrator's message API. Messages can target a specific role or broadcast to all agents.
 - **Readiness consensus** — Each agent signals its readiness state (WORKING, READY, BLOCKED, OBJECTING). The phase advances only when all agents reach READY. Any OBJECTING agent blocks phase completion.

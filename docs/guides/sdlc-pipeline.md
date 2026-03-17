@@ -549,17 +549,21 @@ The context is built by `_build_role_context()` in `orchestrator/routes/pipeline
 
 ## Multi-Agent Orchestration
 
-The implement phase uses concurrent BRC execution to parallelize work across specialized agents. All agents run simultaneously, communicating via the orchestrator message bus and reaching consensus through the BRC protocol. This reduces context window pollution and improves first-pass implementation quality.
+All pipeline phases (refine, plan, implement, and review) use concurrent BRC execution to parallelize work across specialized agents. All agents within a phase run simultaneously, communicating via the orchestrator message bus and reaching consensus through the BRC protocol. This reduces context window pollution and improves first-pass implementation quality.
+
+Agents are organized into five categories (execution, analysis, review, utility, interface) with role definitions consolidated in `shared/egg_contracts/agent_roles.py`. See the [Agent Roles Reference](../reference/agent-roles.md) for the complete roster.
 
 ### Agent Roles
 
-| Role | Purpose | File Access |
-|------|---------|-------------|
-| **Coder** | Implements code changes | `src/`, `lib/`, `shared/` |
-| **Tester** | Finds gaps, writes tests, runs linters and auto-fixers | `tests/`, `test_*.py`, `*.test.ts`, source files (for lint fixes) |
-| **Documenter** | Updates documentation | `docs/`, `*.md`, `README*` |
-| **Reviewer (Code)** | Reviews code for security, correctness | Review verdicts only |
-| **Reviewer (Contract)** | Verifies task completion | Review verdicts only |
+| Role | Category | Purpose | File Access |
+|------|----------|---------|-------------|
+| **Coder** | Execution | Implements code changes | `src/`, `lib/`, `shared/` |
+| **Tester** | Execution | Finds gaps, writes tests, runs linters and auto-fixers | `tests/`, `test_*.py`, `*.test.ts`, source files (for lint fixes) |
+| **Documenter** | Execution | Updates documentation | `docs/`, `*.md`, `README*` |
+| **Autofixer** | Utility | Auto-fixes lint/format/type-check issues | Source and config files (no docs or contracts) |
+| **Conflict Resolver** | Utility | Resolves merge and inter-agent conflicts | Source, test, doc, and config files (no `.egg-state/`) |
+| **Reviewer (Code)** | Review | Reviews code for security, correctness | Review verdicts only |
+| **Reviewer (Contract)** | Review | Verifies task completion | Review verdicts only |
 
 ### Agent Handoffs
 

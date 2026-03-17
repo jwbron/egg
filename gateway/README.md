@@ -428,7 +428,7 @@ gateway/
 ├── rate_limiter.py         # Rate limiting
 ├── config_validator.py     # Configuration validation
 ├── error_messages.py       # Error message formatting
-├── agent_restrictions.py   # Agent role-based file access restrictions
+├── agent_restrictions.py   # Agent role-based file access restrictions (includes patterns for all 15+ roles)
 ├── checkpoint_handler.py   # Session checkpoint handling
 ├── transcript_buffer.py    # Transcript buffering for agent sessions
 ├── Dockerfile              # Gateway container image
