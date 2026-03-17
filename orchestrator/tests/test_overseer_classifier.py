@@ -84,7 +84,7 @@ def _make_result(stdout: str, *, success: bool = True) -> AgentResult:
 
 def _run(coro):
     """Run an async coroutine synchronously."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 _AGENT_PATCH = "overseer.classifier.run_agent_async"
