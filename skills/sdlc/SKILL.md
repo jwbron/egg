@@ -69,7 +69,7 @@ Handle each response:
 - **Other (integer)** → Treat as an issue number. Fetch with `gh issue view <N> --repo <repo> --json title,body,comments,labels,assignees` and proceed to Phase 1.5 (Pre-Refine).
 - **Other (text)** → Treat as a free-text task description. Proceed to Phase 1.5 (Pre-Refine).
 - **Browse recent issues** → Run `gh issue list --repo <repo> --state open --limit 10 --json number,title` and present the results as a second `AskUserQuestion` with each issue as an option. Once the user selects an issue, fetch it with `gh issue view <N> --repo <repo> --json title,body,comments,labels,assignees` and use the title+body as the task description. Then proceed to Phase 1.5 (Pre-Refine).
-- **Help me scope the task** → Ask 1–2 follow-up questions about scope and acceptance criteria, then proceed to Phase 1.5 (Pre-Refine).
+- **Help me scope the task** → Ask 1–2 follow-up questions about scope and acceptance criteria. Synthesize the user's answers into a refined task description (incorporating scope boundaries and acceptance criteria) before proceeding to Phase 1.5 (Pre-Refine).
 
 **Never ask for the repo and the task in separate questions.** If the repo could not be auto-detected, include a repo question in the same `AskUserQuestion` call (multi-question mode).
 
