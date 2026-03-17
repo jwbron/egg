@@ -22,41 +22,56 @@ def handler():
     )
 
 
+def _mock_gateway_health_response(data):
+    """Create a mock opener that returns the given JSON data for gateway health."""
+    import json
+
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps(data).encode()
+    mock_response.__enter__ = MagicMock(return_value=mock_response)
+    mock_response.__exit__ = MagicMock(return_value=False)
+
+    mock_opener = MagicMock()
+    mock_opener.open.return_value = mock_response
+    return mock_opener
+
+
 class TestCheckHealth:
     def test_both_healthy(self, handler):
+        mock_opener = _mock_gateway_health_response({"status": "healthy", "version": "1.0"})
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {"status": "healthy"}
-            with patch("orchestrator.gateway_client.GatewayClient") as MockGW:
-                mock_gw = MagicMock()
-                mock_health = MagicMock()
-                mock_health.healthy = True
-                mock_health.status = "healthy"
-                mock_health.version = "1.0"
-                mock_gw.check_health.return_value = mock_health
-                MockGW.return_value = mock_gw
-
+            with patch("urllib.request.build_opener", return_value=mock_opener):
                 result = handler.handle_tool_call("check_health", {})
 
         assert result["healthy"] is True
         assert result["orchestrator"]["healthy"] is True
         assert result["gateway"]["healthy"] is True
+        assert result["gateway"]["version"] == "1.0"
 
     def test_orchestrator_unreachable(self, handler):
+        mock_opener = _mock_gateway_health_response({"status": "healthy", "version": "1.0"})
         with patch.object(handler, "_make_request", side_effect=Exception("connection refused")):
-            with patch("orchestrator.gateway_client.GatewayClient") as MockGW:
-                mock_gw = MagicMock()
-                mock_health = MagicMock()
-                mock_health.healthy = True
-                mock_health.status = "healthy"
-                mock_health.version = "1.0"
-                mock_gw.check_health.return_value = mock_health
-                MockGW.return_value = mock_gw
-
+            with patch("urllib.request.build_opener", return_value=mock_opener):
                 result = handler.handle_tool_call("check_health", {})
 
         assert result["healthy"] is False
         assert result["orchestrator"]["healthy"] is False
         assert "unreachable" in result["orchestrator"]["status"]
+
+    def test_gateway_unreachable(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"status": "healthy"}
+            with patch("urllib.request.build_opener") as mock_build:
+                mock_opener = MagicMock()
+                mock_opener.open.side_effect = Exception("connection refused")
+                mock_build.return_value = mock_opener
+                result = handler.handle_tool_call("check_health", {})
+
+        assert result["healthy"] is False
+        assert result["orchestrator"]["healthy"] is True
+        assert result["gateway"]["healthy"] is False
+        assert "unreachable" in result["gateway"]["status"]
 
 
 class TestListContainers:

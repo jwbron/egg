@@ -947,14 +947,21 @@ class PipelineToolHandler:
         except Exception as e:
             result["orchestrator"] = {"healthy": False, "status": "unreachable", "error": str(e)}
 
-        # Gateway health
+        # Gateway health — use direct HTTP to avoid importing orchestrator.gateway_client
+        # which may not be available when the MCP server runs outside the orchestrator venv
         try:
-            client = self._get_gateway_client()
-            health = client.check_health()
+            import json
+            from urllib.request import ProxyHandler, Request, build_opener
+
+            gw_url = f"{self.gateway_url}/api/v1/health"
+            opener = build_opener(ProxyHandler({}))
+            req = Request(gw_url, method="GET")
+            with opener.open(req, timeout=10) as response:
+                gw = json.loads(response.read().decode())
             result["gateway"] = {
-                "healthy": health.healthy,
-                "status": health.status,
-                "version": health.version,
+                "healthy": gw.get("status") == "healthy",
+                "status": gw.get("status", "unknown"),
+                "version": gw.get("version"),
             }
         except Exception as e:
             result["gateway"] = {"healthy": False, "status": "unreachable", "error": str(e)}
