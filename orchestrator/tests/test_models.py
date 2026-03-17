@@ -551,7 +551,6 @@ class TestAgentRole:
         """Test all agent roles are defined."""
         roles = list(AgentRole)
         assert AgentRole.CODER in roles
-        assert AgentRole.REVIEWER in roles
         assert AgentRole.TESTER in roles
         assert AgentRole.DOCUMENTER in roles
         assert AgentRole.ARCHITECT in roles
@@ -565,7 +564,9 @@ class TestAgentRole:
         assert AgentRole.REVIEWER_REFINE in roles
         assert AgentRole.REVIEWER_PLAN in roles
         assert AgentRole.OVERSEER in roles
-        assert len(roles) == 15
+        assert AgentRole.AUTOFIXER in roles
+        assert AgentRole.CONFLICT_RESOLVER in roles
+        assert len(roles) == 16
 
 
 class TestBackwardCompatibility:
@@ -604,6 +605,15 @@ class TestBackwardCompatibility:
             {"container_id": "c1", "container_name": "test", "agent_role": "reviewer_unified"}
         )
         assert info.agent_role == AgentRole.REVIEWER_CODE
+
+    def test_generic_reviewer_no_longer_in_enum(self):
+        """Generic REVIEWER has been removed from AgentRole enum."""
+        assert not hasattr(AgentRole, "REVIEWER"), "AgentRole.REVIEWER should be removed"
+
+    def test_generic_reviewer_deserializes_as_reviewer_code(self):
+        """Persisted pipeline state with role='reviewer' migrates to reviewer_code."""
+        agent = AgentExecution.model_validate({"role": "reviewer"})
+        assert agent.role == AgentRole.REVIEWER_CODE
 
     def test_valid_roles_unaffected_by_migration(self):
         """Existing valid roles are not changed by the migration validator."""

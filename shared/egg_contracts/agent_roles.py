@@ -795,7 +795,11 @@ CONFLICT_RESOLVER_ROLE = AgentRoleDefinition(
             ".egg-state/agent-outputs/",
         ],
         blocked_write=[
-            ".egg-state/",
+            ".egg-state/contracts/",
+            ".egg-state/drafts/",
+            ".egg-state/pipelines/",
+            ".egg-state/reviews/",
+            ".egg-state/oversight/",
         ],
     ),
     produces_outputs=["conflict_report", "resolved_files"],

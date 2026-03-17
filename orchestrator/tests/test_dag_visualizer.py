@@ -202,7 +202,7 @@ class TestRenderPipelineDag:
                         status=AgentExecutionStatus.COMPLETE,
                     ),
                     AgentExecution(
-                        role=AgentRole.REVIEWER,
+                        role=AgentRole.REVIEWER_CODE,
                         status=AgentExecutionStatus.RUNNING,
                     ),
                 ],
@@ -215,7 +215,7 @@ class TestRenderPipelineDag:
         assert "reviewer" in result
         # Completed coder should have checkmark, running reviewer should have play symbol
         assert "✓ coder" in result
-        assert "▶ reviewer" in result
+        assert "▶ reviewer_code" in result
         # Old container count should not appear
         assert "container(s)" not in result
 
@@ -231,7 +231,7 @@ class TestRenderPipelineDag:
                         status=AgentExecutionStatus.COMPLETE,
                     ),
                     AgentExecution(
-                        role=AgentRole.REVIEWER,
+                        role=AgentRole.REVIEWER_CODE,
                         status=AgentExecutionStatus.RUNNING,
                     ),
                     AgentExecution(
@@ -245,7 +245,7 @@ class TestRenderPipelineDag:
         result = render_pipeline_dag(pipeline)
 
         assert "✓ coder" in result
-        assert "▶ reviewer" in result
+        assert "▶ reviewer_code" in result
         assert "✗ tester" in result
 
     def test_phase_with_no_agents(self):
@@ -270,7 +270,7 @@ class TestRenderPipelineDag:
                         status=AgentExecutionStatus.COMPLETE,
                     ),
                     AgentExecution(
-                        role=AgentRole.REVIEWER,
+                        role=AgentRole.REVIEWER_CODE,
                         status=AgentExecutionStatus.RUNNING,
                     ),
                 ],
@@ -280,7 +280,7 @@ class TestRenderPipelineDag:
         result = render_pipeline_dag(pipeline, use_ascii=True)
 
         assert "+ coder" in result
-        assert "> reviewer" in result
+        assert "> reviewer_code" in result
 
     def test_hitl_gate_phase_shows_awaiting_approval(self):
         """Test that a phase in AWAITING_HUMAN status shows 'awaiting approval'."""
@@ -601,7 +601,7 @@ class TestGenerateStatusReport:
                         status=AgentExecutionStatus.COMPLETE,
                     ),
                     AgentExecution(
-                        role=AgentRole.REVIEWER,
+                        role=AgentRole.REVIEWER_CODE,
                         status=AgentExecutionStatus.RUNNING,
                     ),
                 ],
@@ -625,7 +625,7 @@ class TestGenerateStatusReport:
         assert len(impl_agents) == 2
         assert impl_agents[0]["role"] == "coder"
         assert impl_agents[0]["status"] == "complete"
-        assert impl_agents[1]["role"] == "reviewer"
+        assert impl_agents[1]["role"] == "reviewer_code"
         assert impl_agents[1]["status"] == "running"
 
         # Phases without agents should have empty list
@@ -677,7 +677,7 @@ class TestWaveGrouping:
         agent_lines = [
             line.strip()
             for line in lines
-            if "coder" in line or "tester" in line or "integrator" in line or "reviewer" in line
+            if "coder" in line or "tester" in line or "documenter" in line or "reviewer" in line
         ]
 
         # Coder should be on its own line (wave 1)
@@ -780,13 +780,13 @@ class TestWaveGrouping:
         """Agents not in the dependency graph are appended at the end."""
         agents = [
             AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
-            AgentExecution(role=AgentRole.REVIEWER, status=AgentExecutionStatus.RUNNING),
+            AgentExecution(role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING),
         ]
         waves = _compute_wave_order(PipelinePhase.IMPLEMENT, agents)
 
-        # CODER in wave 1, generic REVIEWER not in graph → appended
+        # CODER in wave 1, REVIEWER_CODE in wave 2 (dependent on coder)
         assert waves[0][0].role == AgentRole.CODER
-        assert waves[-1][0].role == AgentRole.REVIEWER
+        assert waves[-1][0].role == AgentRole.REVIEWER_CODE
 
     def test_refine_phase_wave_order(self):
         """Refiner is wave 1, reviewers are wave 2 in refine phase."""

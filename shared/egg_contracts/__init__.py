@@ -50,7 +50,9 @@ from .agent_recovery import (
 from .agent_roles import (
     AGENT_ROLES,
     ARCHITECT_ROLE,
+    AUTOFIXER_ROLE,
     CODER_ROLE,
+    CONFLICT_RESOLVER_ROLE,
     DOCUMENTER_ROLE,
     REVIEWER_AGENT_DESIGN_ROLE,
     REVIEWER_CODE_ROLE,
@@ -58,6 +60,7 @@ from .agent_roles import (
     RISK_ANALYST_ROLE,
     TASK_PLANNER_ROLE,
     TESTER_ROLE,
+    AgentCategory,
     AgentExecution,
     AgentRole,
     AgentRoleDefinition,
@@ -69,6 +72,7 @@ from .agent_roles import (
     get_all_roles,
     get_role_definition,
     get_role_dependencies,
+    get_roles_by_category,
     get_roles_for_phase,
 )
 from .audit import (
@@ -333,11 +337,14 @@ __all__ = [
     # Agent Roles
     "AGENT_ROLES",
     "ARCHITECT_ROLE",
+    "AUTOFIXER_ROLE",
+    "AgentCategory",
     "AgentExecution",
     "AgentRole",
     "AgentRoleDefinition",
     "AgentStatus",
     "CODER_ROLE",
+    "CONFLICT_RESOLVER_ROLE",
     "DOCUMENTER_ROLE",
     "FileAccessPattern",
     "REVIEWER_AGENT_DESIGN_ROLE",
@@ -352,6 +359,7 @@ __all__ = [
     "get_all_roles",
     "get_role_definition",
     "get_role_dependencies",
+    "get_roles_by_category",
     "get_roles_for_phase",
     # Orchestration
     "AgentHandoff",

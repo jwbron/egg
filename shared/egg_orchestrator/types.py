@@ -94,27 +94,9 @@ class ConsensusPhase(StrEnum):
     CONFIRMED = "CONFIRMED"
 
 
-class AgentRole(StrEnum):
-    """Agent roles matching orchestrator.models.AgentRole."""
-
-    CODER = "coder"
-    REVIEWER = "reviewer"
-    TESTER = "tester"
-    DOCUMENTER = "documenter"
-    # Plan-phase roles
-    ARCHITECT = "architect"
-    TASK_PLANNER = "task_planner"
-    RISK_ANALYST = "risk_analyst"
-    # Refine-phase roles
-    REFINER = "refiner"
-    # Oversight roles
-    OVERSEER = "overseer"
-    # Reviewer roles
-    REVIEWER_CODE = "reviewer_code"
-    REVIEWER_CONTRACT = "reviewer_contract"
-    REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
-    REVIEWER_REFINE = "reviewer_refine"
-    REVIEWER_PLAN = "reviewer_plan"
+# Import AgentRole from the canonical source in egg_contracts.
+# Re-exported here for backward compatibility.
+from egg_contracts.agent_roles import AgentRole  # noqa: F401
 
 
 @dataclass

@@ -39,20 +39,23 @@ class AgentRole:
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
-    # Plan-phase roles
+    # Analysis roles
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
     RISK_ANALYST = "risk_analyst"
-    # Refine-phase roles
     REFINER = "refiner"
-    # Reviewer roles
+    # Review roles
     REVIEWER_CODE = "reviewer_code"
     REVIEWER_CONTRACT = "reviewer_contract"
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
-    # Oversight roles
+    # Utility roles
+    AUTOFIXER = "autofixer"
+    CONFLICT_RESOLVER = "conflict_resolver"
+    # Interface roles
     OVERSEER = "overseer"
+    INSPECTOR = "inspector"
 
 
 @dataclass
@@ -462,6 +465,125 @@ OVERSEER_PATTERNS = AgentFilePattern(
 )
 
 
+# Autofixer agent pattern
+# The autofixer applies automated lint/type-check/formatting fixes to source
+# and config files.  It cannot modify docs or contracts.
+
+AUTOFIXER_PATTERNS = AgentFilePattern(
+    role=AgentRole.AUTOFIXER,
+    description="Autofixer agent: source code and config files for automated fixes",
+    allowed_patterns=[
+        # Source code
+        "**/*.py",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.go",
+        "**/*.java",
+        "**/*.rb",
+        "**/*.rs",
+        "**/*.sh",
+        # Configuration
+        "**/*.yml",
+        "**/*.yaml",
+        "**/*.json",
+        "**/*.toml",
+        # Handoff output
+        ".egg-state/agent-outputs/",
+    ],
+    blocked_patterns=[
+        # Documentation
+        "docs/",
+        "**/*.md",
+        # Contracts
+        ".egg-state/contracts/",
+    ],
+)
+
+# Conflict resolver agent pattern
+# The conflict resolver can modify source, test, docs, and config files to
+# resolve merge conflicts.  It cannot modify pipeline state directories.
+
+CONFLICT_RESOLVER_PATTERNS = AgentFilePattern(
+    role=AgentRole.CONFLICT_RESOLVER,
+    description="Conflict resolver agent: source, test, docs, and config files",
+    allowed_patterns=[
+        # Source code
+        "**/*.py",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.go",
+        "**/*.java",
+        "**/*.rb",
+        "**/*.rs",
+        "**/*.sh",
+        # Tests
+        "tests/",
+        "test/",
+        "**/tests/",
+        "**/test/",
+        "**/*_test.py",
+        "**/test_*.py",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.test.js",
+        "**/*.test.jsx",
+        "**/*.spec.ts",
+        "**/*.spec.tsx",
+        "**/*.spec.js",
+        "**/*.spec.jsx",
+        # Documentation
+        "docs/",
+        "**/*.md",
+        # Configuration
+        "**/*.yml",
+        "**/*.yaml",
+        "**/*.json",
+        "**/*.toml",
+        # Handoff output
+        ".egg-state/agent-outputs/",
+    ],
+    blocked_patterns=[
+        # Pipeline state (specific subdirs, excluding agent-outputs)
+        ".egg-state/contracts/",
+        ".egg-state/drafts/",
+        ".egg-state/pipelines/",
+        ".egg-state/reviews/",
+        ".egg-state/oversight/",
+    ],
+)
+
+# Inspector agent pattern
+# Inspectors run diagnostic scripts and write only to agent-outputs.
+
+INSPECTOR_PATTERNS = AgentFilePattern(
+    role=AgentRole.INSPECTOR,
+    description="Inspector agent: agent-outputs only, no source/test/doc/config access",
+    allowed_patterns=[
+        ".egg-state/agent-outputs/",
+    ],
+    blocked_patterns=[
+        "src/",
+        "lib/",
+        "shared/",
+        "gateway/",
+        "sandbox/",
+        "action/",
+        "orchestrator/",
+        "docs/",
+        "tests/",
+        "test/",
+        ".egg-state/contracts/",
+        ".egg-state/drafts/",
+        ".egg-state/reviews/",
+        ".github/",
+    ],
+)
+
+
 # Registry of all agent patterns
 AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.CODER: CODER_PATTERNS,
@@ -477,6 +599,9 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_PATTERNS,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
     AgentRole.OVERSEER: OVERSEER_PATTERNS,
+    AgentRole.AUTOFIXER: AUTOFIXER_PATTERNS,
+    AgentRole.CONFLICT_RESOLVER: CONFLICT_RESOLVER_PATTERNS,
+    AgentRole.INSPECTOR: INSPECTOR_PATTERNS,
 }
 
 
@@ -656,6 +781,9 @@ AGENT_GH_RESTRICTIONS: dict[str, AgentGHRestriction] = {
         AgentRole.REVIEWER_AGENT_DESIGN,
         AgentRole.REVIEWER_REFINE,
         AgentRole.REVIEWER_PLAN,
+        AgentRole.AUTOFIXER,
+        AgentRole.CONFLICT_RESOLVER,
+        AgentRole.INSPECTOR,
     ]
 }
 
