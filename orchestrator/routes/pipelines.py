@@ -997,7 +997,7 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
                 if is_concurrent_execution(pipeline, pipeline.current_phase):
                     graph = get_default_implement_graph()
                     tracker = reconstruct_tracker_from_messages(pipeline.id, graph)
-            except (ImportError, Exception):
+            except Exception:
                 pass  # Fall through to legacy evaluator
         if tracker:
             consensus_state = tracker.get_state()
