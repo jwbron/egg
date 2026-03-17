@@ -76,7 +76,7 @@ sandbox/
 │   ├── gh                  # GitHub CLI wrapper (routes to gateway)
 │   └── git-credential-github-token
 │
-├── .claude/                # Claude Code customization
+├── agent-config/           # Agent rules and commands (deployed into containers)
 │   ├── commands/           # Custom slash commands
 │   │   ├── README.md       # Commands documentation
 │   │   ├── sdlc.md         # /sdlc — SDLC pipeline initialization
@@ -200,6 +200,6 @@ See [Configuration README](../config/README.md#per-repo-build-commands-dependenc
 
 ## Related Documentation
 
-- [Claude Code Configuration](.claude/README.md) - Agent rules and commands
+- [Claude Code Configuration](agent-config/README.md) - Agent rules and commands
 - [Gateway Sidecar](../gateway/README.md) - Policy enforcement gateway
 - [Architecture Overview](../docs/architecture/README.md) - System design

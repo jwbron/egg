@@ -18,8 +18,6 @@ INCORRECT patterns:
 
 This script is intended to be run as a CI check or pre-commit hook.
 
-See: sandbox/.claude/rules/host-container-boundary.md
-
 Usage:
     python3 scripts/check-claude-imports.py
 
@@ -51,7 +49,7 @@ def check_file_for_claude_import(file_path: Path) -> list[tuple[int, str]]:
         r"^\s*from\s+claude\s+import",  # from claude import ...
         r"^\s*import\s+claude\b",  # import claude
         r"^\s*from\s+claude\.",  # from claude.module import ...
-        # Anthropic SDK (SECURITY VIOLATION - see host-container-boundary.md)
+        # Anthropic SDK (SECURITY VIOLATION)
         r"^\s*import\s+anthropic\b",  # import anthropic
         r"^\s*from\s+anthropic\s+import",  # from anthropic import ...
         r"^\s*from\s+anthropic\.",  # from anthropic.module import ...
@@ -157,8 +155,6 @@ def main():
         print("  2. Create a processor in sandbox/egg-tasks/ for LLM work")
         print("  3. Use egg_exec to delegate to the container-side processor")
         print("  4. See host-services/shared/egg_exec.py for the delegation pattern")
-        print()
-        print("Documentation: sandbox/.claude/rules/host-container-boundary.md")
         print()
 
         return 1
