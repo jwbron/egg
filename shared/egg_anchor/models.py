@@ -10,7 +10,7 @@ state recovery during long-running agent sessions.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -97,14 +97,10 @@ class BRCState(BaseModel):
     """Broadcast-Review-Converge protocol state."""
 
     phase: BRCPhase = Field(default=BRCPhase.ORIENT, description="BRC protocol phase")
-    proposed_at: datetime | None = Field(
-        default=None, description="When the proposal was made"
-    )
+    proposed_at: datetime | None = Field(default=None, description="When the proposal was made")
     acks: list[str] = Field(default_factory=list, description="Agent IDs that acknowledged")
     nacks: list[str] = Field(default_factory=list, description="Agent IDs that rejected")
-    last_message_id: str | None = Field(
-        default=None, description="Last message ID processed"
-    )
+    last_message_id: str | None = Field(default=None, description="Last message ID processed")
 
 
 class KeyContext(BaseModel):
@@ -138,18 +134,12 @@ class AgentAnchor(BaseModel):
     task: TaskInfo = Field(..., description="Current task information")
     status: AnchorStatus = Field(..., description="Current agent status")
     pipeline_id: str = Field(..., description="Pipeline identifier")
-    progress: list[ProgressItem] = Field(
-        default_factory=list, description="Progress milestones"
-    )
+    progress: list[ProgressItem] = Field(default_factory=list, description="Progress milestones")
     decisions: list[Decision] = Field(
         default_factory=list, description="HITL decisions encountered"
     )
-    brc_state: BRCState = Field(
-        default_factory=BRCState, description="BRC protocol state"
-    )
-    key_context: list[KeyContext] = Field(
-        default_factory=list, description="Key context items"
-    )
+    brc_state: BRCState = Field(default_factory=BRCState, description="BRC protocol state")
+    key_context: list[KeyContext] = Field(default_factory=list, description="Key context items")
     errors_encountered: list[ErrorEncountered] = Field(
         default_factory=list, description="Errors encountered"
     )
@@ -210,10 +200,11 @@ class AgentAnchor(BaseModel):
         Uses the JSON schema field names (e.g., _meta) and converts
         datetime objects to ISO 8601 strings.
         """
+
         def _serialize_datetime(dt: datetime) -> str:
             """Convert datetime to ISO 8601 string."""
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=UTC)
             return dt.isoformat()
 
         def _serialize_value(v: Any) -> Any:

@@ -46,6 +46,7 @@ def _get_redis():
     if _redis_client is None:
         try:
             import redis
+
             _redis_client = redis.Redis(
                 host="localhost",
                 port=6379,
@@ -88,6 +89,7 @@ def create_or_update_anchor(agent_id: str) -> tuple[Response, int]:
     # Validate the anchor data
     try:
         from egg_anchor.validator import validate_anchor
+
         errors = validate_anchor(body)
         if errors:
             return _make_error(f"Schema validation failed: {'; '.join(errors)}")
@@ -195,19 +197,19 @@ def get_team_anchor(pipeline_id: str) -> tuple[Response, int]:
             anchor = json.loads(data)
             agent_id = anchor.get("agent_id", "unknown")
 
-            agents.append({
-                "agent_id": agent_id,
-                "role": anchor.get("role", "unknown"),
-                "status": anchor.get("status", "unknown"),
-                "task": anchor.get("task", {}),
-                "current_progress": (
-                    anchor.get("progress", [])[-1]
-                    if anchor.get("progress")
-                    else None
-                ),
-                "files_modified": anchor.get("files_modified", []),
-                "errors": len(anchor.get("errors_encountered", [])),
-            })
+            agents.append(
+                {
+                    "agent_id": agent_id,
+                    "role": anchor.get("role", "unknown"),
+                    "status": anchor.get("status", "unknown"),
+                    "task": anchor.get("task", {}),
+                    "current_progress": (
+                        anchor.get("progress", [])[-1] if anchor.get("progress") else None
+                    ),
+                    "files_modified": anchor.get("files_modified", []),
+                    "errors": len(anchor.get("errors_encountered", [])),
+                }
+            )
 
             # Collect decisions
             for d in anchor.get("decisions", []):

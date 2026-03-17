@@ -18,9 +18,7 @@ from .models import AgentAnchor
 logger = logging.getLogger(__name__)
 
 # Path to the JSON Schema file (shared/egg_anchor/validator.py -> repo_root/.egg/schemas/)
-_SCHEMA_PATH = (
-    Path(__file__).parent.parent.parent / ".egg" / "schemas" / "agent-anchor.schema.json"
-)
+_SCHEMA_PATH = Path(__file__).parent.parent.parent / ".egg" / "schemas" / "agent-anchor.schema.json"
 
 
 def _load_schema() -> dict[str, Any] | None:
@@ -114,9 +112,7 @@ def check_size_budget(
     errors: list[str] = []
 
     if size_bytes > hard_limit:
-        errors.append(
-            f"Anchor size ({size_bytes} bytes) exceeds hard limit ({hard_limit} bytes)"
-        )
+        errors.append(f"Anchor size ({size_bytes} bytes) exceeds hard limit ({hard_limit} bytes)")
         return SizeBudgetResult(
             within_budget=False,
             size_bytes=size_bytes,
@@ -126,9 +122,7 @@ def check_size_budget(
         )
 
     if size_bytes > soft_limit:
-        warnings.append(
-            f"Anchor size ({size_bytes} bytes) exceeds soft limit ({soft_limit} bytes)"
-        )
+        warnings.append(f"Anchor size ({size_bytes} bytes) exceeds soft limit ({soft_limit} bytes)")
 
     return SizeBudgetResult(
         within_budget=True,

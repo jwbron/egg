@@ -473,6 +473,7 @@ def cmd_anchor_init(args: argparse.Namespace) -> int:
 
     # Import anchor library
     try:
+        from egg_anchor.loader import save_anchor, sync_anchor_to_api
         from egg_anchor.models import (
             AgentAnchor,
             AnchorMeta,
@@ -481,7 +482,6 @@ def cmd_anchor_init(args: argparse.Namespace) -> int:
             BRCState,
             TaskInfo,
         )
-        from egg_anchor.loader import save_anchor, sync_anchor_to_api
     except ImportError:
         print("Error: egg_anchor library not available", file=sys.stderr)
         return 1
@@ -534,6 +534,7 @@ def cmd_anchor_update(args: argparse.Namespace) -> int:
         return 1
 
     try:
+        from egg_anchor.loader import load_anchor, save_anchor, sync_anchor_to_api
         from egg_anchor.models import (
             AnchorStatus,
             Decision,
@@ -542,7 +543,6 @@ def cmd_anchor_update(args: argparse.Namespace) -> int:
             ProgressItem,
             ProgressState,
         )
-        from egg_anchor.loader import load_anchor, save_anchor, sync_anchor_to_api
     except ImportError:
         print("Error: egg_anchor library not available", file=sys.stderr)
         return 1
@@ -584,6 +584,7 @@ def cmd_anchor_update(args: argparse.Namespace) -> int:
     if args.decision:
         question, answer = args.decision
         import uuid
+
         decision = Decision(
             id=str(uuid.uuid4())[:8],
             question=question,
@@ -647,12 +648,11 @@ def cmd_anchor_show(args: argparse.Namespace) -> int:
 
     if getattr(args, "team", False):
         # Fetch team anchor from API
-        orchestrator_url = os.environ.get(
-            "EGG_ORCHESTRATOR_URL", "http://egg-orchestrator:9849"
-        )
+        orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://egg-orchestrator:9849")
         pipeline_id = os.environ.get("EGG_PIPELINE_ID", "unknown")
         try:
             import requests
+
             resp = requests.get(
                 f"{orchestrator_url}/api/v1/anchors/team/{pipeline_id}",
                 timeout=5,
@@ -688,11 +688,10 @@ def cmd_anchor_show(args: argparse.Namespace) -> int:
 
     # Try API for cross-agent reads
     if getattr(args, "agent", None):
-        orchestrator_url = os.environ.get(
-            "EGG_ORCHESTRATOR_URL", "http://egg-orchestrator:9849"
-        )
+        orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://egg-orchestrator:9849")
         try:
             import requests
+
             resp = requests.get(
                 f"{orchestrator_url}/api/v1/anchors/{agent_id}",
                 timeout=5,
@@ -722,7 +721,7 @@ def cmd_anchor_validate(args: argparse.Namespace) -> int:
 
     try:
         from egg_anchor.loader import load_anchor
-        from egg_anchor.validator import validate_anchor, check_size_budget
+        from egg_anchor.validator import check_size_budget, validate_anchor
     except ImportError:
         print("Error: egg_anchor library not available", file=sys.stderr)
         return 1
@@ -906,10 +905,14 @@ def create_parser() -> argparse.ArgumentParser:
     )
     anchor_update_parser.add_argument("--status", help="New status")
     anchor_update_parser.add_argument(
-        "--progress", nargs=2, metavar=("STEP", "STATE"),
-        help="Add/update a progress item (step name and state)"
+        "--progress",
+        nargs=2,
+        metavar=("STEP", "STATE"),
+        help="Add/update a progress item (step name and state)",
     )
-    anchor_update_parser.add_argument("--decision", nargs=2, metavar=("QUESTION", "ANSWER"), help="Add a decision")
+    anchor_update_parser.add_argument(
+        "--decision", nargs=2, metavar=("QUESTION", "ANSWER"), help="Add a decision"
+    )
     anchor_update_parser.add_argument(
         "--key-context", nargs=2, metavar=("LABEL", "VALUE"), help="Add a key context item"
     )
@@ -919,9 +922,7 @@ def create_parser() -> argparse.ArgumentParser:
     anchor_update_parser.set_defaults(func=cmd_anchor_update)
 
     # anchor show
-    anchor_show_parser = anchor_subparsers.add_parser(
-        "show", help="Display an anchor"
-    )
+    anchor_show_parser = anchor_subparsers.add_parser("show", help="Display an anchor")
     anchor_show_parser.add_argument("--agent", help="Agent ID to show (default: own)")
     anchor_show_parser.add_argument("--team", action="store_true", help="Show team anchor")
     anchor_show_parser.add_argument("--json", action="store_true", help="Output as JSON")

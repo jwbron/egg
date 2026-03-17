@@ -86,9 +86,7 @@ def sync_anchor_to_api(
 
     Returns True if sync succeeded, False otherwise.
     """
-    url = orchestrator_url or os.environ.get(
-        "EGG_ORCHESTRATOR_URL", "http://egg-orchestrator:9849"
-    )
+    url = orchestrator_url or os.environ.get("EGG_ORCHESTRATOR_URL", "http://egg-orchestrator:9849")
     endpoint = f"{url}/api/v1/anchors/{anchor.agent_id}"
 
     try:
@@ -101,9 +99,7 @@ def sync_anchor_to_api(
             logger.debug("Synced anchor %s to API", anchor.agent_id)
             return True
         else:
-            logger.warning(
-                "Failed to sync anchor %s: HTTP %d", anchor.agent_id, resp.status_code
-            )
+            logger.warning("Failed to sync anchor %s: HTTP %d", anchor.agent_id, resp.status_code)
             return False
     except requests.RequestException as e:
         logger.warning("Failed to sync anchor %s: %s", anchor.agent_id, e)
