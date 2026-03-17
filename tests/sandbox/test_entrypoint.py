@@ -741,6 +741,19 @@ class TestRestorePrebuiltDeps:
         captured = capsys.readouterr()
         assert "Restored" not in captured.out
 
+    def test_noop_when_repos_dir_missing(self, temp_dir, capsys):
+        """Does nothing if repos_dir doesn't exist."""
+        config = MagicMock()
+        config.repos_dir = temp_dir / "nonexistent-repos"
+        logger = entrypoint.Logger(quiet=False)
+        prebuilt = temp_dir / "prebuilt-deps"
+        prebuilt.mkdir()
+
+        entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=prebuilt)
+
+        captured = capsys.readouterr()
+        assert "does not exist" in captured.out
+
     def test_restores_deps_into_repo(self, temp_dir, capsys):
         """Copies prebuilt deps into the mounted repo directory."""
         # Set up prebuilt deps

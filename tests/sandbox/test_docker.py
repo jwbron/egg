@@ -1,6 +1,7 @@
 """Tests for sandbox/egg_lib/docker.py - Docker image management."""
 
 import hashlib
+import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -251,8 +252,6 @@ class TestGetLatestAgentSdkVersion:
 
     def test_returns_version(self):
         """Returns version from PyPI."""
-        import json
-
         mock_response = MagicMock()
         mock_response.read.return_value = json.dumps(
             {
@@ -266,15 +265,32 @@ class TestGetLatestAgentSdkVersion:
             result = get_latest_agent_sdk_version()
             assert result == "0.1.5"
 
-    def test_returns_none_for_yanked_version(self):
-        """Returns None when the reported version has no release files (yanked)."""
-        import json
-
+    def test_returns_none_for_ghost_version(self):
+        """Returns None when the reported version has no release files (ghost)."""
         mock_response = MagicMock()
         mock_response.read.return_value = json.dumps(
             {
                 "info": {"version": "0.1.49"},
                 "releases": {"0.1.48": [{"filename": "sdk-0.1.48.tar.gz"}], "0.1.49": []},
+            }
+        ).encode()
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=mock_response):
+            result = get_latest_agent_sdk_version()
+            assert result is None
+
+    def test_returns_none_for_yanked_version(self):
+        """Returns None when the reported version has files but they are yanked."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(
+            {
+                "info": {"version": "0.1.49"},
+                "releases": {
+                    "0.1.49": [
+                        {"filename": "sdk-0.1.49.tar.gz", "yanked": True},
+                    ],
+                },
             }
         ).encode()
         mock_response.__enter__ = MagicMock(return_value=mock_response)

@@ -687,6 +687,9 @@ def get_latest_agent_sdk_version() -> str | None:
             # Verify the version actually has release files (not yanked/ghost)
             releases = data.get("releases", {})
             if version in releases and releases[version]:
+                # Check none of the files are yanked (PEP 592)
+                if any(f.get("yanked", False) for f in releases[version]):
+                    return None
                 return version
             # Version reported by info but has no release files — fall back
             return None
