@@ -66,9 +66,9 @@ The user will select an option or type in the auto-added "Other" field.
 
 Handle each response:
 
-- **Other (integer)** → Treat as an issue number. Fetch with `gh issue view` and proceed to Phase 1.5 (Pre-Refine).
+- **Other (integer)** → Treat as an issue number. Fetch with `gh issue view <N> --repo <repo> --json title,body,comments,labels,assignees` and proceed to Phase 1.5 (Pre-Refine).
 - **Other (text)** → Treat as a free-text task description. Proceed to Phase 1.5 (Pre-Refine).
-- **Browse recent issues** → Run `gh issue list --repo <repo> --state open --limit 10 --json number,title` and present the results as a second `AskUserQuestion` with each issue as an option. Then proceed to Phase 1.5 (Pre-Refine).
+- **Browse recent issues** → Run `gh issue list --repo <repo> --state open --limit 10 --json number,title` and present the results as a second `AskUserQuestion` with each issue as an option. Once the user selects an issue, fetch it with `gh issue view <N> --repo <repo> --json title,body,comments,labels,assignees` and use the title+body as the task description. Then proceed to Phase 1.5 (Pre-Refine).
 - **Help me scope the task** → Ask 1–2 follow-up questions about scope and acceptance criteria, then proceed to Phase 1.5 (Pre-Refine).
 
 **Never ask for the repo and the task in separate questions.** If the repo could not be auto-detected, include a repo question in the same `AskUserQuestion` call (multi-question mode).
@@ -117,7 +117,7 @@ If the task is ambiguous or missing key information, present 1–3 targeted ques
 
 ### Step 5: Present summary and confirm (conditional)
 
-**Auto-proceed**: If Step 3 evaluated clarity as "Good" and Step 4 was skipped (no clarification was needed), skip the confirmation dialog and proceed directly to Step 6 → Phase 2. There is no value in prompting the user when nothing was surfaced.
+**Auto-proceed**: If (a) Step 3 evaluated clarity as "Good" and Step 4 was skipped (no clarification was needed), OR (b) Steps 3 and 4 were both skipped because the task came through Phase 1's "Help me scope the task" path, skip the confirmation dialog and proceed directly to Step 6 → Phase 2. There is no value in prompting the user when nothing was surfaced or when scoping was already completed.
 
 **Otherwise**, show a brief pre-refine summary:
 
