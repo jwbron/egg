@@ -15,7 +15,6 @@ Related: issue #1059 — Phase 5 HITL escalation
 
 import sys
 import time
-from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -68,14 +67,14 @@ AGENT_ID = "coder-stuck-001"
 
 def _make_config(**overrides) -> PipelineConfig:
     """Build a PipelineConfig with test-friendly thresholds."""
-    defaults = dict(
-        orchestrator_heartbeat_timeout_seconds=60,
-        orchestrator_error_repeat_threshold=3,
-        orchestrator_message_rate_limit=20,
-        overseer_enabled=True,
-        overseer_max_redirects_before_escalation=2,
-        overseer_poll_interval_seconds=10,
-    )
+    defaults = {
+        "orchestrator_heartbeat_timeout_seconds": 60,
+        "orchestrator_error_repeat_threshold": 3,
+        "orchestrator_message_rate_limit": 20,
+        "overseer_enabled": True,
+        "overseer_max_redirects_before_escalation": 2,
+        "overseer_poll_interval_seconds": 10,
+    }
     defaults.update(overrides)
     return PipelineConfig(**defaults)
 
@@ -203,15 +202,7 @@ class TestHITLDecisionModel:
             issue_number=1059,
         )
 
-        context = (
-            "Pipeline: issue-hitl-1059\n"
-            "Agent: coder (stuck for 600s)\n"
-            "Redirect attempts: 2/2 (exhausted)\n"
-            "Classifier: stuck (high confidence)\n"
-            "Decision maker: escalate_to_hitl\n"
-        )
-
-        decision = pipeline.add_decision(
+        pipeline.add_decision(
             question="Agent requires human intervention",
             options=["Retry", "Abort", "Skip agent"],
             decision_type="choice",
@@ -263,7 +254,7 @@ class TestMaxRedirectsConfiguration:
         redirect_counts: dict[str, int] = {}
 
         # Simulate redirect tracking
-        for i in range(3):
+        for _i in range(3):
             agent_id = "coder-1"
             redirect_counts[agent_id] = redirect_counts.get(agent_id, 0) + 1
 

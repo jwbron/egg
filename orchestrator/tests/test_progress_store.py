@@ -13,9 +13,7 @@ import pytest
 try:
     from progress_store import ProgressEvent, ProgressStore
 except ImportError:
-    pytestmark = pytest.mark.skip(
-        reason="progress_store module not yet available"
-    )
+    pytestmark = pytest.mark.skip(reason="progress_store module not yet available")
     ProgressEvent = None
     ProgressStore = None
 
@@ -313,15 +311,11 @@ class TestMaxRetentionPruning:
         """Pruning one pipeline should not touch another."""
         # Fill up pipeline A past the limit
         for i in range(10):
-            small_store.add_event(
-                _make_event(pipeline_id="issue-100", detail=f"a-{i}")
-            )
+            small_store.add_event(_make_event(pipeline_id="issue-100", detail=f"a-{i}"))
 
         # Pipeline B has fewer events
         for i in range(3):
-            small_store.add_event(
-                _make_event(pipeline_id="issue-200", detail=f"b-{i}")
-            )
+            small_store.add_event(_make_event(pipeline_id="issue-200", detail=f"b-{i}"))
 
         assert len(small_store.get_events("issue-200")) == 3
 
@@ -352,10 +346,7 @@ class TestThreadSafety:
             except Exception as exc:
                 errors.append(exc)
 
-        threads = [
-            threading.Thread(target=add_events, args=(i,))
-            for i in range(num_threads)
-        ]
+        threads = [threading.Thread(target=add_events, args=(i,)) for i in range(num_threads)]
         for t in threads:
             t.start()
         for t in threads:
@@ -419,12 +410,8 @@ class TestMultiplePipelines:
         assert events_200[0].detail == "b"
 
     def test_get_latest_per_agent_is_pipeline_scoped(self, store):
-        store.add_event(
-            _make_event(pipeline_id="issue-100", agent_role="coder", detail="a")
-        )
-        store.add_event(
-            _make_event(pipeline_id="issue-200", agent_role="coder", detail="b")
-        )
+        store.add_event(_make_event(pipeline_id="issue-100", agent_role="coder", detail="a"))
+        store.add_event(_make_event(pipeline_id="issue-200", agent_role="coder", detail="b"))
 
         latest_100 = store.get_latest_per_agent("issue-100")
         latest_200 = store.get_latest_per_agent("issue-200")
@@ -458,19 +445,9 @@ class TestCombinedFilters:
         recent_time = datetime.now(UTC) - timedelta(seconds=5)
         cutoff = datetime.now(UTC) - timedelta(minutes=1)
 
-        store.add_event(
-            _make_event(agent_role="coder", detail="old", timestamp=old_time)
-        )
-        store.add_event(
-            _make_event(
-                agent_role="coder", detail="recent", timestamp=recent_time
-            )
-        )
-        store.add_event(
-            _make_event(
-                agent_role="tester", detail="recent-t", timestamp=recent_time
-            )
-        )
+        store.add_event(_make_event(agent_role="coder", detail="old", timestamp=old_time))
+        store.add_event(_make_event(agent_role="coder", detail="recent", timestamp=recent_time))
+        store.add_event(_make_event(agent_role="tester", detail="recent-t", timestamp=recent_time))
 
         events = store.get_events("issue-100", agent_role="coder", since=cutoff)
         assert len(events) == 1
@@ -482,9 +459,7 @@ class TestCombinedFilters:
         cutoff = datetime.now(UTC) - timedelta(minutes=1)
 
         # Old coder event (filtered by since)
-        store.add_event(
-            _make_event(agent_role="coder", detail="old-c", timestamp=old_time)
-        )
+        store.add_event(_make_event(agent_role="coder", detail="old-c", timestamp=old_time))
         # Recent coder events
         for i in range(5):
             store.add_event(
@@ -495,15 +470,9 @@ class TestCombinedFilters:
                 )
             )
         # Recent tester event (filtered by agent_role)
-        store.add_event(
-            _make_event(
-                agent_role="tester", detail="recent-t", timestamp=recent_time
-            )
-        )
+        store.add_event(_make_event(agent_role="tester", detail="recent-t", timestamp=recent_time))
 
-        events = store.get_events(
-            "issue-100", agent_role="coder", since=cutoff, limit=3
-        )
+        events = store.get_events("issue-100", agent_role="coder", since=cutoff, limit=3)
         assert len(events) == 3
         assert all(e.agent_role == "coder" for e in events)
         assert all(e.timestamp >= cutoff for e in events)

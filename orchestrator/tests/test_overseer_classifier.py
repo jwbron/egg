@@ -109,17 +109,21 @@ class TestClassifyStallStuck:
     @patch(_AGENT_PATCH, new_callable=AsyncMock)
     def test_classify_stall_stuck(self, mock_agent: AsyncMock) -> None:
         mock_agent.return_value = _make_result(
-            json.dumps({
-                "classification": "stuck",
-                "confidence": 0.9,
-                "reasoning": "No progress for 10 minutes",
-            })
+            json.dumps(
+                {
+                    "classification": "stuck",
+                    "confidence": 0.9,
+                    "reasoning": "No progress for 10 minutes",
+                }
+            )
         )
 
-        result = _run(classify_stall(
-            logs=[{"msg": "no output"}],
-            progress=[{"state": "idle"}],
-        ))
+        result = _run(
+            classify_stall(
+                logs=[{"msg": "no output"}],
+                progress=[{"state": "idle"}],
+            )
+        )
 
         assert result["classification"] == "stuck"
         assert result["confidence"] == 0.9
@@ -133,17 +137,21 @@ class TestClassifyStallWorking:
     @patch(_AGENT_PATCH, new_callable=AsyncMock)
     def test_classify_stall_working(self, mock_agent: AsyncMock) -> None:
         mock_agent.return_value = _make_result(
-            json.dumps({
-                "classification": "working",
-                "confidence": 0.85,
-                "reasoning": "Agent is compiling code",
-            })
+            json.dumps(
+                {
+                    "classification": "working",
+                    "confidence": 0.85,
+                    "reasoning": "Agent is compiling code",
+                }
+            )
         )
 
-        result = _run(classify_stall(
-            logs=[{"msg": "compiling..."}],
-            progress=[{"state": "working", "step": "build"}],
-        ))
+        result = _run(
+            classify_stall(
+                logs=[{"msg": "compiling..."}],
+                progress=[{"state": "working", "step": "build"}],
+            )
+        )
 
         assert result["classification"] == "working"
         assert result["confidence"] == 0.85
@@ -161,16 +169,16 @@ class TestClassifyErrorSeverity:
     @patch(_AGENT_PATCH, new_callable=AsyncMock)
     def test_classify_error_severity(self, mock_agent: AsyncMock) -> None:
         mock_agent.return_value = _make_result(
-            json.dumps({
-                "error_type": "oom",
-                "severity": "critical",
-                "recommended_action": "Increase memory limits",
-            })
+            json.dumps(
+                {
+                    "error_type": "oom",
+                    "severity": "critical",
+                    "recommended_action": "Increase memory limits",
+                }
+            )
         )
 
-        result = _run(classify_error(
-            error_context={"msg": "OOM killed", "code": 137}
-        ))
+        result = _run(classify_error(error_context={"msg": "OOM killed", "code": 137}))
 
         assert result["error_type"] == "oom"
         assert result["severity"] == "critical"
@@ -189,21 +197,25 @@ class TestDetectLoopFound:
     @patch(_AGENT_PATCH, new_callable=AsyncMock)
     def test_detect_loop_found(self, mock_agent: AsyncMock) -> None:
         mock_agent.return_value = _make_result(
-            json.dumps({
-                "is_loop": True,
-                "loop_pattern": "edit -> revert -> edit -> revert",
-                "confidence": 0.95,
-            })
+            json.dumps(
+                {
+                    "is_loop": True,
+                    "loop_pattern": "edit -> revert -> edit -> revert",
+                    "confidence": 0.95,
+                }
+            )
         )
 
-        result = _run(detect_loop(
-            recent_actions=[
-                {"action": "edit"},
-                {"action": "revert"},
-                {"action": "edit"},
-                {"action": "revert"},
-            ]
-        ))
+        result = _run(
+            detect_loop(
+                recent_actions=[
+                    {"action": "edit"},
+                    {"action": "revert"},
+                    {"action": "edit"},
+                    {"action": "revert"},
+                ]
+            )
+        )
 
         assert result["is_loop"] is True
         assert result["loop_pattern"] is not None
@@ -217,21 +229,25 @@ class TestDetectLoopNotFound:
     @patch(_AGENT_PATCH, new_callable=AsyncMock)
     def test_detect_loop_not_found(self, mock_agent: AsyncMock) -> None:
         mock_agent.return_value = _make_result(
-            json.dumps({
-                "is_loop": False,
-                "loop_pattern": None,
-                "confidence": 0.9,
-            })
+            json.dumps(
+                {
+                    "is_loop": False,
+                    "loop_pattern": None,
+                    "confidence": 0.9,
+                }
+            )
         )
 
-        result = _run(detect_loop(
-            recent_actions=[
-                {"action": "read"},
-                {"action": "edit"},
-                {"action": "test"},
-                {"action": "commit"},
-            ]
-        ))
+        result = _run(
+            detect_loop(
+                recent_actions=[
+                    {"action": "read"},
+                    {"action": "edit"},
+                    {"action": "test"},
+                    {"action": "commit"},
+                ]
+            )
+        )
 
         assert result["is_loop"] is False
         assert result["loop_pattern"] is None
@@ -249,17 +265,21 @@ class TestCheckAlignmentAligned:
     @patch(_AGENT_PATCH, new_callable=AsyncMock)
     def test_check_alignment_aligned(self, mock_agent: AsyncMock) -> None:
         mock_agent.return_value = _make_result(
-            json.dumps({
-                "aligned": True,
-                "concerns": [],
-                "suggested_redirect": None,
-            })
+            json.dumps(
+                {
+                    "aligned": True,
+                    "concerns": [],
+                    "suggested_redirect": None,
+                }
+            )
         )
 
-        result = _run(check_alignment(
-            activity=[{"action": "edit", "file": "auth/views.py"}],
-            contract={"task": "fix auth bug", "scope": "auth/"},
-        ))
+        result = _run(
+            check_alignment(
+                activity=[{"action": "edit", "file": "auth/views.py"}],
+                contract={"task": "fix auth bug", "scope": "auth/"},
+            )
+        )
 
         assert result["aligned"] is True
         assert result["concerns"] == []
@@ -279,11 +299,13 @@ class TestClassifierCaching:
     def test_classifier_caching(self, mock_agent: AsyncMock) -> None:
         """Same inputs should hit cache; LLM called only once."""
         mock_agent.return_value = _make_result(
-            json.dumps({
-                "classification": "stuck",
-                "confidence": 0.9,
-                "reasoning": "No progress",
-            })
+            json.dumps(
+                {
+                    "classification": "stuck",
+                    "confidence": 0.9,
+                    "reasoning": "No progress",
+                }
+            )
         )
 
         logs = [{"msg": "same logs"}]

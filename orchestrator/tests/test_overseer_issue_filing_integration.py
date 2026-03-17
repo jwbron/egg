@@ -13,12 +13,11 @@ Related: issue #1059 — Phase 5 overseer issue filing
 """
 
 import asyncio
-import json
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -97,10 +96,12 @@ class TestOverseerIssueFilingIntegration:
             '{"classification": "stuck", "confidence": 0.95, "reasoning": "no output"}'
         )
 
-        result = _run(classify_stall(
-            logs=[{"message": "Agent has not produced any output for 10 minutes"}],
-            progress=[],
-        ))
+        result = _run(
+            classify_stall(
+                logs=[{"message": "Agent has not produced any output for 10 minutes"}],
+                progress=[],
+            )
+        )
 
         assert result["classification"] == "stuck"
         assert result["confidence"] == 0.95
@@ -182,12 +183,17 @@ class TestOverseerIssueFilingIntegration:
             "- Escalation reason: Persistent stall after max redirects\n"
         )
 
-        result = subprocess.run(
+        subprocess.run(
             [
-                "gh", "issue", "create",
-                "--title", f"[overseer] Pipeline {PIPELINE_ID}: agent coder stuck",
-                "--body", diagnostic_body,
-                "--label", "overseer-alert",
+                "gh",
+                "issue",
+                "create",
+                "--title",
+                f"[overseer] Pipeline {PIPELINE_ID}: agent coder stuck",
+                "--body",
+                diagnostic_body,
+                "--label",
+                "overseer-alert",
             ],
             capture_output=True,
             text=True,

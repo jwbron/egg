@@ -118,12 +118,14 @@ class TestFileDiagnosticIssueTemplate:
         mock_result.stderr = "not authenticated"
         mock_subprocess.run.return_value = mock_result
 
-        result = _run(file_diagnostic_issue(
-            pipeline_id="issue-42",
-            agent_role="coder",
-            anomaly={"type": "stall", "description": "stuck"},
-            context={"phase": "implement"},
-        ))
+        result = _run(
+            file_diagnostic_issue(
+                pipeline_id="issue-42",
+                agent_role="coder",
+                anomaly={"type": "stall", "description": "stuck"},
+                context={"phase": "implement"},
+            )
+        )
 
         assert result["filed"] is False
         assert result["issue_number"] is None
@@ -137,12 +139,14 @@ class TestFileDiagnosticIssueTemplate:
         mock_result.stdout = "https://github.com/org/repo/issues/456\n"
         mock_subprocess.run.return_value = mock_result
 
-        result = _run(file_diagnostic_issue(
-            pipeline_id="issue-42",
-            agent_role="coder",
-            anomaly={"type": "stall", "description": "stuck"},
-            context={"phase": "implement"},
-        ))
+        result = _run(
+            file_diagnostic_issue(
+                pipeline_id="issue-42",
+                agent_role="coder",
+                anomaly={"type": "stall", "description": "stuck"},
+                context={"phase": "implement"},
+            )
+        )
 
         assert result["filed"] is True
         assert result["issue_number"] == 456
@@ -170,12 +174,14 @@ class TestIssueLabels:
         mock_result.stdout = "https://github.com/org/repo/issues/789\n"
         mock_subprocess.run.return_value = mock_result
 
-        _run(file_diagnostic_issue(
-            pipeline_id="test-1",
-            agent_role="tester",
-            anomaly={"type": "error", "description": "test"},
-            context={},
-        ))
+        _run(
+            file_diagnostic_issue(
+                pipeline_id="test-1",
+                agent_role="tester",
+                anomaly={"type": "error", "description": "test"},
+                context={},
+            )
+        )
 
         call_args = mock_subprocess.run.call_args[0][0]
         # Verify --label flags are in the command

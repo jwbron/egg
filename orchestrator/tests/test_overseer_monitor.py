@@ -7,7 +7,7 @@ hallucination guard, and health summary generation.
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -51,6 +51,7 @@ def _run(coro):
 
 class _MockConfig:
     """Minimal config for testing."""
+
     overseer_poll_interval_seconds = 1
     overseer_max_redirects_before_escalation = 2
     overseer_decision_maker_model = "sonnet"
@@ -60,45 +61,57 @@ class _MockClassifier:
     """Mock classifier that returns predetermined results."""
 
     def __init__(self) -> None:
-        self.classify_stall = AsyncMock(return_value={
-            "classification": "working",
-            "confidence": 0.8,
-            "reasoning": "Agent is making progress",
-        })
-        self.classify_error = AsyncMock(return_value={
-            "error_type": "timeout",
-            "severity": "medium",
-            "recommended_action": "Retry",
-        })
-        self.detect_loop = AsyncMock(return_value={
-            "is_loop": False,
-            "loop_pattern": None,
-            "confidence": 0.9,
-        })
-        self.check_alignment = AsyncMock(return_value={
-            "aligned": True,
-            "concerns": [],
-            "suggested_redirect": None,
-        })
+        self.classify_stall = AsyncMock(
+            return_value={
+                "classification": "working",
+                "confidence": 0.8,
+                "reasoning": "Agent is making progress",
+            }
+        )
+        self.classify_error = AsyncMock(
+            return_value={
+                "error_type": "timeout",
+                "severity": "medium",
+                "recommended_action": "Retry",
+            }
+        )
+        self.detect_loop = AsyncMock(
+            return_value={
+                "is_loop": False,
+                "loop_pattern": None,
+                "confidence": 0.9,
+            }
+        )
+        self.check_alignment = AsyncMock(
+            return_value={
+                "aligned": True,
+                "concerns": [],
+                "suggested_redirect": None,
+            }
+        )
 
 
 class _MockDecisionMaker:
     """Mock decision maker that returns predetermined results."""
 
     def __init__(self) -> None:
-        self.decide_corrective_action = AsyncMock(return_value={
-            "action": "nudge",
-            "message": "Please check your progress.",
-            "priority": "low",
-        })
+        self.decide_corrective_action = AsyncMock(
+            return_value={
+                "action": "nudge",
+                "message": "Please check your progress.",
+                "priority": "low",
+            }
+        )
         self.compose_redirect_message = AsyncMock(
             return_value="Please refocus on your assigned task."
         )
-        self.decide_escalation_level = AsyncMock(return_value={
-            "escalate": True,
-            "level": "hitl",
-            "reasoning": "Redirects exhausted.",
-        })
+        self.decide_escalation_level = AsyncMock(
+            return_value={
+                "escalate": True,
+                "level": "hitl",
+                "reasoning": "Redirects exhausted.",
+            }
+        )
 
 
 def _mock_run_cli_empty():
@@ -218,7 +231,9 @@ class TestHallucinationGuard:
 
         # The decision maker must receive the CLASSIFIER output
         dm_call = decision_maker.decide_corrective_action.call_args
-        classification_arg = dm_call.args[0] if dm_call.args else dm_call.kwargs.get("classification")
+        classification_arg = (
+            dm_call.args[0] if dm_call.args else dm_call.kwargs.get("classification")
+        )
 
         assert classification_arg["classification"] == "stuck"
         assert classification_arg["confidence"] == 0.95

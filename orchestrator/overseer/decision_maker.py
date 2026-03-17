@@ -19,9 +19,7 @@ logger = logging.getLogger(__name__)
 DECISION_MODEL = "sonnet"
 
 
-async def _call_decision_maker(
-    prompt: str, context: str, *, model: str | None = None
-) -> str:
+async def _call_decision_maker(prompt: str, context: str, *, model: str | None = None) -> str:
     """Call the decision-making LLM and return the raw response text.
 
     Uses Sonnet (or configured model) with ``max_turns=1``.
@@ -92,9 +90,7 @@ async def decide_corrective_action(
         '  "message": string describing the action or message to send\n'
         '  "priority": one of "low", "medium", "high", "critical"\n'
     )
-    ctx = json.dumps(
-        {"classification": classification, "context": context}, default=str
-    )
+    ctx = json.dumps({"classification": classification, "context": context}, default=str)
 
     raw = await _call_decision_maker(prompt, ctx, model=model)
     return _parse_json_or_fallback(

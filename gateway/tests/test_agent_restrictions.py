@@ -11,12 +11,11 @@ import pytest
 from agent_restrictions import (
     AGENT_GH_RESTRICTIONS,
     AGENT_PATTERNS,
-    AgentRole,
     OVERSEER_PATTERNS,
+    AgentRole,
     check_agent_gh_operation,
     get_agent_pattern,
 )
-
 
 # ---------------------------------------------------------------------------
 # Overseer file patterns

@@ -156,7 +156,8 @@ class TestSpawnOverseerNoRepoMount:
         create_call = mock_docker_client.create_container.call_args
         mounts = create_call.kwargs.get("mounts", [])
         repo_mounts = [
-            m for m in mounts
+            m
+            for m in mounts
             if isinstance(m, dict) and m.get("Target", "").startswith("/home/egg/repos/")
         ]
         assert len(repo_mounts) == 0, (
@@ -172,10 +173,7 @@ class TestSpawnOverseerNoRepoMount:
 
         create_call = mock_docker_client.create_container.call_args
         mounts = create_call.kwargs.get("mounts", [])
-        git_mounts = [
-            m for m in mounts
-            if isinstance(m, dict) and ".git" in m.get("Target", "")
-        ]
+        git_mounts = [m for m in mounts if isinstance(m, dict) and ".git" in m.get("Target", "")]
         assert len(git_mounts) == 0, (
             f"Overseer must not have .git shadow mounts, found: {git_mounts}"
         )
@@ -327,9 +325,7 @@ class TestNoSpawnWhenDisabled:
 class TestPersistsAcrossPhases:
     """Verify overseer is NOT stopped/restarted on phase transitions."""
 
-    def test_overseer_not_stopped_on_phase_transition(
-        self, spawner, mock_docker_client
-    ):
+    def test_overseer_not_stopped_on_phase_transition(self, spawner, mock_docker_client):
         """Overseer container should persist across phase changes (not stopped/restarted)."""
         # Spawn the overseer at pipeline start
         result = spawner.spawn_overseer_container(
@@ -350,7 +346,8 @@ class TestPersistsAcrossPhases:
             # but should leave the overseer alone. Verify by checking that
             # stop_container was not called for the overseer ID.
             overseer_stop_calls = [
-                c for c in mock_docker_client.stop_container.call_args_list
+                c
+                for c in mock_docker_client.stop_container.call_args_list
                 if c.args and c.args[0] == overseer_container_id
             ]
             assert len(overseer_stop_calls) == 0, (
@@ -404,9 +401,7 @@ class TestPersistsAcrossPhases:
 class TestCleanupOnCompletion:
     """Verify overseer is stopped when pipeline completes."""
 
-    def test_overseer_stopped_on_pipeline_completed(
-        self, spawner, mock_docker_client
-    ):
+    def test_overseer_stopped_on_pipeline_completed(self, spawner, mock_docker_client):
         """PIPELINE_COMPLETED -> overseer stopped."""
         # Spawn overseer
         result = spawner.spawn_overseer_container(
@@ -458,9 +453,7 @@ class TestCleanupOnCompletion:
 class TestCleanupOnFailure:
     """Verify overseer is stopped when pipeline fails."""
 
-    def test_overseer_stopped_on_pipeline_failed(
-        self, spawner, mock_docker_client
-    ):
+    def test_overseer_stopped_on_pipeline_failed(self, spawner, mock_docker_client):
         """PIPELINE_FAILED -> overseer stopped."""
         result = spawner.spawn_overseer_container(
             pipeline_id="issue-900",
@@ -480,9 +473,7 @@ class TestCleanupOnFailure:
         assert stop_result.status == ContainerStatus.EXITED
         mock_docker_client.stop_container.assert_called_with(overseer_id, timeout=10)
 
-    def test_cleanup_pipeline_on_failure(
-        self, spawner, mock_docker_client, mock_gateway_client
-    ):
+    def test_cleanup_pipeline_on_failure(self, spawner, mock_docker_client, mock_gateway_client):
         """All containers (including overseer) are removed on pipeline failure."""
         mock_docker_client.list_containers.return_value = [
             ContainerInfo(
@@ -517,9 +508,7 @@ class TestCleanupOnFailure:
 class TestCleanupOnCancellation:
     """Verify overseer is stopped when pipeline is cancelled."""
 
-    def test_overseer_stopped_on_pipeline_cancelled(
-        self, spawner, mock_docker_client
-    ):
+    def test_overseer_stopped_on_pipeline_cancelled(self, spawner, mock_docker_client):
         """PIPELINE_CANCELLED -> overseer stopped."""
         result = spawner.spawn_overseer_container(
             pipeline_id="issue-1000",

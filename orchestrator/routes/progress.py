@@ -6,7 +6,7 @@ events, enabling stall detection and adaptive health monitoring.
 
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -97,7 +97,7 @@ def emit_progress(pipeline_id: str) -> tuple[Response, int]:
         state=ProgressState(state),
         detail=body.get("detail", ""),
         blocker=body.get("blocker", ""),
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
 
     store = get_progress_store()

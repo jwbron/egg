@@ -90,6 +90,7 @@ class TestOverseerRoleDefinition:
             from egg_contracts.agent_roles import (
                 AgentRole as SharedAgentRole,
             )
+
             self.AGENT_ROLES = AGENT_ROLES
             self.SharedAgentRole = SharedAgentRole
         except (ImportError, AttributeError):
@@ -166,6 +167,7 @@ class TestOverseerAsInfrastructureRole:
         """OVERSEER is recognized as an infrastructure role."""
         try:
             from egg_contracts.agent_roles import is_infrastructure_role
+
             assert is_infrastructure_role("overseer")
         except ImportError:
             pytest.skip("is_infrastructure_role not available")
@@ -225,11 +227,13 @@ class TestPipelineConfigOverseerFields:
 
     def test_backward_compat_old_json(self):
         """Old serialized JSON without overseer fields deserializes correctly."""
-        old_json = json.dumps({
-            "auto_create_pr": True,
-            "parallel_agents": True,
-            "max_review_cycles": 3,
-        })
+        old_json = json.dumps(
+            {
+                "auto_create_pr": True,
+                "parallel_agents": True,
+                "max_review_cycles": 3,
+            }
+        )
         config = PipelineConfig.model_validate_json(old_json)
         assert config.parallel_agents is True
         assert config.max_review_cycles == 3
@@ -274,6 +278,7 @@ class TestOverseerGatewayRestrictions:
         """Import gateway agent restrictions, skip if not available."""
         try:
             from agent_restrictions import AGENT_PATTERNS, OVERSEER_PATTERNS
+
             self.AGENT_PATTERNS = AGENT_PATTERNS
             self.OVERSEER_PATTERNS = OVERSEER_PATTERNS
         except ImportError:
@@ -288,9 +293,9 @@ class TestOverseerGatewayRestrictions:
         patterns = self.OVERSEER_PATTERNS
         blocked = patterns.blocked_patterns
         # Should block major source directories
-        assert any(p in blocked for p in ["**/*", "src/", "orchestrator/", "gateway/", "shared/"]), (
-            f"Expected source dirs to be blocked, got: {blocked}"
-        )
+        assert any(
+            p in blocked for p in ["**/*", "src/", "orchestrator/", "gateway/", "shared/"]
+        ), f"Expected source dirs to be blocked, got: {blocked}"
 
     def test_overseer_limited_allowed_write_patterns(self):
         """OVERSEER has very limited allowed write patterns (oversight/outputs only)."""
@@ -309,6 +314,7 @@ class TestProgressEventType:
     def test_progress_emitted_exists(self):
         """PROGRESS_EMITTED should exist in EventType enum (when implemented)."""
         from events import EventType
+
         if hasattr(EventType, "PROGRESS_EMITTED"):
             assert EventType.PROGRESS_EMITTED.value == "progress.emitted"
         else:

@@ -9,9 +9,8 @@ max retention limit is exceeded.
 import sys
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 # Add shared directory to path
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -19,9 +18,10 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 try:
-    from models import ProgressEvent as _ProgressEventBase, ProgressState
+    from models import ProgressEvent as _ProgressEventBase
+    from models import ProgressState
 except ImportError:
-    from orchestrator.models import ProgressEvent as _ProgressEventBase, ProgressState  # type: ignore[no-redef]
+    from orchestrator.models import ProgressEvent as _ProgressEventBase  # type: ignore[no-redef]
 
 from pydantic import Field
 
@@ -67,7 +67,7 @@ class ProgressStore:
 
         # Ensure event has a timestamp
         if event.timestamp is None:
-            event.timestamp = datetime.now(timezone.utc)
+            event.timestamp = datetime.now(UTC)
 
         with self._lock:
             pipeline_events = self._events.setdefault(event.pipeline_id, [])
@@ -105,11 +105,11 @@ class ProgressStore:
         if since is not None:
             # Normalize since to timezone-aware if needed
             if since.tzinfo is None:
-                since = since.replace(tzinfo=timezone.utc)
+                since = since.replace(tzinfo=UTC)
             events = [
                 e
                 for e in events
-                if (e.timestamp.replace(tzinfo=timezone.utc) if e.timestamp.tzinfo is None else e.timestamp)
+                if (e.timestamp.replace(tzinfo=UTC) if e.timestamp.tzinfo is None else e.timestamp)
                 >= since
             ]
 

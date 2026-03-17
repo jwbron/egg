@@ -1844,9 +1844,7 @@ def create_parser() -> argparse.ArgumentParser:
     gw_perms.set_defaults(func=cmd_gateway_permissions)
 
     # -- progress (structured progress tracking) --
-    progress_parser = subparsers.add_parser(
-        "progress", help="Structured progress event commands"
-    )
+    progress_parser = subparsers.add_parser("progress", help="Structured progress event commands")
     progress_sub = progress_parser.add_subparsers(dest="progress_command")
 
     # progress emit

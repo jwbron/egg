@@ -96,11 +96,13 @@ class TestDecideCorrectiveActionNudge:
     @patch(_AGENT_PATCH, new_callable=AsyncMock)
     def test_decide_corrective_action_nudge(self, mock_agent: AsyncMock) -> None:
         mock_agent.return_value = _make_result(
-            json.dumps({
-                "action": "nudge",
-                "message": "Please check your progress and send a heartbeat.",
-                "priority": "low",
-            })
+            json.dumps(
+                {
+                    "action": "nudge",
+                    "message": "Please check your progress and send a heartbeat.",
+                    "priority": "low",
+                }
+            )
         )
 
         classification = {
@@ -128,11 +130,13 @@ class TestDecideCorrectiveActionEscalate:
     @patch(_AGENT_PATCH, new_callable=AsyncMock)
     def test_decide_corrective_action_escalate(self, mock_agent: AsyncMock) -> None:
         mock_agent.return_value = _make_result(
-            json.dumps({
-                "action": "hitl",
-                "message": "Agent is stuck in a loop and needs human intervention.",
-                "priority": "high",
-            })
+            json.dumps(
+                {
+                    "action": "hitl",
+                    "message": "Agent is stuck in a loop and needs human intervention.",
+                    "priority": "high",
+                }
+            )
         )
 
         classification = {
@@ -171,11 +175,13 @@ class TestComposeRedirectMessage:
             "recent_files": ["db/models.py", "db/migrations/0001.py"],
         }
 
-        result = _run(compose_redirect_message(
-            agent_role="coder",
-            issue="Agent editing database files instead of auth module",
-            context=context,
-        ))
+        result = _run(
+            compose_redirect_message(
+                agent_role="coder",
+                issue="Agent editing database files instead of auth module",
+                context=context,
+            )
+        )
 
         assert isinstance(result, str)
         assert len(result) > 0
@@ -197,11 +203,13 @@ class TestDecideEscalationLevel:
     @patch(_AGENT_PATCH, new_callable=AsyncMock)
     def test_decide_escalation_level(self, mock_agent: AsyncMock) -> None:
         mock_agent.return_value = _make_result(
-            json.dumps({
-                "escalate": True,
-                "level": "hitl",
-                "reasoning": "Two redirects have not resolved the issue.",
-            })
+            json.dumps(
+                {
+                    "escalate": True,
+                    "level": "hitl",
+                    "reasoning": "Two redirects have not resolved the issue.",
+                }
+            )
         )
 
         classification = {
@@ -214,9 +222,7 @@ class TestDecideEscalationLevel:
             {"action": "redirect", "timestamp": 2000, "outcome": "no_change"},
         ]
 
-        result = _run(decide_escalation_level(
-            classification, redirect_history
-        ))
+        result = _run(decide_escalation_level(classification, redirect_history))
 
         assert result["escalate"] is True
         assert result["level"] == "hitl"
@@ -227,11 +233,13 @@ class TestDecideEscalationLevel:
     def test_decide_no_escalation(self, mock_agent: AsyncMock) -> None:
         """When redirects are working, no escalation needed."""
         mock_agent.return_value = _make_result(
-            json.dumps({
-                "escalate": False,
-                "level": "redirect",
-                "reasoning": "Agent responded to last redirect.",
-            })
+            json.dumps(
+                {
+                    "escalate": False,
+                    "level": "redirect",
+                    "reasoning": "Agent responded to last redirect.",
+                }
+            )
         )
 
         classification = {
@@ -243,9 +251,7 @@ class TestDecideEscalationLevel:
             {"action": "redirect", "timestamp": 1000, "outcome": "resolved"},
         ]
 
-        result = _run(decide_escalation_level(
-            classification, redirect_history
-        ))
+        result = _run(decide_escalation_level(classification, redirect_history))
 
         assert result["escalate"] is False
         assert result["level"] == "redirect"

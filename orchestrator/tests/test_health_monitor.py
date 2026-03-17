@@ -523,7 +523,8 @@ class TestAlertManagement:
 
         remaining = monitor.get_active_alerts()
         heartbeat_alerts = [
-            a for a in remaining
+            a
+            for a in remaining
             if a["agent_id"] == AGENT_ID and a.get("alert_type") == "heartbeat_timeout"
         ]
         assert len(heartbeat_alerts) == 0

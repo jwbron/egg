@@ -8,7 +8,6 @@ including validation of required fields, invalid states, and filtering.
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
@@ -57,12 +56,14 @@ class TestEmitProgress:
         """Valid progress event is accepted and stored."""
         resp = client.post(
             "/api/v1/pipelines/issue-100/progress",
-            data=json.dumps({
-                "agent_role": "coder",
-                "step": "running tests",
-                "state": "working",
-                "detail": "pytest suite 3/5",
-            }),
+            data=json.dumps(
+                {
+                    "agent_role": "coder",
+                    "step": "running tests",
+                    "state": "working",
+                    "detail": "pytest suite 3/5",
+                }
+            ),
             content_type="application/json",
         )
         assert resp.status_code == 200
@@ -80,12 +81,14 @@ class TestEmitProgress:
         """Blocked state with blocker field is accepted."""
         resp = client.post(
             "/api/v1/pipelines/issue-100/progress",
-            data=json.dumps({
-                "agent_role": "coder",
-                "step": "waiting for dependency",
-                "state": "blocked",
-                "blocker": "missing npm package",
-            }),
+            data=json.dumps(
+                {
+                    "agent_role": "coder",
+                    "step": "waiting for dependency",
+                    "state": "blocked",
+                    "blocker": "missing npm package",
+                }
+            ),
             content_type="application/json",
         )
         assert resp.status_code == 200
@@ -97,11 +100,13 @@ class TestEmitProgress:
         """Complete state is accepted."""
         resp = client.post(
             "/api/v1/pipelines/issue-100/progress",
-            data=json.dumps({
-                "agent_role": "tester",
-                "step": "all tests passed",
-                "state": "complete",
-            }),
+            data=json.dumps(
+                {
+                    "agent_role": "tester",
+                    "step": "all tests passed",
+                    "state": "complete",
+                }
+            ),
             content_type="application/json",
         )
         assert resp.status_code == 200
@@ -111,11 +116,13 @@ class TestEmitProgress:
         """Invalid state value is rejected."""
         resp = client.post(
             "/api/v1/pipelines/issue-100/progress",
-            data=json.dumps({
-                "agent_role": "coder",
-                "step": "doing stuff",
-                "state": "invalid_state",
-            }),
+            data=json.dumps(
+                {
+                    "agent_role": "coder",
+                    "step": "doing stuff",
+                    "state": "invalid_state",
+                }
+            ),
             content_type="application/json",
         )
         assert resp.status_code == 400
@@ -127,10 +134,12 @@ class TestEmitProgress:
         """Missing agent_role is rejected."""
         resp = client.post(
             "/api/v1/pipelines/issue-100/progress",
-            data=json.dumps({
-                "step": "doing stuff",
-                "state": "working",
-            }),
+            data=json.dumps(
+                {
+                    "step": "doing stuff",
+                    "state": "working",
+                }
+            ),
             content_type="application/json",
         )
         assert resp.status_code == 400
@@ -140,10 +149,12 @@ class TestEmitProgress:
         """Missing step is rejected."""
         resp = client.post(
             "/api/v1/pipelines/issue-100/progress",
-            data=json.dumps({
-                "agent_role": "coder",
-                "state": "working",
-            }),
+            data=json.dumps(
+                {
+                    "agent_role": "coder",
+                    "state": "working",
+                }
+            ),
             content_type="application/json",
         )
         assert resp.status_code == 400
@@ -153,10 +164,12 @@ class TestEmitProgress:
         """Missing state is rejected."""
         resp = client.post(
             "/api/v1/pipelines/issue-100/progress",
-            data=json.dumps({
-                "agent_role": "coder",
-                "step": "doing stuff",
-            }),
+            data=json.dumps(
+                {
+                    "agent_role": "coder",
+                    "step": "doing stuff",
+                }
+            ),
             content_type="application/json",
         )
         assert resp.status_code == 400
@@ -174,11 +187,13 @@ class TestEmitProgress:
         """Only required fields produces a valid event."""
         resp = client.post(
             "/api/v1/pipelines/issue-100/progress",
-            data=json.dumps({
-                "agent_role": "coder",
-                "step": "starting",
-                "state": "working",
-            }),
+            data=json.dumps(
+                {
+                    "agent_role": "coder",
+                    "step": "starting",
+                    "state": "working",
+                }
+            ),
             content_type="application/json",
         )
         assert resp.status_code == 200
@@ -269,9 +284,7 @@ class TestQueryProgress:
             self._emit(client, agent_role="coder", step=f"c-{i}")
         self._emit(client, agent_role="tester", step="t-1")
 
-        resp = client.get(
-            "/api/v1/pipelines/issue-100/progress?agent_role=coder&limit=3"
-        )
+        resp = client.get("/api/v1/pipelines/issue-100/progress?agent_role=coder&limit=3")
         events = resp.get_json()["data"]["events"]
         assert len(events) == 3
         assert all(e["agent_role"] == "coder" for e in events)

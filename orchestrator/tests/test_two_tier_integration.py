@@ -233,10 +233,12 @@ class TestFullEscalationChain:
         )
 
         # Step 1: Classifier classifies the stall
-        classification = _run(classify_stall(
-            logs=[{"msg": "no output for 5 min"}],
-            progress=[{"step": "idle", "pct": 0}],
-        ))
+        classification = _run(
+            classify_stall(
+                logs=[{"msg": "no output for 5 min"}],
+                progress=[{"step": "idle", "pct": 0}],
+            )
+        )
         assert classification["classification"] == "stuck"
         assert classification["confidence"] >= 0.8
         mock_classifier_agent.assert_awaited_once()
@@ -246,10 +248,12 @@ class TestFullEscalationChain:
         assert classifier_call.kwargs.get("model") == "haiku"
 
         # Step 2: Decision maker decides corrective action
-        decision = _run(decide_corrective_action(
-            classification=classification,
-            context={"pipeline_id": PIPELINE_ID, "agent_role": "coder"},
-        ))
+        decision = _run(
+            decide_corrective_action(
+                classification=classification,
+                context={"pipeline_id": PIPELINE_ID, "agent_role": "coder"},
+            )
+        )
         assert decision["action"] == "redirect"
         assert decision["priority"] == "high"
         mock_decision_agent.assert_awaited()
@@ -272,11 +276,13 @@ class TestFullEscalationChain:
             returncode=0,
         )
 
-        message = _run(compose_redirect_message(
-            agent_role="coder",
-            issue="Agent stuck with no progress for 5 minutes",
-            context={"contract_task": "Fix auth bug", "recent_files": ["auth/views.py"]},
-        ))
+        message = _run(
+            compose_redirect_message(
+                agent_role="coder",
+                issue="Agent stuck with no progress for 5 minutes",
+                context={"contract_task": "Fix auth bug", "recent_files": ["auth/views.py"]},
+            )
+        )
 
         assert isinstance(message, str)
         assert len(message) > 10, "Redirect message should be substantive"
@@ -701,9 +707,7 @@ class TestOverseerDisabledFallback:
             assert len(escalations) >= 1, (
                 f"Container exit should escalate (overseer_enabled={overseer_enabled})"
             )
-            assert escalations[0]["type"] == "hitl", (
-                "Container exit should always go to HITL"
-            )
+            assert escalations[0]["type"] == "hitl", "Container exit should always go to HITL"
 
 
 # ---------------------------------------------------------------------------

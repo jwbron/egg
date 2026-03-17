@@ -94,25 +94,17 @@ class OverseerMonitor:
             return await self._classifier.check_alignment(activity, contract)
         return await check_alignment(activity, contract)
 
-    async def _decide_corrective_action(
-        self, classification: dict, context: dict
-    ) -> dict:
+    async def _decide_corrective_action(self, classification: dict, context: dict) -> dict:
         model = getattr(self.config, "overseer_decision_maker_model", "sonnet")
-        if self._decision_maker and hasattr(
-            self._decision_maker, "decide_corrective_action"
-        ):
+        if self._decision_maker and hasattr(self._decision_maker, "decide_corrective_action"):
             return await self._decision_maker.decide_corrective_action(
                 classification, context, model=model
             )
         return await decide_corrective_action(classification, context, model=model)
 
-    async def _compose_redirect_message(
-        self, agent_role: str, issue: str, context: dict
-    ) -> str:
+    async def _compose_redirect_message(self, agent_role: str, issue: str, context: dict) -> str:
         model = getattr(self.config, "overseer_decision_maker_model", "sonnet")
-        if self._decision_maker and hasattr(
-            self._decision_maker, "compose_redirect_message"
-        ):
+        if self._decision_maker and hasattr(self._decision_maker, "compose_redirect_message"):
             return await self._decision_maker.compose_redirect_message(
                 agent_role, issue, context, model=model
             )
@@ -122,15 +114,11 @@ class OverseerMonitor:
         self, classification: dict, redirect_history: list[dict]
     ) -> dict:
         model = getattr(self.config, "overseer_decision_maker_model", "sonnet")
-        if self._decision_maker and hasattr(
-            self._decision_maker, "decide_escalation_level"
-        ):
+        if self._decision_maker and hasattr(self._decision_maker, "decide_escalation_level"):
             return await self._decision_maker.decide_escalation_level(
                 classification, redirect_history, model=model
             )
-        return await decide_escalation_level(
-            classification, redirect_history, model=model
-        )
+        return await decide_escalation_level(classification, redirect_history, model=model)
 
     # -----------------------------------------------------------------
     # Lifecycle
@@ -147,9 +135,7 @@ class OverseerMonitor:
 
         while self._running:
             await self._poll_cycle()
-            poll_interval = getattr(
-                self.config, "overseer_poll_interval_seconds", 30
-            )
+            poll_interval = getattr(self.config, "overseer_poll_interval_seconds", 30)
             await asyncio.sleep(poll_interval)
 
     async def stop(self) -> None:
@@ -237,19 +223,13 @@ class OverseerMonitor:
 
         # Check redirect history for this agent
         history = self._escalation_history.get(agent_role, [])
-        max_redirects = getattr(
-            self.config, "overseer_max_redirects_before_escalation", 2
-        )
+        max_redirects = getattr(self.config, "overseer_max_redirects_before_escalation", 2)
 
-        redirect_count = sum(
-            1 for h in history if h.get("action") == "redirect"
-        )
+        redirect_count = sum(1 for h in history if h.get("action") == "redirect")
 
         if redirect_count >= max_redirects:
             # Too many redirects -- escalate
-            escalation_decision = await self._decide_escalation_level(
-                classification, history
-            )
+            escalation_decision = await self._decide_escalation_level(classification, history)
             decision = {
                 "action": escalation_decision.get("level", "hitl"),
                 "message": escalation_decision.get("reasoning", ""),
@@ -330,9 +310,10 @@ class OverseerMonitor:
         )
         try:
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(), timeout=timeout,
+                proc.communicate(),
+                timeout=timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.wait()
             return -1, "", "timeout"
@@ -342,8 +323,11 @@ class OverseerMonitor:
         """Query progress events from the orchestrator."""
         try:
             rc, stdout, _ = await self._run_cli(
-                "egg-orch", "progress", "query",
-                "--pipeline", self.pipeline_id,
+                "egg-orch",
+                "progress",
+                "query",
+                "--pipeline",
+                self.pipeline_id,
                 "--json",
             )
             if rc == 0 and stdout.strip():
@@ -357,8 +341,11 @@ class OverseerMonitor:
         """Query active health alerts from the orchestrator."""
         try:
             rc, stdout, _ = await self._run_cli(
-                "egg-orch", "health", "alerts",
-                "--pipeline", self.pipeline_id,
+                "egg-orch",
+                "health",
+                "alerts",
+                "--pipeline",
+                self.pipeline_id,
                 "--json",
             )
             if rc == 0 and stdout.strip():
@@ -372,9 +359,13 @@ class OverseerMonitor:
         """Poll for escalation messages directed to the overseer."""
         try:
             rc, stdout, _ = await self._run_cli(
-                "egg-orch", "message", "poll",
-                "--role", "overseer",
-                "--wait", "5",
+                "egg-orch",
+                "message",
+                "poll",
+                "--role",
+                "overseer",
+                "--wait",
+                "5",
                 "--json",
                 timeout=20,
             )
@@ -392,7 +383,9 @@ class OverseerMonitor:
         """Query the current pipeline status."""
         try:
             rc, stdout, _ = await self._run_cli(
-                "egg-orch", "pipeline", "status",
+                "egg-orch",
+                "pipeline",
+                "status",
                 self.pipeline_id,
                 "--json",
             )
@@ -408,10 +401,15 @@ class OverseerMonitor:
         """Send a message to an agent via the orchestrator."""
         try:
             await self._run_cli(
-                "egg-orch", "message", "send",
-                "--to", agent_role,
-                "--subject", "Overseer health check",
-                "--body", message,
+                "egg-orch",
+                "message",
+                "send",
+                "--to",
+                agent_role,
+                "--subject",
+                "Overseer health check",
+                "--body",
+                message,
             )
         except Exception:
             logger.debug("Failed to send message to %s", agent_role, exc_info=True)
@@ -420,23 +418,24 @@ class OverseerMonitor:
         """Create a HITL decision for an agent issue."""
         try:
             await self._run_cli(
-                "egg-orch", "decision", "create",
+                "egg-orch",
+                "decision",
+                "create",
                 "--question",
                 f"Agent {agent_role} issue: {message}",
-                "--options", "Restart agent", "Continue monitoring", "Cancel pipeline",
+                "--options",
+                "Restart agent",
+                "Continue monitoring",
+                "Cancel pipeline",
             )
         except Exception:
-            logger.debug(
-                "Failed to create HITL decision for %s", agent_role, exc_info=True
-            )
+            logger.debug("Failed to create HITL decision for %s", agent_role, exc_info=True)
 
-    async def _send_slack_notification(
-        self, agent_role: str, message: str
-    ) -> None:
+    async def _send_slack_notification(self, agent_role: str, message: str) -> None:
         """Send a Slack notification about an agent issue."""
         try:
-            import pathlib
             import datetime
+            import pathlib
 
             ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
             path = pathlib.Path.home() / "sharing" / "notifications" / f"{ts}-overseer.md"
@@ -467,12 +466,12 @@ class OverseerMonitor:
         for agent_role, history in self._escalation_history.items():
             actions = [h.get("action", "?") for h in history]
             escalation_summary_lines.append(
-                f"- **{agent_role}**: {len(history)} escalation(s) -- "
-                f"actions: {', '.join(actions)}"
+                f"- **{agent_role}**: {len(history)} escalation(s) -- actions: {', '.join(actions)}"
             )
 
         escalation_text = (
-            "\n".join(escalation_summary_lines) if escalation_summary_lines
+            "\n".join(escalation_summary_lines)
+            if escalation_summary_lines
             else "- No escalations during pipeline run"
         )
 
@@ -484,15 +483,15 @@ class OverseerMonitor:
         return f"""## Pipeline Health Summary
 
 **Pipeline**: `{self.pipeline_id}`
-**Monitor cycles**: {metrics['cycle_count']}
-**Total messages sent**: {metrics['total_messages']}
-**LLM calls**: {metrics['total_llm_calls']} (${metrics['total_llm_cost_usd']:.4f})
+**Monitor cycles**: {metrics["cycle_count"]}
+**Total messages sent**: {metrics["total_messages"]}
+**LLM calls**: {metrics["total_llm_calls"]} (${metrics["total_llm_cost_usd"]:.4f})
 
 ### Escalation History
 {escalation_text}
 {self_health_text}
 ### Metrics
-- Avg poll duration: {metrics['avg_poll_duration_seconds']:.2f}s
-- Max poll duration: {metrics['max_poll_duration_seconds']:.2f}s
-- Hourly LLM cost: ${metrics['hourly_llm_cost_usd']:.4f}
+- Avg poll duration: {metrics["avg_poll_duration_seconds"]:.2f}s
+- Max poll duration: {metrics["max_poll_duration_seconds"]:.2f}s
+- Hourly LLM cost: ${metrics["hourly_llm_cost_usd"]:.4f}
 """

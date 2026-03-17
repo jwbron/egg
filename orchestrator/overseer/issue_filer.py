@@ -6,11 +6,9 @@ files them via the ``gh`` CLI.
 
 from __future__ import annotations
 
-import json
 import logging
 import subprocess
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +34,7 @@ def _build_issue_body(
         A markdown-formatted issue body string.
     """
     phase = context.get("phase", "unknown")
-    timestamp = context.get("detected_at", datetime.now(timezone.utc).isoformat())
+    timestamp = context.get("detected_at", datetime.now(UTC).isoformat())
 
     anomaly_type = anomaly.get("type", "unknown")
     anomaly_description = anomaly.get("description", "No description provided")
@@ -136,9 +134,13 @@ async def file_diagnostic_issue(
 
     try:
         cmd = [
-            "gh", "issue", "create",
-            "--title", title,
-            "--body", body,
+            "gh",
+            "issue",
+            "create",
+            "--title",
+            title,
+            "--body",
+            body,
             *label_args,
         ]
         result = subprocess.run(

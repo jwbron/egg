@@ -19,7 +19,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -188,18 +188,20 @@ class HealthMonitor:
             "agent_id": agent_id,
             "reason": f"Container exited unexpectedly (exit code {exit_code})",
             "exit_code": exit_code,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
         with self._lock:
-            self._active_alerts.append({
-                "id": str(uuid.uuid4()),
-                "agent_id": agent_id,
-                "alert_type": "container_exit",
-                "message": escalation["reason"],
-                "severity": "critical",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
+            self._active_alerts.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "agent_id": agent_id,
+                    "alert_type": "container_exit",
+                    "message": escalation["reason"],
+                    "severity": "critical",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
 
         for cb in self._escalation_callbacks:
             try:
@@ -225,9 +227,7 @@ class HealthMonitor:
 
             # Keep only timestamps within the last 60 seconds
             cutoff = now - 60.0
-            agent.message_timestamps = [
-                ts for ts in agent.message_timestamps if ts >= cutoff
-            ]
+            agent.message_timestamps = [ts for ts in agent.message_timestamps if ts >= cutoff]
 
             count = len(agent.message_timestamps)
 
@@ -236,18 +236,20 @@ class HealthMonitor:
                 "agent_id": agent_id,
                 "message_count": count,
                 "rate_limit": rate_limit,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
             with self._lock:
-                self._active_alerts.append({
-                    "id": str(uuid.uuid4()),
-                    "agent_id": agent_id,
-                    "alert_type": "message_rate",
-                    "message": f"Message rate {count}/min exceeds limit {rate_limit}/min",
-                    "severity": "warning",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                })
+                self._active_alerts.append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "agent_id": agent_id,
+                        "alert_type": "message_rate",
+                        "message": f"Message rate {count}/min exceeds limit {rate_limit}/min",
+                        "severity": "warning",
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                )
 
             for cb in self._throttle_callbacks:
                 try:
@@ -285,14 +287,16 @@ class HealthMonitor:
                 actions.append(action)
 
                 with self._lock:
-                    self._active_alerts.append({
-                        "id": str(uuid.uuid4()),
-                        "agent_id": agent.agent_id,
-                        "alert_type": "heartbeat_timeout",
-                        "message": action["reason"],
-                        "severity": "warning",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    })
+                    self._active_alerts.append(
+                        {
+                            "id": str(uuid.uuid4()),
+                            "agent_id": agent.agent_id,
+                            "alert_type": "heartbeat_timeout",
+                            "message": action["reason"],
+                            "severity": "warning",
+                            "timestamp": datetime.now(UTC).isoformat(),
+                        }
+                    )
 
         return actions
 
@@ -325,14 +329,16 @@ class HealthMonitor:
                     actions.append(action)
                     with self._lock:
                         agent.progress_nudge_count += 1
-                        self._active_alerts.append({
-                            "id": str(uuid.uuid4()),
-                            "agent_id": agent.agent_id,
-                            "alert_type": "progress_stall",
-                            "message": action["reason"],
-                            "severity": "warning",
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                        })
+                        self._active_alerts.append(
+                            {
+                                "id": str(uuid.uuid4()),
+                                "agent_id": agent.agent_id,
+                                "alert_type": "progress_stall",
+                                "message": action["reason"],
+                                "severity": "warning",
+                                "timestamp": datetime.now(UTC).isoformat(),
+                            }
+                        )
                 else:
                     # Second stall — escalate
                     action = {
@@ -347,18 +353,20 @@ class HealthMonitor:
                         "type": escalation_type,
                         "agent_id": agent.agent_id,
                         "reason": action["reason"],
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     }
 
                     with self._lock:
-                        self._active_alerts.append({
-                            "id": str(uuid.uuid4()),
-                            "agent_id": agent.agent_id,
-                            "alert_type": "progress_stall_escalated",
-                            "message": action["reason"],
-                            "severity": "critical",
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                        })
+                        self._active_alerts.append(
+                            {
+                                "id": str(uuid.uuid4()),
+                                "agent_id": agent.agent_id,
+                                "alert_type": "progress_stall_escalated",
+                                "message": action["reason"],
+                                "severity": "critical",
+                                "timestamp": datetime.now(UTC).isoformat(),
+                            }
+                        )
 
                     for cb in self._escalation_callbacks:
                         try:
@@ -381,18 +389,20 @@ class HealthMonitor:
             "reason": f"Repeated error ({count}x): {error_msg[:200]}",
             "error_message": error_msg,
             "count": count,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
         with self._lock:
-            self._active_alerts.append({
-                "id": str(uuid.uuid4()),
-                "agent_id": agent_id,
-                "alert_type": "repeated_error",
-                "message": escalation["reason"],
-                "severity": "warning",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
+            self._active_alerts.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "agent_id": agent_id,
+                    "alert_type": "repeated_error",
+                    "message": escalation["reason"],
+                    "severity": "warning",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
 
         for cb in self._escalation_callbacks:
             try:
