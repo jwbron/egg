@@ -43,9 +43,9 @@
         {
           "container_id": "ac2190c6ee6883017d57895e6bc7dc2e820c9bf52fc3676cbee74d8ce78388a5",
           "container_name": "issue-1030-refiner",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-17T18:00:25.162728",
-          "exited_at": null,
+          "exited_at": "2026-03-17T19:21:23.757509",
           "exit_code": null,
           "agent_role": "refiner",
           "session_token": null
@@ -63,9 +63,9 @@
         {
           "container_id": "84454773e56de641fa97c6cc04d96bb481fc2dd067cd78dd78262e8c08140294",
           "container_name": "issue-1030-reviewer_agent_design",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-17T18:00:25.162760",
-          "exited_at": null,
+          "exited_at": "2026-03-17T19:21:23.757509",
           "exit_code": null,
           "agent_role": "reviewer_agent_design",
           "session_token": null
@@ -134,9 +134,9 @@
         {
           "container_id": "3feba8fac256e3082a507d8451591758d2198fdda92056631e7828b449c9cdd3",
           "container_name": "issue-1030-architect",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-17T18:14:00.597266",
-          "exited_at": null,
+          "exited_at": "2026-03-17T19:21:23.757509",
           "exit_code": null,
           "agent_role": "architect",
           "session_token": null
@@ -144,9 +144,9 @@
         {
           "container_id": "ebb1e04f3ed60332f583b793e22ad83018e88598950b4df6dc3a22c669aee454",
           "container_name": "issue-1030-reviewer_plan",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-17T18:14:00.597279",
-          "exited_at": null,
+          "exited_at": "2026-03-17T19:21:23.757509",
           "exit_code": null,
           "agent_role": "reviewer_plan",
           "session_token": null
@@ -164,9 +164,9 @@
         {
           "container_id": "6e77bca30376766d938030715229b51cb9fa275fe3a58deddb46e814eb58c4de",
           "container_name": "issue-1030-risk_analyst",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-17T18:14:00.597291",
-          "exited_at": null,
+          "exited_at": "2026-03-17T19:21:23.757509",
           "exit_code": null,
           "agent_role": "risk_analyst",
           "session_token": null
@@ -408,9 +408,9 @@
     }
   ],
   "created_at": "2026-03-17T17:59:56.261031",
-  "updated_at": "2026-03-17T19:19:24.170394",
+  "updated_at": "2026-03-17T19:21:23.757607",
   "contract_synced": true,
   "network_mode": null,
   "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-03-17T19:16:24.557571722Z Cleaning up on container exit...\n2026-03-17T19:16:24.557587389Z ✓ Cleanup complete\n\n--- tester (exit=137) ---\n\n--- documenter (exit=137) ---\n\n--- reviewer_code (exit=137) ---\n\n--- coder (exit=137) ---",
-  "version": 36
+  "version": 37
 }
