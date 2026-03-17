@@ -280,6 +280,21 @@ class TestGetLatestAgentSdkVersion:
             result = get_latest_agent_sdk_version()
             assert result is None
 
+    def test_returns_none_when_version_absent_from_releases(self):
+        """Returns None when the reported version key is missing from releases dict."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(
+            {
+                "info": {"version": "0.1.50"},
+                "releases": {"0.1.48": [{"filename": "sdk-0.1.48.tar.gz"}]},
+            }
+        ).encode()
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=mock_response):
+            result = get_latest_agent_sdk_version()
+            assert result is None
+
     def test_returns_none_for_yanked_version(self):
         """Returns None when the reported version has files but they are yanked."""
         mock_response = MagicMock()
