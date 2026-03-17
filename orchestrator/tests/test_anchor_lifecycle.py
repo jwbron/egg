@@ -24,22 +24,23 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
 
 
 def _make_anchor_file(anchor_dir, agent_id, role, status="in_progress"):
-    """Create a test anchor JSON file."""
+    """Create a test anchor JSON file with schema-valid data."""
     data = {
         "_meta": {
             "schema_version": "1.0",
+            "created_at": "2026-03-17T00:00:00Z",
             "updated_at": "2026-03-17T00:00:00Z",
             "sequence": 1,
-            "last_message_id": None,
         },
         "agent_id": agent_id,
         "role": role,
-        "team": "issue-1032",
-        "task": "Test task",
+        "team": [],
+        "task": {"id": "task-1", "description": "Test task", "phase": "implement"},
         "status": status,
+        "pipeline_id": "issue-1032",
         "progress": [],
         "decisions": [],
-        "brc_state": {"phase": "working"},
+        "brc_state": {"phase": "working", "acks": [], "nacks": []},
         "key_context": [],
         "errors_encountered": [],
         "files_modified": [],

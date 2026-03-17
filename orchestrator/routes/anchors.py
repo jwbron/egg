@@ -5,12 +5,16 @@ anchor files via Redis for cross-agent access and durable storage.
 """
 
 import json
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from flask import Blueprint, Response, jsonify, request
+
+# Regex for valid agent IDs: alphanumeric, hyphens, underscores only
+_VALID_AGENT_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 # Add parent directory to path for imports
 _parent_path = Path(__file__).parent.parent
@@ -64,15 +68,26 @@ def _anchor_key(pipeline_id: str, agent_id: str) -> str:
     return f"anchor:{pipeline_id}:{agent_id}"
 
 
+def _validate_agent_id(agent_id: str) -> str | None:
+    """Validate agent_id. Returns error message if invalid, None if valid."""
+    if not agent_id or len(agent_id) > 128:
+        return "agent_id must be 1-128 characters"
+    if not _VALID_AGENT_ID_RE.match(agent_id):
+        return "agent_id must contain only alphanumeric characters, hyphens, and underscores"
+    return None
+
+
 def _make_error(message: str, status_code: int = 400) -> tuple[Response, int]:
     return jsonify({"success": False, "message": message}), status_code
 
 
-def _make_success(message: str, data: dict[str, Any] | None = None) -> tuple[Response, int]:
+def _make_success(
+    message: str, data: dict[str, Any] | None = None, status_code: int = 200
+) -> tuple[Response, int]:
     resp: dict[str, Any] = {"success": True, "message": message}
     if data:
         resp["data"] = data
-    return jsonify(resp), 200
+    return jsonify(resp), status_code
 
 
 @anchors_bp.route("/<agent_id>", methods=["POST"])
@@ -82,9 +97,18 @@ def create_or_update_anchor(agent_id: str) -> tuple[Response, int]:
     Stores the anchor in Redis for cross-agent access.
     Validates against JSON Schema on write.
     """
+    agent_id_error = _validate_agent_id(agent_id)
+    if agent_id_error:
+        return _make_error(agent_id_error)
+
     body = request.get_json()
     if not body:
         return _make_error("Missing request body")
+
+    # Validate agent_id consistency between URL and body
+    body_agent_id = body.get("agent_id")
+    if body_agent_id and body_agent_id != agent_id:
+        return _make_error("agent_id in body does not match URL parameter")
 
     # Validate the anchor data
     try:
@@ -104,7 +128,10 @@ def create_or_update_anchor(agent_id: str) -> tuple[Response, int]:
     if r:
         try:
             key = _anchor_key(pipeline_id, agent_id)
-            r.set(key, json.dumps(body))
+            # Check if this is a new anchor or an update
+            is_new = not r.exists(key)
+            # Set with a default 24h TTL, refreshed on each write
+            r.set(key, json.dumps(body), ex=24 * 3600)
             logger.info(
                 "Anchor stored",
                 agent_id=agent_id,
@@ -116,13 +143,18 @@ def create_or_update_anchor(agent_id: str) -> tuple[Response, int]:
     else:
         return _make_error("Redis not available", 503)
 
-    return _make_success("Anchor stored", data={"agent_id": agent_id})
+    status_code = 201 if is_new else 200
+    return _make_success("Anchor stored", data={"agent_id": agent_id}, status_code=status_code)
 
 
 @anchors_bp.route("/<agent_id>", methods=["GET"])
 def get_anchor(agent_id: str) -> tuple[Response, int]:
     """Retrieve an agent's anchor from Redis."""
-    pipeline_id = request.args.get("pipeline_id") or _get_pipeline_id_for_agent(agent_id)
+    agent_id_error = _validate_agent_id(agent_id)
+    if agent_id_error:
+        return _make_error(agent_id_error)
+
+    pipeline_id = request.args.get("pipeline_id")
 
     if not pipeline_id:
         return _make_error("Could not determine pipeline_id", 400)
@@ -145,7 +177,11 @@ def get_anchor(agent_id: str) -> tuple[Response, int]:
 @anchors_bp.route("/<agent_id>", methods=["DELETE"])
 def delete_anchor(agent_id: str) -> tuple[Response, int]:
     """Delete an agent's anchor from Redis."""
-    pipeline_id = request.args.get("pipeline_id") or _get_pipeline_id_for_agent(agent_id)
+    agent_id_error = _validate_agent_id(agent_id)
+    if agent_id_error:
+        return _make_error(agent_id_error)
+
+    pipeline_id = request.args.get("pipeline_id")
 
     if not pipeline_id:
         return _make_error("Could not determine pipeline_id", 400)
@@ -211,10 +247,9 @@ def get_team_anchor(pipeline_id: str) -> tuple[Response, int]:
                 }
             )
 
-            # Collect decisions
+            # Collect decisions (copy to avoid mutating deserialized data)
             for d in anchor.get("decisions", []):
-                d["from_agent"] = agent_id
-                all_decisions.append(d)
+                all_decisions.append({**d, "from_agent": agent_id})
 
             # BRC summary
             brc = anchor.get("brc_state", {})
@@ -280,19 +315,3 @@ def gc_anchors(pipeline_id: str) -> tuple[Response, int]:
 
     except Exception as e:
         return _make_error(f"GC failed: {e}", 500)
-
-
-def _get_pipeline_id_for_agent(agent_id: str) -> str | None:
-    """Try to determine pipeline_id by scanning Redis for an anchor matching agent_id."""
-    r = _get_redis()
-    if not r:
-        return None
-    try:
-        for key in r.scan_iter("anchor:*"):
-            key_str = key if isinstance(key, str) else key.decode()
-            parts = key_str.split(":")
-            if len(parts) == 3 and parts[2] == agent_id:
-                return parts[1]
-    except Exception:
-        pass
-    return None

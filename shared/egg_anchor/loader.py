@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 import tempfile
 from pathlib import Path
 
@@ -15,9 +16,21 @@ logger = logging.getLogger(__name__)
 # Default anchor directory relative to repo root
 ANCHOR_DIR = ".egg-state/agent-anchors"
 
+# Regex for valid agent IDs: alphanumeric, hyphens, underscores only
+_VALID_AGENT_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _validate_agent_id(agent_id: str) -> None:
+    """Validate agent_id to prevent path traversal and key injection."""
+    if not agent_id or not _VALID_AGENT_ID_RE.match(agent_id):
+        raise ValueError(
+            f"Invalid agent_id '{agent_id}': must contain only alphanumeric characters, hyphens, and underscores"
+        )
+
 
 def _anchor_path(agent_id: str, base_dir: str | None = None) -> Path:
     """Get the file path for an agent's anchor file."""
+    _validate_agent_id(agent_id)
     if base_dir:
         return Path(base_dir) / ANCHOR_DIR / f"{agent_id}.json"
     repo_path = os.environ.get("EGG_REPO_PATH", ".")
@@ -35,7 +48,7 @@ def load_anchor(agent_id: str, base_dir: str | None = None) -> AgentAnchor | Non
     try:
         data = json.loads(path.read_text())
         return AgentAnchor.from_dict(data)
-    except (json.JSONDecodeError, Exception) as e:
+    except (json.JSONDecodeError, ValueError) as e:
         logger.error("Failed to load anchor %s: %s", agent_id, e)
         return None
 

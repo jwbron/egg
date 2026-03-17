@@ -345,6 +345,7 @@ class ContainerSpawner:
             # wrappers require EGG_SESSION_TOKEN, and the gateway enforces
             # local-mode restrictions (push blocking) at the session level.
             session_token = None
+            agent_anchor_id = f"{agent_role.value}-{container_name[:8]}"
             try:
                 session_info = self.gateway.register_session(
                     container_id=container_name,
@@ -356,6 +357,7 @@ class ContainerSpawner:
                     phase=phase,
                     pipeline_id=pipeline_id,
                     agent_role=agent_role.value,
+                    agent_anchor_id=agent_anchor_id,
                     issue_number=issue_number,
                     claude_code_version=os.environ.get("CLAUDE_CODE_VERSION"),
                     branch=branch,
@@ -400,7 +402,7 @@ class ContainerSpawner:
             # Set agent anchor ID for post-compaction recovery.
             # Format: {role}-{short_container_id} where short_container_id is first 8 chars.
             # This ID is used by the gateway to scope anchor file writes.
-            spawner_env["AGENT_ANCHOR_ID"] = f"{agent_role.value}-{container_name[:8]}"
+            spawner_env["AGENT_ANCHOR_ID"] = agent_anchor_id
 
             # Caller's extra_env overrides spawner defaults
             if extra_env:

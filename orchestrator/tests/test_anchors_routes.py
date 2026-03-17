@@ -65,6 +65,9 @@ def mock_redis():
             return 1
         return 0
 
+    def mock_exists(key):
+        return key in store
+
     def mock_scan_iter(pattern):
         import fnmatch
 
@@ -75,6 +78,7 @@ def mock_redis():
 
     mock.set = MagicMock(side_effect=mock_set)
     mock.get = MagicMock(side_effect=mock_get)
+    mock.exists = MagicMock(side_effect=mock_exists)
     mock.delete = MagicMock(side_effect=mock_delete)
     mock.scan_iter = MagicMock(side_effect=mock_scan_iter)
     mock.expire = MagicMock(side_effect=mock_expire)
@@ -134,6 +138,54 @@ class TestCreateAnchor:
         )
         assert response.status_code == 400
 
+    def test_create_invalid_agent_id_returns_400(self, client):
+        """POST with path-traversal agent_id returns 400."""
+        data = _make_valid_anchor_data()
+        response = client.post(
+            "/api/v1/anchors/../../etc/passwd",
+            data=json.dumps(data),
+            content_type="application/json",
+        )
+        assert response.status_code in (400, 404)
+
+    def test_create_body_agent_id_mismatch_returns_400(self, client):
+        """POST with mismatched body agent_id returns 400."""
+        data = _make_valid_anchor_data("different-agent", "coder")
+        response = client.post(
+            "/api/v1/anchors/coder-abc12345",
+            data=json.dumps(data),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        body = response.get_json()
+        assert "does not match" in body["message"]
+
+    def test_create_returns_201_for_new(self, client):
+        """POST returns 201 for a new anchor."""
+        data = _make_valid_anchor_data()
+        response = client.post(
+            "/api/v1/anchors/coder-abc12345",
+            data=json.dumps(data),
+            content_type="application/json",
+        )
+        assert response.status_code == 201
+
+    def test_update_returns_200(self, client):
+        """POST returns 200 for an update to an existing anchor."""
+        data = _make_valid_anchor_data()
+        client.post(
+            "/api/v1/anchors/coder-abc12345",
+            data=json.dumps(data),
+            content_type="application/json",
+        )
+        data["_meta"]["sequence"] = 2
+        response = client.post(
+            "/api/v1/anchors/coder-abc12345",
+            data=json.dumps(data),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+
 
 class TestGetAnchor:
     """Tests for GET /api/v1/anchors/{agent_id}."""
@@ -155,6 +207,11 @@ class TestGetAnchor:
         """GET for nonexistent anchor returns 404."""
         response = client.get("/api/v1/anchors/nonexistent-agent?pipeline_id=issue-1032")
         assert response.status_code == 404
+
+    def test_get_without_pipeline_id_returns_400(self, client):
+        """GET without pipeline_id returns 400."""
+        response = client.get("/api/v1/anchors/coder-abc12345")
+        assert response.status_code == 400
 
 
 class TestDeleteAnchor:

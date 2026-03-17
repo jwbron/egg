@@ -100,6 +100,7 @@ try:
         OperationType,
         PipelinePhase,
         check_agent_restrictions,
+        check_anchor_write_permission,
         check_file_restrictions,
         check_phase_file_restrictions,
         filter_operation,
@@ -170,6 +171,7 @@ except ImportError:
         OperationType,
         PipelinePhase,
         check_agent_restrictions,
+        check_anchor_write_permission,
         check_file_restrictions,
         check_phase_file_restrictions,
         filter_operation,
@@ -879,6 +881,38 @@ def git_push() -> tuple[Response, int] | Response:
                     role=session_role,
                     blocked_files=agent_result.blocked_files,
                     restriction_message=agent_result.message,
+                )
+
+    # SECURITY: Check anchor file write scoping.
+    # Agents can only write to their own anchor file (.egg-state/agent-anchors/<id>.json).
+    # The agent_anchor_id is set via the AGENT_ANCHOR_ID env var in the container.
+    if changed_files and not is_infrastructure_push:
+        session_anchor_id = None
+        if hasattr(g, "session") and g.session:
+            session_anchor_id = getattr(g.session, "agent_anchor_id", None)
+        for changed_file in changed_files:
+            anchor_result = check_anchor_write_permission(changed_file, session_anchor_id)
+            if not anchor_result.allowed:
+                audit_log(
+                    "push_denied_anchor_write",
+                    "git_push",
+                    success=False,
+                    details={
+                        "repo": repo,
+                        "branch": branch,
+                        "agent_anchor_id": session_anchor_id,
+                        "blocked_files": anchor_result.blocked_files,
+                        "blocked_reason": anchor_result.blocked_reason,
+                    },
+                )
+                return make_error(
+                    f"Push denied: {anchor_result.message}",
+                    status_code=403,
+                    details={
+                        "agent_anchor_id": session_anchor_id,
+                        "blocked_files": anchor_result.blocked_files,
+                        "blocked_reason": anchor_result.blocked_reason,
+                    },
                 )
 
     # SECURITY: Check phase-based file restrictions for local mode sessions.
@@ -3616,6 +3650,7 @@ def session_create() -> tuple[Response, int] | Response:
     issue_number = data.get("issue_number")  # Optional GitHub issue number
     pr_number = data.get("pr_number")  # Optional GitHub PR number
     agent_role = data.get("agent_role")  # Optional agent role
+    agent_anchor_id = data.get("agent_anchor_id")  # Optional agent anchor ID
     claude_code_version = data.get("claude_code_version")  # Optional Claude Code version
     branch = data.get("branch")  # Optional git branch for non-pushing sessions
 
@@ -3665,6 +3700,19 @@ def session_create() -> tuple[Response, int] | Response:
             return make_error("Invalid agent_role: must be a string")
         if len(agent_role) > 64:
             return make_error("Invalid agent_role: must be 64 characters or fewer")
+
+    # Validate agent_anchor_id if provided
+    if agent_anchor_id is not None:
+        if not isinstance(agent_anchor_id, str):
+            return make_error("Invalid agent_anchor_id: must be a string")
+        if len(agent_anchor_id) > 128:
+            return make_error("Invalid agent_anchor_id: must be 128 characters or fewer")
+        import re
+
+        if not re.match(r"^[a-zA-Z0-9_-]+$", agent_anchor_id):
+            return make_error(
+                "Invalid agent_anchor_id: must contain only alphanumeric characters, hyphens, and underscores"
+            )
 
     # Validate claude_code_version if provided
     if claude_code_version is not None:
@@ -3856,6 +3904,7 @@ def session_create() -> tuple[Response, int] | Response:
         issue_number=issue_number,
         pr_number=pr_number,
         agent_role=agent_role,
+        agent_anchor_id=agent_anchor_id,
         claude_code_version=claude_code_version,
         branch=branch,
     )

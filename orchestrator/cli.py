@@ -689,11 +689,19 @@ def cmd_anchor_show(args: argparse.Namespace) -> int:
     # Try API for cross-agent reads
     if getattr(args, "agent", None):
         orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://egg-orchestrator:9849")
+        pipeline_id = os.environ.get("EGG_PIPELINE_ID")
+        if not pipeline_id:
+            print(
+                "Error: EGG_PIPELINE_ID not set, required for cross-agent anchor reads",
+                file=sys.stderr,
+            )
+            return 1
         try:
             import requests
 
             resp = requests.get(
                 f"{orchestrator_url}/api/v1/anchors/{agent_id}",
+                params={"pipeline_id": pipeline_id},
                 timeout=5,
             )
             if resp.status_code == 200:
