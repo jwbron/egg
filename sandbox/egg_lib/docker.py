@@ -664,12 +664,39 @@ def get_installed_agent_sdk_version() -> str | None:
         return None
 
 
+def _has_installable_files(files: list[dict[str, Any]]) -> bool:
+    """Check if a PyPI release has files installable on Linux.
+
+    Returns True if there is at least one non-yanked file that is either
+    a source distribution (.tar.gz/.zip) or a Linux-compatible wheel
+    (manylinux/musllinux/linux or platform-agnostic ``any``).
+    """
+    for f in files:
+        if f.get("yanked", False):
+            continue
+        name = f.get("filename", "")
+        # Source distributions are always installable
+        if name.endswith((".tar.gz", ".zip")):
+            return True
+        # Wheels: check platform tag
+        if name.endswith(".whl"):
+            # Platform tag is the last component before .whl
+            platform_tag = name.rsplit("-", 1)[-1]  # e.g. "manylinux_2_17_x86_64.whl"
+            # Platform-agnostic wheels (e.g. py3-none-any.whl)
+            if platform_tag == "any.whl":
+                return True
+            # Linux wheels
+            if "linux" in platform_tag:
+                return True
+    return False
+
+
 @cache
 def get_latest_agent_sdk_version() -> str | None:
     """Get the latest claude-agent-sdk version from PyPI.
 
-    Validates the version actually exists in the release list to guard
-    against yanked versions or transient PyPI API inconsistencies.
+    Validates the version actually has installable files for Linux,
+    falling back to the newest version that does.
 
     Returns:
         Version string (e.g., "0.1.5") or None if check fails
@@ -684,14 +711,31 @@ def get_latest_agent_sdk_version() -> str | None:
             version: str | None = data.get("info", {}).get("version")
             if not version:
                 return None
-            # Verify the version actually has release files (not yanked/ghost)
+            # Verify the version has installable files for our platform.
+            # PyPI info.version can advertise a version that only has
+            # platform-specific wheels (e.g., macOS-only), which breaks
+            # pip install on Linux. We require either a sdist (.tar.gz)
+            # or a Linux-compatible wheel.
             releases = data.get("releases", {})
-            if version in releases and releases[version]:
-                # Check none of the files are yanked (PEP 592)
-                if any(f.get("yanked", False) for f in releases[version]):
-                    return None
+            if version in releases and _has_installable_files(releases[version]):
                 return version
-            # Version reported by info but has no release files — fall back
+            # Version not installable — walk backwards through releases
+            # to find the newest version that is.
+            from packaging.version import InvalidVersion, Version
+
+            candidates: list[tuple[Version, list[dict[str, Any]]]] = []
+            for ver_str, files in releases.items():
+                if ver_str == version:
+                    continue
+                try:
+                    v = Version(ver_str)
+                    if not v.is_prerelease:
+                        candidates.append((v, files))
+                except InvalidVersion:
+                    continue
+            for ver, files in sorted(candidates, reverse=True):
+                if _has_installable_files(files):
+                    return str(ver)
             return None
     except Exception:
         return None
