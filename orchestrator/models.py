@@ -337,9 +337,22 @@ class PipelineConfig(BaseModel):
     @classmethod
     def validate_start_phase(cls, v: str | None) -> str | None:
         if v is not None:
-            valid = {p.value for p in PipelinePhase}
+            valid = {"plan", "implement"}
             if v not in valid:
                 raise ValueError(f"Invalid start_phase: {v!r}. Must be one of {sorted(valid)}")
+        return v
+
+    @field_validator("implement_roles")
+    @classmethod
+    def validate_implement_roles(cls, v: list[str] | None) -> list[str] | None:
+        if v is not None:
+            valid = {r.value for r in AgentRole}
+            invalid = [name for name in v if name not in valid]
+            if invalid:
+                raise ValueError(
+                    f"Invalid role names in implement_roles: {invalid}. "
+                    f"Valid roles: {sorted(valid)}"
+                )
         return v
 
     @field_validator("concurrent_phases")

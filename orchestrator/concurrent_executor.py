@@ -71,11 +71,13 @@ class ConcurrentPhaseExecutor:
         spawn_fn: SpawnFn,
         max_concurrent: int = 6,
         review_graph: ReviewGraph | None = None,
+        roles: list[AgentRole] | None = None,
     ) -> None:
         self.pipeline = pipeline
         self.spawn_fn = spawn_fn
         self.max_concurrent = max_concurrent
         self._review_graph = review_graph
+        self._roles_override = roles
         self._failure_times: list[datetime] = []
         self._lock = threading.Lock()
 
@@ -90,9 +92,13 @@ class ConcurrentPhaseExecutor:
     def get_agent_roles(self) -> list[AgentRole]:
         """Get the agent roles for concurrent execution.
 
-        Returns roles appropriate for the pipeline's current phase,
-        including both primary and reviewer roles.
+        Returns the roles override if provided, otherwise returns roles
+        appropriate for the pipeline's current phase, including both
+        primary and reviewer roles.
         """
+        if self._roles_override is not None:
+            return list(self._roles_override)
+
         from egg_contracts.agent_roles import get_roles_for_phase
 
         phase = self.pipeline.current_phase.value

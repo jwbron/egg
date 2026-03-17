@@ -218,6 +218,58 @@ class TestSpawnCreatesTracker:
             )
 
 
+class TestRolesOverride:
+    """Test that the roles override is respected by the executor."""
+
+    def test_get_agent_roles_with_override(self):
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        override = [AgentRole.CODER, AgentRole.REVIEWER_CODE]
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock(), roles=override)
+
+        roles = executor.get_agent_roles()
+        assert roles == [AgentRole.CODER, AgentRole.REVIEWER_CODE]
+
+    def test_get_agent_roles_without_override_uses_defaults(self):
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        pipeline = _make_pipeline()
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+        roles = executor.get_agent_roles()
+        # Without override, should return all default implement roles
+        assert len(roles) > 2
+
+    def test_spawn_all_with_roles_override_only_spawns_overridden_roles(self):
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock()
+        mock_spawn.return_value = MagicMock(container_id="test-container")
+
+        override = [AgentRole.CODER, AgentRole.REVIEWER_CODE]
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn, roles=override)
+
+        with (
+            patch("concurrent_executor.create_peer_consensus_tracker") as mock_tracker,
+            patch("concurrent_executor.emit_event"),
+        ):
+            mock_tracker_instance = MagicMock()
+            mock_tracker.return_value = mock_tracker_instance
+
+            executor.spawn_all()
+
+            # Only 2 agents should be registered (coder + reviewer_code)
+            assert mock_tracker_instance.register_agent.call_count == 2
+            registered_roles = [
+                call.args[0] for call in mock_tracker_instance.register_agent.call_args_list
+            ]
+            assert set(registered_roles) == {"coder", "reviewer_code"}
+
+
 class TestReviewGraphIntegration:
     """Test that the review graph is properly integrated."""
 

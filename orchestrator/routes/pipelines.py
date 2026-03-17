@@ -3799,6 +3799,7 @@ def _run_concurrent_phase(
         spawn_fn=spawn_fn,
         max_concurrent=max_concurrent,
         review_graph=filtered_graph,
+        roles=roles,
     )
 
     # Spawn all agents with their prompts.
