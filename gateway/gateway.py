@@ -3707,8 +3707,6 @@ def session_create() -> tuple[Response, int] | Response:
             return make_error("Invalid agent_anchor_id: must be a string")
         if len(agent_anchor_id) > 128:
             return make_error("Invalid agent_anchor_id: must be 128 characters or fewer")
-        import re
-
         if not re.match(r"^[a-zA-Z0-9_-]+$", agent_anchor_id):
             return make_error(
                 "Invalid agent_anchor_id: must contain only alphanumeric characters, hyphens, and underscores"

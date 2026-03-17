@@ -22,7 +22,9 @@ _VALID_AGENT_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 def _validate_agent_id(agent_id: str) -> None:
     """Validate agent_id to prevent path traversal and key injection."""
-    if not agent_id or not _VALID_AGENT_ID_RE.match(agent_id):
+    if not agent_id or len(agent_id) > 128:
+        raise ValueError(f"Invalid agent_id '{agent_id}': must be 1-128 characters")
+    if not _VALID_AGENT_ID_RE.match(agent_id):
         raise ValueError(
             f"Invalid agent_id '{agent_id}': must contain only alphanumeric characters, hyphens, and underscores"
         )

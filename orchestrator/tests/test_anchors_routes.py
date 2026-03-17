@@ -233,6 +233,11 @@ class TestDeleteAnchor:
         response = client.delete("/api/v1/anchors/nonexistent-agent?pipeline_id=issue-1032")
         assert response.status_code == 404
 
+    def test_delete_without_pipeline_id_returns_400(self, client):
+        """DELETE without pipeline_id returns 400."""
+        response = client.delete("/api/v1/anchors/coder-abc12345")
+        assert response.status_code == 400
+
 
 class TestTeamAnchor:
     """Tests for GET /api/v1/anchors/team/{pipeline_id}."""
