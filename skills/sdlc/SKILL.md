@@ -48,7 +48,7 @@ If the user provided arguments after `/sdlc`, parse them:
 | `/sdlc --repo jwbron/egg 1059` | Repo override + issue number |
 | `/sdlc --issue 1059` | Issue number (legacy flag, same as bare integer) |
 
-When an issue number is provided, fetch it immediately with `gh issue view <N> --repo <repo> --json title,body` and use the title+body as the task description. Proceed directly to Phase 1.5 (Pre-Refine) — no questions needed.
+When an issue number is provided, fetch it immediately with `gh issue view <N> --repo <repo> --json title,body,comments,labels,assignees` and use the title+body as the task description. Proceed directly to Phase 1.5 (Pre-Refine) — no questions needed. Retain the full response (including comments, labels, and assignees) for use in Phase 1.5.
 
 When a free-text description is provided and the repo was auto-detected, proceed directly to Phase 1.5 (Pre-Refine).
 
@@ -75,15 +75,13 @@ Handle each response:
 
 ## Phase 1.5 — Pre-Refine
 
+> **Why "1.5"?** Phases 2–5 are referenced throughout this document, the orchestrator, and external docs. Renumbering them would cascade across many files for no functional benefit. "1.5" signals that this phase was inserted between Seed and Submit without breaking existing phase references.
+
 A quick local triage pass to ensure the task description is clear and complete before submitting to the remote refiner. This is NOT a full code analysis (the remote refiner handles that) — it's a lightweight check focused on task clarity, scope, and acceptance criteria.
 
-### Step 1: Fetch issue context (if available)
+### Step 1: Review issue context (if available)
 
-If an issue number was provided, fetch the full issue details:
-
-```bash
-gh issue view <N> --repo <repo> --json title,body,comments,labels,assignees
-```
+If an issue number was provided, use the data already fetched in Phase 1 (which includes `title,body,comments,labels,assignees`). Do **not** re-fetch the issue.
 
 Note any linked PRs or referenced issues mentioned in the body or comments — these provide useful context for the refiner.
 
@@ -98,6 +96,8 @@ Examples:
 
 ### Step 3: Evaluate task clarity
 
+**Skip this step** if the task came through Phase 1's "Help me scope the task" path — scope and clarity were already evaluated there.
+
 Check the task description for:
 
 - **Clear problem statement** — Is it clear what's wrong or what's needed?
@@ -107,17 +107,19 @@ Check the task description for:
 
 ### Step 4: Ask clarifying questions (if needed)
 
+**Skip this step** if the task came through Phase 1's "Help me scope the task" path, or if the task is already well-defined with clear goals and scope.
+
 If the task is ambiguous or missing key information, present 1–3 targeted questions via a single `AskUserQuestion` call. Examples:
 
 - "The issue mentions 'improve performance' — what specific metric or threshold?"
 - "Should this change be backwards-compatible with the existing API?"
 - "The issue references both X and Y — should both be addressed in this pipeline?"
 
-**Skip this step entirely** if the task is already well-defined with clear goals and scope.
+### Step 5: Present summary and confirm (conditional)
 
-### Step 5: Present summary and confirm
+**Auto-proceed**: If Step 3 evaluated clarity as "Good" and Step 4 was skipped (no clarification was needed), skip the confirmation dialog and proceed directly to Step 6 → Phase 2. There is no value in prompting the user when nothing was surfaced.
 
-Show a brief pre-refine summary:
+**Otherwise**, show a brief pre-refine summary:
 
 ```
 ### Pre-Refine Summary
@@ -137,13 +139,13 @@ Then use `AskUserQuestion` to confirm:
   - **"Skip pre-refine"** — description: "Proceed directly with the original description unchanged"
 
 Handle each response:
-- **Submit** → Proceed to Phase 2 (Submit) with the enriched description.
-- **Add more context** → Collect the user's additional context via a follow-up question, append it to the description, and proceed to Phase 2.
-- **Skip pre-refine** → Proceed to Phase 2 with the original description unchanged.
+- **Submit** → Proceed to Step 6, then Phase 2 (Submit) with the enriched description.
+- **Add more context** → Collect the user's additional context via a follow-up question, then proceed to Step 6.
+- **Skip pre-refine** → Proceed to Phase 2 with the original description unchanged (skip Step 6).
 
-### Step 6: Enrich description
+### Step 6: Enrich description and transition to Phase 2
 
-If clarifications were collected in Steps 4 or 5, append them to the task description as an `## Additional Context` section before submission. This gives the remote refiner the benefit of the user's answers without requiring another HITL round.
+This is the single exit point from Phase 1.5 (except for "Skip pre-refine" which bypasses directly to Phase 2). If clarifications were collected in Steps 4 or 5, append them to the task description as an `## Additional Context` section before submission. This gives the remote refiner the benefit of the user's answers without requiring another HITL round.
 
 ```
 <original task description>
@@ -153,7 +155,7 @@ If clarifications were collected in Steps 4 or 5, append them to the task descri
 <clarifications and additional context collected during pre-refine>
 ```
 
-If no clarifications were needed (task was already clear), pass the description through unchanged.
+If no clarifications were needed (task was already clear), pass the description through unchanged. Then proceed to Phase 2.
 
 ## Phase 2 — Submit
 
