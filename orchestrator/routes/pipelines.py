@@ -4005,7 +4005,7 @@ def _run_concurrent_phase(
                                 _current_pip.error = None
                                 store.save_pipeline(_current_pip)
                 except Exception as recovery_err:
-                    logger.debug(
+                    logger.warning(
                         "External FAILED recovery check failed",
                         pipeline_id=pipeline_id,
                         error=str(recovery_err),
