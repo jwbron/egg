@@ -5189,7 +5189,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # Start a background polling thread for time-based tripwires
             health_monitor_timer = threading.Event()
 
+            overseer_respawn_count = 0
+            max_overseer_respawns = pipeline.config.overseer_max_respawns
+
             def _health_monitor_poll(monitor, stop_event: threading.Event, interval: float = 30.0):
+                nonlocal overseer_container_id, overseer_respawn_count
                 while not stop_event.is_set():
                     try:
                         monitor.check_tripwires()
@@ -5199,6 +5203,48 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_id=pipeline_id,
                             error=str(poll_err),
                         )
+
+                    # Check overseer liveness and respawn if it exited mid-pipeline
+                    if overseer_container_id and overseer_respawn_count < max_overseer_respawns:
+                        try:
+                            info = spawner.docker_client.get_container_info(overseer_container_id)
+                            if info.status in (
+                                ContainerStatus.EXITED,
+                                ContainerStatus.FAILED,
+                            ):
+                                pipeline_check = store.load_pipeline(pipeline_id)
+                                if pipeline_check.status == PipelineStatus.RUNNING:
+                                    overseer_respawn_count += 1
+                                    logger.warning(
+                                        "Overseer exited mid-pipeline, respawning",
+                                        pipeline_id=pipeline_id,
+                                        exit_code=info.exit_code,
+                                        respawn_attempt=overseer_respawn_count,
+                                        max_respawns=max_overseer_respawns,
+                                    )
+                                    new_result = spawner.spawn_overseer_container(
+                                        pipeline_id=pipeline_id,
+                                        issue_number=pipeline.issue_number,
+                                        mode=gateway_mode,
+                                        poll_interval=pipeline.config.overseer_poll_interval_seconds,
+                                        decision_model=pipeline.config.overseer_decision_maker_model,
+                                        repos=pipeline_repos if pipeline_repos else None,
+                                        certs_volume=certs_volume,
+                                    )
+                                    overseer_container_id = new_result.container_info.container_id
+                                    logger.info(
+                                        "Overseer respawned successfully",
+                                        pipeline_id=pipeline_id,
+                                        container_id=overseer_container_id[:12],
+                                        respawn_attempt=overseer_respawn_count,
+                                    )
+                        except Exception as respawn_err:
+                            logger.debug(
+                                "Overseer liveness check error",
+                                pipeline_id=pipeline_id,
+                                error=str(respawn_err),
+                            )
+
                     stop_event.wait(interval)
 
             poll_thread = threading.Thread(
