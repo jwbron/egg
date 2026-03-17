@@ -564,3 +564,36 @@ class TestConsensusWrapperBehavior:
             assert "Already confirmed" in result.stderr
             # Should NOT restart
             assert "Restarting" not in result.stderr
+
+    def test_post_restart_confirmed_detection(self):
+        """After restart, if agent reached CONFIRMED, should enter wait loop (RC4)."""
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        # The wrapper should call check_confirmed_and_wait after each restart
+        assert "check_confirmed_and_wait" in script
+        # Should be called both before restart loop and after restart
+        assert script.count("check_confirmed_and_wait") >= 2
+
+    def test_empty_state_recovery_prompt(self):
+        """Recovery prompt should include empty state recovery guidance (RC1)."""
+        assert "Empty state recovery" in _RECOVERY_SYSTEM_PROMPT
+        assert "egg-orch consensus confirmed" in _RECOVERY_SYSTEM_PROMPT
+        assert "Do NOT re-propose if already fully ACKed" in _RECOVERY_SYSTEM_PROMPT
+
+    def test_wrapper_queries_consensus_status_on_empty_state(self):
+        """When BRC state is empty, wrapper should query consensus status for context (RC1)."""
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        # Should check for empty BRC state and query consensus status
+        assert "consensus status" in script
+        assert "tracker likely lost" in script
+
+    def test_check_confirmed_and_wait_is_shell_function(self):
+        """check_confirmed_and_wait should be defined as a reusable shell function."""
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        # Should define the function
+        assert "check_confirmed_and_wait()" in script
+        # Should contain the full logic
+        assert "CONSENSUS_CONFIRMED" in script
+        assert "message poll" in script
