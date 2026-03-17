@@ -1,0 +1,175 @@
+{
+  "issue": 1030,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "timestamp": "2026-03-17T18:10:00Z",
+  "summary": "Risk assessment for agent team roster, roles, and access controls. 8 risks identified across enum synchronization, gateway enforcement, shared worktree safety, backward compatibility, new role introduction, documentation drift, concurrent execution generalization, and overseer privilege escalation. 3 risks rated HIGH, 4 MEDIUM, 1 LOW. 2 areas flagged for human review.",
+  "risks": [
+    {
+      "id": "RISK-001",
+      "title": "Triple-enum synchronization failure",
+      "category": "compatibility",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "HIGH",
+      "description": "AgentRole is defined in three locations: shared/egg_contracts/agent_roles.py (13 roles), orchestrator/models.py (15 roles including REVIEWER and INSPECTOR), and shared/egg_orchestrator/types.py (14 roles, missing INSPECTOR). These are already out of sync — orchestrator/models.py has REVIEWER (legacy) and INSPECTOR that don't exist in the canonical source. Adding new roles (AUTOFIXER, CONFLICT_RESOLVER) and removing old ones across three files will amplify the drift risk. A deserialization failure in cross-module boundaries (e.g., inspector role from health checks hitting shared types) could crash pipelines.",
+      "affected_files": [
+        "shared/egg_contracts/agent_roles.py",
+        "orchestrator/models.py",
+        "shared/egg_orchestrator/types.py",
+        "gateway/agent_restrictions.py"
+      ],
+      "mitigation": "Option B (consolidated registry) directly addresses this by making shared/egg_contracts/agent_roles.py the single source. Implementation should: (1) Add a CI sync test that imports all three modules and asserts enum value parity BEFORE consolidation begins. (2) Consolidate imports incrementally — orchestrator/models.py first, then shared/egg_orchestrator/types.py. (3) Keep re-exports at old locations for backward compatibility during migration.",
+      "rollback": "If consolidation breaks imports, revert to three separate enums and add the sync test as a gate. The sync test alone provides 80% of the safety benefit.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-002",
+      "title": "Gateway enforcement is warn-only by default — shared worktree unsafe",
+      "category": "security",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "HIGH",
+      "description": "The entire shared worktree safety model depends on role-level file isolation enforced by the gateway. However, EGG_AGENT_RESTRICTIONS_ENFORCE defaults to 'false' in gateway/gateway.py (lines 840-884). With warn-only mode, concurrent agents CAN overwrite each other's files. The issue proposes switching to strict enforcement, but this is a breaking change for any existing pipelines that rely on the permissive default. If agents currently write outside their declared patterns (which the warn logs would show), enabling enforcement will cause immediate push failures.",
+      "affected_files": [
+        "gateway/gateway.py",
+        "gateway/agent_restrictions.py"
+      ],
+      "mitigation": "Phase the rollout: (1) Audit existing warn logs to identify agents that currently violate restrictions. (2) Fix any legitimate violations (e.g., tester lint auto-fixes writing to source dirs). (3) Deploy with enforce=true to a staging pipeline first. (4) Roll out to production with a feature flag that can be toggled back to warn-only per pipeline. (5) Make enforce=true the default only after one sprint of clean logs.",
+      "rollback": "Set EGG_AGENT_RESTRICTIONS_ENFORCE=false to immediately revert to warn-only mode. No code change required.",
+      "human_review_needed": true
+    },
+    {
+      "id": "RISK-003",
+      "title": "Tester/coder write-pattern overlap breaks file isolation",
+      "category": "security",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "The tester role currently has allowed_write patterns for all source file types (**/*.py, **/*.ts, etc.) to support lint/type-check auto-fixes. This directly conflicts with the coder's exclusive write set. In a shared worktree with enforcement ON, both agents can legally write to the same source files, defeating the isolation guarantee. The issue proposes restricting tester to test directories only, but this would break the existing auto-fix workflow where the tester applies lint fixes to source code. The detect_write_overlaps() utility in agent_roles.py would flag this overlap.",
+      "affected_files": [
+        "shared/egg_contracts/agent_roles.py (TESTER_ROLE)",
+        "gateway/agent_restrictions.py (TESTER_PATTERNS)"
+      ],
+      "mitigation": "Three options, each with trade-offs: (A) Restrict tester to test files only; move auto-fix responsibility to a new AUTOFIXER utility agent (cleanest isolation, but adds complexity). (B) Keep tester's broad write access but coordinate via messaging — tester announces intent before modifying source files (relies on agent compliance, not gateway enforcement). (C) Split tester into two modes: test-writer (restricted) and auto-fixer (broad) with the gateway checking which mode is active. Recommend option A — it aligns with the issue's proposed AUTOFIXER role and provides genuine file isolation.",
+      "rollback": "Restore tester's current broad write patterns in both agent_roles.py and agent_restrictions.py.",
+      "human_review_needed": true
+    },
+    {
+      "id": "RISK-004",
+      "title": "Backward compatibility for removed roles in persisted state",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "Pipeline state persisted in the database may contain role strings for removed roles (integrator, checker, reviewer_unified). Migration logic in orchestrator/models.py maps checker→tester and reviewer_unified→reviewer_code, but there is no migration for 'integrator'. If any persisted pipeline references 'integrator' as a role string, deserialization will fail with a Pydantic validation error. The test suite (test_removal_validation_1165.py) validates that integrator is not in get_roles_for_phase() but does not test deserialization of persisted state containing 'integrator'.",
+      "affected_files": [
+        "orchestrator/models.py (_REMOVED_ROLE_MIGRATION)"
+      ],
+      "mitigation": "Add 'integrator' to the _REMOVED_ROLE_MIGRATION dict, mapping it to 'coder' (its closest functional equivalent). Add a test that creates a ContainerInfo and AgentExecution with role='integrator' and verifies successful migration. Run a database query against existing pipeline state to check if any records contain 'integrator' as a role.",
+      "rollback": "If the migration mapping causes unexpected behavior, remove the mapping and let deserialization fail loudly (prefer crash over silent incorrect mapping).",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-005",
+      "title": "New role introduction (AUTOFIXER, CONFLICT_RESOLVER) requires cross-component updates",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "Adding AUTOFIXER and CONFLICT_RESOLVER roles requires synchronized updates across: (1) agent_roles.py — enum values + role definitions, (2) orchestrator/models.py — duplicate enum, (3) shared/egg_orchestrator/types.py — duplicate enum, (4) gateway/agent_restrictions.py — AGENT_PATTERNS registry + AgentRole mirror class, (5) gateway GH restrictions — AGENT_GH_RESTRICTIONS dict. Missing any single location means the gateway will treat the new role as 'unknown' and allow all file writes (line 509-511 of agent_restrictions.py: 'Unknown role - allow for backwards compatibility'). This is a security bypass — a new role without gateway patterns gets unrestricted write access.",
+      "affected_files": [
+        "shared/egg_contracts/agent_roles.py",
+        "orchestrator/models.py",
+        "shared/egg_orchestrator/types.py",
+        "gateway/agent_restrictions.py"
+      ],
+      "mitigation": "Change the gateway's fallback behavior for unknown roles from 'allow' to 'deny'. This is a defense-in-depth fix: unknown roles should have no write access, not unrestricted access. Add a CI test that asserts every AgentRole enum value has a corresponding entry in AGENT_PATTERNS. This test would catch missing pattern registrations at build time.",
+      "rollback": "If deny-by-default causes issues with legitimate new roles during development, add a DEV_MODE flag that temporarily allows unknown roles with a warning.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-006",
+      "title": "Concurrent execution generalization may break phase-specific assumptions",
+      "category": "performance",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The issue requires removing hardcoded phase checks (e.g., 'phase in {\"implement\"}' in routes/pipelines.py) to allow any phase to use concurrent execution. While the ConcurrentPhaseExecutor is already phase-agnostic in code, the surrounding route logic has phase gates that may exist for good reasons not documented in comments. For example, the 'review' phase is listed in the issue's per-phase concurrent agent groups but currently has no entry in _PHASE_ROLES. Removing gates without adding 'review' to _PHASE_ROLES would cause a ValueError at runtime. Additionally, running concurrent agents in phases not previously tested (like standalone review) may expose race conditions in consensus evaluation, readiness signaling, or checkpoint creation.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py",
+        "orchestrator/concurrent_executor.py",
+        "shared/egg_contracts/agent_roles.py (_PHASE_ROLES, _PHASE_REVIEWERS)"
+      ],
+      "mitigation": "Add integration tests for each new phase/role combination before removing the phase gates. Specifically: (1) Add 'review' to _PHASE_ROLES with [REVIEWER_CODE, REVIEWER_CONTRACT]. (2) Test consensus flow with review-only agents. (3) Remove phase gates one at a time, not all at once. (4) Keep the concurrent_phases config as a safety valve — if a phase isn't in the list, it falls back to sequential execution.",
+      "rollback": "Re-add phase gates for any phase that shows issues. The concurrent_phases config provides a per-pipeline rollback mechanism without code changes.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-007",
+      "title": "Overseer privilege escalation through container restart authority",
+      "category": "security",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "impact": "HIGH",
+      "description": "The issue grants the overseer authority to request agent restart via the orchestrator (egg-orch container stop / container spawn). If the overseer's restart capability is not properly scoped, it could: (1) Restart agents with modified environment variables, altering their behavior. (2) Restart agents in a loop, consuming resources. (3) Indirectly influence code by restarting the coder with different context after seeing its output. The overseer is constrained to write only to .egg-state/oversight/, but its orchestrator API access for container lifecycle management is a broader privilege that needs explicit bounds.",
+      "affected_files": [
+        "orchestrator/routes/ (container lifecycle endpoints)",
+        "gateway/agent_restrictions.py (OVERSEER_PATTERNS)"
+      ],
+      "mitigation": "Scope the overseer's container lifecycle access: (1) Limit restarts to N per agent per pipeline (e.g., max 2 restarts). (2) Require the orchestrator to validate that restart requests come from the overseer role specifically. (3) Log all restart requests with full context for audit. (4) Ensure restarted agents get the same environment as the original (no env manipulation). (5) Add a circuit breaker — if the overseer requests more than M total restarts in a pipeline, escalate to HITL instead.",
+      "rollback": "Disable overseer restart authority by removing the container stop/spawn API permissions. Fall back to HITL-only restart decisions.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-008",
+      "title": "Documentation drift across 8+ documentation locations",
+      "category": "quality",
+      "severity": "LOW",
+      "likelihood": "HIGH",
+      "impact": "LOW",
+      "description": "The issue identifies 8 documentation locations that must be updated: README.md, docs/index.md, docs/guides/, docs/architecture/, CLAUDE.md agent prompts, ADRs, component READMEs, and docs/reference/agent-roles.md. Given the scope of changes (new roles, removed roles, universal concurrency, shared worktree model), missing a documentation update is near-certain. Stale docs are a low-impact risk for automated systems (agents read code, not just docs) but high-impact for human operators who rely on docs for debugging and onboarding.",
+      "affected_files": [
+        "docs/reference/agent-roles.md",
+        "docs/guides/concurrent-execution.md",
+        "docs/architecture/",
+        "README.md",
+        "sandbox/.claude/ (agent prompts)"
+      ],
+      "mitigation": "Create a documentation checklist as a task in the task planner output. Assign the documenter agent to update all locations in a single pass during implementation. Add a CI check that verifies all roles in the AgentRole enum are mentioned in docs/reference/agent-roles.md.",
+      "rollback": "No rollback needed — stale docs don't break functionality. Fix incrementally.",
+      "human_review_needed": false
+    }
+  ],
+  "human_review_areas": [
+    {
+      "area": "Gateway enforcement default switch",
+      "reason": "Switching EGG_AGENT_RESTRICTIONS_ENFORCE from false to true is a behavioral change that affects all existing pipelines. Risk of immediate push failures for agents that currently violate restrictions. Requires audit of warn logs before enabling.",
+      "related_risk": "RISK-002"
+    },
+    {
+      "area": "Tester write-pattern scope decision",
+      "reason": "The tester's broad source-file write access conflicts with shared worktree file isolation. Restricting it breaks the auto-fix workflow. This is a product-level trade-off between isolation safety and developer experience.",
+      "related_risk": "RISK-003"
+    }
+  ],
+  "risk_matrix": {
+    "high_severity": ["RISK-001", "RISK-002", "RISK-003"],
+    "medium_severity": ["RISK-004", "RISK-005", "RISK-006", "RISK-007"],
+    "low_severity": ["RISK-008"]
+  },
+  "recommended_implementation_order": [
+    "1. Add CI sync test for triple-enum parity (immediate safety gate, RISK-001)",
+    "2. Add integrator→coder migration mapping (RISK-004, minimal change)",
+    "3. Change unknown-role gateway fallback from allow to deny (RISK-005, security fix)",
+    "4. Consolidate enums to single source (RISK-001, core change)",
+    "5. Add new roles with gateway patterns (RISK-005)",
+    "6. Add integration tests for new concurrent phase combinations (RISK-006)",
+    "7. Remove hardcoded phase gates incrementally (RISK-006)",
+    "8. Resolve tester write-pattern overlap (RISK-003, requires HITL decision)",
+    "9. Phase gateway enforcement rollout (RISK-002, requires HITL decision)",
+    "10. Scope overseer restart authority (RISK-007)",
+    "11. Update all documentation (RISK-008)"
+  ],
+  "rollback_plan": "Each risk has an independent rollback. For a full rollback of the entire change: (1) Revert the enum consolidation by restoring three separate enum files from git. (2) Set EGG_AGENT_RESTRICTIONS_ENFORCE=false. (3) Restore tester's broad write patterns. (4) Keep the sync test and migration mapping as they are purely additive. The concurrent_phases config provides per-pipeline rollback for phase-gate changes without code deployment."
+}
