@@ -4768,6 +4768,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     overseer_container_id: str | None = None
     health_monitor_instance = None
     health_monitor_timer: threading.Event | None = None
+    poll_thread: threading.Thread | None = None
 
     try:
         store = get_state_store(repo_path)
@@ -5857,6 +5858,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # Stop health monitor polling and unsubscribe from events
         if health_monitor_timer is not None:
             health_monitor_timer.set()
+        if poll_thread is not None:
+            poll_thread.join(timeout=5)
         if health_monitor_instance is not None:
             try:
                 health_monitor_instance.stop()

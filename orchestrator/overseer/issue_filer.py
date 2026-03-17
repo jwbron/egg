@@ -181,6 +181,11 @@ async def file_diagnostic_issue(
         return {"issue_number": None, "filed": False, "template": body}
 
     except TimeoutError:
+        try:
+            proc.kill()
+            await proc.wait()
+        except ProcessLookupError:
+            pass
         logger.warning("gh issue create timed out")
         return {"issue_number": None, "filed": False, "template": body}
 
