@@ -1,0 +1,477 @@
+{
+  "issue": 1032,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 1,
+
+  "title": "Architecture analysis: Agent anchor mechanism for post-compaction state recovery",
+
+  "summary": "Implement a persistent per-agent state anchoring system that enables coherent recovery after context window clears. Agents write compact JSON anchor files (2KB soft / 3KB hard limit) to `.egg-state/agent-anchors/<agent-id>.json` via `egg-orch anchor` CLI commands. Cross-agent reads go through orchestrator API endpoints (following the contract_api.py cross-worktree pattern). The orchestrator generates a team-level anchor projection. Context compaction is replaced with full context clear + anchor reload via standing rules in `sandbox/.claude/rules/anchor-recovery.md`. The implementation spans 4 layers: (1) shared Python library + JSON schema, (2) orchestrator API + Redis persistence + CLI subcommands, (3) gateway phase filter + container spawner integration, (4) agent recovery rules + checkpoint capture.",
+
+  "problem_statement": {
+    "description": "Long-running agents in BRC concurrent phases lose working state when the context window fills. Without a structured recovery mechanism, agents repeat work, forget inter-agent decisions, break consensus, and re-attempt failed approaches. The existing recovery mechanisms (consensus_wrapper.py restart prompts, egg-contract pipeline-level tasks, post-session checkpoints, Redis message bus) are either too coarse, too late, or lack the agent-scoped granularity needed for mid-session recovery.",
+    "root_causes": [
+      {
+        "id": "RC-1",
+        "title": "No agent-scoped persistent working state",
+        "description": "egg-contract tracks pipeline-level tasks and decisions, not per-agent working state like 'I'm on sub-task 3 of 7' or 'coder and I agreed on approach B'. The granularity gap means agents cannot reconstruct their working context after a context clear.",
+        "location": "shared/egg_contracts/models.py, shared/egg_contracts/loader.py"
+      },
+      {
+        "id": "RC-2",
+        "title": "Consensus wrapper only handles clean exits, not mid-session compaction",
+        "description": "consensus_wrapper.py's _RECOVERY_SYSTEM_PROMPT handles restart scenarios where the agent exits entirely. It cannot recover from mid-session context clears because the agent process is still running — only its in-memory context is lost.",
+        "location": "orchestrator/consensus_wrapper.py:32-62"
+      },
+      {
+        "id": "RC-3",
+        "title": "Checkpoints are post-session, not live state",
+        "description": "Checkpoint captures happen at session-end triggers via checkpoint_handler.py. They cannot be read during the same session for recovery — they're audit artifacts, not live recovery points.",
+        "location": "shared/egg_contracts/checkpoints.py, gateway/checkpoint_handler.py"
+      },
+      {
+        "id": "RC-4",
+        "title": "Message bus lacks state summarization",
+        "description": "Redis message bus (redis_message_store.py) persists all messages via Redis Streams, but after context clear an agent doesn't know which messages are relevant or what decisions they represent. Raw message replay is insufficient without an anchor that provides the 'last known good state' reference point.",
+        "location": "orchestrator/redis_message_store.py, orchestrator/message_store.py"
+      }
+    ]
+  },
+
+  "current_architecture": {
+    "execution_model": "BRC (Broadcast-Review-Converge) peer consensus with concurrent execution. PeerConsensusTracker in peer_consensus.py manages per-agent state machines (WORKING → PROPOSED → CONFIRMED for producers, WORKING → REVIEWING → CONFIRMED for reviewers). ConcurrentExecutor spawns containers with shared worktrees. Agents communicate via orchestrator message bus and coordinate via consensus commands.",
+    "recovery_model": "Two-level: (1) consensus_wrapper.py wraps agent command with bash trap for SIGTERM and restart-on-exit logic, injecting _RECOVERY_SYSTEM_PROMPT with BRC state on restart (max 2 restarts). (2) egg-contract provides pipeline-level task tracking readable via egg-contract show. Neither handles mid-session context loss.",
+    "storage_model": "Pipeline state in Redis (orchestrator state_store.py), messages in Redis Streams (redis_message_store.py), progress events in-memory (progress_store.py), contracts as JSON files in .egg-state/contracts/, agent outputs as JSON in .egg-state/agent-outputs/. Phase permissions enforce file access via gateway/phase_filter.py.",
+    "key_components": [
+      {
+        "name": "PeerConsensusTracker",
+        "file": "orchestrator/peer_consensus.py",
+        "description": "Manages BRC state machines per agent. Tracks proposal versions, ACKs, NACKs, review assignments. The anchor's brc_state section must mirror this tracker's state for recovery."
+      },
+      {
+        "name": "ConsensusWrapper",
+        "file": "orchestrator/consensus_wrapper.py",
+        "description": "Builds shell wrapper that restarts agents on premature exit. Injects _RECOVERY_SYSTEM_PROMPT with BRC state. Must be extended to load anchor in recovery prompt."
+      },
+      {
+        "name": "ContainerSpawner",
+        "file": "orchestrator/container_spawner.py",
+        "description": "Creates Docker containers with gateway sessions, env vars (EGG_AGENT_ROLE, EGG_PIPELINE_ID, etc.), mounts, and network config. Must add AGENT_ANCHOR_ID env var and compaction-disabled flag."
+      },
+      {
+        "name": "PhaseFilter",
+        "file": "gateway/phase_filter.py",
+        "description": "Enforces phase-specific file restrictions on git push. Uses PhaseFileRestriction with allowed_patterns and blocked_patterns. Must add .egg-state/agent-anchors/* to allowed patterns for all phases."
+      },
+      {
+        "name": "ProgressStore",
+        "file": "orchestrator/progress_store.py",
+        "description": "Thread-safe in-memory store for per-pipeline progress events. Anchor store will follow this same pattern with Redis persistence added."
+      },
+      {
+        "name": "ContractLoader",
+        "file": "shared/egg_contracts/loader.py",
+        "description": "Atomic read/write for JSON contract files using tempfile+rename pattern. The egg_anchor library must use the same atomic write approach."
+      },
+      {
+        "name": "Orchestrator API",
+        "file": "orchestrator/api.py, orchestrator/routes/",
+        "description": "Flask app with Blueprint-based route modules (progress.py, messages.py, signals.py, etc.). New anchors.py Blueprint needed following the same pattern."
+      },
+      {
+        "name": "Agent Rules",
+        "file": "sandbox/.claude/rules/",
+        "description": "Standing instruction files loaded at container startup. Contains mission.md, contract.md, orchestrator.md, etc. New anchor-recovery.md needed."
+      }
+    ]
+  },
+
+  "recommended_approach": {
+    "title": "Layered implementation with shared library core",
+    "summary": "Implement in 4 implementation tasks mapped to the 4 layers: (1) Schema + shared library (egg_anchor), (2) Orchestrator API + Redis store + CLI, (3) Gateway phase filter + container spawner, (4) Agent rules + consensus wrapper + checkpoint integration. Each layer builds on the previous. The shared library provides models and atomic I/O. The orchestrator serves as the cross-agent anchor broker. The gateway enforces ownership. Agent rules enable pull-based recovery.",
+    "justification": "This layered approach minimizes cross-cutting changes per task, enables independent testing of each layer, and follows established codebase patterns (egg_contracts for shared lib, progress_store for orchestrator store, phase_filter for gateway enforcement). The single-writer design eliminates concurrency complexity. API-mediated cross-agent reads follow the proven contract_api.py pattern.",
+    "architecture_decisions": [
+      {
+        "id": "AD-1",
+        "title": "Shared library at shared/egg_anchor/ (not orchestrator-internal)",
+        "decision": "Place the anchor models, loader, and validator in a new shared/egg_anchor/ package",
+        "rationale": "Both the orchestrator (for API endpoints and team anchor generation) and the sandbox CLI (for agent-side read/write) need anchor models. Following the shared/egg_contracts/ pattern, a shared package ensures consistent serialization and validation on both sides. The orchestrator imports it server-side; the sandbox CLI imports it client-side.",
+        "alternatives_considered": [
+          "Orchestrator-internal module only — rejected because sandbox CLI also needs models for local file I/O",
+          "Inline in egg_contracts — rejected because anchors are conceptually distinct from pipeline contracts and have different lifecycle semantics"
+        ]
+      },
+      {
+        "id": "AD-2",
+        "title": "Redis-backed AnchorStore with in-memory cache",
+        "decision": "Create an AnchorStore class in orchestrator/anchor_store.py following the ProgressStore pattern but with Redis persistence",
+        "rationale": "Unlike progress events (ephemeral, in-memory only), anchors must survive orchestrator restarts. Redis provides persistence with minimal latency. The in-memory cache avoids Redis round-trips for frequent reads (team anchor generation). Redis key pattern: anchor:{pipeline_id}:{agent_id} following the established redis_message_store.py namespace pattern.",
+        "alternatives_considered": [
+          "In-memory only like ProgressStore — rejected because orchestrator restart would lose all anchors",
+          "Git-only storage — rejected because cross-worktree reads require API mediation anyway"
+        ]
+      },
+      {
+        "id": "AD-3",
+        "title": "CLI subcommands via egg-orch anchor (not standalone egg-anchor CLI)",
+        "decision": "Add anchor subcommands to the existing egg-orch CLI namespace",
+        "rationale": "egg-orch is the established agent-facing CLI for orchestrator interactions (signal, consensus, message, progress). Anchors are orchestrator-managed state, so egg-orch anchor is the natural namespace. This avoids a new CLI entrypoint and leverages existing orchestrator URL resolution. The OrchestratorClient (shared/egg_orchestrator/client.py) handles HTTP communication.",
+        "alternatives_considered": [
+          "Standalone egg-anchor CLI — rejected because anchors require orchestrator API access, making them part of the egg-orch domain"
+        ]
+      },
+      {
+        "id": "AD-4",
+        "title": "Pull-based recovery via standing rules (not push injection)",
+        "decision": "Implement recovery via sandbox/.claude/rules/anchor-recovery.md loaded at container startup",
+        "rationale": "Claude Code's compaction/clear behavior is opaque to egg — there is no compaction callback or injection hook. CLAUDE.md and rules are assembled once at startup by sandbox/entrypoint.py:setup_agent_rules(). Pull-based recovery (agent reads anchor on-demand when it detects context loss) is robust and doesn't depend on undocumented Claude Code internals. The consensus wrapper recovery prompt is also extended to include anchor loading for restart scenarios.",
+        "alternatives_considered": [
+          "Push-based injection via Claude Code hooks — deferred to v2, depends on API availability",
+          "Dynamic CLAUDE.md updates — rejected because CLAUDE.md is symlinked at startup, not dynamically updated"
+        ]
+      },
+      {
+        "id": "AD-5",
+        "title": "Session-scoped gateway enforcement for anchor ownership",
+        "decision": "Gateway validates that pushed anchor files match the agent's own agent_id using session metadata",
+        "rationale": "The gateway already has session metadata (registered by container_spawner) including agent role and container ID. Anchor filename includes agent_id ({role}-{container_id}), which can be validated against session metadata. This follows the existing contract_api.py pattern where role is validated against session data, not headers or env vars. Prevents cross-agent anchor tampering without adding new auth mechanisms.",
+        "alternatives_considered": [
+          "No gateway enforcement — rejected because agents could overwrite each other's anchors",
+          "Separate auth token per agent — rejected as over-engineering given session metadata already provides identity"
+        ]
+      },
+      {
+        "id": "AD-6",
+        "title": "Team anchor as orchestrator-generated API projection (not file)",
+        "decision": "The team anchor is generated server-side by the orchestrator from individual anchors + pipeline state, served via GET /api/v1/anchors/team/{pipeline_id}",
+        "rationale": "The team anchor aggregates data the orchestrator already tracks (agent statuses, heartbeats, BRC consensus state, decisions). No agent needs to write it. The coordinator role has no repository access (per CLAUDE.md), so it cannot maintain a file-based team anchor. Generating it on-demand from existing orchestrator state is simpler and always consistent.",
+        "alternatives_considered": [
+          "Coordinator writes team anchor file — rejected because coordinator has no repo access",
+          "Each agent writes a team section — rejected because it creates distributed consistency problems"
+        ]
+      }
+    ]
+  },
+
+  "component_analysis": {
+    "new_components": [
+      {
+        "name": "shared/egg_anchor/",
+        "type": "shared_library",
+        "description": "Python package providing anchor models, atomic loader, validator, and constants. Follows shared/egg_contracts/ structure.",
+        "files": [
+          "shared/egg_anchor/__init__.py",
+          "shared/egg_anchor/models.py",
+          "shared/egg_anchor/loader.py",
+          "shared/egg_anchor/validator.py",
+          "shared/egg_anchor/constants.py"
+        ],
+        "dependencies": ["pydantic (existing dep)", "jsonschema (existing dep)"],
+        "estimated_complexity": "medium"
+      },
+      {
+        "name": ".egg/schemas/agent-anchor.schema.json",
+        "type": "schema",
+        "description": "JSON Schema for agent anchor validation. Defines required fields, type constraints, maxItems/maxLength for size budget enforcement.",
+        "files": [".egg/schemas/agent-anchor.schema.json"],
+        "dependencies": [],
+        "estimated_complexity": "low"
+      },
+      {
+        "name": "orchestrator/anchor_store.py",
+        "type": "orchestrator_module",
+        "description": "Thread-safe anchor store with Redis persistence. Stores/retrieves agent anchors, generates team anchor projection. Follows ProgressStore pattern with Redis backing.",
+        "files": ["orchestrator/anchor_store.py"],
+        "dependencies": ["redis (existing dep)", "shared/egg_anchor models"],
+        "estimated_complexity": "medium"
+      },
+      {
+        "name": "orchestrator/routes/anchors.py",
+        "type": "api_routes",
+        "description": "Flask Blueprint for anchor CRUD endpoints. POST/GET/DELETE for agent anchors, GET for team anchor. Follows orchestrator/routes/progress.py pattern.",
+        "files": ["orchestrator/routes/anchors.py"],
+        "dependencies": ["orchestrator/anchor_store.py", "shared/egg_anchor models"],
+        "estimated_complexity": "medium"
+      },
+      {
+        "name": "sandbox/.claude/rules/anchor-recovery.md",
+        "type": "agent_rule",
+        "description": "Standing instructions for post-compaction anchor recovery. Loaded at container startup via setup_agent_rules().",
+        "files": ["sandbox/.claude/rules/anchor-recovery.md"],
+        "dependencies": [],
+        "estimated_complexity": "low"
+      }
+    ],
+    "modified_components": [
+      {
+        "name": "orchestrator/cli.py",
+        "type": "cli",
+        "description": "Add 'anchor' subcommand group with init, update, show, validate, cleanup subcommands",
+        "changes": "New argparse subparser group. ~150 lines of CLI command handlers that call OrchestratorClient methods.",
+        "estimated_complexity": "medium"
+      },
+      {
+        "name": "shared/egg_orchestrator/client.py",
+        "type": "shared_client",
+        "description": "Add anchor_init(), anchor_update(), anchor_show(), anchor_show_team(), anchor_validate(), anchor_cleanup() methods",
+        "changes": "~100 lines of new HTTP client methods following existing pattern (signal_complete, signal_progress, etc.)",
+        "estimated_complexity": "low"
+      },
+      {
+        "name": "shared/egg_config/constants.py",
+        "type": "constants",
+        "description": "Add ANCHOR_DIR, ANCHOR_SOFT_LIMIT_BYTES, ANCHOR_HARD_LIMIT_BYTES, ANCHOR_TEAM_SOFT_LIMIT_BYTES, ANCHOR_TEAM_HARD_LIMIT_BYTES, ANCHOR_REDIS_PREFIX constants",
+        "changes": "~15 lines of new constants + __all__ entries",
+        "estimated_complexity": "low"
+      },
+      {
+        "name": "gateway/phase_filter.py",
+        "type": "gateway",
+        "description": "Add .egg-state/agent-anchors/* to allowed_patterns for REFINE, PLAN, and IMPLEMENT phases. Already allowed in PR phase (allows *).",
+        "changes": "3 lines added to _get_default_phase_file_restrictions(), one per phase (refine, plan, implement)",
+        "estimated_complexity": "low"
+      },
+      {
+        "name": "orchestrator/container_spawner.py",
+        "type": "orchestrator",
+        "description": "Add AGENT_ANCHOR_ID env var to spawner_env dict. Format: {role}-{short_container_id}. Also pass compaction-disabled flag in command construction.",
+        "changes": "~10 lines in the spawner_env dict construction section (~line 383-400)",
+        "estimated_complexity": "low"
+      },
+      {
+        "name": "orchestrator/consensus_wrapper.py",
+        "type": "orchestrator",
+        "description": "Add 'Run egg-orch anchor show to recover your working state' to _RECOVERY_SYSTEM_PROMPT",
+        "changes": "~3 lines added to the recovery prompt string",
+        "estimated_complexity": "low"
+      },
+      {
+        "name": "orchestrator/api.py",
+        "type": "orchestrator",
+        "description": "Register new anchors_bp Blueprint",
+        "changes": "~5 lines: import and register blueprint, following existing pattern",
+        "estimated_complexity": "low"
+      }
+    ]
+  },
+
+  "implementation_phases": [
+    {
+      "phase": 1,
+      "title": "Core infrastructure: Schema + shared library",
+      "description": "Create the JSON Schema, shared egg_anchor package (models, loader, validator, constants), and add constants to egg_config. This is the foundation that all other layers depend on.",
+      "deliverables": [
+        ".egg/schemas/agent-anchor.schema.json",
+        "shared/egg_anchor/__init__.py",
+        "shared/egg_anchor/models.py (Pydantic models: AgentAnchor, AnchorMeta, ProgressItem, Decision, BrcState)",
+        "shared/egg_anchor/loader.py (atomic read/write with temp-then-rename, size validation)",
+        "shared/egg_anchor/validator.py (schema validation, size budget checks)",
+        "shared/egg_anchor/constants.py (ANCHOR_DIR, size limits, schema version)",
+        "shared/egg_config/constants.py updates (ANCHOR_* constants)",
+        "Unit tests for models, loader, validator"
+      ],
+      "dependencies": [],
+      "estimated_effort": "medium"
+    },
+    {
+      "phase": 2,
+      "title": "Orchestrator API + Redis store + CLI",
+      "description": "Create the anchor store with Redis persistence, REST API endpoints, CLI subcommands, and OrchestratorClient methods. This enables agents to init/update/show anchors.",
+      "deliverables": [
+        "orchestrator/anchor_store.py (AnchorStore class with Redis + in-memory cache)",
+        "orchestrator/routes/anchors.py (Flask Blueprint: POST/GET/DELETE agent anchors, GET team anchor)",
+        "orchestrator/api.py update (register anchors_bp)",
+        "CLI anchor subcommands in egg-orch (init, update, show, validate, cleanup)",
+        "shared/egg_orchestrator/client.py updates (anchor HTTP methods)",
+        "Unit tests for store, routes, CLI"
+      ],
+      "dependencies": ["Phase 1"],
+      "estimated_effort": "high"
+    },
+    {
+      "phase": 3,
+      "title": "Gateway + agent integration",
+      "description": "Extend gateway phase filter, update container spawner, create recovery rules, extend consensus wrapper recovery prompt.",
+      "deliverables": [
+        "gateway/phase_filter.py updates (allowed_patterns for agent-anchors)",
+        "orchestrator/container_spawner.py updates (AGENT_ANCHOR_ID env var, compaction flag)",
+        "sandbox/.claude/rules/anchor-recovery.md (standing recovery instructions)",
+        "orchestrator/consensus_wrapper.py updates (anchor loading in recovery prompt)",
+        "Integration tests for gateway enforcement, container spawner"
+      ],
+      "dependencies": ["Phase 2"],
+      "estimated_effort": "medium"
+    },
+    {
+      "phase": 4,
+      "title": "Checkpoint + lifecycle management",
+      "description": "Integrate anchors with checkpoint system, implement orchestrator GC for orphaned anchors, add anchor data to egg-checkpoint show.",
+      "deliverables": [
+        "Checkpoint handler updates (capture .egg-state/agent-anchors/)",
+        "Orchestrator GC logic for orphaned anchors on pipeline completion",
+        "egg-checkpoint show anchor data display",
+        "E2E test: agent recovery after simulated context clear"
+      ],
+      "dependencies": ["Phase 3"],
+      "estimated_effort": "medium"
+    }
+  ],
+
+  "risks_and_mitigations": [
+    {
+      "risk": "Anchor staleness — agent forgets to update anchor at critical milestones",
+      "severity": "high",
+      "mitigation": "Recovery rules in anchor-recovery.md include staleness detection (compare anchor updated_at vs current time). Agent instructions emphasize updating at natural checkpoints: sub-task completion, decisions, BRC transitions. Auto-warnings when anchor is >5 minutes stale during recovery.",
+      "residual_risk": "Cannot force agent to update; relies on prompt compliance"
+    },
+    {
+      "risk": "Size budget violations prevent anchor updates at critical moments",
+      "severity": "medium",
+      "mitigation": "Soft limit (2KB) warns but allows writes. Hard limit (3KB) blocks. CLI suggests pruning completed progress items and old decisions. Schema maxItems constraints (progress: 10, decisions: 8, key_context: 5) structurally prevent unbounded growth.",
+      "residual_risk": "Agent may need to triage what to keep, potentially dropping important context"
+    },
+    {
+      "risk": "Orchestrator restart loses in-memory anchor cache",
+      "severity": "medium",
+      "mitigation": "Redis persistence is primary store; in-memory cache is populated lazily from Redis. Git-pushed anchor files on worktree branches provide additional backup. The AnchorStore.get() method falls back to Redis on cache miss.",
+      "residual_risk": "Brief period where cache is cold after restart; negligible impact"
+    },
+    {
+      "risk": "Intra-agent reasoning lost on context clear — anchor preserves structure but not thought process",
+      "severity": "medium",
+      "mitigation": "Documented as known limitation in the spec. key_context field (max 5 items, 150 chars each) captures critical non-derivable context. Agents re-derive approach from code state + anchor. errors_encountered field prevents re-attempting known failures.",
+      "residual_risk": "Agent may make different (but valid) choices post-recovery"
+    },
+    {
+      "risk": "Concurrent anchor reads during atomic write could see partial state",
+      "severity": "low",
+      "mitigation": "Atomic write via temp-file-then-rename (os.rename is atomic on same filesystem per POSIX). In BRC concurrent phases with shared worktrees, readers either see the old complete file or the new complete file, never a partial write.",
+      "residual_risk": "None — atomic rename guarantees consistency"
+    },
+    {
+      "risk": "Gateway session-scoped enforcement bypass if agent_id format changes",
+      "severity": "low",
+      "mitigation": "Agent ID format ({role}-{short_container_id}) is generated by egg-orch anchor init from env vars (EGG_AGENT_ROLE + CONTAINER_ID). Gateway validates anchor filename against same session metadata. Both use the same generation logic in shared/egg_anchor/constants.py.",
+      "residual_risk": "Format change requires coordinated update to both gateway and anchor init"
+    }
+  ],
+
+  "dependency_analysis": {
+    "hard_dependencies": [],
+    "soft_dependencies": [
+      {
+        "issue": 1027,
+        "title": "Cross-agent communication",
+        "relationship": "Anchors work standalone. Message bus enables last_message_id catch-up for efficient post-clear recovery. Without #1027, agents can still recover from anchor alone but miss messages sent after last anchor update."
+      },
+      {
+        "issue": 1030,
+        "title": "Agent roster and access controls",
+        "relationship": "Agent ID uses {role}-{container_id} format, decoupled from roster. Full roster integration (mapping agent IDs to display names, team membership) is v2."
+      }
+    ],
+    "no_dependency": [
+      {
+        "issue": 1028,
+        "title": "Conversational coordinator",
+        "relationship": "Team anchor is orchestrator-generated. No coordinator involvement needed."
+      }
+    ]
+  },
+
+  "reviewer_feedback_items": [
+    {
+      "source": "reviewer_refine round 2 ACK",
+      "item": "Add flip_flop_count + changed_artifacts to brc_state schema",
+      "severity": "medium",
+      "recommendation": "Include in Phase 1 schema definition. Add flip_flop_count (integer, tracks propose/NACK cycles) and changed_artifacts (array of strings, files changed since last proposal) to brc_state object in schema."
+    },
+    {
+      "source": "reviewer_refine round 2 ACK",
+      "item": "Define anchor seeding from predecessor on agent retry",
+      "severity": "medium",
+      "recommendation": "On agent retry (new container), the orchestrator should seed the new agent's anchor from the failed agent's anchor stored in Redis. Add a --seed-from flag to egg-orch anchor init. Include in Phase 2 (orchestrator API)."
+    },
+    {
+      "source": "reviewer_refine round 2 ACK",
+      "item": "Specify _meta.sequence as tiebreaker for CLI POST vs git-push staleness",
+      "severity": "low",
+      "recommendation": "Document that _meta.sequence is a monotonically increasing counter incremented on every egg-orch anchor update call. The orchestrator only accepts updates where sequence > stored sequence. Include in Phase 1 model documentation."
+    },
+    {
+      "source": "reviewer_refine round 2 ACK",
+      "item": "Decide anchor init location (entrypoint.py vs container_spawner)",
+      "severity": "low",
+      "recommendation": "Anchor init should happen in the sandbox entrypoint (sandbox/entrypoint.py) after setup_agent_rules(), not in container_spawner.py. This is because: (1) the sandbox has the anchor CLI available, (2) init needs to be inside the container, (3) follows the pattern of other sandbox-side setup. Container spawner only needs to pass AGENT_ANCHOR_ID env var."
+    },
+    {
+      "source": "reviewer_refine round 2 ACK",
+      "item": "Define AC-8 proxy test — simulate compaction via agent restart",
+      "severity": "low",
+      "recommendation": "E2E test: launch agent with anchor, let it make progress, kill and restart with only anchor-recovery.md + anchor file, verify agent resumes correctly. Include in Phase 4."
+    }
+  ],
+
+  "open_questions_recommendations": {
+    "q1_redis_namespace": {
+      "question": "Should anchors use a dedicated Redis database/prefix?",
+      "recommendation": "Dedicated prefix anchor:{pipeline_id}:{agent_id} in the same Redis database. Consistent with pipeline:{pipeline_id}:messages pattern in redis_message_store.py. Avoids multi-database complexity.",
+      "confidence": "high"
+    },
+    "q2_auto_pruning": {
+      "question": "Should CLI auto-prune old completed progress items?",
+      "recommendation": "Warn only, agent decides. Auto-pruning risks removing context the agent considers important. The CLI should suggest pruning when approaching soft limit but not act unilaterally.",
+      "confidence": "high"
+    },
+    "q3_non_coordinator_team_anchor": {
+      "question": "Should team anchor work in non-coordinator pipelines?",
+      "recommendation": "Yes. The orchestrator generates team anchors from individual anchor data regardless of coordinator presence. Useful for any multi-agent phase, not just coordinator-managed ones.",
+      "confidence": "high"
+    }
+  },
+
+  "key_file_inventory": {
+    "new_files": [
+      ".egg/schemas/agent-anchor.schema.json",
+      "shared/egg_anchor/__init__.py",
+      "shared/egg_anchor/models.py",
+      "shared/egg_anchor/loader.py",
+      "shared/egg_anchor/validator.py",
+      "shared/egg_anchor/constants.py",
+      "orchestrator/anchor_store.py",
+      "orchestrator/routes/anchors.py",
+      "sandbox/.claude/rules/anchor-recovery.md"
+    ],
+    "modified_files": [
+      "shared/egg_config/constants.py",
+      "shared/egg_orchestrator/client.py",
+      "orchestrator/cli.py",
+      "orchestrator/api.py",
+      "orchestrator/consensus_wrapper.py",
+      "orchestrator/container_spawner.py",
+      "gateway/phase_filter.py"
+    ],
+    "test_files": [
+      "shared/egg_anchor/tests/test_models.py",
+      "shared/egg_anchor/tests/test_loader.py",
+      "shared/egg_anchor/tests/test_validator.py",
+      "orchestrator/tests/test_anchor_store.py",
+      "orchestrator/tests/test_anchor_routes.py",
+      "gateway/tests/test_phase_filter_anchors.py"
+    ]
+  },
+
+  "acceptance_criteria_mapping": {
+    "AC-1": {"description": "Agent anchor created at startup", "phase": 3, "verification": "Integration test: container starts, egg-orch anchor show returns valid anchor"},
+    "AC-2": {"description": "egg-orch anchor update validates schema + size", "phase": 1, "verification": "Unit test: invalid JSON rejected, oversized rejected"},
+    "AC-3": {"description": "Size enforced (2KB soft / 3KB hard)", "phase": 1, "verification": "Unit test: CLI returns error on hard limit violation, warning on soft"},
+    "AC-4": {"description": "Cross-agent anchor read works via API", "phase": 2, "verification": "Integration test: Agent A reads Agent B's anchor via egg-orch anchor show --agent B"},
+    "AC-5": {"description": "Gateway blocks writes to other agents' anchors", "phase": 3, "verification": "Integration test: push with wrong anchor filename rejected"},
+    "AC-6": {"description": "Team anchor generated by orchestrator", "phase": 2, "verification": "API test: GET /api/v1/anchors/team/{pipeline_id} returns aggregated state"},
+    "AC-7": {"description": "Anchor included in checkpoints", "phase": 4, "verification": "egg-checkpoint show displays anchor data"},
+    "AC-8": {"description": "Agent recovers coherently after context clear", "phase": 4, "verification": "E2E test: agent resumes task focus after restart with only anchor"},
+    "AC-9": {"description": "Phase filter allows anchor writes in all phases", "phase": 3, "verification": "Integration test: anchor push succeeds in refine, plan, implement"},
+    "AC-10": {"description": "Anchor cleanup on pipeline completion", "phase": 4, "verification": "No stale anchors in Redis after pipeline complete"},
+    "AC-11": {"description": "Atomic write prevents corruption", "phase": 1, "verification": "Unit test: concurrent read during write sees complete file"}
+  }
+}
