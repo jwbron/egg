@@ -8,7 +8,7 @@ All agent roles in egg, their responsibilities, phases, file access permissions,
 |------|-------|-----------|------------|
 | `refiner` | Refine | No | — |
 | `reviewer_refine` | Refine | Yes (with `reviewer_agent_design`) | refiner |
-| `reviewer_agent_design` | Refine | Yes (with `reviewer_refine`) | refiner |
+| `reviewer_agent_design` | Refine (egg repo only) | Yes (with `reviewer_refine`) | refiner |
 | `architect` | Plan | No | — |
 | `task_planner` | Plan | Yes (with `risk_analyst`) | architect |
 | `risk_analyst` | Plan | Yes (with `task_planner`) | architect |
@@ -50,6 +50,8 @@ All implement phase agents run concurrently via BRC consensus.
 - `.egg-state/reviews/{identifier}-refine-reviewer_refine-review.json` — Verdict file
 
 ### `reviewer_agent_design`
+
+**Scope**: Egg repo only (`jwbron/egg`). Not spawned for pipelines on other repos.
 
 **Purpose**: Review the analysis for agent-mode alignment and anti-patterns (e.g., correct use of egg's structural enforcement model).
 

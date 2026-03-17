@@ -39,7 +39,7 @@ When concurrent execution starts, the `ConcurrentPhaseExecutor` (in `orchestrato
 
 | Phase | Spawned roles |
 |-------|--------------|
-| `refine` | `refiner`, `reviewer_refine`, `reviewer_agent_design` |
+| `refine` | `refiner`, `reviewer_refine`, `reviewer_agent_design` (egg repo only) |
 | `plan` | `architect`, `task_planner`, `risk_analyst`, `reviewer_plan` |
 | `implement` | `coder`, `tester`, `documenter`, `reviewer_code`, `reviewer_contract` |
 
