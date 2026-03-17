@@ -17,6 +17,9 @@ if str(_orchestrator_path) not in sys.path:
 from approval_matrix import ApprovalState
 from peer_consensus import (
     PeerConsensusTracker,
+    _trackers,
+    _trackers_lock,
+    reconstruct_tracker_from_messages,
 )
 from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph, get_default_implement_graph
 
@@ -1356,3 +1359,240 @@ class TestSoleReviewerCrashIncludesBlockingProducers:
         assert "sole reviewer" in result["reason"]
         # Should include blocking_producers for tester (but NOT coder, which is in sole_reviewer_for)
         assert result["blocking_producers"] == ["tester"]
+
+
+# ---------------------------------------------------------------------------
+# Reconstruction from messages
+# ---------------------------------------------------------------------------
+
+
+class _FakeMessage:
+    """Minimal message object for reconstruction tests."""
+
+    def __init__(
+        self, message_type, from_role, to_role="all", body="", metadata=None, timestamp=None
+    ):
+        from datetime import UTC, datetime
+
+        self.id = f"msg-{id(self)}"
+        self.message_type = message_type
+        self.from_role = from_role
+        self.to_role = to_role
+        self.body = body
+        self.metadata = metadata or {}
+        self.timestamp = timestamp or datetime.now(UTC)
+
+
+class _FakeMessageStore:
+    """In-memory message store for reconstruction tests."""
+
+    def __init__(self, messages=None):
+        self._messages = messages or []
+
+    def get_messages(self, pipeline_id, *, limit=100):
+        return [m for m in self._messages if True]  # return all
+
+
+class TestReconstructTrackerFromMessages:
+    """Tests for reconstruct_tracker_from_messages()."""
+
+    def setup_method(self):
+        """Clean up global tracker state between tests."""
+        with _trackers_lock:
+            _trackers.pop("test-reconstruct", None)
+
+    def teardown_method(self):
+        with _trackers_lock:
+            _trackers.pop("test-reconstruct", None)
+
+    def test_returns_none_when_no_messages(self, simple_graph):
+        """Should return None when message store has no consensus messages."""
+        store = _FakeMessageStore([])
+        result = reconstruct_tracker_from_messages(
+            "test-reconstruct", simple_graph, message_store=store
+        )
+        assert result is None
+
+    def test_reconstructs_full_lifecycle(self, simple_graph):
+        """Should reconstruct confirmed state from message sequence."""
+        from datetime import UTC, datetime, timedelta
+
+        base = datetime.now(UTC)
+
+        messages = [
+            _FakeMessage(
+                "CONSENSUS_PROPOSE",
+                "coder",
+                "all",
+                metadata={
+                    "payload": {
+                        "summary": "auth",
+                        "artifacts": ["src/auth.py"],
+                        "attestation": {
+                            "commit_shas": ["abc"],
+                            "files_changed": ["src/auth.py"],
+                            "test_summary": "pass",
+                            "risk_considered": "none",
+                        },
+                    }
+                },
+                timestamp=base,
+            ),
+            _FakeMessage(
+                "CONSENSUS_PROPOSE",
+                "tester",
+                "all",
+                metadata={
+                    "payload": {
+                        "summary": "tests",
+                        "artifacts": ["test.py"],
+                        "attestation": {
+                            "tests_written": 1,
+                            "tests_run": 1,
+                            "coverage_delta": "+1%",
+                            "edge_cases": [],
+                            "concern_considered": "none",
+                        },
+                    }
+                },
+                timestamp=base + timedelta(seconds=1),
+            ),
+            _FakeMessage(
+                "CONSENSUS_ACK",
+                "reviewer_code",
+                "coder",
+                metadata={"payload": {"reason": "lgtm"}},
+                timestamp=base + timedelta(seconds=2),
+            ),
+            _FakeMessage(
+                "CONSENSUS_ACK",
+                "reviewer_code",
+                "tester",
+                metadata={"payload": {"reason": "lgtm"}},
+                timestamp=base + timedelta(seconds=3),
+            ),
+            _FakeMessage(
+                "CONSENSUS_ACK",
+                "reviewer_contract",
+                "coder",
+                metadata={"payload": {"reason": "lgtm"}},
+                timestamp=base + timedelta(seconds=4),
+            ),
+            _FakeMessage(
+                "CONSENSUS_CONFIRMED",
+                "coder",
+                "all",
+                timestamp=base + timedelta(seconds=5),
+            ),
+            _FakeMessage(
+                "CONSENSUS_CONFIRMED",
+                "tester",
+                "all",
+                timestamp=base + timedelta(seconds=6),
+            ),
+            _FakeMessage(
+                "CONSENSUS_CONFIRMED",
+                "reviewer_code",
+                "all",
+                timestamp=base + timedelta(seconds=7),
+            ),
+            _FakeMessage(
+                "CONSENSUS_CONFIRMED",
+                "reviewer_contract",
+                "all",
+                timestamp=base + timedelta(seconds=8),
+            ),
+        ]
+
+        store = _FakeMessageStore(messages)
+        tracker = reconstruct_tracker_from_messages(
+            "test-reconstruct", simple_graph, message_store=store
+        )
+
+        assert tracker is not None
+        state = tracker.evaluate()
+        assert state["is_complete"] is True
+        assert state["blocking_agents"] == []
+
+    def test_reconstructs_partial_state(self, simple_graph):
+        """Should correctly reconstruct partial consensus (not yet complete)."""
+        from datetime import UTC, datetime
+
+        base = datetime.now(UTC)
+
+        messages = [
+            _FakeMessage(
+                "CONSENSUS_PROPOSE",
+                "coder",
+                "all",
+                metadata={"payload": {"summary": "wip", "artifacts": ["src/a.py"]}},
+                timestamp=base,
+            ),
+        ]
+
+        store = _FakeMessageStore(messages)
+        tracker = reconstruct_tracker_from_messages(
+            "test-reconstruct", simple_graph, message_store=store
+        )
+
+        assert tracker is not None
+        state = tracker.evaluate()
+        assert state["is_complete"] is False
+        assert "coder" in state["agents"]
+        assert state["agents"]["coder"]["producer_phase"] == "PROPOSED"
+
+    def test_registers_tracker_globally(self, simple_graph):
+        """Reconstructed tracker should be registered in global tracker dict."""
+        from datetime import UTC, datetime
+
+        messages = [
+            _FakeMessage(
+                "CONSENSUS_PROPOSE",
+                "coder",
+                "all",
+                metadata={"payload": {"summary": "x", "artifacts": []}},
+                timestamp=datetime.now(UTC),
+            ),
+        ]
+
+        store = _FakeMessageStore(messages)
+        reconstruct_tracker_from_messages("test-reconstruct", simple_graph, message_store=store)
+
+        from peer_consensus import get_peer_consensus_tracker
+
+        assert get_peer_consensus_tracker("test-reconstruct") is not None
+
+    def test_skips_invalid_messages_gracefully(self, simple_graph):
+        """Should skip messages that cause errors during replay."""
+        from datetime import UTC, datetime, timedelta
+
+        base = datetime.now(UTC)
+
+        messages = [
+            # ACK without prior proposal — will cause ValueError
+            _FakeMessage(
+                "CONSENSUS_ACK",
+                "reviewer_code",
+                "coder",
+                metadata={"payload": {"reason": "lgtm"}},
+                timestamp=base,
+            ),
+            # Valid proposal after the invalid ACK
+            _FakeMessage(
+                "CONSENSUS_PROPOSE",
+                "coder",
+                "all",
+                metadata={"payload": {"summary": "valid", "artifacts": ["a.py"]}},
+                timestamp=base + timedelta(seconds=1),
+            ),
+        ]
+
+        store = _FakeMessageStore(messages)
+        tracker = reconstruct_tracker_from_messages(
+            "test-reconstruct", simple_graph, message_store=store
+        )
+
+        # Should still reconstruct despite the invalid ACK
+        assert tracker is not None
+        state = tracker.evaluate()
+        assert state["agents"]["coder"]["producer_phase"] == "PROPOSED"

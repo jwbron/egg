@@ -986,6 +986,19 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]
 
         tracker = get_peer_consensus_tracker(pipeline.id)
+        if not tracker:
+            # Attempt lazy reconstruction from message store for concurrent pipelines
+            try:
+                from review_graph import get_default_implement_graph
+
+                from ..concurrent_executor import is_concurrent_execution
+                from ..peer_consensus import reconstruct_tracker_from_messages
+
+                if is_concurrent_execution(pipeline, pipeline.current_phase):
+                    graph = get_default_implement_graph()
+                    tracker = reconstruct_tracker_from_messages(pipeline.id, graph)
+            except (ImportError, Exception):
+                pass  # Fall through to legacy evaluator
         if tracker:
             consensus_state = tracker.get_state()
         else:

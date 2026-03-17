@@ -1118,6 +1118,32 @@ class WorktreeManager:
 
             repo_name = repo_dir.name
             with self._get_repo_lock(repo_name):
+                # Defense-in-depth: check for locked worktrees before pruning.
+                # git worktree prune already respects locks, but this prevents
+                # edge cases where a race between container startup and pruning
+                # could cause issues.
+                try:
+                    list_result = subprocess.run(
+                        git_cmd("worktree", "list", "--porcelain"),
+                        cwd=repo_dir,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        timeout=30,
+                    )
+                    if list_result.returncode == 0 and "locked" in list_result.stdout:
+                        logger.warning(
+                            "Skipping git worktree prune: locked worktrees found",
+                            repo=repo_name,
+                        )
+                        continue
+                except subprocess.TimeoutExpired:
+                    logger.warning(
+                        "git worktree list timed out, skipping prune",
+                        repo=repo_name,
+                    )
+                    continue
+
                 try:
                     result = subprocess.run(
                         git_cmd("worktree", "prune"),

@@ -30,6 +30,7 @@ from models import (
     PipelinePhase,
     PipelineStatus,
 )
+from peer_consensus import _trackers, _trackers_lock
 from startup_reconciliation import reconcile_stale_containers
 
 # ---------------------------------------------------------------------------
@@ -403,3 +404,74 @@ class TestReconcileAwaitingHuman:
         assert result == 2
         assert p1.status == PipelineStatus.FAILED
         assert p2.status == PipelineStatus.FAILED
+
+
+# ---------------------------------------------------------------------------
+# Consensus reconstruction on startup
+# ---------------------------------------------------------------------------
+
+from unittest.mock import patch
+
+
+class TestStartupConsensusReconstruction:
+    """Tests for consensus tracker reconstruction during startup reconciliation."""
+
+    def setup_method(self):
+        with _trackers_lock:
+            _trackers.pop("issue-concurrent", None)
+
+    def teardown_method(self):
+        with _trackers_lock:
+            _trackers.pop("issue-concurrent", None)
+
+    def test_reconstructs_tracker_for_running_concurrent_pipeline(self):
+        """Startup should reconstruct consensus tracker for RUNNING concurrent pipelines."""
+
+        pipeline = Pipeline(
+            id="issue-concurrent",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        pipeline.config.concurrent_execution = True
+
+        phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        phase.status = PipelineStatus.RUNNING
+        phase.started_at = datetime.utcnow()
+        phase.containers.append(
+            ContainerInfo(
+                container_id="live123",
+                container_name="egg-coder",
+                status=ContainerStatus.RUNNING,
+                started_at=datetime.utcnow(),
+            )
+        )
+        phase.agents.append(
+            AgentExecution(
+                role=AgentRole.CODER,
+                status=AgentExecutionStatus.RUNNING,
+                container_id="live123",
+                started_at=datetime.utcnow(),
+            )
+        )
+
+        store = _make_store(pipeline)
+        docker_client = _make_docker_client(["live123"])
+
+        # The startup_reconciliation imports these functions locally, so we
+        # patch them at their source modules.
+        with (
+            patch("peer_consensus.reconstruct_tracker_from_messages") as mock_reconstruct,
+            patch("concurrent_executor.is_concurrent_execution", return_value=True),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=None),
+        ):
+            mock_reconstruct.return_value = MagicMock()
+
+            reconcile_stale_containers(store, docker_client)
+
+            mock_reconstruct.assert_called_once()
+            call_args = mock_reconstruct.call_args
+            assert call_args[0][0] == "issue-concurrent"

@@ -1347,42 +1347,57 @@ def get_changed_files_in_push(
             files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
             return files, None
 
-        # If remote branch doesn't exist yet, get all files in all commits on the branch
-        # that aren't on the default branch
-        result = subprocess.run(
-            git_cmd(
-                "diff",
-                "--name-only",
-                f"{remote}/main..HEAD",
-            ),
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
+        # If remote branch doesn't exist yet, use per-commit file detection via
+        # merge-base + diff-tree. This avoids false positives from inherited
+        # differences between worktree branches and origin/main (Bug #1239).
+        for default_branch in ("main", "master"):
+            merge_base_result = subprocess.run(
+                git_cmd("merge-base", f"{remote}/{default_branch}", "HEAD"),
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            if merge_base_result.returncode != 0:
+                continue
 
-        if result.returncode == 0:
-            files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
-            return files, None
+            fork_point = merge_base_result.stdout.strip()
+            if not fork_point:
+                continue
 
-        # Try master if main doesn't exist
-        result = subprocess.run(
-            git_cmd(
-                "diff",
-                "--name-only",
-                f"{remote}/master..HEAD",
-            ),
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
+            # Get files changed in each commit between fork point and HEAD
+            log_result = subprocess.run(
+                git_cmd("rev-list", f"{fork_point}..HEAD"),
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            if log_result.returncode != 0:
+                continue
 
-        if result.returncode == 0:
-            files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
-            return files, None
+            all_files: set[str] = set()
+            for sha in log_result.stdout.strip().split("\n"):
+                sha = sha.strip()
+                if not sha:
+                    continue
+                dt_result = subprocess.run(
+                    git_cmd("diff-tree", "--no-commit-id", "--name-only", "-r", sha),
+                    cwd=repo_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+                if dt_result.returncode == 0:
+                    for f in dt_result.stdout.strip().split("\n"):
+                        f = f.strip()
+                        if f:
+                            all_files.add(f)
+
+            return sorted(all_files), None
 
         # SECURITY: If we cannot determine what files are being pushed, we MUST
         # fail closed to prevent bypass of file restrictions. An attacker could

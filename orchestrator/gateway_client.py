@@ -629,7 +629,7 @@ class GatewayClient:
                 data={
                     "repo_path": repo_path,
                     "remote": "origin",
-                    "refspec": branch,
+                    "refspec": f"HEAD:refs/heads/{branch}",
                     "container_id": temp_container_id,
                 },
                 bearer_token=session_token,

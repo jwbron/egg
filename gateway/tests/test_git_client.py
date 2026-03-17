@@ -775,6 +775,101 @@ class TestGetChangedFilesInPush:
                 f"Expected two-dot syntax (..) in git diff, got: {call_args}"
             )
 
+    def test_fallback_uses_per_commit_detection(self):
+        """When remote branch doesn't exist, use merge-base + diff-tree per commit."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+
+            def side_effect(cmd, **kwargs):
+                result = MagicMock()
+                cmd_str = " ".join(cmd)
+
+                # First call: git diff origin/branch..HEAD fails (branch doesn't exist)
+                if "diff" in cmd and "origin/branch..HEAD" in cmd_str:
+                    result.returncode = 128
+                    result.stderr = "fatal: bad revision"
+                    return result
+
+                # merge-base call succeeds for main
+                if "merge-base" in cmd and "origin/main" in cmd_str:
+                    result.returncode = 0
+                    result.stdout = "abc123\n"
+                    return result
+
+                # rev-list returns two commits
+                if "rev-list" in cmd:
+                    result.returncode = 0
+                    result.stdout = "sha1\nsha2\n"
+                    return result
+
+                # diff-tree per commit
+                if "diff-tree" in cmd:
+                    if "sha1" in cmd:
+                        result.returncode = 0
+                        result.stdout = "src/auth.py\n"
+                    elif "sha2" in cmd:
+                        result.returncode = 0
+                        result.stdout = "src/models.py\nsrc/auth.py\n"
+                    return result
+
+                result.returncode = 128
+                result.stderr = "unexpected"
+                return result
+
+            mock_run.side_effect = side_effect
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            assert error is None
+            # Union of files from both commits, sorted
+            assert files == ["src/auth.py", "src/models.py"]
+
+    def test_fallback_tries_master_when_main_missing(self):
+        """When merge-base with main fails, try master."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+
+            def side_effect(cmd, **kwargs):
+                result = MagicMock()
+                cmd_str = " ".join(cmd)
+
+                if "diff" in cmd and "origin/branch..HEAD" in cmd_str:
+                    result.returncode = 128
+                    result.stderr = "fatal: bad revision"
+                    return result
+
+                if "merge-base" in cmd and "origin/main" in cmd_str:
+                    result.returncode = 128
+                    result.stderr = "fatal: not a valid object"
+                    return result
+
+                if "merge-base" in cmd and "origin/master" in cmd_str:
+                    result.returncode = 0
+                    result.stdout = "def456\n"
+                    return result
+
+                if "rev-list" in cmd:
+                    result.returncode = 0
+                    result.stdout = "sha1\n"
+                    return result
+
+                if "diff-tree" in cmd:
+                    result.returncode = 0
+                    result.stdout = "README.md\n"
+                    return result
+
+                result.returncode = 128
+                return result
+
+            mock_run.side_effect = side_effect
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            assert error is None
+            assert files == ["README.md"]
+
 
 class TestIsBranchSwitchingCheckout:
     """Tests for is_branch_switching_checkout()."""

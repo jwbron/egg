@@ -175,4 +175,39 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
                     error=str(e),
                 )
 
+    # Reconstruct consensus trackers for RUNNING concurrent pipelines
+    # whose in-memory tracker was lost during the restart.
+    try:
+        from concurrent_executor import is_concurrent_execution
+        from peer_consensus import get_peer_consensus_tracker, reconstruct_tracker_from_messages
+        from review_graph import get_default_implement_graph
+
+        for pipeline_id in pipeline_ids:
+            try:
+                pipeline = store.load_pipeline(pipeline_id)
+            except Exception:
+                continue
+
+            if pipeline.status != PipelineStatus.RUNNING:
+                continue
+            if not is_concurrent_execution(pipeline, pipeline.current_phase):
+                continue
+            if get_peer_consensus_tracker(pipeline_id) is not None:
+                continue
+
+            graph = get_default_implement_graph()
+            tracker = reconstruct_tracker_from_messages(pipeline_id, graph)
+            if tracker:
+                logger.info(
+                    "Startup reconciliation: reconstructed consensus tracker",
+                    pipeline_id=pipeline_id,
+                )
+    except ImportError:
+        logger.debug("Peer consensus module not available for startup reconstruction")
+    except Exception as e:
+        logger.warning(
+            "Startup reconciliation: consensus reconstruction failed",
+            error=str(e),
+        )
+
     return recovered

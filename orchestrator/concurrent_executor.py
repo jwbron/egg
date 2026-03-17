@@ -336,6 +336,16 @@ class ConcurrentPhaseExecutor:
     def check_consensus(self) -> dict[str, Any]:
         """Check if consensus has been reached for phase completion."""
         tracker = get_peer_consensus_tracker(self.pipeline.id)
+        if not tracker:
+            # Attempt lazy reconstruction from message store
+            try:
+                from peer_consensus import reconstruct_tracker_from_messages
+                from review_graph import get_default_implement_graph
+
+                graph = get_default_implement_graph()
+                tracker = reconstruct_tracker_from_messages(self.pipeline.id, graph)
+            except (ImportError, Exception):
+                pass
         if tracker:
             return tracker.evaluate()
         return {"is_complete": False, "blocking_agents": [], "has_objections": False, "agents": {}}

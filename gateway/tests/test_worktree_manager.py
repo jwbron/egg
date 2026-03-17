@@ -1069,12 +1069,19 @@ class TestPruneStaleWorktrees:
         manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
 
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            # Each repo gets a list call (no locks) then a prune call
+            no_locked = MagicMock(
+                returncode=0,
+                stdout="worktree /main\nHEAD abc\nbranch refs/heads/main\n\n",
+                stderr="",
+            )
+            prune_ok = MagicMock(returncode=0, stdout="", stderr="")
+            mock_run.side_effect = [no_locked, prune_ok, no_locked, prune_ok]
             pruned = manager.prune_stale_worktrees()
 
         assert pruned == 2
         # Verify git worktree prune was called for each repo
-        prune_calls = [c for c in mock_run.call_args_list if "prune" in str(c)]
+        prune_calls = [c for c in mock_run.call_args_list if "prune" in c[0][0]]
         assert len(prune_calls) == 2
 
     def test_skips_worktree_repos(self, tmp_path):
@@ -1095,7 +1102,13 @@ class TestPruneStaleWorktrees:
         manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
 
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            no_locked = MagicMock(
+                returncode=0,
+                stdout="worktree /main\nHEAD abc\nbranch refs/heads/main\n\n",
+                stderr="",
+            )
+            prune_ok = MagicMock(returncode=0, stdout="", stderr="")
+            mock_run.side_effect = [no_locked, prune_ok]
             pruned = manager.prune_stale_worktrees()
 
         # Only the real repo should be pruned
@@ -1121,7 +1134,13 @@ class TestPruneStaleWorktrees:
         manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
 
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error: prune failed")
+            no_locked = MagicMock(
+                returncode=0,
+                stdout="worktree /main\nHEAD abc\nbranch refs/heads/main\n\n",
+                stderr="",
+            )
+            prune_fail = MagicMock(returncode=1, stdout="", stderr="error: prune failed")
+            mock_run.side_effect = [no_locked, prune_fail]
             pruned = manager.prune_stale_worktrees()
 
         # Should not count failed pruning
@@ -1142,15 +1161,74 @@ class TestPruneStaleWorktrees:
 
         manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
 
+        no_locked = MagicMock(
+            returncode=0, stdout="worktree /main\nHEAD abc\nbranch refs/heads/main\n\n", stderr=""
+        )
+        prune_ok = MagicMock(returncode=0, stdout="", stderr="")
+
         with patch("subprocess.run") as mock_run:
-            # First call times out, second succeeds
+            # First repo: list ok, prune times out. Second repo: list ok, prune ok.
             mock_run.side_effect = [
+                no_locked,
                 subprocess.TimeoutExpired(cmd="git worktree prune", timeout=30),
-                MagicMock(returncode=0, stdout="", stderr=""),
+                no_locked,
+                prune_ok,
             ]
             pruned = manager.prune_stale_worktrees()
 
         # Only the second repo should be counted
+        assert pruned == 1
+
+    def test_skips_prune_when_locked_worktrees_found(self, tmp_path):
+        """Should skip pruning when git worktree list shows locked worktrees."""
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+
+        repo = repos_base / "test-repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
+
+        with patch("subprocess.run") as mock_run:
+            # git worktree list --porcelain returns output with "locked" keyword
+            list_result = MagicMock(
+                returncode=0,
+                stdout="worktree /path/to/worktree\nHEAD abc123\nbranch refs/heads/egg/work\nlocked\n\n",
+                stderr="",
+            )
+            mock_run.return_value = list_result
+            pruned = manager.prune_stale_worktrees()
+
+        # Should not prune because locked worktrees exist
+        assert pruned == 0
+        # Only the list call should have been made, not the prune call
+        prune_calls = [c for c in mock_run.call_args_list if "prune" in c[0][0]]
+        assert len(prune_calls) == 0
+
+    def test_prunes_when_no_locked_worktrees(self, tmp_path):
+        """Should proceed with pruning when no locked worktrees found."""
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+
+        repo = repos_base / "test-repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
+
+        with patch("subprocess.run") as mock_run:
+            # First call: git worktree list (no locked)
+            list_result = MagicMock(
+                returncode=0,
+                stdout="worktree /path/to/main\nHEAD abc123\nbranch refs/heads/main\n\n",
+                stderr="",
+            )
+            # Second call: git worktree prune succeeds
+            prune_result = MagicMock(returncode=0, stdout="", stderr="")
+            mock_run.side_effect = [list_result, prune_result]
+            pruned = manager.prune_stale_worktrees()
+
         assert pruned == 1
 
 
