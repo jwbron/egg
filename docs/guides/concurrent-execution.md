@@ -28,6 +28,8 @@ Relevant `PipelineConfig` fields:
 |-------|---------|-------------|
 | `concurrent_execution` | `false` | Enable BRC for every phase (overrides `concurrent_phases`) |
 | `concurrent_phases` | `["refine", "plan", "implement"]` | Phases where BRC is active when `concurrent_execution` is `false` |
+| `start_phase` | `null` | Skip earlier phases and begin execution from `"plan"` or `"implement"` |
+| `implement_roles` | `null` | Override which roles run in the implement phase (e.g. `["coder", "reviewer_code"]`); defaults to all implement roles |
 | `max_concurrent_agents` | `6` | Maximum agents per phase |
 | `message_poll_hint_seconds` | `30` | Suggested polling interval for agents |
 | `consensus_timeout_minutes` | `30` | Consensus timeout before escalation or auto-advance |
@@ -41,7 +43,7 @@ When concurrent execution starts, the `ConcurrentPhaseExecutor` (in `orchestrato
 |-------|--------------|
 | `refine` | `refiner`, `reviewer_refine`, `reviewer_agent_design` (egg repo only) |
 | `plan` | `architect`, `task_planner`, `risk_analyst`, `reviewer_plan` |
-| `implement` | `coder`, `tester`, `documenter`, `reviewer_code`, `reviewer_contract` |
+| `implement` | `coder`, `tester`, `documenter`, `reviewer_code`, `reviewer_contract` (overridable via `implement_roles` config) |
 
 **Shared branch**: All agents operate on the pipeline's shared branch (e.g., `egg/issue-123`). Agents coordinate commits via the message bus to sequence their work and avoid conflicts.
 
