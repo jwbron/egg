@@ -95,7 +95,9 @@ orchestrator/
 ├── events.py               # Event bus for pipeline events
 ├── gateway_client.py       # Gateway API client (sessions, worktrees, config)
 ├── handoffs.py             # Agent handoff data management
+├── health_monitor.py       # Deterministic tripwire health monitor (progress events → auto-nudge/escalate)
 ├── message_store.py        # Inter-agent message store (Redis Streams when available, in-memory fallback)
+├── progress_store.py       # In-memory structured progress event store with configurable retention
 ├── peer_consensus.py       # BRC (Broadcast-Review-Converge) peer consensus tracker
 ├── mcp_server.py           # MCP server providing comprehensive egg platform interface to Claude Code (port 9850)
 ├── mcp_tools.py            # MCP tool definitions and handlers: pipeline state, containers, messages, checkpoints, contracts, health
@@ -111,6 +113,13 @@ orchestrator/
 ├── status_reporter.py      # Real-time status reporter for collaborators
 ├── unified_sse.py          # Unified SSE stream for all pipelines
 ├── webhooks.py             # GitHub webhook handlers
+├── overseer/               # Overseer agent package (LLM-powered tier of pipeline health monitoring)
+│   ├── classifier.py       # Haiku-tier classifiers (stall, loop, error triage, off-track detection)
+│   ├── decision_maker.py   # Sonnet/Opus-tier decision-maker (corrective actions, redirect messages)
+│   ├── issue_filer.py      # Autonomous GitHub diagnostic issue filing
+│   ├── monitor.py          # Main OverseerMonitor polling loop (poll-classify-decide-act cycle)
+│   ├── self_monitor.py     # OverseerSelfMonitor (poll timing, message volume, LLM cost tracking)
+│   └── utils.py            # Shared utilities for overseer modules
 ├── health_checks/          # Two-tier health check framework (see health_checks/README.md)
 │   ├── types.py            # HealthCheck protocol, HealthResult, enums
 │   ├── context.py          # PipelineHealthContext with lazy properties
@@ -131,6 +140,7 @@ orchestrator/
 │   ├── metrics.py          # Metrics endpoints
 │   ├── phases.py           # Phase management endpoints
 │   ├── pipelines.py        # Pipeline CRUD and visualization endpoints
+│   ├── progress.py         # Structured progress event endpoints (emit, query)
 │   └── signals.py          # Signal handling endpoints (incl. readiness for concurrent mode)
 ├── Dockerfile              # Orchestrator container image
 ├── entrypoint.sh           # Container entry point
