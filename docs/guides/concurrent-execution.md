@@ -65,9 +65,10 @@ All concurrent agent containers are wrapped with a shell script defined in `orch
 
 1. Claude runs inside the wrapper script with the original task prompt.
 2. If Claude exits non-zero (crashed), the wrapper exits immediately with the same code — no restart.
-3. If Claude exits cleanly (code 0), the wrapper restarts Claude with recovery instructions injected as the **system prompt** (not the user prompt). Using the system prompt prevents the Agent SDK from flagging the recovery context as prompt injection. The recovery system prompt explains that the agent was restarted, includes the current BRC state, and (for producers with unresolved NACKs) includes the NACK feedback so the agent knows exactly what to address before re-proposing. A short user prompt ("Continue the BRC consensus protocol…") accompanies it.
-4. Restarts are capped at `MAX_CONSENSUS_RESTARTS` (default: 2). After each restart, the wrapper checks if consensus was reached. If so, it exits cleanly.
-5. After exhausting all restarts, the wrapper exits with code 1, triggering the orchestrator's agent failure path (HITL decision with retry/abort/continue options).
+3. If Claude exits cleanly (code 0), the wrapper checks whether this agent is already confirmed before restarting. It queries the pipeline status endpoint; if the consensus tracker state is empty (e.g., because the orchestrator restarted and the in-memory tracker was not yet reconstructed), the wrapper falls back to checking the message bus directly for a prior `CONSENSUS_CONFIRMED` message from this agent's role. If found, the agent is treated as already confirmed and enters the wait-for-consensus poll loop — no restart needed.
+4. If not already confirmed, the wrapper restarts Claude with recovery instructions injected as the **system prompt** (not the user prompt). Using the system prompt prevents the Agent SDK from flagging the recovery context as prompt injection. The recovery system prompt explains that the agent was restarted, includes the current BRC state, and (for producers with unresolved NACKs) includes the NACK feedback so the agent knows exactly what to address before re-proposing. A short user prompt ("Continue the BRC consensus protocol…") accompanies it.
+5. Restarts are capped at `MAX_CONSENSUS_RESTARTS` (default: 2). After each restart, the wrapper checks if consensus was reached. If so, it exits cleanly.
+6. After exhausting all restarts, the wrapper exits with code 1, triggering the orchestrator's agent failure path (HITL decision with retry/abort/continue options).
 
 **Key design principle:** Agents must **explicitly** participate in consensus. The wrapper never auto-signals `READY` on behalf of an agent — it restarts the agent so it can assess state and signal for itself.
 
@@ -231,7 +232,7 @@ egg-orch consensus status
 GET /api/v1/pipelines/{id}/status   // concurrent.consensus in the response
 ```
 
-The `concurrent.consensus` key is **only present** when a consensus tracker with registered agents is active. It is omitted entirely when no tracker or evaluator is available (e.g., phases that do not yet implement BRC, or after an orchestrator restart where the in-memory tracker is lost). Callers should check for the key's presence before using it rather than relying on an empty placeholder.
+The `concurrent.consensus` key is **only present** when a consensus tracker with registered agents is active. It is omitted entirely when no tracker or evaluator is available (e.g., phases that do not yet implement BRC). After an orchestrator restart, the tracker is reconstructed from message store history during startup reconciliation, so the key is typically present for in-flight concurrent phases. Callers should still check for the key's presence before using it, as reconstruction may find no prior messages in edge cases (e.g., a brand-new phase that hasn't exchanged consensus messages yet).
 
 The consensus block returns:
 
