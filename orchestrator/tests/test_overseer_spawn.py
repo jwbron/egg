@@ -40,6 +40,7 @@ sys.modules.setdefault("docker.types", MagicMock())
 # ---------------------------------------------------------------------------
 try:
     from container_spawner import ContainerSpawner, SpawnedContainer
+    from docker_client import ContainerNotFoundError
     from gateway_client import GatewayHealth, SessionInfo
     from models import (
         AgentRole,
@@ -819,6 +820,33 @@ class TestOverseerRespawn:
         )
 
         assert new_id == "overseer-respawned-001", "Should respawn on REMOVED container"
+        assert new_count == 1
+        mock_spawner.spawn_overseer_container.assert_called_once()
+
+    def test_respawn_on_container_not_found(
+        self, mock_spawner, mock_docker_client, mock_store, running_pipeline
+    ):
+        """Overseer is respawned when container is completely gone from Docker daemon."""
+        original_id = "overseer-original-001"
+
+        mock_docker_client.get_container_info.side_effect = ContainerNotFoundError(
+            f"Container {original_id} not found"
+        )
+
+        new_id, new_count = _check_and_respawn_overseer(
+            spawner=mock_spawner,
+            store=mock_store,
+            pipeline_id="issue-1270",
+            pipeline=running_pipeline,
+            overseer_container_id=original_id,
+            overseer_respawn_count=0,
+            max_overseer_respawns=3,
+            gateway_mode="public",
+            pipeline_repos=None,
+            certs_volume=None,
+        )
+
+        assert new_id == "overseer-respawned-001", "Should respawn when container not found"
         assert new_count == 1
         mock_spawner.spawn_overseer_container.assert_called_once()
 

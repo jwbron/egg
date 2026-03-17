@@ -118,13 +118,37 @@ def _check_and_respawn_overseer(
 
     try:
         info = spawner.docker.get_container_info(overseer_container_id)
-        if info.status in (ContainerStatus.EXITED, ContainerStatus.FAILED, ContainerStatus.REMOVED):
+        needs_respawn = info.status in (
+            ContainerStatus.EXITED,
+            ContainerStatus.FAILED,
+            ContainerStatus.REMOVED,
+        )
+        exit_code = info.exit_code
+    except ContainerNotFoundError:
+        # Container completely deleted from Docker daemon — treat as respawn trigger.
+        needs_respawn = True
+        exit_code = None
+        logger.warning(
+            "Overseer container not found in Docker, will attempt respawn",
+            pipeline_id=pipeline_id,
+            container_id=overseer_container_id[:12],
+        )
+    except Exception as respawn_err:
+        logger.warning(
+            "Overseer liveness check error",
+            pipeline_id=pipeline_id,
+            error=str(respawn_err),
+        )
+        return overseer_container_id, overseer_respawn_count
+
+    if needs_respawn:
+        try:
             pipeline_check = store.load_pipeline(pipeline_id)
             if pipeline_check.status in (PipelineStatus.RUNNING, PipelineStatus.AWAITING_HUMAN):
                 logger.warning(
                     "Overseer exited mid-pipeline, respawning",
                     pipeline_id=pipeline_id,
-                    exit_code=info.exit_code,
+                    exit_code=exit_code,
                     respawn_attempt=overseer_respawn_count + 1,
                     max_respawns=max_overseer_respawns,
                 )
@@ -146,12 +170,12 @@ def _check_and_respawn_overseer(
                     respawn_attempt=overseer_respawn_count,
                 )
                 return new_container_id, overseer_respawn_count
-    except Exception as respawn_err:
-        logger.warning(
-            "Overseer liveness check error",
-            pipeline_id=pipeline_id,
-            error=str(respawn_err),
-        )
+        except Exception as respawn_err:
+            logger.warning(
+                "Overseer respawn failed",
+                pipeline_id=pipeline_id,
+                error=str(respawn_err),
+            )
 
     return overseer_container_id, overseer_respawn_count
 
