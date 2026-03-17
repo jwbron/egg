@@ -180,6 +180,43 @@ class TestSpawnOverseerNoRepoMount:
 
 
 # ---------------------------------------------------------------------------
+# Scenario 1b: Agent SDK command is passed to the container
+# ---------------------------------------------------------------------------
+
+
+class TestSpawnOverseerCommand:
+    """Verify spawn_overseer_container passes an Agent SDK command."""
+
+    def test_spawn_overseer_passes_agent_sdk_command(self, spawner, mock_docker_client):
+        """Overseer container must receive a python3 -m egg_agent command."""
+        spawner.spawn_overseer_container(
+            pipeline_id="issue-cmd",
+            issue_number=42,
+        )
+
+        create_call = mock_docker_client.create_container.call_args
+        command = create_call.kwargs.get("command", [])
+        assert command[0:3] == ["python3", "-m", "egg_agent"], (
+            f"Expected Agent SDK entry point, got: {command[:3]}"
+        )
+        assert "--model" in command
+        assert "issue-cmd" in command[-1]  # prompt references pipeline_id
+
+    def test_spawn_overseer_command_uses_decision_model(self, spawner, mock_docker_client):
+        """Overseer command uses the decision_model parameter."""
+        spawner.spawn_overseer_container(
+            pipeline_id="issue-model",
+            issue_number=43,
+            decision_model="opus",
+        )
+
+        create_call = mock_docker_client.create_container.call_args
+        command = create_call.kwargs.get("command", [])
+        model_idx = command.index("--model")
+        assert command[model_idx + 1] == "opus"
+
+
+# ---------------------------------------------------------------------------
 # Scenario 2: Correct env vars
 # ---------------------------------------------------------------------------
 

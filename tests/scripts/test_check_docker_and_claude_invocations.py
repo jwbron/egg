@@ -107,13 +107,27 @@ class TestDockerRunPython:
             tmp_path,
             """\
             import subprocess
-            subprocess.run("claude --print hello", shell=True)
+            subprocess.run("claude -v --version", shell=True)
             """,
         )
         visitor = check_python_file(f)
         assert visitor is not None
         assert len(visitor.shell_string_lines) == 1
         assert "claude CLI" in visitor.shell_string_lines[0][1]
+
+    def test_detects_shell_true_string_claude_print(self, tmp_path: Path) -> None:
+        """String commands with shell=True invoking claude --print are detected."""
+        f = _write_py(
+            tmp_path,
+            """\
+            import subprocess
+            subprocess.run("claude --print hello", shell=True)
+            """,
+        )
+        visitor = check_python_file(f)
+        assert visitor is not None
+        assert len(visitor.shell_string_lines) == 1
+        assert "Agent SDK" in visitor.shell_string_lines[0][1]
 
     def test_ignores_claude_word_in_shell_string(self, tmp_path: Path) -> None:
         """Strings containing 'claude' as a word (not CLI) should not be flagged."""
@@ -147,6 +161,20 @@ class TestDockerRunPython:
 
 class TestClaudeCLIPython:
     def test_detects_claude_as_first_element(self, tmp_path: Path) -> None:
+        """claude CLI without --print goes to claude_cli_lines."""
+        f = _write_py(
+            tmp_path,
+            """\
+            import subprocess
+            subprocess.run(["claude", "--version"])
+            """,
+        )
+        visitor = check_python_file(f)
+        assert visitor is not None
+        assert len(visitor.claude_cli_lines) == 1
+
+    def test_detects_claude_print_as_separate_violation(self, tmp_path: Path) -> None:
+        """claude --print goes to claude_print_lines, not claude_cli_lines."""
         f = _write_py(
             tmp_path,
             """\
@@ -156,14 +184,31 @@ class TestClaudeCLIPython:
         )
         visitor = check_python_file(f)
         assert visitor is not None
-        assert len(visitor.claude_cli_lines) == 1
+        assert len(visitor.claude_print_lines) == 1
+        assert "Agent SDK" in visitor.claude_print_lines[0][1]
+        assert len(visitor.claude_cli_lines) == 0
 
-    def test_detects_claude_in_docker_run(self, tmp_path: Path) -> None:
+    def test_detects_claude_print_in_docker_run(self, tmp_path: Path) -> None:
+        """claude --print embedded in docker run goes to claude_print_lines."""
         f = _write_py(
             tmp_path,
             """\
             import subprocess
             subprocess.run(["docker", "run", "--rm", "egg-sandbox:latest", "claude", "--print"])
+            """,
+        )
+        visitor = check_python_file(f)
+        assert visitor is not None
+        assert len(visitor.claude_print_lines) == 1
+        assert "Agent SDK" in visitor.claude_print_lines[0][1]
+
+    def test_detects_claude_in_docker_run_without_print(self, tmp_path: Path) -> None:
+        """claude (no --print) embedded in docker run goes to claude_cli_lines."""
+        f = _write_py(
+            tmp_path,
+            """\
+            import subprocess
+            subprocess.run(["docker", "run", "--rm", "egg-sandbox:latest", "claude", "--version"])
             """,
         )
         visitor = check_python_file(f)
@@ -223,6 +268,7 @@ class TestNoqaSuppression:
         visitor = check_python_file(f)
         assert visitor is not None
         assert len(visitor.claude_cli_lines) == 0
+        assert len(visitor.claude_print_lines) == 0
 
     def test_noqa_with_justification_suppresses(self, tmp_path: Path) -> None:
         """noqa with justification (the required format) should suppress."""
@@ -262,7 +308,7 @@ class TestShellFiles:
             docker run -d --name mycontainer alpine
             """,
         )
-        docker_viols, _ = check_shell_file(f)
+        docker_viols, _, _ = check_shell_file(f)
         assert len(docker_viols) == 1
         assert docker_viols[0][0] == 2
 
@@ -274,7 +320,7 @@ class TestShellFiles:
             # docker run -d alpine
             """,
         )
-        docker_viols, _ = check_shell_file(f)
+        docker_viols, _, _ = check_shell_file(f)
         assert len(docker_viols) == 0
 
     def test_noqa_in_shell(self, tmp_path: Path) -> None:
@@ -285,7 +331,7 @@ class TestShellFiles:
             docker run -d alpine  # noqa: EGG100
             """,
         )
-        docker_viols, _ = check_shell_file(f)
+        docker_viols, _, _ = check_shell_file(f)
         assert len(docker_viols) == 0
 
     def test_detects_docker_run_with_extra_spaces(self, tmp_path: Path) -> None:
@@ -296,8 +342,33 @@ class TestShellFiles:
             docker   run --rm alpine
             """,
         )
-        docker_viols, _ = check_shell_file(f)
+        docker_viols, _, _ = check_shell_file(f)
         assert len(docker_viols) == 1
+
+    def test_detects_claude_print_in_shell(self, tmp_path: Path) -> None:
+        """claude --print in shell scripts should be flagged."""
+        f = _write_sh(
+            tmp_path,
+            """\
+            #!/bin/bash
+            claude --print "hello world"
+            """,
+        )
+        _, _, claude_print_viols = check_shell_file(f)
+        assert len(claude_print_viols) == 1
+        assert "Agent SDK" in claude_print_viols[0][1]
+
+    def test_noqa_suppresses_claude_print_in_shell(self, tmp_path: Path) -> None:
+        """noqa suppresses claude --print detection in shell."""
+        f = _write_sh(
+            tmp_path,
+            """\
+            #!/bin/bash
+            claude --print "hello"  # noqa: EGG100 - GHA entry point
+            """,
+        )
+        _, _, claude_print_viols = check_shell_file(f)
+        assert len(claude_print_viols) == 0
 
 
 # ── Dangerous flags ──────────────────────────────────────────────────────
@@ -350,7 +421,7 @@ class TestDangerousFlags:
             docker run --privileged alpine
             """,
         )
-        _, danger_viols = check_shell_file(f)
+        _, danger_viols, _ = check_shell_file(f)
         assert len(danger_viols) == 1
         assert "--privileged" in danger_viols[0][1]
 
@@ -362,7 +433,7 @@ class TestDangerousFlags:
             docker run --network host alpine
             """,
         )
-        _, danger_viols = check_shell_file(f)
+        _, danger_viols, _ = check_shell_file(f)
         assert len(danger_viols) == 1
         assert "--network host" in danger_viols[0][1]
 
@@ -401,7 +472,7 @@ class TestDangerousFlags:
             docker run --network=host alpine
             """,
         )
-        _, danger_viols = check_shell_file(f)
+        _, danger_viols, _ = check_shell_file(f)
         assert len(danger_viols) == 1
         assert "--network host" in danger_viols[0][1]
 
@@ -470,7 +541,7 @@ class TestDangerousFlags:
             docker run --pid=host alpine
             """,
         )
-        _, danger_viols = check_shell_file(f)
+        _, danger_viols, _ = check_shell_file(f)
         assert len(danger_viols) == 1
         assert "--pid host" in danger_viols[0][1]
 
@@ -483,7 +554,7 @@ class TestDangerousFlags:
             docker run --ipc host alpine
             """,
         )
-        _, danger_viols = check_shell_file(f)
+        _, danger_viols, _ = check_shell_file(f)
         assert len(danger_viols) == 1
         assert "--ipc host" in danger_viols[0][1]
 
@@ -517,5 +588,5 @@ class TestEdgeCases:
         visitor = check_python_file(f)
         assert visitor is not None
         assert len(visitor.docker_run_lines) == 2
-        assert len(visitor.claude_cli_lines) == 1
+        assert len(visitor.claude_print_lines) == 1
         assert len(visitor.dangerous_flag_lines) == 1
