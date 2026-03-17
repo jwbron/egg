@@ -7,7 +7,7 @@ expected format and labels.
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -110,13 +110,13 @@ class TestFileDiagnosticIssueTemplate:
         assert "Auto-nudge sent" in body
         assert "Check agent logs" in body
 
-    @patch("overseer.issue_filer.subprocess")
-    def test_file_diagnostic_issue_gh_failure(self, mock_subprocess) -> None:
+    @patch("overseer.issue_filer.asyncio.create_subprocess_exec", new_callable=AsyncMock)
+    def test_file_diagnostic_issue_gh_failure(self, mock_create_subproc) -> None:
         """When gh CLI fails, filed=False but template is still returned."""
-        mock_result = MagicMock()
-        mock_result.returncode = 1
-        mock_result.stderr = "not authenticated"
-        mock_subprocess.run.return_value = mock_result
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_proc.communicate = AsyncMock(return_value=(b"", b"not authenticated"))
+        mock_create_subproc.return_value = mock_proc
 
         result = _run(
             file_diagnostic_issue(
@@ -131,13 +131,15 @@ class TestFileDiagnosticIssueTemplate:
         assert result["issue_number"] is None
         assert "## Pipeline Diagnostic" in result["template"]
 
-    @patch("overseer.issue_filer.subprocess")
-    def test_file_diagnostic_issue_success(self, mock_subprocess) -> None:
+    @patch("overseer.issue_filer.asyncio.create_subprocess_exec", new_callable=AsyncMock)
+    def test_file_diagnostic_issue_success(self, mock_create_subproc) -> None:
         """When gh CLI succeeds, filed=True and issue_number is parsed."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "https://github.com/org/repo/issues/456\n"
-        mock_subprocess.run.return_value = mock_result
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(
+            return_value=(b"https://github.com/org/repo/issues/456\n", b"")
+        )
+        mock_create_subproc.return_value = mock_proc
 
         result = _run(
             file_diagnostic_issue(
@@ -166,13 +168,15 @@ class TestIssueLabels:
         assert "egg:diagnostic" in DIAGNOSTIC_LABELS
         assert "pipeline-health" in DIAGNOSTIC_LABELS
 
-    @patch("overseer.issue_filer.subprocess")
-    def test_labels_passed_to_gh(self, mock_subprocess) -> None:
+    @patch("overseer.issue_filer.asyncio.create_subprocess_exec", new_callable=AsyncMock)
+    def test_labels_passed_to_gh(self, mock_create_subproc) -> None:
         """Labels should be passed to the gh CLI command."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "https://github.com/org/repo/issues/789\n"
-        mock_subprocess.run.return_value = mock_result
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(
+            return_value=(b"https://github.com/org/repo/issues/789\n", b"")
+        )
+        mock_create_subproc.return_value = mock_proc
 
         _run(
             file_diagnostic_issue(
@@ -183,7 +187,7 @@ class TestIssueLabels:
             )
         )
 
-        call_args = mock_subprocess.run.call_args[0][0]
+        call_args = mock_create_subproc.call_args[0]
         # Verify --label flags are in the command
         assert "--label" in call_args
         label_indices = [i for i, a in enumerate(call_args) if a == "--label"]

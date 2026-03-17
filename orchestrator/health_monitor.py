@@ -16,7 +16,7 @@ import sys
 import threading
 import time
 import uuid
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -91,8 +91,8 @@ class HealthMonitor:
         self._escalation_callbacks: list[EscalationCallback] = []
         self._throttle_callbacks: list[ThrottleCallback] = []
 
-        # Active alerts
-        self._active_alerts: list[dict[str, Any]] = []
+        # Active alerts (bounded to prevent unbounded growth)
+        self._active_alerts: deque[dict[str, Any]] = deque(maxlen=200)
 
         # Last heartbeat times (exposed for test manipulation)
         self._last_heartbeat: dict[str, float] = {}
@@ -446,11 +446,15 @@ class HealthMonitor:
             alert_type: Type of alert to resolve.
         """
         with self._lock:
-            self._active_alerts = [
-                a
-                for a in self._active_alerts
-                if not (a.get("agent_id") == agent_id and a.get("alert_type") == alert_type)
-            ]
+            filtered = deque(
+                (
+                    a
+                    for a in self._active_alerts
+                    if not (a.get("agent_id") == agent_id and a.get("alert_type") == alert_type)
+                ),
+                maxlen=200,
+            )
+            self._active_alerts = filtered
 
     # -----------------------------------------------------------------
     # Lifecycle

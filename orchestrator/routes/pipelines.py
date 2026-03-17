@@ -4766,6 +4766,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     # this guard, our finally block would delete the *new* run's worktrees.
     run_created_at: datetime | None = None
     overseer_container_id: str | None = None
+    health_monitor_instance = None
+    health_monitor_timer: threading.Event | None = None
 
     try:
         store = get_state_store(repo_path)
@@ -5081,6 +5083,53 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     pipeline_id=pipeline_id,
                     error=str(e),
                 )
+
+        # Initialize the Tier 1 health monitor so deterministic tripwires
+        # (heartbeat timeout, container exit, repeated errors, message rate,
+        # progress stall) fire during pipeline execution.  The monitor
+        # subscribes to EventBus events reactively, but check_heartbeats()
+        # and check_progress() need periodic polling.
+        try:
+            from events import get_event_bus
+            from health_monitor import init_health_monitor
+
+            health_monitor_instance = init_health_monitor(
+                get_event_bus(), pipeline_id, pipeline.config
+            )
+
+            # Start a background polling thread for time-based tripwires
+            health_monitor_timer = threading.Event()
+
+            def _health_monitor_poll(monitor, stop_event: threading.Event, interval: float = 30.0):
+                while not stop_event.is_set():
+                    try:
+                        monitor.check_tripwires()
+                    except Exception as poll_err:
+                        logger.debug(
+                            "Health monitor poll error",
+                            pipeline_id=pipeline_id,
+                            error=str(poll_err),
+                        )
+                    stop_event.wait(interval)
+
+            poll_thread = threading.Thread(
+                target=_health_monitor_poll,
+                args=(health_monitor_instance, health_monitor_timer),
+                daemon=True,
+                name=f"health-monitor-{pipeline_id[:8]}",
+            )
+            poll_thread.start()
+            logger.info(
+                "Health monitor initialized",
+                pipeline_id=pipeline_id,
+            )
+        except Exception as hm_err:
+            # Non-fatal: pipeline can run without Tier 1 monitoring
+            logger.warning(
+                "Failed to initialize health monitor (continuing without Tier 1 monitoring)",
+                pipeline_id=pipeline_id,
+                error=str(hm_err),
+            )
 
         while True:
             try:
@@ -5805,6 +5854,34 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         except Exception:
             pass
     finally:
+        # Stop health monitor polling and unsubscribe from events
+        if health_monitor_timer is not None:
+            health_monitor_timer.set()
+        if health_monitor_instance is not None:
+            try:
+                health_monitor_instance.stop()
+                logger.info("Health monitor stopped", pipeline_id=pipeline_id)
+            except Exception as hm_stop_err:
+                logger.debug(
+                    "Failed to stop health monitor",
+                    pipeline_id=pipeline_id,
+                    error=str(hm_stop_err),
+                )
+
+        # Clean up progress store for this pipeline
+        try:
+            from progress_store import get_progress_store
+
+            progress_store = get_progress_store()
+            if progress_store is not None:
+                progress_store.clear(pipeline_id)
+        except Exception as ps_err:
+            logger.debug(
+                "Failed to clear progress store",
+                pipeline_id=pipeline_id,
+                error=str(ps_err),
+            )
+
         # Stop overseer container if it was spawned
         if overseer_container_id:
             try:

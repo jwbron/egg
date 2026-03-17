@@ -6,8 +6,8 @@ files them via the ``gh`` CLI.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import subprocess
 from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
@@ -143,16 +143,18 @@ async def file_diagnostic_issue(
             body,
             *label_args,
         ]
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=30,
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=30)
+        stdout_text = (stdout_bytes or b"").decode()
+        stderr_text = (stderr_bytes or b"").decode()
 
-        if result.returncode == 0:
+        if proc.returncode == 0:
             # Parse issue number from URL output (e.g. https://github.com/org/repo/issues/123)
-            url = result.stdout.strip()
+            url = stdout_text.strip()
             issue_number: int | None = None
             if url and "/" in url:
                 try:
@@ -169,8 +171,8 @@ async def file_diagnostic_issue(
 
         logger.warning(
             "gh issue create failed (rc=%d): %s",
-            result.returncode,
-            result.stderr,
+            proc.returncode,
+            stderr_text,
         )
         return {"issue_number": None, "filed": False, "template": body}
 
@@ -178,7 +180,7 @@ async def file_diagnostic_issue(
         logger.warning("gh CLI not found; cannot file diagnostic issue")
         return {"issue_number": None, "filed": False, "template": body}
 
-    except subprocess.TimeoutExpired:
+    except TimeoutError:
         logger.warning("gh issue create timed out")
         return {"issue_number": None, "filed": False, "template": body}
 
