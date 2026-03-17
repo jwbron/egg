@@ -4,7 +4,7 @@ Untrusted agent container. Provides the isolated execution environment where Cla
 
 - **[README.md](README.md)** — container setup, environment variables, tool inventory
 - **[../docs/index.md](../docs/index.md)** — full documentation index
-- **`.claude/rules/`** — Claude Code rules injected into sandboxed agents (not relevant for local development)
+- **`agent-config/rules/`** — Claude Code rules injected into sandboxed agents (not relevant for local development)
 
 ## Testing
 

@@ -196,8 +196,11 @@ sandbox/
 ├── tools/                  # Interactive tools
 │   ├── discover-tests.py   # Test framework discovery
 │   └── github-app-token.py # Token generation utility
-├── claude-commands/        # Custom slash commands
-├── claude-rules/           # Agent behavior rules
+├── agent-config/           # Agent rules and commands (deployed into containers)
+│   ├── commands/           # Custom slash commands
+│   └── rules/              # Agent behavior rules
+├── claude-commands/        # Symlink → agent-config/commands
+├── claude-rules/           # Symlink → agent-config/rules
 ├── scripts/                # Container helper scripts
 └── tests/                  # Sandbox tests (command timeout, test infrastructure)
 ```
