@@ -185,9 +185,7 @@ class DockerClaudeVisitor(ast.NodeVisitor):
                         (node.lineno, '"claude --print" must use Agent SDK instead')
                     )
                 else:
-                    self.claude_cli_lines.append(
-                        (node.lineno, 'subprocess call: "claude" CLI')
-                    )
+                    self.claude_cli_lines.append((node.lineno, 'subprocess call: "claude" CLI'))
 
         # Also detect claude embedded in docker run commands
         # e.g. ["docker", "run", ..., "image", "claude", "--print", ...]

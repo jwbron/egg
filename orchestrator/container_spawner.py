@@ -69,6 +69,7 @@ from docker_client import (
     DockerClientError,
     get_docker_client,
 )
+from egg_agent import build_agent_command
 from egg_container import (
     ContainerNetworkConfig,
     MountSpec,
@@ -78,7 +79,6 @@ from egg_container import (
     phase_readonly_mounts,
     to_dockerpy_kwargs,
 )
-from egg_agent import build_agent_command
 from gateway_client import (
     GatewayClient,
     GatewayError,
