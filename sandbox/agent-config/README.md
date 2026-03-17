@@ -33,7 +33,7 @@ Skills installed into Claude Code from `skills/` at the repo root. Each subdirec
 **Available skills:**
 - `/auto-pr` - Submit a task to the orchestrator as a lightweight single-agent pipeline (no HITL gates) and surface the resulting PR link
 - `/egg-setup` - Walk through initial egg setup or update an existing configuration
-- `/run-workflow` - Guide a full egg pipeline lifecycle: seed prompt, submit, monitor, HITL handling, and completion
+- `/sdlc` - Run an egg SDLC pipeline: full lifecycle (default) or lightweight coder+reviewer with `--short`
 
 ## Usage
 
@@ -48,7 +48,7 @@ Claude Code automatically loads these files when running in the container.
 ```
 /auto-pr <task description> [--repo owner/name]
 /egg-setup [--check | --update secrets | --update repos | --update config]
-/run-workflow [issue# or description] [--repo owner/name]
+/sdlc [--short] [issue# or description] [--repo owner/name]
 ```
 
 **Rules:**
