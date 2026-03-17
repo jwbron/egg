@@ -1,0 +1,476 @@
+{
+  "issue": 1030,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 1,
+  "revision_notes": "Initial architecture analysis for agent team roster, roles, and access controls.",
+
+  "title": "Architecture analysis: Agent team roster with consolidated role registry, universal concurrency, and role-level access control",
+
+  "summary": "Define a comprehensive agent roster for the async, self-organizing agent team model. The recommended approach (Option B from refine: Consolidated Role Registry with Category Metadata) adds an AgentCategory enum to classify roles into EXECUTION, ANALYSIS, REVIEW, UTILITY, and INTERFACE categories, consolidates the AgentRole enum from 4 locations to a single canonical source (shared/egg_contracts/agent_roles.py), adds AUTOFIXER and CONFLICT_RESOLVER as UTILITY roles with gateway patterns, removes remaining integrator test references, and updates documentation to reflect universal concurrency support. The ConcurrentPhaseExecutor and gateway enforcement are already phase-agnostic — the primary work is role registry consolidation, new role addition, and documentation alignment.",
+
+  "current_state": {
+    "description": "Analysis of the current codebase state relevant to this issue.",
+    "agent_role_definitions": {
+      "locations": [
+        {
+          "file": "shared/egg_contracts/agent_roles.py",
+          "type": "StrEnum",
+          "role_count": 13,
+          "notes": "Canonical source. Defines AgentRoleDefinition with responsibilities, dependencies, file access patterns, and I/O declarations. Missing: INSPECTOR, REVIEWER (generic), AUTOFIXER, CONFLICT_RESOLVER."
+        },
+        {
+          "file": "orchestrator/models.py",
+          "type": "StrEnum",
+          "role_count": 15,
+          "notes": "Duplicate. Adds INSPECTOR (health check role) and generic REVIEWER not in canonical source. Used by Pydantic models."
+        },
+        {
+          "file": "shared/egg_orchestrator/types.py",
+          "type": "StrEnum",
+          "role_count": 14,
+          "notes": "Duplicate. Includes generic REVIEWER but not INSPECTOR. Used by orchestrator client types."
+        },
+        {
+          "file": "gateway/agent_restrictions.py",
+          "type": "Plain class constants",
+          "role_count": 13,
+          "notes": "Mirrors shared version. Used for gateway validation. No enum inheritance."
+        }
+      ],
+      "divergences": [
+        "orchestrator/models.py has INSPECTOR role not in other locations",
+        "orchestrator/models.py and shared/egg_orchestrator/types.py have generic REVIEWER role not in canonical source",
+        "gateway/agent_restrictions.py uses plain class constants, not the shared StrEnum"
+      ]
+    },
+    "concurrent_execution": {
+      "status": "Already phase-agnostic",
+      "details": "ConcurrentPhaseExecutor.get_agent_roles() calls get_roles_for_phase(phase) dynamically — not hardcoded. is_concurrent_execution() checks pipeline.config.concurrent_phases (defaults to ['refine', 'plan', 'implement']). The issue's claim of hardcoded [CODER, TESTER, DOCUMENTER] appears outdated.",
+      "key_files": [
+        "orchestrator/concurrent_executor.py (lines 92-106, 400-421)",
+        "orchestrator/routes/pipelines.py (lines 953, 997)"
+      ]
+    },
+    "gateway_enforcement": {
+      "status": "Per-role enforcement already active",
+      "details": "AGENT_PATTERNS registry maps each of 13 roles to AgentFilePattern with allowed/blocked patterns. validate_agent_push() checks at git push time. Blocked patterns checked FIRST for security precedence. No AUTOFIXER or CONFLICT_RESOLVER patterns exist.",
+      "key_file": "gateway/agent_restrictions.py (lines 466-480, 559-586)"
+    },
+    "vestigial_role_cleanup": {
+      "reviewer_unified": "Already removed. Migration logic in orchestrator/models.py maps persisted values to reviewer_code.",
+      "checker": "Already removed. Migration logic maps checker to tester.",
+      "integrator": "Not in any enum. 4 remaining references: orchestrator/tests/test_removal_validation_1165.py, orchestrator/tests/test_concurrent_integration.py, orchestrator/tests/test_dag_visualizer.py, gateway/worktree_manager.py (comment)."
+    },
+    "review_graph": {
+      "description": "Asymmetric directed review topology for BRC consensus. Defined in orchestrator/review_graph.py.",
+      "phases": {
+        "refine": "Producers: refiner. Reviewers: reviewer_refine (critical), reviewer_agent_design (critical, egg-repo only).",
+        "plan": "Producers: architect, task_planner, risk_analyst. Reviewers: reviewer_plan. Edges: architect (critical), task_planner (critical), risk_analyst (advisory).",
+        "implement": "Producers: coder, tester, documenter. Reviewers: reviewer_code (critical), reviewer_contract (critical), tester (dual-role: producer + reviewer of coder). Advisory: reviewer_code → documenter."
+      }
+    },
+    "phase_agnostic_infrastructure": [
+      "orchestrator/consensus.py — consensus evaluator",
+      "orchestrator/message_store.py — message bus",
+      "orchestrator/routes/messages.py — message API",
+      "shared/egg_orchestrator/client.py — readiness signaling",
+      "gateway/checkpoint_handler.py — checkpoint handler"
+    ]
+  },
+
+  "approaches_considered": [
+    {
+      "id": "A",
+      "title": "Incremental Roster Update",
+      "description": "Update existing AgentRole enum in-place across all 4 locations. Add new roles, clean up integrator refs, update docs. Keep multi-location enum pattern.",
+      "pros": [
+        "Minimal disruption — builds on already-functional system",
+        "No migration needed for existing 13 roles",
+        "Can be done incrementally",
+        "Lowest risk"
+      ],
+      "cons": [
+        "Four-location enum remains a sync hazard (already caused INSPECTOR divergence)",
+        "No category metadata for dynamic team composition queries",
+        "Doesn't address foundational issues for #1028 team framework"
+      ],
+      "recommended": false
+    },
+    {
+      "id": "B",
+      "title": "Consolidated Role Registry with Category Metadata (RECOMMENDED)",
+      "description": "Consolidate AgentRole enum to shared/egg_contracts/agent_roles.py as single source. Add AgentCategory enum (EXECUTION, ANALYSIS, REVIEW, UTILITY, INTERFACE). All other locations import or re-export. Add new AUTOFIXER and CONFLICT_RESOLVER roles. Clean up integrator refs. Update gateway patterns and documentation.",
+      "pros": [
+        "Single source of truth eliminates sync bugs (fixes INSPECTOR divergence)",
+        "Category metadata enables dynamic team composition queries ('all review agents', 'all execution agents')",
+        "Better foundation for #1028 team framework",
+        "Cleaner separation of role definition from phase mapping",
+        "Aligns with refine phase recommendation"
+      ],
+      "cons": [
+        "Requires updating imports across orchestrator and shared packages",
+        "Pydantic model validators in orchestrator/models.py need special handling for backward compatibility",
+        "More work upfront than Option A"
+      ],
+      "recommended": true
+    },
+    {
+      "id": "C",
+      "title": "Capability-Based Dynamic Role System",
+      "description": "Replace static enum + role-definition with a capability-based system. Roles defined by capabilities (can_write_source, can_review, can_spawn_agents, etc.).",
+      "pros": [
+        "Maximum flexibility for future agent types",
+        "Natural fit for dynamic team composition"
+      ],
+      "cons": [
+        "Significant architectural change with high risk for a specification issue",
+        "Overkill for current roster size (15-16 roles)",
+        "Gateway enforcement is role-string-based; capability-based requires rearchitecting",
+        "Premature abstraction — team model (#1028) still being defined"
+      ],
+      "recommended": false
+    }
+  ],
+
+  "recommended_approach": {
+    "id": "B",
+    "title": "Consolidated Role Registry with Category Metadata",
+    "justification": "This approach was recommended during the refine phase analysis and approved by both the refine reviewer and agent design reviewer. It addresses the root cause of the role divergence problem (INSPECTOR appears only in orchestrator/models.py) while adding the category metadata needed for the #1028 team framework. The scope is manageable and the risk is moderate — the main challenge is updating Pydantic model validators to import from the shared source rather than defining their own enum.",
+    "architecture_decisions": [
+      {
+        "decision": "Single-source AgentRole enum in shared/egg_contracts/agent_roles.py",
+        "rationale": "Eliminates the 4-location sync hazard that already caused the INSPECTOR divergence. Other modules import or re-export. orchestrator/models.py gets a compatibility shim: `from egg_contracts.agent_roles import AgentRole` plus any orchestrator-specific roles (INSPECTOR) defined as extensions.",
+        "affected_files": [
+          "shared/egg_contracts/agent_roles.py",
+          "orchestrator/models.py",
+          "shared/egg_orchestrator/types.py",
+          "gateway/agent_restrictions.py"
+        ]
+      },
+      {
+        "decision": "New AgentCategory enum with 5 values: EXECUTION, ANALYSIS, REVIEW, UTILITY, INTERFACE",
+        "rationale": "Enables the orchestrator to query roles by category for dynamic team composition (e.g., 'spawn all REVIEW agents for this phase'). Categories are metadata on AgentRoleDefinition, not a separate hierarchy.",
+        "affected_files": [
+          "shared/egg_contracts/agent_roles.py"
+        ]
+      },
+      {
+        "decision": "Add AUTOFIXER and CONFLICT_RESOLVER as UTILITY category roles",
+        "rationale": "These are PR-specific utility agents defined in the issue. They need gateway patterns, role definitions, and file access declarations. They are NOT part of standard pipeline teams — they run independently in response to PR events.",
+        "affected_files": [
+          "shared/egg_contracts/agent_roles.py",
+          "gateway/agent_restrictions.py",
+          "orchestrator/models.py",
+          "shared/egg_orchestrator/types.py"
+        ]
+      },
+      {
+        "decision": "Defer COORDINATOR role to #1028",
+        "rationale": "The coordinator role requires elevated permissions (spawn agents, skip phases) that are still being defined in #1028. Adding a placeholder would create ambiguity. The role registry consolidation in this issue makes adding the coordinator in #1028 straightforward.",
+        "affected_files": []
+      },
+      {
+        "decision": "Clean up remaining integrator references in tests",
+        "rationale": "4 references remain in test files and one gateway comment. These should be removed or updated to use valid role names.",
+        "affected_files": [
+          "orchestrator/tests/test_removal_validation_1165.py",
+          "orchestrator/tests/test_concurrent_integration.py",
+          "orchestrator/tests/test_dag_visualizer.py",
+          "gateway/worktree_manager.py"
+        ]
+      },
+      {
+        "decision": "No changes to ConcurrentPhaseExecutor or concurrency gates",
+        "rationale": "The executor is already phase-agnostic. get_agent_roles() calls get_roles_for_phase(phase) dynamically. is_concurrent_execution() respects concurrent_phases config. The issue's line references to hardcoded phase checks appear outdated — the code has already been generalized.",
+        "affected_files": []
+      },
+      {
+        "decision": "Resolve INSPECTOR role divergence",
+        "rationale": "INSPECTOR exists only in orchestrator/models.py but not in the canonical source. During consolidation, either add INSPECTOR to the canonical source (if it's a legitimate role) or remove it from models.py (if it's an orchestrator-internal concept). Investigation suggests INSPECTOR is used for health checks and should be added to the canonical source as an INTERFACE category role.",
+        "affected_files": [
+          "shared/egg_contracts/agent_roles.py",
+          "orchestrator/models.py"
+        ]
+      },
+      {
+        "decision": "Resolve generic REVIEWER role divergence",
+        "rationale": "orchestrator/models.py and types.py have a generic REVIEWER role not in the canonical source. This is a legacy catch-all. During consolidation, keep it for backward compatibility in Pydantic validators (deserialized from persisted state) but add migration logic similar to reviewer_unified → reviewer_code.",
+        "affected_files": [
+          "shared/egg_contracts/agent_roles.py",
+          "orchestrator/models.py",
+          "shared/egg_orchestrator/types.py"
+        ]
+      }
+    ]
+  },
+
+  "component_breakdown": {
+    "description": "Components affected and the nature of changes required.",
+    "components": [
+      {
+        "name": "shared/egg_contracts/agent_roles.py",
+        "changes": [
+          "Add AgentCategory enum (EXECUTION, ANALYSIS, REVIEW, UTILITY, INTERFACE)",
+          "Add category field to AgentRoleDefinition dataclass",
+          "Add AUTOFIXER and CONFLICT_RESOLVER to AgentRole enum",
+          "Add INSPECTOR to AgentRole enum (from orchestrator divergence)",
+          "Create AgentRoleDefinition entries for new roles with file access patterns",
+          "Add category to all existing AgentRoleDefinition entries",
+          "Add helper functions: get_roles_by_category(), get_utility_roles(), etc.",
+          "Ensure _PHASE_ROLES and _PHASE_REVIEWERS include new roles where appropriate"
+        ],
+        "complexity": "medium",
+        "risk": "low — additive changes to existing patterns"
+      },
+      {
+        "name": "orchestrator/models.py",
+        "changes": [
+          "Replace local AgentRole enum with import from shared/egg_contracts/agent_roles.py",
+          "Add backward-compatibility migration for REVIEWER → REVIEWER_CODE",
+          "Ensure Pydantic validators handle the imported enum correctly",
+          "Test that persisted pipeline state with old role names deserializes correctly"
+        ],
+        "complexity": "medium",
+        "risk": "medium — Pydantic model validators are sensitive to enum source changes. Need thorough testing of deserialization from persisted state."
+      },
+      {
+        "name": "shared/egg_orchestrator/types.py",
+        "changes": [
+          "Replace local AgentRole enum with import/re-export from shared/egg_contracts/agent_roles.py",
+          "Ensure all downstream consumers (orchestrator client, CLI tools) work with the re-exported enum"
+        ],
+        "complexity": "low",
+        "risk": "low — types.py is primarily used for type hints"
+      },
+      {
+        "name": "gateway/agent_restrictions.py",
+        "changes": [
+          "Replace local AgentRole class constants with import from shared/egg_contracts/agent_roles.py",
+          "Add AUTOFIXER_PATTERNS: writable source + config files, blocked docs/contracts",
+          "Add CONFLICT_RESOLVER_PATTERNS: writable source + test + docs + config, blocked .egg-state/",
+          "Add INSPECTOR_PATTERNS: read-only (or minimal writable set for health check outputs)",
+          "Register new roles in AGENT_PATTERNS dict"
+        ],
+        "complexity": "medium",
+        "risk": "medium — gateway is security-critical. New patterns must be reviewed carefully."
+      },
+      {
+        "name": "orchestrator/review_graph.py",
+        "changes": [
+          "No structural changes needed — review graphs are already phase-specific",
+          "Optionally add AUTOFIXER and CONFLICT_RESOLVER to a 'utility' review graph if utility agents ever need consensus (currently they don't)"
+        ],
+        "complexity": "none",
+        "risk": "none"
+      },
+      {
+        "name": "orchestrator/concurrent_executor.py",
+        "changes": [
+          "No changes needed — already phase-agnostic",
+          "May need to import AgentRole from new canonical location if models.py changes its import"
+        ],
+        "complexity": "trivial",
+        "risk": "low"
+      },
+      {
+        "name": "Test files (integrator cleanup)",
+        "changes": [
+          "orchestrator/tests/test_removal_validation_1165.py — update or remove integrator references",
+          "orchestrator/tests/test_concurrent_integration.py — update test fixtures",
+          "orchestrator/tests/test_dag_visualizer.py — update test fixtures",
+          "gateway/worktree_manager.py — remove comment reference"
+        ],
+        "complexity": "low",
+        "risk": "low — test fixture updates"
+      },
+      {
+        "name": "Documentation",
+        "changes": [
+          "docs/reference/agent-roles.md — add new roles, categories, updated role table",
+          "docs/guides/agent-teams.md — update if it references phase-specific concurrency",
+          "docs/guides/concurrent-execution.md — verify universal concurrency is documented",
+          "docs/guides/sdlc-pipeline.md — update agent role references",
+          "sandbox/agent-config/ — update CLAUDE.md agent role references",
+          "README.md — update any references to concurrency being implement-phase-only",
+          "Component READMEs (orchestrator/, gateway/, shared/) — update role references"
+        ],
+        "complexity": "medium",
+        "risk": "low — documentation updates"
+      }
+    ]
+  },
+
+  "dependencies_and_constraints": {
+    "blocking_dependencies": [],
+    "non_blocking_dependencies": [
+      {
+        "issue": 1027,
+        "relationship": "Cross-agent communication infrastructure. Already partially built (message_store.py, routes/messages.py). Roster definition does not block on this.",
+        "impact": "low"
+      },
+      {
+        "issue": 1028,
+        "relationship": "Agent team framework. Coordinator role deferred to this issue. Roster consolidation here makes #1028 easier.",
+        "impact": "low"
+      },
+      {
+        "issue": 1059,
+        "relationship": "Overseer agent implementation. OVERSEER role already exists; no changes needed for the roster itself.",
+        "impact": "none"
+      }
+    ],
+    "unresolved_hitl_decisions": [
+      {
+        "id": "decision-1",
+        "question": "Tester source-file write access scope",
+        "impact_on_architecture": "Affects TESTER_PATTERNS in gateway/agent_restrictions.py. If restricted to test dirs only, tester loses ability to auto-fix lint issues in source files. Recommendation: Keep broad write access (current behavior) until a tester-specific auto-fix workflow is designed.",
+        "assumed_default": "Keep broad write access (opt-a)"
+      },
+      {
+        "id": "decision-2",
+        "question": "COORDINATOR role inclusion",
+        "impact_on_architecture": "If included, adds a 16th role to the roster with elevated gateway permissions. Recommendation: Defer to #1028 (opt-b). The consolidated registry makes adding it later trivial.",
+        "assumed_default": "Defer to #1028 (opt-b)"
+      },
+      {
+        "id": "decision-3",
+        "question": "Enum consolidation scope",
+        "impact_on_architecture": "Core architectural decision. If consolidated (opt-a), this issue's primary work is the import refactoring. If kept separate with sync test (opt-b), work is smaller but the sync hazard persists. Recommendation: Consolidate (opt-a).",
+        "assumed_default": "Consolidate (opt-a)"
+      },
+      {
+        "id": "decision-4",
+        "question": "Gateway enforcement default",
+        "impact_on_architecture": "If enforce-by-default (opt-a), need to verify all existing roles' patterns are correct before switching. If warn-only (opt-b), shared worktree safety depends on explicit opt-in. Recommendation: Enforce by default (opt-a), but guard with thorough pattern testing.",
+        "assumed_default": "Enforce by default (opt-a)"
+      }
+    ],
+    "constraints": [
+      "Backward compatibility: persisted pipeline state may contain removed role names — migration logic (e.g., _REMOVED_ROLE_MIGRATION) must be maintained",
+      "Pydantic model validators: orchestrator/models.py uses AgentRole in Pydantic Field validators — switching to imported enum may affect serialization/deserialization",
+      "Gateway security: any new file patterns must follow the 'blocked-first' security model where blocked patterns take precedence over allowed patterns",
+      "Test isolation: integrator cleanup in test files must not break unrelated test assertions"
+    ]
+  },
+
+  "implementation_work_streams": {
+    "description": "The work naturally divides into 5 independent streams that can be partially parallelized.",
+    "streams": [
+      {
+        "id": "WS-1",
+        "name": "Role Registry Consolidation",
+        "description": "Consolidate AgentRole enum to single source. Add AgentCategory enum. Update imports across orchestrator/models.py, shared/egg_orchestrator/types.py, and gateway/agent_restrictions.py.",
+        "files": [
+          "shared/egg_contracts/agent_roles.py",
+          "orchestrator/models.py",
+          "shared/egg_orchestrator/types.py",
+          "gateway/agent_restrictions.py"
+        ],
+        "estimated_complexity": "high",
+        "dependencies": []
+      },
+      {
+        "id": "WS-2",
+        "name": "New Role Definitions",
+        "description": "Add AUTOFIXER, CONFLICT_RESOLVER, and INSPECTOR roles with full AgentRoleDefinition entries. Add gateway file patterns for each. Define file access, responsibilities, and I/O.",
+        "files": [
+          "shared/egg_contracts/agent_roles.py",
+          "gateway/agent_restrictions.py"
+        ],
+        "estimated_complexity": "medium",
+        "dependencies": ["WS-1"]
+      },
+      {
+        "id": "WS-3",
+        "name": "Vestigial Role Cleanup",
+        "description": "Remove remaining integrator references from test files and gateway comment.",
+        "files": [
+          "orchestrator/tests/test_removal_validation_1165.py",
+          "orchestrator/tests/test_concurrent_integration.py",
+          "orchestrator/tests/test_dag_visualizer.py",
+          "gateway/worktree_manager.py"
+        ],
+        "estimated_complexity": "low",
+        "dependencies": []
+      },
+      {
+        "id": "WS-4",
+        "name": "Backward Compatibility and Testing",
+        "description": "Ensure persisted pipeline state with old role names deserializes correctly. Add sync tests if enum consolidation is incomplete. Test Pydantic model validators with imported enum.",
+        "files": [
+          "orchestrator/tests/",
+          "shared/tests/"
+        ],
+        "estimated_complexity": "medium",
+        "dependencies": ["WS-1"]
+      },
+      {
+        "id": "WS-5",
+        "name": "Documentation Updates",
+        "description": "Update all documentation to reflect the complete roster, universal concurrency, and category metadata.",
+        "files": [
+          "docs/reference/agent-roles.md",
+          "docs/guides/agent-teams.md",
+          "docs/guides/concurrent-execution.md",
+          "docs/guides/sdlc-pipeline.md",
+          "sandbox/agent-config/",
+          "README.md",
+          "orchestrator/README.md",
+          "gateway/README.md",
+          "shared/README.md"
+        ],
+        "estimated_complexity": "medium",
+        "dependencies": ["WS-1", "WS-2"]
+      }
+    ]
+  },
+
+  "final_roster": {
+    "description": "The proposed complete agent roster after this issue is implemented.",
+    "roles": [
+      {"role": "OVERSEER", "category": "INTERFACE", "purpose": "Monitor pipeline health, detect and correct agent malfunctions, file issues"},
+      {"role": "CODER", "category": "EXECUTION", "purpose": "Implement code changes"},
+      {"role": "TESTER", "category": "EXECUTION", "purpose": "Write tests, run full test/lint suite, report failures (absorbs former checker)"},
+      {"role": "DOCUMENTER", "category": "EXECUTION", "purpose": "Update documentation to reflect changes"},
+      {"role": "REFINER", "category": "EXECUTION", "purpose": "Analyze problems before planning (pre-architect)"},
+      {"role": "ARCHITECT", "category": "ANALYSIS", "purpose": "Analyze task scope, identify affected components, propose approach"},
+      {"role": "TASK_PLANNER", "category": "ANALYSIS", "purpose": "Break analysis into discrete, assignable tasks"},
+      {"role": "RISK_ANALYST", "category": "ANALYSIS", "purpose": "Assess technical risks, identify edge cases, suggest mitigations"},
+      {"role": "REVIEWER_CODE", "category": "REVIEW", "purpose": "Review code for quality, correctness, style, security"},
+      {"role": "REVIEWER_CONTRACT", "category": "REVIEW", "purpose": "Verify implementation satisfies the planned contract"},
+      {"role": "REVIEWER_PLAN", "category": "REVIEW", "purpose": "Review plan quality, task breakdown, and dependencies"},
+      {"role": "REVIEWER_REFINE", "category": "REVIEW", "purpose": "Review analysis quality and completeness"},
+      {"role": "REVIEWER_AGENT_DESIGN", "category": "REVIEW", "purpose": "Review alignment with agent-mode design patterns"},
+      {"role": "AUTOFIXER", "category": "UTILITY", "purpose": "Auto-fix linting/formatting issues on PRs"},
+      {"role": "CONFLICT_RESOLVER", "category": "UTILITY", "purpose": "Resolve merge conflicts on PRs"},
+      {"role": "INSPECTOR", "category": "INTERFACE", "purpose": "Health check agent for orchestrator diagnostics"}
+    ],
+    "total_count": 16,
+    "removed_roles": ["reviewer_unified (already done)", "checker (already done)", "integrator (cleanup remaining)"],
+    "deferred_roles": ["COORDINATOR (deferred to #1028)"]
+  },
+
+  "risk_summary": [
+    {
+      "risk": "Pydantic deserialization breakage after enum consolidation",
+      "severity": "medium",
+      "mitigation": "Add comprehensive deserialization tests before and after the change. Use Pydantic validator hooks to handle the enum source transition."
+    },
+    {
+      "risk": "Gateway pattern errors for new roles",
+      "severity": "medium",
+      "mitigation": "Follow the established 'blocked-first' pattern. Add integration tests that verify new roles can write to expected paths and are blocked from restricted paths."
+    },
+    {
+      "risk": "Breaking existing pipelines by removing integrator from test fixtures",
+      "severity": "low",
+      "mitigation": "Only 4 references in test files. Update test fixtures to use valid role names. Run full test suite after cleanup."
+    },
+    {
+      "risk": "Documentation drift if not all docs are updated",
+      "severity": "low",
+      "mitigation": "Create a checklist of all docs referencing agent roles. The documenter agent handles this work stream."
+    }
+  ]
+}
