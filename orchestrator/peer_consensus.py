@@ -799,3 +799,146 @@ def remove_peer_consensus_tracker(pipeline_id: str) -> None:
         tracker = _trackers.pop(pipeline_id, None)
         if tracker:
             tracker.clear()
+
+
+def reconstruct_tracker_from_messages(
+    pipeline_id: str,
+    graph: ReviewGraph,
+    *,
+    message_store: Any = None,
+) -> PeerConsensusTracker | None:
+    """Reconstruct a consensus tracker by replaying messages from the message store.
+
+    Called when the in-memory tracker is lost (e.g. after orchestrator restart)
+    but consensus messages are preserved in Redis. Replays PROPOSE, ACK, NACK,
+    WITHDRAW, and CONFIRMED messages in timestamp order to rebuild state.
+
+    Args:
+        pipeline_id: Pipeline ID to reconstruct.
+        graph: ReviewGraph for the pipeline's current phase.
+        message_store: Optional message store override (for testing).
+
+    Returns:
+        Reconstructed tracker registered in the global tracker dict,
+        or None if no consensus messages were found.
+    """
+    if message_store is None:
+        try:
+            from message_store import get_message_store
+
+            message_store = get_message_store()
+        except ImportError:
+            logger.warning("Cannot reconstruct tracker: message_store unavailable")
+            return None
+
+    # Fetch all messages for this pipeline (generous limit for reconstruction)
+    messages = message_store.get_messages(pipeline_id, limit=10000)
+
+    # Filter to consensus-related message types
+    consensus_types = {
+        "CONSENSUS_PROPOSE",
+        "CONSENSUS_ACK",
+        "CONSENSUS_NACK",
+        "CONSENSUS_WITHDRAW",
+        "CONSENSUS_CONFIRMED",
+    }
+    consensus_msgs = [m for m in messages if m.message_type in consensus_types]
+
+    if not consensus_msgs:
+        return None
+
+    # Create tracker with relaxed attestation (reconstruction doesn't re-validate)
+    tracker = PeerConsensusTracker(
+        pipeline_id,
+        graph,
+        attestation_strictness=AttestationStrictness.RELAXED,
+        cooldown_seconds=0,  # No cooldown during reconstruction
+    )
+
+    # Discover and register agents from message from_role and to_role fields
+    discovered_roles: set[str] = set()
+    for msg in consensus_msgs:
+        discovered_roles.add(msg.from_role)
+        if msg.to_role and msg.to_role != "all":
+            discovered_roles.add(msg.to_role)
+
+    # Only register roles that exist in the review graph
+    all_graph_roles = graph.all_roles()
+    for role in discovered_roles:
+        if role in all_graph_roles:
+            tracker.register_agent(role)
+
+    # Sort by timestamp for deterministic replay
+    consensus_msgs.sort(key=lambda m: m.timestamp)
+
+    # Replay messages
+    for msg in consensus_msgs:
+        try:
+            if msg.message_type == "CONSENSUS_PROPOSE":
+                payload = msg.metadata.get("payload", {})
+                if not payload:
+                    # Minimal payload for reconstruction
+                    payload = {"summary": msg.body or "reconstructed", "artifacts": []}
+                tracker.handle_propose(msg.from_role, payload)
+
+            elif msg.message_type == "CONSENSUS_ACK":
+                producer_role = msg.to_role
+                payload = msg.metadata.get("payload", {})
+                if not payload:
+                    payload = {"reason": msg.body or "reconstructed"}
+                # Ensure artifact_references is non-empty (ReviewPayload validates this)
+                if not payload.get("artifact_references"):
+                    payload["artifact_references"] = ["reconstructed"]
+                tracker.handle_ack(msg.from_role, producer_role, payload)
+
+            elif msg.message_type == "CONSENSUS_NACK":
+                producer_role = msg.to_role
+                payload = msg.metadata.get("payload", {})
+                if not payload:
+                    payload = {"reason": msg.metadata.get("reason", msg.body or "reconstructed")}
+                if not payload.get("artifact_references"):
+                    payload["artifact_references"] = ["reconstructed"]
+                tracker.handle_nack(msg.from_role, producer_role, payload)
+
+            elif msg.message_type == "CONSENSUS_WITHDRAW":
+                reason = msg.body or ""
+                tracker.handle_withdraw(msg.from_role, reason)
+
+            elif msg.message_type == "CONSENSUS_CONFIRMED":
+                tracker.handle_confirmed(msg.from_role)
+
+        except Exception as e:
+            # Best-effort reconstruction: log and skip messages that fail
+            logger.warning(
+                "Skipping message during tracker reconstruction",
+                pipeline_id=pipeline_id,
+                message_id=msg.id,
+                message_type=msg.message_type,
+                from_role=msg.from_role,
+                error=str(e),
+            )
+
+    # Register the reconstructed tracker globally, but avoid overwriting
+    # a tracker that was created by a concurrent reconstruction or live messages.
+    with _trackers_lock:
+        if pipeline_id not in _trackers:
+            _trackers[pipeline_id] = tracker
+            was_registered = True
+        else:
+            tracker = _trackers[pipeline_id]
+            was_registered = False
+
+    if was_registered:
+        logger.info(
+            "Reconstructed consensus tracker from messages",
+            pipeline_id=pipeline_id,
+            messages_replayed=len(consensus_msgs),
+            confirmed_roles=sorted(tracker._confirmed),
+        )
+    else:
+        logger.info(
+            "Reconstruction discarded: tracker already exists",
+            pipeline_id=pipeline_id,
+        )
+
+    return tracker

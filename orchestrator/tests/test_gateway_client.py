@@ -751,6 +751,27 @@ class TestPushWorktreeBranch:
             registered_branch = call_kwargs.kwargs["branch"]
             assert registered_branch == "egg/issue-42"
 
+    def test_push_worktree_branch_uses_head_refspec(self, gateway_client, mock_gateway_server):
+        """Test that push uses HEAD:refs/heads/<branch> refspec format.
+
+        This ensures the worktree HEAD is pushed to the correct remote branch,
+        regardless of the local branch name (which in worktrees is often
+        egg/{container_id}/work rather than the desired egg/issue-{N}).
+        """
+        with patch.object(
+            gateway_client, "_make_request", wraps=gateway_client._make_request
+        ) as mock_req:
+            gateway_client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path="/some/path",
+                branch="egg/issue-42",
+            )
+            # Find the push call
+            push_calls = [c for c in mock_req.call_args_list if c.args[0] == "/api/v1/git/push"]
+            assert len(push_calls) == 1
+            push_data = push_calls[0].kwargs["data"]
+            assert push_data["refspec"] == "HEAD:refs/heads/egg/issue-42"
+
 
 class TestDeleteRemoteBranch:
     """Tests for delete_remote_branch method."""

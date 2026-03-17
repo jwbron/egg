@@ -158,6 +158,39 @@ fi
 AGENT_ROLE="${{EGG_AGENT_ROLE:-}}"
 if [ -n "$AGENT_ROLE" ]; then
     AGENT_CONFIRMED=$(get_agent_confirmed "$RESPONSE" "$AGENT_ROLE")
+
+    # Message bus fallback: if pipeline status returned empty consensus state
+    # (e.g. after orchestrator restart lost in-memory tracker), check the
+    # message store directly for our own CONSENSUS_CONFIRMED message.
+    if [ "$AGENT_CONFIRMED" != "True" ]; then
+        AGENTS_EMPTY=$(echo "$RESPONSE" | python3 -c \
+            "import sys,json; d=json.load(sys.stdin); agents=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}); print('True' if not agents else 'False')" \
+            2>/dev/null || echo "False")
+        if [ "$AGENTS_EMPTY" = "True" ]; then
+            cw_log "Consensus state empty (tracker lost?). Checking message bus..."
+            MSG_RESPONSE=$(egg-orch message poll --json --limit 1000 2>/dev/null || echo "[]")
+            CONFIRMED_VIA_MSG=$(echo "$MSG_RESPONSE" | python3 -c "
+import sys, json
+role = sys.argv[1]
+try:
+    msgs = json.load(sys.stdin)
+    if isinstance(msgs, dict):
+        msgs = msgs.get('data', msgs.get('messages', []))
+    found = any(
+        m.get('message_type') == 'CONSENSUS_CONFIRMED' and m.get('from_role') == role
+        for m in msgs
+    )
+    print('True' if found else 'False')
+except Exception:
+    print('False')
+" "$AGENT_ROLE" 2>/dev/null || echo "False")
+            if [ "$CONFIRMED_VIA_MSG" = "True" ]; then
+                cw_log "Found own CONSENSUS_CONFIRMED in message bus. Already confirmed."
+                AGENT_CONFIRMED="True"
+            fi
+        fi
+    fi
+
     if [ "$AGENT_CONFIRMED" = "True" ]; then
         cw_log "Agent already CONFIRMED in BRC protocol. Waiting for consensus..."
         POLL_INTERVAL="${{EGG_MESSAGE_POLL_INTERVAL:-30}}"

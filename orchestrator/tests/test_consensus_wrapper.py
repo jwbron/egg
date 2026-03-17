@@ -503,3 +503,64 @@ class TestConsensusWrapperBehavior:
                 # The wrapper should only call pipeline status, not signal READY/CONFIRMED
                 assert "signal readiness --state READY" not in log_content
                 assert "consensus confirmed" not in log_content
+
+    def test_message_bus_fallback_detects_confirmed(self):
+        """When pipeline status returns empty agents, wrapper should check message bus."""
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        # The wrapper should contain the message bus fallback logic
+        assert "Checking message bus" in script
+        assert "CONSENSUS_CONFIRMED" in script
+        assert "message poll" in script
+
+    def test_message_bus_fallback_enters_confirmed_wait(self):
+        """When CONSENSUS_CONFIRMED found in message bus, should enter confirmed wait loop."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            claude_log = os.path.join(tmpdir, "claude.log")
+
+            counter_file = os.path.join(tmpdir, "orch_status_count")
+            mock_orch = os.path.join(tmpdir, "egg-orch")
+
+            # Build mock that returns empty agents initially (simulating lost tracker)
+            # then returns is_complete=true on the 2nd pipeline status call.
+            # For message poll, returns a CONSENSUS_CONFIRMED message from coder.
+            with open(mock_orch, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
+                f.write('if echo "$@" | grep -q "pipeline status"; then\n')
+                f.write("  COUNT=0\n")
+                f.write(f"  if [ -f {shlex.quote(counter_file)} ]; then\n")
+                f.write(f"    COUNT=$(cat {shlex.quote(counter_file)})\n")
+                f.write("  fi\n")
+                f.write("  COUNT=$((COUNT + 1))\n")
+                f.write(f'  echo "$COUNT" > {shlex.quote(counter_file)}\n')
+                f.write('  if [ "$COUNT" -ge 3 ]; then\n')
+                f.write(
+                    '    echo \'{"data": {"concurrent": {"consensus": {"is_complete": true, "agents": {}}}}}\'\n'
+                )
+                f.write("  else\n")
+                f.write(
+                    '    echo \'{"data": {"concurrent": {"consensus": {"is_complete": false, "agents": {}}}}}\'\n'
+                )
+                f.write("  fi\n")
+                f.write('elif echo "$@" | grep -q "message poll"; then\n')
+                f.write(
+                    '  echo \'[{"message_type": "CONSENSUS_CONFIRMED", "from_role": "coder"}]\'\n'
+                )
+                f.write("else\n")
+                f.write('  echo "{}"\n')
+                f.write("fi\n")
+            os.chmod(mock_orch, 0o755)  # nosec B103
+
+            _make_mock_agent(tmpdir, claude_log)
+
+            cmd = build_consensus_wrapped_command("Do the work", max_restarts=2, max_ready_polls=5)
+            result = self._run_wrapper_command(cmd, tmpdir, timeout=30, agent_role="coder")
+
+            assert result.returncode == 0
+            # Should detect empty state and check message bus
+            assert "Checking message bus" in result.stderr
+            assert "Already confirmed" in result.stderr
+            # Should NOT restart
+            assert "Restarting" not in result.stderr
