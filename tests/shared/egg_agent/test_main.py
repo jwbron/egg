@@ -60,6 +60,11 @@ except ImportError:
         pass
 
     @dataclass
+    class SystemMessage:  # type: ignore[no-redef]
+        subtype: str = ""
+        data: Any = None
+
+    @dataclass
     class ClaudeAgentOptions:  # type: ignore[no-redef]
         permission_mode: str = ""
         model: str = ""
@@ -77,6 +82,7 @@ except ImportError:
     _mock_sdk.ProcessError = ProcessError  # type: ignore[attr-defined]
     _mock_sdk.CLINotFoundError = CLINotFoundError  # type: ignore[attr-defined]
     _mock_sdk.ClaudeSDKError = ClaudeSDKError  # type: ignore[attr-defined]
+    _mock_sdk.SystemMessage = SystemMessage  # type: ignore[attr-defined]
     _mock_sdk.ClaudeAgentOptions = ClaudeAgentOptions  # type: ignore[attr-defined]
     _mock_sdk.query = None  # type: ignore[attr-defined]
     sys.modules["claude_agent_sdk"] = _mock_sdk

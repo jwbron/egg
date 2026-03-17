@@ -56,6 +56,11 @@ except ImportError:
         pass
 
     @dataclass
+    class SystemMessage:  # type: ignore[no-redef]
+        subtype: str = ""
+        data: Any = None
+
+    @dataclass
     class ClaudeAgentOptions:  # type: ignore[no-redef]
         permission_mode: str = ""
         model: str = ""
@@ -73,6 +78,7 @@ except ImportError:
     _mock_sdk.ProcessError = ProcessError  # type: ignore[attr-defined]
     _mock_sdk.CLINotFoundError = CLINotFoundError  # type: ignore[attr-defined]
     _mock_sdk.ClaudeSDKError = ClaudeSDKError  # type: ignore[attr-defined]
+    _mock_sdk.SystemMessage = SystemMessage  # type: ignore[attr-defined]
     _mock_sdk.ClaudeAgentOptions = ClaudeAgentOptions  # type: ignore[attr-defined]
     _mock_sdk.query = None  # type: ignore[attr-defined]  # Patched in tests
     sys.modules["claude_agent_sdk"] = _mock_sdk
@@ -215,6 +221,114 @@ class TestRunAgentAsync:
         assert result.success is False
         assert "Timed out" in result.error
         assert "started" in result.stdout
+
+    @patch("claude_agent_sdk.query")
+    def test_system_message_handling(self, mock_query):
+        """Test that SystemMessage is processed without errors."""
+        from claude_agent_sdk import SystemMessage
+
+        async def gen(**kwargs):
+            yield SystemMessage(subtype="heartbeat", data={"ts": 123})
+            yield _make_assistant_msg("after system msg")
+            yield _make_result_msg()
+
+        mock_query.side_effect = gen
+
+        result = _run_async(run_agent_async("test prompt"))
+
+        assert result.success is True
+        assert "after system msg" in result.stdout
+
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_structured_logging_init_and_result(self, mock_query):
+        """Test that system/init and system/result log events are emitted."""
+        with patch("egg_agent.client.logger") as mock_logger:
+            _run_async(run_agent_async("test prompt"))
+
+            # Verify system/init log
+            init_calls = [
+                c
+                for c in mock_logger.info.call_args_list
+                if c.args and c.args[0] == "Agent session init"
+            ]
+            assert len(init_calls) == 1
+            init_kwargs = init_calls[0].kwargs
+            assert init_kwargs["event_type"] == "system"
+            assert init_kwargs["event_subtype"] == "init"
+
+            # Verify system/result log
+            result_calls = [
+                c
+                for c in mock_logger.info.call_args_list
+                if c.args and c.args[0] == "Agent completed"
+            ]
+            assert len(result_calls) == 1
+            result_kwargs = result_calls[0].kwargs
+            assert result_kwargs["event_type"] == "system"
+            assert result_kwargs["event_subtype"] == "result"
+            assert result_kwargs["success"] is True
+
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_error)
+    def test_structured_logging_on_error(self, mock_query):
+        """Test that system/result log is emitted on error paths."""
+        with patch("egg_agent.client.logger") as mock_logger:
+            result = _run_async(run_agent_async("test prompt"))
+
+            assert result.success is False
+
+            # Verify system/result log was still emitted
+            result_calls = [
+                c
+                for c in mock_logger.info.call_args_list
+                if c.args and c.args[0] == "Agent completed"
+            ]
+            assert len(result_calls) == 1
+            result_kwargs = result_calls[0].kwargs
+            assert result_kwargs["success"] is False
+            assert result_kwargs["error"] == "Rate limit exceeded"
+
+    @patch("claude_agent_sdk.query")
+    def test_structured_logging_on_timeout(self, mock_query):
+        """Test that system/result log is emitted on timeout path."""
+
+        async def slow_gen(**kwargs):
+            yield _make_assistant_msg("started")
+            await asyncio.sleep(10)
+            yield _make_result_msg()
+
+        mock_query.side_effect = slow_gen
+
+        with patch("egg_agent.client.logger") as mock_logger:
+            result = _run_async(run_agent_async("test prompt", timeout=1))
+
+            assert result.success is False
+
+            # Verify system/result log was emitted with expected fields
+            result_calls = [
+                c
+                for c in mock_logger.info.call_args_list
+                if c.args and c.args[0] == "Agent completed"
+            ]
+            assert len(result_calls) == 1
+            result_kwargs = result_calls[0].kwargs
+            assert result_kwargs["event_type"] == "system"
+            assert result_kwargs["event_subtype"] == "result"
+            assert result_kwargs["success"] is False
+            assert "Timed out" in result_kwargs["error"]
+            # Schema includes metadata fields (None when no ResultMessage received)
+            assert "session_id" in result_kwargs
+            assert "cost_usd" in result_kwargs
+            assert "num_turns" in result_kwargs
+            assert "duration_ms" in result_kwargs
+
+    def test_stdlib_logger_fallback_does_not_crash(self):
+        """Test that the stdlib logger adapter handles arbitrary kwargs."""
+        from egg_agent.client import _StdlibLoggerAdapter
+
+        adapter = _StdlibLoggerAdapter("test-fallback")
+        # Should not raise TypeError
+        adapter.info("msg", event_type="system", event_subtype="init", model="x")
+        adapter.debug("msg", event_type="system", data={"key": "val"})
 
 
 class TestRunAgentSync:

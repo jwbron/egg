@@ -15,7 +15,36 @@ from typing import Any
 
 from egg_agent.result import AgentResult
 
-logger = logging.getLogger(__name__)
+
+class _StdlibLoggerAdapter:
+    """Thin adapter so stdlib logger ignores structured-log kwargs."""
+
+    def __init__(self, name: str) -> None:
+        self._logger = logging.getLogger(name)
+
+    def _log(self, level: int, msg: str, **kwargs: Any) -> None:
+        # Drop structured kwargs that stdlib doesn't understand
+        self._logger.log(level, msg)
+
+    def info(self, msg: str, **kwargs: Any) -> None:
+        self._log(logging.INFO, msg, **kwargs)
+
+    def debug(self, msg: str, **kwargs: Any) -> None:
+        self._log(logging.DEBUG, msg, **kwargs)
+
+    def warning(self, msg: str, **kwargs: Any) -> None:
+        self._log(logging.WARNING, msg, **kwargs)
+
+    def error(self, msg: str, **kwargs: Any) -> None:
+        self._log(logging.ERROR, msg, **kwargs)
+
+
+try:
+    from egg_logging import get_logger
+
+    logger: Any = get_logger("egg-agent")
+except ImportError:
+    logger = _StdlibLoggerAdapter(__name__)
 
 # Default model for sandbox agents
 DEFAULT_MODEL = "opus[1m]"
@@ -57,6 +86,7 @@ async def run_agent_async(
             CLINotFoundError,
             ProcessError,
             ResultMessage,
+            SystemMessage,
             TextBlock,
             query,
         )
@@ -88,6 +118,19 @@ async def run_agent_async(
     actual_model: str | None = None
     result_meta: dict[str, Any] = {}
 
+    logger.info(
+        "Agent session init",
+        event_type="system",
+        event_subtype="init",
+        model=model,
+        cwd=str(cwd) if cwd else None,
+        permission_mode="bypassPermissions",
+        max_turns=max_turns,
+        timeout=timeout,
+        setting_sources=["project", "user"],
+        sdk="claude_agent_sdk",
+    )
+
     try:
         async with asyncio.timeout(timeout):
             stream = query(prompt=prompt, options=options)
@@ -100,6 +143,13 @@ async def run_agent_async(
                             stdout_parts.append(block.text)
                             if on_output:
                                 on_output(block.text)
+                elif isinstance(message, SystemMessage):
+                    logger.debug(
+                        "SystemMessage received",
+                        event_type="system",
+                        event_subtype=getattr(message, "subtype", None),
+                        data=getattr(message, "data", None),
+                    )
                 elif isinstance(message, ResultMessage):
                     if message.result:
                         stdout_parts.append(message.result)
@@ -112,6 +162,18 @@ async def run_agent_async(
                         "session_id": message.session_id,
                     }
                     if message.is_error:
+                        logger.info(
+                            "Agent completed",
+                            event_type="system",
+                            event_subtype="result",
+                            model=actual_model,
+                            session_id=result_meta.get("session_id"),
+                            cost_usd=result_meta.get("cost_usd"),
+                            num_turns=result_meta.get("num_turns"),
+                            duration_ms=result_meta.get("duration_ms"),
+                            success=False,
+                            error=message.result or "Agent reported error",
+                        )
                         return AgentResult(
                             success=False,
                             stdout="\n".join(stdout_parts),
@@ -126,6 +188,18 @@ async def run_agent_async(
                         )
 
     except TimeoutError:
+        logger.info(
+            "Agent completed",
+            event_type="system",
+            event_subtype="result",
+            model=actual_model,
+            session_id=result_meta.get("session_id"),
+            cost_usd=result_meta.get("cost_usd"),
+            num_turns=result_meta.get("num_turns"),
+            duration_ms=result_meta.get("duration_ms"),
+            success=False,
+            error=f"Timed out after {timeout} seconds",
+        )
         return AgentResult(
             success=False,
             stdout="\n".join(stdout_parts),
@@ -136,6 +210,18 @@ async def run_agent_async(
         )
 
     except (ProcessError, CLINotFoundError, ClaudeSDKError) as e:
+        logger.info(
+            "Agent completed",
+            event_type="system",
+            event_subtype="result",
+            model=actual_model,
+            session_id=result_meta.get("session_id"),
+            cost_usd=result_meta.get("cost_usd"),
+            num_turns=result_meta.get("num_turns"),
+            duration_ms=result_meta.get("duration_ms"),
+            success=False,
+            error=str(e),
+        )
         return AgentResult(
             success=False,
             stdout="\n".join(stdout_parts),
@@ -146,6 +232,18 @@ async def run_agent_async(
         )
 
     except Exception as e:
+        logger.info(
+            "Agent completed",
+            event_type="system",
+            event_subtype="result",
+            model=actual_model,
+            session_id=result_meta.get("session_id"),
+            cost_usd=result_meta.get("cost_usd"),
+            num_turns=result_meta.get("num_turns"),
+            duration_ms=result_meta.get("duration_ms"),
+            success=False,
+            error=str(e),
+        )
         return AgentResult(
             success=False,
             stdout="\n".join(stdout_parts),
@@ -155,8 +253,17 @@ async def run_agent_async(
             metadata={"model": actual_model} if actual_model else None,
         )
 
-    if actual_model:
-        logger.info(f"Agent completed using model: {actual_model}")
+    logger.info(
+        "Agent completed",
+        event_type="system",
+        event_subtype="result",
+        model=actual_model,
+        session_id=result_meta.get("session_id"),
+        cost_usd=result_meta.get("cost_usd"),
+        num_turns=result_meta.get("num_turns"),
+        duration_ms=result_meta.get("duration_ms"),
+        success=True,
+    )
 
     return AgentResult(
         success=True,
