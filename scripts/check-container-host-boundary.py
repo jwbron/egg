@@ -21,7 +21,7 @@ INCORRECT patterns:
 
 This script is intended to be run as a CI check or pre-commit hook.
 
-See: sandbox/.claude/rules/host-container-boundary.md
+See: sandbox/agent-config/rules/host-container-boundary.md
 
 Usage:
     python3 scripts/check-container-host-boundary.py
@@ -135,7 +135,7 @@ def main():
         print("  2. If code needs to be shared, consider if it truly belongs in both places")
         print("  3. Use direct imports from the container-local path")
         print()
-        print("Documentation: sandbox/.claude/rules/host-container-boundary.md")
+        print("Documentation: sandbox/agent-config/rules/host-container-boundary.md")
         print()
 
         return 1
