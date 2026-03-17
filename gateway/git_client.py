@@ -1379,10 +1379,14 @@ def get_changed_files_in_push(
                 continue
 
             all_files: set[str] = set()
+            commits_found = 0
+            commits_inspected = 0
+            diff_tree_errors: list[str] = []
             for sha in log_result.stdout.strip().split("\n"):
                 sha = sha.strip()
                 if not sha:
                     continue
+                commits_found += 1
                 dt_result = subprocess.run(
                     git_cmd("diff-tree", "--no-commit-id", "--name-only", "-r", sha),
                     cwd=repo_path,
@@ -1392,10 +1396,27 @@ def get_changed_files_in_push(
                     check=False,
                 )
                 if dt_result.returncode == 0:
+                    commits_inspected += 1
                     for f in dt_result.stdout.strip().split("\n"):
                         f = f.strip()
                         if f:
                             all_files.add(f)
+                else:
+                    diff_tree_errors.append(
+                        f"sha={sha} rc={dt_result.returncode} stderr={dt_result.stderr.strip()}"
+                    )
+
+            if commits_found > 0 and commits_inspected == 0:
+                # All diff-tree calls failed — fail closed to prevent bypass
+                logger.error(
+                    "All diff-tree calls failed during per-commit file detection - failing closed",
+                    repo_path=repo_path,
+                    remote=remote,
+                    branch=branch,
+                    commits_found=commits_found,
+                    errors=diff_tree_errors,
+                )
+                continue  # try next default branch, or fall through to security error
 
             return sorted(all_files), None
 
@@ -1408,7 +1429,6 @@ def get_changed_files_in_push(
             repo_path=repo_path,
             remote=remote,
             branch=branch,
-            stderr=result.stderr,
         )
         return [], "Could not determine changed files - push blocked for security"
 

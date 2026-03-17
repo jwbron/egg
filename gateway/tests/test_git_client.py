@@ -870,6 +870,55 @@ class TestGetChangedFilesInPush:
             assert error is None
             assert files == ["README.md"]
 
+    def test_fallback_fails_closed_when_all_diff_tree_fail(self):
+        """When all diff-tree calls fail, fail closed for security."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+
+            def side_effect(cmd, **kwargs):
+                result = MagicMock()
+                cmd_str = " ".join(cmd)
+
+                if "diff" in cmd and "origin/branch..HEAD" in cmd_str:
+                    result.returncode = 128
+                    result.stderr = "fatal: bad revision"
+                    return result
+
+                if "merge-base" in cmd and "origin/main" in cmd_str:
+                    result.returncode = 0
+                    result.stdout = "abc123\n"
+                    return result
+
+                if "rev-list" in cmd:
+                    result.returncode = 0
+                    result.stdout = "sha1\nsha2\n"
+                    return result
+
+                # All diff-tree calls fail
+                if "diff-tree" in cmd:
+                    result.returncode = 128
+                    result.stderr = "fatal: bad object"
+                    return result
+
+                # merge-base for master also fails
+                if "merge-base" in cmd and "origin/master" in cmd_str:
+                    result.returncode = 128
+                    result.stderr = "fatal: not a valid object"
+                    return result
+
+                result.returncode = 128
+                return result
+
+            mock_run.side_effect = side_effect
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            # Should fail closed — return error, not empty file list
+            assert error is not None
+            assert "security" in error.lower()
+            assert files == []
+
 
 class TestIsBranchSwitchingCheckout:
     """Tests for is_branch_switching_checkout()."""

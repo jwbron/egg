@@ -340,12 +340,19 @@ class ConcurrentPhaseExecutor:
             # Attempt lazy reconstruction from message store
             try:
                 from peer_consensus import reconstruct_tracker_from_messages
-                from review_graph import get_default_implement_graph
 
-                graph = get_default_implement_graph()
+                graph = get_review_graph_for_phase(
+                    self.pipeline.current_phase.value, repo=self.pipeline.repo
+                )
                 tracker = reconstruct_tracker_from_messages(self.pipeline.id, graph)
-            except (ImportError, Exception):
+            except ImportError:
                 pass
+            except Exception as e:
+                logger.warning(
+                    "Tracker reconstruction failed",
+                    error=str(e),
+                    pipeline_id=self.pipeline.id,
+                )
         if tracker:
             return tracker.evaluate()
         return {"is_complete": False, "blocking_agents": [], "has_objections": False, "agents": {}}

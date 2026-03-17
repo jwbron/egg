@@ -989,16 +989,24 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
         if not tracker:
             # Attempt lazy reconstruction from message store for concurrent pipelines
             try:
-                from review_graph import get_default_implement_graph
+                from review_graph import get_review_graph_for_phase
 
                 from ..concurrent_executor import is_concurrent_execution
                 from ..peer_consensus import reconstruct_tracker_from_messages
 
                 if is_concurrent_execution(pipeline, pipeline.current_phase):
-                    graph = get_default_implement_graph()
+                    graph = get_review_graph_for_phase(
+                        pipeline.current_phase.value, repo=pipeline.repo
+                    )
                     tracker = reconstruct_tracker_from_messages(pipeline.id, graph)
-            except (ImportError, Exception):
+            except ImportError:
                 pass  # Fall through to legacy evaluator
+            except Exception as e:
+                logger.warning(
+                    "Tracker reconstruction failed",
+                    error=str(e),
+                    pipeline_id=pipeline.id,
+                )
         if tracker:
             consensus_state = tracker.get_state()
         else:

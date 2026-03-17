@@ -907,7 +907,7 @@ def reconstruct_tracker_from_messages(
             elif msg.message_type == "CONSENSUS_CONFIRMED":
                 tracker.handle_confirmed(msg.from_role)
 
-        except (ValueError, Exception) as e:
+        except Exception as e:
             # Best-effort reconstruction: log and skip messages that fail
             logger.warning(
                 "Skipping message during tracker reconstruction",
@@ -918,9 +918,13 @@ def reconstruct_tracker_from_messages(
                 error=str(e),
             )
 
-    # Register the reconstructed tracker globally
+    # Register the reconstructed tracker globally, but avoid overwriting
+    # a tracker that was created by a concurrent reconstruction or live messages.
     with _trackers_lock:
-        _trackers[pipeline_id] = tracker
+        if pipeline_id not in _trackers:
+            _trackers[pipeline_id] = tracker
+        else:
+            tracker = _trackers[pipeline_id]
 
     logger.info(
         "Reconstructed consensus tracker from messages",

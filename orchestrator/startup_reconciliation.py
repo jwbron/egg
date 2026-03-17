@@ -180,7 +180,7 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
     try:
         from concurrent_executor import is_concurrent_execution
         from peer_consensus import get_peer_consensus_tracker, reconstruct_tracker_from_messages
-        from review_graph import get_default_implement_graph
+        from review_graph import get_review_graph_for_phase
 
         for pipeline_id in pipeline_ids:
             try:
@@ -195,7 +195,7 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
             if get_peer_consensus_tracker(pipeline_id) is not None:
                 continue
 
-            graph = get_default_implement_graph()
+            graph = get_review_graph_for_phase(pipeline.current_phase.value, repo=pipeline.repo)
             tracker = reconstruct_tracker_from_messages(pipeline_id, graph)
             if tracker:
                 logger.info(
