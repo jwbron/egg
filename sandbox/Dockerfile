@@ -208,8 +208,8 @@ RUN if [ "$CLAUDE_AGENT_SDK_VERSION" = "latest" ]; then \
     else \
         pip3 install --no-cache-dir claude-agent-sdk==${CLAUDE_AGENT_SDK_VERSION}; \
     fi && \
-    # Save installed version for update checks
-    pip3 show claude-agent-sdk 2>/dev/null | grep '^Version:' | cut -d' ' -f2 > /opt/claude-agent-sdk-version.txt || true
+    # Save installed version for update checks (non-fatal if this fails)
+    (pip3 show claude-agent-sdk 2>/dev/null | grep '^Version:' | cut -d' ' -f2 > /opt/claude-agent-sdk-version.txt || true)
 
 # Install Claude Code CLI (native installer) for the egg user
 # The egg script always passes the specific npm version to bust Docker's layer
@@ -217,8 +217,8 @@ RUN if [ "$CLAUDE_AGENT_SDK_VERSION" = "latest" ]; then \
 # build-arg is omitted (e.g. manual docker build without the egg script).
 ARG CLAUDE_CODE_VERSION=stable
 RUN su - egg -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CODE_VERSION" && \
-    # Save installed version for update checks
-    /home/egg/.local/bin/claude --version 2>/dev/null | head -1 > /home/egg/.local/VERSION || true && \
+    # Save installed version for update checks (non-fatal if this fails)
+    (/home/egg/.local/bin/claude --version 2>/dev/null | head -1 > /home/egg/.local/VERSION || true) && \
     # Replace bundled ripgrep with system ripgrep to avoid ARM64 crashes on Asahi Linux
     CLAUDE_RG=$(find /home/egg/.local -name "rg" -type f 2>/dev/null | grep -E "ripgrep.*linux" | head -1) && \
     if [ -n "$CLAUDE_RG" ]; then \
