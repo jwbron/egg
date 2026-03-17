@@ -18,7 +18,7 @@ from egg_agent.result import AgentResult
 try:
     from egg_logging import get_logger
 
-    logger = get_logger("egg-agent")
+    logger: Any = get_logger("egg-agent")
 except ImportError:
     logger = logging.getLogger(__name__)
 
