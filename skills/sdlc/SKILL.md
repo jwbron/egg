@@ -155,7 +155,7 @@ This is the single exit point from Phase 1.5 (except for "Skip pre-refine" which
 <clarifications and additional context collected during pre-refine>
 ```
 
-If no clarifications were needed (task was already clear), pass the description through unchanged. Then proceed to Phase 2.
+If no clarifications were needed (task was already clear), pass the description through unchanged. For the "Help me scope" path specifically, scoping answers are already incorporated into the task description during Phase 1 synthesis — no additional appending is needed here. Then proceed to Phase 2.
 
 ## Phase 2 — Submit
 
