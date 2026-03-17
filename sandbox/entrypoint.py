@@ -1394,7 +1394,7 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
         timeout = 300
     interval: float = 2  # seconds — initial backoff interval
     max_interval = 30  # cap for exponential backoff
-    elapsed = 0
+    elapsed: float = 0
 
     # Track which checks have passed for final diagnostic
     api_health_passed = False
