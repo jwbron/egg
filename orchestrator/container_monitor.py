@@ -29,9 +29,8 @@ except ImportError:
 
 from docker_client import (
     ContainerNotFoundError,
-    ContainerOperationError,
     DockerClient,
-    InvalidContainerIdError,
+    DockerClientError,
     get_docker_client,
 )
 from models import ContainerInfo, ContainerStatus
@@ -418,6 +417,7 @@ class ContainerMonitor:
             if self._reconciliation_thread:
                 self._reconciliation_thread.join(timeout=self._reconciliation_interval + 1)
                 self._reconciliation_thread = None
+            self._clean_exit_skipped.clear()
             stopped_any = True
 
         if stopped_any:
@@ -453,7 +453,7 @@ class ContainerMonitor:
             # list_containers(all=False) omits exited containers; query directly.
             info = self.docker_client.get_container_info(container_id)
             return info.exit_code
-        except (ContainerNotFoundError, ContainerOperationError, InvalidContainerIdError):
+        except DockerClientError:
             return None
 
     def check_container_health(self, container_id: str) -> dict[str, Any]:

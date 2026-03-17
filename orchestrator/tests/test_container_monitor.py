@@ -35,7 +35,7 @@ from container_monitor import (
     _reconcile_container_state,
     create_pipeline_reconciliation_handler,
 )
-from docker_client import ContainerNotFoundError
+from docker_client import DockerClientError
 from models import (
     AgentExecution,
     AgentExecutionStatus,
@@ -630,7 +630,7 @@ class TestPeriodicReconciliation:
         mock_docker = MagicMock()
         mock_docker.list_containers.return_value = []
         # Docker can't inspect the container (already removed)
-        mock_docker.get_container_info.side_effect = ContainerNotFoundError("container removed")
+        mock_docker.get_container_info.side_effect = DockerClientError("container removed")
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
@@ -643,3 +643,7 @@ class TestPeriodicReconciliation:
 
             # SHOULD have called _reconcile — unknown exit code errs on caution
             mock_reconcile.assert_called()
+            # Verify the correct store and container were reconciled
+            call_args = mock_reconcile.call_args
+            assert call_args[0][0] is store  # first positional arg is the store
+            assert call_args[0][1].container_id == container_id

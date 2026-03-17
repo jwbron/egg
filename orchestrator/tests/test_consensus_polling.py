@@ -919,13 +919,20 @@ class TestFailedRecovery:
         assert exit_code == 0
         assert "Consensus reached" in logs
 
-        # The recovery guard (step 3c) should have attempted to restore the
-        # pipeline status on the first iteration (consensus not complete but
-        # pipeline is FAILED).  On the second iteration, consensus completes
-        # and step 2 returns success.
-        # Verify store.load_pipeline was called (used by both recovery and
-        # _update_agents_complete).
+        # The recovery guard runs inside the consensus-complete block on
+        # iteration 2 (when consensus completes).  It should detect
+        # status=FAILED, acquire the lock, and persist status=RUNNING.
         assert mock_store.load_pipeline.call_count >= 2
+        # Lock is acquired 3 times: spawn recording, recovery guard,
+        # and _update_agents_complete.  The extra lock (vs 2 in normal case)
+        # proves recovery ran.
+        assert mock_lock.call_count == 3
+        # Verify save_pipeline was called to persist recovery.
+        save_calls = mock_store.save_pipeline.call_args_list
+        assert len(save_calls) >= 1
+        recovered = save_calls[0][0][0]  # first save is from recovery
+        assert recovered.status == PipelineStatus.RUNNING
+        assert recovered.error is None
 
     @patch("routes.pipelines.time.sleep")
     @patch("routes.pipelines.time.monotonic")
@@ -968,3 +975,9 @@ class TestFailedRecovery:
         )
 
         assert exit_code == 0
+        # Recovery should NOT have been triggered — the pipeline was already
+        # RUNNING, so the recovery guard's inner if-check (status==FAILED)
+        # is False.  The lock is acquired twice: once for spawn recording
+        # and once for _update_agents_complete.  If recovery also ran, it
+        # would be 3.
+        assert mock_lock.call_count == 2
