@@ -317,6 +317,11 @@ class ContainerMonitor:
         """Background loop for periodic container reconciliation."""
         from models import AgentExecutionStatus, PipelineStatus
 
+        # Sleep before the first sweep — startup reconciliation already ran
+        # immediately before this thread was started, so an instant re-sweep
+        # would be redundant.
+        time.sleep(self._reconciliation_interval)
+
         while self._reconciliation_running:
             try:
                 store = self._reconciliation_store
@@ -364,7 +369,7 @@ class ContainerMonitor:
                                 )
 
             except Exception as e:
-                logger.debug(
+                logger.warning(
                     "Periodic reconciliation sweep failed",
                     error=str(e),
                 )
@@ -396,9 +401,9 @@ class ContainerMonitor:
         """Check if monitor is running.
 
         Returns:
-            True if monitor is active
+            True if monitor or periodic reconciliation is active
         """
-        return self._running
+        return self._running or self._reconciliation_running
 
     def get_container_status(self, container_id: str) -> ContainerStatus | None:
         """Get cached container status.

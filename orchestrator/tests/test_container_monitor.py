@@ -394,6 +394,26 @@ class TestContainerMonitorDetection:
 # ---------------------------------------------------------------------------
 
 
+def _run_one_reconciliation_sweep(monitor):
+    """Run exactly one reconciliation sweep deterministically.
+
+    Patches ``time.sleep`` so the initial delay returns immediately
+    and the loop exits after completing a single sweep — no timing
+    dependencies on CI machine speed.
+    """
+    call_count = 0
+
+    def _fake_sleep(_seconds):
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            # First call = initial delay, second = end of first sweep
+            monitor._reconciliation_running = False
+
+    with patch("container_monitor.time.sleep", side_effect=_fake_sleep):
+        monitor._reconciliation_loop()
+
+
 class TestPeriodicReconciliation:
     """Tests for the _reconciliation_loop background thread."""
 
@@ -409,31 +429,12 @@ class TestPeriodicReconciliation:
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
-        # Patch _reconcile_container_state to capture calls without side effects
         with patch("container_monitor._reconcile_container_state") as mock_reconcile:
-            # Run a single sweep manually (don't start the thread)
             monitor._reconciliation_store = store
             monitor._reconciliation_running = True
+            monitor._reconciliation_interval = 0.01
 
-            # Run one iteration by calling the inner logic directly
-            # We'll stop the loop after one iteration by toggling the flag
-            def run_one_iteration():
-                # Execute the loop body once, then stop
-                monitor._reconciliation_interval = 0.01
-                import threading as _t
-
-                def _stop_after_delay():
-                    import time as _time
-
-                    _time.sleep(0.05)
-                    monitor._reconciliation_running = False
-
-                stopper = _t.Thread(target=_stop_after_delay)
-                stopper.start()
-                monitor._reconciliation_loop()
-                stopper.join()
-
-            run_one_iteration()
+            _run_one_reconciliation_sweep(monitor)
 
             # Should have called _reconcile with the matching ContainerInfo
             mock_reconcile.assert_called()
@@ -458,20 +459,7 @@ class TestPeriodicReconciliation:
             monitor._reconciliation_running = True
             monitor._reconciliation_interval = 0.01
 
-            def run_one_iteration():
-                import threading as _t
-                import time as _time
-
-                def _stop():
-                    _time.sleep(0.05)
-                    monitor._reconciliation_running = False
-
-                stopper = _t.Thread(target=_stop)
-                stopper.start()
-                monitor._reconciliation_loop()
-                stopper.join()
-
-            run_one_iteration()
+            _run_one_reconciliation_sweep(monitor)
 
             mock_reconcile.assert_not_called()
 
@@ -491,20 +479,7 @@ class TestPeriodicReconciliation:
             monitor._reconciliation_running = True
             monitor._reconciliation_interval = 0.01
 
-            def run_one_iteration():
-                import threading as _t
-                import time as _time
-
-                def _stop():
-                    _time.sleep(0.05)
-                    monitor._reconciliation_running = False
-
-                stopper = _t.Thread(target=_stop)
-                stopper.start()
-                monitor._reconciliation_loop()
-                stopper.join()
-
-            run_one_iteration()
+            _run_one_reconciliation_sweep(monitor)
 
             # Should not crash, should not reconcile anything
             mock_reconcile.assert_not_called()
@@ -567,20 +542,7 @@ class TestPeriodicReconciliation:
             monitor._reconciliation_running = True
             monitor._reconciliation_interval = 0.01
 
-            def run_one_iteration():
-                import threading as _t
-                import time as _time
-
-                def _stop():
-                    _time.sleep(0.05)
-                    monitor._reconciliation_running = False
-
-                stopper = _t.Thread(target=_stop)
-                stopper.start()
-                monitor._reconciliation_loop()
-                stopper.join()
-
-            run_one_iteration()
+            _run_one_reconciliation_sweep(monitor)
 
             # Should NOT have called _reconcile (no matching ContainerInfo)
             mock_reconcile.assert_not_called()
