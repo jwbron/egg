@@ -4,7 +4,7 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1030",
   "prompt": null,
-  "status": "cancelled",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -239,10 +239,10 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-03-17T18:23:44.849708",
       "work_started_at": "2026-03-17T18:23:44.868696",
-      "completed_at": null,
+      "completed_at": "2026-03-17T19:19:24.170206",
       "containers": [
         {
           "container_id": "7e10a278a1abe140aa0e9b53a6e3e3fb6be61e594ba9805efe0db9a658e5571b",
@@ -363,12 +363,12 @@
         {
           "cycle": 0,
           "started_at": "2026-03-17T18:23:44.868696",
-          "completed_at": null,
+          "completed_at": "2026-03-17T19:19:24.170085",
           "commit_sha": "f2e054dc781822d4be63bcdc08d3da2e627d97f8"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-03-17T19:16:24.557571722Z Cleaning up on container exit...\n2026-03-17T19:16:24.557587389Z ✓ Cleanup complete\n\n--- tester (exit=137) ---\n\n--- documenter (exit=137) ---\n\n--- reviewer_code (exit=137) ---\n\n--- coder (exit=137) ---",
       "hitl_feedback": null,
       "phase_start_sha": "f2e054dc781822d4be63bcdc08d3da2e627d97f8"
     }
@@ -408,9 +408,9 @@
     }
   ],
   "created_at": "2026-03-17T17:59:56.261031",
-  "updated_at": "2026-03-17T19:19:24.137537",
+  "updated_at": "2026-03-17T19:19:24.170394",
   "contract_synced": true,
   "network_mode": null,
-  "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 35
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-03-17T19:16:24.557571722Z Cleaning up on container exit...\n2026-03-17T19:16:24.557587389Z ✓ Cleanup complete\n\n--- tester (exit=137) ---\n\n--- documenter (exit=137) ---\n\n--- reviewer_code (exit=137) ---\n\n--- coder (exit=137) ---",
+  "version": 36
 }
