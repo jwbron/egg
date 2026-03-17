@@ -344,7 +344,7 @@ class ConcurrentPhaseExecutor:
 
                 graph = get_default_implement_graph()
                 tracker = reconstruct_tracker_from_messages(self.pipeline.id, graph)
-            except (ImportError, Exception):
+            except Exception:
                 pass
         if tracker:
             return tracker.evaluate()

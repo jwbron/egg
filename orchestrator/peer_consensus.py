@@ -847,12 +847,18 @@ def reconstruct_tracker_from_messages(
     if not consensus_msgs:
         return None
 
-    # Create tracker with relaxed attestation (reconstruction doesn't re-validate)
+    # Create tracker with relaxed attestation and no cooldown for replaying
+    # historical messages. RELAXED mode is kept for the tracker's remaining
+    # lifetime because: (1) reconstructed trackers are near end-of-life —
+    # consensus is typically already reached or close to it, and (2) any new
+    # proposals post-reconstruction will still be validated by the review
+    # graph structure (required reviewers, quorum), just not by attestation
+    # signature checks.
     tracker = PeerConsensusTracker(
         pipeline_id,
         graph,
         attestation_strictness=AttestationStrictness.RELAXED,
-        cooldown_seconds=0,  # No cooldown during reconstruction
+        cooldown_seconds=0,
     )
 
     # Discover and register agents from message from_role and to_role fields
@@ -907,7 +913,7 @@ def reconstruct_tracker_from_messages(
             elif msg.message_type == "CONSENSUS_CONFIRMED":
                 tracker.handle_confirmed(msg.from_role)
 
-        except (ValueError, Exception) as e:
+        except Exception as e:
             # Best-effort reconstruction: log and skip messages that fail
             logger.warning(
                 "Skipping message during tracker reconstruction",
@@ -918,7 +924,11 @@ def reconstruct_tracker_from_messages(
                 error=str(e),
             )
 
-    # Register the reconstructed tracker globally
+    # Register the reconstructed tracker globally.
+    # NOTE: Multiple callers (check_consensus, _get_concurrent_status,
+    # startup_reconciliation) can trigger reconstruction concurrently.
+    # Since they all reconstruct from the same Redis message set, the
+    # results are equivalent and last-write-wins is harmless.
     with _trackers_lock:
         _trackers[pipeline_id] = tracker
 

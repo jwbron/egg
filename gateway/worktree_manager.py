@@ -595,7 +595,6 @@ class WorktreeManager:
         """
         worktrees_dir = main_repo / ".git" / "worktrees"
         basename = worktree_path.name
-        worktrees_dir / basename
 
         # Scan all admin dirs and verify via gitdir file content.
         # Multiple worktrees can share the same basename (e.g., "egg",
@@ -1153,7 +1152,10 @@ class WorktreeManager:
                         check=False,
                         timeout=30,
                     )
-                    if list_result.returncode == 0 and "locked" in list_result.stdout:
+                    if list_result.returncode == 0 and any(
+                        line == "locked" or line.startswith("locked ")
+                        for line in list_result.stdout.splitlines()
+                    ):
                         logger.warning(
                             "Skipping git worktree prune: locked worktrees found",
                             repo=repo_name,
