@@ -97,8 +97,8 @@ orchestrator/
 ├── handoffs.py             # Agent handoff data management
 ├── health_monitor.py       # Deterministic tripwire health monitor (progress events → auto-nudge/escalate)
 ├── message_store.py        # Inter-agent message store (Redis Streams when available, in-memory fallback)
-├── peer_consensus.py       # BRC (Broadcast-Review-Converge) peer consensus tracker
 ├── progress_store.py       # In-memory structured progress event store with configurable retention
+├── peer_consensus.py       # BRC (Broadcast-Review-Converge) peer consensus tracker
 ├── mcp_server.py           # MCP server providing comprehensive egg platform interface to Claude Code (port 9850)
 ├── mcp_tools.py            # MCP tool definitions and handlers: pipeline state, containers, messages, checkpoints, contracts, health
 ├── metrics.py              # Pipeline metrics and telemetry
