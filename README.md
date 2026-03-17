@@ -165,6 +165,7 @@ See [action/README.md](action/README.md) for full documentation and [GitHub Auto
 | **Architecture & security model** | [Architecture Overview](docs/architecture/README.md) |
 | **SDLC pipeline details** | [SDLC Pipeline Guide](docs/guides/sdlc-pipeline.md) |
 | **Concurrent execution mode** | [Concurrent Execution Guide](docs/guides/concurrent-execution.md) |
+| **Agent anchor / post-compaction recovery** | [Anchor Recovery Guide](docs/guides/anchor-recovery.md) |
 | **Agent roles & permissions** | [Agent Roles Reference](docs/reference/agent-roles.md) |
 | **Agent recovery & circuit breaker** | [Agent Recovery Reference](docs/reference/agent-recovery.md) |
 | **Post-agent auto-commit** | [Post-Agent Commit Reference](docs/reference/post-agent-commit.md) |
