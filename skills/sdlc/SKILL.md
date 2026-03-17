@@ -14,13 +14,13 @@ You are guiding the user through an egg SDLC pipeline using MCP tools.
 Parse the arguments provided after `/sdlc`. Check for the `--short` flag first:
 
 - If `--short` is present, remove it from the arguments and branch into the **[Short Flow](#short-flow)** below.
-- Otherwise, continue with the **Full Flow** (default) — walk through 5 phases: Seed, Submit, Monitor, HITL, and Complete.
+- Otherwise, continue with the **Full Flow** (default) — walk through 6 phases: Seed, Pre-Refine, Submit, Monitor, HITL, and Complete.
 
 ---
 
 # Full Flow
 
-The full pipeline lifecycle with HITL gates, multi-phase execution, and comprehensive monitoring.
+The full pipeline lifecycle with HITL gates, multi-phase execution, and comprehensive monitoring. Phases: Seed → Pre-Refine → Submit → Monitor → HITL → Complete.
 
 ## Phase 1 — Seed
 
@@ -48,9 +48,9 @@ If the user provided arguments after `/sdlc`, parse them:
 | `/sdlc --repo jwbron/egg 1059` | Repo override + issue number |
 | `/sdlc --issue 1059` | Issue number (legacy flag, same as bare integer) |
 
-When an issue number is provided, fetch it immediately with `gh issue view <N> --repo <repo> --json title,body` and use the title+body as the task description. Proceed directly to Phase 2 — no questions needed.
+When an issue number is provided, fetch it immediately with `gh issue view <N> --repo <repo> --json title,body,comments,labels,assignees` and use the title+body as the task description. Proceed directly to Phase 1.5 (Pre-Refine) — no questions needed. Retain the full response (including comments, labels, and assignees) for use in Phase 1.5.
 
-When a free-text description is provided and the repo was auto-detected, proceed directly to Phase 2.
+When a free-text description is provided and the repo was auto-detected, proceed directly to Phase 1.5 (Pre-Refine).
 
 ### Step 3: Ask only what's missing
 
@@ -66,12 +66,96 @@ The user will select an option or type in the auto-added "Other" field.
 
 Handle each response:
 
-- **Other (integer)** → Treat as an issue number. Fetch with `gh issue view` and proceed to Phase 2.
-- **Other (text)** → Treat as a free-text task description. Proceed to Phase 2.
-- **Browse recent issues** → Run `gh issue list --repo <repo> --state open --limit 10 --json number,title` and present the results as a second `AskUserQuestion` with each issue as an option. Then proceed to Phase 2.
-- **Help me scope the task** → Ask 1–2 follow-up questions about scope and acceptance criteria, then proceed to Phase 2.
+- **Other (integer)** → Treat as an issue number. Fetch with `gh issue view <N> --repo <repo> --json title,body,comments,labels,assignees` and proceed to Phase 1.5 (Pre-Refine).
+- **Other (text)** → Treat as a free-text task description. Proceed to Phase 1.5 (Pre-Refine).
+- **Browse recent issues** → Run `gh issue list --repo <repo> --state open --limit 10 --json number,title` and present the results as a second `AskUserQuestion` with each issue as an option. Once the user selects an issue, fetch it with `gh issue view <N> --repo <repo> --json title,body,comments,labels,assignees` and use the title+body as the task description. Then proceed to Phase 1.5 (Pre-Refine).
+- **Help me scope the task** → Ask 1–2 follow-up questions about scope and acceptance criteria. Synthesize the user's answers into a refined task description (incorporating scope boundaries and acceptance criteria) before proceeding to Phase 1.5 (Pre-Refine).
 
 **Never ask for the repo and the task in separate questions.** If the repo could not be auto-detected, include a repo question in the same `AskUserQuestion` call (multi-question mode).
+
+## Phase 1.5 — Pre-Refine
+
+> **Why "1.5"?** Phases 2–5 are referenced throughout this document, the orchestrator, and external docs. Renumbering them would cascade across many files for no functional benefit. "1.5" signals that this phase was inserted between Seed and Submit without breaking existing phase references.
+
+A quick local triage pass to ensure the task description is clear and complete before submitting to the remote refiner. This is NOT a full code analysis (the remote refiner handles that) — it's a lightweight check focused on task clarity, scope, and acceptance criteria.
+
+### Step 1: Review issue context (if available)
+
+If an issue number was provided, use the data already fetched in Phase 1 (which includes `title,body,comments,labels,assignees`). Do **not** re-fetch the issue.
+
+Note any linked PRs or referenced issues mentioned in the body or comments — these provide useful context for the refiner.
+
+### Step 2: Quick code scan
+
+Based on the task description, do a lightweight search (2–3 `Glob` + `Grep` queries) to identify the general area of the codebase affected. This is just enough to check feasibility and ask informed questions — NOT the full analysis the short flow's S2 phase does.
+
+Examples:
+- If the task mentions "health checks", search for health-related files
+- If the task mentions a specific component, confirm it exists and note its location
+- If the task mentions an API endpoint, find the route definition
+
+### Step 3: Evaluate task clarity
+
+**Skip this step** if the task came through Phase 1's "Help me scope the task" path — scope and clarity were already evaluated there.
+
+Check the task description for:
+
+- **Clear problem statement** — Is it clear what's wrong or what's needed?
+- **Defined scope** — Is it clear what should change and what shouldn't?
+- **Acceptance criteria** — How will we know it's done? Are there success conditions?
+- **Ambiguous terms** — Are there vague phrases like "improve performance", "clean up", or "fix the issue" without specifics?
+
+### Step 4: Ask clarifying questions (if needed)
+
+**Skip this step** if the task came through Phase 1's "Help me scope the task" path, or if the task is already well-defined with clear goals and scope.
+
+If the task is ambiguous or missing key information, present 1–3 targeted questions via a single `AskUserQuestion` call. Examples:
+
+- "The issue mentions 'improve performance' — what specific metric or threshold?"
+- "Should this change be backwards-compatible with the existing API?"
+- "The issue references both X and Y — should both be addressed in this pipeline?"
+
+### Step 5: Present summary and confirm (conditional)
+
+**Auto-proceed**: If (a) Step 3 evaluated clarity as "Good" and Step 4 was skipped (no clarification was needed), OR (b) Steps 3 and 4 were both skipped because the task came through Phase 1's "Help me scope the task" path, skip the confirmation dialog and proceed directly to Step 6 → Phase 2. There is no value in prompting the user when nothing was surfaced or when scoping was already completed.
+
+**Otherwise**, show a brief pre-refine summary:
+
+```
+### Pre-Refine Summary
+
+**Task**: <1-sentence summary>
+**Scope**: <general area — e.g., "orchestrator health checks", "gateway auth middleware">
+**Clarity**: Good / Needs clarification
+**Notes**: <any context added from clarification, or "None">
+```
+
+Then use `AskUserQuestion` to confirm:
+- **Question**: "Ready to submit to the refiner?"
+- **Header**: "Pre-Refine"
+- **Options**:
+  - **"Submit"** — description: "Proceed to submit the task to the remote refiner"
+  - **"Add more context"** — description: "Provide additional context to append to the description"
+  - **"Skip pre-refine"** — description: "Proceed directly with the original description unchanged"
+
+Handle each response:
+- **Submit** → Proceed to Step 6, then Phase 2 (Submit) with the enriched description.
+- **Add more context** → Collect the user's additional context via a follow-up question, then proceed to Step 6.
+- **Skip pre-refine** → Proceed to Phase 2 with the original description unchanged (skip Step 6).
+
+### Step 6: Enrich description and transition to Phase 2
+
+This is the single exit point from Phase 1.5 (except for "Skip pre-refine" which bypasses directly to Phase 2). If clarifications were collected in Steps 4 or 5, append them to the task description as an `## Additional Context` section before submission. This gives the remote refiner the benefit of the user's answers without requiring another HITL round.
+
+```
+<original task description>
+
+## Additional Context
+
+<clarifications and additional context collected during pre-refine>
+```
+
+If no clarifications were needed (task was already clear), pass the description through unchanged. For the "Help me scope" path specifically, scoping answers are already incorporated into the task description during Phase 1 synthesis — no additional appending is needed here. Then proceed to Phase 2.
 
 ## Phase 2 — Submit
 
