@@ -8,7 +8,493 @@
   "pipeline_id": "issue-1030",
   "current_phase": "refine",
   "acceptance_criteria": [],
-  "phases": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Enum Consolidation and Category Metadata",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add AgentCategory enum (EXECUTION, ANALYSIS, REVIEW, UTILITY, INTERFACE) to shared/egg_contracts/agent_roles.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "AgentCategory enum exists with 5 values; imports work from all consuming modules",
+          "files_affected": [
+            "shared/egg_contracts/agent_roles.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add category field to AgentRoleDefinition dataclass and assign categories to all 13 existing role definitions",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Every role in AGENT_ROLES dict has a non-None category; get_role_definition(role).category returns correct AgentCategory for each role",
+          "files_affected": [
+            "shared/egg_contracts/agent_roles.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Make orchestrator/models.py import AgentRole from shared/egg_contracts/agent_roles instead of defining its own. Keep _REMOVED_ROLE_MIGRATION and Pydantic validators working. Reconcile INSPECTOR and REVIEWER roles.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "orchestrator/models.py no longer defines its own AgentRole StrEnum; imports from egg_contracts; Pydantic model_validate with removed role names still works; INSPECTOR role handled (kept or migrated)",
+          "files_affected": [
+            "orchestrator/models.py",
+            "shared/egg_contracts/agent_roles.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Make shared/egg_orchestrator/types.py import AgentRole from shared/egg_contracts/agent_roles instead of defining its own",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "shared/egg_orchestrator/types.py no longer defines its own AgentRole StrEnum; imports from egg_contracts; all dataclasses using AgentRole still work",
+          "files_affected": [
+            "shared/egg_orchestrator/types.py",
+            "shared/egg_contracts/agent_roles.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add helper function get_roles_by_category(category) that returns all roles with a given category",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "get_roles_by_category(AgentCategory.REVIEW) returns all 5 reviewer roles; function is importable from egg_contracts.agent_roles",
+          "files_affected": [
+            "shared/egg_contracts/agent_roles.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "New Roles and Updated Role Definitions",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add AUTOFIXER and CONFLICT_RESOLVER to AgentRole enum with category UTILITY",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "AgentRole.AUTOFIXER == \"autofixer\" and AgentRole.CONFLICT_RESOLVER == \"conflict_resolver\" exist",
+          "files_affected": [
+            "shared/egg_contracts/agent_roles.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-2",
+          "description": "Create AgentRoleDefinition entries for AUTOFIXER and CONFLICT_RESOLVER in AGENT_ROLES dict with responsibilities, file_access, and outputs",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "get_role_definition(AgentRole.AUTOFIXER) and get_role_definition(AgentRole.CONFLICT_RESOLVER) return valid definitions with category=UTILITY",
+          "files_affected": [
+            "shared/egg_contracts/agent_roles.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-3",
+          "description": "Update gateway/agent_restrictions.py AgentRole class to include AUTOFIXER and CONFLICT_RESOLVER string constants",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "AgentRole.AUTOFIXER and AgentRole.CONFLICT_RESOLVER constants exist in gateway's AgentRole class",
+          "files_affected": [
+            "gateway/agent_restrictions.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Gateway File Restrictions for New Roles",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add AUTOFIXER_PATTERNS to gateway/agent_restrictions.py \u2014 writable source+config files, blocked docs and contracts",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "get_agent_pattern(\"autofixer\") returns pattern allowing *.py, *.ts, *.yml writes and blocking docs/, **/*.md, .egg-state/contracts/",
+          "files_affected": [
+            "gateway/agent_restrictions.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add CONFLICT_RESOLVER_PATTERNS to gateway/agent_restrictions.py \u2014 writable source+test+docs+config, blocked .egg-state/",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "get_agent_pattern(\"conflict_resolver\") returns pattern allowing source, test, doc, config writes and blocking .egg-state/",
+          "files_affected": [
+            "gateway/agent_restrictions.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-3",
+          "description": "Register both new patterns in AGENT_PATTERNS dict",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "AGENT_PATTERNS contains entries for \"autofixer\" and \"conflict_resolver\"; check_agent_file_access works for both",
+          "files_affected": [
+            "gateway/agent_restrictions.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Vestigial Role Cleanup",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Replace \"integrator\" with a valid role in orchestrator/tests/test_concurrent_integration.py test fixtures",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No string \"integrator\" appears in test_concurrent_integration.py except in comments explaining the migration; all tests pass",
+          "files_affected": [
+            "orchestrator/tests/test_concurrent_integration.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-2",
+          "description": "Replace \"integrator\" with a valid role in orchestrator/tests/test_dag_visualizer.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No string \"integrator\" appears in test_dag_visualizer.py as a role; tests pass",
+          "files_affected": [
+            "orchestrator/tests/test_dag_visualizer.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-3",
+          "description": "Remove integrator comment reference in gateway/worktree_manager.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No string \"integrator\" appears in worktree_manager.py; no functional change",
+          "files_affected": [
+            "gateway/worktree_manager.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Concurrent Execution Generalization",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Add \"review\" to default concurrent_phases list in PipelineConfig if not already present",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "PipelineConfig().concurrent_phases includes \"review\" in its default value",
+          "files_affected": [
+            "orchestrator/models.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-2",
+          "description": "Audit and remove any remaining hardcoded phase checks in concurrent_executor.py and routes/pipelines.py that restrict concurrency to specific phases",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No hardcoded phase name checks in concurrent execution paths; concurrent execution is driven solely by concurrent_phases config",
+          "files_affected": [
+            "orchestrator/concurrent_executor.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-3",
+          "description": "Ensure EGG_CONCURRENT_MODE is set based on is_concurrent_execution() result, not phase name",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "get_agent_env() in ConcurrentPhaseExecutor sets EGG_CONCURRENT_MODE=true for any phase listed in concurrent_phases",
+          "files_affected": [
+            "orchestrator/concurrent_executor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-6",
+      "name": "Documentation Updates",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Update docs/reference/agent-roles.md with complete roster including categories, new roles, removed roles, and access controls",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "agent-roles.md documents all 15 roles (13 existing + 2 new) with categories, responsibilities, file access, and team composition templates",
+          "files_affected": [
+            "docs/reference/agent-roles.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-6-2",
+          "description": "Update SDLC pipeline guide and agent development guide to describe universal concurrency",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Guides no longer reference concurrency as implement-only; all phases documented as supporting concurrent execution",
+          "files_affected": [
+            "docs/guides/sdlc-pipeline.md",
+            "docs/guides/agent-development.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-6-3",
+          "description": "Update sandbox CLAUDE.md concurrent execution section to cover all agent categories and phases",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "CLAUDE.md \"Concurrent Execution Mode\" section is generalized to all phases, not just implement",
+          "files_affected": [
+            "sandbox/.claude/CLAUDE.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-6-4",
+          "description": "Update component READMEs (orchestrator, gateway, shared) to reflect roster changes",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "READMEs reference the consolidated enum source and new utility roles",
+          "files_affected": [
+            "orchestrator/README.md",
+            "gateway/README.md",
+            "shared/README.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-7",
+      "name": "Tests",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-7-1",
+          "description": "Add sync test verifying orchestrator/models.py and shared/egg_orchestrator/types.py AgentRole values match canonical source",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test fails if any file defines its own AgentRole values instead of importing from egg_contracts",
+          "files_affected": [
+            "orchestrator/tests/test_models.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-7-2",
+          "description": "Add test verifying all roles have a category and get_roles_by_category returns correct sets",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test covers all 15 roles having non-None categories and correct category groupings",
+          "files_affected": [
+            "shared/tests/test_agent_roles.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-7-3",
+          "description": "Add test verifying AUTOFIXER and CONFLICT_RESOLVER have valid gateway patterns",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests verify check_agent_file_access allows/blocks correct files for both new roles",
+          "files_affected": [
+            "gateway/tests/test_agent_restrictions.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-7-4",
+          "description": "Add test verifying all phases can be concurrent (no hardcoded phase gates)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test verifies is_concurrent_execution returns true for refine, plan, implement, review when configured",
+          "files_affected": [
+            "orchestrator/tests/test_concurrent_executor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-7-5",
+          "description": "Run make lint and make test to verify green suite",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "make lint and make test both exit 0",
+          "files_affected": [],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
   "decisions": [
     {
       "id": "decision-1",
@@ -189,6 +675,45 @@
       "status": "failed",
       "started_at": null,
       "completed_at": "2026-03-17T18:09:59.668393Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "architect",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-03-17T18:21:19.126932Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "task_planner",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-03-17T18:21:19.763098Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "risk_analyst",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-03-17T18:21:20.058561Z",
       "commit": null,
       "checkpoint_id": null,
       "outputs": {},
