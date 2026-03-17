@@ -1122,18 +1122,33 @@ class TestGitPush:
             assert "file restrictions" in data["data"]["hint"]
             assert "Check allowed patterns" in data["data"]["hint"]
 
-    def test_push_denied_for_mismatched_anchor_write(self, client):
-        """Push denied when agent tries to write another agent's anchor file."""
+    @staticmethod
+    def _setup_anchor_push_session(agent_anchor_id=None):
+        """Create mock session and auth patches for anchor push tests.
+
+        Args:
+            agent_anchor_id: The agent anchor ID to set on the session.
+                Use a string value for agents with an anchor ID, or None
+                for sessions without one (e.g., containers spawned without
+                AGENT_ANCHOR_ID).
+
+        Returns:
+            Tuple of (mock_session, mock_result, mock_policy_result, current_session_manager)
+        """
         import sys
 
         import auth
 
-        # Create a session with agent_anchor_id set
         mock_session = MagicMock()
         mock_session.mode = "public"
         mock_session.container_id = "test-container"
         mock_session.expires_at = None
-        mock_session.agent_anchor_id = "coder-abc12345"
+        if agent_anchor_id is not None:
+            mock_session.agent_anchor_id = agent_anchor_id
+        else:
+            # Simulate session without agent_anchor_id attribute —
+            # getattr(session, "agent_anchor_id", None) returns None
+            del mock_session.agent_anchor_id
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -1152,6 +1167,13 @@ class TestGitPush:
             sys.modules["gateway.auth"]._rate_limiter = None
 
         current_session_manager = sys.modules.get("session_manager", session_manager)
+        return mock_session, mock_result, mock_policy_result, current_session_manager
+
+    def test_push_denied_for_mismatched_anchor_write(self, client):
+        """Push denied when agent tries to write another agent's anchor file."""
+        _, mock_result, mock_policy_result, current_session_manager = (
+            self._setup_anchor_push_session(agent_anchor_id="coder-abc12345")
+        )
 
         with (
             patch.object(
@@ -1203,36 +1225,67 @@ class TestGitPush:
             assert data["data"]["agent_anchor_id"] == "coder-abc12345"
             assert ".egg-state/agent-anchors/tester-def67890.json" in data["data"]["blocked_files"]
 
-    def test_push_allowed_for_own_anchor_write(self, client):
-        """Push allowed when agent writes to its own anchor file."""
-        import sys
-
-        import auth
-
-        # Create a session with agent_anchor_id set
-        mock_session = MagicMock()
-        mock_session.mode = "public"
-        mock_session.container_id = "test-container"
-        mock_session.expires_at = None
-        mock_session.agent_anchor_id = "coder-abc12345"
-
-        mock_result = SessionValidationResult(valid=True, session=mock_session)
-
-        from private_repo_policy import PrivateRepoPolicyResult
-
-        mock_policy_result = PrivateRepoPolicyResult(
-            allowed=True,
-            reason="Test mode - access allowed",
-            visibility="public",
+    def test_push_denied_for_none_anchor_id_with_anchor_file(self, client):
+        """Push denied when session has no anchor ID but push includes an anchor file."""
+        _, mock_result, mock_policy_result, current_session_manager = (
+            self._setup_anchor_push_session(agent_anchor_id=None)
         )
 
-        auth._session_manager = None
-        auth._rate_limiter = None
-        if "gateway.auth" in sys.modules:
-            sys.modules["gateway.auth"]._session_manager = None
-            sys.modules["gateway.auth"]._rate_limiter = None
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
+        ):
+            # Mock git remote get-url
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="https://github.com/owner/repo.git\n",
+                stderr="",
+            )
 
-        current_session_manager = sys.modules.get("session_manager", session_manager)
+            # Mock policy approval (branch ownership OK)
+            mock_engine = MagicMock()
+            mock_engine.check_branch_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="Branch is owned by james-in-a-box",
+                details={"branch": "egg-feature"},
+            )
+            mock_policy.return_value = mock_engine
+
+            # Mock changed files — session without anchor ID writes an anchor file
+            mock_get_changed_files.return_value = (
+                ["src/main.py", ".egg-state/agent-anchors/coder-abc12345.json"],
+                None,
+            )
+
+            response = client.post(
+                "/api/v1/git/push",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "origin",
+                        "refspec": "egg-feature",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "Push denied" in data["message"]
+            assert data["data"]["agent_anchor_id"] is None
+            assert ".egg-state/agent-anchors/coder-abc12345.json" in data["data"]["blocked_files"]
+
+    def test_push_allowed_for_own_anchor_write(self, client):
+        """Push allowed when agent writes to its own anchor file."""
+        _, mock_result, mock_policy_result, current_session_manager = (
+            self._setup_anchor_push_session(agent_anchor_id="coder-abc12345")
+        )
 
         with (
             patch.object(
