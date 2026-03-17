@@ -403,7 +403,8 @@
       "ckpt-3a3c05b9701de247",
       "ckpt-4544baaceae92555",
       "ckpt-ebf689c63dc50ad5",
-      "ckpt-e9be5bfc91387c1c"
+      "ckpt-e9be5bfc91387c1c",
+      "ckpt-8c0243709150174f"
     ]
   },
   "by_commit": {},
@@ -709,7 +710,8 @@
       "ckpt-3a3c05b9701de247",
       "ckpt-4544baaceae92555",
       "ckpt-ebf689c63dc50ad5",
-      "ckpt-e9be5bfc91387c1c"
+      "ckpt-e9be5bfc91387c1c",
+      "ckpt-8c0243709150174f"
     ],
     "state-sync": [
       "ckpt-3d7ebc8d74b29f81",
@@ -1204,7 +1206,8 @@
       "ckpt-3a3c05b9701de247",
       "ckpt-4544baaceae92555",
       "ckpt-ebf689c63dc50ad5",
-      "ckpt-e9be5bfc91387c1c"
+      "ckpt-e9be5bfc91387c1c",
+      "ckpt-8c0243709150174f"
     ],
     "state-sync-failsafe-push": [
       "ckpt-3d7ebc8d74b29f81",
@@ -1726,7 +1729,8 @@
       "ckpt-3a3c05b9701de247",
       "ckpt-4544baaceae92555",
       "ckpt-ebf689c63dc50ad5",
-      "ckpt-e9be5bfc91387c1c"
+      "ckpt-e9be5bfc91387c1c",
+      "ckpt-8c0243709150174f"
     ]
   },
   "by_trigger": {
@@ -2133,7 +2137,8 @@
       "ckpt-3a3c05b9701de247",
       "ckpt-4544baaceae92555",
       "ckpt-ebf689c63dc50ad5",
-      "ckpt-e9be5bfc91387c1c"
+      "ckpt-e9be5bfc91387c1c",
+      "ckpt-8c0243709150174f"
     ]
   },
   "checkpoints": [
@@ -9793,8 +9798,27 @@
       "tool_call_count": 0,
       "total_tokens": 0,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-03-17T01:35:09.245998Z",
+      "files_touched_count": 0,
+      "id": "ckpt-8c0243709150174f",
+      "issue_number": null,
+      "message_count": 0,
+      "pipeline_id": "state-restore",
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": null,
+      "session_id": "state-restore-state-ls-remote",
+      "session_status": "completed",
+      "tool_call_count": 0,
+      "total_tokens": 0,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-03-17T01:34:57.813359Z",
+  "last_updated": "2026-03-17T01:35:10.138082Z",
   "schemaVersion": "2.0"
 }
