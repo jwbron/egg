@@ -1121,14 +1121,19 @@ Or pass it in the pipeline config JSON (e.g. via the API):
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `parallel_agents` | bool | `true` | Run independent agents in parallel |
+| `max_review_cycles` | int | `3` | Max agentic review cycles per phase |
+| `max_hitl_review_cycles` | int | `3` | Max HITL revision cycles per phase |
 | `hitl_gates` | bool | `true` | Pause for human approval after refine and plan phases |
 | `concurrent_execution` | bool | `false` | Enable concurrent mode (opt-in) |
+| `concurrent_phases` | list[str] | `["refine", "plan", "implement"]` | Phases where BRC is active when `concurrent_execution` is `false` |
 | `start_phase` | str | `null` | Skip earlier phases and start execution from `"plan"` or `"implement"` |
 | `implement_roles` | list[str] | `null` | Override which roles run in the implement phase (e.g. `["coder", "reviewer_code"]`); defaults to all implement roles |
 | `max_concurrent_agents` | int | `6` | Maximum agents running simultaneously |
 | `message_poll_hint_seconds` | int | `30` | Suggested polling interval for agents |
 | `consensus_timeout_minutes` | int | `30` | Timeout before HITL escalation |
 | `agent_idle_timeout_minutes` | int | `60` | Agent idle timeout |
+| `overseer_enabled` | bool | `true` | Enable the overseer agent for pipeline health monitoring |
 
 All phases use concurrent BRC execution by default.
 
