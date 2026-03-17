@@ -265,8 +265,8 @@ class TestGetLatestAgentSdkVersion:
             result = get_latest_agent_sdk_version()
             assert result == "0.1.5"
 
-    def test_returns_none_for_ghost_version(self):
-        """Returns None when the reported version has no release files (ghost)."""
+    def test_falls_back_for_ghost_version(self):
+        """Falls back to newest installable version when reported version has no files."""
         mock_response = MagicMock()
         mock_response.read.return_value = json.dumps(
             {
@@ -278,10 +278,10 @@ class TestGetLatestAgentSdkVersion:
         mock_response.__exit__ = MagicMock(return_value=False)
         with patch("urllib.request.urlopen", return_value=mock_response):
             result = get_latest_agent_sdk_version()
-            assert result is None
+            assert result == "0.1.48"
 
-    def test_returns_none_when_version_absent_from_releases(self):
-        """Returns None when the reported version key is missing from releases dict."""
+    def test_falls_back_when_version_absent_from_releases(self):
+        """Falls back when the reported version key is missing from releases dict."""
         mock_response = MagicMock()
         mock_response.read.return_value = json.dumps(
             {
@@ -293,17 +293,60 @@ class TestGetLatestAgentSdkVersion:
         mock_response.__exit__ = MagicMock(return_value=False)
         with patch("urllib.request.urlopen", return_value=mock_response):
             result = get_latest_agent_sdk_version()
-            assert result is None
+            assert result == "0.1.48"
 
-    def test_returns_none_for_yanked_version(self):
-        """Returns None when the reported version has files but they are yanked."""
+    def test_falls_back_for_yanked_version(self):
+        """Falls back when the reported version has only yanked files."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(
+            {
+                "info": {"version": "0.1.49"},
+                "releases": {
+                    "0.1.48": [{"filename": "sdk-0.1.48.tar.gz"}],
+                    "0.1.49": [
+                        {"filename": "sdk-0.1.49.tar.gz", "yanked": True},
+                    ],
+                },
+            }
+        ).encode()
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=mock_response):
+            result = get_latest_agent_sdk_version()
+            assert result == "0.1.48"
+
+    def test_falls_back_for_macos_only_version(self):
+        """Falls back when the reported version only has macOS wheels."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(
+            {
+                "info": {"version": "0.1.49"},
+                "releases": {
+                    "0.1.48": [
+                        {"filename": "claude_agent_sdk-0.1.48-py3-none-manylinux_2_17_x86_64.whl"},
+                        {"filename": "claude_agent_sdk-0.1.48.tar.gz"},
+                    ],
+                    "0.1.49": [
+                        {"filename": "claude_agent_sdk-0.1.49-py3-none-macosx_11_0_arm64.whl"},
+                    ],
+                },
+            }
+        ).encode()
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=mock_response):
+            result = get_latest_agent_sdk_version()
+            assert result == "0.1.48"
+
+    def test_returns_none_when_no_installable_releases(self):
+        """Returns None when no releases have installable files."""
         mock_response = MagicMock()
         mock_response.read.return_value = json.dumps(
             {
                 "info": {"version": "0.1.49"},
                 "releases": {
                     "0.1.49": [
-                        {"filename": "sdk-0.1.49.tar.gz", "yanked": True},
+                        {"filename": "claude_agent_sdk-0.1.49-py3-none-macosx_11_0_arm64.whl"},
                     ],
                 },
             }
