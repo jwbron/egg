@@ -4070,6 +4070,32 @@ def _run_concurrent_phase(
                 error=str(stall_err),
             )
 
+        # 3c. Guard against external FAILED marking (issue #1273).
+        # The container_monitor reconciliation thread may mark the pipeline
+        # FAILED while we're still actively monitoring.  If we detect this,
+        # and consensus is actually complete, recover the pipeline status
+        # so this monitoring loop can return success normally.
+        if store is not None:
+            try:
+                _current_pip = store.load_pipeline(pipeline_id)
+                if _current_pip.status == PipelineStatus.FAILED and consensus.get("is_complete"):
+                    logger.warning(
+                        "Pipeline externally marked FAILED but consensus is complete — recovering",
+                        pipeline_id=pipeline_id,
+                    )
+                    with get_pipeline_state_lock(pipeline_id):
+                        _current_pip = store.load_pipeline(pipeline_id)
+                        if _current_pip.status == PipelineStatus.FAILED:
+                            _current_pip.status = PipelineStatus.RUNNING
+                            _current_pip.error = None
+                            store.save_pipeline(_current_pip)
+            except Exception as recovery_err:
+                logger.debug(
+                    "External FAILED recovery check failed",
+                    pipeline_id=pipeline_id,
+                    error=str(recovery_err),
+                )
+
         # 4. Non-blocking check for exited containers
         for exec_info in active_executions:
             if exec_info.container_id in exited_containers:

@@ -1,10 +1,22 @@
 """Build consensus-wrapped commands for concurrent agent containers.
 
-When agents run in concurrent mode, they must stay alive after completing
-their work to participate in BRC (Broadcast-Review-Converge) consensus.
-This module provides a shell wrapper that detects early agent exits and
-restarts the agent with a recovery prompt instead of blindly marking
-consensus as approved.
+DESIGN INTENT — SAFETY NET, NOT PRIMARY MECHANISM
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The consensus wrapper exists as a **safety net** for agent exits that
+should not normally happen.  The intended lifecycle is:
+
+1. All agents run concurrently with enough ``max_turns`` (default 1000)
+   to complete their work AND remain alive for the full BRC consensus
+   protocol — including stay-alive polling while other agents finish.
+2. The orchestrator detects consensus and sends SIGTERM to stop all
+   containers.  Agents should only exit because the orchestrator tells
+   them to, not because they exhausted turns.
+
+The wrapper handles the edge case where an agent exits prematurely
+(e.g. context exhaustion on an unusually long phase) by restarting it
+with a recovery prompt so it can re-join consensus.  This restart path
+is expensive — it requires reloading context and re-evaluating BRC
+state — so it should be rare.
 
 If the agent exits without reaching CONFIRMED state in the BRC protocol,
 the wrapper restarts the agent with a prompt that explains what happened and
@@ -325,7 +337,7 @@ exit 1
 def build_consensus_wrapped_command(
     prompt_text: str,
     model: str = "opus",
-    max_turns: int = 200,
+    max_turns: int = 1000,
     max_restarts: int = MAX_CONSENSUS_RESTARTS,
     max_ready_polls: int = MAX_READY_POLL_CYCLES,
 ) -> list[str]:
