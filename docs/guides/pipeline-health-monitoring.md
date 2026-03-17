@@ -133,6 +133,7 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `overseer_poll_interval_seconds` | `30` | How often the overseer checks health |
 | `overseer_max_redirects_before_escalation` | `2` | Redirect attempts before HITL escalation |
 | `overseer_decision_maker_model` | `"sonnet"` | LLM model for overseer decision-making tier |
+| `overseer_max_respawns` | `3` | Max times to auto-respawn the overseer if it exits mid-pipeline (0 disables respawning) |
 
 ## Tier 2: Overseer Agent
 
@@ -142,6 +143,7 @@ The overseer is a continuously running, read-only agent that handles cases the o
 
 - **Auto-spawned** on every pipeline (when `overseer_enabled` is true)
 - **Runs across all phases** — spawned at pipeline start, persists until pipeline completion
+- **Auto-respawned** if the overseer exits before the pipeline reaches a terminal state (up to `overseer_max_respawns` attempts, checked every 30 seconds by the orchestrator's health monitor thread)
 - **One overseer per pipeline**
 - **No repo access** — cannot clone, checkout, or modify code
 
