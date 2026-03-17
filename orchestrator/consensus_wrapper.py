@@ -36,6 +36,7 @@ _RECOVERY_SYSTEM_PROMPT = (
     "## Current BRC state\n\n"
     "{brc_state}\n\n"
     "{nack_feedback}"
+    "{anchor_state}"
     "## Required actions\n\n"
     "1. Check consensus status: `egg-orch consensus status`\n"
     "2. Poll for messages: `egg-orch message poll --wait 30`\n"
@@ -226,6 +227,15 @@ while [ "$RESTART_COUNT" -lt "$MAX_RESTARTS" ]; do
         NACK_FEEDBACK=$(get_nack_feedback "$RESPONSE" "$AGENT_ROLE")
     fi
 
+    # Load agent anchor if available
+    ANCHOR_STATE=""
+    if [ -n "${{AGENT_ANCHOR_ID:-}}" ]; then
+        ANCHOR_JSON=$(egg-orch anchor show --json 2>/dev/null || echo "")
+        if [ -n "$ANCHOR_JSON" ]; then
+            ANCHOR_STATE="## Agent Anchor State\n\nYour persisted anchor state from before the context clear:\n\n\`\`\`json\n${{ANCHOR_JSON}}\n\`\`\`\n\nUse this to understand your task progress, decisions made, and BRC state.\n\n"
+        fi
+    fi
+
     # Build recovery system prompt with restart context.
     # The system prompt is a trusted channel — the Agent SDK model will not
     # flag it as prompt injection (unlike recovery text in the user prompt).
@@ -238,11 +248,12 @@ RECOVERY_EOF
     # str.replace() (where an earlier substituted value could contain a later
     # placeholder, causing incorrect replacement).
     RECOVERY_SYS=$(_CW_RESTART="$RESTART_COUNT" _CW_MAX="$MAX_RESTARTS" \
-        _CW_BRC="$BRC_STATE" _CW_NACK="$NACK_FEEDBACK" \
+        _CW_BRC="$BRC_STATE" _CW_NACK="$NACK_FEEDBACK" _CW_ANCHOR="$ANCHOR_STATE" \
         python3 -c 'import sys, os, re
 t = sys.stdin.read()
 m = {{"restart_number": os.environ["_CW_RESTART"], "max_restarts": os.environ["_CW_MAX"],
-     "brc_state": os.environ["_CW_BRC"], "nack_feedback": os.environ["_CW_NACK"]}}
+     "brc_state": os.environ["_CW_BRC"], "nack_feedback": os.environ["_CW_NACK"],
+     "anchor_state": os.environ.get("_CW_ANCHOR", "")}}
 sys.stdout.write(re.sub(r"\{{(\w+)\}}", lambda x: m.get(x.group(1), x.group(0)), t))' <<< "$RECOVERY_SYS")
 
     run_agent {recovery_user_prompt} "$RECOVERY_SYS"

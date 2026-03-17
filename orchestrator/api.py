@@ -37,6 +37,7 @@ app = Flask(__name__)
 
 # Register blueprints
 try:
+    from routes.anchors import anchors_bp
     from routes.checks import checks_bp
     from routes.containers import containers_bp
     from routes.decisions import decisions_bp
@@ -49,6 +50,7 @@ try:
     from routes.signals import signals_bp
     from webhooks import webhooks_bp
 
+    app.register_blueprint(anchors_bp)
     app.register_blueprint(checks_bp)
     app.register_blueprint(health_bp)
     app.register_blueprint(pipelines_bp)
@@ -61,6 +63,7 @@ try:
     app.register_blueprint(progress_bp)
     app.register_blueprint(webhooks_bp)
 except ImportError:
+    from .routes.anchors import anchors_bp  # type: ignore[no-redef]
     from .routes.checks import checks_bp  # type: ignore[no-redef]
     from .routes.containers import containers_bp  # type: ignore[no-redef]
     from .routes.decisions import decisions_bp  # type: ignore[no-redef]
@@ -73,6 +76,7 @@ except ImportError:
     from .routes.signals import signals_bp  # type: ignore[no-redef]
     from .webhooks import webhooks_bp  # type: ignore[no-redef]
 
+    app.register_blueprint(anchors_bp)
     app.register_blueprint(checks_bp)
     app.register_blueprint(health_bp)
     app.register_blueprint(pipelines_bp)

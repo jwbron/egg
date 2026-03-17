@@ -151,9 +151,10 @@
         ".egg-state/drafts/*analysis*",
         ".egg-state/checkpoints/*",
         ".egg-state/agent-outputs/*",
-        ".egg-state/reviews/*"
+        ".egg-state/reviews/*",
+        ".egg-state/agent-anchors/*"
       ],
-      "description": "Refine phase can only push contracts, analysis drafts, checkpoints, agent outputs, and reviews"
+      "description": "Refine phase can only push contracts, analysis drafts, checkpoints, agent outputs, reviews, and agent anchors"
     },
     "plan": {
       "allowed_patterns": [
@@ -161,9 +162,10 @@
         ".egg-state/drafts/*plan*",
         ".egg-state/checkpoints/*",
         ".egg-state/agent-outputs/*",
-        ".egg-state/reviews/*"
+        ".egg-state/reviews/*",
+        ".egg-state/agent-anchors/*"
       ],
-      "description": "Plan phase can only push contracts, plan drafts, checkpoints, agent outputs, and reviews"
+      "description": "Plan phase can only push contracts, plan drafts, checkpoints, agent outputs, reviews, and agent anchors"
     },
     "implement": {
       "blocked_patterns": [

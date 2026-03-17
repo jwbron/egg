@@ -533,8 +533,9 @@ class PhaseFilter:
                     ".egg-state/checkpoints/*",
                     ".egg-state/agent-outputs/*",
                     ".egg-state/reviews/*",
+                    ".egg-state/agent-anchors/*",
                 ],
-                description="Refine phase can only push contracts, analysis drafts, checkpoints, agent outputs, and reviews",
+                description="Refine phase can only push contracts, analysis drafts, checkpoints, agent outputs, reviews, and agent anchors",
             ),
             PipelinePhase.PLAN: PhaseFileRestriction(
                 allowed_patterns=[
@@ -543,8 +544,9 @@ class PhaseFilter:
                     ".egg-state/checkpoints/*",
                     ".egg-state/agent-outputs/*",
                     ".egg-state/reviews/*",
+                    ".egg-state/agent-anchors/*",
                 ],
-                description="Plan phase can only push contracts, plan drafts, checkpoints, agent outputs, and reviews",
+                description="Plan phase can only push contracts, plan drafts, checkpoints, agent outputs, reviews, and agent anchors",
             ),
             PipelinePhase.IMPLEMENT: PhaseFileRestriction(
                 blocked_patterns=[
@@ -555,7 +557,8 @@ class PhaseFilter:
                 ],
                 # No allowed_patterns = allow everything except blocked
                 # Checkpoints and agent-outputs are not blocked since they don't match any blocked_patterns
-                description="Implement phase can push code but not .egg-state/ (except checkpoints and agent-outputs)",
+                # .egg-state/agent-anchors/* is allowed (not in blocked_patterns)
+                description="Implement phase can push code but not .egg-state/ (except checkpoints, agent-outputs, and agent-anchors)",
             ),
             PipelinePhase.PR: PhaseFileRestriction(
                 allowed_patterns=["*"],
@@ -812,6 +815,55 @@ class PhaseFilter:
             return permissions.exit_requires
         return None
 
+    def check_anchor_write_permission(
+        self,
+        file_path: str,
+        agent_anchor_id: str | None,
+    ) -> FileRestrictionResult:
+        """Check if an anchor file write is permitted for the given agent.
+
+        Agents can only write to their own anchor file. The agent's anchor ID
+        is set via the AGENT_ANCHOR_ID environment variable in the container.
+
+        Args:
+            file_path: The file path being written (relative to repo root)
+            agent_anchor_id: The agent's anchor ID from AGENT_ANCHOR_ID env var
+
+        Returns:
+            FileRestrictionResult indicating whether the write is allowed
+        """
+        # Only applies to anchor files
+        normalized = posixpath.normpath(file_path)
+        if normalized.startswith("./"):
+            normalized = normalized[2:]
+
+        if not normalized.startswith(".egg-state/agent-anchors/"):
+            return FileRestrictionResult.allow("Not an anchor file")
+
+        if not agent_anchor_id:
+            return FileRestrictionResult.block(
+                message=f"No AGENT_ANCHOR_ID set — cannot write anchor file '{file_path}'",
+                role="unknown",
+                blocked_files=[file_path],
+                blocked_reason="AGENT_ANCHOR_ID environment variable is not set",
+            )
+
+        # Extract expected filename from the path
+        expected_filename = f"{agent_anchor_id}.json"
+        actual_filename = posixpath.basename(normalized)
+
+        if actual_filename != expected_filename:
+            return FileRestrictionResult.block(
+                message=f"Agent '{agent_anchor_id}' cannot write to anchor file '{actual_filename}'",
+                role=agent_anchor_id,
+                blocked_files=[file_path],
+                blocked_reason=f"Agent can only write to its own anchor file ({expected_filename})",
+            )
+
+        return FileRestrictionResult.allow(
+            f"Agent '{agent_anchor_id}' is permitted to write to its own anchor file"
+        )
+
 
 # Module-level instance for convenience
 _filter: PhaseFilter | None = None
@@ -965,3 +1017,11 @@ def check_agent_restrictions(
             blocked_files=result.blocked_files,
             blocked_reason=f"Agent role '{result.role}' is not permitted to modify these files",
         )
+
+
+def check_anchor_write_permission(
+    file_path: str,
+    agent_anchor_id: str | None,
+) -> FileRestrictionResult:
+    """Check anchor file write permission (convenience function)."""
+    return get_phase_filter().check_anchor_write_permission(file_path, agent_anchor_id)

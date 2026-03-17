@@ -45,6 +45,16 @@ from .configs.llm import LLMConfig
 
 # Centralized constants
 from .constants import (
+    ANCHOR_HARD_LIMIT_BYTES,
+    ANCHOR_MAX_DECISIONS,
+    ANCHOR_MAX_ERRORS,
+    ANCHOR_MAX_FILES,
+    ANCHOR_MAX_KEY_CONTEXT,
+    ANCHOR_MAX_PROGRESS_ITEMS,
+    ANCHOR_REDIS_PREFIX,
+    ANCHOR_SOFT_LIMIT_BYTES,
+    ANCHOR_TEAM_HARD_LIMIT_BYTES,
+    ANCHOR_TEAM_SOFT_LIMIT_BYTES,
     CHECKPOINT_BRANCH,
     EGG_CONTAINER_IP,
     EGG_EXTERNAL_NETWORK,
@@ -79,6 +89,17 @@ from .registry import (
 __all__ = [
     "AggregateHealthResult",
     "AggregateValidationResult",
+    # Anchor constants
+    "ANCHOR_HARD_LIMIT_BYTES",
+    "ANCHOR_MAX_DECISIONS",
+    "ANCHOR_MAX_ERRORS",
+    "ANCHOR_MAX_FILES",
+    "ANCHOR_MAX_KEY_CONTEXT",
+    "ANCHOR_MAX_PROGRESS_ITEMS",
+    "ANCHOR_REDIS_PREFIX",
+    "ANCHOR_SOFT_LIMIT_BYTES",
+    "ANCHOR_TEAM_HARD_LIMIT_BYTES",
+    "ANCHOR_TEAM_SOFT_LIMIT_BYTES",
     # Base classes
     "BaseConfig",
     # Legacy (deprecated)

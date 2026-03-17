@@ -395,6 +395,12 @@ class ContainerSpawner:
                 spawner_env["EGG_BRANCH"] = branch
             elif pipeline_id:
                 spawner_env["EGG_BRANCH"] = f"egg/{pipeline_id}/work"
+
+            # Set agent anchor ID for post-compaction recovery.
+            # Format: {role}-{short_container_id} where short_container_id is first 8 chars.
+            # This ID is used by the gateway to scope anchor file writes.
+            spawner_env["AGENT_ANCHOR_ID"] = f"{agent_role.value}-{container_name[:8]}"
+
             # Caller's extra_env overrides spawner defaults
             if extra_env:
                 spawner_env.update(extra_env)
