@@ -154,6 +154,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
             monitor.add_handler(create_pipeline_reconciliation_handler(repo_path))
             monitor.start()
             logger.info("Container monitor started for runtime liveness checks")
+
+            # Start periodic reconciliation to detect stale containers
+            # that may have exited between event-driven checks.
+            from state_store import get_state_store as _get_reconcile_store
+
+            monitor.start_periodic_reconciliation(_get_reconcile_store(repo_path))
         except Exception as monitor_err:
             logger.warning(
                 "Container monitor startup failed",

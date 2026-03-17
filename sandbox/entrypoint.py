@@ -1383,15 +1383,17 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
 
     logger.info("Waiting for gateway readiness...")
 
-    # Timeout is configurable via EGG_GATEWAY_TIMEOUT for faster test feedback
-    # Default 60s for production, but tests can set lower values
-    timeout_str = os.environ.get("EGG_GATEWAY_TIMEOUT", "60")
+    # Timeout is configurable via EGG_GATEWAY_TIMEOUT for faster test feedback.
+    # Default 300s for production to survive orchestrator/gateway restarts.
+    # Tests can set lower values (e.g. EGG_GATEWAY_TIMEOUT=5).
+    timeout_str = os.environ.get("EGG_GATEWAY_TIMEOUT", "300")
     try:
         timeout = int(timeout_str)
     except ValueError:
-        logger.warn(f"Invalid EGG_GATEWAY_TIMEOUT '{timeout_str}', using default 60s")
-        timeout = 60
-    interval = 2  # seconds
+        logger.warn(f"Invalid EGG_GATEWAY_TIMEOUT '{timeout_str}', using default 300s")
+        timeout = 300
+    interval = 2  # seconds — initial backoff interval
+    max_interval = 30  # cap for exponential backoff
     elapsed = 0
 
     # Track which checks have passed for final diagnostic
@@ -1497,11 +1499,17 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
                 if not config.quiet and elapsed % 10 == 0:
                     logger.info(f"  Proxy check failed: {proxy_check_error}")
 
-        if not config.quiet and elapsed > 0 and elapsed % 10 == 0:
+        if not config.quiet and elapsed > 0 and elapsed % 10 < interval:
             logger.info(f"  Still waiting... ({elapsed}/{timeout}s)")
 
         time.sleep(interval)
         elapsed += interval
+        # Exponential backoff: grow interval by 1.5x, capped at max_interval.
+        # Reset to 2s if the API health check has passed (partial progress).
+        if api_health_passed:
+            interval = 2
+        else:
+            interval = min(interval * 1.5, max_interval)
 
     # Final diagnostic output
     logger.error(f"Gateway not ready after {timeout} seconds")
