@@ -156,12 +156,28 @@
       "resolved_at": null,
       "resolution": null,
       "phase": "refine"
+    },
+    {
+      "id": "decision-3",
+      "question": "Auto-pruning at soft limit: When an anchor approaches the 2KB soft limit, should the CLI auto-prune old completed progress items, or just warn and let the agent decide?",
+      "context": "",
+      "options": [
+        "Warn only, agent decides (recommended)",
+        "Auto-prune oldest completed items"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-03-17T04:42:11.842823",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine"
     }
   ],
   "created_at": "2026-03-17T04:34:43.565631",
-  "updated_at": "2026-03-17T04:42:11.715118",
+  "updated_at": "2026-03-17T04:42:11.844083",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 9
+  "version": 10
 }
