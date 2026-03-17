@@ -1406,14 +1406,16 @@ def get_changed_files_in_push(
                         f"sha={sha} rc={dt_result.returncode} stderr={dt_result.stderr.strip()}"
                     )
 
-            if commits_found > 0 and commits_inspected == 0:
-                # All diff-tree calls failed — fail closed to prevent bypass
+            if commits_found > 0 and commits_inspected < commits_found:
+                # Some or all diff-tree calls failed — fail closed to prevent
+                # an attacker from hiding restricted files in failing commits
                 logger.error(
-                    "All diff-tree calls failed during per-commit file detection - failing closed",
+                    "Some diff-tree calls failed during per-commit file detection - failing closed",
                     repo_path=repo_path,
                     remote=remote,
                     branch=branch,
                     commits_found=commits_found,
+                    commits_inspected=commits_inspected,
                     errors=diff_tree_errors,
                 )
                 continue  # try next default branch, or fall through to security error

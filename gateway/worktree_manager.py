@@ -1132,7 +1132,8 @@ class WorktreeManager:
                         timeout=30,
                     )
                     has_locked = any(
-                        line.strip() == "locked" for line in list_result.stdout.splitlines()
+                        line.strip() == "locked" or line.strip().startswith("locked ")
+                        for line in list_result.stdout.splitlines()
                     )
                     if list_result.returncode == 0 and has_locked:
                         logger.warning(

@@ -923,14 +923,22 @@ def reconstruct_tracker_from_messages(
     with _trackers_lock:
         if pipeline_id not in _trackers:
             _trackers[pipeline_id] = tracker
+            was_registered = True
         else:
             tracker = _trackers[pipeline_id]
+            was_registered = False
 
-    logger.info(
-        "Reconstructed consensus tracker from messages",
-        pipeline_id=pipeline_id,
-        messages_replayed=len(consensus_msgs),
-        confirmed_roles=sorted(tracker._confirmed),
-    )
+    if was_registered:
+        logger.info(
+            "Reconstructed consensus tracker from messages",
+            pipeline_id=pipeline_id,
+            messages_replayed=len(consensus_msgs),
+            confirmed_roles=sorted(tracker._confirmed),
+        )
+    else:
+        logger.info(
+            "Reconstruction discarded: tracker already exists",
+            pipeline_id=pipeline_id,
+        )
 
     return tracker
