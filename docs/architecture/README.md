@@ -34,6 +34,7 @@ See the [main README](../../README.md) for the architecture diagram.
 - Filesystem-level readonly mounts (phase-protected `.egg-state/` directories mounted readonly)
 - Commit-time validation (staged files checked against phase restrictions before commit)
 - Agent role-based file access (Coder, Tester, Documenter have distinct write permissions; default warn-only, configurable to enforce via `EGG_AGENT_RESTRICTIONS_ENFORCE`)
+- Anchor file write-scoping (agents can only write their own `.egg-state/agent-anchors/{agent-id}.json`, enforced via `AGENT_ANCHOR_ID`)
 - Role-based contract mutations (implementer, reviewer, human roles with field-level permissions)
 - No merge capability (gateway has no merge endpoint)
 - Force push and destructive operations blocked
@@ -60,6 +61,7 @@ Contracts are JSON documents that track issue progress through SDLC phases, task
 - `.egg/schemas/yaml-tasks.schema.json` – Structured appendix format for plan documents (used by plan parser)
 - `.egg/schemas/phase-permissions.schema.json` – Allowed git/gh operations and file restrictions per SDLC phase
 - `.egg/schemas/checkpoint.schema.json` – Agent checkpoint structure (session context, transcripts, tool calls)
+- `.egg/schemas/agent-anchor.schema.json` – Agent anchor structure for post-compaction state recovery
 
 **Role-based ownership**: Each contract field is owned by a specific role:
 - `implementer`: `tasks[].commit`, `tasks[].notes`, `tasks[].files_affected`

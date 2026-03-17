@@ -396,6 +396,16 @@ Fixed IPs:
 - `GET /pipelines/{id}/deployment-check/status` - Poll devserver status
 - `POST /pipelines/{id}/deployment-check/teardown` - Tear down devserver
 - `GET /pipelines/{id}/health` - On-demand pipeline health check (all tiers)
+- `GET /pipelines/{id}/health/alerts` - List active health alerts
+- `GET /pipelines/{id}/progress` - Query structured progress events
+- `POST /pipelines/{id}/progress` - Emit a structured progress event (CLI: `egg-orch progress emit`)
+
+**Anchors (`/api/v1/anchors/`)**
+- `POST /anchors/{agent_id}` - Create or update an agent anchor (stored in Redis; validated against schema)
+- `GET /anchors/{agent_id}` - Get an agent's anchor (cross-agent reads via API)
+- `DELETE /anchors/{agent_id}` - Delete an anchor
+- `GET /anchors/team/{pipeline_id}` - Get team anchor (orchestrator-generated projection of all agent anchors)
+- `POST /anchors/gc/{pipeline_id}` - Garbage-collect anchors for a completed/failed pipeline
 
 **MCP Server (`/mcp`)**
 - `GET /health` - MCP server health check
