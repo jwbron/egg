@@ -333,6 +333,7 @@ class DockerClient:
         Raises:
             InvalidContainerIdError: If container ID format is invalid
             ContainerNotFoundError: If container doesn't exist
+            ContainerOperationError: If container info retrieval fails
         """
         _validate_container_id(container_id)
         try:
