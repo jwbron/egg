@@ -19,7 +19,6 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
 
 try:
     from models import ProgressEvent as _ProgressEventBase
-    from models import ProgressState
 except ImportError:
     from orchestrator.models import ProgressEvent as _ProgressEventBase  # type: ignore[no-redef]
 

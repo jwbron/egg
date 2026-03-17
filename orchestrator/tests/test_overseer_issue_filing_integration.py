@@ -41,7 +41,7 @@ sys.modules.setdefault("docker.types", MagicMock())
 # Conditional imports
 # ---------------------------------------------------------------------------
 try:
-    from models import PipelineConfig, ProgressEvent, ProgressState
+    import models as _models_check  # noqa: F401
 except ImportError:
     pytest.skip("Core orchestrator models not available", allow_module_level=True)
 

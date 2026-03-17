@@ -19,6 +19,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 # ---------------------------------------------------------------------------
 # Path setup
@@ -42,12 +43,8 @@ sys.modules.setdefault("docker.types", MagicMock())
 try:
     from events import EventBus, EventType
     from models import (
-        HITLDecision,
         Pipeline,
         PipelineConfig,
-        PipelineStatus,
-        ProgressEvent,
-        ProgressState,
     )
 except ImportError:
     pytest.skip("Core orchestrator modules not available", allow_module_level=True)
@@ -246,7 +243,7 @@ class TestMaxRedirectsConfiguration:
 
     def test_max_redirects_minimum_is_one(self):
         """max_redirects must be at least 1."""
-        with pytest.raises(Exception):  # ValidationError
+        with pytest.raises(ValidationError):
             PipelineConfig(overseer_max_redirects_before_escalation=0)
 
     def test_redirect_count_tracking(self):
