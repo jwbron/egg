@@ -2,6 +2,7 @@
 
 import json
 from datetime import UTC, datetime
+from typing import Any
 
 from egg_anchor.constants import (
     ANCHOR_HARD_LIMIT_BYTES,
@@ -13,7 +14,7 @@ from egg_anchor.models import AgentAnchor
 from egg_anchor.validator import SizeBudgetResult, check_size_budget, validate_anchor
 
 
-def _make_anchor_dict(**overrides):
+def _make_anchor_dict(**overrides: Any) -> dict[str, Any]:
     """Create a minimal valid anchor dict."""
     now = datetime(2026, 3, 17, 10, 0, 0, tzinfo=UTC).isoformat()
     defaults = {
@@ -44,7 +45,7 @@ def _make_anchor_dict(**overrides):
     return defaults
 
 
-def _make_anchor(**overrides):
+def _make_anchor(**overrides: Any) -> AgentAnchor:
     """Create a minimal valid AgentAnchor model."""
     return AgentAnchor.model_validate(_make_anchor_dict(**overrides))
 

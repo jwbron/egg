@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .constants import (
     ANCHOR_HARD_LIMIT_BYTES,
@@ -32,7 +32,7 @@ def _load_schema() -> dict[str, Any] | None:
 
     for path in candidates:
         if path.exists():
-            return json.loads(path.read_text())
+            return cast(dict[str, Any], json.loads(path.read_text()))
     return None
 
 
@@ -49,7 +49,7 @@ def validate_anchor(anchor: AgentAnchor | dict[str, Any]) -> list[str]:
     errors: list[str] = []
 
     try:
-        import jsonschema
+        import jsonschema  # type: ignore[import-untyped]
 
         schema = _load_schema()
         if schema:

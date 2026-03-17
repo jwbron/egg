@@ -4,13 +4,14 @@ import json
 import os
 import threading
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from egg_anchor.loader import ANCHOR_DIR, load_anchor, save_anchor, sync_anchor_to_api
 from egg_anchor.models import AgentAnchor
 
 
-def _make_anchor(**overrides):
+def _make_anchor(**overrides: Any) -> AgentAnchor:
     """Create a minimal valid AgentAnchor with defaults."""
     now = datetime(2026, 3, 17, 10, 0, 0, tzinfo=UTC)
     defaults = {
