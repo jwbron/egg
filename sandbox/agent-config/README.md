@@ -48,7 +48,7 @@ Claude Code automatically loads these files when running in the container.
 ```
 /auto-pr <task description> [--repo owner/name]
 /egg-setup [--check | --update secrets | --update repos | --update config]
-/sdlc [--short] [issue# or description] [--repo owner/name]
+/sdlc [--short <description>] [issue# or description] [--repo owner/name]
 ```
 
 **Rules:**

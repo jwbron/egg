@@ -2,7 +2,7 @@
 name: sdlc
 description: "Run an egg SDLC pipeline: full lifecycle (default) or lightweight coder+reviewer with --short."
 disable-model-invocation: true
-argument-hint: "[--short] [issue# or description] [--repo owner/name]"
+argument-hint: "[--short <description>] [issue# or description] [--repo owner/name]"
 ---
 
 # SDLC Pipeline
@@ -584,7 +584,7 @@ When the `--short` flag is detected, run this lightweight flow instead of the fu
 
 ## Phase S1 — Seed
 
-Collect the **repository** and **task description**. No issue number support — keep it lightweight.
+Collect the **repository** and **task description**. No issue number support — bare integers are treated as free-text descriptions, not issue lookups. Use the Full Flow for issue-based workflows.
 
 ### Step 1: Auto-detect the repository (NEVER ask if detectable)
 
@@ -808,12 +808,22 @@ Recent: <latest message subject from recent_messages>
 
 3. Check for state transitions:
    - If `status` is `complete` → exit the loop, move to Phase S6
-   - If `status` is `failed` → exit the loop, move to Phase S6
+   - If `status` is `failed` → apply the **failed status grace period** (see below) before exiting
    - If `pending_decisions` is non-empty → handle inline (see below)
 
 Keep the dashboard output concise. Only show changes from the previous poll when possible.
 
 **Important: Run polling sleeps in the foreground (blocking).** Do not use background sleeps or `run_in_background` for the 60-second poll interval.
+
+### Failed Status Grace Period
+
+During phase cycle transitions (e.g., review cycles), the orchestrator may briefly report `status: failed` while spawning new containers. Treating this as terminal prematurely ends monitoring.
+
+**Before treating `failed` as terminal, apply these checks:**
+
+1. If `status` is `failed` but `running_agents` is non-empty → treat as "transitioning", not failed. Log: `"Status shows failed but agents still running — treating as cycle transition."` Continue polling.
+2. If `status` is `failed` and `running_agents` is empty → call `get_pipeline_snapshot` MCP tool with the `task_id` to confirm actual state before exiting. If the snapshot shows active containers or recent messages, continue polling.
+3. Only exit to Phase S6 when `status` is `failed`, `running_agents` is empty, **and** the secondary check confirms the pipeline is genuinely stopped.
 
 ### Stall detection
 
