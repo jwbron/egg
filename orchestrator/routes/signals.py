@@ -999,14 +999,17 @@ def handle_consensus_confirmed_signal(
 
     tracker = get_peer_consensus_tracker(pipeline_id)
     if not tracker:
+        # Defaults must be outside the try block so the message-bus fallback
+        # (second try block) can reference them even if reconstruction fails.
+        _phase = "implement"
+        _repo = None
+
         # Attempt reconstruction from message store before returning 404
         try:
             from peer_consensus import reconstruct_tracker_from_messages
             from review_graph import get_review_graph_for_phase
 
             # Determine phase and repo from pipeline state if available
-            _phase = "implement"
-            _repo = None
             try:
                 from pipeline_state import get_pipeline_state_store
 
@@ -1110,9 +1113,12 @@ def handle_consensus_confirmed_signal(
             f"Confirmation recorded for {agent_role}",
             data=result,
         )
-    except (ValueError, Exception) as e:
+    except ValueError as e:
         logger.error("Failed to process consensus confirmed", pipeline_id=pipeline_id, error=str(e))
-        return make_error_response(str(e), 400 if isinstance(e, ValueError) else 500)
+        return make_error_response(str(e), 400)
+    except Exception as e:
+        logger.error("Failed to process consensus confirmed", pipeline_id=pipeline_id, error=str(e))
+        return make_error_response(str(e), 500)
 
 
 @signals_bp.route("/<pipeline_id>/signal/batch", methods=["POST"])

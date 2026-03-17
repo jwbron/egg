@@ -3935,6 +3935,8 @@ def _run_concurrent_phase(
                 error=str(track_err),
             )
 
+    _demoted_agents: set[str] = set()
+
     while True:
         elapsed = time.monotonic() - start_time
 
@@ -4019,13 +4021,18 @@ def _run_concurrent_phase(
                     for hb_action in heartbeat_actions:
                         stalled_agent = hb_action.get("agent_id", "")
                         stall_elapsed = hb_action.get("elapsed_seconds", 0)
-                        if stall_elapsed >= 300 and _brc_tracker.graph.is_dual_role(stalled_agent):
+                        if (
+                            stall_elapsed >= 300
+                            and stalled_agent not in _demoted_agents
+                            and _brc_tracker.graph.is_dual_role(stalled_agent)
+                        ):
                             try:
                                 _brc_tracker.handle_stall_demotion(
                                     stalled_agent,
                                     reason=f"Missed heartbeats for {stall_elapsed}s",
                                 )
-                            except (ValueError, Exception) as demote_err:
+                                _demoted_agents.add(stalled_agent)
+                            except Exception as demote_err:
                                 logger.debug(
                                     "Stall demotion skipped",
                                     agent=stalled_agent,

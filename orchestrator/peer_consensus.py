@@ -542,7 +542,7 @@ class PeerConsensusTracker:
             Dict with action taken and affected producers.
 
         Raises:
-            ValueError: If the role is not a dual-role agent or not a reviewer.
+            ValueError: If the role is not a reviewer in the review graph.
         """
         with self._lock:
             if not self.graph.is_reviewer(role):
