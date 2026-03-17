@@ -5052,6 +5052,36 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 pipeline_id=pipeline_id,
             )
 
+        # Spawn overseer container for pipeline health monitoring.
+        # The overseer runs without repo access and monitors health via
+        # the orchestrator API.  Spawned early (before first phase) so it
+        # can observe the entire pipeline lifecycle.
+        overseer_container_id: str | None = None
+        if pipeline.config.overseer_enabled:
+            try:
+                overseer_result = spawner.spawn_overseer_container(
+                    pipeline_id=pipeline_id,
+                    issue_number=pipeline.issue_number,
+                    mode=gateway_mode,
+                    poll_interval=pipeline.config.overseer_poll_interval_seconds,
+                    decision_model=pipeline.config.overseer_decision_maker_model,
+                    repos=pipeline_repos if pipeline_repos else None,
+                    certs_volume=certs_volume,
+                )
+                overseer_container_id = overseer_result.container_info.container_id
+                logger.info(
+                    "Overseer container spawned",
+                    pipeline_id=pipeline_id,
+                    container_id=overseer_container_id[:12],
+                )
+            except ContainerSpawnError as e:
+                # Non-fatal: pipeline can run without overseer monitoring
+                logger.warning(
+                    "Failed to spawn overseer container (continuing without monitoring)",
+                    pipeline_id=pipeline_id,
+                    error=str(e),
+                )
+
         while True:
             try:
                 pipeline = store.load_pipeline(pipeline_id)
@@ -5775,6 +5805,27 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         except Exception:
             pass
     finally:
+        # Stop overseer container if it was spawned
+        if overseer_container_id:
+            try:
+                _spawner = get_container_spawner()
+                _spawner.stop_agent_container(
+                    overseer_container_id,
+                    cleanup_session=True,
+                    timeout=10,
+                )
+                logger.info(
+                    "Overseer container stopped",
+                    pipeline_id=pipeline_id,
+                    container_id=overseer_container_id[:12],
+                )
+            except Exception as overseer_err:
+                logger.debug(
+                    "Failed to stop overseer container (may have already exited)",
+                    pipeline_id=pipeline_id,
+                    error=str(overseer_err),
+                )
+
         # Clean up pipeline-level worktrees unless the pipeline has been
         # recreated (delete + create with the same ID).  In that case the
         # new run owns the worktrees and we must not remove them.

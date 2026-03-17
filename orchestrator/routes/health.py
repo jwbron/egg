@@ -8,7 +8,7 @@ health check framework (see ``health_checks/`` package).
 
 import os
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from flask import Blueprint, Response, current_app, jsonify
@@ -46,7 +46,7 @@ def health_check() -> tuple[Response, int]:
     response = {
         "status": "healthy",
         "service": "egg-orchestrator",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(UTC).isoformat() + "Z",
         "components": {
             "state_store": "ok",
             "docker": "unknown",  # Will be updated when docker client is available
@@ -108,7 +108,7 @@ def pipeline_health_check(pipeline_id: str) -> tuple[Response, int]:
                 "pipeline_id": pipeline_id,
                 "status": "unknown",
                 "message": "Health check runner not initialized",
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": datetime.now(UTC).isoformat() + "Z",
             }
         ), 503
 
@@ -166,7 +166,7 @@ def pipeline_health_check(pipeline_id: str) -> tuple[Response, int]:
                 "pipeline_id": pipeline_id,
                 "status": aggregate_status,
                 "results": [r.to_dict() for r in results],
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": datetime.now(UTC).isoformat() + "Z",
             }
         ), 200
 
@@ -204,7 +204,7 @@ def pipeline_health_alerts(pipeline_id: str) -> tuple[Response, int]:
                 "alerts": [],
                 "count": 0,
                 "message": "Health monitor not available",
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": datetime.now(UTC).isoformat() + "Z",
             }
         ), 200
 
@@ -216,17 +216,18 @@ def pipeline_health_alerts(pipeline_id: str) -> tuple[Response, int]:
                 "alerts": [],
                 "count": 0,
                 "message": "Health monitor not initialized",
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": datetime.now(UTC).isoformat() + "Z",
             }
         ), 200
 
-    alerts = monitor.get_active_alerts()
+    all_alerts = monitor.get_active_alerts()
+    alerts = [a for a in all_alerts if a.get("pipeline_id") == pipeline_id]
 
     return jsonify(
         {
             "pipeline_id": pipeline_id,
             "alerts": alerts,
             "count": len(alerts),
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(UTC).isoformat() + "Z",
         }
     ), 200

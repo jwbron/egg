@@ -5,7 +5,7 @@ These models represent the orchestrator's view of pipeline execution,
 including container state, HITL decisions, and agent coordination.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal, NamedTuple
 
@@ -446,4 +446,6 @@ class ProgressEvent(BaseModel):
     state: ProgressState = Field(..., description="Progress state")
     detail: str = Field(default="", description="Optional detail text")
     blocker: str = Field(default="", description="Blocker description if state is blocked")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Event timestamp")
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), description="Event timestamp"
+    )

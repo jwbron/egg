@@ -195,6 +195,7 @@ class HealthMonitor:
             self._active_alerts.append(
                 {
                     "id": str(uuid.uuid4()),
+                    "pipeline_id": self._pipeline_id,
                     "agent_id": agent_id,
                     "alert_type": "container_exit",
                     "message": escalation["reason"],
@@ -243,6 +244,7 @@ class HealthMonitor:
                 self._active_alerts.append(
                     {
                         "id": str(uuid.uuid4()),
+                        "pipeline_id": self._pipeline_id,
                         "agent_id": agent_id,
                         "alert_type": "message_rate",
                         "message": f"Message rate {count}/min exceeds limit {rate_limit}/min",
@@ -272,15 +274,18 @@ class HealthMonitor:
         now = time.time()
 
         with self._lock:
-            agents = list(self._agents.values())
+            # Snapshot all state inside the lock to avoid TOCTOU races
+            snapshot = [
+                (agent.agent_id, self._last_heartbeat.get(agent.agent_id, agent.last_heartbeat))
+                for agent in self._agents.values()
+            ]
 
-        for agent in agents:
-            last = self._last_heartbeat.get(agent.agent_id, agent.last_heartbeat)
-            elapsed = now - last
+        for agent_id, last_hb in snapshot:
+            elapsed = now - last_hb
             if elapsed > threshold:
                 action = {
                     "action": "nudge",
-                    "agent_id": agent.agent_id,
+                    "agent_id": agent_id,
                     "reason": f"No heartbeat for {int(elapsed)}s (threshold: {threshold}s)",
                     "elapsed_seconds": int(elapsed),
                 }
@@ -290,7 +295,8 @@ class HealthMonitor:
                     self._active_alerts.append(
                         {
                             "id": str(uuid.uuid4()),
-                            "agent_id": agent.agent_id,
+                            "pipeline_id": self._pipeline_id,
+                            "agent_id": agent_id,
                             "alert_type": "heartbeat_timeout",
                             "message": action["reason"],
                             "severity": "warning",
@@ -314,25 +320,32 @@ class HealthMonitor:
         now = time.time()
 
         with self._lock:
-            agents = list(self._agents.values())
+            # Snapshot all state inside the lock to avoid TOCTOU races
+            snapshot = [
+                (agent.agent_id, agent.last_progress, agent.progress_nudge_count)
+                for agent in self._agents.values()
+            ]
 
-        for agent in agents:
-            elapsed = now - agent.last_progress
+        for agent_id, last_progress, nudge_count in snapshot:
+            elapsed = now - last_progress
             if elapsed > threshold:
-                if agent.progress_nudge_count == 0:
+                if nudge_count == 0:
                     # First stall — nudge
                     action = {
                         "action": "nudge",
-                        "agent_id": agent.agent_id,
+                        "agent_id": agent_id,
                         "reason": f"No progress for {int(elapsed)}s",
                     }
                     actions.append(action)
                     with self._lock:
-                        agent.progress_nudge_count += 1
+                        agent_state = self._agents.get(agent_id)
+                        if agent_state:
+                            agent_state.progress_nudge_count += 1
                         self._active_alerts.append(
                             {
                                 "id": str(uuid.uuid4()),
-                                "agent_id": agent.agent_id,
+                                "pipeline_id": self._pipeline_id,
+                                "agent_id": agent_id,
                                 "alert_type": "progress_stall",
                                 "message": action["reason"],
                                 "severity": "warning",
@@ -343,7 +356,7 @@ class HealthMonitor:
                     # Second stall — escalate
                     action = {
                         "action": "escalate",
-                        "agent_id": agent.agent_id,
+                        "agent_id": agent_id,
                         "reason": f"Progress stall unresolved after nudge ({int(elapsed)}s)",
                     }
                     actions.append(action)
@@ -351,7 +364,7 @@ class HealthMonitor:
                     escalation_type = "overseer" if self._config.overseer_enabled else "hitl"
                     escalation = {
                         "type": escalation_type,
-                        "agent_id": agent.agent_id,
+                        "agent_id": agent_id,
                         "reason": action["reason"],
                         "timestamp": datetime.now(UTC).isoformat(),
                     }
@@ -360,7 +373,8 @@ class HealthMonitor:
                         self._active_alerts.append(
                             {
                                 "id": str(uuid.uuid4()),
-                                "agent_id": agent.agent_id,
+                                "pipeline_id": self._pipeline_id,
+                                "agent_id": agent_id,
                                 "alert_type": "progress_stall_escalated",
                                 "message": action["reason"],
                                 "severity": "critical",
@@ -396,6 +410,7 @@ class HealthMonitor:
             self._active_alerts.append(
                 {
                     "id": str(uuid.uuid4()),
+                    "pipeline_id": self._pipeline_id,
                     "agent_id": agent_id,
                     "alert_type": "repeated_error",
                     "message": escalation["reason"],

@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
 
 from egg_agent.client import run_agent_async
+from overseer.utils import parse_json_or_fallback as _parse_json_or_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -33,25 +33,6 @@ async def _call_decision_maker(prompt: str, context: str, *, model: str | None =
     if not result.success:
         raise RuntimeError(f"Decision maker call failed: {result.error}")
     return result.stdout.strip()
-
-
-def _parse_json_or_fallback(raw: str, fallback: dict[str, Any]) -> dict[str, Any]:
-    """Try to parse *raw* as JSON; return *fallback* on failure."""
-    try:
-        return json.loads(raw)  # type: ignore[no-any-return]
-    except (json.JSONDecodeError, TypeError):
-        pass
-    if "```" in raw:
-        for block in raw.split("```"):
-            block = block.strip()
-            if block.startswith("json"):
-                block = block[4:].strip()
-            if block.startswith("{"):
-                try:
-                    return json.loads(block)  # type: ignore[no-any-return]
-                except (json.JSONDecodeError, TypeError):
-                    pass
-    return fallback
 
 
 # ---------------------------------------------------------------------------

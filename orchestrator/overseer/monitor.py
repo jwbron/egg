@@ -11,7 +11,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
+from collections import deque
+from pathlib import Path
 from typing import Any
 
 from overseer.classifier import (
@@ -64,11 +67,59 @@ class OverseerMonitor:
         self.config = config or _DefaultConfig()
         self.self_monitor = OverseerSelfMonitor()
         self._running = False
-        self._escalation_history: dict[str, list] = {}  # agent_role -> list of escalations
+        # agent_role -> bounded deque of escalations (keep last 50 per agent)
+        self._escalation_history: dict[str, deque] = {}
 
         # Allow dependency injection for testing
         self._classifier = classifier
         self._decision_maker = decision_maker
+
+        # Oversight logging to .egg-state/oversight/
+        self._oversight_dir = self._resolve_oversight_dir()
+        self._jsonl_path: Path | None = None
+        if self._oversight_dir:
+            self._oversight_dir.mkdir(parents=True, exist_ok=True)
+            self._jsonl_path = self._oversight_dir / f"{pipeline_id}-oversight.jsonl"
+
+    # -----------------------------------------------------------------
+    # Oversight logging
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_oversight_dir() -> Path | None:
+        """Resolve the .egg-state/oversight/ directory path."""
+        repo_path = os.environ.get("EGG_REPO_PATH")
+        if repo_path:
+            return Path(repo_path) / ".egg-state" / "oversight"
+        return None
+
+    def _log_oversight_event(self, event: dict) -> None:
+        """Append an oversight event as a JSONL line."""
+        if not self._jsonl_path:
+            return
+        try:
+            import datetime
+
+            record = {
+                "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+                "pipeline_id": self.pipeline_id,
+                **event,
+            }
+            with open(self._jsonl_path, "a") as f:
+                f.write(json.dumps(record, default=str) + "\n")
+        except Exception:
+            logger.debug("Failed to write oversight event to JSONL", exc_info=True)
+
+    def write_health_summary(self) -> None:
+        """Write the pipeline health summary to .egg-state/oversight/."""
+        if not self._oversight_dir:
+            return
+        try:
+            summary = self.generate_health_summary()
+            summary_path = self._oversight_dir / f"{self.pipeline_id}-health-summary.md"
+            summary_path.write_text(summary)
+        except Exception:
+            logger.debug("Failed to write health summary", exc_info=True)
 
     # -----------------------------------------------------------------
     # Classifier / decision maker accessors
@@ -139,8 +190,9 @@ class OverseerMonitor:
             await asyncio.sleep(poll_interval)
 
     async def stop(self) -> None:
-        """Stop the monitoring loop."""
+        """Stop the monitoring loop and write final health summary."""
         self._running = False
+        self.write_health_summary()
         logger.info("Overseer monitor stopped for pipeline %s", self.pipeline_id)
 
     # -----------------------------------------------------------------
@@ -191,7 +243,14 @@ class OverseerMonitor:
             # Check pipeline status for terminal state
             status = await self._query_pipeline_status()
             if status in ("complete", "failed", "cancelled"):
+                self._log_oversight_event(
+                    {
+                        "event": "pipeline_terminal",
+                        "status": status,
+                    }
+                )
                 self._running = False
+                self.write_health_summary()
 
         except Exception:
             logger.exception("Error in overseer poll cycle")
@@ -222,7 +281,7 @@ class OverseerMonitor:
         )
 
         # Check redirect history for this agent
-        history = self._escalation_history.get(agent_role, [])
+        history = list(self._escalation_history.get(agent_role, []))
         max_redirects = getattr(self.config, "overseer_max_redirects_before_escalation", 2)
 
         redirect_count = sum(1 for h in history if h.get("action") == "redirect")
@@ -243,8 +302,10 @@ class OverseerMonitor:
 
         await self._execute_action(decision, agent_role)
 
-        # Record in escalation history
-        self._escalation_history.setdefault(agent_role, []).append(
+        # Record in escalation history (bounded per agent)
+        if agent_role not in self._escalation_history:
+            self._escalation_history[agent_role] = deque(maxlen=50)
+        self._escalation_history[agent_role].append(
             {
                 "action": decision.get("action"),
                 "classification": classification,
@@ -272,6 +333,16 @@ class OverseerMonitor:
             agent_role,
             self.pipeline_id,
             message[:100],
+        )
+
+        self._log_oversight_event(
+            {
+                "event": "action_executed",
+                "action": action,
+                "agent_role": agent_role,
+                "message": message[:500],
+                "priority": decision.get("priority", "unknown"),
+            }
         )
 
         if action in ("nudge", "redirect"):
@@ -437,7 +508,7 @@ class OverseerMonitor:
             import datetime
             import pathlib
 
-            ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            ts = datetime.datetime.now(datetime.UTC).strftime("%Y%m%d-%H%M%S")
             path = pathlib.Path.home() / "sharing" / "notifications" / f"{ts}-overseer.md"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(

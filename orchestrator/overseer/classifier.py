@@ -14,13 +14,15 @@ import logging
 from typing import Any
 
 from egg_agent.client import run_agent_async
+from overseer.utils import parse_json_or_fallback as _parse_json_or_fallback
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Cache
+# Cache (bounded to prevent unbounded memory growth)
 # ---------------------------------------------------------------------------
 
+_MAX_CACHE_SIZE = 256
 _cache: dict[str, Any] = {}
 
 
@@ -28,6 +30,17 @@ def _cache_key(*parts: Any) -> str:
     """Compute a deterministic cache key from arbitrary inputs."""
     raw = json.dumps(parts, sort_keys=True, default=str)
     return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _cache_put(key: str, value: Any) -> None:
+    """Insert into cache, evicting oldest entries if over max size."""
+    if len(_cache) >= _MAX_CACHE_SIZE:
+        # Evict oldest ~25% of entries (dict preserves insertion order in 3.7+)
+        evict_count = _MAX_CACHE_SIZE // 4
+        keys_to_evict = list(_cache.keys())[:evict_count]
+        for k in keys_to_evict:
+            del _cache[k]
+    _cache[key] = value
 
 
 def clear_cache() -> None:
@@ -57,26 +70,6 @@ async def _call_classifier(prompt: str, context: str) -> str:
     if not result.success:
         raise RuntimeError(f"Classifier call failed: {result.error}")
     return result.stdout.strip()
-
-
-def _parse_json_or_fallback(raw: str, fallback: dict[str, Any]) -> dict[str, Any]:
-    """Try to parse *raw* as JSON; return *fallback* on failure."""
-    try:
-        return json.loads(raw)  # type: ignore[no-any-return]
-    except (json.JSONDecodeError, TypeError):
-        pass
-    # Try extracting a JSON block from markdown fences
-    if "```" in raw:
-        for block in raw.split("```"):
-            block = block.strip()
-            if block.startswith("json"):
-                block = block[4:].strip()
-            if block.startswith("{"):
-                try:
-                    return json.loads(block)  # type: ignore[no-any-return]
-                except (json.JSONDecodeError, TypeError):
-                    pass
-    return fallback
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +111,7 @@ async def classify_stall(logs: list[dict], progress: list[dict]) -> dict:
         {"classification": "working", "confidence": 0.5, "reasoning": raw},
     )
 
-    _cache[key] = result
+    _cache_put(key, result)
     return result
 
 
@@ -154,7 +147,7 @@ async def classify_error(error_context: dict) -> dict:
         {"error_type": "unknown", "severity": "medium", "recommended_action": raw},
     )
 
-    _cache[key] = result
+    _cache_put(key, result)
     return result
 
 
@@ -194,7 +187,7 @@ async def detect_loop(recent_actions: list[dict]) -> dict:
     if isinstance(result.get("is_loop"), str):
         result["is_loop"] = result["is_loop"].lower() in ("true", "yes", "1")
 
-    _cache[key] = result
+    _cache_put(key, result)
     return result
 
 
@@ -232,5 +225,5 @@ async def check_alignment(activity: list[dict], contract: dict) -> dict:
         {"aligned": True, "concerns": [], "suggested_redirect": None},
     )
 
-    _cache[key] = result
+    _cache_put(key, result)
     return result

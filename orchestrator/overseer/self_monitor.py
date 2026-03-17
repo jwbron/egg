@@ -7,6 +7,7 @@ ensure the overseer itself is operating within acceptable bounds.
 from __future__ import annotations
 
 import time
+from collections import deque
 from dataclasses import dataclass
 
 
@@ -39,11 +40,11 @@ class OverseerSelfMonitor:
         self.max_messages_per_cycle = max_messages_per_cycle
         self.max_llm_cost_per_hour = max_llm_cost_per_hour
 
-        # Metrics storage
-        self._poll_durations: list[float] = []
+        # Metrics storage (bounded to prevent unbounded memory growth)
+        self._poll_durations: deque[float] = deque(maxlen=100)
         self._messages_this_cycle: int = 0
         self._total_messages: int = 0
-        self._llm_calls: list[_LLMCallRecord] = []
+        self._llm_calls: deque[_LLMCallRecord] = deque(maxlen=500)
         self._cycle_count: int = 0
 
     # -----------------------------------------------------------------
