@@ -4,7 +4,7 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1032",
   "prompt": null,
-  "status": "cancelled",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -237,10 +237,10 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-03-17T05:59:36.229974",
       "work_started_at": "2026-03-17T05:59:36.265398",
-      "completed_at": null,
+      "completed_at": "2026-03-17T06:58:21.235590",
       "containers": [
         {
           "container_id": "71b58abeb480bd22c6b9ebdc62be7b0438d9f949c09859e2d331474ce5e47f24",
@@ -361,12 +361,12 @@
         {
           "cycle": 0,
           "started_at": "2026-03-17T05:59:36.265398",
-          "completed_at": null,
+          "completed_at": "2026-03-17T06:58:21.235525",
           "commit_sha": "90b24a63988f46767a89d83741fe1db17e3b1d59"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- reviewer_contract (exit=137) ---\n\n--- coder (exit=137) ---\n\n--- reviewer_code (exit=137) ---\n\n--- documenter (exit=137) ---\n\n--- tester (exit=137) ---",
       "hitl_feedback": null,
       "phase_start_sha": "90b24a63988f46767a89d83741fe1db17e3b1d59"
     }
@@ -521,9 +521,9 @@
     }
   ],
   "created_at": "2026-03-17T04:34:43.565631",
-  "updated_at": "2026-03-17T06:58:21.212079",
+  "updated_at": "2026-03-17T06:58:21.235977",
   "contract_synced": true,
   "network_mode": null,
-  "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 49
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- reviewer_contract (exit=137) ---\n\n--- coder (exit=137) ---\n\n--- reviewer_code (exit=137) ---\n\n--- documenter (exit=137) ---\n\n--- tester (exit=137) ---",
+  "version": 50
 }
