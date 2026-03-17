@@ -954,7 +954,7 @@ class PipelineToolHandler:
             from urllib.parse import urlparse
             from urllib.request import ProxyHandler, Request, build_opener
 
-            parsed = urlparse(self.gateway_url)
+            urlparse(self.gateway_url)
             gw_url = f"{self.gateway_url}/api/v1/health"
             opener = build_opener(ProxyHandler({}))
             req = Request(gw_url, method="GET")

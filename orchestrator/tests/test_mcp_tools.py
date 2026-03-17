@@ -24,7 +24,6 @@ def handler():
 
 def _mock_gateway_health_response(data):
     """Create a mock opener that returns the given JSON data for gateway health."""
-    import io
     import json
 
     mock_response = MagicMock()
@@ -39,9 +38,7 @@ def _mock_gateway_health_response(data):
 
 class TestCheckHealth:
     def test_both_healthy(self, handler):
-        mock_opener = _mock_gateway_health_response(
-            {"status": "healthy", "version": "1.0"}
-        )
+        mock_opener = _mock_gateway_health_response({"status": "healthy", "version": "1.0"})
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {"status": "healthy"}
             with patch("urllib.request.build_opener", return_value=mock_opener):
@@ -53,9 +50,7 @@ class TestCheckHealth:
         assert result["gateway"]["version"] == "1.0"
 
     def test_orchestrator_unreachable(self, handler):
-        mock_opener = _mock_gateway_health_response(
-            {"status": "healthy", "version": "1.0"}
-        )
+        mock_opener = _mock_gateway_health_response({"status": "healthy", "version": "1.0"})
         with patch.object(handler, "_make_request", side_effect=Exception("connection refused")):
             with patch("urllib.request.build_opener", return_value=mock_opener):
                 result = handler.handle_tool_call("check_health", {})
