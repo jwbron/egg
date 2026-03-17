@@ -1,0 +1,303 @@
+{
+  "issue": 1032,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "revision": 1,
+
+  "title": "Risk assessment: Agent anchor mechanism for post-compaction state recovery",
+
+  "summary": "This risk assessment covers the agent anchor mechanism proposed in #1032 — a persistent JSON state file system enabling agents to recover coherent working state after context window clears. The feature is cross-cutting, touching 8+ components across orchestrator CLI, orchestrator API, Redis storage, gateway phase filter, container spawner, shared libraries, JSON schemas, sandbox rules, and the consensus wrapper. I identify 10 risks across security, performance, compatibility, data integrity, and operational categories. Two are HIGH severity (gateway session-scoped enforcement gap, compaction-disable behavioral change), three MEDIUM-HIGH, and five MEDIUM. No external dependencies are introduced, so no CVE/deprecation research is needed. Overall risk rating: MEDIUM-HIGH. Recommendation: PROCEED WITH CAUTION, implementing in phased order with mandatory human review gates between phases.",
+
+  "methodology": "Reviewed issue #1032, refiner analysis (1032-analysis.md), existing codebase patterns for all affected components (gateway/phase_filter.py, orchestrator/cli.py, orchestrator/container_spawner.py, orchestrator/consensus_wrapper.py, orchestrator/redis_message_store.py, shared/egg_config/constants.py, .egg/phase-permissions.json, .egg/schemas/), and prior risk assessment patterns (1027-risk_analyst-output.json). No external research needed — this is a purely internal feature with no new third-party dependencies.",
+
+  "risks": [
+    {
+      "id": "R-1",
+      "title": "Gateway session-scoped write enforcement has no existing agent ID mechanism",
+      "category": "security",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "HIGH",
+      "description": "The issue requires the gateway to enforce that agents can only write to their own anchor file (.egg-state/agent-anchors/<own-agent-id>.json). The gateway currently uses session.agent_role (set via EGG_AGENT_ROLE env var at container_spawner.py:386) to identify agents. However, agent_role is a role enum (e.g., 'coder', 'tester'), NOT a unique agent ID. In concurrent BRC phases, multiple agents share the same role — there is no {role}-{container_id} identifier in the gateway session today. The gateway.py push hook (line ~781-865) checks agent_role for file restrictions, but the proposed AGENT_ANCHOR_ID is a new concept that must be threaded through: (1) container spawner → env var, (2) gateway session initialization → new field, (3) phase_filter.py → filename-to-agent-ID matching logic. If session-scoped enforcement is implemented incorrectly, agents could overwrite each other's anchors, leading to state corruption and recovery failures.",
+      "affected_components": [
+        "gateway/gateway.py (push hook, session handling)",
+        "gateway/phase_filter.py (PhaseFileRestriction.is_file_allowed)",
+        "orchestrator/container_spawner.py (env var injection)"
+      ],
+      "mitigation": "Implement AGENT_ANCHOR_ID as a new gateway session field, distinct from agent_role. Add explicit unit tests: (1) agent A cannot push agent B's anchor file, (2) agent A CAN push its own anchor file, (3) invalid agent IDs are rejected. The container spawner must generate the unique ID (role + container ID prefix) and inject it as both AGENT_ANCHOR_ID env var and gateway session metadata.",
+      "rollback": "If gateway enforcement is buggy, disable the filename validation temporarily — fall back to the existing allowed_patterns mechanism (.egg-state/agent-anchors/*) which allows any agent to write any anchor. This is less secure but maintains functionality.",
+      "human_review_required": true,
+      "human_review_reason": "Security-sensitive: incorrect enforcement could allow cross-agent state tampering. Gateway changes must be reviewed carefully."
+    },
+    {
+      "id": "R-2",
+      "title": "Compaction-disable requirement is a significant behavioral change affecting all agents",
+      "category": "compatibility",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "The issue mandates disabling context compaction for ALL agent containers, replacing it with full context clear + anchor reload. This is a fundamental behavioral change: (1) It depends on a '--no-compact' flag or equivalent in the agent runtime (Claude Code) that may not exist or may behave differently than expected — Decision 6 in the analysis is unresolved. (2) When context is fully cleared, the recovery relies entirely on the anchor file + message catch-up + git log — if any of these fail, the agent has ZERO context. (3) Existing single-agent pipelines that don't use anchors will also be affected if compaction is disabled globally. (4) The clear+reload cycle may cause brief periods where agents are non-responsive, affecting BRC consensus timelines.",
+      "affected_components": [
+        "orchestrator/container_spawner.py (launch flags)",
+        "sandbox/.claude/rules/ (recovery rule)",
+        "orchestrator/consensus_wrapper.py (recovery prompt)"
+      ],
+      "mitigation": "Phase this carefully: (1) Confirm the compaction-disable mechanism exists and works BEFORE implementing anchor recovery (Decision 6 must be resolved first). (2) Make compaction-disable opt-in per pipeline config initially (Decision 1: opt-in, not mandatory). (3) Add a fallback: if anchor read fails after context clear, the agent should log an error and attempt to reconstruct minimal state from egg-contract + git log rather than operating blind. (4) Set a health check: if an agent fails to update its anchor within 5 minutes of a context clear event, the orchestrator should escalate.",
+      "rollback": "Re-enable compaction (remove --no-compact flag) and disable anchor recovery. Agents revert to the existing compaction behavior. Anchors continue to be written as informational state but are not relied upon for recovery.",
+      "human_review_required": true,
+      "human_review_reason": "Architecture decision: changing the fundamental recovery strategy from compaction to clear+reload affects all agents and needs stakeholder buy-in."
+    },
+    {
+      "id": "R-3",
+      "title": "Concurrent anchor file writes in shared worktree — race condition window",
+      "category": "data_integrity",
+      "severity": "MEDIUM-HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "In BRC concurrent phases, multiple agents share a single worktree. Each agent writes to its own anchor file (.egg-state/agent-anchors/<agent-id>.json). The issue specifies atomic writes (temp-file-then-rename), which prevents partial reads. However, there is a race condition window: (1) Agent A reads Agent B's anchor via filesystem. (2) Agent B is mid-update (temp file exists, rename not yet done). (3) Agent A reads stale data from the old file. While this is logically a 'single-writer per file' design, the READ path for cross-agent anchors is not atomic on the filesystem. If Agent A makes a decision based on stale cross-agent state, coordination could break. Additionally, git operations (add, commit, push) on the shared worktree must handle anchor files without conflicting — multiple agents running 'git add' simultaneously on different files in the same directory could cause index lock contention.",
+      "affected_components": [
+        ".egg-state/agent-anchors/ (shared filesystem)",
+        "shared/egg_anchor/ (new library — atomic I/O)",
+        "git operations on shared worktree"
+      ],
+      "mitigation": "For reads: the egg_anchor library should implement retry-on-ENOENT for the brief window during rename. For git: agents should only git-add their own anchor file by exact path, never 'git add .egg-state/agent-anchors/'. Consider using the orchestrator API as the primary cross-agent read path (already proposed in the issue) rather than filesystem reads. For team anchor: it's already API-only, which is correct.",
+      "rollback": "If filesystem race conditions cause issues, disable cross-agent filesystem reads entirely and route all cross-agent anchor reads through the orchestrator API.",
+      "human_review_required": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "R-4",
+      "title": "Redis persistence adds a new failure mode for anchor state",
+      "category": "reliability",
+      "severity": "MEDIUM-HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM-HIGH",
+      "description": "The design syncs anchor state to Redis (anchor:{pipeline_id}:{agent_id} keys). This creates a dual-write problem: the anchor exists both as a local file and in Redis. If the orchestrator's Redis is unavailable or if the sync fails silently, the orchestrator API will serve stale cross-agent data while the local file is current. The RedisMessageStore (orchestrator/redis_message_store.py) uses redis.Redis directly — no connection pooling or circuit breaking is visible. If Redis is slow or intermittent, anchor sync calls from agents (via orchestrator API) could time out, blocking the agent's primary work. The issue specifies Redis SET/GET (simpler than Streams) for anchors, which is appropriate, but doesn't address sync failure handling.",
+      "affected_components": [
+        "orchestrator/routes/anchors.py (new Blueprint)",
+        "orchestrator/redis_message_store.py (pattern reference)",
+        "shared/egg_anchor/ (API sync)"
+      ],
+      "mitigation": "Implement anchor sync as fire-and-forget with local-file-as-source-of-truth. The orchestrator API should read from Redis but fall back to requesting the agent to push its latest anchor if Redis data is stale (compare sequence numbers). Add a Redis health check for anchor operations with a 2-second timeout — if Redis is down, anchor reads return a 503 with a clear error, not stale data. Log sync failures but don't block the agent.",
+      "rollback": "Disable Redis sync entirely. Use only local files + orchestrator API reads from git (slower but reliable).",
+      "human_review_required": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "R-5",
+      "title": "Anchor size budget enforcement at schema level may be too rigid",
+      "category": "operational",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The 2KB soft / 3KB hard limit per agent is enforced via JSON Schema maxItems and maxLength constraints. While the budget is well-justified (500-600 tokens ≈ 2% of context window), real-world usage may reveal that certain agent roles need more state than others. For example, a coder agent tracking 15 modified files with full paths may hit the limit quickly. The hard limit at 3KB means the CLI rejects writes entirely — if an agent hits this during a critical update (e.g., recording a decision that prevents contradictory work), the anchor update fails and the agent must manually prune. In a post-compaction recovery scenario, a failed anchor update is particularly dangerous because the agent may lose the decision it just made.",
+      "affected_components": [
+        ".egg/schemas/agent-anchor.schema.json (new)",
+        "shared/egg_anchor/ (validation)",
+        "orchestrator/cli.py (anchor subcommands)"
+      ],
+      "mitigation": "Start with a 3KB soft / 4KB hard limit (slightly more generous) for the initial implementation. Make limits configurable via constants.py rather than hardcoded in the schema. The CLI should auto-prune completed progress items and old errors when approaching the soft limit (contrary to the issue's 'warn only' recommendation — auto-pruning of clearly stale items is safer than failing entirely). Always succeed the write if the content is under the hard limit, even if above soft limit.",
+      "rollback": "Remove hard limit enforcement; keep only soft limit warnings. This allows unbounded growth but prevents data loss.",
+      "human_review_required": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "R-6",
+      "title": "Post-compaction message catch-up depends on unimplemented #1027 cross-agent messaging",
+      "category": "compatibility",
+      "severity": "MEDIUM-HIGH",
+      "likelihood": "HIGH",
+      "impact": "MEDIUM",
+      "description": "The anchor recovery protocol specifies: after reading the anchor, poll messages since last_message_id to catch up on missed communications. This depends on #1027 (cross-agent communication) which is a soft dependency. If #1027 is not yet implemented or partially available, the last_message_id field in anchors is meaningless, and agents have no way to replay missed messages after context clear. The Redis message bus exists (orchestrator/redis_message_store.py), but the since_id-based polling may not be fully wired in the orchestrator API. The refiner analysis confirms this is a 'soft' dependency, but in practice, BRC concurrent agents NEED message catch-up — without it, a compacted agent in mid-BRC could miss ACK/NACK messages and deadlock the consensus protocol.",
+      "affected_components": [
+        "shared/egg_anchor/ (last_message_id field)",
+        "orchestrator/routes/messages.py (since_id polling)",
+        "orchestrator/redis_message_store.py"
+      ],
+      "mitigation": "If #1027 is not available at anchor implementation time: (1) Still include last_message_id in the schema (forward-compatible), but set it to null. (2) The recovery protocol should fall back to polling ALL recent messages (last N minutes) from egg-orch message poll. (3) Document this degraded mode explicitly. (4) Prioritize #1027 completion before enabling compaction-disable in production.",
+      "rollback": "Anchor recovery works without message catch-up but with degraded coordination awareness. Agents may re-ask resolved questions.",
+      "human_review_required": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "R-7",
+      "title": "Phase permissions must be updated for anchor files across ALL phases",
+      "category": "operational",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "MEDIUM",
+      "description": "The current phase_file_restrictions in .egg/phase-permissions.json do NOT include .egg-state/agent-anchors/* in any phase's allowed_patterns. The refine phase allows: contracts/*, drafts/*analysis*, checkpoints/*, agent-outputs/*, reviews/*. The plan phase allows: contracts/*, drafts/*plan*, checkpoints/*, agent-outputs/*, reviews/*. The implement phase BLOCKS: contracts/*, drafts/*, pipelines/*, reviews/* (with no explicit allow for agent-anchors). Anchor files (.egg-state/agent-anchors/*) will be REJECTED by the gateway in all phases unless phase-permissions.json is updated. This is a known integration point but is easy to miss during implementation — if forgotten, agents will be unable to push their anchors, silently breaking the entire system.",
+      "affected_components": [
+        ".egg/phase-permissions.json",
+        "gateway/phase_filter.py"
+      ],
+      "mitigation": "Add .egg-state/agent-anchors/* to allowed_patterns for refine, plan, and implement phases. For implement phase, it must be added as an explicit allowed pattern (since implement uses blocked_patterns, not allowed_patterns — any path not blocked is allowed, but this should be verified). Add an integration test: push an anchor file in each phase and verify it succeeds.",
+      "rollback": "Remove anchor file pattern from phase permissions to revert to pre-anchor behavior.",
+      "human_review_required": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "R-8",
+      "title": "Team anchor generation complexity in the orchestrator",
+      "category": "performance",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The team anchor is an orchestrator-generated projection from all individual agent anchors + pipeline state. For a team of 5 agents, this requires reading 5 Redis keys, merging them, and adding pipeline context (dependency graph, BRC status, escalation history). If this is requested frequently (e.g., by a mediator/overseer polling every 10 seconds), it adds load to the orchestrator. The generation logic must also handle inconsistency: agent anchors may have different sequence numbers (some more recent than others), and the team anchor must present a coherent snapshot. There's no caching mentioned in the design — every team anchor request regenerates from scratch.",
+      "affected_components": [
+        "orchestrator/routes/anchors.py (new, team endpoint)",
+        "orchestrator API"
+      ],
+      "mitigation": "Cache team anchor for 5-10 seconds (configurable). Invalidate on any individual anchor update. Use Redis MGET for batch reads of all agent anchors. Set a response timeout of 500ms — if generation takes longer, return the cached version with a staleness indicator. For initial implementation, this is low priority — team anchor is Phase 2+ and can be optimized later.",
+      "rollback": "Disable team anchor endpoint. Mediator/overseer falls back to reading individual anchors.",
+      "human_review_required": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "R-9",
+      "title": "Anchor cleanup and Redis TTL management may leak state",
+      "category": "operational",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "LOW-MEDIUM",
+      "description": "The design specifies lifecycle-based cleanup: anchors are retained in Redis until pipeline completion (archived to checkpoint) or 7-day TTL for failed pipelines. However: (1) If the orchestrator crashes mid-pipeline, orphaned anchors may not be cleaned up — the GC must run on orchestrator startup to check for orphans. (2) Local anchor files on the worktree are not cleaned up if the worktree is reused for a new pipeline (unlikely but possible). (3) Redis TTL must be set on each anchor key — if the set-with-TTL is a separate operation from the SET, there's a window where a key exists without a TTL.",
+      "affected_components": [
+        "orchestrator/routes/anchors.py (lifecycle management)",
+        "Redis (TTL management)"
+      ],
+      "mitigation": "Use Redis SETEX (or SET with EX option) to atomically set value + TTL. On orchestrator startup, run a GC pass for orphaned anchor keys. For local files, the post-agent auto-commit mechanism already handles cleanup of worktree state.",
+      "rollback": "Redis keys without TTL will be cleaned up by a manual maintenance script.",
+      "human_review_required": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "R-10",
+      "title": "Consensus wrapper recovery prompt extension could exceed token budget",
+      "category": "performance",
+      "severity": "MEDIUM",
+      "likelihood": "LOW-MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The consensus wrapper (orchestrator/consensus_wrapper.py) injects a _RECOVERY_SYSTEM_PROMPT on restart. The proposal extends this to also load the agent's anchor file. The recovery prompt currently includes BRC state and NACK feedback — adding a 2KB anchor (plus team anchor context) could push the recovery prompt to 4-5KB, which is ~1200 tokens. Combined with the existing system prompt and agent instructions, this could consume a significant portion of the post-clear context window. The issue's 2% budget calculation (1500 tokens for own + team anchor) doesn't account for the recovery prompt overhead that accompanies it.",
+      "affected_components": [
+        "orchestrator/consensus_wrapper.py",
+        "sandbox/.claude/rules/anchor-recovery.md (new)"
+      ],
+      "mitigation": "Keep the recovery prompt lean: include only the anchor JSON and minimal instructions. The anchor-recovery.md rule file should be concise (under 500 tokens). Total recovery context (anchor + recovery prompt + BRC state) should be budgeted at 3000 tokens max — validate this with actual token counting during testing.",
+      "rollback": "Remove anchor loading from recovery prompt. Agents recover using only BRC state (current behavior).",
+      "human_review_required": false,
+      "human_review_reason": null
+    }
+  ],
+
+  "overall_risk_rating": "MEDIUM-HIGH",
+
+  "risk_summary": {
+    "high": 2,
+    "medium_high": 3,
+    "medium": 5,
+    "low": 0,
+    "blocking_risks": 0,
+    "prerequisite_fixes_required": 0,
+    "human_review_items": 2
+  },
+
+  "areas_requiring_human_review": [
+    {
+      "area": "Gateway session-scoped agent ID enforcement (R-1)",
+      "reason": "Security-sensitive change to the gateway's push validation. Cross-agent anchor tampering prevention must be implemented correctly.",
+      "phase": "Phase 3 (Gateway + Agent Integration)"
+    },
+    {
+      "area": "Compaction-disable strategy and mechanism (R-2)",
+      "reason": "Fundamental behavioral change affecting all agents. Decision 6 (compaction disable mechanism) must be resolved before implementation begins.",
+      "phase": "Phase 3 (Gateway + Agent Integration) — but Decision 6 blocks Phase 1 design"
+    }
+  ],
+
+  "key_recommendations": [
+    {
+      "id": "REC-1",
+      "recommendation": "Resolve Decision 6 (compaction-disable mechanism) BEFORE starting implementation. The entire anchor recovery strategy depends on context clearing being reliable and configurable. If the mechanism doesn't exist or behaves unexpectedly, the foundational assumption of the design is invalidated.",
+      "priority": "CRITICAL",
+      "related_risks": ["R-2"]
+    },
+    {
+      "id": "REC-2",
+      "recommendation": "Make anchor adoption opt-in per pipeline configuration initially (Decision 1 = option c). This limits blast radius while the system is proven. Mandatory adoption can come in a later release once the clear+reload cycle is validated in production.",
+      "priority": "HIGH",
+      "related_risks": ["R-2"]
+    },
+    {
+      "id": "REC-3",
+      "recommendation": "Implement Phase 1 (core infrastructure: schema, library, CLI) and Phase 2 (API + Redis) before Phase 3 (gateway integration). Phase 3 contains the highest-risk changes (gateway session enforcement) and should have thorough test coverage from Phases 1-2 as a foundation.",
+      "priority": "HIGH",
+      "related_risks": ["R-1", "R-3", "R-4"]
+    },
+    {
+      "id": "REC-4",
+      "recommendation": "Add .egg-state/agent-anchors/* to phase-permissions.json allowed_patterns early in Phase 1 to avoid gateway rejections during development. This is a low-risk change that unblocks anchor file pushing.",
+      "priority": "MEDIUM",
+      "related_risks": ["R-7"]
+    },
+    {
+      "id": "REC-5",
+      "recommendation": "Design the anchor library's API sync as fire-and-forget with local-file-as-source-of-truth. Never block agent work on Redis availability. Cross-agent reads should prefer the orchestrator API but tolerate API unavailability by falling back to filesystem reads in shared worktrees.",
+      "priority": "MEDIUM",
+      "related_risks": ["R-4", "R-3"]
+    },
+    {
+      "id": "REC-6",
+      "recommendation": "If #1027 (cross-agent messaging) is not yet merged, implement anchor recovery without last_message_id catch-up. Use time-based message polling as fallback. Document this explicitly as a degraded mode.",
+      "priority": "MEDIUM",
+      "related_risks": ["R-6"]
+    }
+  ],
+
+  "dependency_risk_assessment": {
+    "hard_dependencies": [],
+    "soft_dependencies": [
+      {
+        "issue": "#1027 — Cross-agent communication",
+        "status": "Unknown — check if merged",
+        "risk": "Without #1027, last_message_id catch-up is unavailable. Anchor recovery still works but with degraded coordination awareness (R-6).",
+        "mitigation": "Forward-compatible schema design; fallback to time-based polling"
+      },
+      {
+        "issue": "#1028 — Conversational coordinator",
+        "status": "No dependency",
+        "risk": "None. Team anchor is orchestrator-generated, independent of conversational coordinator.",
+        "mitigation": "N/A"
+      },
+      {
+        "issue": "#1030 — Agent roster and access controls",
+        "status": "Unknown — check if merged",
+        "risk": "Agent ID format ({role}-{container_id}) is decoupled from roster. Minor risk: if roster defines agent IDs differently, the anchor system must align.",
+        "mitigation": "Use the container spawner as the single source of agent ID generation"
+      }
+    ],
+    "external_dependencies": "None. No new third-party libraries or services are introduced."
+  },
+
+  "phase_risk_profile": {
+    "phase_1_core_infrastructure": {
+      "risk_level": "LOW-MEDIUM",
+      "key_risks": ["R-5 (size budget)", "R-10 (token budget)"],
+      "notes": "Schema, library, and CLI are self-contained. Low integration risk. Main concern is getting the schema constraints right."
+    },
+    "phase_2_orchestrator_api_redis": {
+      "risk_level": "MEDIUM",
+      "key_risks": ["R-4 (Redis persistence)", "R-8 (team anchor performance)", "R-9 (cleanup/TTL)"],
+      "notes": "Redis integration follows existing patterns (redis_message_store.py). Team anchor generation is the most complex new logic."
+    },
+    "phase_3_gateway_agent_integration": {
+      "risk_level": "HIGH",
+      "key_risks": ["R-1 (gateway enforcement)", "R-2 (compaction disable)", "R-3 (concurrent writes)"],
+      "notes": "Highest risk phase. Gateway changes are security-sensitive. Compaction-disable is a behavioral change. Must have thorough test coverage."
+    },
+    "phase_4_checkpoint_lifecycle": {
+      "risk_level": "LOW",
+      "key_risks": ["R-9 (cleanup)"],
+      "notes": "Checkpoint integration follows existing patterns. Lifecycle management is straightforward."
+    }
+  }
+}
