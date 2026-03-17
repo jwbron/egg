@@ -194,7 +194,7 @@ class DockerClaudeVisitor(ast.NodeVisitor):
             for i_elt, elt in enumerate(elts[2:], start=2):
                 if elt == "claude":
                     if not self._has_noqa(node.lineno):
-                        if "--print" in elts[i_elt:]:
+                        if "--print" in elts[i_elt + 1 :]:
                             self.claude_print_lines.append(
                                 (
                                     node.lineno,

@@ -690,7 +690,7 @@ class ContainerSpawner:
         command = build_agent_command(
             prompt=overseer_prompt,
             model=decision_model,
-            max_turns=200,
+            max_turns=500,
         )
 
         return self.spawn_agent_container(
