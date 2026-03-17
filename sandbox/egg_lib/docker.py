@@ -668,6 +668,9 @@ def get_installed_agent_sdk_version() -> str | None:
 def get_latest_agent_sdk_version() -> str | None:
     """Get the latest claude-agent-sdk version from PyPI.
 
+    Validates the version actually exists in the release list to guard
+    against yanked versions or transient PyPI API inconsistencies.
+
     Returns:
         Version string (e.g., "0.1.5") or None if check fails
     """
@@ -679,7 +682,14 @@ def get_latest_agent_sdk_version() -> str | None:
         with urllib.request.urlopen(url, timeout=10) as response:
             data = json.loads(response.read().decode())
             version: str | None = data.get("info", {}).get("version")
-            return version
+            if not version:
+                return None
+            # Verify the version actually has release files (not yanked/ghost)
+            releases = data.get("releases", {})
+            if version in releases and releases[version]:
+                return version
+            # Version reported by info but has no release files — fall back
+            return None
     except Exception:
         return None
 
@@ -1007,6 +1017,8 @@ def build_image() -> bool:
         # so Docker always gets a specific version for cache-busting.
         sdk_version = agent_sdk_version or get_latest_agent_sdk_version()
         if sdk_version:
+            if not quiet:
+                info(f"Agent SDK version for build: {sdk_version}")
             cmd.insert(2, "--build-arg")
             cmd.insert(3, f"CLAUDE_AGENT_SDK_VERSION={sdk_version}")
 

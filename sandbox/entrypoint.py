@@ -781,6 +781,9 @@ def restore_prebuilt_deps(
         return
 
     repos_dir = config.repos_dir
+    if not repos_dir.exists():
+        logger.info("  Repos directory does not exist, skipping prebuilt deps restore")
+        return
     restored = 0
 
     for repo_dir in prebuilt_base.iterdir():
