@@ -20,7 +20,7 @@ make security      # Run security scans (bandit, safety, trivy)
 | `orchestrator/` | Central SDLC pipeline engine — scheduling, health monitoring, multi-agent coordination |
 | `gateway/` | Policy-enforcement sidecar — validates git/gh operations, injects credentials |
 | `sandbox/` | Untrusted agent container — Claude Code config, tools, entrypoint |
-| `shared/` | Shared Python libraries used across components |
+| `shared/` | Shared Python packages and agent prompt templates |
 | `docs/` | All documentation — guides, ADRs, architecture, references |
 | `integration_tests/` | Cross-component integration tests |
 | `scripts/` | Build, release, and CI helper scripts |
