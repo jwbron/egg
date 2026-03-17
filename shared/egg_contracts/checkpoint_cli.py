@@ -537,6 +537,59 @@ def print_checkpoint_details(checkpoint: CheckpointV2 | dict[str, Any]) -> None:
             timestamp = m.get("timestamp", "")
             print(f"  {arrow} {other}: [{m.get('message_type', '')}] {subject} ({timestamp})")
 
+    # Agent anchors (post-compaction state recovery)
+    anchors = data.get("anchors", [])
+    if anchors:
+        print()
+        print(f"Agent Anchors: {len(anchors)}")
+        for anchor in anchors:
+            agent_id = anchor.get("agent_id", "unknown")
+            role = anchor.get("role", "unknown")
+            status = anchor.get("status", "unknown")
+            print(f"  {agent_id} ({role}) — {status}")
+
+            task = anchor.get("task", {})
+            if task:
+                desc = task.get("description", "")
+                phase = task.get("phase", "")
+                if desc:
+                    print(f"    Task: {desc}")
+                if phase:
+                    print(f"    Phase: {phase}")
+
+            progress = anchor.get("progress", [])
+            if progress:
+                latest = progress[-1] if isinstance(progress[-1], dict) else {}
+                step = latest.get("step", "")
+                state = latest.get("state", "")
+                if step:
+                    print(f"    Latest Progress: {step} ({state})")
+                print(f"    Progress Steps: {len(progress)}")
+
+            brc = anchor.get("brc_state", {})
+            if brc:
+                brc_phase = brc.get("phase", "")
+                if brc_phase:
+                    print(f"    BRC Phase: {brc_phase}")
+                acks = brc.get("acks", [])
+                nacks = brc.get("nacks", [])
+                if acks:
+                    print(f"    ACKs: {', '.join(str(a) for a in acks)}")
+                if nacks:
+                    print(f"    NACKs: {len(nacks)}")
+
+            decisions = anchor.get("decisions", [])
+            if decisions:
+                print(f"    Decisions: {len(decisions)}")
+
+            files = anchor.get("files_modified", [])
+            if files:
+                print(f"    Files Modified: {len(files)}")
+
+            errors = anchor.get("errors_encountered", [])
+            if errors:
+                print(f"    Errors: {len(errors)}")
+
 
 def _get_source_repo(repo_path: str | None = None) -> str | None:
     """Extract source repo name (owner/repo) from git remote URL.
