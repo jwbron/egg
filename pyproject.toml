@@ -96,6 +96,12 @@ ignore_missing_imports = true
 follow_untyped_imports = true
 
 [[tool.mypy.overrides]]
+module = ["egg_anchor.tests.*"]
+disallow_untyped_defs = false
+ignore_missing_imports = true
+follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
 module = ["waitress", "waitress.*"]
 ignore_missing_imports = true
 

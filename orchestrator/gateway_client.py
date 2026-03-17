@@ -281,6 +281,7 @@ class GatewayClient:
         phase: str | None = None,
         pipeline_id: str | None = None,
         agent_role: str | None = None,
+        agent_anchor_id: str | None = None,
         issue_number: int | None = None,
         pr_number: int | None = None,
         claude_code_version: str | None = None,
@@ -300,6 +301,7 @@ class GatewayClient:
             phase: Optional SDLC pipeline phase
             pipeline_id: Optional pipeline run ID for multi-agent correlation
             agent_role: Optional agent role (e.g., "coder", "tester")
+            agent_anchor_id: Optional agent anchor ID for scoped anchor file writes
             issue_number: Optional GitHub issue number for checkpoint linkage
             pr_number: Optional GitHub PR number for checkpoint linkage
             claude_code_version: Optional Claude Code version string
@@ -328,6 +330,8 @@ class GatewayClient:
             request_data["pipeline_id"] = pipeline_id
         if agent_role is not None:
             request_data["agent_role"] = agent_role
+        if agent_anchor_id is not None:
+            request_data["agent_anchor_id"] = agent_anchor_id
         if issue_number is not None:
             request_data["issue_number"] = issue_number
         if pr_number is not None:

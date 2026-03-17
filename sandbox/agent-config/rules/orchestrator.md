@@ -16,9 +16,14 @@ Run `egg-orch --help` for full usage. All commands support `--json`. Full refere
 | `egg-orch progress emit --step <text> --state <working\|blocked\|complete>` | Emit structured progress event |
 | `egg-orch progress query [--agent <role>]` | Query structured progress events |
 | `egg-orch health alerts` | List active deterministic health alerts |
+| `egg-orch anchor init --task <text>` | Create initial anchor for current agent |
+| `egg-orch anchor update [--status <s>] [--progress <json>]` | Update agent anchor (atomic) |
+| `egg-orch anchor show [--agent <id>] [--team]` | Show own, another agent's, or team anchor |
+| `egg-orch anchor validate` | Validate anchor schema and size limits |
+| `egg-orch anchor cleanup` | Remove orphaned anchor files |
 
 Pipeline ID/agent role can be omitted when `EGG_PIPELINE_ID`/`EGG_AGENT_ROLE` are set.
 
-**Key env vars**: `EGG_ORCHESTRATOR_URL`, `EGG_PIPELINE_ID`, `EGG_AGENT_ROLE`, `EGG_ISSUE_NUMBER`, `EGG_BRANCH`, `EGG_REPO_PATH`, `GATEWAY_URL`
+**Key env vars**: `EGG_ORCHESTRATOR_URL`, `EGG_PIPELINE_ID`, `EGG_AGENT_ROLE`, `EGG_ISSUE_NUMBER`, `EGG_BRANCH`, `EGG_REPO_PATH`, `GATEWAY_URL`, `AGENT_ANCHOR_ID`
 
 **Related CLIs**: `egg-contract`, `egg-pipeline-watch`, `egg-checkpoint`

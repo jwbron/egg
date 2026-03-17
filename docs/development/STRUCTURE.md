@@ -134,6 +134,7 @@ orchestrator/
 │   └── tier2/              # Semantic checks (LLM-powered)
 │       └── agent_inspector.py   # Claude-powered agent progress analysis
 ├── routes/                 # API route handlers
+│   ├── anchors.py          # Agent anchor CRUD and team anchor generation endpoints
 │   ├── checks.py           # Deployment validation check endpoints
 │   ├── containers.py       # Container management endpoints
 │   ├── decisions.py        # HITL decision endpoints
@@ -219,8 +220,15 @@ shared/
 │   ├── client.py           # run_agent(), run_agent_async() via claude-agent-sdk
 │   ├── command.py          # build_agent_command() for orchestrator-spawned containers
 │   └── result.py           # AgentResult dataclass
+├── egg_anchor/             # Agent anchor mechanism for post-compaction state recovery
+│   ├── __init__.py         # Public API exports
+│   ├── models.py           # Pydantic models (AgentAnchor, AnchorMeta, ProgressItem, Decision, BRCState)
+│   ├── loader.py           # Atomic file read/write (temp-then-rename), API sync helper
+│   ├── validator.py        # Schema validation, size budget enforcement (soft/hard limits)
+│   ├── constants.py        # Re-exports anchor constants from egg_config
+│   └── tests/              # Unit tests for models, loader, validator
 ├── egg_config/             # Configuration utilities
-│   ├── constants.py        # Centralized constants (ports, networks, container names, devserver resource limits, infrastructure branch names)
+│   ├── constants.py        # Centralized constants (ports, networks, container names, devserver resource limits, infrastructure branch names, anchor size limits)
 │   ├── compose_config.py   # Bridges config.yaml settings to docker-compose environment variables
 │   └── validators.py       # Validation functions (URLs, emails, tokens, check commands)
 ├── egg_container/          # Shared container-launch config builder

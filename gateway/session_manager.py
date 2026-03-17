@@ -283,6 +283,7 @@ class Session:
     last_seen: datetime
     expires_at: datetime
     agent_role: str | None = None  # Role set by workflow context
+    agent_anchor_id: str | None = None  # Anchor ID for scoped anchor file writes
     phase: str | None = None  # SDLC pipeline phase for operation filtering
     issue_number: int | None = None  # GitHub issue number for checkpoint linkage
     pr_number: int | None = None  # GitHub PR number for checkpoint linkage
@@ -316,6 +317,8 @@ class Session:
         }
         if self.agent_role is not None:
             result["agent_role"] = self.agent_role
+        if self.agent_anchor_id is not None:
+            result["agent_anchor_id"] = self.agent_anchor_id
         if self.phase is not None:
             result["phase"] = self.phase
         if self.issue_number is not None:
@@ -351,6 +354,7 @@ class Session:
             last_seen=datetime.fromisoformat(data["last_seen"]),
             expires_at=datetime.fromisoformat(data["expires_at"]),
             agent_role=data.get("agent_role"),
+            agent_anchor_id=data.get("agent_anchor_id"),
             phase=data.get("phase"),
             issue_number=data.get("issue_number"),
             pr_number=data.get("pr_number"),
@@ -507,6 +511,7 @@ class SessionManager:
         pr_number: int | None = None,
         pipeline_id: str | None = None,
         agent_role: str | None = None,
+        agent_anchor_id: str | None = None,
         claude_code_version: str | None = None,
         branch: str | None = None,
     ) -> tuple[str, Session]:
@@ -522,6 +527,7 @@ class SessionManager:
             pr_number: Optional GitHub PR number for checkpoint linkage
             pipeline_id: Optional pipeline run ID for multi-agent correlation
             agent_role: Optional agent role (e.g., "coder", "tester") for checkpoint metadata
+            agent_anchor_id: Optional agent anchor ID for scoped anchor file writes
             claude_code_version: Optional Claude Code version string
             branch: Optional git branch for non-pushing pipeline sessions
 
@@ -547,6 +553,7 @@ class SessionManager:
             pr_number=pr_number,
             pipeline_id=pipeline_id,
             agent_role=agent_role,
+            agent_anchor_id=agent_anchor_id,
             claude_code_version=claude_code_version,
         )
 

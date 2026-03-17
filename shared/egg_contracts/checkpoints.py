@@ -281,6 +281,12 @@ class CheckpointV2(BaseModel):
         description="Messages sent and received via the orchestrator message bus during concurrent execution",
     )
 
+    # Agent anchor data (captured at checkpoint time)
+    anchors: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Agent anchor data captured at checkpoint time",
+    )
+
     # Timestamps
     created_at: datetime = Field(..., description="When checkpoint was created")
     session_started_at: datetime = Field(..., description="When session started")

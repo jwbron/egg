@@ -166,6 +166,15 @@ All endpoints are prefixed with `/api/v1`.
 | `POST` | `/pipelines/{id}/progress` | Emit structured progress event |
 | `GET` | `/pipelines/{id}/progress` | Query progress events (filterable by agent, time, limit) |
 
+### Anchors
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/anchors/{agent_id}` | Create or update agent anchor |
+| `GET` | `/anchors/{agent_id}` | Get agent anchor |
+| `DELETE` | `/anchors/{agent_id}` | Delete agent anchor |
+| `GET` | `/anchors/team/{pipeline_id}` | Get team anchor (orchestrator-generated projection) |
+
 ### Health
 
 | Method | Path | Description |
@@ -241,6 +250,7 @@ orchestrator/
 │   ├── decision_maker.py   # Sonnet/Opus corrective decision-making
 │   └── issue_filer.py      # Autonomous GitHub issue filing with diagnostics
 ├── routes/
+│   ├── anchors.py          # Agent anchor CRUD and team anchor generation endpoints
 │   ├── checks.py           # Deployment check endpoints
 │   ├── containers.py       # Container lifecycle endpoints
 │   ├── decisions.py        # HITL decision endpoints

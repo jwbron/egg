@@ -458,6 +458,351 @@ def cmd_gateway_status(args: argparse.Namespace) -> int:
     return 0 if health.healthy else 1
 
 
+def cmd_anchor_init(args: argparse.Namespace) -> int:
+    """Initialize an anchor file for this agent."""
+    import os
+    from datetime import UTC, datetime
+
+    agent_id = os.environ.get("AGENT_ANCHOR_ID")
+    if not agent_id:
+        print("Error: AGENT_ANCHOR_ID environment variable not set", file=sys.stderr)
+        return 1
+
+    pipeline_id = os.environ.get("EGG_PIPELINE_ID", "unknown")
+    agent_role = os.environ.get("EGG_AGENT_ROLE", "unknown")
+
+    # Import anchor library
+    try:
+        from egg_anchor.loader import save_anchor, sync_anchor_to_api
+        from egg_anchor.models import (
+            AgentAnchor,
+            AnchorMeta,
+            AnchorStatus,
+            BRCPhase,
+            BRCState,
+            TaskInfo,
+        )
+    except ImportError:
+        print("Error: egg_anchor library not available", file=sys.stderr)
+        return 1
+
+    now = datetime.now(UTC)
+    anchor = AgentAnchor(
+        meta=AnchorMeta(
+            schema_version="1.0",
+            created_at=now,
+            updated_at=now,
+            sequence=0,
+        ),
+        agent_id=agent_id,
+        role=agent_role,
+        team=[],
+        task=TaskInfo(
+            id=args.task_id or f"task-{agent_id}",
+            description=args.task,
+            phase=args.phase,
+        ),
+        status=AnchorStatus.INITIALIZING,
+        pipeline_id=pipeline_id,
+        progress=[],
+        decisions=[],
+        brc_state=BRCState(phase=BRCPhase.ORIENT),
+        key_context=[],
+        errors_encountered=[],
+        files_modified=[],
+    )
+
+    path = save_anchor(anchor)
+    sync_anchor_to_api(anchor)
+
+    if getattr(args, "json", False):
+        print(json.dumps({"success": True, "path": str(path), "agent_id": agent_id}))
+    else:
+        print(f"Anchor initialized for agent {agent_id} at {path}")
+
+    return 0
+
+
+def cmd_anchor_update(args: argparse.Namespace) -> int:
+    """Update the current agent's anchor."""
+    import os
+    from datetime import UTC, datetime
+
+    agent_id = os.environ.get("AGENT_ANCHOR_ID")
+    if not agent_id:
+        print("Error: AGENT_ANCHOR_ID environment variable not set", file=sys.stderr)
+        return 1
+
+    try:
+        from egg_anchor.loader import load_anchor, save_anchor, sync_anchor_to_api
+        from egg_anchor.models import (
+            AnchorStatus,
+            Decision,
+            ErrorEncountered,
+            KeyContext,
+            ProgressItem,
+            ProgressState,
+        )
+    except ImportError:
+        print("Error: egg_anchor library not available", file=sys.stderr)
+        return 1
+
+    anchor = load_anchor(agent_id)
+    if not anchor:
+        print(f"Error: No anchor file found for agent {agent_id}", file=sys.stderr)
+        return 1
+
+    now = datetime.now(UTC)
+    changed = False
+
+    if args.status:
+        try:
+            anchor.status = AnchorStatus(args.status)
+            changed = True
+        except ValueError:
+            print(f"Error: Invalid status '{args.status}'", file=sys.stderr)
+            return 1
+
+    if args.progress:
+        step, state = args.progress
+        try:
+            item = ProgressItem(step=step, state=ProgressState(state), timestamp=now)
+            # Update existing or append
+            updated = False
+            for i, p in enumerate(anchor.progress):
+                if p.step == step:
+                    anchor.progress[i] = item
+                    updated = True
+                    break
+            if not updated:
+                anchor.progress.append(item)
+            changed = True
+        except ValueError:
+            print(f"Error: Invalid progress state '{state}'", file=sys.stderr)
+            return 1
+
+    if args.decision:
+        question, answer = args.decision
+        import uuid
+
+        decision = Decision(
+            id=str(uuid.uuid4())[:8],
+            question=question,
+            answer=answer,
+            timestamp=now,
+        )
+        anchor.decisions.append(decision)
+        changed = True
+
+    if args.key_context:
+        label, value = args.key_context
+        ctx = KeyContext(label=label, value=value)
+        # Update existing or append
+        updated = False
+        for i, k in enumerate(anchor.key_context):
+            if k.label == label:
+                anchor.key_context[i] = ctx
+                updated = True
+                break
+        if not updated:
+            anchor.key_context.append(ctx)
+        changed = True
+
+    if args.error:
+        err = ErrorEncountered(error=args.error, timestamp=now)
+        anchor.errors_encountered.append(err)
+        changed = True
+
+    if args.file:
+        if args.file not in anchor.files_modified:
+            anchor.files_modified.append(args.file)
+            changed = True
+
+    if not changed:
+        print("No updates specified", file=sys.stderr)
+        return 1
+
+    anchor.meta.updated_at = now
+    anchor.meta.sequence += 1
+
+    save_anchor(anchor)
+    sync_anchor_to_api(anchor)
+
+    if getattr(args, "json", False):
+        print(json.dumps({"success": True, "agent_id": agent_id, "sequence": anchor.meta.sequence}))
+    else:
+        print(f"Anchor updated for agent {agent_id} (sequence {anchor.meta.sequence})")
+
+    return 0
+
+
+def cmd_anchor_show(args: argparse.Namespace) -> int:
+    """Display an anchor."""
+    import os
+
+    try:
+        from egg_anchor.loader import load_anchor
+    except ImportError:
+        print("Error: egg_anchor library not available", file=sys.stderr)
+        return 1
+
+    if getattr(args, "team", False):
+        # Fetch team anchor from API
+        orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://egg-orchestrator:9849")
+        pipeline_id = os.environ.get("EGG_PIPELINE_ID", "unknown")
+        try:
+            import requests
+
+            resp = requests.get(
+                f"{orchestrator_url}/api/v1/anchors/team/{pipeline_id}",
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if getattr(args, "json", False):
+                    print(json.dumps(data))
+                else:
+                    print(json.dumps(data, indent=2))
+                return 0
+            else:
+                print(f"Error: API returned {resp.status_code}", file=sys.stderr)
+                return 1
+        except Exception as e:
+            print(f"Error fetching team anchor: {e}", file=sys.stderr)
+            return 1
+
+    agent_id = getattr(args, "agent", None) or os.environ.get("AGENT_ANCHOR_ID")
+    if not agent_id:
+        print("Error: No agent ID specified and AGENT_ANCHOR_ID not set", file=sys.stderr)
+        return 1
+
+    # Try local file first
+    anchor = load_anchor(agent_id)
+    if anchor:
+        data = anchor.to_dict()
+        if getattr(args, "json", False):
+            print(json.dumps(data))
+        else:
+            print(json.dumps(data, indent=2))
+        return 0
+
+    # Try API for cross-agent reads
+    if getattr(args, "agent", None):
+        orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://egg-orchestrator:9849")
+        pipeline_id = os.environ.get("EGG_PIPELINE_ID")
+        if not pipeline_id:
+            print(
+                "Error: EGG_PIPELINE_ID not set, required for cross-agent anchor reads",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            import requests
+
+            resp = requests.get(
+                f"{orchestrator_url}/api/v1/anchors/{agent_id}",
+                params={"pipeline_id": pipeline_id},
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if getattr(args, "json", False):
+                    print(json.dumps(data))
+                else:
+                    print(json.dumps(data, indent=2))
+                return 0
+        except Exception:
+            pass
+
+    print(f"No anchor found for agent {agent_id}", file=sys.stderr)
+    return 1
+
+
+def cmd_anchor_validate(args: argparse.Namespace) -> int:
+    """Validate the current agent's anchor."""
+    import os
+
+    agent_id = os.environ.get("AGENT_ANCHOR_ID")
+    if not agent_id:
+        print("Error: AGENT_ANCHOR_ID environment variable not set", file=sys.stderr)
+        return 1
+
+    try:
+        from egg_anchor.loader import load_anchor
+        from egg_anchor.validator import check_size_budget, validate_anchor
+    except ImportError:
+        print("Error: egg_anchor library not available", file=sys.stderr)
+        return 1
+
+    anchor = load_anchor(agent_id)
+    if not anchor:
+        print(f"Error: No anchor file found for agent {agent_id}", file=sys.stderr)
+        return 1
+
+    schema_errors = validate_anchor(anchor)
+    budget = check_size_budget(anchor)
+
+    valid = len(schema_errors) == 0 and budget.within_budget
+
+    if getattr(args, "json", False):
+        result = {
+            "valid": valid,
+            "agent_id": agent_id,
+            "schema_errors": schema_errors,
+            "size_bytes": budget.size_bytes,
+            "within_budget": budget.within_budget,
+            "warnings": budget.warnings,
+            "budget_errors": budget.errors,
+        }
+        print(json.dumps(result))
+    else:
+        if schema_errors:
+            print("Schema validation errors:")
+            for err in schema_errors:
+                print(f"  - {err}")
+        if budget.warnings:
+            for w in budget.warnings:
+                print(f"Warning: {w}")
+        if budget.errors:
+            for e in budget.errors:
+                print(f"Error: {e}")
+        if valid:
+            print(f"Anchor for {agent_id} is valid ({budget.size_bytes} bytes)")
+
+    return 0 if valid else 1
+
+
+def cmd_anchor_cleanup(args: argparse.Namespace) -> int:
+    """Remove orphaned anchor files."""
+    import os
+    from pathlib import Path
+
+    repo_path = os.environ.get("EGG_REPO_PATH", ".")
+    anchor_dir = Path(repo_path) / ".egg-state" / "agent-anchors"
+
+    if not anchor_dir.exists():
+        if getattr(args, "json", False):
+            print(json.dumps({"success": True, "removed": 0}))
+        else:
+            print("No anchor directory found")
+        return 0
+
+    removed = 0
+    for anchor_file in anchor_dir.glob("*.json"):
+        try:
+            anchor_file.unlink()
+            removed += 1
+        except OSError as e:
+            print(f"Failed to remove {anchor_file}: {e}", file=sys.stderr)
+
+    if getattr(args, "json", False):
+        print(json.dumps({"success": True, "removed": removed}))
+    else:
+        print(f"Removed {removed} anchor file(s)")
+
+    return 0
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
@@ -548,6 +893,63 @@ def create_parser() -> argparse.ArgumentParser:
     delete_parser.add_argument("--repo-path", help="Repository path")
     delete_parser.set_defaults(func=cmd_pipelines_delete)
 
+    # anchor command group
+    anchor_parser = subparsers.add_parser("anchor", help="Agent anchor operations")
+    anchor_subparsers = anchor_parser.add_subparsers(dest="anchor_command")
+
+    # anchor init
+    anchor_init_parser = anchor_subparsers.add_parser(
+        "init", help="Initialize an anchor file for this agent"
+    )
+    anchor_init_parser.add_argument("--task", required=True, help="Task description")
+    anchor_init_parser.add_argument("--task-id", default="", help="Task ID")
+    anchor_init_parser.add_argument("--phase", default="implement", help="Pipeline phase")
+    anchor_init_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    anchor_init_parser.set_defaults(func=cmd_anchor_init)
+
+    # anchor update
+    anchor_update_parser = anchor_subparsers.add_parser(
+        "update", help="Update the current agent's anchor"
+    )
+    anchor_update_parser.add_argument("--status", help="New status")
+    anchor_update_parser.add_argument(
+        "--progress",
+        nargs=2,
+        metavar=("STEP", "STATE"),
+        help="Add/update a progress item (step name and state)",
+    )
+    anchor_update_parser.add_argument(
+        "--decision", nargs=2, metavar=("QUESTION", "ANSWER"), help="Add a decision"
+    )
+    anchor_update_parser.add_argument(
+        "--key-context", nargs=2, metavar=("LABEL", "VALUE"), help="Add a key context item"
+    )
+    anchor_update_parser.add_argument("--error", help="Record an error encountered")
+    anchor_update_parser.add_argument("--file", help="Add a modified file path")
+    anchor_update_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    anchor_update_parser.set_defaults(func=cmd_anchor_update)
+
+    # anchor show
+    anchor_show_parser = anchor_subparsers.add_parser("show", help="Display an anchor")
+    anchor_show_parser.add_argument("--agent", help="Agent ID to show (default: own)")
+    anchor_show_parser.add_argument("--team", action="store_true", help="Show team anchor")
+    anchor_show_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    anchor_show_parser.set_defaults(func=cmd_anchor_show)
+
+    # anchor validate
+    anchor_validate_parser = anchor_subparsers.add_parser(
+        "validate", help="Validate the current agent's anchor"
+    )
+    anchor_validate_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    anchor_validate_parser.set_defaults(func=cmd_anchor_validate)
+
+    # anchor cleanup
+    anchor_cleanup_parser = anchor_subparsers.add_parser(
+        "cleanup", help="Remove orphaned anchor files"
+    )
+    anchor_cleanup_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    anchor_cleanup_parser.set_defaults(func=cmd_anchor_cleanup)
+
     return parser
 
 
@@ -567,6 +969,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "gateway" and not args.gateway_command:
         parser.parse_args(["gateway", "--help"])
+        return 1
+
+    if args.command == "anchor" and not args.anchor_command:
+        parser.parse_args(["anchor", "--help"])
         return 1
 
     if hasattr(args, "func"):
