@@ -1,0 +1,147 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1030,
+    "title": "Issue #1030",
+    "url": "https://github.com/jwbron/egg/issues/1030"
+  },
+  "pipeline_id": "issue-1030",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Should the tester retain broad source-file write access (needed for lint/type-check auto-fixes)?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-a",
+          "label": "Keep broad write access (current \u2014 tester writes **/*.py for auto-fixes)",
+          "description": ""
+        },
+        {
+          "id": "opt-b",
+          "label": "Restrict to test dirs only",
+          "description": ""
+        },
+        {
+          "id": "opt-c",
+          "label": "Restrict to test dirs + named source dirs (src/, lib/, shared/, etc.)",
+          "description": ""
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Should the COORDINATOR role (from #1028) be defined in this issue's roster?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-a",
+          "label": "Define fully in this issue",
+          "description": ""
+        },
+        {
+          "id": "opt-b",
+          "label": "Defer to #1028 implementation",
+          "description": ""
+        },
+        {
+          "id": "opt-c",
+          "label": "Add as placeholder with TBD permissions",
+          "description": ""
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Should the three AgentRole enum locations be consolidated into one source of truth?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-a",
+          "label": "Consolidate to shared/egg_contracts/agent_roles.py",
+          "description": ""
+        },
+        {
+          "id": "opt-b",
+          "label": "Keep three copies with a sync test",
+          "description": ""
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Should gateway per-role file restrictions become enforce-by-default for shared worktree safety?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-a",
+          "label": "Enforce by default (required for shared worktree safety)",
+          "description": ""
+        },
+        {
+          "id": "opt-b",
+          "label": "Keep warn-only default (opt-in enforcement)",
+          "description": ""
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Are there agent types beyond the proposed roster that should be included? (e.g., security auditor, performance profiler, dependency updater)",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "How should tester/coder/documenter coordinate on overlapping files like docstrings? (message-based handoff, coder-owns-all-source, or per-region restrictions)",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "Should the overseer autonomously restart agents after N failed redirects, or always escalate to HITL? What threshold?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
+  "phase_configs": null,
+  "agent_executions": []
+}
