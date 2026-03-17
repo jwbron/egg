@@ -118,7 +118,7 @@ def _check_and_respawn_overseer(
 
     try:
         info = spawner.docker.get_container_info(overseer_container_id)
-        if info.status in (ContainerStatus.EXITED, ContainerStatus.FAILED):
+        if info.status in (ContainerStatus.EXITED, ContainerStatus.FAILED, ContainerStatus.REMOVED):
             pipeline_check = store.load_pipeline(pipeline_id)
             if pipeline_check.status in (PipelineStatus.RUNNING, PipelineStatus.AWAITING_HUMAN):
                 logger.warning(
