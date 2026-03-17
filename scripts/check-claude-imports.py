@@ -18,8 +18,6 @@ INCORRECT patterns:
 
 This script is intended to be run as a CI check or pre-commit hook.
 
-See: sandbox/agent-config/rules/host-container-boundary.md
-
 Usage:
     python3 scripts/check-claude-imports.py
 
@@ -158,7 +156,6 @@ def main():
         print("  3. Use egg_exec to delegate to the container-side processor")
         print("  4. See host-services/shared/egg_exec.py for the delegation pattern")
         print()
-        print("Documentation: sandbox/agent-config/rules/host-container-boundary.md")
         print()
 
         return 1
