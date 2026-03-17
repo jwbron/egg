@@ -129,7 +129,7 @@ def _check_and_respawn_overseer(
         needs_respawn = True
         exit_code = None
         logger.warning(
-            "Overseer container not found in Docker, will attempt respawn",
+            "Overseer container not found in Docker, will check for respawn",
             pipeline_id=pipeline_id,
             container_id=overseer_container_id[:12],
         )
