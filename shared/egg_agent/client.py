@@ -193,6 +193,10 @@ async def run_agent_async(
             event_type="system",
             event_subtype="result",
             model=actual_model,
+            session_id=result_meta.get("session_id"),
+            cost_usd=result_meta.get("cost_usd"),
+            num_turns=result_meta.get("num_turns"),
+            duration_ms=result_meta.get("duration_ms"),
             success=False,
             error=f"Timed out after {timeout} seconds",
         )
@@ -211,6 +215,10 @@ async def run_agent_async(
             event_type="system",
             event_subtype="result",
             model=actual_model,
+            session_id=result_meta.get("session_id"),
+            cost_usd=result_meta.get("cost_usd"),
+            num_turns=result_meta.get("num_turns"),
+            duration_ms=result_meta.get("duration_ms"),
             success=False,
             error=str(e),
         )
@@ -229,6 +237,10 @@ async def run_agent_async(
             event_type="system",
             event_subtype="result",
             model=actual_model,
+            session_id=result_meta.get("session_id"),
+            cost_usd=result_meta.get("cost_usd"),
+            num_turns=result_meta.get("num_turns"),
+            duration_ms=result_meta.get("duration_ms"),
             success=False,
             error=str(e),
         )

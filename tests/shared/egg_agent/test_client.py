@@ -287,6 +287,40 @@ class TestRunAgentAsync:
             assert result_kwargs["success"] is False
             assert result_kwargs["error"] == "Rate limit exceeded"
 
+    @patch("claude_agent_sdk.query")
+    def test_structured_logging_on_timeout(self, mock_query):
+        """Test that system/result log is emitted on timeout path."""
+
+        async def slow_gen(**kwargs):
+            yield _make_assistant_msg("started")
+            await asyncio.sleep(10)
+            yield _make_result_msg()
+
+        mock_query.side_effect = slow_gen
+
+        with patch("egg_agent.client.logger") as mock_logger:
+            result = _run_async(run_agent_async("test prompt", timeout=1))
+
+            assert result.success is False
+
+            # Verify system/result log was emitted with expected fields
+            result_calls = [
+                c
+                for c in mock_logger.info.call_args_list
+                if c.args and c.args[0] == "Agent completed"
+            ]
+            assert len(result_calls) == 1
+            result_kwargs = result_calls[0].kwargs
+            assert result_kwargs["event_type"] == "system"
+            assert result_kwargs["event_subtype"] == "result"
+            assert result_kwargs["success"] is False
+            assert "Timed out" in result_kwargs["error"]
+            # Schema includes metadata fields (None when no ResultMessage received)
+            assert "session_id" in result_kwargs
+            assert "cost_usd" in result_kwargs
+            assert "num_turns" in result_kwargs
+            assert "duration_ms" in result_kwargs
+
     def test_stdlib_logger_fallback_does_not_crash(self):
         """Test that the stdlib logger adapter handles arbitrary kwargs."""
         from egg_agent.client import _StdlibLoggerAdapter
