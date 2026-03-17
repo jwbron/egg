@@ -951,10 +951,8 @@ class PipelineToolHandler:
         # which may not be available when the MCP server runs outside the orchestrator venv
         try:
             import json
-            from urllib.parse import urlparse
             from urllib.request import ProxyHandler, Request, build_opener
 
-            urlparse(self.gateway_url)
             gw_url = f"{self.gateway_url}/api/v1/health"
             opener = build_opener(ProxyHandler({}))
             req = Request(gw_url, method="GET")
