@@ -40,7 +40,7 @@ from peer_consensus import (
     create_peer_consensus_tracker,
     get_peer_consensus_tracker,
 )
-from review_graph import get_review_graph_for_phase
+from review_graph import ReviewGraph, get_review_graph_for_phase
 
 logger = get_logger("orchestrator.concurrent_executor")
 
@@ -70,12 +70,22 @@ class ConcurrentPhaseExecutor:
         pipeline: Pipeline,
         spawn_fn: SpawnFn,
         max_concurrent: int = 6,
+        review_graph: ReviewGraph | None = None,
     ) -> None:
         self.pipeline = pipeline
         self.spawn_fn = spawn_fn
         self.max_concurrent = max_concurrent
+        self._review_graph = review_graph
         self._failure_times: list[datetime] = []
         self._lock = threading.Lock()
+
+    def _get_review_graph(self) -> ReviewGraph:
+        """Get the review graph, using the override if provided."""
+        if self._review_graph is not None:
+            return self._review_graph
+        return get_review_graph_for_phase(
+            self.pipeline.current_phase.value, repo=self.pipeline.repo
+        )
 
     def get_agent_roles(self) -> list[AgentRole]:
         """Get the agent roles for concurrent execution.
@@ -110,9 +120,7 @@ class ConcurrentPhaseExecutor:
             "EGG_MESSAGE_POLL_INTERVAL": str(poll_interval),
         }
         # Add review graph info for BRC protocol
-        graph = get_review_graph_for_phase(
-            self.pipeline.current_phase.value, repo=self.pipeline.repo
-        )
+        graph = self._get_review_graph()
         if graph.is_producer(role.value):
             env["EGG_BRC_ROLE_TYPE"] = "producer"
             env["EGG_BRC_REVIEWERS"] = ",".join(graph.reviewers_for(role.value))
@@ -138,9 +146,7 @@ class ConcurrentPhaseExecutor:
             List of AgentExecution records for spawned agents.
         """
         roles = self.get_agent_roles()
-        graph = get_review_graph_for_phase(
-            self.pipeline.current_phase.value, repo=self.pipeline.repo
-        )
+        graph = self._get_review_graph()
         tracker = create_peer_consensus_tracker(self.pipeline.id, graph)
         executions: list[AgentExecution] = []
 
@@ -341,9 +347,7 @@ class ConcurrentPhaseExecutor:
             try:
                 from peer_consensus import reconstruct_tracker_from_messages
 
-                graph = get_review_graph_for_phase(
-                    self.pipeline.current_phase.value, repo=self.pipeline.repo
-                )
+                graph = self._get_review_graph()
                 tracker = reconstruct_tracker_from_messages(self.pipeline.id, graph)
             except ImportError:
                 pass

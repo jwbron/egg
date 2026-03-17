@@ -320,6 +320,27 @@ class PipelineConfig(BaseModel):
     overseer_decision_maker_model: str = Field(
         default="sonnet", description="LLM model for overseer decision-making tier"
     )
+    start_phase: str | None = Field(
+        default=None,
+        description="Phase to start execution from, skipping earlier phases. "
+        "Valid values: 'plan', 'implement'. When set, the pipeline starts "
+        "at this phase instead of 'refine'.",
+    )
+    implement_roles: list[str] | None = Field(
+        default=None,
+        description="Override which roles run in the implement phase. "
+        "When set, only these roles are spawned instead of the defaults. "
+        "Example: ['coder', 'reviewer_code'] for a lightweight coder+reviewer flow.",
+    )
+
+    @field_validator("start_phase")
+    @classmethod
+    def validate_start_phase(cls, v: str | None) -> str | None:
+        if v is not None:
+            valid = {p.value for p in PipelinePhase}
+            if v not in valid:
+                raise ValueError(f"Invalid start_phase: {v!r}. Must be one of {sorted(valid)}")
+        return v
 
     @field_validator("concurrent_phases")
     @classmethod

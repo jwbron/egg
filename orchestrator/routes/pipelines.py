@@ -3736,12 +3736,33 @@ def _run_concurrent_phase(
     from egg_contracts.agent_roles import get_roles_for_phase as _get_roles_for_phase
 
     roles: list[AgentRole] = []
-    for r in _get_roles_for_phase(phase_str, include_reviewers=True, repo=pipeline.repo):
-        try:
-            roles.append(AgentRole(r.value))
-        except ValueError:
-            # New roles not yet in orchestrator AgentRole — skip
-            continue
+    # Honor implement_roles config override
+    if phase_str == "implement" and pipeline.config.implement_roles:
+        for name in pipeline.config.implement_roles:
+            try:
+                roles.append(AgentRole(name))
+            except ValueError:
+                logger.warning("Unknown role in implement_roles config", role=name)
+    else:
+        for r in _get_roles_for_phase(phase_str, include_reviewers=True, repo=pipeline.repo):
+            try:
+                roles.append(AgentRole(r.value))
+            except ValueError:
+                # New roles not yet in orchestrator AgentRole — skip
+                continue
+
+    # Build a review graph filtered to only active roles so consensus
+    # tracking doesn't wait for unspawned agents.
+    from review_graph import ReviewGraph, get_review_graph_for_phase as _get_graph
+
+    full_graph = _get_graph(phase_str, repo=pipeline.repo)
+    active_role_names = {r.value for r in roles}
+    filtered_edges = [
+        e for e in full_graph.edges
+        if e.reviewer_role in active_role_names and e.producer_role in active_role_names
+    ]
+    filtered_graph = ReviewGraph(filtered_edges)
+
     agent_prompts: dict[AgentRole, str] = {}
     for role in roles:
         prompt = _build_agent_prompt(
@@ -3775,6 +3796,7 @@ def _run_concurrent_phase(
         pipeline=pipeline,
         spawn_fn=spawn_fn,
         max_concurrent=max_concurrent,
+        review_graph=filtered_graph,
     )
 
     # Spawn all agents with their prompts.
@@ -5152,6 +5174,20 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 pipeline_id=pipeline_id,
                 error=str(hm_err),
             )
+
+        # Honor start_phase config — skip earlier phases
+        if pipeline.config.start_phase:
+            target_phase = PipelinePhase(pipeline.config.start_phase)
+            if target_phase != pipeline.current_phase:
+                with get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    pipeline.current_phase = target_phase
+                    store.save_pipeline(pipeline)
+                logger.info(
+                    "Skipping to start_phase",
+                    pipeline_id=pipeline_id,
+                    start_phase=target_phase.value,
+                )
 
         while True:
             try:
