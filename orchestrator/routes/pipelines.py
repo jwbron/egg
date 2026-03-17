@@ -3753,12 +3753,14 @@ def _run_concurrent_phase(
 
     # Build a review graph filtered to only active roles so consensus
     # tracking doesn't wait for unspawned agents.
-    from review_graph import ReviewGraph, get_review_graph_for_phase as _get_graph
+    from review_graph import ReviewGraph
+    from review_graph import get_review_graph_for_phase as _get_graph
 
     full_graph = _get_graph(phase_str, repo=pipeline.repo)
     active_role_names = {r.value for r in roles}
     filtered_edges = [
-        e for e in full_graph.edges
+        e
+        for e in full_graph.edges
         if e.reviewer_role in active_role_names and e.producer_role in active_role_names
     ]
     filtered_graph = ReviewGraph(filtered_edges)
