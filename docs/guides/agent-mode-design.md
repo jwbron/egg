@@ -87,9 +87,9 @@ If the agent decides something isn't worth commenting on, or needs a different a
 
 These conventions extend the core principle ("the sandbox is the constraint") with enforced boundaries:
 
-### Use the Agent SDK or Claude Code headless mode, not direct API calls
+### Use the Agent SDK, not claude --print or direct API calls
 
-LLM calls must never use direct `httpx.post()` or Anthropic SDK calls. Two approaches are supported:
+LLM calls must never use direct `httpx.post()` or Anthropic SDK calls, and must not invoke `claude --print` as a subprocess. Two approved approaches exist:
 
 - **In-sandbox code** (e.g., `egg-health-inspect`, `sandbox/llm/`): use `egg_agent.client.run_agent()`, which wraps `claude-agent-sdk` for in-process execution.
 - **Orchestrator/gateway code spawning containers**: use `egg_agent.build_agent_command()` to build the `python3 -m egg_agent` command passed to `spawn_agent_container()`.
@@ -99,7 +99,9 @@ Both approaches ensure:
 - The agent can use tools (file reading, shell commands, GitHub CLI) rather than being limited to a single prompt/response
 - Centralized configuration (model selection, permissions, timeouts)
 
-**Enforced by:** `EGG200` linter (no direct Anthropic API imports/calls in orchestrator/gateway/shared).
+`claude --print` is not an approved invocation path — it exits after one response and cannot use tools or handle multi-turn workflows. Use `build_agent_command()` for container-spawned agents and `run_agent()` for in-sandbox calls.
+
+**Enforced by:** `EGG200` linter (no direct Anthropic API imports/calls in orchestrator/gateway/shared); `EGG100` linter (`claude --print` subprocess calls).
 
 ### Use model aliases, not pinned identifiers
 
@@ -340,6 +342,7 @@ When designing a new agent workflow, ask:
 - [ ] Am I preserving useful existing functionality while removing unnecessary complexity?
 - [ ] Am I calling the Anthropic API directly from orchestrator/gateway/shared code? (Delegate to sandbox)
 - [ ] Am I using `httpx`/`requests` to call the API instead of `egg_agent.client.run_agent()` (in-sandbox) or `build_agent_command()` (orchestrator-spawned containers)?
+- [ ] Am I using `claude --print` as a subprocess instead of `build_agent_command()`? (Flagged by EGG100)
 - [ ] Am I using pinned model identifiers instead of aliases (`sonnet`, `opus`, `haiku`)?
 
 "Yes" to any of these is a signal to reconsider, but use judgment. Some context is helpful; the question is whether you're constraining vs. informing.
@@ -351,6 +354,7 @@ When designing a new agent workflow, ask:
 - [Issue #153](https://github.com/jwbron/egg/issues/153) — Self-improvement cycle
 - [PR #868](https://github.com/jwbron/egg/pull/868) — Delegate agent inspector LLM calls to sandbox (EGG200 linter)
 - [PR #873](https://github.com/jwbron/egg/pull/873) — Enforce Claude Code pathway and model aliases (EGG201 linter)
+- [PR #1256](https://github.com/jwbron/egg/pull/1256) — Fix overseer to use Agent SDK; flag claude --print in linter (EGG100)
 
 ---
 
