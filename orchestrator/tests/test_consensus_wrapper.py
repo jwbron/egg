@@ -32,7 +32,7 @@ class TestBuildConsensusWrappedCommand:
         assert "python3" in script
         assert "egg_agent" in script
         assert "--max-turns" in script
-        assert "200" in script
+        assert "1000" in script
 
     def test_prompt_is_shell_escaped(self):
         """Prompts with special characters should be properly escaped."""
@@ -65,6 +65,12 @@ class TestBuildConsensusWrappedCommand:
         script = cmd[2]
         assert "EGG_CONCURRENT_MODE" in script
         assert "exit $AGENT_EXIT" in script
+
+    def test_default_max_turns_is_1000(self):
+        """Default max_turns should be 1000 to prevent exhaustion during stay-alive."""
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        assert "--max-turns 1000" in script
 
     def test_custom_model_and_max_turns(self):
         """Should support custom model and max_turns."""

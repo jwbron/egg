@@ -27,7 +27,12 @@ except ImportError:
         return logging.getLogger(name)
 
 
-from docker_client import ContainerNotFoundError, DockerClient, get_docker_client
+from docker_client import (
+    ContainerNotFoundError,
+    DockerClient,
+    DockerClientError,
+    get_docker_client,
+)
 from models import ContainerInfo, ContainerStatus
 
 logger = get_logger("orchestrator.monitor")
@@ -98,6 +103,7 @@ class ContainerMonitor:
         self._reconciliation_thread: threading.Thread | None = None
         self._reconciliation_store: Any = None
         self._reconciliation_interval: int = 30
+        self._clean_exit_skipped: set[str] = set()  # container IDs already logged as clean-exit
 
     def add_handler(self, handler: EventHandler) -> None:
         """Add an event handler.
@@ -351,6 +357,25 @@ class ContainerMonitor:
                             and agent.container_id
                             and agent.container_id not in live_ids
                         ):
+                            # Check actual exit code before reconciling.
+                            # Clean exits (code 0) indicate the consensus
+                            # wrapper exited gracefully — don't mark the
+                            # pipeline FAILED for those (issue #1273).
+                            actual_exit_code = self._get_exited_container_exit_code(
+                                agent.container_id
+                            )
+                            if actual_exit_code == 0:
+                                if agent.container_id not in self._clean_exit_skipped:
+                                    logger.info(
+                                        "Container exited cleanly (code 0), "
+                                        "skipping FAILED reconciliation",
+                                        pipeline_id=pipeline_id,
+                                        container_id=agent.container_id,
+                                        agent_role=str(agent.role),
+                                    )
+                                    self._clean_exit_skipped.add(agent.container_id)
+                                continue
+
                             # Find the matching ContainerInfo to pass to _reconcile
                             matching_ci = None
                             for ci in phase_execution.containers:
@@ -392,6 +417,7 @@ class ContainerMonitor:
             if self._reconciliation_thread:
                 self._reconciliation_thread.join(timeout=self._reconciliation_interval + 1)
                 self._reconciliation_thread = None
+            self._clean_exit_skipped.clear()
             stopped_any = True
 
         if stopped_any:
@@ -415,6 +441,20 @@ class ContainerMonitor:
             Cached status or None if not tracked
         """
         return self._container_states.get(container_id)
+
+    def _get_exited_container_exit_code(self, container_id: str) -> int | None:
+        """Get the exit code of a container that is no longer in the live list.
+
+        Queries Docker for the container's actual state.  Returns the exit code
+        if available, or ``None`` if the container cannot be inspected (already
+        removed, Docker error, etc.).
+        """
+        try:
+            # list_containers(all=False) omits exited containers; query directly.
+            info = self.docker_client.get_container_info(container_id)
+            return info.exit_code
+        except DockerClientError:
+            return None
 
     def check_container_health(self, container_id: str) -> dict[str, Any]:
         """Check health of a specific container.

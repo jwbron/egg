@@ -4063,6 +4063,39 @@ def _run_concurrent_phase(
 
         # 2. Consensus reached — stop containers and return
         if consensus.get("is_complete"):
+            # Recover pipeline if externally marked FAILED (issue #1273).
+            # The container_monitor reconciliation thread may have marked the
+            # pipeline FAILED while we were polling.  Now that consensus is
+            # confirmed complete, restore the pipeline to RUNNING so stored
+            # state matches the successful outcome.
+            #
+            # NOTE: consensus staleness is acceptable here.  The `consensus`
+            # dict was fetched earlier in this loop iteration and is not
+            # re-evaluated under the lock.  If consensus regressed between
+            # the outer check and lock acquisition (extremely unlikely), the
+            # next iteration of this monitoring loop will re-evaluate and
+            # self-correct.
+            if store is not None:
+                try:
+                    _current_pip = store.load_pipeline(pipeline_id)
+                    if _current_pip.status == PipelineStatus.FAILED:
+                        logger.warning(
+                            "Pipeline externally marked FAILED but consensus is complete — recovering",
+                            pipeline_id=pipeline_id,
+                        )
+                        with get_pipeline_state_lock(pipeline_id):
+                            _current_pip = store.load_pipeline(pipeline_id)
+                            if _current_pip.status == PipelineStatus.FAILED:
+                                _current_pip.status = PipelineStatus.RUNNING
+                                _current_pip.error = None
+                                store.save_pipeline(_current_pip)
+                except Exception as recovery_err:
+                    logger.warning(
+                        "External FAILED recovery check failed",
+                        pipeline_id=pipeline_id,
+                        error=str(recovery_err),
+                    )
+
             if _emit_event is not None:
                 _emit_event(
                     EventType.CONSENSUS_REACHED,

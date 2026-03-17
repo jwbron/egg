@@ -847,3 +847,137 @@ class TestMixedScenarios:
 
         # Should succeed via container-exit fallback despite first consensus error
         assert exit_code == 0
+
+
+class TestFailedRecovery:
+    """Tests for the external FAILED recovery guard (issue #1273, step 3c).
+
+    Covers the scenario where the container_monitor reconciliation thread
+    marks the pipeline FAILED while _run_concurrent_phase is actively
+    monitoring.
+    """
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_recovers_failed_pipeline_when_consensus_complete(
+        self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
+    ):
+        """Pipeline externally marked FAILED is recovered when consensus is complete.
+
+        Simulates the reconciliation thread marking the pipeline FAILED between
+        poll iterations.  When consensus completes on a subsequent iteration,
+        the monitoring loop should recover the pipeline status to RUNNING and
+        return success.
+        """
+        poll_count = [0]
+
+        def _monotonic():
+            return poll_count[0] * 5.0
+
+        mock_monotonic.side_effect = _monotonic
+
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.TESTER, "tester-1"),
+        ]
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions)
+
+        # Simulate the reconciliation thread marking the pipeline FAILED.
+        # load_pipeline returns a mock with status=FAILED for the recovery check.
+        mock_pipeline_state = mock_store.load_pipeline.return_value
+        mock_pipeline_state.status = PipelineStatus.FAILED
+        mock_pipeline_state.error = "Container exited unexpectedly"
+
+        def _check_consensus():
+            poll_count[0] += 1
+            if poll_count[0] >= 2:
+                return {"is_complete": True, "has_objections": False, "blocking_agents": []}
+            return {"is_complete": False, "has_objections": False, "blocking_agents": ["coder"]}
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.side_effect = _check_consensus
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        # Function should return success despite pipeline being FAILED in store.
+        assert exit_code == 0
+        assert "Consensus reached" in logs
+
+        # The recovery guard runs inside the consensus-complete block on
+        # iteration 2 (when consensus completes).  It should detect
+        # status=FAILED, acquire the lock, and persist status=RUNNING.
+        assert mock_store.load_pipeline.call_count >= 2
+        # Lock is acquired 3 times: spawn recording, recovery guard,
+        # and _update_agents_complete.  The extra lock (vs 2 in normal case)
+        # proves recovery ran.
+        assert mock_lock.call_count == 3
+        # Verify save_pipeline was called to persist recovery.
+        save_calls = mock_store.save_pipeline.call_args_list
+        assert len(save_calls) >= 1
+        recovered = save_calls[0][0][0]  # first save is from recovery
+        assert recovered.status == PipelineStatus.RUNNING
+        assert recovered.error is None
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_recovery_skipped_when_pipeline_running(
+        self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
+    ):
+        """No recovery needed when pipeline status is RUNNING (normal case)."""
+        mock_monotonic.return_value = 10.0
+
+        executions = [_make_execution(AgentRole.CODER, "coder-1")]
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions)
+
+        # Pipeline is RUNNING (normal state) — recovery should not trigger.
+        mock_pipeline_state = mock_store.load_pipeline.return_value
+        mock_pipeline_state.status = PipelineStatus.RUNNING
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = {
+            "is_complete": True,
+            "has_objections": False,
+            "blocking_agents": [],
+        }
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        assert exit_code == 0
+        # Recovery should NOT have been triggered — the pipeline was already
+        # RUNNING, so the recovery guard's inner if-check (status==FAILED)
+        # is False.  The lock is acquired twice: once for spawn recording
+        # and once for _update_agents_complete.  If recovery also ran, it
+        # would be 3.
+        assert mock_lock.call_count == 2

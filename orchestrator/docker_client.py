@@ -333,6 +333,7 @@ class DockerClient:
         Raises:
             InvalidContainerIdError: If container ID format is invalid
             ContainerNotFoundError: If container doesn't exist
+            ContainerOperationError: If container info retrieval fails
         """
         _validate_container_id(container_id)
         try:
@@ -391,6 +392,8 @@ class DockerClient:
 
         except NotFound as e:
             raise ContainerNotFoundError(f"Container {container_id} not found") from e
+        except APIError as e:
+            raise ContainerOperationError(f"Failed to get container info: {e}") from e
 
     def list_containers(
         self,

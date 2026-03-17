@@ -35,6 +35,7 @@ from container_monitor import (
     _reconcile_container_state,
     create_pipeline_reconciliation_handler,
 )
+from docker_client import DockerClientError
 from models import (
     AgentExecution,
     AgentExecutionStatus,
@@ -550,3 +551,99 @@ class TestPeriodicReconciliation:
             mock_logger.debug.assert_called()
             debug_calls = [str(c) for c in mock_logger.debug.call_args_list]
             assert any("no matching ContainerInfo" in c for c in debug_calls)
+
+    def test_skips_reconciliation_for_clean_exit(self):
+        """Loop skips FAILED reconciliation when container exited with code 0.
+
+        Regression test for issue #1273: containers exiting cleanly (e.g. consensus
+        wrapper after agent confirmed) should not mark the pipeline FAILED.
+        """
+        container_id = "clean_exit_abc"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        store = _make_store(pipeline)
+
+        mock_docker = MagicMock()
+        # Container is NOT in live list (it exited)
+        mock_docker.list_containers.return_value = []
+        # But when we inspect it, exit code is 0
+        mock_docker.get_container_info.return_value = ContainerInfo(
+            container_id=container_id,
+            container_name="egg-coder",
+            status=ContainerStatus.EXITED,
+            exit_code=0,
+            exited_at=datetime.utcnow(),
+        )
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+
+        with patch("container_monitor._reconcile_container_state") as mock_reconcile:
+            monitor._reconciliation_store = store
+            monitor._reconciliation_running = True
+            monitor._reconciliation_interval = 0.01
+
+            _run_one_reconciliation_sweep(monitor)
+
+            # Should NOT have called _reconcile — clean exit
+            mock_reconcile.assert_not_called()
+
+    def test_reconciles_nonzero_exit(self):
+        """Loop reconciles when container exited with non-zero code.
+
+        Ensures the exit-code check doesn't accidentally skip real failures.
+        """
+        container_id = "failed_exit_abc"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        store = _make_store(pipeline)
+
+        mock_docker = MagicMock()
+        mock_docker.list_containers.return_value = []
+        # Non-zero exit code
+        mock_docker.get_container_info.return_value = ContainerInfo(
+            container_id=container_id,
+            container_name="egg-coder",
+            status=ContainerStatus.EXITED,
+            exit_code=1,
+            exited_at=datetime.utcnow(),
+        )
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+
+        with patch("container_monitor._reconcile_container_state") as mock_reconcile:
+            monitor._reconciliation_store = store
+            monitor._reconciliation_running = True
+            monitor._reconciliation_interval = 0.01
+
+            _run_one_reconciliation_sweep(monitor)
+
+            # SHOULD have called _reconcile — non-zero exit
+            mock_reconcile.assert_called()
+
+    def test_reconciles_when_exit_code_unknown(self):
+        """Loop reconciles when container exit code cannot be determined.
+
+        If get_container_info raises, we err on the side of reconciling.
+        """
+        container_id = "unknown_exit_abc"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        store = _make_store(pipeline)
+
+        mock_docker = MagicMock()
+        mock_docker.list_containers.return_value = []
+        # Docker can't inspect the container (already removed)
+        mock_docker.get_container_info.side_effect = DockerClientError("container removed")
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+
+        with patch("container_monitor._reconcile_container_state") as mock_reconcile:
+            monitor._reconciliation_store = store
+            monitor._reconciliation_running = True
+            monitor._reconciliation_interval = 0.01
+
+            _run_one_reconciliation_sweep(monitor)
+
+            # SHOULD have called _reconcile — unknown exit code errs on caution
+            mock_reconcile.assert_called()
+            # Verify the correct store and container were reconciled
+            call_args = mock_reconcile.call_args
+            assert call_args[0][0] is store  # first positional arg is the store
+            assert call_args[0][1].container_id == container_id
