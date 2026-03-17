@@ -584,6 +584,7 @@ def get_installed_claude_version() -> str | None:
         return None
 
 
+@cache
 def get_latest_claude_version() -> str | None:
     """Get the latest Claude Code version from npm registry.
 
@@ -663,6 +664,7 @@ def get_installed_agent_sdk_version() -> str | None:
         return None
 
 
+@cache
 def get_latest_agent_sdk_version() -> str | None:
     """Get the latest claude-agent-sdk version from PyPI.
 
@@ -999,15 +1001,22 @@ def build_image() -> bool:
             str(Config.CONFIG_DIR),
         ]
 
-        # Pass agent SDK version to bust cache if update available
-        if agent_sdk_version:
+        # Pass agent SDK version to bust cache when PyPI has a new version.
+        # When check_agent_sdk_update() already returned a version (update detected),
+        # we use it directly. Otherwise, fall back to get_latest_agent_sdk_version()
+        # so Docker always gets a specific version for cache-busting.
+        sdk_version = agent_sdk_version or get_latest_agent_sdk_version()
+        if sdk_version:
             cmd.insert(2, "--build-arg")
-            cmd.insert(3, f"CLAUDE_AGENT_SDK_VERSION={agent_sdk_version}")
+            cmd.insert(3, f"CLAUDE_AGENT_SDK_VERSION={sdk_version}")
 
-        # Pass Claude version to bust cache if update available
-        if claude_version:
+        # Pass Claude version to bust cache when npm has a new version.
+        # Same fallback pattern as SDK: always pass a specific version so
+        # Docker's layer cache is busted whenever the npm version changes.
+        cc_version = claude_version or get_latest_claude_version()
+        if cc_version:
             cmd.insert(2, "--build-arg")
-            cmd.insert(3, f"CLAUDE_CODE_VERSION={claude_version}")
+            cmd.insert(3, f"CLAUDE_CODE_VERSION={cc_version}")
 
         # Force no-cache when --rebuild flag is set
         if _force_rebuild:

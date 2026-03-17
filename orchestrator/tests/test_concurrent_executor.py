@@ -142,8 +142,24 @@ class TestAgentRoles:
 
         assert "refiner" in role_names
         assert "reviewer_refine" in role_names
-        assert "reviewer_agent_design" in role_names
+        # reviewer_agent_design is egg-repo-only, not included for test/repo
+        assert "reviewer_agent_design" not in role_names
         assert "coder" not in role_names
+
+    def test_refine_phase_roles_egg_repo(self):
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        pipeline = _make_pipeline()
+        pipeline.current_phase = PipelinePhase.REFINE
+        pipeline.repo = "jwbron/egg"
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+        roles = executor.get_agent_roles()
+        role_names = [r.value for r in roles]
+
+        assert "refiner" in role_names
+        assert "reviewer_refine" in role_names
+        assert "reviewer_agent_design" in role_names
 
     def test_plan_phase_roles(self):
         from concurrent_executor import ConcurrentPhaseExecutor
@@ -276,7 +292,7 @@ class TestReviewGraphIntegration:
 
             roles = executor.get_agent_roles()
             role_names = {r.value for r in roles}
-            graph = get_review_graph_for_phase(phase.value)
+            graph = get_review_graph_for_phase(phase.value, repo=pipeline.repo)
             graph_roles = graph.all_roles()
 
             assert graph_roles.issubset(role_names), (

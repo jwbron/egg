@@ -84,7 +84,7 @@ class TestConcurrentPipelineStatus:
             # When phases 1-3 aren't available, we still get the structure
             assert concurrent["enabled"] is True
             assert "messages" in concurrent
-            assert "consensus" in concurrent
+            # consensus is omitted when no tracker is available (#1229)
 
     @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
     @patch("routes.pipelines._resolve_pipeline")
@@ -488,8 +488,24 @@ class TestGetAgentRoles:
 
         assert AgentRole.REFINER in roles
         assert AgentRole.REVIEWER_REFINE in roles
-        assert AgentRole.REVIEWER_AGENT_DESIGN in roles
+        # reviewer_agent_design is egg-repo-only, excluded for non-egg repos
+        assert AgentRole.REVIEWER_AGENT_DESIGN not in roles
         assert AgentRole.CODER not in roles
+
+    def test_returns_refine_phase_roles_egg_repo(self):
+        """get_agent_roles includes reviewer_agent_design for the egg repo."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from models import AgentRole
+
+        pipeline = _make_concurrent_pipeline()
+        pipeline.current_phase = PipelinePhase.REFINE
+        pipeline.repo = "jwbron/egg"
+        executor = ConcurrentPhaseExecutor(pipeline=pipeline, spawn_fn=MagicMock())
+        roles = executor.get_agent_roles()
+
+        assert AgentRole.REFINER in roles
+        assert AgentRole.REVIEWER_REFINE in roles
+        assert AgentRole.REVIEWER_AGENT_DESIGN in roles
 
     def test_returns_plan_phase_roles(self):
         """get_agent_roles returns plan-phase roles when phase is plan."""

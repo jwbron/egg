@@ -39,7 +39,7 @@ When concurrent execution starts, the `ConcurrentPhaseExecutor` (in `orchestrato
 
 | Phase | Spawned roles |
 |-------|--------------|
-| `refine` | `refiner`, `reviewer_refine`, `reviewer_agent_design` |
+| `refine` | `refiner`, `reviewer_refine`, `reviewer_agent_design` (egg repo only) |
 | `plan` | `architect`, `task_planner`, `risk_analyst`, `reviewer_plan` |
 | `implement` | `coder`, `tester`, `documenter`, `reviewer_code`, `reviewer_contract` |
 
@@ -230,6 +230,8 @@ egg-orch consensus status
 ```
 GET /api/v1/pipelines/{id}/status   // concurrent.consensus in the response
 ```
+
+The `concurrent.consensus` key is **only present** when a consensus tracker with registered agents is active. It is omitted entirely when no tracker or evaluator is available (e.g., phases that do not yet implement BRC, or after an orchestrator restart where the in-memory tracker is lost). Callers should check for the key's presence before using it rather than relying on an empty placeholder.
 
 The consensus block returns:
 

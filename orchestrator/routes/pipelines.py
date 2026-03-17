@@ -1025,11 +1025,11 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
             "protocol": consensus_state.get("protocol", "readiness"),
         }
     else:
-        result["consensus"] = {
-            "agents": {},
-            "is_complete": False,
-            "blocking_agents": [],
-        }
+        # Don't populate consensus with empty placeholder — callers (e.g. the
+        # MCP get_consensus_status tool) use truthiness to decide whether to
+        # fall back to message-based inference.  An empty-but-truthy dict
+        # prevents that fallback from triggering (see issue #1229).
+        pass
 
     # Agent lifecycle info from the phase execution record — shows which agents
     # are spawned for the current phase and their container-level status.
@@ -2899,7 +2899,7 @@ def _build_phase_prompt(
 # ---------------------------------------------------------------------------
 
 
-def _build_brc_preamble(role_value: str, phase: str) -> str:
+def _build_brc_preamble(role_value: str, phase: str, repo: str | None = None) -> str:
     """Build the BRC consensus lifecycle preamble for an agent.
 
     Returns a formatted string block that can be appended to any agent prompt
@@ -2914,7 +2914,7 @@ def _build_brc_preamble(role_value: str, phase: str) -> str:
     try:
         from review_graph import get_review_graph_for_phase
 
-        graph = get_review_graph_for_phase(phase)
+        graph = get_review_graph_for_phase(phase, repo=repo)
         is_producer = graph.is_producer(role_value)
         is_reviewer = graph.is_reviewer(role_value)
         reviewers = graph.reviewers_for(role_value) if is_producer else []
@@ -3319,7 +3319,7 @@ def _build_agent_prompt(
         # In concurrent mode, inject BRC consensus preamble so the coder/refiner
         # knows to propose, respond to reviews, confirm, and stay alive.
         if concurrent:
-            base_prompt += _build_brc_preamble(role_value, phase)
+            base_prompt += _build_brc_preamble(role_value, phase, repo=repo)
         return base_prompt
 
     # Build context header (shared across all roles)
@@ -3340,7 +3340,7 @@ def _build_agent_prompt(
     # Concurrent mode: add BRC consensus lifecycle preamble so agents understand
     # they must stay alive and participate in Broadcast-Review-Converge consensus.
     if concurrent:
-        lines.append(_build_brc_preamble(role_value, phase))
+        lines.append(_build_brc_preamble(role_value, phase, repo=repo))
 
     # Include role-appropriate context instead of the raw issue body.
     # Analysis roles (architect, task_planner, risk_analyst) receive the full
@@ -3565,7 +3565,7 @@ def _build_agent_prompt(
             repo_path=repo_path,
         )
         if concurrent:
-            review_prompt += "\n" + _build_brc_preamble(role_value, phase)
+            review_prompt += "\n" + _build_brc_preamble(role_value, phase, repo=repo)
         return review_prompt
     else:
         lines.extend(
@@ -3715,7 +3715,7 @@ def _run_concurrent_phase(
     from egg_contracts.agent_roles import get_roles_for_phase as _get_roles_for_phase
 
     roles: list[AgentRole] = []
-    for r in _get_roles_for_phase(phase_str, include_reviewers=True):
+    for r in _get_roles_for_phase(phase_str, include_reviewers=True, repo=pipeline.repo):
         try:
             roles.append(AgentRole(r.value))
         except ValueError:

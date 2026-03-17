@@ -762,10 +762,20 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
 }
 
 
+EGG_REPO = "jwbron/egg"
+
+# Reviewer roles that only apply to the egg repo itself
+EGG_ONLY_REVIEWERS: set[AgentRole] = {AgentRole.REVIEWER_AGENT_DESIGN}
+
+# String values for use by review_graph and other modules
+EGG_ONLY_REVIEWER_NAMES: set[str] = {r.value for r in EGG_ONLY_REVIEWERS}
+
+
 def get_roles_for_phase(
     phase: str,
     include_reviewers: bool = True,
     include_overseer: bool = False,
+    repo: str | None = None,
 ) -> list[AgentRole]:
     """Return the agent roles for a given pipeline phase.
 
@@ -774,6 +784,9 @@ def get_roles_for_phase(
         include_reviewers: Whether to include reviewer roles (default True)
         include_overseer: Whether to include the overseer role (default False).
             The overseer is cross-phase, so it's opt-in.
+        repo: Repository in owner/name format. When provided, egg-specific
+            reviewer roles (e.g., reviewer_agent_design) are excluded for
+            non-egg repos.
 
     Returns:
         List of AgentRole values for that phase.
@@ -786,7 +799,10 @@ def get_roles_for_phase(
         raise ValueError(f"No agent roles defined for phase: {phase}")
     result = list(roles)
     if include_reviewers:
-        result.extend(_PHASE_REVIEWERS.get(phase, []))
+        reviewers = _PHASE_REVIEWERS.get(phase, [])
+        if repo is not None and repo != EGG_REPO:
+            reviewers = [r for r in reviewers if r not in EGG_ONLY_REVIEWERS]
+        result.extend(reviewers)
     if include_overseer:
         result.append(AgentRole.OVERSEER)
     return result
