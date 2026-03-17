@@ -366,9 +366,7 @@ class ConcurrentPhaseExecutor:
                     store = get_message_store()
                     messages = store.get_messages(self.pipeline.id, limit=10000)
                     confirmed_roles = {
-                        m.from_role
-                        for m in messages
-                        if m.message_type == "CONSENSUS_CONFIRMED"
+                        m.from_role for m in messages if m.message_type == "CONSENSUS_CONFIRMED"
                     }
                     all_roles = tracker.graph.all_roles()
                     if all_roles and all_roles.issubset(confirmed_roles):

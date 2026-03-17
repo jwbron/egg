@@ -1640,9 +1640,7 @@ class TestStallDemotion:
         """Demoting a stalled dual-role agent should make its edges advisory."""
         assert dual_tracker.graph.is_dual_role("tester")
 
-        result = dual_tracker.handle_stall_demotion(
-            "tester", reason="Missed heartbeats for 300s"
-        )
+        result = dual_tracker.handle_stall_demotion("tester", reason="Missed heartbeats for 300s")
 
         assert result["action"] == "demoted"
         assert "coder" in result["demoted_producers"]

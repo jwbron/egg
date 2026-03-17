@@ -4019,10 +4019,7 @@ def _run_concurrent_phase(
                     for hb_action in heartbeat_actions:
                         stalled_agent = hb_action.get("agent_id", "")
                         stall_elapsed = hb_action.get("elapsed_seconds", 0)
-                        if (
-                            stall_elapsed >= 300
-                            and _brc_tracker.graph.is_dual_role(stalled_agent)
-                        ):
+                        if stall_elapsed >= 300 and _brc_tracker.graph.is_dual_role(stalled_agent):
                             try:
                                 _brc_tracker.handle_stall_demotion(
                                     stalled_agent,

@@ -106,7 +106,9 @@ class ReviewGraph:
         return None
 
     def demote_edges_for_reviewer(
-        self, reviewer: str, new_criticality: "ReviewCriticality | None" = None,
+        self,
+        reviewer: str,
+        new_criticality: "ReviewCriticality | None" = None,
     ) -> list[str]:
         """Demote all CRITICAL edges for a reviewer to a new criticality.
 
@@ -122,13 +124,8 @@ class ReviewGraph:
         demoted: list[str] = []
         new_edges: list[ReviewEdge] = []
         for e in self._edges:
-            if (
-                e.reviewer_role == reviewer
-                and e.criticality == ReviewCriticality.CRITICAL
-            ):
-                new_edges.append(
-                    ReviewEdge(e.reviewer_role, e.producer_role, new_criticality)
-                )
+            if e.reviewer_role == reviewer and e.criticality == ReviewCriticality.CRITICAL:
+                new_edges.append(ReviewEdge(e.reviewer_role, e.producer_role, new_criticality))
                 demoted.append(e.producer_role)
             else:
                 new_edges.append(e)
