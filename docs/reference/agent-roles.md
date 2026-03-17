@@ -37,7 +37,7 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | `inspector` | Interface | Any | — | — (health checks) |
 | `overseer` | Interface | All phases | — | — (pipeline health monitoring) |
 
-All agents within a phase run concurrently via BRC consensus. Concurrency is supported across **all phases** — refine, plan, implement, and review — not just the implement phase.
+All agents within a phase run concurrently via BRC consensus. Concurrency is enabled by default for the refine, plan, and implement phases, and can be extended to additional phases via the `concurrent_phases` config.
 
 ## Refine Phase
 

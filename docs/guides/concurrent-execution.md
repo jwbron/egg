@@ -1,12 +1,12 @@
 # Concurrent Execution Mode
 
-Concurrent execution mode runs all agents for the current pipeline phase simultaneously — all sharing the pipeline branch — rather than sequentially in dependency-ordered waves. Agents communicate via the orchestrator message bus and signal readiness for phase completion via a consensus protocol. BRC consensus is active by default for the **refine**, **plan**, **implement**, and **review** phases.
+Concurrent execution mode runs all agents for the current pipeline phase simultaneously — all sharing the pipeline branch — rather than sequentially in dependency-ordered waves. Agents communicate via the orchestrator message bus and signal readiness for phase completion via a consensus protocol. BRC consensus is active by default for the **refine**, **plan**, and **implement** phases. Additional phases (such as `review`) can be added via the `concurrent_phases` config.
 
 This is distinct from the standard wave-based parallel execution (Tier 2), where agents run in dependency order but multiple independent agents execute in parallel within each wave.
 
 ## Configuring Concurrent Execution
 
-BRC concurrent execution is **enabled by default** for the refine, plan, implement, and review phases via the `concurrent_phases` config field. No additional configuration is required for standard pipelines.
+BRC concurrent execution is **enabled by default** for the refine, plan, and implement phases via the `concurrent_phases` config field. No additional configuration is required for standard pipelines. Additional phases can be added to `concurrent_phases` as needed.
 
 To activate BRC for every phase (including non-standard phases), set `concurrent_execution: true`:
 
@@ -27,7 +27,7 @@ Relevant `PipelineConfig` fields:
 | Field | Default | Description |
 |-------|---------|-------------|
 | `concurrent_execution` | `false` | Enable BRC for every phase (overrides `concurrent_phases`) |
-| `concurrent_phases` | `["refine", "plan", "implement", "review"]` | Phases where BRC is active when `concurrent_execution` is `false` |
+| `concurrent_phases` | `["refine", "plan", "implement"]` | Phases where BRC is active when `concurrent_execution` is `false` |
 | `start_phase` | `null` | Skip earlier phases and begin execution from `"plan"` or `"implement"` |
 | `implement_roles` | `null` | Override which roles run in the implement phase (e.g. `["coder", "reviewer_code"]`); defaults to all implement roles |
 | `max_concurrent_agents` | `6` | Maximum agents per phase |
@@ -44,7 +44,6 @@ When concurrent execution starts, the `ConcurrentPhaseExecutor` (in `orchestrato
 | `refine` | `refiner`, `reviewer_refine`, `reviewer_agent_design` (egg repo only) |
 | `plan` | `architect`, `task_planner`, `risk_analyst`, `reviewer_plan` |
 | `implement` | `coder`, `tester`, `documenter`, `reviewer_code`, `reviewer_contract` (overridable via `implement_roles` config) |
-| `review` | Dynamically determined by `get_roles_for_phase("review")` |
 
 **Shared branch**: All agents operate on the pipeline's shared branch (e.g., `egg/issue-123`). Agents coordinate commits via the message bus to sequence their work and avoid conflicts.
 

@@ -549,7 +549,7 @@ The context is built by `_build_role_context()` in `orchestrator/routes/pipeline
 
 ## Multi-Agent Orchestration
 
-All pipeline phases (refine, plan, implement, and review) use concurrent BRC execution to parallelize work across specialized agents. All agents within a phase run simultaneously, communicating via the orchestrator message bus and reaching consensus through the BRC protocol. This reduces context window pollution and improves first-pass implementation quality.
+The refine, plan, and implement phases use concurrent BRC execution to parallelize work across specialized agents. All agents within a phase run simultaneously, communicating via the orchestrator message bus and reaching consensus through the BRC protocol. Additional phases can be enabled for concurrent execution via the `concurrent_phases` config. This reduces context window pollution and improves first-pass implementation quality.
 
 Agents are organized into five categories (execution, analysis, review, utility, interface) with role definitions consolidated in `shared/egg_contracts/agent_roles.py`. See the [Agent Roles Reference](../reference/agent-roles.md) for the complete roster.
 
