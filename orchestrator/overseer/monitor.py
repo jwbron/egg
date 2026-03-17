@@ -78,8 +78,13 @@ class OverseerMonitor:
         self._oversight_dir = self._resolve_oversight_dir()
         self._jsonl_path: Path | None = None
         if self._oversight_dir:
-            self._oversight_dir.mkdir(parents=True, exist_ok=True)
-            self._jsonl_path = self._oversight_dir / f"{pipeline_id}-oversight.jsonl"
+            try:
+                self._oversight_dir.mkdir(parents=True, exist_ok=True)
+                self._jsonl_path = self._oversight_dir / f"{pipeline_id}-oversight.jsonl"
+            except OSError:
+                # Non-critical: oversight logging is optional
+                logger.debug("Cannot create oversight dir %s", self._oversight_dir)
+                self._oversight_dir = None
 
     # -----------------------------------------------------------------
     # Oversight logging

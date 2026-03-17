@@ -4765,6 +4765,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     # the new run creates its own worktrees under the same path.  Without
     # this guard, our finally block would delete the *new* run's worktrees.
     run_created_at: datetime | None = None
+    overseer_container_id: str | None = None
 
     try:
         store = get_state_store(repo_path)
@@ -5056,7 +5057,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # The overseer runs without repo access and monitors health via
         # the orchestrator API.  Spawned early (before first phase) so it
         # can observe the entire pipeline lifecycle.
-        overseer_container_id: str | None = None
         if pipeline.config.overseer_enabled:
             try:
                 overseer_result = spawner.spawn_overseer_container(
