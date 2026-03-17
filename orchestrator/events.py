@@ -9,7 +9,7 @@ import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from queue import Empty, Queue
@@ -79,6 +79,9 @@ class EventType(StrEnum):
     DECISION_CREATED = "decision.created"
     DECISION_RESOLVED = "decision.resolved"
 
+    # Progress monitoring
+    PROGRESS_EMITTED = "progress.emitted"
+
     # System events — health check framework (see health_checks/runner.py)
     HEALTH_CHECK = "system.health_check"
     HEALTH_CHECK_STARTED = "system.health_check.started"  # Run begins
@@ -94,7 +97,7 @@ class Event:
 
     event_type: EventType
     pipeline_id: str
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     data: dict[str, Any] = field(default_factory=dict)
     source: str = "orchestrator"
 
@@ -103,7 +106,9 @@ class Event:
         return {
             "event_type": self.event_type.value,
             "pipeline_id": self.pipeline_id,
-            "timestamp": self.timestamp.isoformat() + "Z",
+            "timestamp": self.timestamp.isoformat().replace("+00:00", "Z")
+            if self.timestamp.tzinfo is not None
+            else self.timestamp.isoformat() + "Z",
             "data": self.data,
             "source": self.source,
         }

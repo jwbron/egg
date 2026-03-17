@@ -1337,6 +1337,119 @@ def cmd_env(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Progress commands (structured progress tracking)
+# ---------------------------------------------------------------------------
+
+
+def cmd_progress_emit(args: argparse.Namespace) -> int:
+    """Emit a structured progress event."""
+    pid = require_pipeline_id(args)
+    role = args.role or get_agent_role_from_env()
+    if not role:
+        print("Error: --role required or set EGG_AGENT_ROLE", file=sys.stderr)
+        sys.exit(1)
+
+    data: dict[str, Any] = {
+        "agent_role": role,
+        "step": args.step,
+        "state": args.state,
+    }
+    if args.detail:
+        data["detail"] = args.detail
+    if args.blocker:
+        data["blocker"] = args.blocker
+
+    result = orch_request(f"/api/v1/pipelines/{pid}/progress", method="POST", data=data)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("success"):
+        event = result.get("data", {}).get("event", {})
+        print(f"Progress emitted: {event.get('id', 'unknown')} [{args.state}] {args.step}")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
+def cmd_progress_query(args: argparse.Namespace) -> int:
+    """Query structured progress events."""
+    pid = require_pipeline_id(args)
+
+    params: dict[str, str] = {}
+    if args.agent:
+        params["agent_role"] = args.agent
+    if args.since:
+        params["since"] = args.since
+    if args.limit:
+        params["limit"] = str(args.limit)
+
+    endpoint = f"/api/v1/pipelines/{pid}/progress"
+    if params:
+        endpoint += "?" + urlencode(params)
+
+    result = orch_request(endpoint)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    events = result.get("data", {}).get("events", [])
+    if not events:
+        print("No progress events.")
+        return 0
+
+    for ev in events:
+        ts = ev.get("timestamp", "")[:19]
+        role = ev.get("agent_role", "?")
+        state = ev.get("state", "?")
+        step = ev.get("step", "?")
+        detail = ev.get("detail", "")
+        print(f"  [{ts}] {role} [{state}] {step}")
+        if detail:
+            print(f"    {detail}")
+        blocker = ev.get("blocker", "")
+        if blocker:
+            print(f"    BLOCKER: {blocker}")
+
+    print(f"\n{len(events)} event(s)")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Health alerts command
+# ---------------------------------------------------------------------------
+
+
+def cmd_health_alerts(args: argparse.Namespace) -> int:
+    """Get active health alerts for a pipeline."""
+    pid = require_pipeline_id(args)
+
+    result = orch_request(f"/api/v1/pipelines/{pid}/health/alerts")
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    alerts = result.get("alerts", [])
+    if not alerts:
+        print("No active alerts.")
+        return 0
+
+    for alert in alerts:
+        severity = alert.get("severity", "?").upper()
+        alert_type = alert.get("alert_type", "?")
+        agent = alert.get("agent_id", "?")
+        message = alert.get("message", "")
+        ts = alert.get("timestamp", "")[:19]
+        print(f"  [{severity}] {alert_type} ({agent}) [{ts}]: {message}")
+
+    print(f"\n{len(alerts)} alert(s)")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
 
@@ -1356,7 +1469,21 @@ def create_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", help="Command group")
 
     # -- health --
-    health_parser = subparsers.add_parser("health", help="Check orchestrator + gateway health")
+    health_parser = subparsers.add_parser("health", help="Health check and alerts")
+    health_sub = health_parser.add_subparsers(dest="health_command")
+
+    # health check (default when no subcommand given)
+    health_check_parser = health_sub.add_parser("check", help="Check orchestrator + gateway health")
+    _add_json_flag(health_check_parser)
+    health_check_parser.set_defaults(func=cmd_health)
+
+    # health alerts
+    health_alerts_parser = health_sub.add_parser("alerts", help="Get active health alerts")
+    health_alerts_parser.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    _add_json_flag(health_alerts_parser)
+    health_alerts_parser.set_defaults(func=cmd_health_alerts)
+
+    # Default: if no subcommand, run health check
     _add_json_flag(health_parser)
     health_parser.set_defaults(func=cmd_health)
 
@@ -1715,6 +1842,35 @@ def create_parser() -> argparse.ArgumentParser:
     )
     _add_json_flag(gw_perms)
     gw_perms.set_defaults(func=cmd_gateway_permissions)
+
+    # -- progress (structured progress tracking) --
+    progress_parser = subparsers.add_parser("progress", help="Structured progress event commands")
+    progress_sub = progress_parser.add_subparsers(dest="progress_command")
+
+    # progress emit
+    prog_emit = progress_sub.add_parser("emit", help="Emit a structured progress event")
+    prog_emit.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    prog_emit.add_argument("--role", help="Agent role (default: EGG_AGENT_ROLE)")
+    prog_emit.add_argument("--step", required=True, help="Description of current step")
+    prog_emit.add_argument(
+        "--state",
+        required=True,
+        choices=["working", "blocked", "complete"],
+        help="Progress state",
+    )
+    prog_emit.add_argument("--detail", help="Additional detail about the step")
+    prog_emit.add_argument("--blocker", help="Description of blocker (when state=blocked)")
+    _add_json_flag(prog_emit)
+    prog_emit.set_defaults(func=cmd_progress_emit)
+
+    # progress query
+    prog_query = progress_sub.add_parser("query", help="Query progress events")
+    prog_query.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    prog_query.add_argument("--agent", help="Filter by agent role")
+    prog_query.add_argument("--since", help="Filter events after this ISO timestamp")
+    prog_query.add_argument("--limit", type=int, help="Max events to return")
+    _add_json_flag(prog_query)
+    prog_query.set_defaults(func=cmd_progress_query)
 
     return parser
 

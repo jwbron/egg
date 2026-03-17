@@ -13,6 +13,9 @@ Run `egg-orch --help` for full usage. All commands support `--json`. Full refere
 | `egg-orch signal error --error <msg> --recoverable` | Signal error |
 | `egg-orch signal heartbeat` | Send heartbeat |
 | `egg-orch decision list [<id>]` | List HITL decisions |
+| `egg-orch progress emit --step <text> --state <working\|blocked\|complete>` | Emit structured progress event |
+| `egg-orch progress query [--agent <role>]` | Query structured progress events |
+| `egg-orch health alerts` | List active deterministic health alerts |
 
 Pipeline ID/agent role can be omitted when `EGG_PIPELINE_ID`/`EGG_AGENT_ROLE` are set.
 

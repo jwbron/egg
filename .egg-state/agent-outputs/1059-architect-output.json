@@ -1,0 +1,687 @@
+{
+  "issue": 1059,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 1,
+  "title": "Architecture analysis: Two-tier pipeline health monitoring — orchestrator tripwires + overseer agent",
+  "summary": "Implement a two-tier health monitoring system: (1) deterministic orchestrator-level tripwires that process structured agent progress events in-process (heartbeat timeouts, error repeats, message volume spikes, progress stalls), and (2) an LLM-powered overseer agent container that handles ambiguous cases via Haiku classification and Sonnet/Opus decision-making. The orchestrator tier handles clear-cut failures instantly with zero LLM cost; the overseer tier fires only when semantic analysis is needed. The overseer is always-on, auto-spawned per pipeline, and has no repo access — it operates via orchestrator APIs, the message bus, and GitHub. All LLM calls use shared/egg_agent/. Restart authority is HITL-only.",
+  "problem_statement": {
+    "description": "Pipeline health monitoring is limited to container lifecycle events (ContainerMonitor) and periodic health checks (HealthCheckRunner). When agents stall, loop, go off-track, or encounter ambiguous failures, there is no automated detection or corrective response. The coordinator (removed per #1164) previously had some reactive failure handling, but that capability was lost. The system needs cost-efficient monitoring that handles clear-cut failures instantly (deterministically) and ambiguous situations with semantic analysis (LLM).",
+    "root_causes": [
+      {
+        "id": "RC-1",
+        "title": "No structured agent progress reporting",
+        "description": "Agents have no standardized way to report what step they're on, whether they're blocked, or what they're working on. The orchestrator can observe container liveness (ContainerMonitor) and heartbeat signals, but not semantic progress. Without structured progress data, the orchestrator cannot distinguish 'agent running tests for 5 minutes' from 'agent frozen for 5 minutes'.",
+        "location": "orchestrator/container_monitor.py, orchestrator/routes/signals.py (signal types: complete, progress, error, heartbeat, readiness — no structured progress)"
+      },
+      {
+        "id": "RC-2",
+        "title": "No deterministic tripwire rules",
+        "description": "The existing health check framework (HealthCheckRunner) runs triggered checks (STARTUP, RUNTIME_TICK, WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND) but lacks real-time evaluation of agent behavior patterns. There are no configurable thresholds for heartbeat timeout, repeated error detection, message volume throttling, or progress stall detection. Tier 1 checks validate pipeline state (container liveness, state consistency, phase output presence), not agent behavior.",
+        "location": "orchestrator/health_checks/runner.py, orchestrator/health_checks/tier1/"
+      },
+      {
+        "id": "RC-3",
+        "title": "No corrective action capability",
+        "description": "When the health check framework detects DEGRADED or FAILED status, it can only emit events and optionally block phase transitions (FAIL_PIPELINE action). There is no automated nudge/redirect mechanism — no ability to send corrective messages to stalled agents, compose actionable guidance, or escalate through a graduated response ladder.",
+        "location": "orchestrator/health_checks/types.py (HealthAction: CONTINUE, FAIL_PIPELINE, ALERT — no NUDGE or REDIRECT)"
+      },
+      {
+        "id": "RC-4",
+        "title": "No semantic analysis of ambiguous situations",
+        "description": "The existing Tier 2 AgentInspectorCheck inspects agent output quality (code, diffs) but not agent behavior (stall vs. legitimate work, loop detection, off-track detection). It runs on-demand or at phase completion, not continuously. There is no always-on monitoring agent with the Haiku/Sonnet/Opus tiered architecture described in the issue.",
+        "location": "orchestrator/health_checks/tier2/agent_inspector.py"
+      },
+      {
+        "id": "RC-5",
+        "title": "No OVERSEER agent role",
+        "description": "The agent role system (shared/egg_contracts/agent_roles.py) has no OVERSEER role definition. There is no container spawn logic for a monitoring-only agent that has no repo access. The gateway agent restrictions (gateway/agent_restrictions.py) have no patterns for a read-only monitoring role.",
+        "location": "orchestrator/models.py (AgentRole enum), shared/egg_contracts/agent_roles.py (AGENT_ROLES dict)"
+      }
+    ]
+  },
+  "current_architecture": {
+    "health_check_framework": {
+      "description": "Two-tier health check framework in orchestrator/health_checks/. HealthCheckRunner dispatches checks by trigger type. Tier 1 (programmatic) checks: ContainerLivenessCheck, StartupStateCheck, PhaseOutputPresenceCheck, StateConsistencyCheck. Tier 2 (agent-based): AgentInspectorCheck delegates to Claude via shared/egg_agent/ for semantic code/output analysis. Tier 2 escalation: runs at WAVE_COMPLETE only if Tier 1 returns DEGRADED; always at PHASE_COMPLETE and ON_DEMAND.",
+      "key_files": [
+        "orchestrator/health_checks/types.py — HealthCheck protocol, HealthResult, HealthStatus, HealthTier, HealthTrigger, HealthAction",
+        "orchestrator/health_checks/runner.py — HealthCheckRunner with register/run/escalation logic",
+        "orchestrator/health_checks/context.py — PipelineHealthContext with lazy-evaluated properties",
+        "orchestrator/health_checks/tier1/ — 4 deterministic checks",
+        "orchestrator/health_checks/tier2/agent_inspector.py — LLM-powered semantic check"
+      ]
+    },
+    "container_monitoring": {
+      "description": "ContainerMonitor is a background thread polling Docker every 10s. Detects state changes (started, stopped, exited, failed, removed, unhealthy). Pipeline reconciliation handler marks failed containers/agents and transitions pipelines to FAILED. Fires RUNTIME_TICK trigger for health checks.",
+      "key_files": [
+        "orchestrator/container_monitor.py — Background thread, state polling, handler registration",
+        "orchestrator/startup_reconciliation.py — Startup recovery for orphaned containers"
+      ]
+    },
+    "event_system": {
+      "description": "EventBus provides pub/sub for ~35 event types including pipeline, phase, agent, container, messaging, consensus, and health events. Thread-safe with optional async delivery. Supports wildcard subscriptions. Singleton access via get_event_bus().",
+      "key_files": [
+        "orchestrator/events.py — EventType enum, Event dataclass, EventBus class"
+      ],
+      "relevant_event_types": [
+        "AGENT_STARTED, AGENT_COMPLETED, AGENT_FAILED, AGENT_TIMEOUT",
+        "CONTAINER_SPAWNED, CONTAINER_STOPPED, CONTAINER_REMOVED",
+        "MESSAGE_SENT, MESSAGE_RECEIVED",
+        "READINESS_CHANGED, CONSENSUS_REACHED, CONSENSUS_TIMEOUT",
+        "HEALTH_CHECK_STARTED, HEALTH_CHECK_COMPLETED, HEALTH_CHECK_DEGRADED, HEALTH_CHECK_FAILED"
+      ]
+    },
+    "message_bus": {
+      "description": "MessageStore provides inter-agent messaging via REST endpoints. Supports message types: PROGRESS, QUESTION, STATUS, AGENT_FAILED, HANDOFF, and all CONSENSUS_* types. Redis Streams backend with in-memory fallback. Messages have from_role, to_role (or 'all' for broadcast), message_type, subject, body, metadata.",
+      "key_files": [
+        "orchestrator/message_store.py — MessageStore, Message, MessageType",
+        "orchestrator/routes/messages.py — REST endpoints for send/poll/consume"
+      ]
+    },
+    "agent_roles": {
+      "description": "AgentRoleDefinition in shared/egg_contracts/agent_roles.py defines each role with FileAccessPattern (glob-based allowed_read, allowed_write, blocked_write). AgentRole enum in orchestrator/models.py. AGENT_ROLES dict maps roles to definitions. _PHASE_ROLES and _PHASE_REVIEWERS map phases to role lists.",
+      "key_files": [
+        "shared/egg_contracts/agent_roles.py — AgentRoleDefinition, FileAccessPattern, AGENT_ROLES registry",
+        "orchestrator/models.py — AgentRole StrEnum (14 values currently), PipelineConfig"
+      ]
+    },
+    "concurrent_execution": {
+      "description": "ConcurrentPhaseExecutor spawns all agents simultaneously at phase start. ReviewGraph defines asymmetric review topology (who reviews whom, critical vs advisory). PeerConsensusTracker manages BRC state machines (WORKING → PROPOSED → CONFIRMED for producers, WORKING → REVIEWING → CONFIRMED for reviewers). ApprovalMatrix tracks (reviewer, producer) approval state. ConsensusWrapper keeps agents alive via restart loop.",
+      "key_files": [
+        "orchestrator/concurrent_executor.py — ConcurrentPhaseExecutor",
+        "orchestrator/review_graph.py — ReviewGraph, ReviewEdge, ReviewCriticality",
+        "orchestrator/peer_consensus.py — PeerConsensusTracker",
+        "orchestrator/approval_matrix.py — ApprovalMatrix, ApprovalEntry",
+        "orchestrator/consensus_wrapper.py — Shell wrapper for agent stay-alive"
+      ]
+    },
+    "container_spawning": {
+      "description": "ContainerSpawner.spawn_agent_container() creates Docker containers with gateway sessions, env vars, repo volume mounts, phase-specific readonly mounts, and network config. create_concurrent_spawn_fn() returns a callable for ConcurrentPhaseExecutor. Key env vars: EGG_AGENT_ROLE, EGG_PIPELINE_ID, EGG_CONCURRENT_MODE, EGG_MESSAGE_POLL_INTERVAL, EGG_BRC_ROLE_TYPE, EGG_BRC_REVIEWERS, EGG_BRC_PRODUCERS.",
+      "key_files": [
+        "orchestrator/container_spawner.py — ContainerSpawner, SpawnedContainer, create_concurrent_spawn_fn"
+      ]
+    },
+    "signal_system": {
+      "description": "Agents signal the orchestrator via POST /api/v1/pipelines/{id}/signal with signal_type and data. 10 signal types handled: complete, progress, error, heartbeat, readiness, consensus_propose, consensus_ack, consensus_nack, consensus_withdraw, consensus_confirmed. Complete handler verifies commit on branch, saves agent output, updates contract.",
+      "key_files": [
+        "orchestrator/routes/signals.py — Signal dispatch and type-specific handlers",
+        "shared/egg_orchestrator/types.py — SignalType, CompletionData, ProgressData, ErrorData, etc."
+      ]
+    },
+    "agent_sdk": {
+      "description": "shared/egg_agent/ provides build_agent_command() for constructing Claude CLI commands and AgentResult for parsing outputs. Used by ContainerSpawner and AgentInspectorCheck. The issue specifies using run_agent_async() for Haiku/Sonnet/Opus calls — this function may need to be added or the existing build_agent_command pattern extended.",
+      "key_files": [
+        "shared/egg_agent/__init__.py — build_agent_command, AgentResult",
+        "shared/egg_agent/command.py — Command building logic",
+        "shared/egg_agent/result.py — AgentResult parsing"
+      ]
+    }
+  },
+  "approaches_considered": [
+    {
+      "id": "A",
+      "title": "Extend existing HealthCheckRunner with tripwires",
+      "description": "Add new Tier 1 health checks for heartbeat timeout, error repeats, message volume, progress stalls within the existing HealthCheckRunner. The overseer becomes a specialized Tier 2 check provider using the existing escalation path.",
+      "pros": [
+        "Reuses proven health check infrastructure (runner, protocol, triggers, results)",
+        "Consistent with established Tier 1 → Tier 2 pattern",
+        "Unified health reporting through existing endpoints"
+      ],
+      "cons": [
+        "Existing framework is trigger-based (STARTUP, RUNTIME_TICK) not event-driven — tripwires need real-time processing",
+        "The overseer needs a continuous monitoring loop, different from on-demand health checks",
+        "Would strain the abstraction if overseer responsibilities differ too much from a 'health check'"
+      ],
+      "rejected_reason": "The trigger-based model doesn't fit real-time event processing. Tripwires need to react to individual progress events as they arrive, not on periodic ticks."
+    },
+    {
+      "id": "B",
+      "title": "Parallel monitoring subsystem (new module)",
+      "description": "Build a new orchestrator/health_monitor.py module for deterministic tripwires and a separate overseer agent container, operating independently of the existing health check framework.",
+      "pros": [
+        "Clean separation: health checks = pipeline state validation, health monitor = agent behavior analysis",
+        "Easier to test in isolation",
+        "Overseer's continuous loop is a natural fit"
+      ],
+      "cons": [
+        "Duplication of some patterns (event subscription, result reporting)",
+        "Two health-related subsystems to maintain"
+      ],
+      "rejected_reason": "While clean, this duplicates infrastructure unnecessarily. The hybrid approach (Option C) achieves the same separation while leveraging existing EventBus integration."
+    },
+    {
+      "id": "C",
+      "title": "Hybrid — event-driven tripwires in-process + overseer as container agent",
+      "description": "Add deterministic tripwire processing as an event-driven component within the orchestrator process (subscribing to EventBus events, evaluating structured progress data against configurable thresholds). The overseer runs as a separate container agent spawned like other agents, receiving escalations from the orchestrator's tripwire processor via the message bus.",
+      "pros": [
+        "Deterministic tripwires fire immediately in-process with zero latency",
+        "Overseer container is isolated with no repo access",
+        "Clean architectural boundary: orchestrator = deterministic rules, overseer = semantic analysis",
+        "Overseer is 'just another agent' from container spawning perspective",
+        "Aligns exactly with the issue's two-tier design",
+        "Structured progress API serves both tiers",
+        "Leverages existing EventBus for real-time event processing"
+      ],
+      "cons": [
+        "Overseer container needs network access to orchestrator APIs",
+        "Two deployment units (in-process processor + container)",
+        "Need clear escalation protocol between tiers"
+      ],
+      "selected": true
+    }
+  ],
+  "recommended_approach": {
+    "strategy": "Option C: Hybrid — event-driven tripwires in-process + overseer as container agent",
+    "rationale": "This approach matches the issue's two-tier design exactly. The orchestrator's event-driven tripwire processor handles 90%+ of cases deterministically (heartbeat timeout, container exit, error repeats, message volume spikes) with zero LLM cost and immediate response. The overseer agent handles the remaining ambiguous cases (stall classification, loop detection, off-track detection, error triage) with Haiku for classification and Sonnet/Opus for decision-making. The existing EventBus provides the real-time event backbone. The existing message bus provides the orchestrator→overseer escalation channel. The existing ContainerSpawner handles overseer container lifecycle.",
+    "key_design_decisions": [
+      {
+        "id": "DD-1",
+        "decision": "Structured progress API as the foundation for both tiers",
+        "rationale": "A new POST /api/v1/pipelines/<id>/progress endpoint and egg-orch progress emit CLI command give agents a standard way to report structured progress (current step, state, blockers). The orchestrator processes these deterministically; the overseer queries them via GET endpoint for semantic analysis. This replaces reliance on parsing unstructured container output.",
+        "alternatives_considered": "Could parse container logs directly, but structured events are more reliable, faster to process, and cacheable."
+      },
+      {
+        "id": "DD-2",
+        "decision": "Tripwire processor subscribes to EventBus, not periodic polling",
+        "rationale": "The existing EventBus already emits AGENT_STARTED, MESSAGE_SENT, READINESS_CHANGED, etc. The tripwire processor subscribes to these events plus new PROGRESS events, evaluating each against configurable thresholds. This is immediate and in-process, unlike the RUNTIME_TICK trigger which polls every 10s.",
+        "alternatives_considered": "Could extend HealthCheckRunner with a high-frequency RUNTIME_TICK, but this would make the runner responsible for real-time behavior monitoring, which is architecturally different from periodic state validation."
+      },
+      {
+        "id": "DD-3",
+        "decision": "Orchestrator-to-overseer communication via existing message bus",
+        "rationale": "The orchestrator sends escalation messages to the overseer via the existing message bus (POST /api/v1/pipelines/<id>/messages with to_role='overseer'). The overseer polls via egg-orch message poll like any other agent. This requires no new API surface and is consistent with inter-agent communication patterns.",
+        "alternatives_considered": "Dedicated escalation endpoint or health alerts endpoint. Rejected to avoid API proliferation — the message bus is already the standard channel."
+      },
+      {
+        "id": "DD-4",
+        "decision": "Overseer spawned via existing ContainerSpawner with no repo volume mounts",
+        "rationale": "The overseer is 'just another agent' from the container lifecycle perspective. ContainerSpawner.spawn_agent_container() already supports custom env vars, mount configuration, and network access. Omitting repo_volumes gives the overseer network access to orchestrator/gateway/GitHub APIs without filesystem access to source code.",
+        "alternatives_considered": "In-process overseer thread. Rejected because LLM calls should stay in sandbox containers (security boundary — Claude API only called inside sandbox, per existing Tier 2 pattern)."
+      },
+      {
+        "id": "DD-5",
+        "decision": "Haiku for classification, Sonnet for decisions, via shared/egg_agent/",
+        "rationale": "Haiku handles frequent, cheap classification tasks (is agent stuck? is this a loop? is this error recoverable?). Sonnet handles infrequent corrective decisions (compose redirect message, decide escalation path). All LLM calls go through shared/egg_agent/ for consistency with other agent invocations. The run_agent_async() function (or equivalent command building via build_agent_command()) handles model selection.",
+        "alternatives_considered": "Single model for all tasks. Rejected because Opus/Sonnet is overkill for binary classification, and Haiku is insufficient for nuanced corrective reasoning."
+      },
+      {
+        "id": "DD-6",
+        "decision": "Progress data stored in-memory with configurable retention window",
+        "rationale": "Progress events are high-volume and temporal. In-memory storage with a sliding window (e.g., last 100 events per agent) is sufficient for real-time processing. The overseer's oversight logs (.egg-state/oversight/) provide persistent post-mortem data. This avoids bloating pipeline state files.",
+        "alternatives_considered": "Persistent in pipeline state, or hybrid in-memory + periodic disk snapshot. Both add complexity for minimal benefit since oversight logs serve the post-mortem use case."
+      },
+      {
+        "id": "DD-7",
+        "decision": "Autonomous issue filing for high-confidence classifications, HITL for low-confidence",
+        "rationale": "Fully autonomous filing risks noise if Haiku misclassifies. HITL-only filing defeats the purpose of automation. A confidence threshold approach balances speed with safety — high-confidence classifications (e.g., repeated identical errors, confirmed loops) file automatically, while low-confidence or novel situations go through HITL.",
+        "alternatives_considered": "Fully autonomous (issue spec), fully HITL-gated. Both extremes have downsides."
+      }
+    ]
+  },
+  "architecture_design": {
+    "tier1_orchestrator_tripwires": {
+      "description": "A new HealthMonitor class in orchestrator/health_monitor.py subscribes to EventBus events and evaluates structured progress data against configurable thresholds. Runs in-process within the orchestrator, no LLM calls.",
+      "components": [
+        {
+          "name": "HealthMonitor",
+          "file": "orchestrator/health_monitor.py (new)",
+          "description": "Event-driven tripwire processor. Subscribes to EventBus for AGENT_STARTED, MESSAGE_SENT, READINESS_CHANGED, and new PROGRESS_EMITTED events. Maintains per-agent state (last heartbeat, last progress, error history, message rate). Evaluates tripwire rules on each event. Fires auto-nudge or escalation to overseer.",
+          "tripwire_rules": [
+            "Heartbeat timeout: no heartbeat within orchestrator_heartbeat_timeout_seconds (default 120) → auto-nudge agent via message bus",
+            "Container exit: container dies (detected via ContainerMonitor integration) → immediate HITL escalation",
+            "Repeated identical errors: same error N times (orchestrator_error_repeat_threshold, default 3) → escalate to overseer or HITL",
+            "Message volume spike: agent sending >N messages/minute (orchestrator_message_rate_limit, default 20) → auto-throttle",
+            "Progress stall: no structured progress within threshold → nudge, then escalate to overseer if unresolved"
+          ]
+        },
+        {
+          "name": "StructuredProgressStore",
+          "file": "orchestrator/progress_store.py (new)",
+          "description": "In-memory store for structured progress events. Per-pipeline, per-agent sliding window (configurable, default 100 events). Provides query methods for the overseer and health alerts CLI. Thread-safe.",
+          "data_model": {
+            "step": "string — current step description",
+            "state": "string — working | blocked | waiting | completed",
+            "detail": "string — optional detail text",
+            "blocker": "string — optional blocker description",
+            "timestamp": "datetime",
+            "agent_role": "string",
+            "pipeline_id": "string"
+          }
+        },
+        {
+          "name": "Progress API routes",
+          "file": "orchestrator/routes/progress.py (new)",
+          "description": "POST /api/v1/pipelines/<id>/progress — agents emit structured progress events. GET /api/v1/pipelines/<id>/progress — query progress events (filtered by agent, time range). Both routes validate pipeline existence and agent role.",
+          "endpoints": [
+            "POST /api/v1/pipelines/<id>/progress — ingest progress event from agent",
+            "GET /api/v1/pipelines/<id>/progress — query progress events for pipeline/agent"
+          ]
+        },
+        {
+          "name": "Progress CLI commands",
+          "file": "orchestrator/cli/progress.py or sandbox/egg_lib/orch_cli.py extension (new commands)",
+          "description": "egg-orch progress emit --step <step> --state <state> [--detail <detail>] [--blocker <blocker>] — agent-facing CLI for emitting structured progress. egg-orch progress query <pipeline-id> [--agent <role>] — query progress events.",
+          "commands": [
+            "egg-orch progress emit --step <step> --state <state> [--detail <detail>] [--blocker <blocker>]",
+            "egg-orch progress query <pipeline-id> [--agent <role>] [--limit <n>]"
+          ]
+        },
+        {
+          "name": "Health alerts CLI",
+          "file": "orchestrator/cli/health.py or sandbox/egg_lib/orch_cli.py extension",
+          "description": "egg-orch health alerts <pipeline-id> — list active deterministic alerts (triggered tripwires) for a pipeline. Returns alert type, agent, timestamp, status, and action taken.",
+          "commands": [
+            "egg-orch health alerts <pipeline-id> [--agent <role>] [--json]"
+          ]
+        }
+      ],
+      "integration_points": [
+        "EventBus: subscribes to AGENT_STARTED, AGENT_COMPLETED, AGENT_FAILED, MESSAGE_SENT, READINESS_CHANGED, plus new PROGRESS_EMITTED event type",
+        "ContainerMonitor: receives container exit notifications for immediate HITL escalation",
+        "MessageStore: sends auto-nudge messages to stalled agents, sends escalation messages to overseer",
+        "PipelineConfig: reads configurable thresholds (heartbeat_timeout, error_repeat_threshold, message_rate_limit, etc.)"
+      ]
+    },
+    "tier2_overseer_agent": {
+      "description": "A continuously running, read-only agent container that handles ambiguous situations the orchestrator's deterministic rules cannot resolve. Consumes structured progress data and raw container logs, uses Haiku for classification and Sonnet/Opus for decision-making.",
+      "components": [
+        {
+          "name": "OVERSEER role definition",
+          "files": [
+            "orchestrator/models.py — Add OVERSEER = 'overseer' to AgentRole enum",
+            "shared/egg_contracts/agent_roles.py — Add OVERSEER_ROLE AgentRoleDefinition with FileAccessPattern (no allowed_write for source, only .egg-state/oversight/)",
+            "gateway/agent_restrictions.py — Add overseer file access patterns (no repo access)"
+          ],
+          "description": "New agent role with maximal read access and minimal write access. Cannot write to source code, tests, docs, contracts, or drafts. Can write to .egg-state/oversight/ for logging. No repo volume mounts means FileAccessPattern is moot for file writes — the overseer simply has no filesystem to write to."
+        },
+        {
+          "name": "Overseer container configuration",
+          "file": "orchestrator/container_spawner.py (modify)",
+          "description": "spawn_agent_container() called with agent_role=OVERSEER and repo_volumes=None (no repo mount). Container gets network access to orchestrator, gateway, and GitHub APIs. Env vars: EGG_AGENT_ROLE=overseer, EGG_OVERSEER_MODE=true, EGG_PIPELINE_ID, EGG_ORCHESTRATOR_URL.",
+          "key_differences_from_standard_agents": [
+            "No repo_volumes — no filesystem access to source code",
+            "No phase-specific readonly mounts",
+            "No gateway worktree session (no git operations)",
+            "Longer-lived — runs for entire pipeline lifecycle, not just one phase",
+            "EGG_OVERSEER_MODE=true env var to signal container purpose"
+          ]
+        },
+        {
+          "name": "Auto-spawn logic",
+          "file": "orchestrator/routes/pipelines.py (modify)",
+          "description": "When a pipeline starts, the orchestrator auto-spawns an overseer container alongside the first phase's agents. The overseer runs for the entire pipeline lifecycle. On pipeline completion or halt, the overseer is stopped. Gate on PipelineConfig.overseer_enabled (default true).",
+          "spawn_timing": "At pipeline start (alongside first phase agents). Persists across phase transitions. Stopped at pipeline completion/failure/cancellation."
+        },
+        {
+          "name": "Overseer monitoring loop",
+          "description": "The overseer's CLAUDE.md prompt instructs it to run a continuous monitoring loop: (1) Poll for escalation messages from orchestrator via egg-orch message poll. (2) Poll structured progress via egg-orch progress query. (3) Check orchestrator and gateway health endpoints. (4) When an anomaly or escalation arrives, dispatch to Haiku for classification. (5) If Haiku classifies as actionable, dispatch to Sonnet/Opus for decision-making. (6) Execute corrective action (nudge, redirect, HITL escalation, issue filing).",
+          "haiku_classification_tasks": [
+            "Stall classification: stuck vs. legitimate long-running work",
+            "Loop detection: repeated actions in a cycle",
+            "Error triage: recoverable vs. fatal",
+            "Off-track detection: work aligned with contract?"
+          ],
+          "sonnet_opus_decision_tasks": [
+            "Compose redirect message with actionable guidance",
+            "Decide escalation path: nudge → redirect → HITL → issue → Slack",
+            "Determine if issue should be filed autonomously",
+            "Produce pipeline health summary at completion"
+          ]
+        },
+        {
+          "name": "Overseer agent prompt (CLAUDE.md section)",
+          "file": "sandbox/.claude/rules/overseer.md (new)",
+          "description": "Agent prompt instructions for the overseer's monitoring loop, tiered escalation, self-monitoring, and interaction with mediator. Similar to other agent role prompts but focused on health monitoring rather than code generation."
+        }
+      ],
+      "llm_call_pattern": {
+        "description": "All LLM calls use shared/egg_agent/ (build_agent_command or run_agent_async). Haiku for classification (short prompts, single-turn, ~1-2 calls per poll cycle per anomaly). Sonnet for decisions (richer context, single-turn, only on Haiku escalation). Opus for high-stakes decisions (configurable, default Sonnet).",
+        "hallucination_mitigation": "Structured escalation flow makes data dependency explicit — Sonnet/Opus only receives and acts on Haiku outputs it has actually received. The overseer prompt explicitly instructs against pre-empting Haiku results. Validation checks that decision input references a real Haiku classification output."
+      }
+    },
+    "escalation_flow": {
+      "description": "Graduated response ladder from deterministic auto-nudge through LLM-powered corrective action to human escalation.",
+      "steps": [
+        {
+          "step": 1,
+          "actor": "Orchestrator (deterministic)",
+          "trigger": "Heartbeat/progress timeout",
+          "action": "Auto-nudge agent via message bus",
+          "llm_cost": "Zero"
+        },
+        {
+          "step": 2,
+          "actor": "Orchestrator (deterministic)",
+          "trigger": "Nudge unresolved within second threshold",
+          "action": "Escalate to overseer with structured context (anomaly type, agent role, recent progress events)",
+          "llm_cost": "Zero"
+        },
+        {
+          "step": 3,
+          "actor": "Overseer (Haiku)",
+          "trigger": "Escalation message from orchestrator or own polling anomaly",
+          "action": "Classify: stuck vs. legitimate work, loop vs. progress, recoverable vs. fatal",
+          "llm_cost": "~$0.001 per classification"
+        },
+        {
+          "step": 4,
+          "actor": "Overseer (Sonnet/Opus)",
+          "trigger": "Haiku confirms anomaly requires decision",
+          "action": "Compose redirect message, decide escalation path, or file GitHub issue",
+          "llm_cost": "~$0.01-0.10 per decision"
+        },
+        {
+          "step": 5,
+          "actor": "Overseer",
+          "trigger": "Redirect fails (max_redirects_before_escalation exceeded)",
+          "action": "HITL escalation — file decision request for agent restart",
+          "llm_cost": "Zero"
+        },
+        {
+          "step": 6,
+          "actor": "Overseer",
+          "trigger": "Persistent pattern or HITL not resolved",
+          "action": "File GitHub issue with full diagnostic template + Slack notification",
+          "llm_cost": "Zero (template-based)"
+        }
+      ]
+    },
+    "self_monitoring": {
+      "description": "The overseer monitors itself: poll cycle timing (warn if >2x expected), own message volume (warn if >10 redirects/min), Haiku/Sonnet/Opus call volume and costs (reduce poll frequency if exceeding budget). If malfunctioning detected, file issue about itself and signal BLOCKED.",
+      "implementation": "Self-monitoring is part of the overseer's prompt instructions and polling loop. Metrics tracked in-memory within the overseer container. Self-diagnosis uses the same Haiku classification pathway."
+    }
+  },
+  "pipeline_config_changes": {
+    "new_fields": [
+      {
+        "name": "overseer_enabled",
+        "type": "bool",
+        "default": true,
+        "description": "Auto-spawn overseer on all pipelines"
+      },
+      {
+        "name": "orchestrator_heartbeat_timeout_seconds",
+        "type": "int",
+        "default": 120,
+        "description": "Deterministic: auto-nudge after this many seconds without heartbeat"
+      },
+      {
+        "name": "orchestrator_error_repeat_threshold",
+        "type": "int",
+        "default": 3,
+        "description": "Deterministic: escalate after N identical errors"
+      },
+      {
+        "name": "orchestrator_message_rate_limit",
+        "type": "int",
+        "default": 20,
+        "description": "Deterministic: auto-throttle above this messages/min"
+      },
+      {
+        "name": "overseer_poll_interval_seconds",
+        "type": "int",
+        "default": 30,
+        "description": "How often overseer checks health"
+      },
+      {
+        "name": "overseer_max_redirects_before_escalation",
+        "type": "int",
+        "default": 2,
+        "description": "Redirect attempts before HITL escalation"
+      },
+      {
+        "name": "overseer_decision_model",
+        "type": "str",
+        "default": "sonnet",
+        "description": "Model for Sonnet/Opus decision-maker tier (sonnet or opus)"
+      }
+    ]
+  },
+  "files_inventory": {
+    "new_files": [
+      {
+        "file": "orchestrator/health_monitor.py",
+        "purpose": "Deterministic tripwire processor — subscribes to EventBus, evaluates structured progress against configurable thresholds, fires auto-nudge and escalation",
+        "estimated_lines": "300-400"
+      },
+      {
+        "file": "orchestrator/progress_store.py",
+        "purpose": "In-memory structured progress event store with per-agent sliding window and query methods",
+        "estimated_lines": "150-200"
+      },
+      {
+        "file": "orchestrator/routes/progress.py",
+        "purpose": "REST endpoints: POST progress events, GET progress query",
+        "estimated_lines": "100-150"
+      },
+      {
+        "file": "sandbox/.claude/rules/overseer.md",
+        "purpose": "Overseer agent prompt instructions — monitoring loop, tiered escalation, self-monitoring",
+        "estimated_lines": "200-300"
+      }
+    ],
+    "modified_files": [
+      {
+        "file": "orchestrator/models.py",
+        "changes": "Add OVERSEER to AgentRole enum. Add overseer/tripwire config fields to PipelineConfig.",
+        "estimated_diff": "30-40 lines"
+      },
+      {
+        "file": "shared/egg_contracts/agent_roles.py",
+        "changes": "Add OVERSEER_ROLE AgentRoleDefinition with FileAccessPattern. Add to AGENT_ROLES registry. No phase mapping (overseer is cross-phase).",
+        "estimated_diff": "40-60 lines"
+      },
+      {
+        "file": "orchestrator/container_spawner.py",
+        "changes": "Support overseer container config — skip repo_volumes and worktree session for OVERSEER role. Add EGG_OVERSEER_MODE env var.",
+        "estimated_diff": "20-30 lines"
+      },
+      {
+        "file": "orchestrator/routes/pipelines.py",
+        "changes": "Auto-spawn overseer at pipeline start when overseer_enabled=True. Stop overseer at pipeline completion/failure.",
+        "estimated_diff": "40-60 lines"
+      },
+      {
+        "file": "orchestrator/events.py",
+        "changes": "Add PROGRESS_EMITTED event type to EventType enum.",
+        "estimated_diff": "5 lines"
+      },
+      {
+        "file": "orchestrator/cli.py",
+        "changes": "Register HealthMonitor on startup, wire into EventBus.",
+        "estimated_diff": "10-15 lines"
+      },
+      {
+        "file": "sandbox/egg_lib/orch_cli.py",
+        "changes": "Add egg-orch progress emit, egg-orch progress query, and egg-orch health alerts commands.",
+        "estimated_diff": "80-120 lines"
+      },
+      {
+        "file": "shared/egg_orchestrator/client.py",
+        "changes": "Add emit_progress() and query_progress() methods to OrchestratorClient.",
+        "estimated_diff": "30-40 lines"
+      },
+      {
+        "file": "orchestrator/routes/signals.py",
+        "changes": "Add OVERSEER to _AGENT_ROLE_TO_CONTRACT_ROLE mapping (if applicable).",
+        "estimated_diff": "5 lines"
+      },
+      {
+        "file": "sandbox/.claude/rules/mission.md",
+        "changes": "Add egg-orch progress emit instructions for all agents — instruct agents to report structured progress at key workflow points.",
+        "estimated_diff": "20-30 lines"
+      }
+    ]
+  },
+  "implementation_phases": [
+    {
+      "phase": 1,
+      "title": "Structured progress API and store",
+      "description": "Add StructuredProgressStore, progress REST endpoints, and egg-orch progress emit/query CLI commands. Add PROGRESS_EMITTED event type. This is the foundation both tiers depend on.",
+      "files": ["orchestrator/progress_store.py", "orchestrator/routes/progress.py", "orchestrator/events.py", "sandbox/egg_lib/orch_cli.py", "shared/egg_orchestrator/client.py"],
+      "dependencies": [],
+      "risk": "Low — straightforward REST API + in-memory store pattern"
+    },
+    {
+      "phase": 2,
+      "title": "OVERSEER role and container configuration",
+      "description": "Add OVERSEER to AgentRole enum, create AgentRoleDefinition, update ContainerSpawner for repo-less container config, add gateway restrictions.",
+      "files": ["orchestrator/models.py", "shared/egg_contracts/agent_roles.py", "orchestrator/container_spawner.py"],
+      "dependencies": [],
+      "risk": "Low — follows established pattern for adding agent roles"
+    },
+    {
+      "phase": 3,
+      "title": "Deterministic tripwire processor",
+      "description": "Create HealthMonitor class that subscribes to EventBus events and evaluates tripwire rules against configurable PipelineConfig thresholds. Wire into orchestrator startup.",
+      "files": ["orchestrator/health_monitor.py", "orchestrator/models.py", "orchestrator/cli.py"],
+      "dependencies": ["Phase 1 (progress events to monitor)"],
+      "risk": "Medium — event-driven processing needs careful concurrency handling, threshold tuning"
+    },
+    {
+      "phase": 4,
+      "title": "Overseer auto-spawn and lifecycle",
+      "description": "Auto-spawn overseer container at pipeline start. Manage lifecycle across phase transitions. Stop on pipeline completion/failure. Add egg-orch health alerts CLI.",
+      "files": ["orchestrator/routes/pipelines.py", "sandbox/egg_lib/orch_cli.py"],
+      "dependencies": ["Phase 2 (OVERSEER role must exist)"],
+      "risk": "Medium — lifecycle management across phase transitions needs testing"
+    },
+    {
+      "phase": 5,
+      "title": "Overseer agent prompt and LLM integration",
+      "description": "Create overseer CLAUDE.md section with monitoring loop instructions, Haiku/Sonnet/Opus classification/decision patterns, self-monitoring, and escalation ladder. Update all agent prompts with progress emission instructions.",
+      "files": ["sandbox/.claude/rules/overseer.md", "sandbox/.claude/rules/mission.md"],
+      "dependencies": ["Phase 1, 3, 4"],
+      "risk": "Medium — prompt engineering for effective monitoring behavior requires iteration"
+    }
+  ],
+  "risks_and_mitigations": [
+    {
+      "id": "R-1",
+      "risk": "Haiku hallucination in classification — false positives causing unnecessary escalation or false negatives missing real stalls",
+      "severity": "high",
+      "mitigation": "Structured escalation flow makes data dependency explicit. Haiku receives focused, single-purpose prompts. Results are cached to avoid re-analyzing same log lines. Confidence thresholds gate autonomous actions. HITL fallback for low-confidence classifications."
+    },
+    {
+      "id": "R-2",
+      "risk": "Opus/Sonnet fabricating Haiku results before receiving them (multi-tier hallucination risk noted in issue)",
+      "severity": "high",
+      "mitigation": "Structured escalation enforces explicit data dependency — Sonnet/Opus prompt includes actual Haiku output as input, not a request to 'imagine what Haiku would say'. Validation checks that decision input references a real Haiku classification ID/timestamp."
+    },
+    {
+      "id": "R-3",
+      "risk": "Overseer cost runaway — excessive Haiku/Sonnet calls on busy pipelines",
+      "severity": "medium",
+      "mitigation": "Budget tracking in overseer's self-monitoring. Configurable poll interval. Most issues resolved deterministically by orchestrator (zero LLM cost). Haiku calls only on detected anomalies, not every poll cycle. Rate limiting on LLM calls."
+    },
+    {
+      "id": "R-4",
+      "risk": "Tripwire false positives — auto-nudging agents doing legitimate long-running work",
+      "severity": "medium",
+      "mitigation": "Adaptive stall detection: orchestrator auto-nudge is a soft touch (message, not restart). If agent responds, the timer resets. If agent doesn't respond, escalation to overseer for Haiku classification which can distinguish legitimate work from stalls. Configurable thresholds per-pipeline."
+    },
+    {
+      "id": "R-5",
+      "risk": "Overseer container failure — the monitor itself crashes or becomes unresponsive",
+      "severity": "medium",
+      "mitigation": "ContainerMonitor detects overseer container exit/failure like any other container. Orchestrator can re-spawn overseer. Self-monitoring in overseer prompt detects own issues. Pipeline continues without overseer (graceful degradation) — deterministic tripwires still function."
+    },
+    {
+      "id": "R-6",
+      "risk": "Message bus contention — overseer and health monitor adding message volume on already busy pipelines",
+      "severity": "low",
+      "mitigation": "Nudge and escalation messages are infrequent (only on detected anomalies). Message bus supports high throughput via Redis Streams. Auto-throttle tripwire applies to the overseer's own message volume too."
+    }
+  ],
+  "dependency_analysis": {
+    "hard_dependencies": [
+      {
+        "issue": "#1088",
+        "title": "Agent SDK migration",
+        "status": "Merged",
+        "impact": "shared/egg_agent/ is available for Haiku/Sonnet/Opus calls. No blocker."
+      },
+      {
+        "issue": "#1164",
+        "title": "Coordinator removal",
+        "status": "Closed",
+        "impact": "Coordinator already removed. Overseer fills the reactive failure handling gap. No blocker."
+      }
+    ],
+    "soft_dependencies": [
+      {
+        "issue": "#1030",
+        "title": "Agent team roster",
+        "status": "Open",
+        "impact": "OVERSEER role definition follows the same pattern. Can be added independently — the role system is well-established. Low risk."
+      },
+      {
+        "issue": "#1027",
+        "title": "Cross-agent communication (message bus)",
+        "status": "Implemented",
+        "impact": "Message bus is the escalation channel between orchestrator and overseer. Already available."
+      }
+    ]
+  },
+  "open_questions_from_analysis": [
+    {
+      "id": "OQ-1",
+      "question": "Should deterministic tripwires integrate with existing HealthCheckRunner or be a separate event-driven module?",
+      "recommendation": "Separate module (health_monitor.py) — cleaner separation of concerns. Health checks validate pipeline state; health monitor watches agent behavior in real-time.",
+      "status": "Registered as decision-1 in analysis phase"
+    },
+    {
+      "id": "OQ-2",
+      "question": "Should progress data be stored persistently or in-memory only?",
+      "recommendation": "In-memory with configurable retention window — progress events are high-volume and temporal.",
+      "status": "Registered as decision-2 in analysis phase"
+    },
+    {
+      "id": "OQ-3",
+      "question": "How should the orchestrator communicate escalations to the overseer?",
+      "recommendation": "Existing message bus — no new API surface, consistent with inter-agent communication patterns.",
+      "status": "Registered as decision-3 in analysis phase"
+    },
+    {
+      "id": "OQ-4",
+      "question": "Should autonomous issue filing be fully autonomous or require HITL approval?",
+      "recommendation": "Autonomous for high-confidence classifications, HITL for low-confidence.",
+      "status": "Registered as decision-4 in analysis phase"
+    },
+    {
+      "id": "OQ-5",
+      "question": "Should the OVERSEER role be added independently or wait for #1030?",
+      "recommendation": "Add independently — the pattern is clear and #1030's scope is broader.",
+      "status": "Registered as decision-5 in analysis phase"
+    },
+    {
+      "id": "OQ-6",
+      "question": "What default model should the decision-maker tier use?",
+      "recommendation": "Sonnet by default — cheaper, sufficient for most corrective decisions. Configurable per-pipeline.",
+      "status": "Registered as decision-6 in analysis phase"
+    }
+  ],
+  "mediator_boundary": {
+    "overseer_owns": [
+      "Agent stalls (no heartbeat/progress)",
+      "Repeated identical errors",
+      "Ambiguous stalls (working or stuck?)",
+      "Agent output diverges from contract (off-track)",
+      "Loop detection within single agent",
+      "Error triage (recoverable vs. fatal)"
+    ],
+    "mediator_owns": [
+      "Two agents disagree on approach (inter-agent conflict)",
+      "Contradictory message loop between agents"
+    ],
+    "handoff_rule": "If the overseer detects what appears to be an inter-agent conflict (contradictory messages between agents), it hands off to the mediator. If no mediator exists, the overseer escalates to HITL."
+  },
+  "scope_estimate": {
+    "new_files": 4,
+    "modified_files": 10,
+    "estimated_new_lines": "750-1050",
+    "estimated_modified_lines": "240-400",
+    "test_files_needed": "5-8 (unit tests for progress store, health monitor, progress routes, overseer spawn logic, CLI commands)",
+    "complexity": "High — cross-cutting change spanning orchestrator, shared libs, gateway, sandbox, and agent prompts"
+  }
+}

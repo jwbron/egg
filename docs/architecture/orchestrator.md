@@ -86,6 +86,20 @@ All check results are emitted to the EventBus as `system.health_check.*` events 
 
 See `orchestrator/health_checks/README.md` for the full framework reference, including how to add new checks.
 
+**Pipeline health monitoring (two-tier):**
+
+Building on the health check framework, a two-tier pipeline health monitoring system provides continuous, real-time failure detection and corrective action:
+
+**Orchestrator tier (deterministic):** Processes structured agent progress events with configurable tripwire rules. Handles clear-cut failures instantly — heartbeat timeouts trigger auto-nudges, container exits trigger HITL escalation, repeated identical errors escalate to the overseer, and message volume spikes trigger auto-throttling. No LLM involvement. See `orchestrator/health_monitor.py`.
+
+Agents emit structured progress via `POST /api/v1/pipelines/{id}/progress` (CLI: `egg-orch progress emit`). Events include step name, state (working/blocked/complete), detail text, and optional blocker description. The orchestrator stores events in-memory with configurable retention and evaluates them against tripwire thresholds from `PipelineConfig`.
+
+**Overseer tier (LLM-powered):** A continuously running agent container (no repo access) that handles ambiguous cases the deterministic tier can't resolve. Uses Haiku via `shared/egg_agent/` for lightweight classification (stall vs. legitimate work, loop detection, error triage, off-track detection) and Sonnet/Opus for corrective decision-making (composing redirect messages, deciding escalation level, filing diagnostic GitHub issues). Auto-spawned on every pipeline when `overseer_enabled` is true.
+
+The overseer follows a corrective action ladder: auto-nudge → redirect message → HITL escalation → GitHub issue filing → Slack notification. It cannot restart agents autonomously — all restart requests go through the HITL decision queue.
+
+See [Pipeline Health Monitoring Guide](../guides/pipeline-health-monitoring.md) for the full reference.
+
 ## Network Mode
 
 Pipelines can specify an explicit network mode that controls internet access for spawned containers:

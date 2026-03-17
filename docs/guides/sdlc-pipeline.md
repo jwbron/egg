@@ -1314,6 +1314,40 @@ conflict when pushing, it should pull, rebase, and retry. If conflicts persist, 
 agent signals `BLOCKED` and a HITL decision is created. Consider adding role-based
 file restrictions to minimize overlap.
 
+## Pipeline Health Monitoring
+
+Pipeline health monitoring uses a **two-tier architecture** to detect and remediate agent stalls, errors, and anomalies without human intervention when possible.
+
+### Tier 1: Orchestrator Deterministic Rules
+
+The orchestrator runs five deterministic tripwire checks against live telemetry:
+
+- **Heartbeat timeout**: No heartbeat/progress within `orchestrator_heartbeat_timeout_seconds` (default 120s) triggers an auto-nudge message to the agent.
+- **Container exit**: Unexpected container death triggers immediate HITL escalation.
+- **Repeated errors**: Identical error repeated `orchestrator_error_repeat_threshold` times (default 3) escalates.
+- **Message volume spike**: Messages exceeding `orchestrator_message_rate_limit` per minute (default 20) triggers auto-throttle.
+- **Progress stall**: No structured progress events within the threshold triggers a nudge, then escalation if unresolved.
+
+Agents emit structured progress via `egg-orch progress emit --step <text> --state <working|blocked|complete>`. Query progress with `egg-orch progress query`.
+
+### Tier 2: LLM Overseer
+
+When Tier 1 escalates an anomaly (and `overseer_enabled` is true in PipelineConfig), the overseer uses a two-model approach:
+
+1. **Haiku classifier** — fast, cheap classification: `stuck`, `legitimate_work`, `recoverable`, `fatal`, `loop_detected`, `off_track`
+2. **Sonnet/Opus decision maker** — deeper analysis producing actions: `redirect` (send corrective message), `file_issue` (create GitHub issue with `overseer-alert` label), `escalate_hitl` (create HITL decision), or `no_action`
+
+### Escalation Ladder
+
+auto-nudge → redirect → HITL → issue → Slack. Each step is tried before escalating further. `overseer_max_redirects_before_escalation` (default 2) controls how many redirect attempts before HITL.
+
+### Troubleshooting
+
+- **Query health alerts**: `egg-orch health alerts`
+- **Query progress events**: `egg-orch progress query --agent <role>`
+- **View oversight logs**: Check `.egg-state/oversight/` in the pipeline branch
+- **Override thresholds**: Set fields on `PipelineConfig` (e.g., `orchestrator_heartbeat_timeout_seconds`, `overseer_max_redirects_before_escalation`)
+
 ---
 
 *See also: [The Agentic Feedback Loop](../agentic-feedback-loop.md), [ADR: SDLC Pipeline](../adr/implemented/ADR-SDLC-Pipeline.md), [Analysis Template](../templates/analysis.md), [Plan Template](../templates/plan.md), [GitHub Automation](github-automation.md)*

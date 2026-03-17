@@ -1,0 +1,309 @@
+# Pipeline Health Monitoring
+
+Pipeline health monitoring uses a **two-tier architecture** to detect and respond to agent failures during pipeline execution. The orchestrator tier handles clear-cut failures deterministically (no LLM cost), while the overseer agent tier handles ambiguous situations requiring semantic analysis.
+
+## Architecture Overview
+
+```
+Agent containers emit structured progress events
+  │
+  ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Tier 1: Orchestrator (Deterministic)                        │
+│                                                             │
+│  Structured progress events → Tripwire rules → Auto-action  │
+│  • Heartbeat timeout      → Auto-nudge agent                │
+│  • Container exit         → HITL escalation                 │
+│  • Repeated errors (N×)   → Escalate to overseer            │
+│  • Message volume spike   → Auto-throttle                   │
+│  • Progress stall         → Nudge, then escalate            │
+│                                                             │
+│  Ambiguous cases ──────────────────────┐                    │
+└─────────────────────────────────────────┼────────────────────┘
+                                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Tier 2: Overseer Agent (LLM-Powered)                        │
+│                                                             │
+│  ┌──────────────────┐    ┌────────────────────────────┐     │
+│  │ Haiku Classifiers │──►│ Sonnet/Opus Decision-Maker │     │
+│  │                   │    │                            │     │
+│  │ • Stall vs. work  │    │ • Compose redirect msgs    │     │
+│  │ • Loop detection   │    │ • Decide escalation level  │     │
+│  │ • Error triage     │    │ • File diagnostic issues   │     │
+│  │ • Off-track check  │    │ • HITL escalation          │     │
+│  └──────────────────┘    └────────────────────────────┘     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Structured Progress API
+
+Agents emit structured progress events to the orchestrator, replacing reliance on parsing unstructured container output.
+
+### Emitting Progress
+
+```bash
+# Report current work step
+egg-orch progress emit --step "running tests" --state working --detail "pytest suite 3/5"
+
+# Report a blocker
+egg-orch progress emit --step "applying fix" --state blocked --blocker "missing dependency"
+
+# Report step completion
+egg-orch progress emit --step "code review" --state complete
+```
+
+**Progress states:**
+
+| State | Meaning |
+|-------|---------|
+| `working` | Actively working on this step |
+| `blocked` | Waiting on something (specify `--blocker`) |
+| `complete` | Step finished |
+
+### Querying Progress
+
+```bash
+# All progress for the current pipeline
+egg-orch progress query
+
+# Progress for a specific agent
+egg-orch progress query --agent coder
+
+# Recent progress since a timestamp
+egg-orch progress query --since "2026-03-16T10:00:00Z" --limit 50
+```
+
+**API endpoint:**
+
+```
+GET /api/v1/pipelines/{id}/progress?agent_role=<role>&since=<timestamp>&limit=<n>
+```
+
+### When to Emit Progress
+
+All agents should emit structured progress at key milestones:
+
+- **Starting a major work step** (e.g., "analyzing codebase", "writing tests", "reviewing proposal")
+- **Completing a step** (transition to next step or mark complete)
+- **Encountering a blocker** (dependency, missing data, unclear requirements)
+- **Long-running operations** (emit periodically so the orchestrator knows you're alive)
+
+Progress events supplement heartbeats — they provide richer context about what an agent is doing, not just that it's alive.
+
+## Tier 1: Orchestrator Tripwires
+
+The orchestrator processes structured progress events with deterministic rules. No LLM is involved. Tripwires fire instantly when thresholds are exceeded.
+
+### Tripwire Rules
+
+| Tripwire | Condition | Auto-Action |
+|----------|-----------|-------------|
+| **Heartbeat timeout** | No heartbeat or progress within threshold | Auto-nudge the agent |
+| **Container exit** | Agent container dies unexpectedly | Immediate HITL escalation |
+| **Repeated errors** | Same error N times consecutively | Escalate to overseer (or HITL if no overseer) |
+| **Message volume spike** | Agent sending > N messages/minute | Auto-throttle |
+| **Progress stall** | No structured progress update within threshold | Nudge, then escalate to overseer |
+
+### Viewing Active Alerts
+
+```bash
+# List active deterministic alerts for the current pipeline
+egg-orch health alerts
+
+# List alerts for a specific pipeline
+egg-orch health alerts --pipeline issue-123
+```
+
+**API endpoint:**
+
+```
+GET /api/v1/pipelines/{id}/health/alerts
+```
+
+### Configuration
+
+Tripwire thresholds are configurable in `PipelineConfig`:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `overseer_enabled` | `true` | Auto-spawn overseer on all pipelines |
+| `orchestrator_heartbeat_timeout_seconds` | `120` | Auto-nudge after this many seconds without heartbeat |
+| `orchestrator_error_repeat_threshold` | `3` | Escalate after N identical consecutive errors |
+| `orchestrator_message_rate_limit` | `20` | Auto-throttle above this many messages per minute |
+| `overseer_poll_interval_seconds` | `30` | How often the overseer checks health |
+| `overseer_max_redirects_before_escalation` | `2` | Redirect attempts before HITL escalation |
+| `overseer_decision_maker_model` | `"sonnet"` | LLM model for overseer decision-making tier |
+
+## Tier 2: Overseer Agent
+
+The overseer is a continuously running, read-only agent that handles cases the orchestrator's deterministic rules can't resolve. It runs as a separate container with no git repository access.
+
+### Lifecycle
+
+- **Auto-spawned** on every pipeline (when `overseer_enabled` is true)
+- **Runs across all phases** — spawned at pipeline start, persists until pipeline completion
+- **One overseer per pipeline**
+- **No repo access** — cannot clone, checkout, or modify code
+
+### Internal Architecture
+
+The overseer uses a two-sub-tier LLM architecture for cost efficiency:
+
+#### Haiku Classifiers
+
+Lightweight Haiku agents handle classification tasks. They run only when the orchestrator escalates an ambiguous situation.
+
+| Task | Prompt Pattern |
+|------|---------------|
+| **Stall classification** | "Is this agent stuck, or doing legitimate long-running work?" |
+| **Loop detection** | "Is this agent repeating the same actions in a cycle?" |
+| **Error triage** | "Is this error recoverable or fatal?" |
+| **Off-track detection** | "Is this agent's work aligned with the contract?" |
+
+Characteristics:
+- Short, focused prompts — single-purpose classification
+- Results are cached to avoid re-analyzing the same log lines
+- Budget: ~1-2 Haiku calls per poll cycle per agent (only on anomalies)
+- Falls back to heuristic checks if the API is unavailable
+
+#### Sonnet/Opus Decision-Maker
+
+A Sonnet or Opus agent handles corrective decision-making when Haiku monitors escalate.
+
+Responsibilities:
+- Decide corrective action: nudge, redirect, HITL escalation, or issue filing
+- Compose redirect messages with actionable guidance
+- Determine whether a pattern warrants an issue vs. HITL escalation
+- Produce pipeline health summary at completion
+
+Characteristics:
+- Only invoked when Haiku detects an anomaly requiring a decision
+- Receives structured context from the Haiku tier
+- Higher cost per call, but called infrequently
+
+All LLM calls use `shared/egg_agent/` (`run_agent_async`) — no direct API calls.
+
+### Escalation Flow
+
+```
+Orchestrator detects anomaly via structured logs (deterministic)
+  → Clear-cut (heartbeat timeout, container exit, error repeat)
+    → Orchestrator handles directly (auto-nudge or HITL)
+  → Ambiguous
+    → Escalate to overseer
+
+Overseer receives escalation (or detects anomaly in own polling)
+  → Haiku classifies (stall / loop / error / off-track)
+    → Simple action needed (e.g., nudge)
+      → Haiku handles directly
+    → Decision needed (redirect content, escalation level)
+      → Escalate to Sonnet/Opus
+        → Sonnet/Opus decides corrective action
+          → Execute action (nudge / redirect / HITL / file issue / Slack)
+```
+
+### Corrective Action Ladder
+
+The overseer follows a progressive escalation ladder:
+
+| Step | Action | When |
+|------|--------|------|
+| 1 | **Auto-nudge** | Orchestrator detects heartbeat/progress timeout |
+| 2 | **Redirect message** | Overseer sends actionable guidance to the agent |
+| 3 | **HITL escalation** | Agent still stuck after max redirects |
+| 4 | **File GitHub issue** | Structured diagnostic report for persistent problems |
+| 5 | **Slack notification** | Human escalation for urgent issues |
+
+### Autonomous Issue Filing
+
+When the overseer files a GitHub issue (decided by the Sonnet/Opus tier), it uses a structured diagnostic template:
+
+```markdown
+## Pipeline Health Alert
+
+**Pipeline:** {pipeline_id}
+**Issue:** #{issue_number}
+**Filed by:** Overseer (automated)
+
+## Failing Agent
+- **Role:** {agent_role}
+- **Container:** {container_id}
+- **Last known state:** {readiness_state}
+
+## Error Pattern
+**Category:** {stall | repeated_error | circular_loop | off_track}
+**Description:** {human-readable description}
+
+## Timeline
+{chronological events leading to this alert}
+
+## Corrective Actions Attempted
+{list of auto-nudges, redirect messages, HITL requests}
+
+## Haiku Analysis
+{classification of the agent's state}
+
+## Sonnet/Opus Decision
+{reasoning for the corrective action}
+
+## Suggested Next Step
+{what a human should do}
+```
+
+Issues are auto-labeled with `overseer-alert` and the error category (e.g., `stall`, `repeated-error`).
+
+### Overseer Access & Restrictions
+
+**Has access to:**
+- Orchestrator APIs: pipeline status, container logs, progress queries, health alerts, message bus
+- Structured agent progress data via `egg-orch progress query`
+- Agent container logs via `egg-orch container logs`
+- Gateway and orchestrator health endpoints
+- GitHub API: `gh issue create` for diagnostic filing
+- `egg-orch message send` to redirect individual agents
+
+**Blocked from:**
+- All git operations (no repo mounted)
+- All source, test, doc, and config files
+- `gh pr merge` and `gh pr create`
+- `egg-orch phase advance` / `egg-orch phase complete`
+- Direct agent restart (must go through HITL)
+
+### Self-Monitoring
+
+The overseer monitors itself:
+- **Poll cycle timing** — warns if a cycle takes >2x expected duration
+- **Message volume** — alerts if sending >10 redirects per minute
+- **LLM call costs** — reduces poll frequency if exceeding budget
+- **Self-reporting** — files an issue about itself and signals `BLOCKED` if malfunctioning
+
+## Overseer vs. Mediator Boundary
+
+| Signal | Owner | Reasoning |
+|--------|-------|-----------|
+| Agent stalls (no heartbeat) | **Orchestrator** | Clear-cut tripwire |
+| Repeated identical errors | **Orchestrator** → **Overseer** | Orchestrator detects; overseer classifies if ambiguous |
+| Ambiguous stall (working or stuck?) | **Overseer** | Requires semantic log analysis |
+| Two agents disagree on approach | **Mediator** | Inter-agent conflict |
+| Agent output diverges from contract | **Overseer** | Off-track detection |
+| Contradictory message loop | **Mediator** | Inter-agent conflict; if no mediator, overseer escalates to HITL |
+
+## Relationship to Existing Health Checks
+
+Pipeline health monitoring extends the existing [health check framework](../../orchestrator/health_checks/README.md):
+
+| Component | Role | Runs |
+|-----------|------|------|
+| **Tier 1 health checks** (existing) | Structural invariant checks (container liveness, state consistency) | At lifecycle triggers (STARTUP, RUNTIME_TICK, etc.) |
+| **Tier 2 health checks** (existing) | LLM-powered semantic analysis of agent progress | At WAVE_COMPLETE (if Tier 1 degraded), PHASE_COMPLETE, ON_DEMAND |
+| **Orchestrator tripwires** (new) | Deterministic real-time monitoring of structured progress events | Continuously, event-driven |
+| **Overseer agent** (new) | LLM-powered analysis of ambiguous failures, corrective action | Continuously, poll-based + escalation-driven |
+
+The orchestrator tripwires process structured agent logs in real-time (event-driven), while the existing health check framework runs at discrete lifecycle points. The overseer agent provides deeper semantic analysis than Tier 2 health checks, with the ability to take corrective action (redirects, issue filing) rather than just reporting status.
+
+## Related Documentation
+
+- [Concurrent Execution Guide](concurrent-execution.md) — BRC consensus protocol and agent coordination
+- [Orchestrator Architecture](../architecture/orchestrator.md) — Deployment modes, health check framework
+- [Agent Roles Reference](../reference/agent-roles.md) — All agent roles including overseer
+- [SDLC Pipeline Guide](sdlc-pipeline.md) — Phase execution and agent orchestration
