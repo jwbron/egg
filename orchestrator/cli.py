@@ -130,12 +130,14 @@ def cmd_serve(args: argparse.Namespace) -> int:
     )
 
     if repo_path != "not set":
+        store = None
         try:
             from docker_client import get_docker_client
             from startup_reconciliation import reconcile_stale_containers
             from state_store import get_state_store
 
-            recovered = reconcile_stale_containers(get_state_store(repo_path), get_docker_client())
+            store = get_state_store(repo_path)
+            recovered = reconcile_stale_containers(store, get_docker_client())
             if recovered:
                 logger.warning("Recovered stale pipelines on startup", count=recovered)
         except Exception as reconcile_err:
@@ -157,9 +159,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
             # Start periodic reconciliation to detect stale containers
             # that may have exited between event-driven checks.
-            from state_store import get_state_store as _get_reconcile_store
+            if store is None:
+                from state_store import get_state_store as _get_state_store
 
-            monitor.start_periodic_reconciliation(_get_reconcile_store(repo_path))
+                store = _get_state_store(repo_path)
+            monitor.start_periodic_reconciliation(store)
         except Exception as monitor_err:
             logger.warning(
                 "Container monitor startup failed",

@@ -387,3 +387,204 @@ class TestContainerMonitorDetection:
 
         event_types = [e.event_type for e in events_received]
         assert ContainerEvent.STOPPED in event_types
+
+
+# ---------------------------------------------------------------------------
+# Tests: Periodic reconciliation
+# ---------------------------------------------------------------------------
+
+
+class TestPeriodicReconciliation:
+    """Tests for the _reconciliation_loop background thread."""
+
+    def test_detects_stale_container_in_current_phase(self):
+        """Loop detects a stale container in the current phase and reconciles it."""
+        container_id = "stale_abc"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        store = _make_store(pipeline)
+
+        mock_docker = MagicMock()
+        # No live containers — the agent's container is missing
+        mock_docker.list_containers.return_value = []
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+
+        # Patch _reconcile_container_state to capture calls without side effects
+        with patch("container_monitor._reconcile_container_state") as mock_reconcile:
+            # Run a single sweep manually (don't start the thread)
+            monitor._reconciliation_store = store
+            monitor._reconciliation_running = True
+
+            # Run one iteration by calling the inner logic directly
+            # We'll stop the loop after one iteration by toggling the flag
+            def run_one_iteration():
+                # Execute the loop body once, then stop
+                monitor._reconciliation_interval = 0.01
+                import threading as _t
+
+                def _stop_after_delay():
+                    import time as _time
+
+                    _time.sleep(0.05)
+                    monitor._reconciliation_running = False
+
+                stopper = _t.Thread(target=_stop_after_delay)
+                stopper.start()
+                monitor._reconciliation_loop()
+                stopper.join()
+
+            run_one_iteration()
+
+            # Should have called _reconcile with the matching ContainerInfo
+            mock_reconcile.assert_called()
+            call_args = mock_reconcile.call_args
+            assert call_args[0][0] is store
+            assert call_args[0][1].container_id == container_id
+
+    def test_skips_non_running_pipelines(self):
+        """Loop skips pipelines that are not in RUNNING status."""
+        container_id = "stale_abc"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        pipeline.status = PipelineStatus.COMPLETE
+        store = _make_store(pipeline)
+
+        mock_docker = MagicMock()
+        mock_docker.list_containers.return_value = []
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+
+        with patch("container_monitor._reconcile_container_state") as mock_reconcile:
+            monitor._reconciliation_store = store
+            monitor._reconciliation_running = True
+            monitor._reconciliation_interval = 0.01
+
+            def run_one_iteration():
+                import threading as _t
+                import time as _time
+
+                def _stop():
+                    _time.sleep(0.05)
+                    monitor._reconciliation_running = False
+
+                stopper = _t.Thread(target=_stop)
+                stopper.start()
+                monitor._reconciliation_loop()
+                stopper.join()
+
+            run_one_iteration()
+
+            mock_reconcile.assert_not_called()
+
+    def test_handles_store_load_pipeline_exception(self):
+        """Loop continues without crashing when store.load_pipeline raises."""
+        store = MagicMock()
+        store.list_pipelines.return_value = ["bad-pipeline"]
+        store.load_pipeline.side_effect = Exception("corrupt state")
+
+        mock_docker = MagicMock()
+        mock_docker.list_containers.return_value = []
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+
+        with patch("container_monitor._reconcile_container_state") as mock_reconcile:
+            monitor._reconciliation_store = store
+            monitor._reconciliation_running = True
+            monitor._reconciliation_interval = 0.01
+
+            def run_one_iteration():
+                import threading as _t
+                import time as _time
+
+                def _stop():
+                    _time.sleep(0.05)
+                    monitor._reconciliation_running = False
+
+                stopper = _t.Thread(target=_stop)
+                stopper.start()
+                monitor._reconciliation_loop()
+                stopper.join()
+
+            run_one_iteration()
+
+            # Should not crash, should not reconcile anything
+            mock_reconcile.assert_not_called()
+
+    def test_stop_joins_reconciliation_thread(self):
+        """stop() properly terminates and joins the reconciliation thread."""
+        mock_docker = MagicMock()
+        mock_docker.list_containers.return_value = []
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+
+        store = MagicMock()
+        store.list_pipelines.return_value = []
+
+        monitor.start_periodic_reconciliation(store, interval=1)
+        assert monitor._reconciliation_running is True
+        assert monitor._reconciliation_thread is not None
+        assert monitor._reconciliation_thread.is_alive()
+
+        monitor.stop()
+        assert monitor._reconciliation_running is False
+        assert monitor._reconciliation_thread is None
+
+    def test_logs_missing_container_info(self):
+        """Loop logs debug message when agent has no matching ContainerInfo."""
+        container_id = "orphan_agent_abc"
+        pipeline = Pipeline(
+            id="issue-300",
+            issue_number=300,
+            repo="owner/repo",
+            branch="egg/issue-300",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        phase.status = PipelineStatus.RUNNING
+        phase.started_at = datetime.utcnow()
+        # Agent has a container_id but no matching ContainerInfo in phase.containers
+        phase.agents.append(
+            AgentExecution(
+                role=AgentRole.CODER,
+                status=AgentExecutionStatus.RUNNING,
+                container_id=container_id,
+                started_at=datetime.utcnow(),
+            )
+        )
+        store = _make_store(pipeline)
+
+        mock_docker = MagicMock()
+        mock_docker.list_containers.return_value = []
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+
+        with (
+            patch("container_monitor._reconcile_container_state") as mock_reconcile,
+            patch("container_monitor.logger") as mock_logger,
+        ):
+            monitor._reconciliation_store = store
+            monitor._reconciliation_running = True
+            monitor._reconciliation_interval = 0.01
+
+            def run_one_iteration():
+                import threading as _t
+                import time as _time
+
+                def _stop():
+                    _time.sleep(0.05)
+                    monitor._reconciliation_running = False
+
+                stopper = _t.Thread(target=_stop)
+                stopper.start()
+                monitor._reconciliation_loop()
+                stopper.join()
+
+            run_one_iteration()
+
+            # Should NOT have called _reconcile (no matching ContainerInfo)
+            mock_reconcile.assert_not_called()
+            # Should have logged a debug message about missing ContainerInfo
+            mock_logger.debug.assert_called()
+            debug_calls = [str(c) for c in mock_logger.debug.call_args_list]
+            assert any("no matching ContainerInfo" in c for c in debug_calls)

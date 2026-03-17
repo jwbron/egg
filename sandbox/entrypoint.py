@@ -1455,7 +1455,7 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
 
         except RequestException as e:
             api_health_error = f"{type(e).__name__}: {e}"
-            if not config.quiet and elapsed % 10 == 0:  # Log every 10 seconds
+            if not config.quiet and elapsed % 10 < interval:  # Log every ~10 seconds
                 logger.info(f"  Gateway API check failed: {api_health_error}")
 
         # Check 2: Proxy connectivity (only in private mode, only if API is healthy)
@@ -1496,7 +1496,7 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
 
             except RequestException as e:
                 proxy_check_error = f"{type(e).__name__}: {e}"
-                if not config.quiet and elapsed % 10 == 0:
+                if not config.quiet and elapsed % 10 < interval:
                     logger.info(f"  Proxy check failed: {proxy_check_error}")
 
         if not config.quiet and elapsed > 0 and elapsed % 10 < interval:

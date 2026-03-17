@@ -355,6 +355,13 @@ class ContainerMonitor:
 
                             if matching_ci is not None:
                                 _reconcile_container_state(store, matching_ci)
+                            else:
+                                logger.debug(
+                                    "Stale agent has no matching ContainerInfo",
+                                    pipeline_id=pipeline_id,
+                                    container_id=agent.container_id,
+                                    agent_role=str(agent.role),
+                                )
 
             except Exception as e:
                 logger.debug(
@@ -366,19 +373,24 @@ class ContainerMonitor:
 
     def stop(self) -> None:
         """Stop the monitor and periodic reconciliation."""
-        if not self._running:
-            return
+        stopped_any = False
 
-        self._running = False
-        self._reconciliation_running = False
-        if self._thread:
-            self._thread.join(timeout=self.check_interval + 1)
-            self._thread = None
-        if self._reconciliation_thread:
-            self._reconciliation_thread.join(timeout=self._reconciliation_interval + 1)
-            self._reconciliation_thread = None
+        if self._running:
+            self._running = False
+            if self._thread:
+                self._thread.join(timeout=self.check_interval + 1)
+                self._thread = None
+            stopped_any = True
 
-        logger.info("Container monitor stopped")
+        if self._reconciliation_running:
+            self._reconciliation_running = False
+            if self._reconciliation_thread:
+                self._reconciliation_thread.join(timeout=self._reconciliation_interval + 1)
+                self._reconciliation_thread = None
+            stopped_any = True
+
+        if stopped_any:
+            logger.info("Container monitor stopped")
 
     def is_running(self) -> bool:
         """Check if monitor is running.
