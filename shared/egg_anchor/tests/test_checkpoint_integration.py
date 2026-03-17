@@ -3,8 +3,6 @@
 import sys
 from pathlib import Path
 
-import pytest
-
 _shared_path = Path(__file__).parent.parent.parent
 if str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
@@ -15,11 +13,11 @@ class TestCheckpointAnchorField:
 
     def test_checkpoint_model_has_anchors_field(self):
         """Verify the checkpoint model accepts anchor data."""
-        from egg_contracts.checkpoints import CheckpointV2
-
         # The model should accept an 'anchors' field
         # If the field doesn't exist, this will raise a validation error
         import inspect
+
+        from egg_contracts.checkpoints import CheckpointV2
 
         source = inspect.getsource(CheckpointV2)
         assert "anchors" in source

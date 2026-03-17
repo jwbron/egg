@@ -1,6 +1,6 @@
 """Tests for agent anchor Pydantic models."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -10,11 +10,8 @@ from egg_anchor.models import (
     AnchorMeta,
     AnchorStatus,
     BRCPhase,
-    BRCState,
-    Decision,
     ErrorEncountered,
     KeyContext,
-    ProgressItem,
     ProgressState,
     TaskInfo,
 )
@@ -24,8 +21,8 @@ def _make_meta(**overrides):
     """Create an AnchorMeta with defaults."""
     defaults = {
         "schema_version": "1.0",
-        "created_at": datetime(2026, 3, 17, 10, 0, 0, tzinfo=timezone.utc),
-        "updated_at": datetime(2026, 3, 17, 10, 0, 0, tzinfo=timezone.utc),
+        "created_at": datetime(2026, 3, 17, 10, 0, 0, tzinfo=UTC),
+        "updated_at": datetime(2026, 3, 17, 10, 0, 0, tzinfo=UTC),
         "sequence": 0,
     }
     defaults.update(overrides)
@@ -34,7 +31,7 @@ def _make_meta(**overrides):
 
 def _make_anchor(**overrides):
     """Create a minimal valid AgentAnchor with defaults."""
-    now = datetime(2026, 3, 17, 10, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 3, 17, 10, 0, 0, tzinfo=UTC)
     defaults = {
         "_meta": {
             "schema_version": "1.0",
@@ -153,17 +150,17 @@ class TestErrorEncountered:
     """Test ErrorEncountered max_length constraints."""
 
     def test_valid_error(self):
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         err = ErrorEncountered(error="Something broke", timestamp=now)
         assert err.resolution is None
 
     def test_error_too_long(self):
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         with pytest.raises(ValidationError):
             ErrorEncountered(error="x" * 201, timestamp=now)
 
     def test_resolution_too_long(self):
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         with pytest.raises(ValidationError):
             ErrorEncountered(error="ok", resolution="x" * 201, timestamp=now)
 
@@ -217,21 +214,15 @@ class TestAgentAnchor:
 
     def test_max_progress_items(self):
         """Exceeding max progress items raises validation error."""
-        now = datetime.now(tz=timezone.utc).isoformat()
-        items = [
-            {"step": f"step-{i}", "state": "pending", "timestamp": now}
-            for i in range(11)
-        ]
+        now = datetime.now(tz=UTC).isoformat()
+        items = [{"step": f"step-{i}", "state": "pending", "timestamp": now} for i in range(11)]
         with pytest.raises(ValidationError, match="progress"):
             _make_anchor(progress=items)
 
     def test_max_decisions(self):
         """Exceeding max decisions raises validation error."""
-        now = datetime.now(tz=timezone.utc).isoformat()
-        items = [
-            {"id": f"d-{i}", "question": f"Q{i}?", "timestamp": now}
-            for i in range(9)
-        ]
+        now = datetime.now(tz=UTC).isoformat()
+        items = [{"id": f"d-{i}", "question": f"Q{i}?", "timestamp": now} for i in range(9)]
         with pytest.raises(ValidationError, match="decisions"):
             _make_anchor(decisions=items)
 
@@ -243,7 +234,7 @@ class TestAgentAnchor:
 
     def test_max_errors(self):
         """Exceeding max errors raises validation error."""
-        now = datetime.now(tz=timezone.utc).isoformat()
+        now = datetime.now(tz=UTC).isoformat()
         items = [{"error": f"e{i}", "timestamp": now} for i in range(6)]
         with pytest.raises(ValidationError, match="errors_encountered"):
             _make_anchor(errors_encountered=items)
@@ -273,7 +264,7 @@ class TestAgentAnchor:
 
     def test_full_anchor_with_all_fields(self):
         """Test a fully populated anchor."""
-        now = datetime.now(tz=timezone.utc).isoformat()
+        now = datetime.now(tz=UTC).isoformat()
         anchor = _make_anchor(
             status="proposed",
             team=["tester-1", "documenter-2"],
@@ -331,7 +322,7 @@ class TestToDictNoneOmission:
 
     def test_optional_fields_present_when_set(self):
         """Optional fields set to a value should appear in dict."""
-        now = datetime.now(tz=timezone.utc).isoformat()
+        now = datetime.now(tz=UTC).isoformat()
         anchor = _make_anchor(
             brc_state={
                 "phase": "proposed",
@@ -347,28 +338,22 @@ class TestToDictNoneOmission:
 
     def test_error_resolution_omitted_when_none(self):
         """ErrorEncountered.resolution should be omitted when None."""
-        now = datetime.now(tz=timezone.utc).isoformat()
-        anchor = _make_anchor(
-            errors_encountered=[{"error": "test error", "timestamp": now}]
-        )
+        now = datetime.now(tz=UTC).isoformat()
+        anchor = _make_anchor(errors_encountered=[{"error": "test error", "timestamp": now}])
         data = anchor.to_dict()
         assert "resolution" not in data["errors_encountered"][0]
 
     def test_progress_detail_omitted_when_none(self):
         """ProgressItem.detail should be omitted when None."""
-        now = datetime.now(tz=timezone.utc).isoformat()
-        anchor = _make_anchor(
-            progress=[{"step": "test", "state": "working", "timestamp": now}]
-        )
+        now = datetime.now(tz=UTC).isoformat()
+        anchor = _make_anchor(progress=[{"step": "test", "state": "working", "timestamp": now}])
         data = anchor.to_dict()
         assert "detail" not in data["progress"][0]
 
     def test_decision_answer_omitted_when_none(self):
         """Decision.answer should be omitted when None."""
-        now = datetime.now(tz=timezone.utc).isoformat()
-        anchor = _make_anchor(
-            decisions=[{"id": "d-1", "question": "Which?", "timestamp": now}]
-        )
+        now = datetime.now(tz=UTC).isoformat()
+        anchor = _make_anchor(decisions=[{"id": "d-1", "question": "Which?", "timestamp": now}])
         data = anchor.to_dict()
         assert "answer" not in data["decisions"][0]
         assert "decided_by" not in data["decisions"][0]
@@ -409,21 +394,15 @@ class TestBoundaryValues:
 
     def test_exactly_max_progress(self):
         """Exactly 10 progress items should be accepted."""
-        now = datetime.now(tz=timezone.utc).isoformat()
-        items = [
-            {"step": f"step-{i}", "state": "pending", "timestamp": now}
-            for i in range(10)
-        ]
+        now = datetime.now(tz=UTC).isoformat()
+        items = [{"step": f"step-{i}", "state": "pending", "timestamp": now} for i in range(10)]
         anchor = _make_anchor(progress=items)
         assert len(anchor.progress) == 10
 
     def test_exactly_max_decisions(self):
         """Exactly 8 decisions should be accepted."""
-        now = datetime.now(tz=timezone.utc).isoformat()
-        items = [
-            {"id": f"d-{i}", "question": f"Q{i}?", "timestamp": now}
-            for i in range(8)
-        ]
+        now = datetime.now(tz=UTC).isoformat()
+        items = [{"id": f"d-{i}", "question": f"Q{i}?", "timestamp": now} for i in range(8)]
         anchor = _make_anchor(decisions=items)
         assert len(anchor.decisions) == 8
 
@@ -435,7 +414,7 @@ class TestBoundaryValues:
 
     def test_exactly_max_errors(self):
         """Exactly 5 errors should be accepted."""
-        now = datetime.now(tz=timezone.utc).isoformat()
+        now = datetime.now(tz=UTC).isoformat()
         items = [{"error": f"e{i}", "timestamp": now} for i in range(5)]
         anchor = _make_anchor(errors_encountered=items)
         assert len(anchor.errors_encountered) == 5
@@ -453,8 +432,15 @@ class TestBoundaryValues:
 
     def test_sequence_zero(self):
         """Sequence 0 is valid (minimum)."""
-        now = datetime.now(tz=timezone.utc).isoformat()
+        now = datetime.now(tz=UTC).isoformat()
         anchor = _make_anchor(
-            **{"_meta": {"schema_version": "1.0", "created_at": now, "updated_at": now, "sequence": 0}}
+            **{
+                "_meta": {
+                    "schema_version": "1.0",
+                    "created_at": now,
+                    "updated_at": now,
+                    "sequence": 0,
+                }
+            }
         )
         assert anchor.meta.sequence == 0

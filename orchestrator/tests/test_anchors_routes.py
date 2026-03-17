@@ -4,8 +4,9 @@ Tests for anchor API routes (orchestrator/routes/anchors.py).
 
 import json
 import sys
+from datetime import UTC
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -20,9 +21,9 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
 
 def _make_valid_anchor_data(agent_id="coder-abc12345", role="coder"):
     """Create valid anchor data for API requests."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    now = datetime.now(tz=timezone.utc).isoformat()
+    now = datetime.now(tz=UTC).isoformat()
     return {
         "_meta": {
             "schema_version": "1.0",
@@ -66,6 +67,7 @@ def mock_redis():
 
     def mock_scan_iter(pattern):
         import fnmatch
+
         return [k for k in store if fnmatch.fnmatch(k, pattern)]
 
     def mock_expire(key, ttl):
@@ -84,6 +86,7 @@ def app(mock_redis):
     """Create a test Flask app with the anchors blueprint."""
     # Reset the module-level Redis client
     import routes.anchors as anchors_mod
+
     original_client = anchors_mod._redis_client
     anchors_mod._redis_client = mock_redis
 
@@ -143,18 +146,14 @@ class TestGetAnchor:
             data=json.dumps(data),
             content_type="application/json",
         )
-        response = client.get(
-            "/api/v1/anchors/coder-abc12345?pipeline_id=issue-1032"
-        )
+        response = client.get("/api/v1/anchors/coder-abc12345?pipeline_id=issue-1032")
         assert response.status_code == 200
         body = response.get_json()
         assert body["data"]["anchor"]["agent_id"] == "coder-abc12345"
 
     def test_get_nonexistent_returns_404(self, client):
         """GET for nonexistent anchor returns 404."""
-        response = client.get(
-            "/api/v1/anchors/nonexistent-agent?pipeline_id=issue-1032"
-        )
+        response = client.get("/api/v1/anchors/nonexistent-agent?pipeline_id=issue-1032")
         assert response.status_code == 404
 
 
@@ -169,16 +168,12 @@ class TestDeleteAnchor:
             data=json.dumps(data),
             content_type="application/json",
         )
-        response = client.delete(
-            "/api/v1/anchors/coder-abc12345?pipeline_id=issue-1032"
-        )
+        response = client.delete("/api/v1/anchors/coder-abc12345?pipeline_id=issue-1032")
         assert response.status_code in (200, 204)
 
     def test_delete_nonexistent_anchor(self, client):
         """DELETE for nonexistent anchor returns 404."""
-        response = client.delete(
-            "/api/v1/anchors/nonexistent-agent?pipeline_id=issue-1032"
-        )
+        response = client.delete("/api/v1/anchors/nonexistent-agent?pipeline_id=issue-1032")
         assert response.status_code == 404
 
 

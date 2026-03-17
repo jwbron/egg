@@ -1,9 +1,7 @@
 """Tests for agent anchor schema and size validation."""
 
 import json
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from egg_anchor.constants import (
     ANCHOR_HARD_LIMIT_BYTES,
@@ -17,7 +15,7 @@ from egg_anchor.validator import SizeBudgetResult, check_size_budget, validate_a
 
 def _make_anchor_dict(**overrides):
     """Create a minimal valid anchor dict."""
-    now = datetime(2026, 3, 17, 10, 0, 0, tzinfo=timezone.utc).isoformat()
+    now = datetime(2026, 3, 17, 10, 0, 0, tzinfo=UTC).isoformat()
     defaults = {
         "_meta": {
             "schema_version": "1.0",
@@ -84,53 +82,39 @@ class TestValidateAnchor:
         assert len(errors) > 0
 
     def test_invalid_progress_state(self):
-        now = datetime.now(tz=timezone.utc).isoformat()
-        data = _make_anchor_dict(
-            progress=[{"step": "test", "state": "invalid", "timestamp": now}]
-        )
+        now = datetime.now(tz=UTC).isoformat()
+        data = _make_anchor_dict(progress=[{"step": "test", "state": "invalid", "timestamp": now}])
         errors = validate_anchor(data)
         assert len(errors) > 0
 
     def test_too_many_progress_items(self):
-        now = datetime.now(tz=timezone.utc).isoformat()
+        now = datetime.now(tz=UTC).isoformat()
         data = _make_anchor_dict(
-            progress=[
-                {"step": f"s{i}", "state": "pending", "timestamp": now}
-                for i in range(11)
-            ]
+            progress=[{"step": f"s{i}", "state": "pending", "timestamp": now} for i in range(11)]
         )
         errors = validate_anchor(data)
         assert len(errors) > 0
 
     def test_too_many_decisions(self):
-        now = datetime.now(tz=timezone.utc).isoformat()
+        now = datetime.now(tz=UTC).isoformat()
         data = _make_anchor_dict(
-            decisions=[
-                {"id": f"d-{i}", "question": f"Q{i}?", "timestamp": now}
-                for i in range(9)
-            ]
+            decisions=[{"id": f"d-{i}", "question": f"Q{i}?", "timestamp": now} for i in range(9)]
         )
         errors = validate_anchor(data)
         assert len(errors) > 0
 
     def test_too_many_files(self):
-        data = _make_anchor_dict(
-            files_modified=[f"file{i}.py" for i in range(16)]
-        )
+        data = _make_anchor_dict(files_modified=[f"file{i}.py" for i in range(16)])
         errors = validate_anchor(data)
         assert len(errors) > 0
 
     def test_key_context_label_too_long(self):
-        data = _make_anchor_dict(
-            key_context=[{"label": "x" * 51, "value": "ok"}]
-        )
+        data = _make_anchor_dict(key_context=[{"label": "x" * 51, "value": "ok"}])
         errors = validate_anchor(data)
         assert len(errors) > 0
 
     def test_key_context_value_too_long(self):
-        data = _make_anchor_dict(
-            key_context=[{"label": "ok", "value": "x" * 501}]
-        )
+        data = _make_anchor_dict(key_context=[{"label": "ok", "value": "x" * 501}])
         errors = validate_anchor(data)
         assert len(errors) > 0
 
@@ -141,7 +125,7 @@ class TestValidateAnchor:
         assert len(errors) > 0
 
     def test_fully_populated_valid_anchor(self):
-        now = datetime.now(tz=timezone.utc).isoformat()
+        now = datetime.now(tz=UTC).isoformat()
         data = _make_anchor_dict(
             status="proposed",
             progress=[
@@ -164,9 +148,7 @@ class TestValidateAnchor:
                 "last_message_id": "msg-1",
             },
             key_context=[{"label": "branch", "value": "egg/test"}],
-            errors_encountered=[
-                {"error": "flake", "resolution": "retry", "timestamp": now}
-            ],
+            errors_encountered=[{"error": "flake", "resolution": "retry", "timestamp": now}],
             files_modified=["models.py"],
         )
         errors = validate_anchor(data)
@@ -199,10 +181,7 @@ class TestCheckSizeBudget:
     def test_exceeds_soft_limit_warns(self):
         """Anchor above soft limit should have warning but be within budget."""
         data = _make_anchor_dict(
-            key_context=[
-                {"label": f"key{i}", "value": "x" * 400}
-                for i in range(5)
-            ],
+            key_context=[{"label": f"key{i}", "value": "x" * 400} for i in range(5)],
         )
         result = check_size_budget(data)
         assert result.within_budget is True
@@ -211,12 +190,9 @@ class TestCheckSizeBudget:
 
     def test_exceeds_hard_limit_fails(self):
         """Anchor above hard limit should not be within budget."""
-        now = datetime.now(tz=timezone.utc).isoformat()
+        now = datetime.now(tz=UTC).isoformat()
         data = _make_anchor_dict(
-            key_context=[
-                {"label": f"key{i}", "value": "x" * 500}
-                for i in range(5)
-            ],
+            key_context=[{"label": f"key{i}", "value": "x" * 500} for i in range(5)],
             progress=[
                 {"step": "x" * 100, "state": "pending", "detail": "x" * 100, "timestamp": now}
                 for _ in range(10)
@@ -331,23 +307,15 @@ class TestValidateAnchorGaps:
 
     def test_error_description_at_max_length(self):
         """Error description at exactly max length (200) should pass."""
-        now = datetime.now(tz=timezone.utc).isoformat()
-        data = _make_anchor_dict(
-            errors_encountered=[
-                {"error": "x" * 200, "timestamp": now}
-            ]
-        )
+        now = datetime.now(tz=UTC).isoformat()
+        data = _make_anchor_dict(errors_encountered=[{"error": "x" * 200, "timestamp": now}])
         errors = validate_anchor(data)
         assert errors == []
 
     def test_error_description_over_max_length(self):
         """Error description over max length (200) should fail."""
-        now = datetime.now(tz=timezone.utc).isoformat()
-        data = _make_anchor_dict(
-            errors_encountered=[
-                {"error": "x" * 201, "timestamp": now}
-            ]
-        )
+        now = datetime.now(tz=UTC).isoformat()
+        data = _make_anchor_dict(errors_encountered=[{"error": "x" * 201, "timestamp": now}])
         errors = validate_anchor(data)
         assert len(errors) > 0
 

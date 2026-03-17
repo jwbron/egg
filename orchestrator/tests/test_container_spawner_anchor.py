@@ -12,8 +12,6 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
-
 # Add orchestrator and shared to path
 _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
@@ -66,8 +64,6 @@ class TestAnchorEnvVars:
         # but before extra_env override
         spawner_env_pos = source.find("spawner_env")
         anchor_id_pos = source.find("AGENT_ANCHOR_ID")
-        extra_env_pos = source.find("extra_env")
-
         assert anchor_id_pos > spawner_env_pos, (
             "AGENT_ANCHOR_ID should be set after spawner_env construction"
         )

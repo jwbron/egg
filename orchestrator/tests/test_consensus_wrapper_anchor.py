@@ -11,8 +11,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 # Add orchestrator to path
 _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:

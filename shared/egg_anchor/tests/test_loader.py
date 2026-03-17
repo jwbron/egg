@@ -3,11 +3,8 @@
 import json
 import os
 import threading
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from egg_anchor.loader import ANCHOR_DIR, load_anchor, save_anchor, sync_anchor_to_api
 from egg_anchor.models import AgentAnchor
@@ -15,7 +12,7 @@ from egg_anchor.models import AgentAnchor
 
 def _make_anchor(**overrides):
     """Create a minimal valid AgentAnchor with defaults."""
-    now = datetime(2026, 3, 17, 10, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 3, 17, 10, 0, 0, tzinfo=UTC)
     defaults = {
         "_meta": {
             "schema_version": "1.0",
@@ -171,9 +168,10 @@ class TestSyncAnchorToApi:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
 
-        with patch.dict(
-            os.environ, {"EGG_ORCHESTRATOR_URL": "http://custom:1234"}
-        ), patch("egg_anchor.loader.requests.post", return_value=mock_resp) as mock_post:
+        with (
+            patch.dict(os.environ, {"EGG_ORCHESTRATOR_URL": "http://custom:1234"}),
+            patch("egg_anchor.loader.requests.post", return_value=mock_resp) as mock_post,
+        ):
             sync_anchor_to_api(anchor)
 
         call_url = mock_post.call_args[0][0]
@@ -217,7 +215,7 @@ class TestConcurrentAccess:
                 errors.append(e)
 
         def writer():
-            for i in range(10):
+            for _i in range(10):
                 updated = _make_anchor(status="working")
                 save_anchor(updated, base_dir=str(tmp_path))
 
@@ -277,7 +275,7 @@ class TestAnchorPathHandling:
 
     def test_save_preserves_full_data_integrity(self, tmp_path):
         """All fields are preserved after save, including nested objects."""
-        now = datetime.now(tz=timezone.utc).isoformat()
+        now = datetime.now(tz=UTC).isoformat()
         anchor = _make_anchor(
             progress=[
                 {"step": "Step 1", "state": "complete", "timestamp": now},

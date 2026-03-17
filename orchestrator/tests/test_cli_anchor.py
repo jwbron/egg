@@ -9,7 +9,6 @@ if the anchor parser is not yet registered.
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -118,12 +117,7 @@ class TestAnchorInit:
 
         main(["anchor", "init", "--task", "Test task"])
 
-        anchor_file = (
-            anchor_env
-            / ".egg-state"
-            / "agent-anchors"
-            / "coder-abc12345.json"
-        )
+        anchor_file = anchor_env / ".egg-state" / "agent-anchors" / "coder-abc12345.json"
         with open(anchor_file) as f:
             data = json.load(f)
 
