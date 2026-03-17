@@ -81,7 +81,7 @@ All concurrent agent containers are wrapped with a shell script defined in `orch
 
 ## Message Bus
 
-Agents communicate with each other during concurrent execution via the orchestrator message bus (`orchestrator/message_store.py`). Messages are ephemeral in-memory per phase and are cleared at phase transition.
+Agents communicate with each other during concurrent execution via the orchestrator message bus (`orchestrator/message_store.py`). In production, messages are stored in Redis Streams, surviving orchestrator restarts. Messages are cleared at phase transition. In test environments, an in-memory fallback is used when Redis is not available.
 
 ### Sending Messages
 
