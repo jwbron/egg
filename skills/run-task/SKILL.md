@@ -1,13 +1,13 @@
 ---
-name: auto-pr
-description: Submit a quick task to the orchestrator — single agent, no HITL gates — and surface the resulting PR link.
+name: run-task
+description: Submit a task with a coder+reviewer pair — plans, implements, and reviews via BRC consensus — then surfaces the resulting PR link.
 disable-model-invocation: true
 argument-hint: "<task description> [--repo owner/name]"
 ---
 
-# Auto PR
+# Run Task
 
-You are guiding the user through a lightweight, autonomous pipeline that plans, implements, and opens a PR with no human-in-the-loop gates. Walk through 4 phases: Seed, Submit, Monitor, and Complete.
+You are guiding the user through a lightweight pipeline that implements and reviews code using two concurrent agents (coder + reviewer) coordinating via BRC consensus. Walk through 4 phases: Seed, Submit, Monitor, and Complete.
 
 ## Phase 1 — Seed
 
@@ -25,18 +25,18 @@ Only ask for the repo if detection fails AND no `--repo` flag was provided.
 
 ### Step 2: Parse arguments (skip questions when possible)
 
-If the user provided arguments after `/auto-pr`, parse them:
+If the user provided arguments after `/run-task`, parse them:
 
 | Input | Interpretation |
 |-------|---------------|
-| `/auto-pr Add retry logic to the API client` | Free-text task description |
-| `/auto-pr --repo jwbron/egg Fix flaky test` | Repo override + task description |
+| `/run-task Add retry logic to the API client` | Free-text task description |
+| `/run-task --repo jwbron/egg Fix flaky test` | Repo override + task description |
 
 When a free-text description is provided and the repo was auto-detected, proceed directly to Phase 2.
 
 ### Step 3: Ask only what's missing
 
-If the user ran `/auto-pr` with no arguments, ask a **single** `AskUserQuestion`:
+If the user ran `/run-task` with no arguments, ask a **single** `AskUserQuestion`:
 
 - **Question**: "What task should the agent implement and open a PR for?"
 - **Header**: "Task"
@@ -54,21 +54,21 @@ Handle each response:
 
 ## Phase 2 — Submit
 
-Call the `submit_task` MCP tool with the gathered parameters and a lightweight config:
+Call the `submit_task` MCP tool with the gathered parameters and a config that skips to implement with a coder+reviewer pair:
 
 ```
 Tool: submit_task
 Arguments:
   description: <task description>
   repo: <owner/name>
-  config: {"multi_agent": false, "hitl_gates": false, "allow_short_circuit": true}
+  config: {"start_phase": "implement", "implement_roles": ["coder", "reviewer_code"], "hitl_gates": false, "overseer_enabled": false}
 ```
 
-The `config` tells the orchestrator to run a single-agent pipeline with no phase gates — the agent plans, implements, and opens a PR autonomously.
+The `config` tells the orchestrator to skip refine/plan, run only a coder and reviewer_code in BRC consensus, and disable HITL gates and the overseer.
 
 Store the returned `task_id`. Confirm submission to the user:
 
-> Task submitted — single-agent, no gates.
+> Task submitted — coder + reviewer, no gates.
 > **Task ID**: `<task_id>`
 > **Description**: <description>
 > **Repository**: <repo>
@@ -79,6 +79,16 @@ Poll the pipeline status in a loop. Wait 60 seconds between each poll. On each p
 
 1. Call the `get_status` MCP tool with the `task_id`
 2. Display a compact status dashboard:
+
+```
+--- Pipeline Status ---
+Phase: <current_phase> | Status: <status>
+Agents: <agent statuses from concurrent.agents if available>
+Consensus: <confirmed count>/<total> confirmed
+Recent: <latest message subject from recent_messages>
+```
+
+When `concurrent` data is available in the status response, use it to show agent states and consensus progress. When not available, fall back to basic status:
 
 ```
 --- Pipeline Status ---
@@ -110,6 +120,14 @@ Then offer three options via `AskUserQuestion`:
 - **"Cancel"** — description: "Cancel this pipeline"
 
 If "Wait longer" is selected, reset the stall counter and resume monitoring. If "Cancel", call `cancel_task` and move to Phase 4 failure handling.
+
+### NACK handling
+
+If the status shows unresolved NACKs in the consensus data (e.g. `concurrent.consensus.has_objections` is true), surface them to the user:
+
+> **Reviewer raised concerns** — the coder is iterating on feedback. This is normal BRC behavior.
+
+Only escalate if NACKs persist across 5+ consecutive polls with no progress, at which point offer the same stall detection options.
 
 ### Handling unexpected decisions
 
@@ -166,6 +184,7 @@ When investigating a stuck or failed pipeline, use these diagnostic commands:
 | List agent containers | `egg-orch container list <task_id>` |
 | View agent logs | `egg-orch container logs <task_id> <container_id> --lines 100` |
 | Orchestrator + gateway health | `egg-orch health` |
+| BRC consensus status | `egg-orch consensus status <task_id>` |
 | Live pipeline visualization | `egg-pipeline-watch <task_id> --once` |
 | Prior agent sessions | `egg-checkpoint list --pipeline <task_id>` |
 
@@ -173,7 +192,7 @@ When investigating a stuck or failed pipeline, use these diagnostic commands:
 
 - **Always use MCP tools** (`submit_task`, `get_status`, `provide_input`, `cancel_task`) — never call orchestrator APIs directly
 - **Always serialize JSON payloads as strings** for `provide_input` — the `response` parameter is a string, not an object
-- **Always pass `config`** with `{"multi_agent": false, "hitl_gates": false, "allow_short_circuit": true}` when calling `submit_task`
+- **Always pass `config`** with `{"start_phase": "implement", "implement_roles": ["coder", "reviewer_code"], "hitl_gates": false, "overseer_enabled": false}` when calling `submit_task`
 - **Auto-approve phase gates** — this is a no-HITL flow; if a gate appears, approve it automatically and inform the user
 - **Stop polling on exit** — always exit the monitoring loop when the workflow ends
 - **Handle errors gracefully** — if an MCP tool call fails, inform the user and offer to retry

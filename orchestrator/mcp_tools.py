@@ -59,7 +59,7 @@ PIPELINE_TOOLS = [
                 },
                 "config": {
                     "type": "object",
-                    "description": 'Optional pipeline configuration overrides (e.g. {"multi_agent": false, "hitl_gates": false, "allow_short_circuit": true})',
+                    "description": 'Optional pipeline configuration overrides (e.g. {"start_phase": "implement", "implement_roles": ["coder", "reviewer_code"], "hitl_gates": false})',
                 },
             },
             "required": ["description", "repo"],
