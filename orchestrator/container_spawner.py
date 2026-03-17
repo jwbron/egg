@@ -78,6 +78,7 @@ from egg_container import (
     phase_readonly_mounts,
     to_dockerpy_kwargs,
 )
+from egg_agent import build_agent_command
 from gateway_client import (
     GatewayClient,
     GatewayError,
@@ -673,6 +674,25 @@ class ContainerSpawner:
             "EGG_OVERSEER_DECISION_MODEL": decision_model,
         }
 
+        # Build an Agent SDK command for the overseer.  The overseer is a
+        # long-running monitor that polls the orchestrator API — it cannot
+        # use ``claude --print`` (which requires a one-shot prompt and exits).
+        # The overseer rules in sandbox/.claude/rules/overseer.md are picked
+        # up automatically by the SDK via setting_sources=["project","user"].
+        overseer_prompt = (
+            f"You are the overseer agent for pipeline {pipeline_id}. "
+            "Start your monitoring loop now. Poll the orchestrator for "
+            "progress events, health alerts, and escalation messages. "
+            "Classify anomalies, decide on corrective actions, and execute "
+            "them. Send heartbeats each cycle. Run continuously until the "
+            "pipeline reaches a terminal state (complete, failed, or cancelled)."
+        )
+        command = build_agent_command(
+            prompt=overseer_prompt,
+            model=decision_model,
+            max_turns=200,
+        )
+
         return self.spawn_agent_container(
             pipeline_id=pipeline_id,
             agent_role=AgentRole.OVERSEER,
@@ -684,6 +704,7 @@ class ContainerSpawner:
             wait_for_gateway=wait_for_gateway,
             repos=repos,
             certs_volume=certs_volume,
+            command=command,
         )
 
     def create_concurrent_spawn_fn(
