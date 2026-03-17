@@ -11,6 +11,7 @@ sys.path.insert(0, str(sandbox_path))
 
 from egg_lib.docker import (
     _create_network,
+    _has_installable_files,
     build_image,
     check_agent_sdk_update,
     check_claude_update,
@@ -357,10 +358,92 @@ class TestGetLatestAgentSdkVersion:
             result = get_latest_agent_sdk_version()
             assert result is None
 
+    def test_falls_back_skipping_prerelease(self):
+        """Falls back to newest stable version, skipping pre-releases."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(
+            {
+                "info": {"version": "0.1.51"},
+                "releases": {
+                    "0.1.48": [{"filename": "sdk-0.1.48.tar.gz"}],
+                    "0.1.49": [{"filename": "sdk-0.1.49.tar.gz"}],
+                    "0.1.50a1": [{"filename": "sdk-0.1.50a1.tar.gz"}],
+                    "0.1.50rc1": [{"filename": "sdk-0.1.50rc1.tar.gz"}],
+                    "0.1.51": [],
+                },
+            }
+        ).encode()
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=mock_response):
+            result = get_latest_agent_sdk_version()
+            assert result == "0.1.49"
+
     def test_returns_none_on_error(self):
         """Returns None on network error."""
         with patch("urllib.request.urlopen", side_effect=Exception("timeout")):
             assert get_latest_agent_sdk_version() is None
+
+
+class TestHasInstallableFiles:
+    """Tests for _has_installable_files."""
+
+    def test_tar_gz_sdist(self):
+        """Source distribution .tar.gz is installable."""
+        assert _has_installable_files([{"filename": "pkg-1.0.tar.gz"}]) is True
+
+    def test_zip_sdist(self):
+        """Source distribution .zip is installable."""
+        assert _has_installable_files([{"filename": "pkg-1.0.zip"}]) is True
+
+    def test_platform_agnostic_wheel(self):
+        """Platform-agnostic wheel (py3-none-any) is installable."""
+        assert _has_installable_files([{"filename": "pkg-1.0-py3-none-any.whl"}]) is True
+
+    def test_linux_wheel(self):
+        """Linux wheel is installable."""
+        assert (
+            _has_installable_files([{"filename": "pkg-1.0-cp312-cp312-manylinux_2_17_x86_64.whl"}])
+            is True
+        )
+
+    def test_musllinux_wheel(self):
+        """musllinux wheel is installable."""
+        assert (
+            _has_installable_files([{"filename": "pkg-1.0-cp312-cp312-musllinux_1_2_x86_64.whl"}])
+            is True
+        )
+
+    def test_macos_only_wheel(self):
+        """macOS-only wheel is not installable."""
+        assert (
+            _has_installable_files([{"filename": "pkg-1.0-cp312-cp312-macosx_11_0_arm64.whl"}])
+            is False
+        )
+
+    def test_windows_only_wheel(self):
+        """Windows-only wheel is not installable."""
+        assert _has_installable_files([{"filename": "pkg-1.0-cp312-cp312-win_amd64.whl"}]) is False
+
+    def test_yanked_files_ignored(self):
+        """Yanked files are ignored."""
+        assert _has_installable_files([{"filename": "pkg-1.0.tar.gz", "yanked": True}]) is False
+
+    def test_mixed_yanked_and_non_yanked(self):
+        """Non-yanked file found among yanked files."""
+        assert (
+            _has_installable_files(
+                [
+                    {"filename": "pkg-1.0.tar.gz", "yanked": True},
+                    {"filename": "pkg-1.0-py3-none-any.whl"},
+                ]
+            )
+            is True
+        )
+
+    def test_empty_files_list(self):
+        """Empty file list is not installable."""
+        assert _has_installable_files([]) is False
 
 
 class TestCheckAgentSdkUpdate:

@@ -680,11 +680,13 @@ def _has_installable_files(files: list[dict[str, Any]]) -> bool:
             return True
         # Wheels: check platform tag
         if name.endswith(".whl"):
+            # Platform tag is the last component before .whl
+            platform_tag = name.rsplit("-", 1)[-1]  # e.g. "manylinux_2_17_x86_64.whl"
             # Platform-agnostic wheels (e.g. py3-none-any.whl)
-            if name.endswith("-any.whl"):
+            if platform_tag == "any.whl":
                 return True
             # Linux wheels
-            if "linux" in name:
+            if "linux" in platform_tag:
                 return True
     return False
 
@@ -726,7 +728,9 @@ def get_latest_agent_sdk_version() -> str | None:
                 if ver_str == version:
                     continue
                 try:
-                    candidates.append((Version(ver_str), files))
+                    v = Version(ver_str)
+                    if not v.is_prerelease:
+                        candidates.append((v, files))
                 except InvalidVersion:
                     continue
             for ver, files in sorted(candidates, reverse=True):
