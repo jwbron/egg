@@ -924,19 +924,27 @@ def reconstruct_tracker_from_messages(
                 error=str(e),
             )
 
-    # Register the reconstructed tracker globally.
-    # NOTE: Multiple callers (check_consensus, _get_concurrent_status,
-    # startup_reconciliation) can trigger reconstruction concurrently.
-    # Since they all reconstruct from the same Redis message set, the
-    # results are equivalent and last-write-wins is harmless.
+    # Register the reconstructed tracker globally, but avoid overwriting
+    # a tracker that was created by a concurrent reconstruction or live messages.
     with _trackers_lock:
-        _trackers[pipeline_id] = tracker
+        if pipeline_id not in _trackers:
+            _trackers[pipeline_id] = tracker
+            was_registered = True
+        else:
+            tracker = _trackers[pipeline_id]
+            was_registered = False
 
-    logger.info(
-        "Reconstructed consensus tracker from messages",
-        pipeline_id=pipeline_id,
-        messages_replayed=len(consensus_msgs),
-        confirmed_roles=sorted(tracker._confirmed),
-    )
+    if was_registered:
+        logger.info(
+            "Reconstructed consensus tracker from messages",
+            pipeline_id=pipeline_id,
+            messages_replayed=len(consensus_msgs),
+            confirmed_roles=sorted(tracker._confirmed),
+        )
+    else:
+        logger.info(
+            "Reconstruction discarded: tracker already exists",
+            pipeline_id=pipeline_id,
+        )
 
     return tracker

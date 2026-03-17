@@ -122,38 +122,46 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
 
         changed = False
 
-        for phase_key, phase_execution in pipeline.phases.items():
-            for container_info in phase_execution.containers:
-                if container_info.status == ContainerStatus.RUNNING:
-                    if container_info.container_id not in live_ids:
-                        logger.warning(
-                            "Startup reconciliation: container missing, marking FAILED",
-                            pipeline_id=pipeline_id,
-                            phase=phase_key,
-                            container_id=container_info.container_id,
-                        )
-                        container_info.status = ContainerStatus.FAILED
-                        container_info.exit_code = -1
-                        container_info.exited_at = datetime.utcnow()
-                        changed = True
+        # Only check the current phase — containers from prior phases are
+        # intentionally terminated and their absence is expected.  This
+        # prevents completed phases (e.g. refine) from falsely marking the
+        # pipeline as FAILED when the orchestrator restarts.
+        current_phase_key = pipeline.current_phase.value
+        phase_execution = pipeline.phases.get(current_phase_key)
+        if phase_execution is None:
+            continue
 
-            for agent in phase_execution.agents:
-                if agent.status == AgentExecutionStatus.RUNNING:
-                    if agent.container_id and agent.container_id not in live_ids:
-                        logger.warning(
-                            "Startup reconciliation: agent container missing, marking FAILED",
-                            pipeline_id=pipeline_id,
-                            phase=phase_key,
-                            agent_role=str(agent.role),
-                            container_id=agent.container_id,
-                        )
-                        agent.status = AgentExecutionStatus.FAILED
-                        agent.completed_at = datetime.utcnow()
-                        agent.error = (
-                            "Container not found at orchestrator startup — "
-                            "likely lost during a previous crash"
-                        )
-                        changed = True
+        for container_info in phase_execution.containers:
+            if container_info.status == ContainerStatus.RUNNING:
+                if container_info.container_id not in live_ids:
+                    logger.warning(
+                        "Startup reconciliation: container missing, marking FAILED",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase_key,
+                        container_id=container_info.container_id,
+                    )
+                    container_info.status = ContainerStatus.FAILED
+                    container_info.exit_code = -1
+                    container_info.exited_at = datetime.utcnow()
+                    changed = True
+
+        for agent in phase_execution.agents:
+            if agent.status == AgentExecutionStatus.RUNNING:
+                if agent.container_id and agent.container_id not in live_ids:
+                    logger.warning(
+                        "Startup reconciliation: agent container missing, marking FAILED",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase_key,
+                        agent_role=str(agent.role),
+                        container_id=agent.container_id,
+                    )
+                    agent.status = AgentExecutionStatus.FAILED
+                    agent.completed_at = datetime.utcnow()
+                    agent.error = (
+                        "Container not found at orchestrator startup — "
+                        "likely lost during a previous crash"
+                    )
+                    changed = True
 
         if changed:
             pipeline.status = PipelineStatus.FAILED
@@ -180,7 +188,7 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
     try:
         from concurrent_executor import is_concurrent_execution
         from peer_consensus import get_peer_consensus_tracker, reconstruct_tracker_from_messages
-        from review_graph import get_default_implement_graph
+        from review_graph import get_review_graph_for_phase
 
         for pipeline_id in pipeline_ids:
             try:
@@ -195,7 +203,7 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
             if get_peer_consensus_tracker(pipeline_id) is not None:
                 continue
 
-            graph = get_default_implement_graph()
+            graph = get_review_graph_for_phase(pipeline.current_phase.value, repo=pipeline.repo)
             tracker = reconstruct_tracker_from_messages(pipeline_id, graph)
             if tracker:
                 logger.info(

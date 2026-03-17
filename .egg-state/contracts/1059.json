@@ -1,0 +1,756 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1059,
+    "title": "Issue #1059",
+    "url": "https://github.com/jwbron/egg/issues/1059"
+  },
+  "pipeline_id": "issue-1059",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "OVERSEER Role & Infrastructure Foundation",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add OVERSEER to AgentRole enums in orchestrator/models.py and shared/egg_contracts/agent_roles.py with AgentRoleDefinition and FileAccessPattern (no repo access, only .egg-state/oversight/)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "OVERSEER role exists in both enums with correct file access patterns; get_roles_for_phase handles overseer cross-phase lifecycle; existing role tests still pass",
+          "files_affected": [
+            "orchestrator/models.py",
+            "shared/egg_contracts/agent_roles.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add OVERSEER file access patterns to gateway/agent_restrictions.py \u2014 blocked from all source/test/doc/config files, allowed .egg-state/oversight/ only; block gh pr merge/create, egg-orch phase advance/complete; allow gh issue create, egg-orch message send, progress query, health alerts",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Gateway correctly blocks overseer from repo files, PR operations, and phase control; allows issue creation, messaging, and monitoring APIs",
+          "files_affected": [
+            "gateway/agent_restrictions.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add overseer and tripwire configuration fields to PipelineConfig \u2014 overseer_enabled, heartbeat_timeout, error_repeat_threshold, message_rate_limit, poll_interval, max_redirects, decision_maker_model",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Config fields are serializable with backward-compatible defaults; existing PipelineConfig deserialization unaffected",
+          "files_affected": [
+            "orchestrator/models.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add ProgressEvent dataclass to orchestrator/models.py (id, pipeline_id, agent_role, step, state, detail, blocker, timestamp) and PROGRESS_EMITTED event type to orchestrator/events.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "ProgressEvent serializes/deserializes correctly; PROGRESS_EMITTED event type is registered in EventType enum",
+          "files_affected": [
+            "orchestrator/models.py",
+            "orchestrator/events.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Write unit tests for OVERSEER role definition, file access patterns, gateway restrictions, PipelineConfig backward compatibility, and ProgressEvent serialization",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All tests pass covering role definition, access patterns, gateway enforcement, config backward compat, and progress event serialization",
+          "files_affected": [
+            "orchestrator/tests/test_overseer_role.py",
+            "gateway/tests/test_agent_restrictions.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Structured Progress API & Deterministic Tripwires",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create orchestrator/routes/progress.py with two endpoints:\nPOST /api/v1/pipelines/<id>/progress \u2014 emit structured progress (validates agent role, emits PROGRESS_EMITTED event, stores in-memory).\nGET /api/v1/pipelines/<id>/progress \u2014 query progress events (?agent_role=&since=&limit=).\nRegister blueprint in orchestrator/api.py.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "POST endpoint accepts valid progress events and rejects invalid roles; GET endpoint returns filtered results; blueprint registered; EventBus events emitted",
+          "files_affected": [
+            "orchestrator/routes/progress.py",
+            "orchestrator/api.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-2",
+          "description": "Create orchestrator/progress_store.py \u2014 in-memory per-pipeline progress event storage with add_event(), get_events(since, agent_role, limit), get_latest_per_agent(), clear(pipeline_id). Thread-safe with configurable max retention (default 1000 events per pipeline).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Unit tests pass for add, get, filter, latest-per-agent, clear, retention pruning, and thread safety",
+          "files_affected": [
+            "orchestrator/progress_store.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add progress CLI commands and client methods:\negg-orch progress emit --step <text> --state <working|blocked|complete> [--detail <text>] [--blocker <text>]\negg-orch progress query [--agent <role>] [--since <timestamp>] [--limit <n>]\nAdd emit_progress() and query_progress() to shared/egg_orchestrator/client.py.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "CLI commands invoke correct client methods; output is JSON formatted; help text is clear",
+          "files_affected": [
+            "sandbox/egg_lib/orch_cli.py",
+            "shared/egg_orchestrator/client.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-4",
+          "description": "Create orchestrator/health_monitor.py \u2014 deterministic tripwire processor. Subscribes to EventBus events and evaluates five rules:\n1. Heartbeat timeout \u2192 auto-nudge via message bus\n2. Container exit \u2192 immediate HITL escalation\n3. Repeated identical errors \u2192 escalate to overseer (or HITL if no overseer)\n4. Message volume spike \u2192 auto-throttle\n5. Progress stall \u2192 nudge, then escalate to overseer if unresolved\nUses PipelineConfig thresholds. Escalation sends structured context via message bus.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Each tripwire rule fires correctly at configured threshold; auto-nudge sends message via message bus; escalation messages include structured context (anomaly type, agent role, progress events)",
+          "files_affected": [
+            "orchestrator/health_monitor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-5",
+          "description": "Add health alerts endpoint and CLI command:\nGET /api/v1/pipelines/<id>/health/alerts \u2014 list active deterministic alerts for a pipeline.\negg-orch health alerts [--pipeline <id>] \u2014 CLI wrapper.\nAdd to orchestrator/routes/health.py and sandbox/egg_lib/orch_cli.py.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Endpoint returns active alerts with anomaly type, affected agent, and timestamp; CLI command formats output correctly",
+          "files_affected": [
+            "orchestrator/routes/health.py",
+            "sandbox/egg_lib/orch_cli.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-6",
+          "description": "Write unit tests for progress store, progress routes, health monitor tripwire rules, and integration test for progress emit \u2192 stall detection \u2192 auto-nudge flow",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All tests pass; full flow integration test demonstrates stall \u2192 nudge",
+          "files_affected": [
+            "orchestrator/tests/test_progress_store.py",
+            "orchestrator/tests/test_progress_routes.py",
+            "orchestrator/tests/test_health_monitor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Overseer Container & Spawn Logic",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Modify orchestrator/container_spawner.py to support overseer container:\nNo repo volume mount. Inject EGG_AGENT_ROLE=overseer, EGG_OVERSEER_MODE=true, EGG_OVERSEER_POLL_INTERVAL, EGG_OVERSEER_DECISION_MODEL.\nNetwork access to orchestrator, gateway, GitHub APIs. Add spawn_overseer_container() or extend spawn_agent_container() with role-based config.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Overseer container spawns without repo mount; correct env vars injected; network access configured; existing agent spawning unaffected",
+          "files_affected": [
+            "orchestrator/container_spawner.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-2",
+          "description": "Modify orchestrator/routes/pipelines.py to auto-spawn overseer at pipeline start when overseer_enabled is true. Overseer persists across all phases. Track overseer container in pipeline state.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Overseer auto-spawns at pipeline start; tracked in pipeline state; persists across phase transitions; not spawned when overseer_enabled is false",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-3",
+          "description": "Add overseer lifecycle management \u2014 stop overseer container when pipeline completes, fails, or is cancelled. Wire into PIPELINE_COMPLETED, PIPELINE_FAILED, PIPELINE_CANCELLED events.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Overseer container stopped and cleaned up on all pipeline terminal states",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py",
+            "orchestrator/container_spawner.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-4",
+          "description": "Write tests for overseer spawn (no repo mount, correct env vars), auto-spawn at pipeline start, lifecycle across phases, cleanup on pipeline end",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All tests pass covering spawn config, auto-spawn, cross-phase persistence, and cleanup",
+          "files_affected": [
+            "orchestrator/tests/test_overseer_spawn.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Overseer Agent Logic (Haiku/Sonnet Tiers)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Create sandbox/.claude/rules/overseer.md \u2014 overseer agent prompt instructions:\nMonitoring loop (poll progress query + health alerts each cycle), two-tier awareness,\nHaiku/Sonnet split via egg_agent, adaptive stall detection, corrective action ladder\n(nudge \u2192 redirect \u2192 HITL \u2192 issue \u2192 Slack), diagnostic issue format, self-monitoring,\nmediator boundary, stay-alive loop.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Prompt file covers all overseer behaviors; references correct CLI commands and egg_agent API",
+          "files_affected": [
+            "sandbox/.claude/rules/overseer.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-2",
+          "description": "Create orchestrator/overseer/ package with classification and decision-making:\nclassifier.py \u2014 Haiku functions: classify_stall(), classify_error(), detect_loop(), check_alignment(). Uses run_agent_async(model=\"haiku\", max_turns=1). Caches results.\ndecision_maker.py \u2014 Sonnet/Opus functions: decide_corrective_action(), compose_redirect_message(), decide_escalation_level(). Uses run_agent_async(model=config_model, max_turns=1).\nissue_filer.py \u2014 file_diagnostic_issue() using structured template, auto-labels overseer-alert + category. High-confidence autonomous, low-confidence HITL.\nself_monitor.py \u2014 track poll timing, message volume, LLM costs. File issue and signal BLOCKED if malfunctioning.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All functions use shared/egg_agent/ exclusively (no direct API calls); classifier caches results; issue filer produces correct diagnostic template with labels; self-monitor detects threshold violations",
+          "files_affected": [
+            "orchestrator/overseer/__init__.py",
+            "orchestrator/overseer/classifier.py",
+            "orchestrator/overseer/decision_maker.py",
+            "orchestrator/overseer/issue_filer.py",
+            "orchestrator/overseer/self_monitor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-3",
+          "description": "Create orchestrator/overseer/monitor.py \u2014 main monitoring loop:\nPolls progress query and health alerts each cycle. Receives escalations from tripwire processor via message bus.\nRoutes to Haiku classifiers, then Sonnet/Opus for decisions. Executes corrective actions (redirect, HITL, issue, Slack).\nEnforces hallucination guard: Sonnet/Opus only acts on received Haiku outputs.\nProduces pipeline health summary at completion.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Monitor loop correctly routes escalations through Haiku \u2192 Sonnet/Opus pipeline; hallucination guard prevents acting on non-received data; health summary produced at pipeline end",
+          "files_affected": [
+            "orchestrator/overseer/monitor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-4",
+          "description": "Write unit tests for classifier (mocked run_agent_async), decision_maker (mocked classifications), issue_filer (template format, labeling), self_monitor (thresholds), monitor loop (routing, hallucination guard, corrective actions)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All tests pass with mocked LLM responses; hallucination guard test verifies Sonnet/Opus rejects fabricated inputs",
+          "files_affected": [
+            "orchestrator/tests/test_overseer_classifier.py",
+            "orchestrator/tests/test_overseer_decision_maker.py",
+            "orchestrator/tests/test_overseer_issue_filer.py",
+            "orchestrator/tests/test_overseer_self_monitor.py",
+            "orchestrator/tests/test_overseer_monitor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Agent Prompt Updates, Integration & Documentation",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Update sandbox/.claude/rules/mission.md to instruct all agents to emit structured progress via egg-orch progress emit \u2014 at task start (working), on blocker (blocked), on completion (complete), and every 1-2 minutes during long operations",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Mission rules include clear progress emission instructions with examples for all three states",
+          "files_affected": [
+            "sandbox/.claude/rules/mission.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-2",
+          "description": "Establish .egg-state/oversight/ directory convention for overseer structured logs ({pipeline_id}-oversight.jsonl for events, {pipeline_id}-health-summary.md for completion summary)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Directory convention documented; overseer writes to correct paths; logs are valid JSONL",
+          "files_affected": [
+            "orchestrator/overseer/monitor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-3",
+          "description": "Write end-to-end integration test for full two-tier flow \u2014 agent emits progress \u2192 orchestrator stall detection \u2192 auto-nudge \u2192 stall persists \u2192 escalate to overseer \u2192 Haiku classifies \u2192 Sonnet decides \u2192 redirect sent",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Integration test passes with mocked containers and mocked egg_agent responses demonstrating complete escalation chain",
+          "files_affected": [
+            "orchestrator/tests/test_two_tier_integration.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-4",
+          "description": "Write integration test for autonomous issue filing \u2014 Haiku high-confidence classification \u2192 Sonnet decides file issue \u2192 gh issue create with diagnostic template and labels",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test verifies issue filed with correct template, overseer-alert label, and error category label",
+          "files_affected": [
+            "orchestrator/tests/test_overseer_issue_filing_integration.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-5",
+          "description": "Write integration test for HITL escalation path \u2014 stall \u2192 multiple redirect failures \u2192 HITL decision created for restart approval",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test verifies HITL decision created after max_redirects_before_escalation redirect attempts",
+          "files_affected": [
+            "orchestrator/tests/test_overseer_hitl_integration.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-6",
+          "description": "Document two-tier monitoring in docs/guides/sdlc-pipeline.md \u2014 architecture overview, structured progress emission, configurable thresholds, overseer behavior, escalation ladder, troubleshooting",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Documentation covers monitoring architecture, progress API, configuration, overseer behavior, and troubleshooting with examples",
+          "files_affected": [
+            "docs/guides/sdlc-pipeline.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Should the overseer's deterministic tripwires integrate with the existing HealthCheckRunner framework, or be a separate event-driven module?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Extend existing HealthCheckRunner with real-time event support",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "New separate health_monitor.py module (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Should the structured progress API store progress events persistently or in-memory only?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Persistent (stored in pipeline state)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "In-memory with configurable retention window (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid \u2014 in-memory for processing, periodic snapshot to disk",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "How should the orchestrator communicate escalations to the overseer container?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Existing message bus \u2014 overseer polls /messages like other agents (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Dedicated escalation endpoint",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Overseer polls health alerts endpoint",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Should the overseer auto-file GitHub issues autonomously, or require HITL approval?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Fully autonomous issue filing (as specified in issue)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Issue filing requires HITL approval (safer)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Autonomous for high-confidence, HITL for low-confidence (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Should the OVERSEER role be added independently or wait for #1030 (agent team roster)?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Add OVERSEER independently (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Wait for #1030 to land first",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "What default model should the overseer's decision-maker tier use?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Sonnet by default (recommended \u2014 cheaper, sufficient)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Opus by default (better reasoning)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Configurable per-pipeline via PipelineConfig",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": [
+    {
+      "role": "coder",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "tester",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "documenter",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_agent_design",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-03-16T23:09:01.071792Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "risk_analyst",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-03-16T23:22:57.055945Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "architect",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-03-16T23:22:57.393594Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "task_planner",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-03-16T23:22:57.659557Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    }
+  ]
+}

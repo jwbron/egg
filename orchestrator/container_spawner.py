@@ -635,6 +635,57 @@ class ContainerSpawner:
         ip_suffix = (int(short_id[:4], 16) % 200) + 10  # 10-209
         return f"172.32.0.{ip_suffix}"
 
+    def spawn_overseer_container(
+        self,
+        pipeline_id: str,
+        issue_number: int | None = None,
+        mode: str = "public",
+        poll_interval: int = 30,
+        decision_model: str = "sonnet",
+        image: str | None = None,
+        wait_for_gateway: bool = True,
+        repos: list[str] | None = None,
+        certs_volume: str | None = None,
+    ) -> SpawnedContainer:
+        """Spawn an overseer container for pipeline health monitoring.
+
+        The overseer runs without repository access (no git mounts) and
+        monitors pipeline health via the orchestrator API.  It receives
+        overseer-specific environment variables for polling and decision-making.
+
+        Args:
+            pipeline_id: Pipeline ID.
+            issue_number: GitHub issue number (optional).
+            mode: Gateway mode (public or private).
+            poll_interval: Polling interval in seconds for health checks.
+            decision_model: LLM model for overseer decision-making tier.
+            image: Docker image override.
+            wait_for_gateway: Wait for gateway health before spawning.
+            repos: List of repositories for gateway session.
+            certs_volume: Certs volume name.
+
+        Returns:
+            SpawnedContainer with overseer container and session info.
+        """
+        extra_env = {
+            "EGG_OVERSEER_MODE": "true",
+            "EGG_OVERSEER_POLL_INTERVAL": str(poll_interval),
+            "EGG_OVERSEER_DECISION_MODEL": decision_model,
+        }
+
+        return self.spawn_agent_container(
+            pipeline_id=pipeline_id,
+            agent_role=AgentRole.OVERSEER,
+            issue_number=issue_number,
+            repo_volumes=None,
+            mode=mode,
+            image=image,
+            extra_env=extra_env,
+            wait_for_gateway=wait_for_gateway,
+            repos=repos,
+            certs_volume=certs_volume,
+        )
+
     def create_concurrent_spawn_fn(
         self,
         pipeline_id: str,

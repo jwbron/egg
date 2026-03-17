@@ -387,3 +387,166 @@ class TestContainerMonitorDetection:
 
         event_types = [e.event_type for e in events_received]
         assert ContainerEvent.STOPPED in event_types
+
+
+# ---------------------------------------------------------------------------
+# Tests: Periodic reconciliation
+# ---------------------------------------------------------------------------
+
+
+def _run_one_reconciliation_sweep(monitor):
+    """Run exactly one reconciliation sweep deterministically.
+
+    Patches ``time.sleep`` so the initial delay returns immediately
+    and the loop exits after completing a single sweep — no timing
+    dependencies on CI machine speed.
+    """
+    call_count = 0
+
+    def _fake_sleep(_seconds):
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            # First call = initial delay, second = end of first sweep
+            monitor._reconciliation_running = False
+
+    with patch("container_monitor.time.sleep", side_effect=_fake_sleep):
+        monitor._reconciliation_loop()
+
+
+class TestPeriodicReconciliation:
+    """Tests for the _reconciliation_loop background thread."""
+
+    def test_detects_stale_container_in_current_phase(self):
+        """Loop detects a stale container in the current phase and reconciles it."""
+        container_id = "stale_abc"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        store = _make_store(pipeline)
+
+        mock_docker = MagicMock()
+        # No live containers — the agent's container is missing
+        mock_docker.list_containers.return_value = []
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+
+        with patch("container_monitor._reconcile_container_state") as mock_reconcile:
+            monitor._reconciliation_store = store
+            monitor._reconciliation_running = True
+            monitor._reconciliation_interval = 0.01
+
+            _run_one_reconciliation_sweep(monitor)
+
+            # Should have called _reconcile with the matching ContainerInfo
+            mock_reconcile.assert_called()
+            call_args = mock_reconcile.call_args
+            assert call_args[0][0] is store
+            assert call_args[0][1].container_id == container_id
+
+    def test_skips_non_running_pipelines(self):
+        """Loop skips pipelines that are not in RUNNING status."""
+        container_id = "stale_abc"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        pipeline.status = PipelineStatus.COMPLETE
+        store = _make_store(pipeline)
+
+        mock_docker = MagicMock()
+        mock_docker.list_containers.return_value = []
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+
+        with patch("container_monitor._reconcile_container_state") as mock_reconcile:
+            monitor._reconciliation_store = store
+            monitor._reconciliation_running = True
+            monitor._reconciliation_interval = 0.01
+
+            _run_one_reconciliation_sweep(monitor)
+
+            mock_reconcile.assert_not_called()
+
+    def test_handles_store_load_pipeline_exception(self):
+        """Loop continues without crashing when store.load_pipeline raises."""
+        store = MagicMock()
+        store.list_pipelines.return_value = ["bad-pipeline"]
+        store.load_pipeline.side_effect = Exception("corrupt state")
+
+        mock_docker = MagicMock()
+        mock_docker.list_containers.return_value = []
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+
+        with patch("container_monitor._reconcile_container_state") as mock_reconcile:
+            monitor._reconciliation_store = store
+            monitor._reconciliation_running = True
+            monitor._reconciliation_interval = 0.01
+
+            _run_one_reconciliation_sweep(monitor)
+
+            # Should not crash, should not reconcile anything
+            mock_reconcile.assert_not_called()
+
+    def test_stop_joins_reconciliation_thread(self):
+        """stop() properly terminates and joins the reconciliation thread."""
+        mock_docker = MagicMock()
+        mock_docker.list_containers.return_value = []
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+
+        store = MagicMock()
+        store.list_pipelines.return_value = []
+
+        monitor.start_periodic_reconciliation(store, interval=1)
+        assert monitor._reconciliation_running is True
+        assert monitor._reconciliation_thread is not None
+        assert monitor._reconciliation_thread.is_alive()
+
+        monitor.stop()
+        assert monitor._reconciliation_running is False
+        assert monitor._reconciliation_thread is None
+
+    def test_logs_missing_container_info(self):
+        """Loop logs debug message when agent has no matching ContainerInfo."""
+        container_id = "orphan_agent_abc"
+        pipeline = Pipeline(
+            id="issue-300",
+            issue_number=300,
+            repo="owner/repo",
+            branch="egg/issue-300",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        phase.status = PipelineStatus.RUNNING
+        phase.started_at = datetime.utcnow()
+        # Agent has a container_id but no matching ContainerInfo in phase.containers
+        phase.agents.append(
+            AgentExecution(
+                role=AgentRole.CODER,
+                status=AgentExecutionStatus.RUNNING,
+                container_id=container_id,
+                started_at=datetime.utcnow(),
+            )
+        )
+        store = _make_store(pipeline)
+
+        mock_docker = MagicMock()
+        mock_docker.list_containers.return_value = []
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+
+        with (
+            patch("container_monitor._reconcile_container_state") as mock_reconcile,
+            patch("container_monitor.logger") as mock_logger,
+        ):
+            monitor._reconciliation_store = store
+            monitor._reconciliation_running = True
+            monitor._reconciliation_interval = 0.01
+
+            _run_one_reconciliation_sweep(monitor)
+
+            # Should NOT have called _reconcile (no matching ContainerInfo)
+            mock_reconcile.assert_not_called()
+            # Should have logged a debug message about missing ContainerInfo
+            mock_logger.debug.assert_called()
+            debug_calls = [str(c) for c in mock_logger.debug.call_args_list]
+            assert any("no matching ContainerInfo" in c for c in debug_calls)

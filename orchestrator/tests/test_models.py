@@ -500,7 +500,8 @@ class TestAgentRole:
         assert AgentRole.REVIEWER_AGENT_DESIGN in roles
         assert AgentRole.REVIEWER_REFINE in roles
         assert AgentRole.REVIEWER_PLAN in roles
-        assert len(roles) == 14
+        assert AgentRole.OVERSEER in roles
+        assert len(roles) == 15
 
 
 class TestBackwardCompatibility:

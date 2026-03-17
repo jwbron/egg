@@ -578,6 +578,72 @@ class OrchestratorClient:
         endpoint = f"/api/v1/pipelines/{pipeline_id}/messages/status"
         return self._make_request(endpoint)
 
+    def emit_progress(
+        self,
+        pipeline_id: str,
+        agent_role: str,
+        step: str,
+        state: str,
+        detail: str = "",
+        blocker: str = "",
+    ) -> dict[str, Any]:
+        """Emit a structured progress event.
+
+        Args:
+            pipeline_id: Pipeline ID
+            agent_role: Role of the agent
+            step: Description of current step
+            state: Progress state (working, blocked, complete)
+            detail: Additional detail about the step
+            blocker: Description of blocker (when state=blocked)
+
+        Returns:
+            Response data from orchestrator
+        """
+        data: dict[str, Any] = {
+            "agent_role": agent_role,
+            "step": step,
+            "state": state,
+        }
+        if detail:
+            data["detail"] = detail
+        if blocker:
+            data["blocker"] = blocker
+
+        endpoint = f"/api/v1/pipelines/{pipeline_id}/progress"
+        return self._make_request(endpoint, method="POST", data=data)
+
+    def query_progress(
+        self,
+        pipeline_id: str,
+        agent_role: str | None = None,
+        since: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Query structured progress events for a pipeline.
+
+        Args:
+            pipeline_id: Pipeline ID
+            agent_role: Filter by agent role
+            since: ISO timestamp to filter events after
+            limit: Max events to return
+
+        Returns:
+            Response data with events list
+        """
+        params: list[str] = []
+        if agent_role:
+            params.append(f"agent_role={agent_role}")
+        if since:
+            params.append(f"since={since}")
+        if limit is not None:
+            params.append(f"limit={limit}")
+        query = "&".join(params)
+        endpoint = f"/api/v1/pipelines/{pipeline_id}/progress"
+        if query:
+            endpoint += f"?{query}"
+        return self._make_request(endpoint)
+
     def send_signal(
         self,
         pipeline_id: str,

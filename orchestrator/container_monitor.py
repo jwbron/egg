@@ -93,6 +93,12 @@ class ContainerMonitor:
         self._health_check_runner: Any = None
         self._health_check_repo_path: str | None = None
 
+        # Periodic reconciliation state
+        self._reconciliation_running = False
+        self._reconciliation_thread: threading.Thread | None = None
+        self._reconciliation_store: Any = None
+        self._reconciliation_interval: int = 30
+
     def add_handler(self, handler: EventHandler) -> None:
         """Add an event handler.
 
@@ -280,25 +286,124 @@ class ContainerMonitor:
             check_interval=self.check_interval,
         )
 
-    def stop(self) -> None:
-        """Stop the monitor."""
-        if not self._running:
+    def start_periodic_reconciliation(self, store: Any, interval: int = 30) -> None:
+        """Start a background thread that periodically reconciles stale containers.
+
+        Every *interval* seconds, lists all RUNNING pipelines and checks
+        whether containers marked RUNNING in the current phase still exist
+        in Docker.  Missing containers are reconciled via
+        ``_reconcile_container_state``.
+
+        Args:
+            store: StateStore instance (already bound to the correct repo path).
+            interval: Seconds between reconciliation sweeps (default 30).
+        """
+        if self._reconciliation_running:
             return
 
-        self._running = False
-        if self._thread:
-            self._thread.join(timeout=self.check_interval + 1)
-            self._thread = None
+        self._reconciliation_store = store
+        self._reconciliation_interval = interval
+        self._reconciliation_running = True
+        self._reconciliation_thread = threading.Thread(
+            target=self._reconciliation_loop, daemon=True
+        )
+        self._reconciliation_thread.start()
+        logger.info(
+            "Periodic container reconciliation started",
+            interval=interval,
+        )
 
-        logger.info("Container monitor stopped")
+    def _reconciliation_loop(self) -> None:
+        """Background loop for periodic container reconciliation."""
+        from models import AgentExecutionStatus, PipelineStatus
+
+        # Sleep before the first sweep — startup reconciliation already ran
+        # immediately before this thread was started, so an instant re-sweep
+        # would be redundant.
+        time.sleep(self._reconciliation_interval)
+
+        while self._reconciliation_running:
+            try:
+                store = self._reconciliation_store
+                pipeline_ids: list[str] = store.list_pipelines()
+
+                live_containers = self.docker_client.list_containers(all=False)
+                live_ids: set[str] = {ci.container_id for ci in live_containers}
+
+                for pipeline_id in pipeline_ids:
+                    try:
+                        pipeline = store.load_pipeline(pipeline_id)
+                    except Exception:
+                        continue
+
+                    if pipeline.status != PipelineStatus.RUNNING:
+                        continue
+
+                    # Check only the current phase for stale containers
+                    current_phase_key = pipeline.current_phase.value
+                    phase_execution = pipeline.phases.get(current_phase_key)
+                    if phase_execution is None:
+                        continue
+
+                    for agent in phase_execution.agents:
+                        if (
+                            agent.status == AgentExecutionStatus.RUNNING
+                            and agent.container_id
+                            and agent.container_id not in live_ids
+                        ):
+                            # Find the matching ContainerInfo to pass to _reconcile
+                            matching_ci = None
+                            for ci in phase_execution.containers:
+                                if ci.container_id == agent.container_id:
+                                    matching_ci = ci
+                                    break
+
+                            if matching_ci is not None:
+                                _reconcile_container_state(store, matching_ci)
+                            else:
+                                logger.debug(
+                                    "Stale agent has no matching ContainerInfo",
+                                    pipeline_id=pipeline_id,
+                                    container_id=agent.container_id,
+                                    agent_role=str(agent.role),
+                                )
+
+            except Exception as e:
+                logger.warning(
+                    "Periodic reconciliation sweep failed",
+                    error=str(e),
+                )
+
+            time.sleep(self._reconciliation_interval)
+
+    def stop(self) -> None:
+        """Stop the monitor and periodic reconciliation."""
+        stopped_any = False
+
+        if self._running:
+            self._running = False
+            if self._thread:
+                self._thread.join(timeout=self.check_interval + 1)
+                self._thread = None
+            stopped_any = True
+
+        if self._reconciliation_running:
+            self._reconciliation_running = False
+            if self._reconciliation_thread:
+                self._reconciliation_thread.join(timeout=self._reconciliation_interval + 1)
+                self._reconciliation_thread = None
+            stopped_any = True
+
+        if stopped_any:
+            logger.info("Container monitor stopped")
 
     def is_running(self) -> bool:
         """Check if monitor is running.
 
         Returns:
-            True if monitor is active
+            True if monitor or periodic reconciliation is active
         """
-        return self._running
+        return self._running or self._reconciliation_running
 
     def get_container_status(self, container_id: str) -> ContainerStatus | None:
         """Get cached container status.

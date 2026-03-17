@@ -51,6 +51,8 @@ class AgentRole:
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
+    # Oversight roles
+    OVERSEER = "overseer"
 
 
 @dataclass
@@ -430,6 +432,35 @@ REVIEWER_PLAN_PATTERNS = AgentFilePattern(
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
+# Overseer agent pattern
+# The overseer monitors pipeline health but cannot modify source, test, doc,
+# or config files. It can only write to .egg-state/oversight/ for structured logs.
+
+OVERSEER_PATTERNS = AgentFilePattern(
+    role=AgentRole.OVERSEER,
+    description="Overseer agent: oversight logs only, no source/test/doc/config access",
+    allowed_patterns=[
+        ".egg-state/oversight/",
+        ".egg-state/agent-outputs/",
+    ],
+    blocked_patterns=[
+        "src/",
+        "lib/",
+        "shared/",
+        "gateway/",
+        "sandbox/",
+        "action/",
+        "orchestrator/",
+        "docs/",
+        "tests/",
+        "test/",
+        ".egg-state/contracts/",
+        ".egg-state/drafts/",
+        ".egg-state/reviews/",
+        ".github/",
+    ],
+)
+
 
 # Registry of all agent patterns
 AGENT_PATTERNS: dict[str, AgentFilePattern] = {
@@ -445,6 +476,7 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REFINER: REFINER_PATTERNS,
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_PATTERNS,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
+    AgentRole.OVERSEER: OVERSEER_PATTERNS,
 }
 
 
@@ -596,6 +628,15 @@ class AgentGHRestriction:
 # These operations should go through .egg-state/reviews/ or the contract API.
 _BLOCKED_GH_OPS = ["issue comment *", "issue edit *"]
 
+# Overseer has additional restrictions: blocked from PR operations and phase control.
+# It can create issues (for diagnostic filing) but cannot merge, create PRs, or advance phases.
+_OVERSEER_BLOCKED_GH_OPS = [
+    "issue comment *",
+    "issue edit *",
+    "pr merge *",
+    "pr create *",
+]
+
 AGENT_GH_RESTRICTIONS: dict[str, AgentGHRestriction] = {
     role: AgentGHRestriction(
         role=role,
@@ -617,6 +658,13 @@ AGENT_GH_RESTRICTIONS: dict[str, AgentGHRestriction] = {
         AgentRole.REVIEWER_PLAN,
     ]
 }
+
+# Add overseer with its specific restrictions
+AGENT_GH_RESTRICTIONS[AgentRole.OVERSEER] = AgentGHRestriction(
+    role=AgentRole.OVERSEER,
+    blocked_operations=_OVERSEER_BLOCKED_GH_OPS,
+    description="Overseer agent cannot post issue comments, edit issues, merge PRs, or create PRs",
+)
 
 
 def check_agent_gh_operation(role: str, command: str) -> tuple[bool, str]:

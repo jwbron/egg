@@ -148,6 +148,17 @@ to run. Follow those instructions exactly.
 - **Form independent judgments** before seeing producer self-assessments.
 - **NACKs must be specific and actionable** — cite the exact issue and what needs to change.
 
+### Structured Progress Reporting
+
+Emit structured progress events at key milestones so the orchestrator's health monitoring can detect stalls and failures:
+
+```bash
+egg-orch progress emit --step "running tests" --state working --detail "pytest suite 3/5"
+egg-orch progress emit --step "applying fix" --state blocked --blocker "missing dependency"
+```
+
+Emit progress when: starting/completing major steps, encountering blockers, during long-running operations. Progress events supplement heartbeats — they tell the orchestrator *what* you're doing, not just that you're alive.
+
 ### Handling Agent Failures
 
 If you receive an `AGENT_FAILED` message about another agent:

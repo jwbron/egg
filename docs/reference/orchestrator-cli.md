@@ -38,6 +38,9 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch message poll [<id>] [--since <id>] [--limit <n>]` | Poll for messages from other agents (concurrent mode) |
 | `egg-orch message status [<id>]` | Get message bus status (concurrent mode) |
 | `egg-orch signal readiness [<id>] --state <WORKING\|READY\|BLOCKED\|OBJECTING> [--reason "..."]` | Signal readiness state (concurrent mode) |
+| `egg-orch progress emit --step <text> --state <working\|blocked\|complete> [--detail <text>] [--blocker <text>]` | Emit structured progress event |
+| `egg-orch progress query [--agent <role>] [--since <timestamp>] [--limit <n>]` | Query structured progress events |
+| `egg-orch health alerts [--pipeline <id>]` | List active deterministic health alerts |
 
 Pipeline ID can be omitted when `EGG_PIPELINE_ID` is set (auto-set in orchestrated mode).
 Agent role can be omitted when `EGG_AGENT_ROLE` is set.
@@ -75,6 +78,19 @@ egg-orch decision list <pipeline-id>
 egg-orch signal progress --percent 50 --task "Running tests"
 egg-orch signal complete --commit abc1234
 egg-orch signal error --error "Test failure" --recoverable
+```
+
+**Emit structured progress (health monitoring):**
+```bash
+egg-orch progress emit --step "running tests" --state working --detail "pytest suite 3/5"
+egg-orch progress emit --step "blocked on dependency" --state blocked --blocker "waiting for coder"
+egg-orch progress query --agent coder
+```
+
+**Check health monitoring alerts:**
+```bash
+egg-orch health alerts
+egg-orch health alerts --pipeline issue-123
 ```
 
 ## Related CLIs

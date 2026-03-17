@@ -1152,10 +1152,11 @@ class WorktreeManager:
                         check=False,
                         timeout=30,
                     )
-                    if list_result.returncode == 0 and any(
-                        line == "locked" or line.startswith("locked ")
+                    has_locked = any(
+                        line.strip() == "locked" or line.strip().startswith("locked ")
                         for line in list_result.stdout.splitlines()
-                    ):
+                    )
+                    if list_result.returncode == 0 and has_locked:
                         logger.warning(
                             "Skipping git worktree prune: locked worktrees found",
                             repo=repo_name,
