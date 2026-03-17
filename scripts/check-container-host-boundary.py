@@ -133,7 +133,6 @@ def main():
         print("  2. If code needs to be shared, consider if it truly belongs in both places")
         print("  3. Use direct imports from the container-local path")
         print()
-        print()
 
         return 1
     else:
