@@ -4075,6 +4075,13 @@ def _run_concurrent_phase(
         # FAILED while we're still actively monitoring.  If we detect this,
         # and consensus is actually complete, recover the pipeline status
         # so this monitoring loop can return success normally.
+        #
+        # NOTE: consensus staleness is acceptable here.  The `consensus`
+        # dict was fetched earlier in this loop iteration and is not
+        # re-evaluated under the lock.  If consensus regressed between
+        # the outer check and lock acquisition (extremely unlikely), the
+        # next iteration of this monitoring loop will re-evaluate and
+        # self-correct.
         if store is not None:
             try:
                 _current_pip = store.load_pipeline(pipeline_id)
