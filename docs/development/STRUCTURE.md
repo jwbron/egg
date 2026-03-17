@@ -18,6 +18,7 @@ egg/
 ├── skills/                 # Claude Code skills (installed into sandbox at startup)
 ├── tests/                  # Unit tests
 ├── dev                     # Development CLI (setup, lint, test, ci)
+├── CLAUDE.md               # Agent navigation guide (Claude Code entry point)
 └── README.md
 ```
 
@@ -403,6 +404,7 @@ config/
 | Shell scripts | kebab-case | `entrypoint.sh`, `create-networks.sh` |
 | Config files | `.yaml` (not `.yml`) | `repositories.yaml` |
 | Documentation | UPPERCASE.md for guides, lowercase.md for READMEs | `STRUCTURE.md`, `README.md` |
+| Agent navigation | `CLAUDE.md` at component root | `gateway/CLAUDE.md`, `orchestrator/CLAUDE.md` |
 
 ## Documentation Organization
 
