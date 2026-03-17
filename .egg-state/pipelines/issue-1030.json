@@ -136,17 +136,17 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-03-17T18:10:18.910011",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-03-17T18:13:57.766352",
+      "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved Questions\\n\\n**Tester source-file write access**\\nAnswer: Broad access — keep **/*.py, **/*.ts, etc. for lint auto-fixes\\n\\n**Coordinator role inclusion**\\nAnswer: Defer to #1028 — don't define it in this roster\\n\\n**Enum consolidation scope**\\nAnswer: Consolidate to single source in shared/egg_contracts/agent_roles.py\\n\\n**Gateway enforcement default**\\nAnswer: Strict by default — required for shared worktree safety\\n\\n**Missing agent types**\\nAnswer: No additions needed — proposed roster is sufficient\\n\\n**Tester/coder docstring handoff**\\nAnswer: Coder owns all source files including docstrings; documenter only writes docs/ and *.md\\n\\n**Overseer restart authority**\\nAnswer: Auto-restart after 2 failed redirect attempts, then escalate to HITL\"}",
       "phase": "refine"
     }
   ],
   "created_at": "2026-03-17T17:59:56.261031",
-  "updated_at": "2026-03-17T18:10:18.927519",
+  "updated_at": "2026-03-17T18:13:57.768435",
   "contract_synced": true,
   "network_mode": null,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 12
+  "version": 13
 }
