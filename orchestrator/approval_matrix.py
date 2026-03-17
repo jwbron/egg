@@ -156,12 +156,16 @@ class ApprovalMatrix:
         return not bool(prev_refs & new_refs)
 
     def is_fully_acked(self, producer: str) -> bool:
-        """Check if all assigned reviewers have ACKed the producer's latest proposal."""
+        """Check if all critical reviewers have ACKed the producer's latest proposal.
+
+        Advisory reviewers are excluded from the check — their ACK is
+        informational but does not block consensus.
+        """
         latest_version = self._proposal_versions.get(producer, 0)
         if latest_version == 0:
             return False
 
-        reviewers = self._graph.reviewers_for(producer)
+        reviewers = self._graph.critical_reviewers_for(producer)
         for reviewer in reviewers:
             key = (reviewer, producer)
             entry = self._entries.get(key)

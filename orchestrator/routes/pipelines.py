@@ -3935,6 +3935,8 @@ def _run_concurrent_phase(
                 error=str(track_err),
             )
 
+    _demoted_agents: set[str] = set()
+
     while True:
         elapsed = time.monotonic() - start_time
 
@@ -4002,6 +4004,46 @@ def _run_concurrent_phase(
                     pipeline_id=pipeline_id,
                     error=str(e),
                 )
+
+        # 3b. RC3: Stall demotion for dual-role agents.
+        # If a dual-role agent has missed heartbeats for 5+ minutes,
+        # demote its reviewer edges to ADVISORY so other agents can proceed.
+        try:
+            from health_monitor import get_health_monitor
+
+            _hm = get_health_monitor()
+            if _hm is not None:
+                from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]  # noqa: I001
+
+                _brc_tracker = get_peer_consensus_tracker(pipeline_id)
+                if _brc_tracker is not None:
+                    heartbeat_actions = _hm.check_heartbeats()
+                    for hb_action in heartbeat_actions:
+                        stalled_agent = hb_action.get("agent_id", "")
+                        stall_elapsed = hb_action.get("elapsed_seconds", 0)
+                        if (
+                            stall_elapsed >= 300
+                            and stalled_agent not in _demoted_agents
+                            and _brc_tracker.graph.is_dual_role(stalled_agent)
+                        ):
+                            try:
+                                _brc_tracker.handle_stall_demotion(
+                                    stalled_agent,
+                                    reason=f"Missed heartbeats for {stall_elapsed}s",
+                                )
+                                _demoted_agents.add(stalled_agent)
+                            except Exception as demote_err:
+                                logger.debug(
+                                    "Stall demotion skipped",
+                                    agent=stalled_agent,
+                                    error=str(demote_err),
+                                )
+        except Exception as stall_err:
+            logger.debug(
+                "Stall demotion check failed",
+                pipeline_id=pipeline_id,
+                error=str(stall_err),
+            )
 
         # 4. Non-blocking check for exited containers
         for exec_info in active_executions:

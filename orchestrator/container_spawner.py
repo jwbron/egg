@@ -685,7 +685,7 @@ class ContainerSpawner:
         # Build an Agent SDK command for the overseer.  The overseer is a
         # long-running monitor that polls the orchestrator API — it cannot
         # use ``claude --print`` (which requires a one-shot prompt and exits).
-        # The overseer rules in sandbox/.claude/rules/overseer.md are picked
+        # The overseer rules in sandbox/agent-config/rules/overseer.md are picked
         # up automatically by the SDK via setting_sources=["project","user"].
         overseer_prompt = (
             f"You are the overseer agent for pipeline {pipeline_id}. "
