@@ -95,6 +95,67 @@ if TYPE_CHECKING:
 
 logger = get_logger("orchestrator.pipelines")
 
+
+def _check_and_respawn_overseer(
+    *,
+    spawner: "ContainerSpawner",
+    store: "StateStore",
+    pipeline_id: str,
+    pipeline: "Pipeline",
+    overseer_container_id: str | None,
+    overseer_respawn_count: int,
+    max_overseer_respawns: int,
+    gateway_mode: str,
+    pipeline_repos: list | None,
+    certs_volume: str | None,
+) -> tuple[str | None, int]:
+    """Check overseer container liveness and respawn if it exited mid-pipeline.
+
+    Returns (updated_container_id, updated_respawn_count).
+    """
+    if not overseer_container_id or overseer_respawn_count >= max_overseer_respawns:
+        return overseer_container_id, overseer_respawn_count
+
+    try:
+        info = spawner.docker.get_container_info(overseer_container_id)
+        if info.status in (ContainerStatus.EXITED, ContainerStatus.FAILED):
+            pipeline_check = store.load_pipeline(pipeline_id)
+            if pipeline_check.status in (PipelineStatus.RUNNING, PipelineStatus.AWAITING_HUMAN):
+                logger.warning(
+                    "Overseer exited mid-pipeline, respawning",
+                    pipeline_id=pipeline_id,
+                    exit_code=info.exit_code,
+                    respawn_attempt=overseer_respawn_count + 1,
+                    max_respawns=max_overseer_respawns,
+                )
+                new_result = spawner.spawn_overseer_container(
+                    pipeline_id=pipeline_id,
+                    issue_number=pipeline.issue_number,
+                    mode=gateway_mode,
+                    poll_interval=pipeline.config.overseer_poll_interval_seconds,
+                    decision_model=pipeline.config.overseer_decision_maker_model,
+                    repos=pipeline_repos if pipeline_repos else None,
+                    certs_volume=certs_volume,
+                )
+                new_container_id = new_result.container_info.container_id
+                overseer_respawn_count += 1
+                logger.info(
+                    "Overseer respawned successfully",
+                    pipeline_id=pipeline_id,
+                    container_id=new_container_id[:12],
+                    respawn_attempt=overseer_respawn_count,
+                )
+                return new_container_id, overseer_respawn_count
+    except Exception as respawn_err:
+        logger.warning(
+            "Overseer liveness check error",
+            pipeline_id=pipeline_id,
+            error=str(respawn_err),
+        )
+
+    return overseer_container_id, overseer_respawn_count
+
+
 # Base directory where the gateway creates per-pipeline worktrees.
 # Must match the gateway's WORKTREE_BASE_DIR and docker-compose volume mounts.
 WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
@@ -5205,45 +5266,18 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         )
 
                     # Check overseer liveness and respawn if it exited mid-pipeline
-                    if overseer_container_id and overseer_respawn_count < max_overseer_respawns:
-                        try:
-                            info = spawner.docker_client.get_container_info(overseer_container_id)
-                            if info.status in (
-                                ContainerStatus.EXITED,
-                                ContainerStatus.FAILED,
-                            ):
-                                pipeline_check = store.load_pipeline(pipeline_id)
-                                if pipeline_check.status == PipelineStatus.RUNNING:
-                                    overseer_respawn_count += 1
-                                    logger.warning(
-                                        "Overseer exited mid-pipeline, respawning",
-                                        pipeline_id=pipeline_id,
-                                        exit_code=info.exit_code,
-                                        respawn_attempt=overseer_respawn_count,
-                                        max_respawns=max_overseer_respawns,
-                                    )
-                                    new_result = spawner.spawn_overseer_container(
-                                        pipeline_id=pipeline_id,
-                                        issue_number=pipeline.issue_number,
-                                        mode=gateway_mode,
-                                        poll_interval=pipeline.config.overseer_poll_interval_seconds,
-                                        decision_model=pipeline.config.overseer_decision_maker_model,
-                                        repos=pipeline_repos if pipeline_repos else None,
-                                        certs_volume=certs_volume,
-                                    )
-                                    overseer_container_id = new_result.container_info.container_id
-                                    logger.info(
-                                        "Overseer respawned successfully",
-                                        pipeline_id=pipeline_id,
-                                        container_id=overseer_container_id[:12],
-                                        respawn_attempt=overseer_respawn_count,
-                                    )
-                        except Exception as respawn_err:
-                            logger.debug(
-                                "Overseer liveness check error",
-                                pipeline_id=pipeline_id,
-                                error=str(respawn_err),
-                            )
+                    overseer_container_id, overseer_respawn_count = _check_and_respawn_overseer(
+                        spawner=spawner,
+                        store=store,
+                        pipeline_id=pipeline_id,
+                        pipeline=pipeline,
+                        overseer_container_id=overseer_container_id,
+                        overseer_respawn_count=overseer_respawn_count,
+                        max_overseer_respawns=max_overseer_respawns,
+                        gateway_mode=gateway_mode,
+                        pipeline_repos=pipeline_repos,
+                        certs_volume=certs_volume,
+                    )
 
                     stop_event.wait(interval)
 
