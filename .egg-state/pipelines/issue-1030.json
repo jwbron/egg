@@ -4,7 +4,7 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1030",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -53,10 +53,10 @@
         {
           "container_id": "da2ac484d93d6612234b4a3039310673241a7ce2faa9509bf0763baf425b944d",
           "container_name": "issue-1030-reviewer_refine",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-03-17T18:00:25.162752",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-17T18:09:59.439500Z",
+          "exit_code": 143,
           "agent_role": "reviewer_refine",
           "session_token": null
         },
@@ -127,9 +127,9 @@
   },
   "decisions": [],
   "created_at": "2026-03-17T17:59:56.261031",
-  "updated_at": "2026-03-17T18:09:59.836669",
+  "updated_at": "2026-03-17T18:10:08.253971",
   "contract_synced": true,
   "network_mode": null,
-  "error": null,
-  "version": 9
+  "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
+  "version": 10
 }
