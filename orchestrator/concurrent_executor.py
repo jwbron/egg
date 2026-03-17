@@ -354,7 +354,38 @@ class ConcurrentPhaseExecutor:
                     pipeline_id=self.pipeline.id,
                 )
         if tracker:
-            return tracker.evaluate()
+            result = tracker.evaluate()
+            # Message-bus fallback: if reconstruction produced a tracker but
+            # evaluate() says not complete, check the message store directly.
+            # This handles the case where reconstruction replayed into an empty
+            # tracker state (RC1/RC5) but all roles have CONFIRMED messages.
+            if not result.get("is_complete"):
+                try:
+                    from message_store import get_message_store
+
+                    store = get_message_store()
+                    messages = store.get_messages(self.pipeline.id, limit=10000)
+                    confirmed_roles = {
+                        m.from_role
+                        for m in messages
+                        if m.message_type == "CONSENSUS_CONFIRMED"
+                    }
+                    all_roles = tracker.graph.all_roles()
+                    if all_roles and all_roles.issubset(confirmed_roles):
+                        logger.info(
+                            "All roles confirmed via message bus fallback",
+                            pipeline_id=self.pipeline.id,
+                            confirmed_roles=sorted(confirmed_roles),
+                        )
+                        result["is_complete"] = True
+                        result["fallback"] = "message_bus"
+                except Exception as e:
+                    logger.warning(
+                        "Message-bus fallback in check_consensus failed",
+                        pipeline_id=self.pipeline.id,
+                        error=str(e),
+                    )
+            return result
         return {"is_complete": False, "blocking_agents": [], "has_objections": False, "agents": {}}
 
 

@@ -999,7 +999,82 @@ def handle_consensus_confirmed_signal(
 
     tracker = get_peer_consensus_tracker(pipeline_id)
     if not tracker:
-        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+        # Attempt reconstruction from message store before returning 404
+        try:
+            from peer_consensus import reconstruct_tracker_from_messages
+            from review_graph import get_review_graph_for_phase
+
+            # Determine phase and repo from pipeline state if available
+            _phase = "implement"
+            _repo = None
+            try:
+                from pipeline_state import get_pipeline_state_store
+                _store = get_pipeline_state_store()
+                _pip = _store.load_pipeline(pipeline_id)
+                _phase = _pip.current_phase.value
+                _repo = getattr(_pip.config, "repo", None)
+            except Exception:
+                pass
+
+            graph = get_review_graph_for_phase(_phase, repo=_repo)
+            tracker = reconstruct_tracker_from_messages(pipeline_id, graph)
+        except Exception as recon_err:
+            logger.warning(
+                "Tracker reconstruction failed in confirmed handler",
+                pipeline_id=pipeline_id,
+                error=str(recon_err),
+            )
+
+        if not tracker:
+            # Message-bus authoritative fallback: if all expected roles have
+            # CONSENSUS_CONFIRMED messages, accept the confirmation directly.
+            try:
+                from message_store import Message, MessageType, get_message_store
+                from review_graph import get_review_graph_for_phase
+
+                store = get_message_store()
+                messages = store.get_messages(pipeline_id, limit=10000)
+                confirmed_roles = {
+                    m.from_role
+                    for m in messages
+                    if m.message_type == "CONSENSUS_CONFIRMED"
+                }
+                # Agent sending this signal is also confirming
+                confirmed_roles.add(agent_role)
+
+                graph = get_review_graph_for_phase(_phase, repo=_repo)
+                all_roles = graph.all_roles()
+
+                if all_roles and all_roles.issubset(confirmed_roles):
+                    logger.info(
+                        "All roles confirmed via message bus (tracker lost)",
+                        pipeline_id=pipeline_id,
+                        confirmed_roles=sorted(confirmed_roles),
+                    )
+                    # Write the CONSENSUS_CONFIRMED message
+                    store.add_message(
+                        Message(
+                            pipeline_id=pipeline_id,
+                            from_role=agent_role,
+                            to_role="all",
+                            message_type=MessageType.CONSENSUS_CONFIRMED,
+                            subject=f"Confirmed by {agent_role}",
+                            body="",
+                            metadata={"consensus_reached": True, "fallback": "message_bus"},
+                        )
+                    )
+                    return make_success_response(
+                        f"Confirmation recorded for {agent_role} (message-bus fallback)",
+                        data={"status": "confirmed", "consensus_reached": True, "fallback": "message_bus"},
+                    )
+            except Exception as fallback_err:
+                logger.warning(
+                    "Message-bus fallback failed in confirmed handler",
+                    pipeline_id=pipeline_id,
+                    error=str(fallback_err),
+                )
+
+            return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
 
     try:
         result = tracker.handle_confirmed(agent_role)

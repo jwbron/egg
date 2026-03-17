@@ -105,6 +105,36 @@ class ReviewGraph:
                 return e
         return None
 
+    def demote_edges_for_reviewer(
+        self, reviewer: str, new_criticality: "ReviewCriticality | None" = None,
+    ) -> list[str]:
+        """Demote all CRITICAL edges for a reviewer to a new criticality.
+
+        Args:
+            reviewer: Reviewer role whose edges should be demoted.
+            new_criticality: Target criticality (defaults to ADVISORY).
+
+        Returns:
+            List of producer roles whose edges were demoted.
+        """
+        if new_criticality is None:
+            new_criticality = ReviewCriticality.ADVISORY
+        demoted: list[str] = []
+        new_edges: list[ReviewEdge] = []
+        for e in self._edges:
+            if (
+                e.reviewer_role == reviewer
+                and e.criticality == ReviewCriticality.CRITICAL
+            ):
+                new_edges.append(
+                    ReviewEdge(e.reviewer_role, e.producer_role, new_criticality)
+                )
+                demoted.append(e.producer_role)
+            else:
+                new_edges.append(e)
+        self._edges = new_edges
+        return demoted
+
     def remove_edge(self, reviewer: str, producer: str) -> bool:
         """Remove a review edge. Returns True if edge was found and removed."""
         for i, e in enumerate(self._edges):

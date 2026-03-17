@@ -1596,3 +1596,166 @@ class TestReconstructTrackerFromMessages:
         assert tracker is not None
         state = tracker.evaluate()
         assert state["agents"]["coder"]["producer_phase"] == "PROPOSED"
+
+
+class TestACKGuardErrorMessage:
+    """Test that ACK guard error includes explicit guidance (RC2)."""
+
+    def test_ack_guard_includes_confirmed_guidance(self, tracker):
+        """Error message should tell the agent to call confirmed."""
+        tracker.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
+
+        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
+        tracker.handle_ack("reviewer_contract", "coder", {"artifact_references": ["a.py"]})
+
+        # Re-proposing when fully ACKed should raise with clear guidance
+        with pytest.raises(ValueError, match="egg-orch consensus confirmed"):
+            tracker.handle_propose("coder", {"summary": "v2", "artifacts": ["a.py"]})
+
+
+class TestStallDemotion:
+    """Test stall demotion for dual-role agents (RC3)."""
+
+    @pytest.fixture
+    def dual_role_graph(self):
+        """Graph where tester is both producer and reviewer (dual-role)."""
+        return ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("tester", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_code", "tester", ReviewCriticality.ADVISORY),
+            ]
+        )
+
+    @pytest.fixture
+    def dual_tracker(self, dual_role_graph):
+        """Tracker with dual-role tester."""
+        t = PeerConsensusTracker("test-stall", dual_role_graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("tester")
+        t.register_agent("reviewer_code")
+        return t
+
+    def test_stall_demotion_changes_edge_to_advisory(self, dual_tracker):
+        """Demoting a stalled dual-role agent should make its edges advisory."""
+        assert dual_tracker.graph.is_dual_role("tester")
+
+        result = dual_tracker.handle_stall_demotion(
+            "tester", reason="Missed heartbeats for 300s"
+        )
+
+        assert result["action"] == "demoted"
+        assert "coder" in result["demoted_producers"]
+
+        # Edge should now be advisory, not critical
+        critical = dual_tracker.graph.critical_reviewers_for("coder")
+        assert "tester" not in critical
+        advisory = dual_tracker.graph.advisory_reviewers_for("coder")
+        assert "tester" in advisory
+
+    def test_stall_demotion_non_reviewer_raises(self, dual_tracker):
+        """Demoting a non-reviewer should raise."""
+        with pytest.raises(ValueError, match="not a reviewer"):
+            dual_tracker.handle_stall_demotion("nonexistent", reason="test")
+
+    def test_stall_demotion_allows_consensus_without_stalled_ack(self, dual_tracker):
+        """After demotion, consensus should proceed without the stalled agent's ACK."""
+        dual_tracker.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
+
+        # reviewer_code ACKs coder, but tester (stalled) does not ACK
+        dual_tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
+
+        # Without demotion, coder is NOT fully acked (tester is critical)
+        assert not dual_tracker.matrix.is_fully_acked("coder")
+
+        # Demote tester
+        dual_tracker.handle_stall_demotion("tester", reason="stalled")
+
+        # Now coder should be fully acked (tester is advisory)
+        assert dual_tracker.matrix.is_fully_acked("coder")
+
+
+class TestReconstructTrackerConfirmedReplay:
+    """Test tracker reconstruction replays CONFIRMED messages correctly (RC5)."""
+
+    def test_reconstruct_with_confirmed_replay(self, simple_graph):
+        """Reconstructed tracker should mark agents as confirmed."""
+        from datetime import datetime, timedelta
+
+        base = datetime(2024, 1, 1)
+
+        messages = [
+            _FakeMessage(
+                message_type="CONSENSUS_PROPOSE",
+                from_role="coder",
+                body="proposal",
+                metadata={"payload": {"summary": "impl", "artifacts": ["a.py"]}},
+                timestamp=base + timedelta(seconds=1),
+            ),
+            _FakeMessage(
+                message_type="CONSENSUS_ACK",
+                from_role="reviewer_code",
+                to_role="coder",
+                body="lgtm",
+                metadata={"payload": {"reason": "good", "artifact_references": ["a.py"]}},
+                timestamp=base + timedelta(seconds=2),
+            ),
+            _FakeMessage(
+                message_type="CONSENSUS_ACK",
+                from_role="reviewer_contract",
+                to_role="coder",
+                body="lgtm",
+                metadata={"payload": {"reason": "good", "artifact_references": ["a.py"]}},
+                timestamp=base + timedelta(seconds=3),
+            ),
+            _FakeMessage(
+                message_type="CONSENSUS_PROPOSE",
+                from_role="tester",
+                body="test results",
+                metadata={"payload": {"summary": "tests", "artifacts": ["test.py"]}},
+                timestamp=base + timedelta(seconds=4),
+            ),
+            _FakeMessage(
+                message_type="CONSENSUS_ACK",
+                from_role="reviewer_code",
+                to_role="tester",
+                body="lgtm",
+                metadata={"payload": {"reason": "good", "artifact_references": ["test.py"]}},
+                timestamp=base + timedelta(seconds=5),
+            ),
+            # Confirmed messages
+            _FakeMessage(
+                message_type="CONSENSUS_CONFIRMED",
+                from_role="coder",
+                timestamp=base + timedelta(seconds=6),
+            ),
+            _FakeMessage(
+                message_type="CONSENSUS_CONFIRMED",
+                from_role="reviewer_code",
+                timestamp=base + timedelta(seconds=7),
+            ),
+            _FakeMessage(
+                message_type="CONSENSUS_CONFIRMED",
+                from_role="reviewer_contract",
+                timestamp=base + timedelta(seconds=8),
+            ),
+            _FakeMessage(
+                message_type="CONSENSUS_CONFIRMED",
+                from_role="tester",
+                timestamp=base + timedelta(seconds=9),
+            ),
+        ]
+
+        store = _FakeMessageStore(messages)
+        try:
+            tracker = reconstruct_tracker_from_messages(
+                "test-rc5", simple_graph, message_store=store
+            )
+            assert tracker is not None
+            state = tracker.evaluate()
+            # All agents confirmed — consensus should be complete
+            assert state["is_complete"] is True
+            assert len(state["blocking_agents"]) == 0
+        finally:
+            with _trackers_lock:
+                _trackers.pop("test-rc5", None)

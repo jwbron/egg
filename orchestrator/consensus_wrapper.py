@@ -36,6 +36,13 @@ _RECOVERY_SYSTEM_PROMPT = (
     "## Current BRC state\n\n"
     "{brc_state}\n\n"
     "{nack_feedback}"
+    "## Empty state recovery\n\n"
+    "If BRC state is empty (`{{}}`), the in-memory tracker was likely lost "
+    "(e.g. orchestrator restart). In this case:\n"
+    "1. Run `egg-orch consensus status` to check if state was reconstructed.\n"
+    "2. If you are already fully ACKed, call `egg-orch consensus confirmed` "
+    "to re-confirm.\n"
+    "3. If already confirmed, stay alive and poll — do NOT re-propose.\n\n"
     "## Required actions\n\n"
     "1. Check consensus status: `egg-orch consensus status`\n"
     "2. Poll for messages: `egg-orch message poll --wait 30`\n"
@@ -43,7 +50,9 @@ _RECOVERY_SYSTEM_PROMPT = (
     "   - **Producer**: If you received NACKs, address the reviewer feedback, "
     "revise your work, and re-propose (`egg-orch consensus propose`). "
     "If WORKING, complete work and propose. "
-    "If PROPOSED, check for ACKs/NACKs and respond. If all ACKed, confirm.\n"
+    "If PROPOSED, check for ACKs/NACKs and respond. If all ACKed, confirm "
+    "(`egg-orch consensus confirmed`). "
+    "**Do NOT re-propose if already fully ACKed** — call confirmed instead.\n"
     "   - **Reviewer**: Check for proposals from assigned producers. Review "
     "artifacts in git, then ACK (`egg-orch consensus ack <role>`) or "
     'NACK (`egg-orch consensus nack <role> --reason "..."`).\n'
@@ -156,20 +165,30 @@ fi
 
 # Check if this agent already reached CONFIRMED state (BRC protocol)
 AGENT_ROLE="${{EGG_AGENT_ROLE:-}}"
-if [ -n "$AGENT_ROLE" ]; then
-    AGENT_CONFIRMED=$(get_agent_confirmed "$RESPONSE" "$AGENT_ROLE")
+
+# Shell function: check if agent is confirmed (via tracker or message bus)
+# and wait for global consensus. Exits 0 if consensus reached.
+# Returns 0 if agent is confirmed (caller should not restart).
+# Returns 1 if agent is NOT confirmed (caller should continue to restart loop).
+check_confirmed_and_wait() {{
+    local response="$1"
+    local agent_role="$2"
+    local agent_confirmed
+    agent_confirmed=$(get_agent_confirmed "$response" "$agent_role")
 
     # Message bus fallback: if pipeline status returned empty consensus state
     # (e.g. after orchestrator restart lost in-memory tracker), check the
     # message store directly for our own CONSENSUS_CONFIRMED message.
-    if [ "$AGENT_CONFIRMED" != "True" ]; then
-        AGENTS_EMPTY=$(echo "$RESPONSE" | python3 -c \
+    if [ "$agent_confirmed" != "True" ]; then
+        local agents_empty
+        agents_empty=$(echo "$response" | python3 -c \
             "import sys,json; d=json.load(sys.stdin); agents=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}); print('True' if not agents else 'False')" \
             2>/dev/null || echo "False")
-        if [ "$AGENTS_EMPTY" = "True" ]; then
+        if [ "$agents_empty" = "True" ]; then
             cw_log "Consensus state empty (tracker lost?). Checking message bus..."
-            MSG_RESPONSE=$(egg-orch message poll --json --limit 1000 2>/dev/null || echo "[]")
-            CONFIRMED_VIA_MSG=$(echo "$MSG_RESPONSE" | python3 -c "
+            local msg_response confirmed_via_msg
+            msg_response=$(egg-orch message poll --json --limit 1000 2>/dev/null || echo "[]")
+            confirmed_via_msg=$(echo "$msg_response" | python3 -c "
 import sys, json
 role = sys.argv[1]
 try:
@@ -183,26 +202,28 @@ try:
     print('True' if found else 'False')
 except Exception:
     print('False')
-" "$AGENT_ROLE" 2>/dev/null || echo "False")
-            if [ "$CONFIRMED_VIA_MSG" = "True" ]; then
+" "$agent_role" 2>/dev/null || echo "False")
+            if [ "$confirmed_via_msg" = "True" ]; then
                 cw_log "Found own CONSENSUS_CONFIRMED in message bus. Already confirmed."
-                AGENT_CONFIRMED="True"
+                agent_confirmed="True"
             fi
         fi
     fi
 
-    if [ "$AGENT_CONFIRMED" = "True" ]; then
+    if [ "$agent_confirmed" = "True" ]; then
         cw_log "Agent already CONFIRMED in BRC protocol. Waiting for consensus..."
-        POLL_INTERVAL="${{EGG_MESSAGE_POLL_INTERVAL:-30}}"
-        WAIT_COUNT=0
-        while [ "$WAIT_COUNT" -lt "$MAX_READY_POLLS" ]; do
-            WAIT_COUNT=$((WAIT_COUNT + 1))
-            sleep "$POLL_INTERVAL"
-            RESPONSE=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
-            IS_COMPLETE=$(echo "$RESPONSE" | python3 -c \
+        local poll_interval wait_count
+        poll_interval="${{EGG_MESSAGE_POLL_INTERVAL:-30}}"
+        wait_count=0
+        while [ "$wait_count" -lt "$MAX_READY_POLLS" ]; do
+            wait_count=$((wait_count + 1))
+            sleep "$poll_interval"
+            local resp is_complete
+            resp=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
+            is_complete=$(echo "$resp" | python3 -c \
                 "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('is_complete',False))" \
                 2>/dev/null || echo "False")
-            if [ "$IS_COMPLETE" = "True" ]; then
+            if [ "$is_complete" = "True" ]; then
                 cw_log "Consensus reached. Exiting."
                 exit 0
             fi
@@ -210,6 +231,12 @@ except Exception:
         cw_log "Agent was CONFIRMED but consensus not reached. Exiting cleanly."
         exit 0
     fi
+
+    return 1
+}}
+
+if [ -n "$AGENT_ROLE" ]; then
+    check_confirmed_and_wait "$RESPONSE" "$AGENT_ROLE" || true
 fi
 
 # --- Restart loop for clean exits without BRC consensus ---
@@ -223,6 +250,12 @@ while [ "$RESTART_COUNT" -lt "$MAX_RESTARTS" ]; do
     NACK_FEEDBACK=""
     if [ -n "$AGENT_ROLE" ]; then
         BRC_STATE=$(get_brc_state "$RESPONSE" "$AGENT_ROLE")
+        # RC1: When BRC state is empty (tracker lost), query consensus status
+        # directly for better recovery context.
+        if [ "$BRC_STATE" = "{{}}" ]; then
+            CONSENSUS_STATUS=$(egg-orch consensus status --json 2>/dev/null || echo "{{}}")
+            BRC_STATE="Empty (tracker likely lost). Consensus status: $CONSENSUS_STATUS"
+        fi
         NACK_FEEDBACK=$(get_nack_feedback "$RESPONSE" "$AGENT_ROLE")
     fi
 
@@ -262,6 +295,13 @@ sys.stdout.write(re.sub(r"\{{(\w+)\}}", lambda x: m.get(x.group(1), x.group(0)),
     if [ "$IS_COMPLETE" = "True" ]; then
         cw_log "Consensus reached after restart $RESTART_COUNT. Exiting."
         exit 0
+    fi
+
+    # RC4: After restart, check if this agent reached CONFIRMED state.
+    # If so, enter the wait-for-consensus polling loop instead of
+    # burning another restart on a pointless re-run.
+    if [ -n "$AGENT_ROLE" ]; then
+        check_confirmed_and_wait "$RESPONSE" "$AGENT_ROLE" || true
     fi
 done
 

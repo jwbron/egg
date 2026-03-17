@@ -140,7 +140,9 @@ class PeerConsensusTracker:
             raise ValueError(
                 f"Producer {agent_role} is already fully ACKed "
                 f"(v{self.matrix.get_proposal_version(agent_role)}). "
-                f"Call confirmed instead of re-proposing."
+                f"Call `egg-orch consensus confirmed` instead of re-proposing. "
+                f"Re-proposing when fully ACKed is not allowed — confirm to "
+                f"complete the BRC protocol."
             )
 
         # Validate payload
@@ -523,6 +525,56 @@ class PeerConsensusTracker:
                     }
 
             return {"action": "continue", "crashed_role": role}
+
+    def handle_stall_demotion(self, role: str, reason: str) -> dict[str, Any]:
+        """Demote a stalled dual-role agent's review edges to ADVISORY.
+
+        When a dual-role agent (e.g. tester) stalls, its pending reviewer
+        assignments should not block other agents from reaching consensus.
+        This demotes all CRITICAL edges where the stalled agent is a reviewer
+        to ADVISORY, allowing consensus to proceed without its ACK.
+
+        Args:
+            role: The stalled agent's role.
+            reason: Why the agent is being demoted (e.g. "missed heartbeats for 5+ minutes").
+
+        Returns:
+            Dict with action taken and affected producers.
+
+        Raises:
+            ValueError: If the role is not a dual-role agent or not a reviewer.
+        """
+        with self._lock:
+            if not self.graph.is_reviewer(role):
+                raise ValueError(f"Cannot demote '{role}': not a reviewer in the review graph")
+
+            demoted_edges = self.graph.demote_edges_for_reviewer(role)
+
+            if demoted_edges:
+                emit_event(
+                    EventType.CONSENSUS_FAILURE,
+                    self.pipeline_id,
+                    data={
+                        "type": "stall_demotion",
+                        "role": role,
+                        "reason": reason,
+                        "demoted_producers": demoted_edges,
+                    },
+                )
+                logger.info(
+                    "Demoted stalled reviewer edges to advisory",
+                    role=role,
+                    reason=reason,
+                    demoted_producers=demoted_edges,
+                    pipeline_id=self.pipeline_id,
+                )
+
+            return {
+                "action": "demoted",
+                "role": role,
+                "reason": reason,
+                "demoted_producers": demoted_edges,
+            }
 
     def excuse_reviewer(self, role: str) -> dict[str, Any]:
         """Remove a reviewer from the review graph (HITL-gated).
