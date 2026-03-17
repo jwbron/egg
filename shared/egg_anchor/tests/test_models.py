@@ -1,6 +1,7 @@
 """Tests for agent anchor Pydantic models."""
 
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -17,9 +18,9 @@ from egg_anchor.models import (
 )
 
 
-def _make_meta(**overrides):
+def _make_meta(**overrides: Any) -> AnchorMeta:
     """Create an AnchorMeta with defaults."""
-    defaults = {
+    defaults: dict[str, Any] = {
         "schema_version": "1.0",
         "created_at": datetime(2026, 3, 17, 10, 0, 0, tzinfo=UTC),
         "updated_at": datetime(2026, 3, 17, 10, 0, 0, tzinfo=UTC),
@@ -29,7 +30,7 @@ def _make_meta(**overrides):
     return AnchorMeta(**defaults)
 
 
-def _make_anchor(**overrides):
+def _make_anchor(**overrides: Any) -> AgentAnchor:
     """Create a minimal valid AgentAnchor with defaults."""
     now = datetime(2026, 3, 17, 10, 0, 0, tzinfo=UTC)
     defaults = {
@@ -95,9 +96,9 @@ class TestEnums:
         }
 
     def test_enum_string_values(self):
-        assert AnchorStatus.WORKING == "working"
-        assert BRCPhase.ORIENT == "orient"
-        assert ProgressState.COMPLETE == "complete"
+        assert AnchorStatus.WORKING.value == "working"
+        assert BRCPhase.ORIENT.value == "orient"
+        assert ProgressState.COMPLETE.value == "complete"
 
 
 class TestAnchorMeta:
