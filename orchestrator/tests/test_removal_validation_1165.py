@@ -85,8 +85,8 @@ class TestDeletedFiles:
     @pytest.mark.parametrize(
         "relative_path",
         [
-            "sandbox/.claude/rules/integrator.md",
-            "sandbox/.claude/commands/integrator-mode.md",
+            "sandbox/agent-config/rules/integrator.md",
+            "sandbox/agent-config/commands/integrator-mode.md",
             "docs/reference/integrator-agent.md",
             "docs/guides/tier3-dispatch.md",
         ],

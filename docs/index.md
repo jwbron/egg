@@ -98,7 +98,7 @@ Each major component has detailed documentation:
 | [Configuration](../config/README.md) | `config/` | Repository and host configuration |
 | [CLI Entry Points](../bin/README.md) | `bin/` | `egg` and `egg-sdlc` commands |
 | [GitHub Action](../action/README.md) | `action/` | Composite action for GitHub Actions |
-| [Claude Code Config](../sandbox/.claude/README.md) | `sandbox/.claude/` | Agent rules and slash commands |
+| [Claude Code Config](../sandbox/agent-config/README.md) | `sandbox/agent-config/` | Agent rules and slash commands |
 
 ## Task-Specific Guides
 

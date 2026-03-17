@@ -44,6 +44,7 @@ class DockerClaudeVisitor(ast.NodeVisitor):
         self.source_lines = source_lines
         self.docker_run_lines: list[tuple[int, str]] = []
         self.claude_cli_lines: list[tuple[int, str]] = []
+        self.claude_print_lines: list[tuple[int, str]] = []
         self.dangerous_flag_lines: list[tuple[int, str]] = []
         self.shell_string_lines: list[tuple[int, str]] = []
 
@@ -134,7 +135,11 @@ class DockerClaudeVisitor(ast.NodeVisitor):
             self.shell_string_lines.append(
                 (node.lineno, "shell=True string: docker run (use list form)")
             )
-        if re.search(r"\bclaude\s+-", cmd):
+        if re.search(r"\bclaude\s+.*--print\b", cmd):
+            self.shell_string_lines.append(
+                (node.lineno, "shell=True string: claude --print (use Agent SDK instead)")
+            )
+        elif re.search(r"\bclaude\s+-", cmd):
             self.shell_string_lines.append(
                 (node.lineno, "shell=True string: claude CLI (use list form)")
             )
@@ -174,18 +179,32 @@ class DockerClaudeVisitor(ast.NodeVisitor):
         # Check 3: claude CLI detection — "claude" as first command element
         if elts[0] == "claude":
             if not self._has_noqa(node.lineno):
-                self.claude_cli_lines.append((node.lineno, 'subprocess call: "claude" CLI'))
+                # Check specifically for --print flag (should use Agent SDK)
+                if "--print" in elts:
+                    self.claude_print_lines.append(
+                        (node.lineno, '"claude --print" must use Agent SDK instead')
+                    )
+                else:
+                    self.claude_cli_lines.append((node.lineno, 'subprocess call: "claude" CLI'))
 
         # Also detect claude embedded in docker run commands
         # e.g. ["docker", "run", ..., "image", "claude", "--print", ...]
         # Only detect if "claude" is a standalone element (not part of an env var like CLAUDE_KEY=abc)
         if elts[0] == "docker" and elts[1] == "run":
-            for elt in elts[2:]:
+            for i_elt, elt in enumerate(elts[2:], start=2):
                 if elt == "claude":
                     if not self._has_noqa(node.lineno):
-                        self.claude_cli_lines.append(
-                            (node.lineno, 'docker run with embedded "claude" CLI')
-                        )
+                        if "--print" in elts[i_elt + 1 :]:
+                            self.claude_print_lines.append(
+                                (
+                                    node.lineno,
+                                    'docker run with "claude --print" must use Agent SDK',
+                                )
+                            )
+                        else:
+                            self.claude_cli_lines.append(
+                                (node.lineno, 'docker run with embedded "claude" CLI')
+                            )
                     break
 
         self.generic_visit(node)
@@ -213,19 +232,20 @@ def check_python_file(file_path: Path) -> DockerClaudeVisitor | None:
 
 def check_shell_file(
     file_path: Path,
-) -> tuple[list[tuple[int, str]], list[tuple[int, str]]]:
-    """Check a shell file for docker run and dangerous flags using regex.
+) -> tuple[list[tuple[int, str]], list[tuple[int, str]], list[tuple[int, str]]]:
+    """Check a shell file for docker run, claude --print, and dangerous flags.
 
-    Returns (docker_run_violations, dangerous_flag_violations).
+    Returns (docker_run_violations, dangerous_flag_violations, claude_print_violations).
     """
     docker_violations: list[tuple[int, str]] = []
     dangerous_violations: list[tuple[int, str]] = []
+    claude_print_violations: list[tuple[int, str]] = []
 
     try:
         content = file_path.read_text()
     except Exception as e:
         print(f"Warning: Could not read {file_path}: {e}", file=sys.stderr)
-        return docker_violations, dangerous_violations
+        return docker_violations, dangerous_violations, claude_print_violations
 
     lines = content.split("\n")
 
@@ -256,6 +276,12 @@ def check_shell_file(
         if re.search(r"docker\s+run\b", line):
             docker_violations.append((i, "shell command: docker run"))
 
+        # Detect claude --print in shell (should use Agent SDK)
+        if re.search(r"\bclaude\b.*\s--print\b", line):
+            claude_print_violations.append(
+                (i, "shell command: claude --print (use Agent SDK instead)")
+            )
+
         # Dangerous flags in shell
         if re.search(r"--privileged\b", line):
             dangerous_violations.append((i, "Dangerous flag: --privileged"))
@@ -266,7 +292,7 @@ def check_shell_file(
         if re.search(r"--ipc[\s=]+host\b", line):
             dangerous_violations.append((i, "Dangerous flag: --ipc host"))
 
-    return docker_violations, dangerous_violations
+    return docker_violations, dangerous_violations, claude_print_violations
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
@@ -304,6 +330,10 @@ def main() -> int:
         for lineno, desc in visitor.claude_cli_lines:
             file_violations.append((lineno, desc))
 
+        # claude --print detection (should use Agent SDK)
+        for lineno, desc in visitor.claude_print_lines:
+            file_violations.append((lineno, desc))
+
         # shell=True string bypasses
         for lineno, desc in visitor.shell_string_lines:
             file_violations.append((lineno, desc))
@@ -320,11 +350,12 @@ def main() -> int:
 
     for sh_file in sh_files:
         rel = str(sh_file.relative_to(repo_root))
-        docker_viols, danger_viols = check_shell_file(sh_file)
+        docker_viols, danger_viols, claude_print_viols = check_shell_file(sh_file)
 
         file_violations = []
         file_violations.extend(docker_viols)
         file_violations.extend(danger_viols)
+        file_violations.extend(claude_print_viols)
 
         if file_violations:
             all_violations.append((rel, file_violations))
@@ -352,6 +383,14 @@ def main() -> int:
         print("    # noqa: EGG100 - test helper container for network isolation tests")
         print("    # noqa: EGG100 - version check for Claude CLI")
         print("    # noqa: EGG100 - gateway container startup")
+        print()
+        print("  Approved Claude invocation paths:")
+        print("    1. Headless/autonomous agents: use Agent SDK (egg_agent package)")
+        print("       from egg_agent import build_agent_command, run_agent")
+        print("    2. Interactive sessions: use 'claude' CLI directly (no --print)")
+        print()
+        print("  'claude --print' is NOT an approved invocation path.")
+        print("  Use build_agent_command() or run_agent() from egg_agent instead.")
         print()
         print("  For sandbox containers, prefer build_sandbox_docker_cmd() from")
         print("  shared/egg_container instead of direct docker run calls.")

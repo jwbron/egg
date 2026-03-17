@@ -115,7 +115,7 @@ prompt=$(build_my_new_agent_prompt)
 
 ### Step 5: Create Mode File
 
-Create `sandbox/.claude/commands/my-new-agent-mode.md`:
+Create `sandbox/agent-config/commands/my-new-agent-mode.md`:
 
 ```markdown
 # My New Agent Mode

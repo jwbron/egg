@@ -279,11 +279,19 @@ def gha_exec() -> int:
     model = os.environ.get("INPUT_MODEL", "opus[1m]")
     timeout = int(os.environ.get("INPUT_TIMEOUT", "30"))
 
+    if not prompt.strip():
+        error(
+            "INPUT_PROMPT is required for GHA exec mode. "
+            "Long-running agents (e.g. overseer) should use the Agent SDK "
+            "via build_agent_command() instead of claude --print."
+        )
+        return 1
+
     # --max-turns 200: Ensure agent has enough turns to complete work and post
     # comments. Default (100) was observed to be insufficient for tasks requiring
     # codebase exploration + implementation + testing + comment posting.
     command = [
-        "claude",
+        "claude",  # noqa: EGG100 - GHA exec entry point for one-shot prompts
         "--dangerously-skip-permissions",
         "--print",
         "--verbose",

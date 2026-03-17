@@ -18,6 +18,7 @@ egg/
 ├── skills/                 # Claude Code skills (installed into sandbox at startup)
 ├── tests/                  # Unit tests
 ├── dev                     # Development CLI (setup, lint, test, ci)
+├── CLAUDE.md               # Agent navigation guide (Claude Code entry point)
 └── README.md
 ```
 
@@ -70,7 +71,8 @@ gateway/
 ├── Dockerfile              # Gateway container image
 ├── squid.conf              # Proxy config (private mode)
 ├── scripts/                # Gateway helper scripts
-└── tests/                  # Gateway tests (push-target enforcement, branch lock, 40+ files)
+├── tests/                  # Gateway tests (push-target enforcement, branch lock, 40+ files)
+└── CLAUDE.md               # Agent navigation guide
 ```
 
 ## Orchestrator Structure
@@ -146,7 +148,8 @@ orchestrator/
 ├── Dockerfile              # Orchestrator container image
 ├── entrypoint.sh           # Container entry point
 ├── requirements.txt        # Python dependencies
-└── tests/                  # Orchestrator tests (signal verification, worktree sync, health checks, 30+ files)
+├── tests/                  # Orchestrator tests (signal verification, worktree sync, health checks, 30+ files)
+└── CLAUDE.md               # Agent navigation guide
 ```
 
 ## Sandbox Structure
@@ -200,7 +203,8 @@ sandbox/
 ├── claude-commands/        # Custom slash commands
 ├── claude-rules/           # Agent behavior rules
 ├── scripts/                # Container helper scripts
-└── tests/                  # Sandbox tests (command timeout, test infrastructure)
+├── tests/                  # Sandbox tests (command timeout, test infrastructure)
+└── CLAUDE.md               # Agent navigation guide
 ```
 
 ## Shared Libraries
@@ -411,6 +415,7 @@ config/
 | Shell scripts | kebab-case | `entrypoint.sh`, `create-networks.sh` |
 | Config files | `.yaml` (not `.yml`) | `repositories.yaml` |
 | Documentation | UPPERCASE.md for guides, lowercase.md for READMEs | `STRUCTURE.md`, `README.md` |
+| Agent navigation | `CLAUDE.md` at component root | `gateway/CLAUDE.md`, `orchestrator/CLAUDE.md`, `sandbox/CLAUDE.md` |
 
 ## Documentation Organization
 
