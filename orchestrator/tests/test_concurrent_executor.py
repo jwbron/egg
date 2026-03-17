@@ -262,7 +262,8 @@ class TestRolesOverride:
 
             executor.spawn_all()
 
-            # Only 2 agents should be registered (coder + reviewer_code)
+            # Only 2 agents should be spawned and registered (coder + reviewer_code)
+            assert mock_spawn.call_count == 2
             assert mock_tracker_instance.register_agent.call_count == 2
             registered_roles = [
                 call.args[0] for call in mock_tracker_instance.register_agent.call_args_list

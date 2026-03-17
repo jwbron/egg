@@ -279,6 +279,12 @@ class TestImplementRolesValidator:
         with pytest.raises(ValueError, match="Invalid role names in implement_roles"):
             PipelineConfig(implement_roles=["fake_role"])
 
+    def test_empty_list_rejected(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="implement_roles cannot be empty"):
+            PipelineConfig(implement_roles=[])
+
 
 class TestPipeline:
     """Tests for Pipeline model."""

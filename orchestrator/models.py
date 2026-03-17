@@ -346,6 +346,8 @@ class PipelineConfig(BaseModel):
     @classmethod
     def validate_implement_roles(cls, v: list[str] | None) -> list[str] | None:
         if v is not None:
+            if not v:
+                raise ValueError("implement_roles cannot be empty — omit the field to use defaults")
             valid = {r.value for r in AgentRole}
             invalid = [name for name in v if name not in valid]
             if invalid:
