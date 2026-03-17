@@ -205,12 +205,29 @@
       "resolved_at": null,
       "resolution": null,
       "phase": "refine"
+    },
+    {
+      "id": "decision-6",
+      "question": "Compaction disable mechanism: The issue requires all agent containers to launch with compaction disabled. What is the specific mechanism for disabling compaction in the agent runtime (Claude Code)? Is --no-compact a real flag, or does it need to be implemented/configured differently?",
+      "context": "",
+      "options": [
+        "Use existing --no-compact flag",
+        "Configure via CLAUDE.md instruction",
+        "Implement custom compaction hook"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-03-17T04:42:24.493911",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine"
     }
   ],
   "created_at": "2026-03-17T04:34:43.565631",
-  "updated_at": "2026-03-17T04:42:24.349131",
+  "updated_at": "2026-03-17T04:42:24.495439",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 12
+  "version": 13
 }
