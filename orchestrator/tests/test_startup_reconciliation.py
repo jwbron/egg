@@ -292,14 +292,16 @@ class TestReconcileStaleContainers:
         assert dead_agent.status == AgentExecutionStatus.FAILED
 
     def test_reconciles_running_container_in_completed_phase(self):
-        """A RUNNING agent in a COMPLETE phase with a dead container is marked FAILED.
+        """A RUNNING agent in the current phase (marked COMPLETE) with a dead container is FAILED.
 
         Reviewers run inside phases already marked complete. The reconciler
-        must still scan completed phases for stale containers.
+        must still check the current phase even if its status is COMPLETE,
+        because reviewers may still have running containers.
         """
         container_id = "reviewer_dead_xyz"
         pipeline = _make_pipeline_with_running_agent(container_id)
         # Phase is complete, but reviewer container is still RUNNING
+        # current_phase is still IMPLEMENT (the phase being checked)
         phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         phase.status = PipelineStatus.COMPLETE
 
@@ -313,6 +315,143 @@ class TestReconcileStaleContainers:
         agent = phase.agents[0]
         assert agent.status == AgentExecutionStatus.FAILED
         assert agent.completed_at is not None
+
+    def test_dead_containers_in_prior_phase_not_marked_failed(self):
+        """Dead containers in a completed prior phase do NOT trigger FAILED.
+
+        When a pipeline has moved past a phase (e.g. refine → plan),
+        containers from the prior phase are intentionally terminated.
+        Only the current phase should be checked.
+        """
+        pipeline = Pipeline(
+            id="issue-200",
+            issue_number=200,
+            repo="owner/repo",
+            branch="egg/issue-200",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.PLAN,
+        )
+        # Prior phase (refine) has a dead container — expected after phase transition
+        refine_phase = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        refine_phase.status = PipelineStatus.COMPLETE
+        refine_phase.started_at = datetime.utcnow()
+        refine_phase.containers.append(
+            ContainerInfo(
+                container_id="refine_dead_abc",
+                container_name="egg-coder-refine",
+                status=ContainerStatus.RUNNING,
+                started_at=datetime.utcnow(),
+            )
+        )
+        refine_phase.agents.append(
+            AgentExecution(
+                role=AgentRole.CODER,
+                status=AgentExecutionStatus.RUNNING,
+                container_id="refine_dead_abc",
+                started_at=datetime.utcnow(),
+            )
+        )
+
+        # Current phase (plan) has a live container
+        plan_phase = pipeline.get_phase_execution(PipelinePhase.PLAN)
+        plan_phase.status = PipelineStatus.RUNNING
+        plan_phase.started_at = datetime.utcnow()
+        plan_phase.containers.append(
+            ContainerInfo(
+                container_id="plan_live_xyz",
+                container_name="egg-coder-plan",
+                status=ContainerStatus.RUNNING,
+                started_at=datetime.utcnow(),
+            )
+        )
+        plan_phase.agents.append(
+            AgentExecution(
+                role=AgentRole.CODER,
+                status=AgentExecutionStatus.RUNNING,
+                container_id="plan_live_xyz",
+                started_at=datetime.utcnow(),
+            )
+        )
+
+        store = _make_store(pipeline)
+        docker_client = _make_docker_client(["plan_live_xyz"])  # only plan container alive
+
+        result = reconcile_stale_containers(store, docker_client)
+
+        assert result == 0
+        assert pipeline.status == PipelineStatus.RUNNING
+        # Prior phase containers/agents are untouched
+        assert refine_phase.containers[0].status == ContainerStatus.RUNNING
+        assert refine_phase.agents[0].status == AgentExecutionStatus.RUNNING
+
+    def test_dead_containers_in_current_phase_marked_failed(self):
+        """Dead containers in the current phase DO trigger FAILED.
+
+        When the current phase has dead containers (both plan live and dead),
+        the pipeline should be marked FAILED.
+        """
+        pipeline = Pipeline(
+            id="issue-201",
+            issue_number=201,
+            repo="owner/repo",
+            branch="egg/issue-201",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.PLAN,
+        )
+        # Prior phase (refine) has a dead container — should be ignored
+        refine_phase = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        refine_phase.status = PipelineStatus.COMPLETE
+        refine_phase.started_at = datetime.utcnow()
+        refine_phase.containers.append(
+            ContainerInfo(
+                container_id="refine_dead_abc",
+                container_name="egg-coder-refine",
+                status=ContainerStatus.RUNNING,
+                started_at=datetime.utcnow(),
+            )
+        )
+        refine_phase.agents.append(
+            AgentExecution(
+                role=AgentRole.CODER,
+                status=AgentExecutionStatus.RUNNING,
+                container_id="refine_dead_abc",
+                started_at=datetime.utcnow(),
+            )
+        )
+
+        # Current phase (plan) has a dead container — should trigger FAILED
+        plan_phase = pipeline.get_phase_execution(PipelinePhase.PLAN)
+        plan_phase.status = PipelineStatus.RUNNING
+        plan_phase.started_at = datetime.utcnow()
+        plan_phase.containers.append(
+            ContainerInfo(
+                container_id="plan_dead_xyz",
+                container_name="egg-coder-plan",
+                status=ContainerStatus.RUNNING,
+                started_at=datetime.utcnow(),
+            )
+        )
+        plan_phase.agents.append(
+            AgentExecution(
+                role=AgentRole.CODER,
+                status=AgentExecutionStatus.RUNNING,
+                container_id="plan_dead_xyz",
+                started_at=datetime.utcnow(),
+            )
+        )
+
+        store = _make_store(pipeline)
+        docker_client = _make_docker_client([])  # no live containers
+
+        result = reconcile_stale_containers(store, docker_client)
+
+        assert result == 1
+        assert pipeline.status == PipelineStatus.FAILED
+        # Current phase containers/agents ARE marked failed
+        assert plan_phase.containers[0].status == ContainerStatus.FAILED
+        assert plan_phase.agents[0].status == AgentExecutionStatus.FAILED
 
 
 # ---------------------------------------------------------------------------
