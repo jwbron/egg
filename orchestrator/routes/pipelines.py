@@ -5265,7 +5265,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             error=str(poll_err),
                         )
 
-                    # Check overseer liveness and respawn if it exited mid-pipeline
+                    # Check overseer liveness and respawn if it exited mid-pipeline.
+                    # Note: `pipeline` is captured from initial load — config values
+                    # (poll_interval, decision_model, etc.) won't reflect mid-run changes.
+                    # This is fine because pipeline config is immutable after start.
                     overseer_container_id, overseer_respawn_count = _check_and_respawn_overseer(
                         spawner=spawner,
                         store=store,
