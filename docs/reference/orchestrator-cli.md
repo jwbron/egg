@@ -41,6 +41,11 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch progress emit --step <text> --state <working\|blocked\|complete> [--detail <text>] [--blocker <text>]` | Emit structured progress event |
 | `egg-orch progress query [--agent <role>] [--since <timestamp>] [--limit <n>]` | Query structured progress events |
 | `egg-orch health alerts [--pipeline <id>]` | List active deterministic health alerts |
+| `egg-orch anchor init --task <text>` | Create initial anchor for current agent |
+| `egg-orch anchor update [--status <s>] [--progress <json>] [--decision <json>] [--key-context <text>] [--error <text>] [--file <path>]` | Update agent anchor (atomic, all-or-nothing) |
+| `egg-orch anchor show [--agent <id>] [--team]` | Show own anchor, another agent's, or team anchor |
+| `egg-orch anchor validate` | Validate anchor schema and size limits |
+| `egg-orch anchor cleanup` | Remove orphaned anchor files |
 
 Pipeline ID can be omitted when `EGG_PIPELINE_ID` is set (auto-set in orchestrated mode).
 Agent role can be omitted when `EGG_AGENT_ROLE` is set.
@@ -58,6 +63,7 @@ Agent role can be omitted when `EGG_AGENT_ROLE` is set.
 | `GATEWAY_URL` | Gateway URL (default: `http://egg-gateway:9848`) |
 | `EGG_CONCURRENT_MODE` | `true` when running in concurrent execution mode |
 | `EGG_MESSAGE_POLL_INTERVAL` | Suggested message polling interval in seconds (default: 30) |
+| `AGENT_ANCHOR_ID` | Agent anchor ID (`{role}-{short_container_id}`), auto-set by container spawner |
 
 ## Common Workflows
 
@@ -91,6 +97,25 @@ egg-orch progress query --agent coder
 ```bash
 egg-orch health alerts
 egg-orch health alerts --pipeline issue-123
+```
+
+**Manage agent anchors (post-compaction recovery):**
+```bash
+# Initialize anchor for current task
+egg-orch anchor init --task "Fix auth bypass in gateway/auth.py"
+
+# Update anchor with progress, decisions, context
+egg-orch anchor update --status in_progress \
+  --progress '{"state":"current","description":"Fixing token validation"}' \
+  --decision '{"with_agent":"tester-def67890","decided":"Use parametrized tests"}'
+
+# View own anchor, another agent's, or team view
+egg-orch anchor show
+egg-orch anchor show --agent coder-abc12345
+egg-orch anchor show --team
+
+# Validate schema and size budget
+egg-orch anchor validate
 ```
 
 ## Related CLIs

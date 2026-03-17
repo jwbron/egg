@@ -56,6 +56,13 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
 - **checkpoint.md** - Checkpoint browser CLI commands
   - `egg-checkpoint` command reference (list, show, browse, context)
 
+### Recovery
+
+- **anchor-recovery.md** - Post-compaction recovery protocol
+  - How to restore working state from agent anchor after context clear
+  - Step-by-step: read anchor → catch up messages → verify files → resume
+  - Full guide: `$EGG_REPO_PATH/docs/guides/anchor-recovery.md`
+
 ## Design Principles
 
 - **Index, Don't Dump** - Rules are concise; detailed docs are referenced

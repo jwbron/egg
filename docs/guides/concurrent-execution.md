@@ -343,9 +343,28 @@ egg-orch progress emit --step "waiting for dependency" --state blocked --blocker
 
 Agents should emit progress at key milestones (starting/completing steps, encountering blockers, during long operations). See [Pipeline Health Monitoring](pipeline-health-monitoring.md) for the full structured progress API and health monitoring architecture.
 
+## Agent Anchors (Post-Compaction Recovery)
+
+In long-running concurrent sessions, agents may exhaust their context window. Rather than relying on lossy compaction, agents fully clear their context and reload from a structured **anchor file** that captures task progress, cross-agent decisions, BRC consensus state, and key context.
+
+Each agent maintains an anchor at `.egg-state/agent-anchors/<agent-id>.json`. The `brc_state` section mirrors `PeerConsensusTracker` state, enabling agents to re-enter the BRC protocol at the correct point after a context clear.
+
+```bash
+# Update anchor after a BRC state change
+egg-orch anchor update --status in_progress \
+  --progress '{"state":"current","description":"Responding to NACK feedback"}'
+
+# After context clear, recover and catch up
+egg-orch anchor show
+egg-orch message poll --since <last_message_id>
+```
+
+See [Anchor Recovery Guide](anchor-recovery.md) for the full recovery protocol.
+
 ## Related Documentation
 
 - [SDLC Pipeline Guide](sdlc-pipeline.md) — Standard wave-based execution
 - [Orchestrator Architecture](../architecture/orchestrator.md) — Deployment modes and API details
 - [Checkpoint Access](checkpoint-access.md) — Cross-agent checkpoint queries
 - [Pipeline Health Monitoring](pipeline-health-monitoring.md) — Two-tier health monitoring and structured progress
+- [Anchor Recovery Guide](anchor-recovery.md) — Agent post-compaction state recovery

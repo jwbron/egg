@@ -34,6 +34,44 @@ spawner.spawn_agent_container(..., command=cmd)
 - `result.py` — `AgentResult` dataclass
 - `__main__.py` — CLI entry point (`python3 -m egg_agent "prompt"`)
 
+### [egg_anchor](egg_anchor/README.md)
+
+Persistent anchor mechanism for agent post-compaction state recovery.
+
+- **Pydantic models** for anchor state (AgentAnchor, AnchorMeta, ProgressItem, Decision, BRCState)
+- **Atomic file I/O** with temp-file-then-rename pattern
+- **Schema validation** against JSON Schema with size budget enforcement
+- **API sync** helper for orchestrator Redis persistence
+
+```python
+from datetime import datetime, timezone
+from egg_anchor import AgentAnchor, AnchorMeta, TaskInfo
+from egg_anchor import load_anchor, save_anchor, validate_anchor
+from egg_anchor.models import AnchorStatus
+
+now = datetime.now(timezone.utc)
+
+# Create and save anchor atomically
+anchor = AgentAnchor(
+    _meta=AnchorMeta(schema_version="1.0", created_at=now, updated_at=now, sequence=0),
+    agent_id="coder-abc12345",
+    role="coder",
+    pipeline_id="issue-123",
+    task=TaskInfo(id="task-1-1", description="Fix auth bypass", phase="implement"),
+    status=AnchorStatus.WORKING,
+)
+save_anchor(anchor)
+
+# Validate schema and size limits
+errors = validate_anchor(anchor)
+```
+
+**Files:**
+- `models.py` — Pydantic models for anchor state
+- `loader.py` — Atomic read/write, API sync helper
+- `validator.py` — Schema validation, size budget enforcement
+- `constants.py` — Re-exports anchor constants from egg_config
+
 ### [egg_config](egg_config/README.md)
 
 Unified configuration framework for egg services.
