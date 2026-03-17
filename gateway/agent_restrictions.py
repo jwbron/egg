@@ -384,11 +384,33 @@ REVIEWER_CODE_PATTERNS = AgentFilePattern(
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
+# Contract reviewer needs write access to .egg-state/contracts/ to mark
+# items as done, so it uses custom lists that include/exclude contracts.
+_REVIEWER_CONTRACT_ALLOWED = [
+    ".egg-state/reviews/",
+    ".egg-state/agent-outputs/",
+    ".egg-state/contracts/",
+]
+
+_REVIEWER_CONTRACT_BLOCKED = [
+    "src/",
+    "lib/",
+    "shared/",
+    "gateway/",
+    "sandbox/",
+    "action/",
+    "docs/",
+    "tests/",
+    "test/",
+    ".egg-state/drafts/",
+    ".github/",
+]
+
 REVIEWER_CONTRACT_PATTERNS = AgentFilePattern(
     role=AgentRole.REVIEWER_CONTRACT,
-    description="Contract reviewer agent: reviews and agent-outputs only",
-    allowed_patterns=_REVIEWER_ALLOWED,
-    blocked_patterns=_REVIEWER_BLOCKED,
+    description="Contract reviewer agent: reviews, agent-outputs, and contracts",
+    allowed_patterns=_REVIEWER_CONTRACT_ALLOWED,
+    blocked_patterns=_REVIEWER_CONTRACT_BLOCKED,
 )
 
 REVIEWER_AGENT_DESIGN_PATTERNS = AgentFilePattern(

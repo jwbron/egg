@@ -942,6 +942,8 @@ class AgentExecution:
 
 
 # Phase-to-role mappings for multi-agent execution
+# Note: Utility roles (AUTOFIXER, CONFLICT_RESOLVER) and INSPECTOR are excluded
+# by design — they are spawned on-demand, not as part of standard phase execution.
 
 _PHASE_ROLES: dict[str, list[AgentRole]] = {
     "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER],

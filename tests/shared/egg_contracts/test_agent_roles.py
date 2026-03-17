@@ -91,7 +91,7 @@ class TestAgentRole:
     }
 
     def test_all_expected_roles_exist(self):
-        """All 15 expected roles should be present in the enum."""
+        """All 16 expected roles should be present in the enum."""
         actual = {r.value for r in AgentRole}
         assert self.EXPECTED_ROLES.issubset(actual), (
             f"Missing roles: {self.EXPECTED_ROLES - actual}"
@@ -695,6 +695,14 @@ class TestRoleSyncWithOrchestratorModels:
     backward compat).
     """
 
+    def test_orchestrator_models_imports_canonical(self):
+        """orchestrator.models.AgentRole should be the same class object."""
+        from orchestrator.models import AgentRole as OrchestratorAgentRole
+
+        assert OrchestratorAgentRole is AgentRole, (
+            "orchestrator.models.AgentRole is not imported from egg_contracts.agent_roles"
+        )
+
     def test_all_canonical_roles_in_orchestrator_models(self):
         """Every canonical AgentRole should exist in orchestrator models."""
         from models import AgentRole as OrchestratorAgentRole
@@ -709,6 +717,14 @@ class TestRoleSyncWithOrchestratorModels:
 
 class TestRoleSyncWithOrchestratorTypes:
     """Verify shared/egg_orchestrator/types.py AgentRole stays in sync."""
+
+    def test_egg_orchestrator_types_imports_canonical(self):
+        """egg_orchestrator.types.AgentRole should be the same class object."""
+        from egg_orchestrator.types import AgentRole as TypesAgentRole
+
+        assert TypesAgentRole is AgentRole, (
+            "egg_orchestrator.types.AgentRole is not imported from egg_contracts.agent_roles"
+        )
 
     def test_all_canonical_roles_in_types(self):
         """Every canonical AgentRole should exist in egg_orchestrator types."""
@@ -740,3 +756,53 @@ class TestRoleSyncWithGateway:
         assert not missing, (
             f"gateway/agent_restrictions.py AgentRole is missing constants: {missing}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Utility role file access and inspector
+# ---------------------------------------------------------------------------
+
+
+class TestUtilityRoleFileAccess:
+    """Verify file access patterns for AUTOFIXER and CONFLICT_RESOLVER."""
+
+    def test_autofixer_can_write_source(self):
+        """AUTOFIXER can write source and config files."""
+        defn = get_role_definition(AgentRole.AUTOFIXER)
+        fa = defn.file_access
+        assert fa.can_write("src/main.py")
+        assert fa.can_write("lib/utils.ts")
+        assert fa.can_write("config/settings.yml")
+
+    def test_autofixer_blocked_from_docs_and_contracts(self):
+        """AUTOFIXER blocked from docs and contracts."""
+        defn = get_role_definition(AgentRole.AUTOFIXER)
+        fa = defn.file_access
+        assert not fa.can_write("docs/guide.md")
+        assert not fa.can_write(".egg-state/contracts/123.json")
+
+    def test_autofixer_depends_on_coder(self):
+        """AUTOFIXER depends on CODER."""
+        defn = get_role_definition(AgentRole.AUTOFIXER)
+        assert AgentRole.CODER in defn.dependencies
+
+    def test_conflict_resolver_can_write_source_test_docs_config(self):
+        """CONFLICT_RESOLVER can write source, tests, docs, and config."""
+        defn = get_role_definition(AgentRole.CONFLICT_RESOLVER)
+        fa = defn.file_access
+        assert fa.can_write("src/main.py")
+        assert fa.can_write("tests/test_foo.py")
+        assert fa.can_write("docs/guide.md")
+        assert fa.can_write("config/settings.yml")
+
+    def test_conflict_resolver_blocked_from_egg_state(self):
+        """CONFLICT_RESOLVER blocked from .egg-state/ subdirs."""
+        defn = get_role_definition(AgentRole.CONFLICT_RESOLVER)
+        fa = defn.file_access
+        assert not fa.can_write(".egg-state/contracts/123.json")
+        assert not fa.can_write(".egg-state/pipelines/state.json")
+
+    def test_inspector_role_exists(self):
+        """INSPECTOR role exists with INTERFACE category."""
+        defn = get_role_definition(AgentRole.INSPECTOR)
+        assert defn.category == AgentCategory.INTERFACE

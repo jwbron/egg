@@ -238,7 +238,6 @@ class TestReviewerAgentPatterns:
     @pytest.fixture(
         params=[
             AgentRole.REVIEWER_CODE,
-            AgentRole.REVIEWER_CONTRACT,
             AgentRole.REVIEWER_AGENT_DESIGN,
             AgentRole.REVIEWER_REFINE,
             AgentRole.REVIEWER_PLAN,
@@ -265,6 +264,36 @@ class TestReviewerAgentPatterns:
 
     def test_blocked_from_contracts(self, pattern):
         assert pattern.can_write(".egg-state/contracts/contract.json") is False
+
+    def test_blocked_from_drafts(self, pattern):
+        assert pattern.can_write(".egg-state/drafts/draft.md") is False
+
+
+class TestReviewerContractPatterns:
+    """Contract reviewer has write access to .egg-state/contracts/."""
+
+    @pytest.fixture
+    def pattern(self):
+        return get_agent_pattern(AgentRole.REVIEWER_CONTRACT)
+
+    def test_can_write_reviews(self, pattern):
+        assert pattern.can_write(".egg-state/reviews/review.json") is True
+
+    def test_can_write_agent_outputs(self, pattern):
+        assert pattern.can_write(".egg-state/agent-outputs/output.json") is True
+
+    def test_can_write_contracts(self, pattern):
+        assert pattern.can_write(".egg-state/contracts/contract.json") is True
+
+    def test_blocked_from_source(self, pattern):
+        assert pattern.can_write("shared/module.py") is False
+        assert pattern.can_write("gateway/app.py") is False
+
+    def test_blocked_from_docs(self, pattern):
+        assert pattern.can_write("docs/guide.md") is False
+
+    def test_blocked_from_tests(self, pattern):
+        assert pattern.can_write("tests/test_foo.py") is False
 
     def test_blocked_from_drafts(self, pattern):
         assert pattern.can_write(".egg-state/drafts/draft.md") is False
