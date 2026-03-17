@@ -56,7 +56,9 @@ class WorktreeInfo:
     repo_name: str
     branch: str
     worktree_path: Path
-    git_dir: Path  # Path to worktree admin directory in .git/worktrees/
+    git_dir: (
+        Path | None
+    )  # Path to worktree admin directory in .git/worktrees/, or None if not found
     created_at: str | None = None
 
 
@@ -569,7 +571,7 @@ class WorktreeManager:
                 error=str(e),
             )
 
-    def _find_worktree_git_dir(self, main_repo: Path, worktree_path: Path) -> Path:
+    def _find_worktree_git_dir(self, main_repo: Path, worktree_path: Path) -> Path | None:
         """
         Find the git worktree admin directory.
 
@@ -587,11 +589,12 @@ class WorktreeManager:
             worktree_path: Path to worktree working directory
 
         Returns:
-            Path to worktree admin directory
+            Path to worktree admin directory, or None if no matching admin dir
+            was found.  Callers MUST handle None to avoid deleting an admin dir
+            that belongs to a different container.
         """
         worktrees_dir = main_repo / ".git" / "worktrees"
         basename = worktree_path.name
-        default_git_dir = worktrees_dir / basename
 
         # Scan all admin dirs and verify via gitdir file content.
         # Multiple worktrees can share the same basename (e.g., "egg",
@@ -615,7 +618,10 @@ class WorktreeManager:
                     except OSError:
                         continue
 
-        return default_git_dir  # Return expected path even if not found
+        # No admin dir matched this worktree.  Do NOT fall back to the
+        # default path — it may belong to a different container sharing the
+        # same basename.  See: https://github.com/jwbron/egg/issues/1245
+        return None
 
     def create_phase_worktree(
         self,
@@ -757,12 +763,17 @@ class WorktreeManager:
             if main_repo.exists():
                 with self._get_repo_lock(repo_name):
                     admin_dir = self._find_worktree_git_dir(main_repo, worktree_path)
-                    had_admin_dir = admin_dir.exists()
-                    shutil.rmtree(admin_dir, ignore_errors=True)
-                    if had_admin_dir:
+                    if admin_dir is not None and admin_dir.exists():
+                        shutil.rmtree(admin_dir, ignore_errors=True)
                         logger.info(
                             "Removed stale worktree admin dir (directory already gone)",
                             admin_dir=str(admin_dir),
+                            container_id=container_id,
+                            repo=repo_name,
+                        )
+                    elif admin_dir is None:
+                        logger.info(
+                            "No matching admin dir found for stale worktree, skipping cleanup",
                             container_id=container_id,
                             repo=repo_name,
                         )
@@ -854,12 +865,22 @@ class WorktreeManager:
                     )
                     shutil.rmtree(worktree_path, ignore_errors=True)
 
-                    # Remove the specific admin dir for this worktree
-                    if admin_dir.exists():
+                    # Remove the specific admin dir for this worktree.
+                    # admin_dir is None when no admin dir matched — skip
+                    # deletion to avoid destroying another container's state.
+                    # See: https://github.com/jwbron/egg/issues/1245
+                    if admin_dir is not None and admin_dir.exists():
                         shutil.rmtree(admin_dir, ignore_errors=True)
                         logger.info(
                             "Removed worktree admin dir",
                             admin_dir=str(admin_dir),
+                            container_id=container_id,
+                            repo=repo_name,
+                        )
+                    elif admin_dir is None:
+                        logger.warning(
+                            "No matching admin dir found during manual cleanup, "
+                            "skipping admin dir deletion to avoid cross-container damage",
                             container_id=container_id,
                             repo=repo_name,
                         )
