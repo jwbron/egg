@@ -509,8 +509,8 @@ class TestFindWorktreeGitDir:
         result = manager._find_worktree_git_dir(main_repo, pipeline_wt)
         assert result == admin_egg1
 
-    def test_returns_default_when_no_worktrees_dir(self, tmp_path):
-        """Should return default path when .git/worktrees/ doesn't exist."""
+    def test_returns_none_when_no_worktrees_dir(self, tmp_path):
+        """Should return None when .git/worktrees/ doesn't exist."""
         main_repo = tmp_path / "repo"
         main_repo.mkdir()
         (main_repo / ".git").mkdir()
@@ -523,7 +523,37 @@ class TestFindWorktreeGitDir:
         )
 
         result = manager._find_worktree_git_dir(main_repo, worktree_path)
-        assert result == main_repo / ".git" / "worktrees" / "egg"
+        assert result is None
+
+    def test_returns_none_when_no_matching_admin_dir(self, tmp_path):
+        """Should return None when worktrees dir exists but no admin dir matches.
+
+        This is the core fix for #1245: when the target container's admin dir
+        has already been cleaned up, the function must NOT fall back to a
+        default path that may belong to a different container.
+        """
+        main_repo = tmp_path / "repo"
+        worktrees_dir = main_repo / ".git" / "worktrees"
+
+        # Admin dir "egg" belongs to a DIFFERENT container
+        other_wt = tmp_path / "worktrees" / "other-container" / "egg"
+        admin_egg = worktrees_dir / "egg"
+        admin_egg.mkdir(parents=True)
+        (admin_egg / "gitdir").write_text(str(other_wt / ".git") + "\n")
+
+        # We're looking for THIS container's worktree — no admin dir matches
+        target_wt = tmp_path / "worktrees" / "target-container" / "egg"
+
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path,
+        )
+
+        result = manager._find_worktree_git_dir(main_repo, target_wt)
+        assert result is None, (
+            f"Expected None when no admin dir matches, got '{result}'. "
+            "Returning a default would risk deleting another container's admin dir."
+        )
 
     def test_no_false_match_without_git_suffix(self, tmp_path):
         """Gitdir content without /.git suffix should not match (guards against regression).
