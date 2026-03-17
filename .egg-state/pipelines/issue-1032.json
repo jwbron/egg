@@ -41,10 +41,10 @@
         {
           "container_id": "21ea3cc05a8d7c366c13dac0a11d690b72c694c184717243bd21dd33fd92b5c5",
           "container_name": "issue-1032-reviewer_refine",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-03-17T03:09:05.289024",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-17T03:09:05.867470Z",
+          "exit_code": 255,
           "agent_role": "reviewer_refine",
           "session_token": null
         },
@@ -72,13 +72,13 @@
       "agents": [
         {
           "role": "reviewer_refine",
-          "status": "running",
+          "status": "failed",
           "container_id": "21ea3cc05a8d7c366c13dac0a11d690b72c694c184717243bd21dd33fd92b5c5",
           "started_at": "2026-03-17T03:09:05.289036",
-          "completed_at": null,
+          "completed_at": "2026-03-17T03:09:10.358362",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 255",
           "retry_count": 0,
           "conflicts": []
         },
@@ -125,9 +125,9 @@
   },
   "decisions": [],
   "created_at": "2026-03-17T03:08:29.757996",
-  "updated_at": "2026-03-17T03:09:05.289119",
+  "updated_at": "2026-03-17T03:09:10.358590",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 7
+  "version": 8
 }
