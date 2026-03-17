@@ -56,7 +56,9 @@ class WorktreeInfo:
     repo_name: str
     branch: str
     worktree_path: Path
-    git_dir: Path | None  # Path to worktree admin directory in .git/worktrees/, or None if not found
+    git_dir: (
+        Path | None
+    )  # Path to worktree admin directory in .git/worktrees/, or None if not found
     created_at: str | None = None
 
 
@@ -593,7 +595,7 @@ class WorktreeManager:
         """
         worktrees_dir = main_repo / ".git" / "worktrees"
         basename = worktree_path.name
-        default_git_dir = worktrees_dir / basename
+        worktrees_dir / basename
 
         # Scan all admin dirs and verify via gitdir file content.
         # Multiple worktrees can share the same basename (e.g., "egg",
