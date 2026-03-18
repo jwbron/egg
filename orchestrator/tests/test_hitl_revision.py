@@ -1586,3 +1586,21 @@ class TestPhaseGateResolutionPersistence:
         updated = load_contract(42, tmp_path)
         assert len(updated.decisions) == 1
         assert updated.decisions[0].resolution == "Ship it"
+
+
+class TestInlineRequestChangesClearsConcurrentState:
+    """Verify that inline request_changes clears stale consensus state (#1296).
+
+    When a human resolves a phase_gate decision with request_changes, the
+    inline handler must clear the message store and consensus trackers so
+    the re-run doesn't short-circuit on stale CONSENSUS_CONFIRMED messages.
+    """
+
+    def test_inline_handler_calls_clear_concurrent_state(self):
+        """Verify the inline handler delegates to _clear_concurrent_state."""
+        import inspect
+
+        from routes import pipelines
+
+        source = inspect.getsource(pipelines._run_pipeline)
+        assert "_clear_concurrent_state(pipeline_id)" in source

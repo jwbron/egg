@@ -573,3 +573,38 @@ class TestStartAwaitingHumanPipeline:
         assert resp.status_code == 200
         phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
         assert phase_exec.hitl_feedback == "Fix the tests"
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_recovery_request_changes_clears_concurrent_state(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """request_changes must clear message store and consensus trackers (#1296).
+
+        Stale CONSENSUS_CONFIRMED messages from a previous run cause
+        check_consensus() to short-circuit the re-run via its message-bus
+        fallback. The recovery path must clear this state.
+        """
+        mock_msg_store = MagicMock()
+        mock_evaluator = MagicMock()
+        mock_remove_tracker = MagicMock()
+
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.REFINE,
+            resolution='{"action": "request_changes", "feedback": "Fix tests"}',
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        with (
+            patch("message_store.get_message_store", return_value=mock_msg_store),
+            patch("peer_consensus.remove_peer_consensus_tracker", mock_remove_tracker),
+            patch("consensus.get_consensus_evaluator", return_value=mock_evaluator),
+        ):
+            resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+        mock_msg_store.clear.assert_called_once_with("issue-42")
+        mock_remove_tracker.assert_called_once_with("issue-42")
+        mock_evaluator.clear.assert_called_once_with("issue-42")
