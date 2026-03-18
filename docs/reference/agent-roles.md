@@ -185,7 +185,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 **File access**:
 - Allowed writes: `.egg-state/reviews/`, `.egg-state/agent-outputs/`, `.egg-state/contracts/`
-- Blocked: All source code, docs, tests, drafts
+- Blocked: All source, docs, tests, drafts
 
 **Outputs**:
 - `.egg-state/reviews/{identifier}-implement-reviewer_contract-review.json` — Verdict file
