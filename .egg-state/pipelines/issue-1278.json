@@ -267,20 +267,20 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-03-18T20:58:38.787695",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-03-18T21:10:07.360509",
+      "resolution": "{\"action\": \"request_changes\", \"feedback\": \"The plan has 4 deviations from the human-approved decisions made during the refine phase. All must be corrected:\\n\\n1. SEPARATE REVIEWER AGENTS (CRITICAL): The plan consolidates three review domains into a single reviewer agent with conditional criteria. This is WRONG. The human explicitly decided to keep separate reviewer agents — reviewer_code, reviewer_contract, reviewer_agent_design — same pattern as the current BRC refine workflow. Each reviewer evaluates its own domain independently. The plan must be restructured to use multiple concurrent reviewer agents, not one.\\n\\n2. DELETE reusable-autofix.yml: The plan keeps reusable-autofix.yml for external consumers. The human decided to DELETE it and document the breaking change. Also delete build-autofixer-prompt.sh (total: 7 bash scripts deleted, keep only build-doc-updater-prompt.sh).\\n\\n3. REMOVE gha_exec() FROM ALL 4 FILES: The plan retains gha_exec() because on-push-doc-updater.yml still uses it. The human decided to remove it from all 4 files (cli.py, __init__.py, runtime.py, entrypoint.sh). The doc-updater workflow will need to be updated to not use gha_exec() — either by calling the agent directly or by being migrated in this same PR.\\n\\n4. DEBOUNCE, NOT cancel-in-progress: The plan uses GHA concurrency groups with cancel-in-progress. The human chose debounce — wait a short period after push before starting the cycle, to batch rapid pushes. This is orchestrator-level debounce, not GHA-level cancel-in-progress.\"}",
       "phase": "plan",
       "content_changed": null
     }
   ],
   "created_at": "2026-03-18T20:21:46.458052",
-  "updated_at": "2026-03-18T20:58:38.802824",
+  "updated_at": "2026-03-18T21:10:07.364976",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 23
+  "version": 24
 }
