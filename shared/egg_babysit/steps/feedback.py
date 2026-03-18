@@ -29,6 +29,7 @@ def address_feedback(
         config: Babysit configuration.
         review_comments: List of review comment bodies to address.
         round_number: Current feedback round (1-indexed).
+        elapsed: Seconds already elapsed in the babysit loop.
 
     Returns:
         StepResult indicating success, failure, or escalation.

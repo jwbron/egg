@@ -45,6 +45,7 @@ def resolve_conflicts(
     Args:
         config: Babysit configuration.
         pr_state: Current PR state snapshot.
+        elapsed: Seconds already elapsed in the babysit loop.
 
     Returns:
         StepResult indicating success, failure, or escalation.

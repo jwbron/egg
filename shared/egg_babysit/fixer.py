@@ -47,6 +47,7 @@ def run_fixer(
         prompt: The prompt to send to the fixer agent.
         config: Babysit configuration.
         step_name: Human-readable name for logging (e.g., "check_fix", "conflict").
+        elapsed: Seconds already elapsed in the babysit loop.
 
     Returns:
         FixerResult with success status and optional commit SHA.
