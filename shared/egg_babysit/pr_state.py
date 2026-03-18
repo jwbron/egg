@@ -239,11 +239,11 @@ def fetch_review_comments(pr_number: int, repo: str) -> list[str]:
                 "api",
                 f"repos/{repo}/pulls/{pr_number}/reviews",
                 "--jq",
-                ".[].body",
+                "[.[].body]",
             ]
         )
-        # Each line is a comment body; filter out empty lines.
-        return [line.strip() for line in raw.splitlines() if line.strip()]
+        bodies = json.loads(raw)
+        return [b.strip() for b in bodies if isinstance(b, str) and b.strip()]
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         logger.warning("Failed to fetch review comments for PR #%d: %s", pr_number, exc)
         return []

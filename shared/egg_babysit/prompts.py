@@ -7,6 +7,7 @@ to determine non-LLM fix commands and per-job retry limits.
 
 import logging
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -23,16 +24,19 @@ _CHECK_FIXERS_SEARCH_PATHS = [
 _SHARED_CHECK_FIXERS = Path(__file__).parent.parent / "check-fixers.yml"
 
 
-def load_check_fixers_config(path: str = "") -> dict[str, Any]:
+def load_check_fixers_config(path: str = "", base_branch: str = "main") -> dict[str, Any]:
     """Load and parse check-fixers.yml configuration.
 
     Searches for the config in the following order:
     1. Explicit ``path`` argument.
-    2. Repo-local ``.egg/check-fixers.yml``.
+    2. Repo-local ``.egg/check-fixers.yml`` **from the base branch** (via
+       ``git show``). This prevents a malicious PR from injecting arbitrary
+       shell commands through a modified check-fixers.yml on the PR branch.
     3. Shared ``shared/check-fixers.yml`` (bundled with egg).
 
     Args:
         path: Explicit path to check-fixers.yml. If empty, auto-detect.
+        base_branch: Base branch to read repo-local config from (default "main").
 
     Returns:
         Parsed YAML as a dict. Returns empty dict on load failure.
@@ -44,14 +48,15 @@ def load_check_fixers_config(path: str = "") -> dict[str, Any]:
         logger.warning("check-fixers.yml not found at %s", path)
         return {}
 
-    # Search repo-local paths.
+    # Read repo-local config from the base branch to prevent command
+    # injection from untrusted PR branches.
     repo_path = os.environ.get("EGG_REPO_PATH", "")
     if repo_path:
         for relative in _CHECK_FIXERS_SEARCH_PATHS:
-            candidate = Path(repo_path) / relative
-            if candidate.is_file():
-                logger.debug("Using repo-local check-fixers: %s", candidate)
-                return _load_yaml(candidate)
+            content = _read_from_base_branch(relative, base_branch, repo_path)
+            if content is not None:
+                logger.debug("Using check-fixers from %s:%s", base_branch, relative)
+                return _parse_yaml_string(content, f"{base_branch}:{relative}")
 
     # Fallback to shared config.
     if _SHARED_CHECK_FIXERS.is_file():
@@ -60,6 +65,37 @@ def load_check_fixers_config(path: str = "") -> dict[str, Any]:
 
     logger.info("No check-fixers.yml found, using empty config")
     return {}
+
+
+def _read_from_base_branch(relative_path: str, base_branch: str, repo_path: str) -> str | None:
+    """Read a file from the base branch using git show.
+
+    Returns the file contents as a string, or None if the file does not
+    exist on the base branch or git is not available.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "show", f"origin/{base_branch}:{relative_path}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=repo_path,
+        )
+        if result.returncode == 0:
+            return result.stdout
+    except Exception as exc:
+        logger.debug("Failed to read %s from %s: %s", relative_path, base_branch, exc)
+    return None
+
+
+def _parse_yaml_string(content: str, source: str = "") -> dict[str, Any]:
+    """Parse a YAML string, returning empty dict on error."""
+    try:
+        data = yaml.safe_load(content)
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        logger.warning("Failed to parse YAML from %s: %s", source, exc)
+        return {}
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:

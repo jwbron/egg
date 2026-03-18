@@ -219,7 +219,7 @@ class TestFetchReviewComments:
 
     @patch("egg_babysit.pr_state._run_gh")
     def test_fetch_review_comments_success(self, mock_run_gh):
-        mock_run_gh.return_value = "Good work!\nNeeds some changes\n"
+        mock_run_gh.return_value = '["Good work!", "Needs some changes"]'
 
         comments = fetch_review_comments(42, "owner/repo")
 
@@ -229,17 +229,29 @@ class TestFetchReviewComments:
 
     @patch("egg_babysit.pr_state._run_gh")
     def test_fetch_review_comments_empty(self, mock_run_gh):
-        mock_run_gh.return_value = ""
+        mock_run_gh.return_value = "[]"
 
         comments = fetch_review_comments(42, "owner/repo")
         assert comments == []
 
     @patch("egg_babysit.pr_state._run_gh")
     def test_fetch_review_comments_filters_blank_lines(self, mock_run_gh):
-        mock_run_gh.return_value = "comment1\n\n\ncomment2\n\n"
+        mock_run_gh.return_value = '["comment1", "", "  ", "comment2"]'
 
         comments = fetch_review_comments(42, "owner/repo")
         assert len(comments) == 2
+
+    @patch("egg_babysit.pr_state._run_gh")
+    def test_fetch_review_comments_multiline(self, mock_run_gh):
+        """Multi-line review bodies are preserved as single comments."""
+        mock_run_gh.return_value = (
+            '["Fix the SQL injection on line 42.\\nAlso update the docstring.", "LGTM"]'
+        )
+
+        comments = fetch_review_comments(42, "owner/repo")
+        assert len(comments) == 2
+        assert "Fix the SQL injection on line 42.\nAlso update the docstring." in comments
+        assert "LGTM" in comments
 
     @patch("egg_babysit.pr_state._run_gh")
     def test_fetch_review_comments_subprocess_error(self, mock_run_gh):

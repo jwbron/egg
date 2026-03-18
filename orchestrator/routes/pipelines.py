@@ -41,7 +41,9 @@ try:
         AggregatedReviewResult,
         ContainerStatus,
         CycleTiming,
+        DecisionStatus,
         Pipeline,
+        PipelineMode,
         PipelinePhase,
         PipelineStatus,
         ReviewVerdict,
@@ -638,13 +640,9 @@ def create_pipeline() -> tuple[Response, int]:
             prompt=prompt,
             network_mode=network_mode,
             pipeline_id=pipeline_id,
+            mode=PipelineMode(mode) if mode != "issue" else None,
+            pr_number=pr_number,
         )
-
-        # Set babysit mode fields on the pipeline
-        if mode == PipelineMode.BABYSIT:
-            pipeline.mode = PipelineMode.BABYSIT
-            pipeline.pr_number = pr_number
-            store.save_pipeline(pipeline, message=f"Set babysit mode for pr-{pr_number}")
 
         # Contract creation is deferred to _run_pipeline so it writes
         # into the per-pipeline worktree instead of the main repo.

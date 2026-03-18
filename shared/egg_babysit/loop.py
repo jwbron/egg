@@ -135,7 +135,7 @@ class BabysitLoop:
                 self.config.pr_number,
                 self.config.repo,
                 poll_interval=self.config.poll_interval_seconds,
-                timeout=min(1800, self.config.timeout_seconds - int(self._elapsed())),
+                timeout=max(0, min(1800, self.config.timeout_seconds - int(self._elapsed()))),
             )
 
             if ci_status == CICheckStatus.STALE:
@@ -163,7 +163,7 @@ class BabysitLoop:
                     self.config.pr_number,
                     self.config.repo,
                     poll_interval=self.config.poll_interval_seconds,
-                    timeout=min(1800, self.config.timeout_seconds - int(self._elapsed())),
+                    timeout=max(0, min(1800, self.config.timeout_seconds - int(self._elapsed()))),
                 )
 
                 if ci_status != CICheckStatus.PASSING:
