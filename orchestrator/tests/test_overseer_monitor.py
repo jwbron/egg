@@ -7,6 +7,7 @@ hallucination guard, and health summary generation.
 import asyncio
 import json
 import sys
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -367,7 +368,7 @@ class TestConsensusOverride:
         }
         phase_data = {"name": "implement", "status": "active"}
         pipeline_data = {
-            "status": "complete",
+            "status": "running",
             "concurrent": {"agents": [{"role": "coder"}, {"role": "tester"}]},
         }
         alert = {
@@ -510,53 +511,71 @@ class TestPhaseScoping:
 class TestPostConsensusStall:
     """Test detection of post-consensus stalls."""
 
-    def test_detects_post_consensus_stall(self) -> None:
-        """When consensus is complete but pipeline is still running, create HITL."""
-        classifier = _MockClassifier()
-        decision_maker = _MockDecisionMaker()
-
+    def test_detects_post_consensus_stall_after_grace_period(self) -> None:
+        """After grace period, consensus stall creates HITL and sends Slack."""
         monitor = OverseerMonitor(
             pipeline_id="test-postconsensus-001",
             config=_MockConfig(),
-            classifier=classifier,
-            decision_maker=decision_maker,
         )
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
 
-        consensus_data = {
-            "is_complete": True,
-            "blocking_agents": [],
-            "agents": {"coder": {"confirmed": True}},
-        }
+        consensus = {"is_complete": True}
 
-        async def mock_run_cli(*args, **kwargs):
-            cmd = " ".join(args)
-            if "consensus status" in cmd:
-                return (0, json.dumps(consensus_data), "")
-            if "phase get" in cmd:
-                return (0, '{"name": "implement", "status": "active"}', "")
-            if "health alerts" in cmd:
-                return (0, "[]", "")
-            if "pipeline status" in cmd:
-                return (0, '{"status": "running"}', "")
-            if "message poll" in cmd:
-                return (0, "[]", "")
-            if "progress query" in cmd:
-                return (0, "[]", "")
-            if "decision create" in cmd:
-                return (0, "{}", "")
-            return (0, "[]", "")
+        # First call: records first_seen, does not escalate
+        _run(monitor._check_post_consensus_stall(consensus, "running"))
+        monitor._create_hitl_decision.assert_not_awaited()
+        monitor._send_slack_notification.assert_not_awaited()
 
-        monitor._run_cli = AsyncMock(side_effect=mock_run_cli)
+        # Simulate grace period elapsed (backdate first_seen)
+        monitor._post_consensus_stall_first_seen = time.time() - 999
 
-        _run(monitor._poll_cycle())
+        # Second call after grace period: should escalate
+        _run(monitor._check_post_consensus_stall(consensus, "running"))
+        monitor._create_hitl_decision.assert_awaited_once()
+        monitor._send_slack_notification.assert_awaited_once()
 
-        # Should have created a HITL decision (via _run_cli calls)
-        calls = [
-            " ".join(c.args[0] if isinstance(c.args[0], tuple) else c.args)
-            for c in monitor._run_cli.call_args_list
-        ]
-        decision_calls = [c for c in calls if "decision create" in c]
-        assert len(decision_calls) >= 1, f"Expected HITL decision creation, got calls: {calls}"
+    def test_does_not_fire_repeatedly(self) -> None:
+        """After escalating once, subsequent calls should not fire again."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-postconsensus-dedup",
+            config=_MockConfig(),
+        )
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+
+        consensus = {"is_complete": True}
+
+        # Backdate first_seen so grace period is already elapsed
+        monitor._post_consensus_stall_first_seen = time.time() - 999
+
+        # First call: escalates
+        _run(monitor._check_post_consensus_stall(consensus, "running"))
+        assert monitor._create_hitl_decision.await_count == 1
+        assert monitor._send_slack_notification.await_count == 1
+
+        # Second call: should NOT escalate again
+        _run(monitor._check_post_consensus_stall(consensus, "running"))
+        assert monitor._create_hitl_decision.await_count == 1
+        assert monitor._send_slack_notification.await_count == 1
+
+    def test_resets_when_consensus_changes(self) -> None:
+        """Flag resets when consensus becomes incomplete (e.g. new phase)."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-postconsensus-reset",
+            config=_MockConfig(),
+        )
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+
+        # Mark as already reported
+        monitor._post_consensus_stall_reported = True
+        monitor._post_consensus_stall_first_seen = time.time() - 999
+
+        # Consensus becomes incomplete — should reset state
+        _run(monitor._check_post_consensus_stall({"is_complete": False}, "running"))
+        assert monitor._post_consensus_stall_reported is False
+        assert monitor._post_consensus_stall_first_seen is None
 
     def test_no_stall_when_pipeline_transitioning(self) -> None:
         """No stall detected when pipeline is not in 'running' status."""
@@ -572,6 +591,7 @@ class TestPostConsensusStall:
         _run(monitor._check_post_consensus_stall(consensus, "complete"))
 
         monitor._create_hitl_decision.assert_not_awaited()
+        monitor._send_slack_notification.assert_not_awaited()
 
     def test_no_stall_when_consensus_incomplete(self) -> None:
         """No stall detected when consensus is not complete."""
@@ -587,6 +607,7 @@ class TestPostConsensusStall:
         _run(monitor._check_post_consensus_stall(consensus, "running"))
 
         monitor._create_hitl_decision.assert_not_awaited()
+        monitor._send_slack_notification.assert_not_awaited()
 
 
 # ===================================================================
@@ -640,6 +661,27 @@ class TestEscalationSafetyNet:
         monitor._create_hitl_decision.assert_awaited_once()
         monitor._send_message.assert_not_awaited()
 
+    def test_upgrades_on_alternative_phrasings(self) -> None:
+        """Safety net catches varied LLM phrasings like 'requires human attention'."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-safetynet-004",
+            config=_MockConfig(),
+        )
+        monitor._send_message = AsyncMock()
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._run_cli = AsyncMock(return_value=(0, "{}", ""))
+
+        decision = {
+            "action": "nudge",
+            "message": "This issue requires human attention to resolve.",
+            "priority": "high",
+        }
+
+        _run(monitor._execute_action(decision, "coder"))
+
+        monitor._create_hitl_decision.assert_awaited_once()
+        monitor._send_message.assert_not_awaited()
+
     def test_no_upgrade_without_intervention_keywords(self) -> None:
         """Nudge without intervention keywords should not be upgraded."""
         monitor = OverseerMonitor(
@@ -671,7 +713,7 @@ class TestRespawnScenario:
     """Test that a freshly respawned monitor handles existing consensus correctly."""
 
     def test_respawn_with_consensus_complete(self) -> None:
-        """A fresh monitor encountering already-complete consensus detects the stall."""
+        """A fresh monitor encountering already-complete consensus detects the stall after grace period."""
         classifier = _MockClassifier()
         decision_maker = _MockDecisionMaker()
 
@@ -683,6 +725,7 @@ class TestRespawnScenario:
             decision_maker=decision_maker,
         )
         assert len(monitor._escalation_history) == 0  # fresh state
+        assert monitor._post_consensus_stall_reported is False
 
         consensus_data = {
             "is_complete": True,
@@ -710,14 +753,23 @@ class TestRespawnScenario:
 
         monitor._run_cli = AsyncMock(side_effect=mock_run_cli)
 
+        # First poll: starts grace period, should NOT escalate yet
         _run(monitor._poll_cycle())
+        assert monitor._post_consensus_stall_first_seen is not None
+        assert monitor._post_consensus_stall_reported is False
 
-        # Should detect post-consensus stall on first cycle
+        # Simulate grace period elapsed
+        monitor._post_consensus_stall_first_seen = time.time() - 999
+
+        # Second poll after grace period: should escalate
+        _run(monitor._poll_cycle())
+        assert monitor._post_consensus_stall_reported is True
+
         calls = [
             " ".join(c.args[0] if isinstance(c.args[0], tuple) else c.args)
             for c in monitor._run_cli.call_args_list
         ]
         decision_calls = [c for c in calls if "decision create" in c]
         assert len(decision_calls) >= 1, (
-            "Respawned monitor should detect post-consensus stall on first poll"
+            "Respawned monitor should detect post-consensus stall after grace period"
         )

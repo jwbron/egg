@@ -74,6 +74,10 @@ class OverseerMonitor:
         self._classifier = classifier
         self._decision_maker = decision_maker
 
+        # Post-consensus stall deduplication
+        self._post_consensus_stall_reported = False
+        self._post_consensus_stall_first_seen: float | None = None
+
         # Oversight logging to .egg-state/oversight/
         self._oversight_dir = self._resolve_oversight_dir()
         self._jsonl_path: Path | None = None
@@ -215,13 +219,14 @@ class OverseerMonitor:
         Steps:
             1. Query consensus status and current phase
             2. Query progress events
-            3. Query health alerts (filtered to current phase)
-            4. Check for escalation messages from orchestrator
-            5. Route anomalies through classifier (with consensus context)
-            6. Route classified results through decision maker
-            7. Execute corrective actions
-            8. Check for post-consensus stalls
-            9. Update self-monitoring
+            3. Query health alerts
+            4. Query pipeline status (single call for filtering + terminal check)
+            5. Check for escalation messages from orchestrator
+            6. Route anomalies through classifier (with consensus context)
+            7. Route classified results through decision maker / execute actions
+            8. Check pipeline status for terminal state
+            9. Check for post-consensus stalls
+            10. Update self-monitoring
         """
         cycle_start = time.time()
 
@@ -236,34 +241,24 @@ class OverseerMonitor:
             # 3. Query health alerts
             alerts = await self._query_health_alerts()
 
-            # Filter alerts to only current-phase agents
-            if current_phase:
-                # Get full pipeline status for agent list
-                rc, stdout, _ = await self._run_cli(
-                    "egg-orch",
-                    "pipeline",
-                    "status",
-                    self.pipeline_id,
-                    "--json",
-                )
-                if rc == 0 and stdout.strip():
-                    try:
-                        pipeline_data = json.loads(stdout)
-                        if isinstance(pipeline_data, dict):
-                            alerts = self._filter_current_phase_agents(alerts, pipeline_data)
-                    except json.JSONDecodeError:
-                        pass
+            # 4. Query pipeline status (single call, used for filtering + terminal check)
+            pipeline_data = await self._query_pipeline_data()
+            status = pipeline_data.get("status", "running") if pipeline_data else "running"
 
-            # 4. Check for escalation messages
+            # Filter alerts to only current-phase agents
+            if current_phase and pipeline_data:
+                alerts = self._filter_current_phase_agents(alerts, pipeline_data)
+
+            # 5. Check for escalation messages
             escalations = await self._poll_escalation_messages()
 
-            # 5 & 6. Process any anomalies (with consensus context)
+            # 6 & 7. Process any anomalies (with consensus context)
             for alert in alerts:
                 agent_role = alert.get("agent_role", alert.get("agent_id", "unknown"))
                 classification = await self._classify_stall(
                     logs=alert.get("logs", []),
                     progress=progress_events,
-                    consensus=consensus if consensus else None,
+                    consensus=consensus or None,
                 )
                 decision = await self._decide_corrective_action(
                     classification,
@@ -275,8 +270,7 @@ class OverseerMonitor:
             for escalation in escalations:
                 await self.handle_escalation(escalation, consensus=consensus)
 
-            # 7. Check pipeline status for terminal state
-            status = await self._query_pipeline_status()
+            # 8. Check pipeline status for terminal state
             if status in ("complete", "failed", "cancelled"):
                 self._log_oversight_event(
                     {
@@ -287,13 +281,13 @@ class OverseerMonitor:
                 self._running = False
                 self.write_health_summary()
 
-            # 8. Check for post-consensus stall
+            # 9. Check for post-consensus stall
             await self._check_post_consensus_stall(consensus, status)
 
         except Exception:
             logger.exception("Error in overseer poll cycle")
 
-        # 9. Update self-monitoring
+        # 10. Update self-monitoring
         duration = time.time() - cycle_start
         self.self_monitor.record_poll_cycle(duration)
 
@@ -372,10 +366,23 @@ class OverseerMonitor:
         message = decision.get("message", "")
 
         # Safety net: upgrade to hitl if message indicates human intervention
-        # but action is too weak
+        # but action is too weak.  Match common LLM phrasings — the message
+        # comes from a classifier so we check for "human" or "manual" paired
+        # with action-oriented words.
         if action in ("nudge", "redirect"):
             msg_lower = message.lower()
-            if "human intervention" in msg_lower or "manual intervention" in msg_lower:
+            _HUMAN_WORDS = ("human", "manual", "operator")
+            _ACTION_WORDS = (
+                "intervention",
+                "attention",
+                "review",
+                "required",
+                "needed",
+                "escalat",
+            )
+            if any(hw in msg_lower for hw in _HUMAN_WORDS) and any(
+                aw in msg_lower for aw in _ACTION_WORDS
+            ):
                 logger.info(
                     "Upgrading action from %s to hitl for %s: message indicates "
                     "human intervention required",
@@ -507,8 +514,12 @@ class OverseerMonitor:
             logger.debug("Failed to poll escalation messages", exc_info=True)
         return []
 
-    async def _query_pipeline_status(self) -> str:
-        """Query the current pipeline status."""
+    async def _query_pipeline_data(self) -> dict:
+        """Query the full pipeline status data.
+
+        Returns:
+            Pipeline status dict, or empty dict on failure.
+        """
         try:
             rc, stdout, _ = await self._run_cli(
                 "egg-orch",
@@ -520,10 +531,18 @@ class OverseerMonitor:
             if rc == 0 and stdout.strip():
                 data = json.loads(stdout)
                 if isinstance(data, dict):
-                    return data.get("status", "running")
+                    return data
         except Exception:
             logger.debug("Failed to query pipeline status", exc_info=True)
-        return "running"
+        return {}
+
+    async def _query_pipeline_status(self) -> str:
+        """Query the current pipeline status string.
+
+        Convenience wrapper around :meth:`_query_pipeline_data`.
+        """
+        data = await self._query_pipeline_data()
+        return data.get("status", "running")
 
     async def _query_consensus_status(self) -> dict:
         """Query current BRC consensus state from the orchestrator."""
@@ -598,13 +617,36 @@ class OverseerMonitor:
     async def _check_post_consensus_stall(self, consensus: dict, pipeline_status_str: str) -> None:
         """Detect and escalate when consensus is complete but phase hasn't transitioned.
 
+        Includes deduplication (only fires once) and a grace period of 3 poll
+        cycles to avoid false positives during normal phase transitions.
+
         Args:
             consensus: Current consensus status dict.
             pipeline_status_str: Current pipeline status string (e.g. "running").
         """
         if not consensus.get("is_complete"):
+            # Consensus not complete — reset tracking state
+            self._post_consensus_stall_reported = False
+            self._post_consensus_stall_first_seen = None
             return
         if pipeline_status_str != "running":
+            return
+
+        # Already escalated — don't spam
+        if self._post_consensus_stall_reported:
+            return
+
+        # Grace period: wait 3 poll cycles before escalating to allow
+        # normal phase transition to complete
+        poll_interval = getattr(self.config, "overseer_poll_interval_seconds", 30)
+        grace_seconds = poll_interval * 3
+        now = time.time()
+
+        if self._post_consensus_stall_first_seen is None:
+            self._post_consensus_stall_first_seen = now
+            return
+
+        if (now - self._post_consensus_stall_first_seen) < grace_seconds:
             return
 
         logger.warning(
@@ -624,6 +666,8 @@ class OverseerMonitor:
 
         # Also send Slack notification for visibility
         await self._send_slack_notification("orchestrator", message)
+
+        self._post_consensus_stall_reported = True
 
         self._log_oversight_event(
             {
