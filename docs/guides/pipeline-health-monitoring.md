@@ -306,7 +306,7 @@ Pipeline health monitoring extends the existing [health check framework](../../o
 
 | Component | Role | Runs |
 |-----------|------|------|
-| **Tier 1 health checks** (existing) | Structural invariant checks (container liveness, state consistency) | At lifecycle triggers (STARTUP, RUNTIME_TICK, etc.) |
+| **Tier 1 health checks** (existing) | Structural invariant checks (container liveness, state consistency, consensus stall detection) | At lifecycle triggers (STARTUP, RUNTIME_TICK, etc.) |
 | **Tier 2 health checks** (existing) | LLM-powered semantic analysis of agent progress | At WAVE_COMPLETE (if Tier 1 degraded), PHASE_COMPLETE, ON_DEMAND |
 | **Orchestrator tripwires** (new) | Deterministic real-time monitoring of structured progress events | Continuously, event-driven |
 | **Overseer agent** (new) | LLM-powered analysis of ambiguous failures, corrective action | Continuously, poll-based + escalation-driven |

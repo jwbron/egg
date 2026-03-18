@@ -278,6 +278,17 @@ If the BRC tracker is unavailable, the orchestrator falls back to the old behavi
 
 Timeout handling is idempotent — if the timeout fires multiple times (e.g., due to a race with the overseer), only the first invocation takes effect.
 
+### Consensus Stall Recovery
+
+A separate scenario from timeout: all agents have confirmed (consensus is complete) but the phase execution has not advanced — for example, because the orchestrator's polling loop missed the completion event. The `ConsensusStallCheck` (Tier 1 health check) detects this on each `RUNTIME_TICK` (and `ON_DEMAND`) after a 60-second grace period.
+
+When a stall is detected, `ContainerMonitor` drives a two-track recovery:
+
+1. **Tracker reconstruction**: Attempts to rebuild the in-memory consensus tracker from message history so the polling loop can pick up completed consensus naturally.
+2. **Aggressive recovery**: If reconstruction fails, marks all running agents and the phase as `COMPLETE` directly, using optimistic locking to avoid conflicts with concurrent state writers.
+
+Startup reconciliation also handles this: when tracker reconstruction succeeds on orchestrator restart and `evaluate()` reports `is_complete: true`, agents and the phase are marked `COMPLETE` before normal pipeline polling resumes.
+
 ### Agent Failure During Consensus
 
 When an agent crashes, `PeerConsensusTracker.handle_agent_crash()` assesses impact:
