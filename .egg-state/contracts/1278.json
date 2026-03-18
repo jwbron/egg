@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1278,
+    "title": "Replace GHA review workflows with orchestrator-based babysit-pr pipelines",
+    "url": "https://github.com/jwbron/egg/issues/1278"
+  },
+  "pipeline_id": "issue-1278",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [],
+  "commits": []
+}
