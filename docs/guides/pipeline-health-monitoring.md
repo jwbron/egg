@@ -157,7 +157,7 @@ Lightweight Haiku agents handle classification tasks. They run only when the orc
 
 | Task | Prompt Pattern |
 |------|---------------|
-| **Stall classification** | "Is this agent stuck, or doing legitimate long-running work?" |
+| **Stall classification** | "Is this agent stuck, or doing legitimate long-running work?" — receives BRC consensus state as authoritative context when available (an agent with confirmed consensus is never classified as stalled) |
 | **Loop detection** | "Is this agent repeating the same actions in a cycle?" |
 | **Error triage** | "Is this error recoverable or fatal?" |
 | **Off-track detection** | "Is this agent's work aligned with the contract?" |
@@ -215,6 +215,12 @@ The overseer follows a progressive escalation ladder:
 | 3 | **HITL escalation** | Agent still stuck after max redirects |
 | 4 | **File GitHub issue** | Structured diagnostic report for persistent problems |
 | 5 | **Slack notification** | Human escalation for urgent issues |
+
+**Escalation safety net**: If the decision-maker selects `nudge` or `redirect` but the accompanying message indicates human intervention is required (e.g., contains "human review needed" or "manual intervention required"), the action is automatically upgraded to `hitl`. This prevents under-escalation caused by LLM phrasing that signals urgency without selecting the appropriate action level.
+
+### Post-Consensus Stall Detection
+
+If all agents have confirmed BRC consensus but the pipeline phase has not transitioned within 3 poll cycles (default ~90 seconds), the overseer escalates with a HITL decision and Slack notification. This detects potential orchestrator transition failures after a successful concurrent phase. The escalation fires only once per consensus cycle to avoid duplicate alerts.
 
 ### Autonomous Issue Filing
 
