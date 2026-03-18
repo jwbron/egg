@@ -223,16 +223,14 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
                         )
                         from models import AgentExecutionStatus
 
-                        phase_exec = pipeline.phases.get(
-                            pipeline.current_phase.value
-                            if hasattr(pipeline.current_phase, "value")
-                            else pipeline.current_phase
-                        )
+                        phase_exec = pipeline.phases.get(pipeline.current_phase.value)
                         if phase_exec is not None:
                             for agent in phase_exec.agents:
                                 if agent.status == AgentExecutionStatus.RUNNING:
                                     agent.status = AgentExecutionStatus.COMPLETE
+                                    agent.completed_at = datetime.utcnow()
                             phase_exec.status = PipelineStatus.COMPLETE
+                            phase_exec.completed_at = datetime.utcnow()
                             store.save_pipeline(pipeline)
                 except Exception as eval_err:
                     logger.warning(

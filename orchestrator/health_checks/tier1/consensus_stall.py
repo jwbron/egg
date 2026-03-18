@@ -3,9 +3,11 @@ ConsensusStallCheck — detect BRC consensus complete but phase not advancing.
 
 Fires on RUNTIME_TICK.  When the peer consensus tracker (or message-based
 fallback) indicates all agents have confirmed, but the phase execution is
-still RUNNING past a grace period, this check reports DEGRADED and attempts
-to reconstruct the tracker so the existing polling loop can pick up the
-completed consensus on its next iteration.
+still RUNNING past a grace period, this check reports DEGRADED so the
+container monitor recovery handler can drive the transition.
+
+This check is purely diagnostic — it does not mutate global state.
+Recovery actions are driven by the caller (container_monitor).
 """
 
 from __future__ import annotations
@@ -76,9 +78,7 @@ class ConsensusStallCheck:
             return self._healthy("Phase is not using concurrent execution; check skipped.")
 
         # Check grace period — phase must have been running long enough
-        phase_exec = pipeline.phases.get(
-            current_phase.value if hasattr(current_phase, "value") else current_phase
-        )
+        phase_exec = pipeline.phases.get(current_phase.value)
         if phase_exec is None or phase_exec.status != PipelineStatus.RUNNING:
             return self._healthy("Phase execution is not running; check skipped.")
 
@@ -96,26 +96,16 @@ class ConsensusStallCheck:
             return self._healthy("Consensus is not complete; no stall detected.")
 
         # Consensus IS complete but phase is still RUNNING — stall detected.
-        # Attempt recovery: reconstruct the tracker so the polling loop picks
-        # it up on its next iteration.
-        reconstructed = self._attempt_tracker_reconstruction(pipeline.id, pipeline)
-
         return HealthResult(
             status=HealthStatus.DEGRADED,
             check_name=self.name,
             tier=self.tier,
-            reasoning=(
-                "BRC consensus is complete but phase execution has not advanced. "
-                f"Tracker reconstruction {'succeeded' if reconstructed else 'failed'}."
-            ),
+            reasoning="BRC consensus is complete but phase execution has not advanced.",
             action=HealthAction.ALERT,
             details={
                 "recovery_action": "drive_phase_transition",
                 "pipeline_id": pipeline.id,
-                "phase": current_phase.value
-                if hasattr(current_phase, "value")
-                else str(current_phase),
-                "tracker_reconstructed": reconstructed,
+                "phase": current_phase.value,
             },
         )
 
@@ -150,9 +140,7 @@ class ConsensusStallCheck:
             if current_phase is None or repo is None:
                 return False
 
-            phase_value = (
-                current_phase.value if hasattr(current_phase, "value") else str(current_phase)
-            )
+            phase_value = current_phase.value
             graph = get_review_graph_for_phase(phase_value, repo=repo)
             expected_roles = graph.all_roles()
             if not expected_roles:
@@ -167,42 +155,6 @@ class ConsensusStallCheck:
         except Exception:
             logger.debug(
                 "Message-based consensus check failed",
-                pipeline_id=pipeline_id,
-                exc_info=True,
-            )
-            return False
-
-    # ------------------------------------------------------------------
-    # Recovery: reconstruct the tracker so the polling loop can proceed
-    # ------------------------------------------------------------------
-
-    def _attempt_tracker_reconstruction(self, pipeline_id: str, pipeline: object) -> bool:
-        """Try to reconstruct the consensus tracker from messages."""
-        try:
-            from peer_consensus import (
-                get_peer_consensus_tracker,
-                reconstruct_tracker_from_messages,
-            )
-            from review_graph import get_review_graph_for_phase
-
-            # Already have a tracker — no reconstruction needed
-            if get_peer_consensus_tracker(pipeline_id) is not None:
-                return True
-
-            current_phase = getattr(pipeline, "current_phase", None)
-            repo = getattr(pipeline, "repo", None)
-            if current_phase is None or repo is None:
-                return False
-
-            phase_value = (
-                current_phase.value if hasattr(current_phase, "value") else str(current_phase)
-            )
-            graph = get_review_graph_for_phase(phase_value, repo=repo)
-            tracker = reconstruct_tracker_from_messages(pipeline_id, graph)
-            return tracker is not None
-        except Exception:
-            logger.debug(
-                "Tracker reconstruction failed",
                 pipeline_id=pipeline_id,
                 exc_info=True,
             )
