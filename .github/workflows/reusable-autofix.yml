@@ -1,8 +1,7 @@
-# DEPRECATED: Use reusable-check-fixer.yml instead.
-# This workflow is kept for external repos that still reference it.
-# It runs a monolithic LLM agent that investigates ALL failures.
-# reusable-check-fixer.yml provides per-check fixing with non-LLM
-# mechanical fixes, retry tracking, and escalation.
+# DEPRECATED: reusable-check-fixer.yml has been removed as part of the
+# babysit-pr migration. This workflow is kept for external repos that
+# still reference it. It runs a monolithic LLM agent that investigates
+# ALL failures.
 name: Reusable Autofix Workflow
 
 on:

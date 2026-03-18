@@ -137,6 +137,77 @@ def run_non_llm_fix(command: str, repo_path: str) -> bool:
         return False
 
 
+def run_brc_fixer(
+    prompt: str,
+    config: BabysitConfig,
+    step_name: str,
+    elapsed: float = 0,
+) -> FixerResult:
+    """Spawn a BRC-wrapped fixer agent.
+
+    Like :func:`run_fixer` but uses the consensus wrapper for concurrent
+    BRC execution. The agent will participate in the BRC consensus
+    protocol after completing its work.
+
+    Args:
+        prompt: The prompt to send to the fixer agent.
+        config: Babysit configuration.
+        step_name: Human-readable name for logging (e.g., "check_fix", "feedback").
+        elapsed: Seconds already elapsed in the babysit loop.
+
+    Returns:
+        FixerResult with success status and optional commit SHA.
+    """
+    from orchestrator.consensus_wrapper import build_consensus_wrapped_command
+
+    logger.info("Spawning BRC fixer agent for step: %s", step_name)
+
+    cmd = build_consensus_wrapped_command(prompt, model="sonnet", max_turns=200)
+    pre_sha = _get_head_sha(config)
+
+    brc_env = os.environ.copy()
+    brc_env.update(
+        {
+            "EGG_CONCURRENT_MODE": "true",
+            "EGG_BRC_ROLE_TYPE": "producer",
+            "EGG_AGENT_ROLE": "babysit_fixer",
+        }
+    )
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=_agent_timeout(config, elapsed),
+            cwd=_repo_path(config),
+            env=brc_env,
+        )
+
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() or f"BRC agent exited with code {result.returncode}"
+            logger.warning("BRC fixer agent failed for %s: %s", step_name, error_msg)
+            return FixerResult(success=False, error=error_msg)
+
+        # Check if a new commit was created.
+        post_sha = _get_head_sha(config)
+        commit_sha = post_sha if post_sha and post_sha != pre_sha else None
+
+        if commit_sha:
+            logger.info("BRC fixer agent created commit %s for %s", commit_sha[:12], step_name)
+        else:
+            logger.info("BRC fixer agent completed %s without new commits", step_name)
+
+        return FixerResult(success=True, commit_sha=commit_sha)
+
+    except subprocess.TimeoutExpired:
+        logger.error("BRC fixer agent timed out for %s", step_name)
+        return FixerResult(success=False, error=f"BRC agent timed out for {step_name}")
+    except Exception as exc:
+        logger.error("BRC fixer agent error for %s: %s", step_name, exc)
+        return FixerResult(success=False, error=str(exc))
+
+
 def _get_head_sha(config: BabysitConfig) -> str | None:
     """Get the current HEAD SHA in the repo.
 
@@ -182,6 +253,7 @@ def _agent_timeout(config: BabysitConfig, elapsed: float = 0) -> int:
 
 __all__ = [
     "FixerResult",
+    "run_brc_fixer",
     "run_fixer",
     "run_non_llm_fix",
 ]

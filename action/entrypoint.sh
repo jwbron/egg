@@ -118,6 +118,10 @@ fi
 # Add egg_lib and shared modules to Python path
 export PYTHONPATH="${SCRIPT_DIR}/../sandbox:${SCRIPT_DIR}/../shared${PYTHONPATH:+:$PYTHONPATH}"
 
+# NOTE: gha_exec() is retained because on-push-doc-updater.yml and
+# reusable-autofix.yml still route through this entrypoint. It will be
+# removed when all GHA consumers are migrated to babysit-pr pipelines.
+# See: https://github.com/jwbron/egg/issues/1278
 set +e
 python3 -c "from egg_lib.cli import gha_exec; import sys; sys.exit(gha_exec())" \
   2>&1 | tee "$LOG_FILE"

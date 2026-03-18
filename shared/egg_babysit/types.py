@@ -9,6 +9,23 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 
+class BabysitAgentRole(StrEnum):
+    """Agent roles in the babysit-pr BRC pipeline."""
+
+    BABYSIT_FIXER = "babysit_fixer"
+    BABYSIT_REVIEWER = "babysit_reviewer"
+
+
+class ConsensusState(StrEnum):
+    """BRC consensus states for tracking agent progress."""
+
+    WORKING = "working"
+    PROPOSED = "proposed"
+    ACKED = "acked"
+    NACKED = "nacked"
+    CONFIRMED = "confirmed"
+
+
 class BabysitStep(StrEnum):
     """Steps in the babysit-pr loop."""
 
@@ -131,6 +148,7 @@ class LoopState:
         last_head_sha: Last known HEAD SHA of the PR branch.
         retry_counts: Per-job retry counters (job_name -> retry count).
         feedback_rounds: Number of feedback addressing rounds completed.
+        consensus_round: Current BRC consensus round (0 if not using concurrent mode).
         started_at: ISO 8601 timestamp when the loop started.
         last_activity_at: ISO 8601 timestamp of last activity.
     """
@@ -140,6 +158,7 @@ class LoopState:
     last_head_sha: str = ""
     retry_counts: dict[str, int] = field(default_factory=dict)
     feedback_rounds: int = 0
+    consensus_round: int = 0
     started_at: str = ""
     last_activity_at: str = ""
 
@@ -164,11 +183,13 @@ class BabysitResult:
 
 
 __all__ = [
+    "BabysitAgentRole",
     "BabysitExitReason",
     "BabysitResult",
     "BabysitStep",
     "CICheckResult",
     "CICheckStatus",
+    "ConsensusState",
     "LoopState",
     "PRState",
     "ReviewVerdict",

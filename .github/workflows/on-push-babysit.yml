@@ -1,0 +1,87 @@
+name: "egg: Babysit PR"
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to babysit'
+        required: true
+        type: number
+
+concurrency:
+  group: egg-babysit-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  validate-config:
+    name: Validate configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate required repository variables
+        run: |
+          if [[ -z "${{ vars.EGG_BOT_USERNAME }}" ]]; then
+            echo "::error::Required repository variable 'EGG_BOT_USERNAME' is not set"
+            exit 1
+          fi
+
+  babysit:
+    name: egg-babysit / PR Lifecycle
+    needs: [validate-config]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    timeout-minutes: 60
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Start babysit pipeline
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Create babysit pipeline via orchestrator API
+          ORCHESTRATOR_URL="${EGG_ORCHESTRATOR_URL:-http://localhost:8080}"
+
+          response=$(curl -sf -X POST \
+            "${ORCHESTRATOR_URL}/api/v1/pipelines" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"mode\": \"babysit\",
+              \"repo\": \"${GITHUB_REPOSITORY}\",
+              \"pr_number\": ${PR_NUMBER},
+              \"branch\": \"${{ github.head_ref }}\",
+              \"network_mode\": \"public\"
+            }" 2>&1) || {
+            echo "::warning::Failed to create babysit pipeline: ${response}"
+            # Fall back to running babysit directly
+            python3 -m egg_babysit "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}"
+            exit $?
+          }
+
+          echo "Pipeline created: ${response}"
+
+          # Extract pipeline ID and monitor
+          pipeline_id=$(echo "${response}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('pipeline',{}).get('id',''))")
+
+          if [ -n "${pipeline_id}" ]; then
+            echo "Babysit pipeline started: ${pipeline_id}"
+          else
+            echo "::warning::Could not extract pipeline ID, running babysit directly"
+            python3 -m egg_babysit "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}"
+          fi

@@ -27,20 +27,24 @@ Or from the command line::
     python -m egg_babysit 42 --repo owner/repo
 """
 
+from .concurrent import ConcurrentReviewResult, run_concurrent_review
 from .config import BabysitConfig
 from .loop import BabysitLoop, babysit
 from .types import (
+    BabysitAgentRole,
     BabysitExitReason,
     BabysitResult,
     BabysitStep,
     CICheckResult,
     CICheckStatus,
+    ConsensusState,
     LoopState,
     PRState,
     ReviewVerdict,
 )
 
 __all__ = [
+    "BabysitAgentRole",
     "BabysitConfig",
     "BabysitExitReason",
     "BabysitLoop",
@@ -48,8 +52,11 @@ __all__ = [
     "BabysitStep",
     "CICheckResult",
     "CICheckStatus",
+    "ConcurrentReviewResult",
+    "ConsensusState",
     "LoopState",
     "PRState",
     "ReviewVerdict",
     "babysit",
+    "run_concurrent_review",
 ]

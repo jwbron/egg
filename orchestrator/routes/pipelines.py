@@ -558,6 +558,46 @@ def get_pipeline(pipeline_id: str) -> tuple[Response, int]:
         )
 
 
+def _register_babysit_brc_agents(pipeline: Any) -> None:
+    """Register fixer and reviewer agents with BRC configuration for babysit pipeline.
+
+    Sets up the peer consensus tracker with a review graph where the
+    babysit_reviewer reviews the babysit_fixer (CRITICAL edge).  This is
+    best-effort — the babysit loop can still function in sequential mode
+    if BRC initialisation fails.
+    """
+    try:
+        from ..peer_consensus import create_peer_consensus_tracker
+        from ..review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        graph = ReviewGraph(
+            edges=[
+                ReviewEdge(
+                    reviewer_role="babysit_reviewer",
+                    producer_role="babysit_fixer",
+                    criticality=ReviewCriticality.CRITICAL,
+                )
+            ]
+        )
+
+        tracker = create_peer_consensus_tracker(pipeline.id, graph)
+        tracker.register_agent("babysit_fixer")
+        tracker.register_agent("babysit_reviewer")
+
+        logger.info(
+            "Registered BRC agents for babysit pipeline",
+            pipeline_id=pipeline.id,
+        )
+    except Exception as exc:
+        # BRC registration is best-effort — the babysit loop can still
+        # function in sequential mode if agent registration fails.
+        logger.warning(
+            "Failed to register BRC agents for pipeline %s: %s",
+            pipeline.id,
+            exc,
+        )
+
+
 @pipelines_bp.route("", methods=["POST"])
 def create_pipeline() -> tuple[Response, int]:
     """
@@ -646,6 +686,10 @@ def create_pipeline() -> tuple[Response, int]:
 
         # Contract creation is deferred to _run_pipeline so it writes
         # into the per-pipeline worktree instead of the main repo.
+
+        # Register BRC agents for babysit mode
+        if mode == PipelineMode.BABYSIT and pipeline:
+            _register_babysit_brc_agents(pipeline)
 
         logger.info(
             "Pipeline created",

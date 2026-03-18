@@ -3,6 +3,9 @@
 Constructs prompts for check-fixer, reviewer, conflict-resolution, and
 feedback-addressing agents. Loads the check-fixers.yml configuration
 to determine non-LLM fix commands and per-job retry limits.
+
+Review criteria are loaded from ``shared/prompts/`` markdown files and
+conditionally included based on PR labels and changed files.
 """
 
 import logging
@@ -14,6 +17,44 @@ from typing import Any
 import yaml
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# BRC consensus instruction blocks (appended when concurrent_mode=True).
+# ---------------------------------------------------------------------------
+
+_BRC_FIXER_INSTRUCTIONS = """\
+
+## BRC Consensus Protocol
+
+You are running in concurrent mode with a reviewer agent. After completing your
+fixes:
+
+1. Commit and push your changes.
+2. Run `egg-orch consensus propose --summary "<what you fixed>" --artifacts "<files changed>"` to propose your work for review.
+3. Poll for reviewer feedback: `egg-orch message poll --wait 30`
+4. If the reviewer NACKs your proposal:
+   - Run `egg-orch consensus withdraw` to withdraw your proposal.
+   - Address the reviewer's concerns.
+   - Re-propose with `egg-orch consensus propose`.
+5. When all reviewers ACK: `egg-orch consensus confirmed`
+6. Stay alive — keep polling until the orchestrator stops you.
+"""
+
+_BRC_REVIEWER_INSTRUCTIONS = """\
+
+## BRC Consensus Protocol
+
+You are running in concurrent mode with a fixer agent. After completing your
+review:
+
+1. Post your review via `gh pr review`.
+2. Poll for fixer proposals: `egg-orch message poll --wait 30`
+3. When a proposal arrives, review the changes:
+   - If acceptable: `egg-orch consensus ack babysit_fixer --reason "<brief reason>"`
+   - If issues found: `egg-orch consensus nack babysit_fixer --reason "<specific issues>"`
+4. When all producers are ACKed: `egg-orch consensus confirmed`
+5. Stay alive — keep polling until the orchestrator stops you.
+"""
 
 # Default paths to search for check-fixers.yml.
 _CHECK_FIXERS_SEARCH_PATHS = [
@@ -109,6 +150,42 @@ def _load_yaml(path: Path) -> dict[str, Any]:
         return {}
 
 
+def _load_review_criteria(filename: str) -> str:
+    """Load review criteria from shared/prompts/ directory.
+
+    Falls back to a minimal inline version if the file cannot be loaded.
+
+    Args:
+        filename: Name of the criteria markdown file (e.g. "code-review-criteria.md").
+
+    Returns:
+        Criteria text, or empty string on failure.
+    """
+    criteria_dir = Path(__file__).parent.parent / "prompts"
+    criteria_path = criteria_dir / filename
+
+    if criteria_path.is_file():
+        try:
+            return criteria_path.read_text().strip()
+        except Exception as exc:
+            logger.warning("Failed to load %s: %s", criteria_path, exc)
+
+    return ""
+
+
+def _should_include_agent_design_review(changed_files: list[str] | None) -> bool:
+    """Check if any changed files warrant agent-mode design review.
+
+    Returns True when at least one changed file lives under a directory
+    that contains agent infrastructure (actions, workflows, sandbox, or
+    shared prompts).
+    """
+    if not changed_files:
+        return False
+    agent_patterns = ("action/", ".github/workflows/", "sandbox/", "shared/prompts/")
+    return any(any(f.startswith(pattern) for pattern in agent_patterns) for f in changed_files)
+
+
 def get_non_llm_fix_command(
     workflow: str,
     job: str,
@@ -169,6 +246,7 @@ def build_check_fixer_prompt(
     repo: str,
     failed_jobs: list[str],
     repo_path: str = "",
+    concurrent_mode: bool = False,
 ) -> str:
     """Build a prompt for the check-fixer agent.
 
@@ -177,6 +255,7 @@ def build_check_fixer_prompt(
         repo: Repository in owner/repo format.
         failed_jobs: List of failing CI job names.
         repo_path: Local path to the repository checkout.
+        concurrent_mode: Include BRC consensus instructions when True.
 
     Returns:
         Complete prompt string for the fixer agent.
@@ -184,7 +263,7 @@ def build_check_fixer_prompt(
     effective_repo_path = repo_path or os.environ.get("EGG_REPO_PATH", "~/repos")
     jobs_list = "\n".join(f"  - {job}" for job in failed_jobs)
 
-    return f"""\
+    prompt = f"""\
 You are a CI check fixer agent. Your job is to fix failing CI checks on PR #{pr_number}
 in the {repo} repository.
 
@@ -220,25 +299,41 @@ PR: #{pr_number}
 After fixing, commit changes with a clear message describing the fixes and push.
 """
 
+    if concurrent_mode:
+        prompt += _BRC_FIXER_INSTRUCTIONS
+
+    return prompt
+
 
 def build_review_prompt(
     pr_number: int,
     repo: str,
     repo_path: str = "",
+    labels: list[str] | None = None,
+    changed_files: list[str] | None = None,
+    concurrent_mode: bool = False,
 ) -> str:
     """Build a prompt for the reviewer agent.
+
+    Assembles review criteria from shared markdown files, conditionally
+    including contract verification (when the ``sdlc:pr`` label is present)
+    and agent-mode design review (when changed files touch agent
+    infrastructure paths).
 
     Args:
         pr_number: Pull request number.
         repo: Repository in owner/repo format.
         repo_path: Local path to the repository checkout.
+        labels: PR labels for conditional criteria selection.
+        changed_files: Files changed in the PR for conditional criteria.
+        concurrent_mode: Include BRC consensus instructions when True.
 
     Returns:
         Complete prompt string for the reviewer agent.
     """
     effective_repo_path = repo_path or os.environ.get("EGG_REPO_PATH", "~/repos")
 
-    return f"""\
+    prompt = f"""\
 You are a code reviewer agent. Review PR #{pr_number} in the {repo} repository.
 
 ## Instructions
@@ -281,21 +376,46 @@ Post your review using `gh pr review {pr_number} --repo {repo}` with one of:
 Working directory: {effective_repo_path}
 """
 
+    # --- Conditional review criteria from shared/prompts/ files -----------
+
+    base_criteria = _load_review_criteria("code-review-criteria.md")
+    if base_criteria:
+        prompt += f"\n## Code Review Criteria\n\n{base_criteria}\n"
+
+    # Include contract verification when the PR is part of an SDLC pipeline.
+    if labels and "sdlc:pr" in labels:
+        contract_criteria = _load_review_criteria("contract-review-criteria.md")
+        if contract_criteria:
+            prompt += f"\n## Contract Review Criteria\n\n{contract_criteria}\n"
+
+    # Include agent-mode design review when agent infrastructure is modified.
+    if _should_include_agent_design_review(changed_files):
+        agent_criteria = _load_review_criteria("agent-design-criteria.md")
+        if agent_criteria:
+            prompt += f"\n## Agent Design Review Criteria\n\n{agent_criteria}\n"
+
+    if concurrent_mode:
+        prompt += _BRC_REVIEWER_INSTRUCTIONS
+
+    return prompt
+
 
 def build_conflict_resolution_prompt(
     pr_number: int,
     repo: str,
+    concurrent_mode: bool = False,
 ) -> str:
     """Build a prompt for the conflict resolution agent.
 
     Args:
         pr_number: Pull request number.
         repo: Repository in owner/repo format.
+        concurrent_mode: Include BRC consensus instructions when True.
 
     Returns:
         Complete prompt string for the conflict resolution agent.
     """
-    return f"""\
+    prompt = f"""\
 You are a merge conflict resolution agent. PR #{pr_number} in {repo} has merge conflicts
 that need to be resolved.
 
@@ -321,11 +441,17 @@ Repository: {repo}
 PR: #{pr_number}
 """
 
+    if concurrent_mode:
+        prompt += _BRC_FIXER_INSTRUCTIONS
+
+    return prompt
+
 
 def build_feedback_fixer_prompt(
     pr_number: int,
     repo: str,
     review_comments: list[str],
+    concurrent_mode: bool = False,
 ) -> str:
     """Build a prompt for the feedback-addressing agent.
 
@@ -333,6 +459,7 @@ def build_feedback_fixer_prompt(
         pr_number: Pull request number.
         repo: Repository in owner/repo format.
         review_comments: List of review comment bodies to address.
+        concurrent_mode: Include BRC consensus instructions when True.
 
     Returns:
         Complete prompt string for the feedback fixer agent.
@@ -341,7 +468,7 @@ def build_feedback_fixer_prompt(
         f"**Comment {i + 1}:**\n{comment}" for i, comment in enumerate(review_comments)
     )
 
-    return f"""\
+    prompt = f"""\
 You are a feedback-addressing agent. PR #{pr_number} in {repo} has received review feedback
 that needs to be addressed.
 
@@ -378,6 +505,11 @@ Repository: {repo}
 PR: #{pr_number}
 """
 
+    if concurrent_mode:
+        prompt += _BRC_FIXER_INSTRUCTIONS
+
+    return prompt
+
 
 __all__ = [
     "build_check_fixer_prompt",
@@ -387,4 +519,6 @@ __all__ = [
     "get_max_retries",
     "get_non_llm_fix_command",
     "load_check_fixers_config",
+    "_load_review_criteria",
+    "_should_include_agent_design_review",
 ]

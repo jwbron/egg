@@ -18,6 +18,9 @@ class BabysitConfig:
         check_fixers_path: Path to check-fixers.yml config. Auto-detected if empty.
         orchestrator_url: Orchestrator API URL. Auto-detected from env if empty.
         pipeline_id: Pipeline ID for orchestrator. Auto-generated as pr-{N} if empty.
+        consensus_timeout_minutes: BRC consensus timeout in minutes.
+        max_consensus_rounds: Maximum BRC consensus rounds (flip-flop cap).
+        concurrent_mode: Whether to use concurrent BRC execution for review/feedback.
     """
 
     pr_number: int
@@ -30,6 +33,9 @@ class BabysitConfig:
     check_fixers_path: str = ""
     orchestrator_url: str = ""
     pipeline_id: str = ""
+    consensus_timeout_minutes: int = 30
+    max_consensus_rounds: int = 3
+    concurrent_mode: bool = False
 
     def __post_init__(self) -> None:
         """Validate configuration bounds."""
@@ -48,6 +54,14 @@ class BabysitConfig:
         if self.max_feedback_rounds < 0:
             raise ValueError(
                 f"max_feedback_rounds must be non-negative, got {self.max_feedback_rounds}"
+            )
+        if self.consensus_timeout_minutes <= 0:
+            raise ValueError(
+                f"consensus_timeout_minutes must be positive, got {self.consensus_timeout_minutes}"
+            )
+        if self.max_consensus_rounds <= 0:
+            raise ValueError(
+                f"max_consensus_rounds must be positive, got {self.max_consensus_rounds}"
             )
 
 

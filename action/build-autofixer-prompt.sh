@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# DEPRECATED: Use build-check-fixer-prompt.sh instead.
-# This script is kept for external repos that still reference it.
-# New repos should use reusable-check-fixer.yml with build-check-fixer-prompt.sh.
+# DEPRECATED: build-check-fixer-prompt.sh has been removed as part of the
+# babysit-pr migration. This script is kept for external repos that still
+# reference it.
 #
 # build-autofixer-prompt.sh — Build a minimal prompt for agent-driven check autofix
 #

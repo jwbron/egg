@@ -194,6 +194,41 @@ class BabysitLoop:
                         message="PR approved with all checks passing — ready for merge",
                     )
 
+                # Concurrent BRC mode: run fixer and reviewer in parallel.
+                if self.config.concurrent_mode:
+                    self._set_step(BabysitStep.REVIEW)
+                    from .concurrent import run_concurrent_review
+
+                    self.state.consensus_round += 1
+                    concurrent_result = run_concurrent_review(self.config, elapsed=self._elapsed())
+                    self._emit_progress("concurrent_review", concurrent_result.consensus_reached)
+
+                    if concurrent_result.escalated:
+                        escalate(
+                            self.config,
+                            "Concurrent review",
+                            concurrent_result.message,
+                        )
+                        return self._result(
+                            BabysitExitReason.ESCALATED,
+                            message=concurrent_result.message,
+                        )
+
+                    if concurrent_result.verdict == ReviewVerdict.APPROVED:
+                        logger.info(
+                            "PR #%d approved by concurrent review — ready for merge",
+                            self.config.pr_number,
+                        )
+                        self._set_step(BabysitStep.DONE)
+                        return self._result(
+                            BabysitExitReason.READY_TO_MERGE,
+                            message="PR approved with all checks passing — ready for merge",
+                        )
+
+                    # If not approved, continue to next iteration.
+                    continue
+
+                # Sequential mode (default): run review then address feedback.
                 self._set_step(BabysitStep.REVIEW)
                 review_result = run_review(self.config)
                 self._emit_progress("review", review_result.success)
