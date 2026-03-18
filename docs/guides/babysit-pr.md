@@ -4,7 +4,7 @@ Autonomous review/fix loop that monitors a pull request through its full lifecyc
 
 ## What It Does
 
-`egg babysit-pr` watches a PR and automatically:
+`egg-babysit` watches a PR and automatically:
 
 1. **Resolves merge conflicts** — detects dirty mergeable state and spawns a fixer agent
 2. **Waits for CI checks** — polls `gh pr checks` at configurable intervals
@@ -21,16 +21,16 @@ This replicates the manual cycle demonstrated in [PR #1011](https://github.com/j
 
 ```bash
 # Basic usage — monitors PR #42 until merged or timeout
-egg babysit-pr 42
+egg-babysit 42
 
 # Specify repository explicitly
-egg babysit-pr 42 --repo owner/repo
+egg-babysit 42 --repo owner/repo
 
 # Custom timeout (default: 4 hours)
-egg babysit-pr 42 --timeout 2h
+egg-babysit 42 --timeout 2h
 
 # Limit loop iterations (default: 10)
-egg babysit-pr 42 --max-iterations 5
+egg-babysit 42 --max-iterations 5
 ```
 
 ### As a Coordinator Sub-Task
@@ -127,7 +127,7 @@ test:
 
 ## Orchestrator Integration
 
-When `egg babysit-pr` runs, it registers a pipeline with the orchestrator:
+When `egg-babysit` runs, it registers a pipeline with the orchestrator:
 
 - **Pipeline ID**: `pr-{N}` (e.g., `pr-42` for PR #42)
 - **Mode**: `babysit` (distinct from the standard `issue` mode)
