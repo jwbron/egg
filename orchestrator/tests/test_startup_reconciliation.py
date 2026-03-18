@@ -607,7 +607,9 @@ class TestStartupConsensusReconstruction:
             patch("concurrent_executor.is_concurrent_execution", return_value=True),
             patch("peer_consensus.get_peer_consensus_tracker", return_value=None),
         ):
-            mock_reconstruct.return_value = MagicMock()
+            mock_tracker = MagicMock()
+            mock_tracker.evaluate.return_value = {"is_complete": False}
+            mock_reconstruct.return_value = mock_tracker
 
             reconcile_stale_containers(store, docker_client)
 
