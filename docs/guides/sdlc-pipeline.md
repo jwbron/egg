@@ -646,13 +646,14 @@ Pipeline decisions made during refine and plan phases are automatically synced t
 
 **What gets synced:**
 
-- Resolved decisions with `decision_type != "phase_gate"` (substantive choices, not process gates)
+- Resolved decisions with `decision_type != "phase_gate"` (substantive choices, not process gates) — via `_sync_pipeline_decisions_to_contract()`
+- Phase gate approvals that include context or feedback — via `_persist_phase_gate_resolution()`. When a human approves a phase gate with notes, the context is added to the contract as a `[Phase gate: <phase>]`-prefixed decision and appended to the phase draft file as a `## HITL Resolution` section
 - Decision question, options, resolution, and resolved_at are carried over; resolved_by is set to `"human"`
 - Decisions already present in the contract (matched by question text) are skipped to avoid duplicates
 
 **Key files:**
 
-- `orchestrator/routes/pipelines.py` — `_sync_pipeline_decisions_to_contract()` implementation
+- `orchestrator/routes/pipelines.py` — `_sync_pipeline_decisions_to_contract()` and `_persist_phase_gate_resolution()` implementations
 - `orchestrator/models.py` — `HITLDecision` model (pipeline state)
 - `shared/egg_contracts/models.py` — `Decision` model (contract state)
 
