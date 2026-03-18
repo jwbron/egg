@@ -280,7 +280,7 @@ Timeout handling is idempotent — if the timeout fires multiple times (e.g., du
 
 ### Consensus Stall Recovery
 
-A separate scenario from timeout: all agents have confirmed (consensus is complete) but the phase execution has not advanced — for example, because the orchestrator's polling loop missed the completion event. The `ConsensusStallCheck` (Tier 1 health check) detects this on each `RUNTIME_TICK` after a 60-second grace period.
+A separate scenario from timeout: all agents have confirmed (consensus is complete) but the phase execution has not advanced — for example, because the orchestrator's polling loop missed the completion event. The `ConsensusStallCheck` (Tier 1 health check) detects this on each `RUNTIME_TICK` (and `ON_DEMAND`) after a 60-second grace period.
 
 When a stall is detected, `ContainerMonitor` drives a two-track recovery:
 
