@@ -27,7 +27,6 @@ Or from the command line::
     python -m egg_babysit 42 --repo owner/repo
 """
 
-from .concurrent import ConcurrentReviewResult, run_concurrent_review
 from .config import BabysitConfig
 from .loop import BabysitLoop, babysit
 from .types import (
@@ -43,6 +42,11 @@ from .types import (
     ReviewVerdict,
 )
 
+# ConcurrentReviewResult and run_concurrent_review are NOT re-exported
+# at package level because concurrent.py lazily imports from
+# orchestrator.consensus_wrapper, which is not available in sandbox.
+# Import directly from egg_babysit.concurrent when needed.
+
 __all__ = [
     "BabysitAgentRole",
     "BabysitConfig",
@@ -52,11 +56,9 @@ __all__ = [
     "BabysitStep",
     "CICheckResult",
     "CICheckStatus",
-    "ConcurrentReviewResult",
     "ConsensusState",
     "LoopState",
     "PRState",
     "ReviewVerdict",
     "babysit",
-    "run_concurrent_review",
 ]

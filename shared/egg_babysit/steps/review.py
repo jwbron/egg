@@ -4,6 +4,7 @@ Spawns a reviewer agent to review the PR and returns the verdict
 and any comments. Posts a status comment summarising the review result.
 """
 
+import json
 import logging
 import subprocess
 from dataclasses import dataclass
@@ -34,12 +35,86 @@ class ReviewStepResult:
     message: str = ""
 
 
+def _fetch_pr_labels(pr_number: int, repo: str) -> list[str]:
+    """Fetch PR labels via the gh CLI.
+
+    Args:
+        pr_number: Pull request number.
+        repo: Repository in owner/repo format.
+
+    Returns:
+        List of label name strings. Empty list on failure.
+    """
+    try:
+        raw = subprocess.run(
+            [
+                "gh",
+                "pr",
+                "view",
+                str(pr_number),
+                "--repo",
+                repo,
+                "--json",
+                "labels",
+                "--jq",
+                "[.labels[].name]",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if raw.returncode == 0 and raw.stdout.strip():
+            return list(json.loads(raw.stdout))
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as exc:
+        logger.debug("Failed to fetch PR labels for #%d: %s", pr_number, exc)
+    return []
+
+
+def _fetch_changed_files(pr_number: int, repo: str) -> list[str]:
+    """Fetch list of files changed in a PR via the gh CLI.
+
+    Args:
+        pr_number: Pull request number.
+        repo: Repository in owner/repo format.
+
+    Returns:
+        List of changed file paths. Empty list on failure.
+    """
+    try:
+        raw = subprocess.run(
+            [
+                "gh",
+                "pr",
+                "view",
+                str(pr_number),
+                "--repo",
+                repo,
+                "--json",
+                "files",
+                "--jq",
+                "[.files[].path]",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if raw.returncode == 0 and raw.stdout.strip():
+            return list(json.loads(raw.stdout))
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as exc:
+        logger.debug("Failed to fetch changed files for PR #%d: %s", pr_number, exc)
+    return []
+
+
 def run_review(config: BabysitConfig) -> ReviewStepResult:
     """Run the review step.
 
     Spawns a reviewer agent that examines the PR diff and posts a
     GitHub review. The review verdict and comments are captured from
     the PR state after the agent completes.
+
+    Fetches PR labels and changed files to enable conditional review
+    criteria (contract verification for ``sdlc:pr`` labelled PRs,
+    agent-design review for agent infrastructure changes).
 
     Args:
         config: Babysit configuration.
@@ -49,7 +124,17 @@ def run_review(config: BabysitConfig) -> ReviewStepResult:
     """
     logger.info("Starting review step for PR #%d", config.pr_number)
 
-    prompt = build_review_prompt(config.pr_number, config.repo)
+    # Fetch labels and changed files for conditional review criteria.
+    labels = _fetch_pr_labels(config.pr_number, config.repo)
+    changed_files = _fetch_changed_files(config.pr_number, config.repo)
+
+    prompt = build_review_prompt(
+        config.pr_number,
+        config.repo,
+        labels=labels,
+        changed_files=changed_files,
+        concurrent_mode=config.concurrent_mode,
+    )
     result = run_reviewer(prompt, config)
 
     if result.error:

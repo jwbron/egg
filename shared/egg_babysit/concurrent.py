@@ -10,8 +10,6 @@ import os
 import subprocess
 from dataclasses import dataclass
 
-from orchestrator.consensus_wrapper import build_consensus_wrapped_command
-
 from .config import BabysitConfig
 from .pr_state import fetch_pr_state, fetch_review_comments
 from .prompts import build_feedback_fixer_prompt, build_review_prompt
@@ -76,6 +74,9 @@ def run_concurrent_review(
     remaining = max(300, config.timeout_seconds - int(elapsed))
     consensus_timeout = min(config.consensus_timeout_minutes * 60, remaining)
 
+    # Lazy import to avoid pulling orchestrator into sandbox at module load.
+    from orchestrator.consensus_wrapper import build_consensus_wrapped_command
+
     # Build consensus-wrapped commands for both agents.
     fixer_cmd = build_consensus_wrapped_command(
         fixer_prompt,
@@ -136,11 +137,49 @@ def run_concurrent_review(
         text=True,
     )
 
-    # Wait for both to complete (consensus wrapper handles BRC protocol).
-    try:
-        fixer_stdout, fixer_stderr = fixer_proc.communicate(timeout=consensus_timeout)
-        reviewer_stdout, reviewer_stderr = reviewer_proc.communicate(timeout=consensus_timeout)
-    except subprocess.TimeoutExpired:
+    # Wait for both to complete concurrently using threads so that
+    # one process blocking does not prevent the other from being
+    # collected (or timed out) in a timely manner.
+    import threading
+
+    fixer_result: dict[str, str] = {}
+    reviewer_result: dict[str, str] = {}
+    fixer_exc: BaseException | None = None
+    reviewer_exc: BaseException | None = None
+
+    def _communicate_fixer() -> None:
+        nonlocal fixer_exc
+        try:
+            out, err = fixer_proc.communicate(timeout=consensus_timeout)
+            fixer_result["stdout"] = out
+            fixer_result["stderr"] = err
+        except BaseException as exc:
+            fixer_exc = exc
+
+    def _communicate_reviewer() -> None:
+        nonlocal reviewer_exc
+        try:
+            out, err = reviewer_proc.communicate(timeout=consensus_timeout)
+            reviewer_result["stdout"] = out
+            reviewer_result["stderr"] = err
+        except BaseException as exc:
+            reviewer_exc = exc
+
+    fixer_thread = threading.Thread(target=_communicate_fixer, daemon=True)
+    reviewer_thread = threading.Thread(target=_communicate_reviewer, daemon=True)
+    fixer_thread.start()
+    reviewer_thread.start()
+    fixer_thread.join(timeout=consensus_timeout + 30)
+    reviewer_thread.join(timeout=consensus_timeout + 30)
+
+    # Handle timeout or exception from either process.
+    timed_out = False
+    if fixer_exc is not None or reviewer_exc is not None:
+        timed_out = isinstance(fixer_exc, subprocess.TimeoutExpired) or isinstance(
+            reviewer_exc, subprocess.TimeoutExpired
+        )
+
+    if timed_out:
         logger.warning("Concurrent review timed out for PR #%d", config.pr_number)
         fixer_proc.kill()
         reviewer_proc.kill()
@@ -154,6 +193,11 @@ def run_concurrent_review(
             escalated=True,
             message="Concurrent review timed out — escalating to human",
         )
+
+    _fixer_stdout = fixer_result.get("stdout", "")  # noqa: F841
+    fixer_stderr = fixer_result.get("stderr", "")
+    reviewer_stdout = reviewer_result.get("stdout", "")
+    reviewer_stderr = reviewer_result.get("stderr", "")
 
     # Check exit codes.
     fixer_ok = fixer_proc.returncode == 0

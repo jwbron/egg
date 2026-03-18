@@ -160,7 +160,7 @@ class TestRunConcurrentReview:
     @patch("egg_babysit.concurrent.subprocess.Popen")
     @patch("egg_babysit.concurrent.fetch_pr_state")
     @patch("egg_babysit.concurrent.fetch_review_comments")
-    @patch("egg_babysit.concurrent.build_consensus_wrapped_command")
+    @patch("orchestrator.consensus_wrapper.build_consensus_wrapped_command")
     def test_happy_path_approved(
         self,
         mock_build_cmd: Any,
@@ -191,7 +191,7 @@ class TestRunConcurrentReview:
     @patch("egg_babysit.concurrent.subprocess.Popen")
     @patch("egg_babysit.concurrent.fetch_pr_state")
     @patch("egg_babysit.concurrent.fetch_review_comments")
-    @patch("egg_babysit.concurrent.build_consensus_wrapped_command")
+    @patch("orchestrator.consensus_wrapper.build_consensus_wrapped_command")
     def test_timeout_escalation(
         self,
         mock_build_cmd: Any,
@@ -219,7 +219,7 @@ class TestRunConcurrentReview:
     @patch("egg_babysit.concurrent.subprocess.Popen")
     @patch("egg_babysit.concurrent.fetch_pr_state")
     @patch("egg_babysit.concurrent.fetch_review_comments")
-    @patch("egg_babysit.concurrent.build_consensus_wrapped_command")
+    @patch("orchestrator.consensus_wrapper.build_consensus_wrapped_command")
     def test_fixer_failure(
         self,
         mock_build_cmd: Any,
@@ -253,7 +253,7 @@ class TestRunConcurrentReview:
     @patch("egg_babysit.concurrent.subprocess.Popen")
     @patch("egg_babysit.concurrent.fetch_pr_state")
     @patch("egg_babysit.concurrent.fetch_review_comments")
-    @patch("egg_babysit.concurrent.build_consensus_wrapped_command")
+    @patch("orchestrator.consensus_wrapper.build_consensus_wrapped_command")
     def test_with_existing_feedback(
         self,
         mock_build_cmd: Any,
@@ -282,7 +282,7 @@ class TestRunConcurrentReview:
     @patch("egg_babysit.concurrent.subprocess.Popen")
     @patch("egg_babysit.concurrent.fetch_pr_state")
     @patch("egg_babysit.concurrent.fetch_review_comments")
-    @patch("egg_babysit.concurrent.build_consensus_wrapped_command")
+    @patch("orchestrator.consensus_wrapper.build_consensus_wrapped_command")
     def test_brc_env_vars_set(
         self,
         mock_build_cmd: Any,
