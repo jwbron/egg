@@ -157,10 +157,12 @@ Lightweight Haiku agents handle classification tasks. They run only when the orc
 
 | Task | Prompt Pattern |
 |------|---------------|
-| **Stall classification** | "Is this agent stuck, or doing legitimate long-running work?" — receives BRC consensus state as authoritative context when available (an agent with confirmed consensus is never classified as stalled) |
+| **Stall classification** | "Is this agent stuck, or doing legitimate long-running work?" |
 | **Loop detection** | "Is this agent repeating the same actions in a cycle?" |
 | **Error triage** | "Is this error recoverable or fatal?" |
 | **Off-track detection** | "Is this agent's work aligned with the contract?" |
+
+**Consensus-aware stall classification**: The stall classifier receives BRC consensus state as authoritative context when available. An agent with confirmed consensus is never classified as stalled — this prevents false stall diagnoses during the window between consensus confirmation and phase transition.
 
 Characteristics:
 - Short, focused prompts — single-purpose classification
@@ -203,6 +205,8 @@ Overseer receives escalation (or detects anomaly in own polling)
         → Sonnet/Opus decides corrective action
           → Execute action (nudge / redirect / HITL / file issue / Slack)
 ```
+
+**Phase-scoped alert processing**: Health alerts are filtered to only include agents in the current pipeline phase. Alerts for agents from completed phases (e.g., a coder alert during the test phase) are excluded to prevent false stall diagnoses.
 
 ### Corrective Action Ladder
 
