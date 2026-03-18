@@ -141,10 +141,10 @@
         },
         {
           "role": "reviewer_refine",
-          "status": "running",
+          "status": "complete",
           "container_id": "5a94e0a3d96c1fee0c6f8ad4e5378aad92eb4be2899e347f137eb454f6f26cbd",
           "started_at": "2026-03-18T03:17:01.562141",
-          "completed_at": null,
+          "completed_at": "2026-03-18T03:17:01.581433",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -153,10 +153,10 @@
         },
         {
           "role": "reviewer_agent_design",
-          "status": "running",
+          "status": "complete",
           "container_id": "65894bc3bd2528f77ed6fae11eed4aeba482cdcf7fe8092810634f88cff456a1",
           "started_at": "2026-03-18T03:17:01.562150",
-          "completed_at": null,
+          "completed_at": "2026-03-18T03:17:01.581436",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -165,10 +165,10 @@
         },
         {
           "role": "refiner",
-          "status": "running",
+          "status": "complete",
           "container_id": "d1265e55cc444268a80b14332c7b185896b491a59455b7a0fa6209c12881f8c9",
           "started_at": "2026-03-18T03:17:01.562156",
-          "completed_at": null,
+          "completed_at": "2026-03-18T03:17:01.581438",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -217,9 +217,9 @@
     }
   ],
   "created_at": "2026-03-18T02:39:58.796747",
-  "updated_at": "2026-03-18T03:17:01.562224",
+  "updated_at": "2026-03-18T03:17:01.581507",
   "contract_synced": true,
   "network_mode": null,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 16
+  "version": 17
 }
