@@ -252,6 +252,9 @@ class OverseerMonitor:
             2. Query progress events
             3. Query health alerts
             4. Query pipeline status (single call for filtering + terminal check)
+            4a. Query decisions for deterministic health checks
+            4b. Run deterministic health checks (rerun anomaly, status
+                consistency, HITL resolution propagation)
             5. Check for escalation messages from orchestrator
             6. Route anomalies through classifier (with consensus context)
             7. Route classified results through decision maker / execute actions
@@ -754,6 +757,8 @@ class OverseerMonitor:
         ``request_changes``, ``content_changed`` is ``False``, and the
         subsequent work cycle lasted less than ``overseer_rerun_min_work_seconds``.
         """
+        import datetime as _dt
+
         cycle_timings = phase_data.get("phase_execution", {}).get("cycle_timings", [])
 
         min_work = getattr(self.config, "overseer_rerun_min_work_seconds", 60)
@@ -777,8 +782,6 @@ class OverseerMonitor:
 
             work_duration: float | None = None
             try:
-                import datetime as _dt
-
                 r = _dt.datetime.fromisoformat(resolved_at)
             except (ValueError, TypeError):
                 continue
@@ -889,6 +892,8 @@ class OverseerMonitor:
 
         # Single contract query for all timed-out decisions
         contract = await self._query_contract_data()
+        if not contract:
+            return  # contract unavailable — retry next cycle
         contract_decisions = contract.get("decisions", [])
 
         for did, elapsed in timed_out:

@@ -1006,9 +1006,11 @@ class TestStatusConsistency:
         monitor = OverseerMonitor(pipeline_id="test-status-002", config=_MockConfig())
         monitor._create_hitl_decision = AsyncMock()
         monitor._status_inconsistency_first_seen = time.time() - 999
+        monitor._status_inconsistency_reported = True
 
         _run(monitor._check_status_consistency({"status": "running"}))
         assert monitor._status_inconsistency_first_seen is None
+        assert monitor._status_inconsistency_reported is False
         monitor._create_hitl_decision.assert_not_awaited()
 
     def test_no_flag_when_agent_not_complete(self) -> None:
