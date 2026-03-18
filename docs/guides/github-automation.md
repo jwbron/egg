@@ -7,6 +7,8 @@ credentials, merge PRs, or push outside its branch namespace.
 **Using these workflows in external repositories?** See the [Reusable Workflows guide](reusable-workflows.md)
 for how to call egg's workflows from your own repositories.
 
+**Want a continuous review/fix loop instead of event-driven workflows?** See the [Babysit-PR Guide](babysit-pr.md) — it consolidates the check fixer, conflict resolver, reviewer, and feedback responder into a single polling loop that runs until the PR merges.
+
 ## Workflows Overview
 
 | Workflow | Trigger | What It Does |
