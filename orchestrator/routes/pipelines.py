@@ -4076,6 +4076,8 @@ def _run_concurrent_phase(
                         and ci.status == ContainerStatus.RUNNING
                     ):
                         ci.status = ContainerStatus.EXITED
+                        # Synthetic: container will be stopped next, but 0
+                        # reflects successful consensus completion.
                         ci.exit_code = 0
                         ci.exited_at = datetime.utcnow()
                 store.save_pipeline(pip)
