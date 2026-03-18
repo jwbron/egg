@@ -14,7 +14,6 @@
       "id": "decision-1",
       "question": "babysit-pr Execution Model: Should babysit-pr use the orchestrator for lifecycle management, or run as a standalone process?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -47,7 +46,6 @@
       "id": "decision-2",
       "question": "Prompt Builder Strategy: How should the Python babysit-pr module consume the existing bash prompt builders (action/build-*.sh)?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -80,7 +78,6 @@
       "id": "decision-3",
       "question": "PR Branch Handling: When agents manage a PR-seeded pipeline, should they push to the PR's existing head branch or create a new branch?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -113,7 +110,6 @@
       "id": "decision-4",
       "question": "babysit-pr Scope \u2014 Conflict Resolution: Should v1 include merge conflict resolution, or defer to v2?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -141,7 +137,6 @@
       "id": "decision-5",
       "question": "Terminal UX: What level of terminal output is expected for the babysit-pr CLI in v1?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -174,7 +169,6 @@
       "id": "decision-6",
       "question": "Review-Only vs Review-and-Fix: Should babysit-pr always pair review with auto-fix, or support a review-only mode?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -207,7 +201,6 @@
       "id": "decision-7",
       "question": "Non-Trusted-User PR Handling: How should babysit-pr handle PRs authored by someone not in GATEWAY_TRUSTED_USERS?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -240,7 +233,6 @@
       "id": "decision-8",
       "question": "Dependency Sequencing: Should babysit-pr ship independently before the coordinator (#1028), or wait?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -279,5 +271,58 @@
   "pr": null,
   "feedback": null,
   "phase_configs": null,
-  "agent_executions": []
+  "agent_executions": [
+    {
+      "role": "coder",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "tester",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "documenter",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_agent_design",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-03-18T02:52:24.806134Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    }
+  ]
 }
