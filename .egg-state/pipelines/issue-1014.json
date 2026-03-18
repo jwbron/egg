@@ -4,7 +4,7 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1014",
   "prompt": null,
-  "status": "running",
+  "status": "cancelled",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -497,9 +497,9 @@
     }
   ],
   "created_at": "2026-03-18T02:39:58.796747",
-  "updated_at": "2026-03-18T03:54:25.578180",
+  "updated_at": "2026-03-18T05:15:02.679368",
   "contract_synced": true,
   "network_mode": null,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 38
+  "version": 39
 }
