@@ -1,0 +1,478 @@
+{
+  "issue": 1278,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 1,
+
+  "title": "Architecture analysis: Replace GHA review workflows with orchestrator-based babysit-pr single-cycle pipeline",
+
+  "summary": "Replace eight GHA review/fix/conflict workflows and six bash prompt builder scripts with a single orchestrator-triggered babysit-pr cycle using concurrent fixer+reviewer agents under BRC consensus. The egg_babysit package is already fully implemented with sequential loop logic, Python prompt builders, Agent SDK integration, and orchestrator pipeline support. The primary work is: (1) adding a GHA trigger workflow that invokes the orchestrator babysit pipeline on push to PR branches, (2) restructuring the babysit loop to run fixer and reviewer concurrently under BRC consensus instead of sequentially, (3) consolidating the remaining review criteria from bash prompt builders into the Python prompts module, (4) deleting the eight GHA workflows and six bash scripts, and (5) removing gha_exec() from the sandbox CLI. Recommended approach: phased implementation in a single cutover PR with four ordered work streams.",
+
+  "problem_statement": {
+    "description": "PR review automation is split across two execution models: eight GHA workflows using claude --print via gha_exec(), and the orchestrator using Agent SDK. This creates divergent execution paths, inconsistent error handling, and a linter contradiction where EGG100 flags claude --print as deprecated while the GHA action itself uses it. The GHA workflows also use bash scripts for prompt building, which are fragile, hard to test, and duplicate logic already available in Python.",
+    "root_causes": [
+      {
+        "id": "RC-1",
+        "title": "Dual execution model: GHA workflows vs orchestrator",
+        "description": "Eight GHA workflows run PR automation (review, fix, conflict resolution, feedback) through action/entrypoint.sh → gha_exec() → claude --print. The orchestrator runs SDLC pipelines through Agent SDK. Both paths do similar work (review, fix) but with different error handling, state tracking, and agent invocation patterns.",
+        "location": "action/entrypoint.sh, sandbox/egg_lib/cli.py:223-320, .github/workflows/"
+      },
+      {
+        "id": "RC-2",
+        "title": "EGG100 linter contradiction",
+        "description": "The EGG100 linter rule flags claude --print as deprecated for headless use, requiring Agent SDK instead. But gha_exec() in sandbox/egg_lib/cli.py:293 uses claude --print with a noqa comment. The GHA workflows depend on this path.",
+        "location": "sandbox/egg_lib/cli.py:293, scripts/check-docker-and-claude-invocations.py"
+      },
+      {
+        "id": "RC-3",
+        "title": "Bash prompt builders duplicate Python logic",
+        "description": "Six bash scripts (build-review-prompt.sh, build-contract-verification-prompt.sh, build-agent-mode-design-review-prompt.sh, build-check-fixer-prompt.sh, build-feedback-prompt.sh, build-conflict-prompt.sh) assemble prompts with shell escaping and jq. Equivalent Python prompt builders already exist in shared/egg_babysit/prompts.py.",
+        "location": "action/build-*.sh, shared/egg_babysit/prompts.py"
+      },
+      {
+        "id": "RC-4",
+        "title": "Sequential fixer/reviewer execution in babysit loop",
+        "description": "The current BabysitLoop in shared/egg_babysit/loop.py runs steps sequentially: fix → wait CI → review → address feedback. Issue #1278 requires concurrent fixer+reviewer agents coordinating via BRC consensus, where both iterate together until they agree the PR is clean.",
+        "location": "shared/egg_babysit/loop.py:81-243"
+      },
+      {
+        "id": "RC-5",
+        "title": "Eight separate GHA trigger workflows",
+        "description": "PR events are routed through eight separate workflow files with complex trigger conditions, concurrency groups, and inter-workflow dependencies. A single push to a PR branch can trigger multiple independent workflows that compete for the same resources.",
+        "location": ".github/workflows/on-pull-request.yml, on-pull-request-contract-verify.yml, on-pull-request-agent-mode-design.yml, on-review-feedback.yml, on-merge-conflict.yml, reusable-review.yml, reusable-check-fixer.yml, reusable-conflict-resolve.yml"
+      }
+    ]
+  },
+
+  "current_architecture": {
+    "gha_workflow_chain": {
+      "description": "Eight GHA workflows handle PR automation through a chain of triggers and reusable workflows. on-pull-request.yml → reusable-review.yml for code review, on-pull-request-contract-verify.yml → reusable-review.yml for contract verification, on-pull-request-agent-mode-design.yml → reusable-review.yml for design review. on-review-feedback.yml handles feedback addressing. reusable-check-fixer.yml handles CI fix. reusable-conflict-resolve.yml handles merge conflicts, triggered by on-merge-conflict.yml.",
+      "key_files": [
+        ".github/workflows/on-pull-request.yml",
+        ".github/workflows/reusable-review.yml",
+        ".github/workflows/on-pull-request-contract-verify.yml",
+        ".github/workflows/on-pull-request-agent-mode-design.yml",
+        ".github/workflows/on-review-feedback.yml",
+        ".github/workflows/reusable-check-fixer.yml",
+        ".github/workflows/reusable-conflict-resolve.yml",
+        ".github/workflows/on-merge-conflict.yml"
+      ]
+    },
+    "action_entrypoint": {
+      "description": "action/entrypoint.sh pulls Docker images, generates config, resolves prompts, then calls gha_exec() in sandbox/egg_lib/cli.py. gha_exec() builds RuntimeContext from env vars, creates networks, starts gateway, detects mode, builds 'claude --print' command with prompt, and executes in ephemeral container.",
+      "key_files": [
+        "action/entrypoint.sh",
+        "sandbox/egg_lib/cli.py"
+      ]
+    },
+    "bash_prompt_builders": {
+      "description": "Six bash scripts build prompts by fetching review criteria from shared/prompts/ or inline fallbacks, constructing context (PR info, CI status, review comments), and outputting prompt text to files. They handle security (checking out main branch for trusted prompt building), re-review delta logic, and authorized user filtering.",
+      "key_files": [
+        "action/build-review-prompt.sh",
+        "action/build-contract-verification-prompt.sh",
+        "action/build-agent-mode-design-review-prompt.sh",
+        "action/build-check-fixer-prompt.sh",
+        "action/build-feedback-prompt.sh",
+        "action/build-conflict-prompt.sh"
+      ]
+    },
+    "babysit_package": {
+      "description": "shared/egg_babysit/ is a fully implemented Python package with sequential loop logic (BabysitLoop), step implementations (check_fix, conflict, review, feedback), Python prompt builders, Agent SDK integration via build_agent_command(), CLI entry point, escalation system, and crash recovery via serializable LoopState. The orchestrator already supports BABYSIT pipeline mode with pr_number parameter.",
+      "key_files": [
+        "shared/egg_babysit/loop.py",
+        "shared/egg_babysit/steps/check_fix.py",
+        "shared/egg_babysit/steps/conflict.py",
+        "shared/egg_babysit/steps/review.py",
+        "shared/egg_babysit/steps/feedback.py",
+        "shared/egg_babysit/prompts.py",
+        "shared/egg_babysit/fixer.py",
+        "shared/egg_babysit/reviewer.py",
+        "shared/egg_babysit/escalation.py",
+        "shared/egg_babysit/cli.py",
+        "shared/egg_babysit/config.py",
+        "shared/egg_babysit/types.py"
+      ]
+    },
+    "orchestrator_integration": {
+      "description": "The orchestrator supports concurrent agent execution via BRC consensus (orchestrator/concurrent_executor.py, orchestrator/peer_consensus.py, orchestrator/review_graph.py). PipelineMode.BABYSIT is defined in models.py. Pipeline creation API accepts mode=babysit with pr_number. The concurrent executor spawns agents simultaneously and manages consensus-based phase completion.",
+      "key_files": [
+        "orchestrator/models.py",
+        "orchestrator/routes/pipelines.py",
+        "orchestrator/concurrent_executor.py",
+        "orchestrator/peer_consensus.py",
+        "orchestrator/review_graph.py",
+        "orchestrator/container_spawner.py"
+      ]
+    },
+    "shared_prompts": {
+      "description": "shared/prompts/ contains review criteria shared between GHA and orchestrator surfaces: code-review-criteria.md, contract-review-criteria.md, agent-design-criteria.md, autofixer-rules.md. REVIEWER-SYNC.md documents the two-surface synchronization requirement. The bash prompt builders read from these files with inline fallbacks.",
+      "key_files": [
+        "shared/prompts/code-review-criteria.md",
+        "shared/prompts/contract-review-criteria.md",
+        "shared/prompts/agent-design-criteria.md",
+        "shared/prompts/autofixer-rules.md",
+        "shared/prompts/REVIEWER-SYNC.md"
+      ]
+    }
+  },
+
+  "approaches": [
+    {
+      "id": "A",
+      "title": "Phased single-PR cutover (recommended)",
+      "description": "Build all new components, then cut over in a single PR that adds the babysit pipeline trigger, deletes the eight GHA workflows and six bash scripts, removes gha_exec(), and resolves EGG100. Implementation is phased internally but ships as one atomic change.",
+      "pros": [
+        "Clean cutover — no parallel operation period where both paths compete",
+        "Self-validating — the babysit cycle exercises against its own PR during review",
+        "Matches issue's stated migration strategy",
+        "Atomic deletion prevents orphaned workflows that could fire unexpectedly"
+      ],
+      "cons": [
+        "Large PR with many file changes (~30+ files touched)",
+        "If babysit cycle has bugs, no fallback to GHA workflows",
+        "Requires thorough testing before merge since rollback means reverting the entire PR"
+      ],
+      "work_streams": [
+        {
+          "id": "WS-1",
+          "title": "Consolidate review criteria into Python prompt builders",
+          "description": "Enhance shared/egg_babysit/prompts.py to include the review criteria currently assembled by bash scripts: (1) contract verification review (from build-contract-verification-prompt.sh + contract-review-criteria.md), (2) agent-mode design review (from build-agent-mode-design-review-prompt.sh + agent-design-criteria.md), (3) re-review delta logic (from reusable-review.yml's PREVIOUS_REVIEWED_COMMIT tracking), (4) authorized user filtering for feedback (from build-feedback-prompt.sh's jq user filter), (5) check-fixer escalation tracking (from build-check-fixer-prompt.sh's state management). The Python prompts.py already has base review, conflict, feedback, and check-fixer prompts. This work stream extends them with the additional review types and features from the bash scripts.",
+          "files_affected": [
+            "shared/egg_babysit/prompts.py",
+            "shared/egg_babysit/steps/review.py"
+          ],
+          "estimated_complexity": "medium"
+        },
+        {
+          "id": "WS-2",
+          "title": "Add BRC concurrent execution to babysit cycle",
+          "description": "Restructure the babysit loop to run fixer and reviewer agents concurrently under BRC consensus. Currently the loop is sequential (fix → CI wait → review → feedback). The new model has fixer (read-write) and reviewer (read-only) running simultaneously, iterating through cycle steps and using BRC consensus to determine when the PR is in a clean state. This requires: (1) defining a babysit-specific review graph with fixer as producer and reviewer as reviewer, (2) adding BRC consensus hooks to the babysit loop, (3) modifying step execution to support concurrent agent coordination, (4) handling the case where reviewer NACKs fixer changes and fixer must re-iterate.",
+          "files_affected": [
+            "shared/egg_babysit/loop.py",
+            "shared/egg_babysit/types.py",
+            "shared/egg_babysit/config.py",
+            "orchestrator/review_graph.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "estimated_complexity": "high"
+        },
+        {
+          "id": "WS-3",
+          "title": "Add GHA trigger workflow for babysit pipeline",
+          "description": "Create a single GHA workflow that triggers on push to PR branches and invokes the orchestrator's babysit pipeline. This replaces all eight trigger workflows with one pipeline invocation. The workflow should: (1) trigger on push to PR branches, (2) call the orchestrator API to create a babysit pipeline with the PR number, (3) handle deduplication for rapid successive pushes (cancel-in-progress), (4) wait for pipeline completion and report status, (5) handle skip markers ([skip-review], [skip-autofix]).",
+          "files_affected": [
+            ".github/workflows/on-push-babysit.yml",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "estimated_complexity": "medium"
+        },
+        {
+          "id": "WS-4",
+          "title": "Delete old GHA workflows, bash scripts, and gha_exec()",
+          "description": "Remove all replaced components: (1) delete eight GHA workflow files, (2) delete six bash prompt builder scripts, (3) remove gha_exec() from sandbox/egg_lib/cli.py, (4) remove gha_exec references from action/entrypoint.sh (the GHA exec path), (5) update REVIEWER-SYNC.md to reflect single-surface model, (6) remove noqa: EGG100 comments that suppressed the linter contradiction, (7) update action/README.md to remove references to deleted scripts.",
+          "files_affected": [
+            ".github/workflows/on-pull-request.yml",
+            ".github/workflows/reusable-review.yml",
+            ".github/workflows/on-pull-request-contract-verify.yml",
+            ".github/workflows/on-pull-request-agent-mode-design.yml",
+            ".github/workflows/on-review-feedback.yml",
+            ".github/workflows/reusable-check-fixer.yml",
+            ".github/workflows/reusable-conflict-resolve.yml",
+            ".github/workflows/on-merge-conflict.yml",
+            "action/build-review-prompt.sh",
+            "action/build-contract-verification-prompt.sh",
+            "action/build-agent-mode-design-review-prompt.sh",
+            "action/build-check-fixer-prompt.sh",
+            "action/build-feedback-prompt.sh",
+            "action/build-conflict-prompt.sh",
+            "sandbox/egg_lib/cli.py",
+            "action/entrypoint.sh",
+            "action/README.md",
+            "shared/prompts/REVIEWER-SYNC.md",
+            "docs/guides/github-automation.md",
+            "docs/guides/reusable-workflows.md"
+          ],
+          "estimated_complexity": "medium"
+        }
+      ]
+    },
+    {
+      "id": "B",
+      "title": "Incremental migration with parallel operation",
+      "description": "Migrate one workflow at a time, running both old GHA workflows and new babysit pipeline in parallel. Each workflow is replaced individually with feature flags or path-based disabling.",
+      "pros": [
+        "Lower risk per change",
+        "Easy rollback — re-enable individual GHA workflow",
+        "Incremental validation"
+      ],
+      "cons": [
+        "Extended period of dual execution where both systems compete (conflicting reviews, duplicate comments)",
+        "Complex coordination — disabling one GHA workflow while enabling its babysit equivalent requires synchronized deployment",
+        "Contradicts the issue's stated migration strategy of one-shot cutover",
+        "More total work due to temporary compatibility shims"
+      ]
+    },
+    {
+      "id": "C",
+      "title": "Sequential babysit without BRC (simpler, then add concurrency later)",
+      "description": "Replace GHA workflows with orchestrator-triggered babysit pipeline using the existing sequential loop (no BRC changes). Add BRC concurrency as a follow-up.",
+      "pros": [
+        "Smaller scope — no concurrent execution changes needed",
+        "Babysit loop already works sequentially",
+        "Faster to ship"
+      ],
+      "cons": [
+        "Doesn't fulfill the issue's requirement for concurrent fixer+reviewer with BRC consensus",
+        "Requires a follow-up issue and PR for concurrency, creating a two-step migration",
+        "Sequential execution is slower — reviewer waits for fixer to finish each cycle"
+      ]
+    }
+  ],
+
+  "recommended_approach": {
+    "id": "A",
+    "title": "Phased single-PR cutover",
+    "justification": "Approach A matches the issue's stated migration strategy (one-shot cutover) and delivers the full requirement including BRC concurrent execution. The risk of a large PR is mitigated by the self-validating property — the babysit cycle reviews its own PR during the review phase, confirming functional parity before merge. The egg_babysit package is already 80%+ implemented, reducing the actual new code to prompt consolidation and BRC integration."
+  },
+
+  "technical_decisions": [
+    {
+      "id": "TD-1",
+      "title": "Babysit cycle as orchestrator pipeline, not standalone GHA job",
+      "decision": "The babysit cycle runs as an orchestrator-managed concurrent pipeline (mode=BABYSIT), not as a standalone GHA job calling egg-babysit directly. The GHA workflow's only job is to invoke the orchestrator API.",
+      "rationale": "Leverages existing orchestrator infrastructure for concurrent agent spawning, BRC consensus management, health monitoring, progress tracking, and HITL escalation. Avoids reimplementing these capabilities in GHA yaml.",
+      "alternatives_considered": "GHA workflow calling egg-babysit CLI directly — rejected because it bypasses orchestrator's concurrent execution and consensus infrastructure."
+    },
+    {
+      "id": "TD-2",
+      "title": "Reviewer consolidation: three review types → single reviewer agent",
+      "decision": "The three GHA review workflows (base code review, contract verification, agent-mode design) are consolidated into a single reviewer agent that has access to all three review criteria sets. The reviewer runs all applicable review types in a single pass.",
+      "rationale": "Reduces agent spawning overhead, eliminates inter-review coordination, and matches the issue's stated design. The review criteria from shared/prompts/ are already modular — the reviewer just needs all three injected into its prompt.",
+      "alternatives_considered": "Three separate reviewer agents with different prompts — rejected because it increases complexity and requires additional BRC consensus participants."
+    },
+    {
+      "id": "TD-3",
+      "title": "Retain skip markers and iteration limits",
+      "decision": "The new babysit pipeline respects existing skip markers ([skip-review], [skip-autofix], [skip-conflict-fix]) and enforces iteration limits (max_feedback_rounds=5, max_retries_per_job=3) to prevent infinite loops.",
+      "rationale": "These safety mechanisms are well-tested in the GHA workflows and prevent runaway automation. The babysit loop already implements iteration limits; skip markers need to be checked at pipeline trigger time.",
+      "alternatives_considered": "Removing skip markers in favor of orchestrator-only controls — rejected because skip markers are used by developers in PR titles/labels and provide an accessible escape hatch."
+    },
+    {
+      "id": "TD-4",
+      "title": "Prompt security: load criteria from base branch, not PR branch",
+      "decision": "The Python prompt builders continue the bash scripts' pattern of loading review criteria from the base branch (main), not the PR branch. This prevents a malicious PR from injecting modified review criteria into its own review.",
+      "rationale": "This is an existing security property of the bash prompt builders (they check out main before building prompts). The Python prompts.py already uses git show origin/main:path for config loading. Review criteria in shared/prompts/ should be read from the base branch.",
+      "alternatives_considered": "Loading from PR branch — rejected due to prompt injection risk."
+    },
+    {
+      "id": "TD-5",
+      "title": "BRC topology: fixer (producer) ↔ reviewer (reviewer), critical edge",
+      "decision": "The babysit BRC review graph has one producer (fixer) and one reviewer (reviewer) connected by a critical edge. Consensus requires the reviewer to ACK the fixer's state for the cycle to exit.",
+      "rationale": "Matches the issue's two-agent design. The fixer produces code changes; the reviewer evaluates them. A critical edge ensures the reviewer must approve before the cycle completes. This is simpler than the SDLC plan/implement review graphs and appropriate for the PR review/fix use case.",
+      "alternatives_considered": "Advisory edge (reviewer can flag but not block) — rejected because the whole point is the reviewer must agree the PR is ready."
+    },
+    {
+      "id": "TD-6",
+      "title": "Preserve action/entrypoint.sh for non-GHA-review uses",
+      "decision": "action/entrypoint.sh is modified to remove the gha_exec() code path but retained for any remaining GHA action uses (e.g., SDLC pipeline triggering). The action.yml composite action continues to exist for repositories that use egg as a GitHub Action for non-review purposes.",
+      "rationale": "The action is used for more than just reviews — it's the composite action that other repos reference. Only the review-specific gha_exec() path and prompt builders are removed. If entrypoint.sh has no other code paths after removing gha_exec(), it can be fully removed.",
+      "alternatives_considered": "Delete the entire action/ directory — needs investigation of whether other action uses exist beyond the review workflows."
+    }
+  ],
+
+  "dependencies": [
+    {
+      "issue": 1014,
+      "title": "PR-Based Workflows (babysit-pr loop)",
+      "status": "closed",
+      "relationship": "This issue implements the single-cycle building block that #1014 composes into a continuous loop. The egg_babysit package was built under #1014.",
+      "blocking": false
+    },
+    {
+      "issue": 1027,
+      "title": "Cross-Agent Communication and Concurrent Phase Execution",
+      "status": "closed",
+      "relationship": "Required for BRC consensus between fixer and reviewer agents. The orchestrator message bus, concurrent executor, and consensus protocol are implemented.",
+      "blocking": false
+    },
+    {
+      "issue": 1028,
+      "title": "Conversational Claude Coordinator",
+      "status": "closed",
+      "relationship": "The coordinator can invoke babysit cycles dynamically. Not required for this issue but the babysit cycle becomes a coordinator capability.",
+      "blocking": false
+    },
+    {
+      "issue": 1256,
+      "title": "Agent SDK migration + EGG100 linter rule",
+      "status": "merged",
+      "relationship": "Established Agent SDK as the required execution path for headless agents and created EGG100 to flag claude --print. This issue resolves the remaining EGG100 contradiction in gha_exec().",
+      "blocking": false
+    }
+  ],
+
+  "constraints": [
+    {
+      "id": "C-1",
+      "title": "Self-validating cutover",
+      "description": "The cutover PR must be reviewable by the babysit cycle itself during the review phase, confirming functional parity before merge."
+    },
+    {
+      "id": "C-2",
+      "title": "No parallel operation period",
+      "description": "The issue explicitly requires one-shot cutover — no period where both old GHA workflows and new babysit pipeline run simultaneously."
+    },
+    {
+      "id": "C-3",
+      "title": "Prompt security maintained",
+      "description": "Review criteria must be loaded from base branch (main), not PR branch, to prevent prompt injection."
+    },
+    {
+      "id": "C-4",
+      "title": "Backward compatibility for external repos",
+      "description": "Repositories using egg's reusable workflows (docs/guides/reusable-workflows.md) need migration guidance or continued support."
+    },
+    {
+      "id": "C-5",
+      "title": "Phase restrictions",
+      "description": "Plan phase agents cannot modify production code. All implementation must happen in the implement phase."
+    }
+  ],
+
+  "risk_areas": [
+    {
+      "id": "R-1",
+      "title": "Large atomic cutover PR",
+      "severity": "medium",
+      "description": "Deleting eight workflows, six scripts, and modifying core packages in one PR is high surface area. A bug in the new babysit pipeline means no automated review until fixed.",
+      "mitigation": "Self-validation (babysit reviews its own PR), thorough test coverage for new prompt builders and BRC integration, manual review as fallback."
+    },
+    {
+      "id": "R-2",
+      "title": "BRC concurrency adds complexity to babysit loop",
+      "severity": "medium",
+      "description": "Restructuring the sequential loop to support concurrent fixer+reviewer with BRC consensus is the highest-complexity work stream. Race conditions between fixer pushes and reviewer reads could cause inconsistent state.",
+      "mitigation": "The orchestrator's concurrent executor already handles agent synchronization. The babysit loop delegates BRC management to the orchestrator rather than reimplementing consensus."
+    },
+    {
+      "id": "R-3",
+      "title": "External repo impact",
+      "severity": "low",
+      "description": "Repositories using egg's reusable workflows (reusable-review.yml, reusable-check-fixer.yml, reusable-conflict-resolve.yml) will break when these are deleted.",
+      "mitigation": "Document migration path in the PR. Check if any external repos reference these reusable workflows. Consider keeping reusable workflows as thin shims that invoke the orchestrator API during a transition period."
+    },
+    {
+      "id": "R-4",
+      "title": "Feature parity gaps in Python prompt builders",
+      "severity": "low",
+      "description": "The bash prompt builders have accumulated features (re-review delta tracking, authorized user filtering, iteration state via HTML comments) that may not all be replicated in the Python prompts.py.",
+      "mitigation": "Systematic audit of each bash script's features against the Python equivalents. Create a feature parity checklist as part of WS-1."
+    },
+    {
+      "id": "R-5",
+      "title": "Merge conflict schedule trigger lost",
+      "severity": "low",
+      "description": "on-merge-conflict.yml runs on a 2-hour schedule to detect conflicts across all open PRs. This proactive conflict detection is lost when replacing with push-triggered babysit cycles.",
+      "mitigation": "Add a scheduled trigger to the new babysit workflow that scans for conflicting PRs (replicating the find-conflicts job), or handle this in the orchestrator's periodic health monitoring."
+    }
+  ],
+
+  "component_breakdown": {
+    "new_components": [
+      {
+        "name": "GHA babysit trigger workflow",
+        "location": ".github/workflows/on-push-babysit.yml",
+        "description": "Single GHA workflow replacing all eight review workflows. Triggers on push to PR branches, creates orchestrator babysit pipeline, reports status. Handles skip markers, concurrency groups, and deduplication."
+      },
+      {
+        "name": "Babysit BRC review graph",
+        "location": "orchestrator/review_graph.py",
+        "description": "Review graph definition for babysit mode with fixer (producer) and reviewer (reviewer) connected by critical edge."
+      },
+      {
+        "name": "Consolidated reviewer prompt",
+        "location": "shared/egg_babysit/prompts.py",
+        "description": "Enhanced review prompt that includes all three review types (base code, contract verification, agent-mode design) in a single pass. Loaded from shared/prompts/ with inline fallbacks."
+      }
+    ],
+    "modified_components": [
+      {
+        "name": "BabysitLoop concurrent mode",
+        "location": "shared/egg_babysit/loop.py",
+        "description": "Modified to support concurrent fixer+reviewer execution via orchestrator's concurrent executor and BRC consensus, in addition to the existing sequential mode."
+      },
+      {
+        "name": "Orchestrator babysit pipeline handling",
+        "location": "orchestrator/routes/pipelines.py",
+        "description": "Enhanced to spawn concurrent fixer+reviewer agents for babysit mode pipelines, manage BRC consensus between them, and handle cycle completion."
+      },
+      {
+        "name": "Python prompt builders",
+        "location": "shared/egg_babysit/prompts.py",
+        "description": "Extended with contract verification review, agent-mode design review, re-review delta logic, authorized user filtering, and check-fixer escalation state tracking."
+      },
+      {
+        "name": "Babysit configuration",
+        "location": "shared/egg_babysit/config.py, shared/egg_babysit/types.py",
+        "description": "Extended with BRC-related configuration (consensus mode, review graph type) and types for concurrent execution state."
+      }
+    ],
+    "deleted_components": [
+      {
+        "name": "GHA review workflows (8 files)",
+        "location": ".github/workflows/",
+        "files": [
+          "on-pull-request.yml",
+          "reusable-review.yml",
+          "on-pull-request-contract-verify.yml",
+          "on-pull-request-agent-mode-design.yml",
+          "on-review-feedback.yml",
+          "reusable-check-fixer.yml",
+          "reusable-conflict-resolve.yml",
+          "on-merge-conflict.yml"
+        ]
+      },
+      {
+        "name": "Bash prompt builder scripts (6 files)",
+        "location": "action/",
+        "files": [
+          "build-review-prompt.sh",
+          "build-contract-verification-prompt.sh",
+          "build-agent-mode-design-review-prompt.sh",
+          "build-check-fixer-prompt.sh",
+          "build-feedback-prompt.sh",
+          "build-conflict-prompt.sh"
+        ]
+      },
+      {
+        "name": "gha_exec() function",
+        "location": "sandbox/egg_lib/cli.py",
+        "description": "Remove the gha_exec() function and its claude --print invocation. Resolves EGG100 linter contradiction."
+      }
+    ]
+  },
+
+  "implementation_order": [
+    "WS-1: Consolidate review criteria into Python prompt builders (no external dependencies, purely additive)",
+    "WS-2: Add BRC concurrent execution to babysit cycle (depends on WS-1 for complete prompts)",
+    "WS-3: Add GHA trigger workflow (depends on WS-2 for concurrent pipeline support)",
+    "WS-4: Delete old GHA workflows, bash scripts, and gha_exec() (depends on WS-3 being functional)"
+  ],
+
+  "test_strategy": {
+    "unit_tests": [
+      "Test consolidated Python prompt builders produce equivalent output to bash scripts for each review type",
+      "Test BRC review graph for babysit mode returns correct fixer→reviewer topology",
+      "Test babysit loop handles concurrent mode configuration correctly",
+      "Test skip marker detection at pipeline trigger level"
+    ],
+    "integration_tests": [
+      "Test babysit pipeline creation via orchestrator API with mode=babysit",
+      "Test concurrent fixer+reviewer agent spawning and BRC consensus flow",
+      "Test end-to-end babysit cycle on a test PR (conflict detection → CI wait → fix → review → feedback)"
+    ],
+    "self_validation": [
+      "The cutover PR is reviewed by the new babysit cycle during its own review phase, confirming functional parity with the old GHA workflows"
+    ]
+  }
+}
