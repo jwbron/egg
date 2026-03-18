@@ -132,7 +132,7 @@ def main() -> None:
     print(f"{'=' * 60}")
 
     # Exit with appropriate code.
-    if result.exit_reason in (BabysitExitReason.MERGED,):
+    if result.exit_reason in (BabysitExitReason.MERGED, BabysitExitReason.READY_TO_MERGE):
         sys.exit(0)
     elif result.exit_reason in (BabysitExitReason.ESCALATED, BabysitExitReason.CANCELLED):
         sys.exit(0)  # Escalation is a valid exit; human takes over.
