@@ -15,7 +15,7 @@ Three mechanisms exist for gathering human input:
 
 In prompt-driven mode, decisions carry a `decision_type` field (`phase_gate`, `choice`, or `feedback`) that drives type-specific terminal rendering. The orchestrator's decision queue supports a "request changes" option at phase gates, with a circuit breaker (`max_hitl_review_cycles`, default 3) to prevent unbounded revision loops. See [Prompt-Driven Mode: Type-Aware Terminal Rendering](#prompt-driven-mode-type-aware-terminal-rendering) for details.
 
-**Decision sync to contract**: Resolved decisions made during refine and plan phases are automatically synced to the contract (`.egg-state/contracts/{identifier}.json`) after each phase completes, so implement-phase agents can see substantive choices (database selection, API style, config handling, etc.) made earlier. Phase gate decisions (approve/reject) are excluded from sync as they are process control, not implementation-relevant context. See [SDLC Pipeline Guide § Decision Sync to Contract](sdlc-pipeline.md#decision-sync-to-contract) for details.
+**Decision sync to contract**: Resolved decisions made during refine and plan phases are automatically synced to the contract (`.egg-state/contracts/{identifier}.json`) after each phase completes, so implement-phase agents can see substantive choices (database selection, API style, config handling, etc.) made earlier. Plain phase gate approvals (without context) are excluded from sync as they are process control. However, when a human approves a phase gate with additional context or feedback, that context is persisted to the contract and appended to the phase draft file as a `## HITL Resolution` section, so next-phase agents can see the human's guidance. See [SDLC Pipeline Guide § Decision Sync to Contract](sdlc-pipeline.md#decision-sync-to-contract) for details.
 
 ## Formal HITL Decisions
 
@@ -246,7 +246,7 @@ Resolutions are sent as JSON objects so the pipeline can parse the human's inten
 | Action | Payload | Meaning |
 |--------|---------|---------|
 | Approve | `{"action": "approve"}` | Advance to next phase |
-| Approve with feedback | `{"action": "approve", "feedback": "..."}` | Advance with context |
+| Approve with context | `{"action": "approve", "context": "..."}` or `{"action": "approve", "feedback": "..."}` | Advance with human guidance persisted to contract and draft |
 | Select option | `{"action": "select", "selected": "MongoDB"}` | Choice selection |
 | Request changes | `{"action": "request_changes", "feedback": "..."}` | Re-run phase with feedback |
 | Change approach | `{"action": "change_approach", "feedback": "..."}` | Re-run with different direction |
