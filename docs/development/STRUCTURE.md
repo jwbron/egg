@@ -231,7 +231,7 @@ shared/
 │   ├── fixer.py            # Fixer agent spawner (conflict, check fix, feedback)
 │   ├── reviewer.py         # Reviewer agent spawner (read-only mode)
 │   ├── escalation.py       # HITL escalation (decision queue, notifications)
-│   ├── cli.py              # CLI entry point (egg babysit-pr)
+│   ├── cli.py              # CLI entry point (egg-babysit)
 │   ├── __main__.py         # python -m egg_babysit support
 │   └── steps/              # Individual loop step implementations
 │       ├── conflict.py     # Merge conflict detection and resolution
@@ -304,6 +304,13 @@ integration_tests/
 ├── test_policy_enforcement.py     # Policy enforcement tests
 ├── test_rate_limiting.py          # Rate limiting tests
 ├── test_stack_lifecycle.py        # Container lifecycle tests
+├── test_babysit_pr/               # Babysit-PR loop integration tests
+│   ├── __init__.py
+│   ├── conftest.py                # Fixtures for babysit-pr tests
+│   ├── test_cli.py                # CLI argument parsing and invocation tests
+│   ├── test_escalation.py         # HITL escalation flow tests
+│   ├── test_gateway.py            # Gateway interaction tests
+│   └── test_pipeline.py           # End-to-end babysit loop pipeline tests
 ├── deployment_validation/         # Deployment validation integration tests
 │   ├── __init__.py
 │   └── test_deployment_check_e2e.py  # End-to-end devserver lifecycle tests

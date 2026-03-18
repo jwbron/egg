@@ -27,7 +27,7 @@ egg-babysit 42
 egg-babysit 42 --repo owner/repo
 
 # Custom timeout (default: 4 hours)
-egg-babysit 42 --timeout 2h
+egg-babysit 42 --timeout 7200
 
 # Limit loop iterations (default: 10)
 egg-babysit 42 --max-iterations 5

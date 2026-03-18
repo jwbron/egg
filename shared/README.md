@@ -261,7 +261,7 @@ state = get_full_pr_state(config.pr_number, config.repo)
 status, checks = wait_for_ci(config.pr_number, config.repo)
 ```
 
-**CLI**: `egg babysit-pr <PR> [--repo OWNER/REPO] [--timeout DURATION] [--max-iterations N]`
+**CLI**: `egg-babysit <PR> [--repo OWNER/REPO] [--timeout SECONDS] [--max-iterations N]`
 
 See [egg_babysit README](egg_babysit/README.md) for full documentation and the [Babysit-PR Guide](../docs/guides/babysit-pr.md) for operational usage.
 
