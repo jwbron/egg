@@ -93,15 +93,16 @@ class TestResolveConflicts:
     @patch("egg_babysit.steps.conflict.fetch_pr_state")
     @patch("egg_babysit.steps.conflict.run_fixer")
     def test_resolve_conflicts_verify_fails(self, mock_fixer, mock_fetch, config):
-        """Verification fetch fails, assume success."""
+        """Verification fetch fails, return failure without escalation to retry."""
         pr = _make_pr_state(mergeable_state="dirty")
         mock_fixer.return_value = FixerResult(success=True)
         mock_fetch.side_effect = Exception("API error")
 
         result = resolve_conflicts(config, pr)
 
-        # Assumes success when verification fails
-        assert result.success is True
+        # Returns failure without escalation so the next iteration retries
+        assert result.success is False
+        assert result.escalate is False
 
 
 # --- Check fix tests ---
@@ -165,6 +166,18 @@ class TestFixFailedChecks:
 
         assert result.success is True
         mock_non_llm.assert_called_once()
+
+    @patch("egg_babysit.steps.check_fix.load_check_fixers_config")
+    @patch("egg_babysit.steps.check_fix.run_fixer")
+    def test_fix_failed_checks_passes_base_branch(self, mock_fixer, mock_config, config):
+        """base_branch is threaded through to load_check_fixers_config."""
+        mock_config.return_value = {}
+        mock_fixer.return_value = FixerResult(success=True, commit_sha="abc")
+
+        failed = [CICheckResult(name="lint", status=CICheckStatus.FAILING, conclusion="FAILURE")]
+        fix_failed_checks(config, failed, {}, base_branch="develop")
+
+        mock_config.assert_called_once_with(config.check_fixers_path, base_branch="develop")
 
     @patch("egg_babysit.steps.check_fix.load_check_fixers_config")
     def test_fix_failed_checks_escalate_max_retries(self, mock_config, config):

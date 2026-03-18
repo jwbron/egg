@@ -84,9 +84,9 @@ def resolve_conflicts(
             )
     except Exception as exc:
         logger.warning("Failed to verify conflict resolution: %s", exc)
-        # Assume success if we cannot re-fetch; the next CI wait will catch issues.
+        # Return failure without escalation — the next iteration will retry.
         return StepResult(
-            success=True,
+            success=False,
             message=f"Conflict resolution completed but verification failed: {exc}",
         )
 

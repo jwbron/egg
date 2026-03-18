@@ -260,6 +260,22 @@ class TestFetchReviewComments:
         comments = fetch_review_comments(42, "owner/repo")
         assert comments == []
 
+    @patch("egg_babysit.pr_state._run_gh")
+    def test_fetch_review_comments_invalid_json(self, mock_run_gh):
+        """Invalid JSON returns empty list instead of propagating."""
+        mock_run_gh.return_value = "not valid json"
+
+        comments = fetch_review_comments(42, "owner/repo")
+        assert comments == []
+
+    @patch("egg_babysit.pr_state._run_gh")
+    def test_fetch_review_comments_empty_string(self, mock_run_gh):
+        """Empty string returns empty list instead of propagating."""
+        mock_run_gh.return_value = ""
+
+        comments = fetch_review_comments(42, "owner/repo")
+        assert comments == []
+
 
 class TestDetectHeadShaChange:
     """Test detect_head_sha_change."""
