@@ -350,10 +350,10 @@
         {
           "container_id": "5c8de977609d8f92d14d7d73992f31ef4858e8b75e5b4a1debd846fb191abab5",
           "container_name": "issue-1014-tester",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-03-18T03:54:25.578099",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-18T05:15:35.663330",
+          "exit_code": 137,
           "agent_role": "tester",
           "session_token": null
         },
@@ -407,13 +407,13 @@
         },
         {
           "role": "tester",
-          "status": "running",
+          "status": "failed",
           "container_id": "5c8de977609d8f92d14d7d73992f31ef4858e8b75e5b4a1debd846fb191abab5",
           "started_at": "2026-03-18T03:54:25.578102",
-          "completed_at": null,
+          "completed_at": "2026-03-18T05:15:35.695202",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 137",
           "retry_count": 0,
           "conflicts": []
         },
@@ -497,9 +497,9 @@
     }
   ],
   "created_at": "2026-03-18T02:39:58.796747",
-  "updated_at": "2026-03-18T05:15:20.317137",
+  "updated_at": "2026-03-18T05:15:35.696049",
   "contract_synced": true,
   "network_mode": null,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 40
+  "version": 41
 }
