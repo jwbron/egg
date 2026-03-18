@@ -354,17 +354,17 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-03-18T03:27:07.169347",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-03-18T03:54:24.048305",
+      "resolution": "{\"action\": \"approve\", \"context\": \"## Corrections for Implement Phase\\n\\n### 1. Prompt Builder Strategy: Port to Python (NOT subprocess wrappers)\\n\\nThe human decided to PORT the bash prompt builders to Python modules, not call them via subprocess. TASK-2-1 should create native Python implementations of the prompt building logic from action/build-check-fixer-prompt.sh and action/build-review-prompt.sh. The Python modules should be the new source of truth for babysit-pr. The existing bash scripts remain for GitHub Actions workflows.\\n\\n### 2. Missing --review-only flag\\n\\nThe human decided on 'Optional review-only' mode. The CLI must support a --review-only flag that posts a code review and stops without attempting auto-fix. This affects:\\n- cli.py: Add --review-only argument\\n- loop.py: Skip fixer steps when review_only=True\\n- config.py: Add review_only field to BabysitConfig\\n\\n### 3. No coordinator references\\n\\nThe coordinator (#1028) has been removed from the codebase. Do not implement any coordinator integration hooks, dual-mode interfaces, or overridable methods designed for coordinator consumption. babysit-pr is standalone only.\"}",
       "phase": "plan"
     }
   ],
   "created_at": "2026-03-18T02:39:58.796747",
-  "updated_at": "2026-03-18T03:27:07.196979",
+  "updated_at": "2026-03-18T03:54:24.050861",
   "contract_synced": true,
   "network_mode": null,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 32
+  "version": 33
 }
