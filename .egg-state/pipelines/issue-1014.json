@@ -54,9 +54,9 @@
         {
           "container_id": "d814bd069b496b9de7af5e90216c54ce85bcc487961de6f36a2dc1839233534c",
           "container_name": "issue-1014-refiner",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T02:40:24.611951",
-          "exited_at": null,
+          "exited_at": "2026-03-18T05:18:23.612668",
           "exit_code": null,
           "agent_role": "refiner",
           "session_token": null
@@ -64,9 +64,9 @@
         {
           "container_id": "1fccf639096ffc7168fc53b766a7a0b77bf8456a88e530fed2155541e4af177d",
           "container_name": "issue-1014-reviewer_refine",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T02:40:24.611958",
-          "exited_at": null,
+          "exited_at": "2026-03-18T05:18:23.612668",
           "exit_code": null,
           "agent_role": "reviewer_refine",
           "session_token": null
@@ -74,9 +74,9 @@
         {
           "container_id": "5a94e0a3d96c1fee0c6f8ad4e5378aad92eb4be2899e347f137eb454f6f26cbd",
           "container_name": "issue-1014-reviewer_refine",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T03:17:01.562133",
-          "exited_at": null,
+          "exited_at": "2026-03-18T05:18:23.612668",
           "exit_code": null,
           "agent_role": "reviewer_refine",
           "session_token": null
@@ -94,9 +94,9 @@
         {
           "container_id": "d1265e55cc444268a80b14332c7b185896b491a59455b7a0fa6209c12881f8c9",
           "container_name": "issue-1014-refiner",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T03:17:01.562153",
-          "exited_at": null,
+          "exited_at": "2026-03-18T05:18:23.612668",
           "exit_code": null,
           "agent_role": "refiner",
           "session_token": null
@@ -217,9 +217,9 @@
         {
           "container_id": "80fab43624659e5d37ec8ba8887daeb1f669f01dfe5a80c6f1ca7a56dc2810f4",
           "container_name": "issue-1014-architect",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T03:18:58.610193",
-          "exited_at": null,
+          "exited_at": "2026-03-18T05:18:23.612668",
           "exit_code": null,
           "agent_role": "architect",
           "session_token": null
@@ -227,9 +227,9 @@
         {
           "container_id": "38296640a46c73045691f6d7966d18db5c4c49cb378820d0c60e510513803948",
           "container_name": "issue-1014-reviewer_plan",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T03:18:58.610200",
-          "exited_at": null,
+          "exited_at": "2026-03-18T05:18:23.612668",
           "exit_code": null,
           "agent_role": "reviewer_plan",
           "session_token": null
@@ -237,9 +237,9 @@
         {
           "container_id": "762c0a6219158955727a39fcac117cf741bb5deeb7d6374bb832940e79cf1bdb",
           "container_name": "issue-1014-risk_analyst",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T03:18:58.610206",
-          "exited_at": null,
+          "exited_at": "2026-03-18T05:18:23.612668",
           "exit_code": null,
           "agent_role": "risk_analyst",
           "session_token": null
@@ -497,9 +497,9 @@
     }
   ],
   "created_at": "2026-03-18T02:39:58.796747",
-  "updated_at": "2026-03-18T05:16:22.692543",
+  "updated_at": "2026-03-18T05:18:23.613093",
   "contract_synced": true,
   "network_mode": null,
   "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- reviewer_code (exit=137) ---\n\n--- tester (exit=137) ---\n\n--- reviewer_contract (exit=137) ---\n\n--- coder (exit=137) ---\n\n--- documenter (exit=137) ---",
-  "version": 45
+  "version": 46
 }
