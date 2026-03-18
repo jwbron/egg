@@ -5,6 +5,7 @@ hallucination guard, and health summary generation.
 """
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -336,3 +337,387 @@ class TestGenerateHealthSummary:
         summary = monitor.generate_health_summary()
 
         assert "No escalations" in summary
+
+
+# ===================================================================
+# test_consensus_override
+# ===================================================================
+
+
+class TestConsensusOverride:
+    """Test that consensus state is passed to classifier instead of relying on stale data."""
+
+    def test_classifier_receives_consensus_data(self) -> None:
+        """When consensus is available, classifier receives it alongside progress."""
+        classifier = _MockClassifier()
+        decision_maker = _MockDecisionMaker()
+
+        monitor = OverseerMonitor(
+            pipeline_id="test-consensus-001",
+            config=_MockConfig(),
+            classifier=classifier,
+            decision_maker=decision_maker,
+        )
+
+        # Mock CLI responses
+        consensus_data = {
+            "is_complete": True,
+            "blocking_agents": [],
+            "agents": {"coder": {"confirmed": True}, "tester": {"confirmed": True}},
+        }
+        phase_data = {"name": "implement", "status": "active"}
+        pipeline_data = {
+            "status": "complete",
+            "concurrent": {"agents": [{"role": "coder"}, {"role": "tester"}]},
+        }
+        alert = {
+            "agent_role": "coder",
+            "agent_id": "coder",
+            "logs": [{"msg": "no recent activity"}],
+        }
+
+        async def mock_run_cli(*args, **kwargs):
+            cmd = " ".join(args)
+            if "consensus status" in cmd:
+                return (0, json.dumps(consensus_data), "")
+            if "phase get" in cmd:
+                return (0, json.dumps(phase_data), "")
+            if "health alerts" in cmd:
+                return (0, json.dumps([alert]), "")
+            if "pipeline status" in cmd:
+                return (0, json.dumps(pipeline_data), "")
+            if "message poll" in cmd:
+                return (0, "[]", "")
+            if "progress query" in cmd:
+                return (0, "[]", "")
+            return (0, "[]", "")
+
+        monitor._run_cli = AsyncMock(side_effect=mock_run_cli)
+
+        _run(monitor._poll_cycle())
+
+        # Classifier should have been called with consensus data
+        classifier.classify_stall.assert_awaited_once()
+        call_kwargs = classifier.classify_stall.call_args.kwargs
+        assert call_kwargs.get("consensus") == consensus_data
+
+
+# ===================================================================
+# test_phase_scoping
+# ===================================================================
+
+
+class TestPhaseScoping:
+    """Test that alerts for agents in completed phases are filtered out."""
+
+    def test_filters_completed_phase_agents(self) -> None:
+        """Only alerts for agents in the current phase should be processed."""
+        classifier = _MockClassifier()
+        decision_maker = _MockDecisionMaker()
+
+        monitor = OverseerMonitor(
+            pipeline_id="test-phase-001",
+            config=_MockConfig(),
+            classifier=classifier,
+            decision_maker=decision_maker,
+        )
+
+        phase_data = {"name": "test", "status": "active"}
+        pipeline_data = {
+            "status": "running",
+            "concurrent": {"agents": [{"role": "tester"}]},
+        }
+        alerts = [
+            {"agent_role": "coder", "agent_id": "coder", "logs": []},  # completed phase
+            {"agent_role": "tester", "agent_id": "tester", "logs": []},  # current phase
+        ]
+
+        async def mock_run_cli(*args, **kwargs):
+            cmd = " ".join(args)
+            if "consensus status" in cmd:
+                return (0, "{}", "")
+            if "phase get" in cmd:
+                return (0, json.dumps(phase_data), "")
+            if "health alerts" in cmd:
+                return (0, json.dumps(alerts), "")
+            if "pipeline status" in cmd:
+                return (0, json.dumps(pipeline_data), "")
+            if "message poll" in cmd:
+                return (0, "[]", "")
+            if "progress query" in cmd:
+                return (0, "[]", "")
+            return (0, "[]", "")
+
+        monitor._run_cli = AsyncMock(side_effect=mock_run_cli)
+
+        _run(monitor._poll_cycle())
+
+        # Classifier should only be called once (for tester, not coder)
+        assert classifier.classify_stall.await_count == 1
+        call_args = classifier.classify_stall.call_args
+        # The alert processed should be for the tester
+        logs_arg = call_args.kwargs.get("logs") or call_args.args[0]
+        assert logs_arg == []  # tester's logs
+
+    def test_no_filter_when_no_agent_list(self) -> None:
+        """When pipeline status has no agent list, all alerts are processed."""
+        classifier = _MockClassifier()
+        decision_maker = _MockDecisionMaker()
+
+        monitor = OverseerMonitor(
+            pipeline_id="test-phase-002",
+            config=_MockConfig(),
+            classifier=classifier,
+            decision_maker=decision_maker,
+        )
+
+        phase_data = {"name": "implement", "status": "active"}
+        pipeline_data = {"status": "running"}  # No concurrent.agents
+        alerts = [
+            {"agent_role": "coder", "agent_id": "coder", "logs": []},
+            {"agent_role": "tester", "agent_id": "tester", "logs": []},
+        ]
+
+        async def mock_run_cli(*args, **kwargs):
+            cmd = " ".join(args)
+            if "consensus status" in cmd:
+                return (0, "{}", "")
+            if "phase get" in cmd:
+                return (0, json.dumps(phase_data), "")
+            if "health alerts" in cmd:
+                return (0, json.dumps(alerts), "")
+            if "pipeline status" in cmd:
+                return (0, json.dumps(pipeline_data), "")
+            if "message poll" in cmd:
+                return (0, "[]", "")
+            if "progress query" in cmd:
+                return (0, "[]", "")
+            return (0, "[]", "")
+
+        monitor._run_cli = AsyncMock(side_effect=mock_run_cli)
+
+        _run(monitor._poll_cycle())
+
+        # Both alerts should be processed
+        assert classifier.classify_stall.await_count == 2
+
+
+# ===================================================================
+# test_post_consensus_stall
+# ===================================================================
+
+
+class TestPostConsensusStall:
+    """Test detection of post-consensus stalls."""
+
+    def test_detects_post_consensus_stall(self) -> None:
+        """When consensus is complete but pipeline is still running, create HITL."""
+        classifier = _MockClassifier()
+        decision_maker = _MockDecisionMaker()
+
+        monitor = OverseerMonitor(
+            pipeline_id="test-postconsensus-001",
+            config=_MockConfig(),
+            classifier=classifier,
+            decision_maker=decision_maker,
+        )
+
+        consensus_data = {
+            "is_complete": True,
+            "blocking_agents": [],
+            "agents": {"coder": {"confirmed": True}},
+        }
+
+        async def mock_run_cli(*args, **kwargs):
+            cmd = " ".join(args)
+            if "consensus status" in cmd:
+                return (0, json.dumps(consensus_data), "")
+            if "phase get" in cmd:
+                return (0, '{"name": "implement", "status": "active"}', "")
+            if "health alerts" in cmd:
+                return (0, "[]", "")
+            if "pipeline status" in cmd:
+                return (0, '{"status": "running"}', "")
+            if "message poll" in cmd:
+                return (0, "[]", "")
+            if "progress query" in cmd:
+                return (0, "[]", "")
+            if "decision create" in cmd:
+                return (0, "{}", "")
+            return (0, "[]", "")
+
+        monitor._run_cli = AsyncMock(side_effect=mock_run_cli)
+
+        _run(monitor._poll_cycle())
+
+        # Should have created a HITL decision (via _run_cli calls)
+        calls = [
+            " ".join(c.args[0] if isinstance(c.args[0], tuple) else c.args)
+            for c in monitor._run_cli.call_args_list
+        ]
+        decision_calls = [c for c in calls if "decision create" in c]
+        assert len(decision_calls) >= 1, f"Expected HITL decision creation, got calls: {calls}"
+
+    def test_no_stall_when_pipeline_transitioning(self) -> None:
+        """No stall detected when pipeline is not in 'running' status."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-postconsensus-002",
+            config=_MockConfig(),
+        )
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+
+        consensus = {"is_complete": True}
+
+        _run(monitor._check_post_consensus_stall(consensus, "complete"))
+
+        monitor._create_hitl_decision.assert_not_awaited()
+
+    def test_no_stall_when_consensus_incomplete(self) -> None:
+        """No stall detected when consensus is not complete."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-postconsensus-003",
+            config=_MockConfig(),
+        )
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+
+        consensus = {"is_complete": False}
+
+        _run(monitor._check_post_consensus_stall(consensus, "running"))
+
+        monitor._create_hitl_decision.assert_not_awaited()
+
+
+# ===================================================================
+# test_escalation_safety_net
+# ===================================================================
+
+
+class TestEscalationSafetyNet:
+    """Test that nudge/redirect actions are upgraded when message indicates human intervention."""
+
+    def test_upgrades_nudge_to_hitl(self) -> None:
+        """Nudge with 'human intervention' in message should be upgraded to hitl."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-safetynet-001",
+            config=_MockConfig(),
+        )
+        monitor._send_message = AsyncMock()
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._run_cli = AsyncMock(return_value=(0, "{}", ""))
+
+        decision = {
+            "action": "nudge",
+            "message": "Agent is stuck. Human intervention required to resolve.",
+            "priority": "high",
+        }
+
+        _run(monitor._execute_action(decision, "coder"))
+
+        # Should have been upgraded to hitl
+        monitor._create_hitl_decision.assert_awaited_once()
+        monitor._send_message.assert_not_awaited()
+
+    def test_upgrades_redirect_to_hitl(self) -> None:
+        """Redirect with 'manual intervention' in message should be upgraded to hitl."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-safetynet-002",
+            config=_MockConfig(),
+        )
+        monitor._send_message = AsyncMock()
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._run_cli = AsyncMock(return_value=(0, "{}", ""))
+
+        decision = {
+            "action": "redirect",
+            "message": "Multiple failures detected. Manual intervention needed.",
+            "priority": "high",
+        }
+
+        _run(monitor._execute_action(decision, "coder"))
+
+        monitor._create_hitl_decision.assert_awaited_once()
+        monitor._send_message.assert_not_awaited()
+
+    def test_no_upgrade_without_intervention_keywords(self) -> None:
+        """Nudge without intervention keywords should not be upgraded."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-safetynet-003",
+            config=_MockConfig(),
+        )
+        monitor._send_message = AsyncMock()
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._run_cli = AsyncMock(return_value=(0, "{}", ""))
+
+        decision = {
+            "action": "nudge",
+            "message": "Please check your progress.",
+            "priority": "low",
+        }
+
+        _run(monitor._execute_action(decision, "coder"))
+
+        monitor._send_message.assert_awaited_once()
+        monitor._create_hitl_decision.assert_not_awaited()
+
+
+# ===================================================================
+# test_respawn_scenario
+# ===================================================================
+
+
+class TestRespawnScenario:
+    """Test that a freshly respawned monitor handles existing consensus correctly."""
+
+    def test_respawn_with_consensus_complete(self) -> None:
+        """A fresh monitor encountering already-complete consensus detects the stall."""
+        classifier = _MockClassifier()
+        decision_maker = _MockDecisionMaker()
+
+        # Fresh monitor (simulates respawn - no prior state)
+        monitor = OverseerMonitor(
+            pipeline_id="test-respawn-001",
+            config=_MockConfig(),
+            classifier=classifier,
+            decision_maker=decision_maker,
+        )
+        assert len(monitor._escalation_history) == 0  # fresh state
+
+        consensus_data = {
+            "is_complete": True,
+            "blocking_agents": [],
+            "agents": {"coder": {"confirmed": True}, "tester": {"confirmed": True}},
+        }
+
+        async def mock_run_cli(*args, **kwargs):
+            cmd = " ".join(args)
+            if "consensus status" in cmd:
+                return (0, json.dumps(consensus_data), "")
+            if "phase get" in cmd:
+                return (0, '{"name": "implement", "status": "active"}', "")
+            if "health alerts" in cmd:
+                return (0, "[]", "")
+            if "pipeline status" in cmd:
+                return (0, '{"status": "running"}', "")
+            if "message poll" in cmd:
+                return (0, "[]", "")
+            if "progress query" in cmd:
+                return (0, "[]", "")
+            if "decision create" in cmd:
+                return (0, "{}", "")
+            return (0, "[]", "")
+
+        monitor._run_cli = AsyncMock(side_effect=mock_run_cli)
+
+        _run(monitor._poll_cycle())
+
+        # Should detect post-consensus stall on first cycle
+        calls = [
+            " ".join(c.args[0] if isinstance(c.args[0], tuple) else c.args)
+            for c in monitor._run_cli.call_args_list
+        ]
+        decision_calls = [c for c in calls if "decision create" in c]
+        assert len(decision_calls) >= 1, (
+            "Respawned monitor should detect post-consensus stall on first poll"
+        )
