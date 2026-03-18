@@ -352,3 +352,57 @@ class TestReviewGraphIntegration:
                 f"Phase {phase.value}: graph has roles {graph_roles - role_names} "
                 f"not in spawned roles {role_names}"
             )
+
+
+class TestConcurrentPhasesGeneralization:
+    """Verify all phases can be concurrent — no hardcoded phase gates."""
+
+    def test_is_concurrent_for_all_configured_phases(self):
+        """is_concurrent_execution returns True for any phase in concurrent_phases."""
+        from concurrent_executor import is_concurrent_execution
+
+        pipeline = _make_pipeline()
+        # Ensure concurrent_execution is False — rely on concurrent_phases config
+        pipeline.config.__dict__["concurrent_execution"] = False
+
+        for phase in ["refine", "plan", "implement"]:
+            assert is_concurrent_execution(pipeline, phase), (
+                f"is_concurrent_execution should return True for {phase}"
+            )
+
+    def test_is_concurrent_false_for_unconfigured_phase(self):
+        """is_concurrent_execution returns False for a phase not in concurrent_phases."""
+        from concurrent_executor import is_concurrent_execution
+
+        pipeline = _make_pipeline()
+        pipeline.config.__dict__["concurrent_execution"] = False
+
+        # "pr" is not in default concurrent_phases
+        assert not is_concurrent_execution(pipeline, "pr")
+
+    def test_concurrent_execution_true_overrides_phase_list(self):
+        """When concurrent_execution is True, all phases are concurrent."""
+        from concurrent_executor import is_concurrent_execution
+
+        pipeline = _make_pipeline()
+        # concurrent_execution=True already set in _make_pipeline
+
+        for phase in ["refine", "plan", "implement", "pr"]:
+            assert is_concurrent_execution(pipeline, phase), (
+                f"concurrent_execution=True should make {phase} concurrent"
+            )
+
+    def test_get_agent_env_sets_concurrent_mode(self):
+        """get_agent_env sets EGG_CONCURRENT_MODE=true for all concurrent agents."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        for phase in [PipelinePhase.IMPLEMENT, PipelinePhase.REFINE, PipelinePhase.PLAN]:
+            pipeline = _make_pipeline()
+            pipeline.current_phase = phase
+            executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+            env = executor.get_agent_env(AgentRole.CODER)
+            assert env.get("EGG_CONCURRENT_MODE") == "true", (
+                f"EGG_CONCURRENT_MODE should be 'true' for {phase.value}"
+            )

@@ -53,29 +53,9 @@ class DecisionStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
-class AgentRole(StrEnum):
-    """Agent roles in multi-agent execution."""
-
-    CODER = "coder"
-    REVIEWER = "reviewer"
-    TESTER = "tester"
-    DOCUMENTER = "documenter"
-    # Plan-phase roles
-    ARCHITECT = "architect"
-    TASK_PLANNER = "task_planner"
-    RISK_ANALYST = "risk_analyst"
-    # Refine-phase roles
-    REFINER = "refiner"
-    # Health check roles
-    INSPECTOR = "inspector"
-    # Oversight roles
-    OVERSEER = "overseer"
-    # Reviewer roles (specific subtypes)
-    REVIEWER_CODE = "reviewer_code"
-    REVIEWER_CONTRACT = "reviewer_contract"
-    REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
-    REVIEWER_REFINE = "reviewer_refine"
-    REVIEWER_PLAN = "reviewer_plan"
+# Import AgentRole from the canonical source in egg_contracts.
+# Re-exported here for backward compatibility.
+from egg_contracts.agent_roles import AgentRole  # noqa: F401
 
 
 class ReviewerType(StrEnum):
@@ -146,6 +126,7 @@ class ContainerInfo(BaseModel):
 _REMOVED_ROLE_MIGRATION: dict[str, str] = {
     "checker": "tester",
     "reviewer_unified": "reviewer_code",
+    "reviewer": "reviewer_code",
 }
 
 

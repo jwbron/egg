@@ -356,7 +356,6 @@ class TestReviewerRoles:
         "role",
         [
             AgentRole.REVIEWER_CODE,
-            AgentRole.REVIEWER_CONTRACT,
             AgentRole.REVIEWER_AGENT_DESIGN,
             AgentRole.REVIEWER_REFINE,
             AgentRole.REVIEWER_PLAN,
@@ -365,6 +364,11 @@ class TestReviewerRoles:
     def test_cannot_write_contracts(self, role):
         pattern = get_agent_pattern(role)
         assert pattern.can_write(".egg-state/contracts/123.json") is False
+
+    def test_reviewer_contract_can_write_contracts(self):
+        """Contract reviewer needs write access to mark items done."""
+        pattern = get_agent_pattern(AgentRole.REVIEWER_CONTRACT)
+        assert pattern.can_write(".egg-state/contracts/123.json") is True
 
 
 class TestRefinerRole:

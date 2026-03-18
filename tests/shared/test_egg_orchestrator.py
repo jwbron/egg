@@ -72,7 +72,7 @@ class TestAgentRole:
     def test_enum_values(self):
         """Test all agent roles exist."""
         assert AgentRole.CODER == "coder"
-        assert AgentRole.REVIEWER == "reviewer"
+        assert AgentRole.REVIEWER_CODE == "reviewer_code"
         assert AgentRole.TESTER == "tester"
         assert AgentRole.DOCUMENTER == "documenter"
 
