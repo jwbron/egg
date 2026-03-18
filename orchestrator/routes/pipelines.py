@@ -3784,6 +3784,7 @@ def _run_concurrent_phase(
     store,
     certs_volume: str | None,
     worktree_repo_path: Path,
+    review_feedback: str | None = None,
 ) -> tuple[int, str]:
     """Run a phase using concurrent all-agents-at-once execution.
 
@@ -3863,6 +3864,7 @@ def _run_concurrent_phase(
             branch=pipeline.branch,
             repo_path=str(worktree_repo_path),
             concurrent=True,
+            review_feedback=review_feedback,
         )
         agent_prompts[role] = prompt
 
@@ -5233,10 +5235,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     store.save_pipeline(pipeline)
                 return
 
-        # Check for feedback preserved by the recovery path in start_pipeline.
-        # When AWAITING_HUMAN recovery handles request_changes, it stores the
-        # reviewer's feedback in phase_execution.hitl_feedback so the freshly
-        # launched _run_pipeline thread can pass it to the re-running agent.
+        # Check for feedback preserved by the recovery path in start_pipeline
+        # or by the inline request_changes handler.  When either stores
+        # reviewer feedback in phase_execution.hitl_feedback, we read it
+        # here so it can be forwarded to the re-running agents.
+        _hitl_review_feedback: str | None = None
         try:
             with get_pipeline_state_lock(pipeline_id):
                 _recovery_pipeline = store.load_pipeline(pipeline_id)
@@ -5244,6 +5247,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     _recovery_pipeline.current_phase
                 )
                 if _recovery_phase.hitl_feedback:
+                    _hitl_review_feedback = _recovery_phase.hitl_feedback
                     _recovery_phase.hitl_feedback = None
                     store.save_pipeline(_recovery_pipeline)
         except Exception:
@@ -5579,6 +5583,27 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         mode=gateway_mode,
                     )
 
+                    # Read HITL feedback stored by the inline request_changes
+                    # handler or the AWAITING_HUMAN recovery path, and clear it
+                    # so it's only forwarded once.
+                    _phase_review_feedback: str | None = None
+                    if _hitl_review_feedback:
+                        _phase_review_feedback = _hitl_review_feedback
+                        _hitl_review_feedback = None
+                    else:
+                        # Re-read from persisted state in case the inline path
+                        # stored feedback and looped back via continue.
+                        try:
+                            with get_pipeline_state_lock(pipeline_id):
+                                _fb_pipeline = store.load_pipeline(pipeline_id)
+                                _fb_phase = _fb_pipeline.get_phase_execution(current_phase)
+                                if _fb_phase.hitl_feedback:
+                                    _phase_review_feedback = _fb_phase.hitl_feedback
+                                    _fb_phase.hitl_feedback = None
+                                    store.save_pipeline(_fb_pipeline)
+                        except Exception:
+                            pass  # Non-fatal
+
                     try:
                         exit_code, container_logs = _run_concurrent_phase(
                             pipeline_id=pipeline_id,
@@ -5592,6 +5617,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             store=store,
                             certs_volume=certs_volume,
                             worktree_repo_path=worktree_repo_path,
+                            review_feedback=_phase_review_feedback,
                         )
                     except ContainerSpawnError as e:
                         with get_pipeline_state_lock(pipeline_id):
@@ -5824,6 +5850,22 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         f"or provide feedback to request changes."
                     )
 
+                    # Detect whether the draft changed compared to the
+                    # previous phase_gate decision for this phase (if any).
+                    _content_changed: bool | None = None
+                    _prev_gate = next(
+                        (
+                            d
+                            for d in reversed(pipeline.decisions)
+                            if d.decision_type == "phase_gate"
+                            and d.phase == current_phase
+                            and d.status == DecisionStatus.RESOLVED
+                        ),
+                        None,
+                    )
+                    if _prev_gate is not None:
+                        _content_changed = draft_content != _prev_gate.context
+
                     dq = get_decision_queue(pipeline_id, repo_path)
                     decision = dq.queue_decision(
                         question=question,
@@ -5831,6 +5873,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         options=["approve", "request changes"],
                         decision_type="phase_gate",
                         phase=current_phase,
+                        content_changed=_content_changed,
                     )
 
                 # Reload pipeline to pick up the decision persisted by queue_decision(),
@@ -5991,6 +6034,16 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase_execution.status = PipelineStatus.RUNNING
                         phase_execution.completed_at = None  # Reset — phase is re-running
                         phase_execution.hitl_review_cycles += 1
+
+                        # Store feedback so the re-running agents receive it.
+                        phase_execution.hitl_feedback = _revision_feedback
+
+                        # Reset containers/agents so the re-run starts clean,
+                        # matching what the AWAITING_HUMAN recovery path does.
+                        phase_execution.containers = []
+                        phase_execution.agents = []
+                        phase_execution.artifacts = {}
+                        phase_execution.review_cycles = 0
 
                         # Circuit breaker: don't allow unbounded HITL revision loops.
                         # Uses a dedicated counter so agentic review cycles don't

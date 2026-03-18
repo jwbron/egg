@@ -131,6 +131,7 @@ class DecisionQueue:
         decision_type: Literal["phase_gate", "choice", "feedback"] = "choice",
         questions: list[dict[str, str]] | None = None,
         phase: PipelinePhase | None = None,
+        content_changed: bool | None = None,
     ) -> HITLDecision:
         """Queue a new decision for human review.
 
@@ -141,6 +142,7 @@ class DecisionQueue:
             decision_type: Type of decision ('phase_gate', 'choice', or 'feedback')
             questions: Structured feedback questions (list of dicts with id, question, answer)
             phase: Pipeline phase when the decision was created
+            content_changed: Whether the content changed compared to the previous decision
 
         Returns:
             Created HITLDecision
@@ -159,6 +161,7 @@ class DecisionQueue:
                 decision_type=decision_type,
                 questions=questions or [],
                 phase=phase,
+                content_changed=content_changed,
             )
 
             # Update with additional fields

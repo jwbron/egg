@@ -190,6 +190,10 @@ class HITLDecision(BaseModel):
     phase: PipelinePhase | None = Field(
         default=None, description="Pipeline phase when decision was created"
     )
+    content_changed: bool | None = Field(
+        default=None,
+        description="Whether the phase output changed compared to the previous decision's context",
+    )
 
 
 class CycleTiming(BaseModel):
@@ -412,6 +416,7 @@ class Pipeline(BaseModel):
         decision_type: Literal["phase_gate", "choice", "feedback"] = "choice",
         questions: list[dict[str, str]] | None = None,
         phase: PipelinePhase | None = None,
+        content_changed: bool | None = None,
     ) -> HITLDecision:
         """Add a new HITL decision request."""
         decision_id = f"decision-{len(self.decisions) + 1}"
@@ -422,6 +427,7 @@ class Pipeline(BaseModel):
             decision_type=decision_type,
             questions=questions or [],
             phase=phase,
+            content_changed=content_changed,
         )
         self.decisions.append(decision)
         self.updated_at = datetime.utcnow()
