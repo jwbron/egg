@@ -29,9 +29,31 @@ Eight workflows handle distinct PR automation concerns, all routing through `reu
 | `reusable-conflict-resolve.yml` | Called by on-merge-conflict | Resolve merge conflicts |
 | `on-merge-conflict.yml` | Push to main or cron | Detect and dispatch conflict resolution |
 
-Six bash prompt builder scripts (`action/build-*.sh`) generate agent prompts from trusted `main` branch sources.
+Additionally, the following related workflows and scripts are affected:
 
-The `gha_exec()` function in `sandbox/egg_lib/cli.py` (line 223) orchestrates container lifecycle: creates Docker networks, starts the gateway sidecar, builds the `claude --print` command, and executes in a sandbox container.
+| Additional Artifact | Status | Impact |
+|---------------------|--------|--------|
+| `on-check-failure.yml` | Active, calls `reusable-check-fixer.yml` | Must be deleted or rewired since its callee is being removed |
+| `reusable-autofix.yml` | Deprecated (header: "kept for external repos that still reference it") | Has external repo consumers per header comment; must decide: delete, keep, or redirect |
+
+**Eight bash prompt builder scripts** (`action/build-*.sh`) generate agent prompts from trusted `main` branch sources:
+
+1. `build-review-prompt.sh` — Base code review prompt
+2. `build-contract-verification-prompt.sh` — Contract verification prompt
+3. `build-agent-mode-design-review-prompt.sh` — Agent-mode design review prompt
+4. `build-check-fixer-prompt.sh` — CI check fixer prompt (most complex: parses YAML config, tracks retry state)
+5. `build-feedback-prompt.sh` — Feedback addressing prompt (filters by authorized users)
+6. `build-conflict-prompt.sh` — Conflict resolution prompt
+7. `build-autofixer-prompt.sh` — Legacy autofixer prompt (used by `reusable-autofix.yml`)
+8. `build-doc-updater-prompt.sh` — Documentation updater prompt (used by `on-push-doc-updater.yml`)
+
+Note: Scripts 7 and 8 are not listed in the issue's scope but are part of the same `action/build-*.sh` pattern. Their fate should be clarified — `build-autofixer-prompt.sh` is tied to the deprecated `reusable-autofix.yml`, while `build-doc-updater-prompt.sh` serves a separate workflow (`on-push-doc-updater.yml`) that is NOT being replaced by babysit-pr.
+
+The `gha_exec()` function in `sandbox/egg_lib/cli.py` (line 223) orchestrates container lifecycle: creates Docker networks, starts the gateway sidecar, builds the `claude --print` command, and executes in a sandbox container. It is referenced in 4 files:
+- `sandbox/egg_lib/cli.py` (definition, line 223)
+- `sandbox/egg_lib/__init__.py` (re-export, line 38)
+- `sandbox/egg_lib/runtime.py` (conditional skip logic, line 861)
+- `action/entrypoint.sh` (invocation)
 
 ### Existing babysit-pr Implementation
 
@@ -55,7 +77,7 @@ The loop currently runs **sequentially** — one agent at a time (fixer or revie
 | Execution | `claude --print` | Agent SDK | Agent SDK |
 | Coordination | GHA event chaining | Sequential loop | Concurrent BRC |
 | Agent model | One agent per workflow | One agent at a time | Fixer + reviewer concurrent |
-| Prompt building | Bash scripts | Python modules | Python modules |
+| Prompt building | Bash scripts (8 files) | Python modules | Python modules |
 | Trigger | GHA events (push, review, check) | Manual / API | Single push trigger |
 | State tracking | PR comment markers | Loop state object | BRC consensus state |
 
@@ -66,9 +88,10 @@ The loop currently runs **sequentially** — one agent at a time (fixer or revie
 - **Concurrency control**: The `reusable-review.yml` uses GHA concurrency groups (`egg-$bot_name-$pr_number`) to prevent duplicate runs. The orchestrator pipeline must provide equivalent deduplication
 - **Review marker compatibility**: Other systems may rely on `<!-- egg-automated-review bot=... commit=... verdict=... -->` markers for deduplication. Must either preserve marker format or update consumers
 - **Stale review dismissal**: Current workflows dismiss stale reviews before posting new ones — babysit-pr must replicate this
-- **on-check-failure.yml**: Not listed in the 8 workflows being replaced, but it calls `reusable-check-fixer.yml` which IS being deleted. This workflow must also be addressed
-- **Workflow file count**: The issue lists 8 workflows, but `on-check-failure.yml` is a 9th that depends on `reusable-check-fixer.yml`. Its fate must be decided
+- **on-check-failure.yml dependency**: Not listed in the 8 workflows being replaced, but it calls `reusable-check-fixer.yml` which IS being deleted. Must also be addressed
+- **reusable-autofix.yml external consumers**: Deprecated but kept for external repos (per header comment). Deletion would break those consumers — needs migration path or preserved as-is
 - **Review criteria consolidation**: The reviewer agent must combine the criteria from three separate reviews (base code, contract verification, agent-mode design) into a single review role. Must ensure no review criteria are lost
+- **Concurrent BRC alignment**: The issue explicitly chose concurrent BRC as the execution model. This aligns well with agent-mode design principles: each agent (fixer, reviewer) operates autonomously with its own tools and objectives, coordinating via consensus rather than rigid handoffs
 
 ## Options Considered
 
@@ -77,10 +100,11 @@ The loop currently runs **sequentially** — one agent at a time (fixer or revie
 **Approach**: Restructure the babysit-pr loop to run fixer and reviewer agents concurrently using BRC consensus. Both agents iterate together — the fixer resolves issues while the reviewer evaluates until they reach consensus that the PR is clean.
 
 **Pros**:
-- Matches the issue's chosen direction exactly
+- Matches the issue's explicitly chosen direction
 - Natural fit for the existing BRC infrastructure (orchestrator message bus, consensus protocol)
 - Potentially faster — reviewer can start evaluating while fixer is still working
 - Single execution model for all agent work (orchestrator + Agent SDK)
+- Aligns with agent-mode design: autonomous agents with objectives, not rigid sequential handoffs
 
 **Cons**:
 - Significant refactoring of the existing sequential `BabysitLoop` state machine
@@ -95,7 +119,7 @@ The loop currently runs **sequentially** — one agent at a time (fixer or revie
 
 **Pros**:
 - Minimal code changes — existing babysit-pr loop is production-tested
-- All issue goals achieved: single execution path, Agent SDK only, EGG100 resolved, bash scripts removed
+- All core issue goals achieved: single execution path, Agent SDK only, EGG100 resolved, bash scripts removed
 - Lower risk — no architectural change to the loop itself
 - Lower cost — one agent at a time
 
@@ -125,20 +149,13 @@ The loop currently runs **sequentially** — one agent at a time (fixer or revie
 
 The key risk is race conditions between fixer pushes and reviewer reads, but this is mitigated by the reviewer being read-only (no push permissions) and the BRC protocol's NACK mechanism allowing the reviewer to request re-evaluation after a push.
 
+The concurrent BRC model also naturally aligns with agent-mode design principles: each agent operates autonomously with its own tools and objectives, coordinating via consensus rather than rigid sequential handoffs.
+
 ## Open Questions
 
-> **Note**: Contract registration via `egg-contract add-decision` / `egg-contract add-feedback` failed because the contract for issue #1278 has not been initialized by the orchestrator. The questions below should be registered as HITL decisions once the contract is available.
+> **Note**: Contract for issue #1278 was not initialized by the orchestrator. All `egg-contract add-decision` and `egg-contract add-feedback` calls fail with "Contract not found" (gateway returns 404). This has been signaled as a recoverable error via `egg-orch signal error`. The decisions below are documented in this analysis and should be registered in the contract once available.
 
-### Decision 1: Concurrent vs. Sequential Architecture
-
-**Question**: Should the babysit-pr cycle use concurrent BRC agents (fixer + reviewer) or keep the current sequential loop architecture?
-
-**Options**:
-- **A) Concurrent BRC** — Fixer + reviewer iterate with consensus as described in the issue. Requires restructuring the loop as a concurrent agent pipeline.
-- **B) Sequential loop** — Keep the current sequential architecture, just trigger it from a GHA push event. Achieves all other goals (single path, Agent SDK, EGG100 fix) with minimal refactoring.
-- **C) Hybrid** — Sequential for conflict/CI steps, concurrent BRC for review/feedback cycle only.
-
-### Decision 2: Trigger Mechanism
+### Decision 1: Trigger Mechanism
 
 **Question**: What should trigger the babysit-pr cycle on push to a PR branch?
 
@@ -147,7 +164,7 @@ The key risk is race conditions between fixer pushes and reviewer reads, but thi
 - **B) Direct orchestrator webhook** — Orchestrator listens for GitHub push webhooks directly, bypassing GHA entirely. Requires new webhook endpoint.
 - **C) Modify existing workflow** — Repurpose `on-pull-request.yml` to invoke babysit-pr instead of individual review workflows.
 
-### Decision 3: `on-check-failure.yml` Handling
+### Decision 2: `on-check-failure.yml` Handling
 
 **Question**: The issue lists 8 workflows to replace, but `on-check-failure.yml` (which calls `reusable-check-fixer.yml`) is not listed. Since `reusable-check-fixer.yml` IS being deleted, what should happen to `on-check-failure.yml`?
 
@@ -155,13 +172,22 @@ The key risk is race conditions between fixer pushes and reviewer reads, but thi
 - **A) Delete it** — babysit-pr handles check fixing as part of its cycle. No separate check-failure trigger needed.
 - **B) Rewire it** — Keep `on-check-failure.yml` but have it trigger a babysit-pr cycle instead of calling the reusable check fixer.
 
+### Decision 3: `reusable-autofix.yml` and External Consumers
+
+**Question**: `reusable-autofix.yml` is deprecated but explicitly kept for external repos. It's not listed in the issue's 8 workflows. What should happen to it?
+
+**Options**:
+- **A) Delete it** — External consumers must migrate. Document the breaking change.
+- **B) Keep it** — It's already deprecated and separate from the new babysit-pr pipeline. Leave as-is.
+- **C) Redirect it** — Rewire `reusable-autofix.yml` to invoke babysit-pr, maintaining the `workflow_call` interface for external consumers.
+
 ### Decision 4: Review Marker Compatibility
 
 **Question**: Current workflows embed `<!-- egg-automated-review bot=... commit=... verdict=... -->` markers in review comments for deduplication. Should the babysit-pr cycle preserve this marker format?
 
 **Options**:
 - **A) Preserve markers** — Include the same HTML comment markers in babysit-pr reviews for backward compatibility.
-- **B) Drop markers** — The babysit-pr cycle manages its own state; markers become unnecessary once all workflows are replaced.
+- **B) Drop markers** — The babysit-pr cycle manages its own state; markers become unnecessary once all workflows are replaced. Verify no external consumers depend on the marker format first.
 - **C) New marker format** — Use a new format that includes BRC consensus state (e.g., cycle number, consensus status).
 
 ### Decision 5: Review Criteria Consolidation Strategy
@@ -170,16 +196,15 @@ The key risk is race conditions between fixer pushes and reviewer reads, but thi
 
 **Options**:
 - **A) Single combined prompt** — Merge all criteria into one review prompt. The reviewer evaluates all aspects in a single pass.
-- **B) Multi-pass review** — The reviewer runs three sequential review passes (code, contract, design) within the same agent session.
-- **C) Conditional criteria** — Include contract verification only when `sdlc:pr` label is present; include design review only when relevant file paths changed. Base code review always included.
+- **B) Conditional criteria (Recommended)** — Include contract verification only when `sdlc:pr` label is present; include design review only when relevant file paths changed (action/, .github/workflows/, sandbox/, shared/prompts/). Base code review always included. This provides relevant criteria as orienting context without prescribing procedure.
 
-### Decision 6: Bash Script Deletion Strategy
+### Decision 6: Scope of Bash Script Deletion
 
-**Question**: Should the six bash prompt builders be deleted in the same PR as the workflow removal, or preserved temporarily?
+**Question**: The issue lists 6 bash prompt builders for deletion. The codebase has 8 total. `build-autofixer-prompt.sh` is tied to `reusable-autofix.yml` (Decision 3). `build-doc-updater-prompt.sh` serves `on-push-doc-updater.yml` which is NOT being replaced. What should happen to the extra 2 scripts?
 
 **Options**:
-- **A) Delete entirely** — One-shot cutover as described in the issue. Clean break.
-- **B) Preserve as deprecated** — Keep for one release cycle with deprecation warnings, then delete.
+- **A) Delete all 8** — Clean break. Requires also addressing `reusable-autofix.yml` and `on-push-doc-updater.yml`.
+- **B) Delete 6, keep 2** — Delete the 6 listed in the issue. Keep `build-autofixer-prompt.sh` and `build-doc-updater-prompt.sh` since their consuming workflows are out of scope.
 
 ### Feedback Questions
 
@@ -189,9 +214,9 @@ The following open-ended questions need human input:
 
 2. **Feedback iteration limits**: The current `on-review-feedback.yml` caps at 5 feedback rounds. The babysit-pr loop also defaults to 5 (`max_feedback_rounds`). Should this remain the default, or should the concurrent model use a different limit since fixer and reviewer iterate together?
 
-3. **Reusable workflow consumers**: Are there external repositories using `reusable-review.yml`, `reusable-check-fixer.yml`, or `reusable-conflict-resolve.yml` as reusable workflows (via `workflow_call`)? If so, the deletion would break them and we'd need a migration path.
+3. **Reusable workflow consumers**: Are there external repositories using `reusable-review.yml`, `reusable-check-fixer.yml`, `reusable-conflict-resolve.yml`, or `reusable-autofix.yml` as reusable workflows (via `workflow_call`)? The `reusable-autofix.yml` header explicitly says it's "kept for external repos" — which repos are these?
 
-4. **`gha_exec()` removal scope**: The issue says to remove `gha_exec()` from `action/entrypoint.sh`. Should the entire `gha_exec()` function in `sandbox/egg_lib/cli.py` also be deleted, or kept for backward compatibility with other potential callers?
+4. **`gha_exec()` removal scope**: The issue says to remove `gha_exec()` from `action/entrypoint.sh`. `gha_exec()` is also defined in `sandbox/egg_lib/cli.py` (line 223), re-exported from `sandbox/egg_lib/__init__.py` (line 38), and referenced in `sandbox/egg_lib/runtime.py` (line 861). Should all 4 files be updated, or is backward compatibility needed for any callers?
 
 5. **Pipeline deduplication**: The GHA workflows use concurrency groups to prevent duplicate runs. How should the orchestrator handle rapid successive pushes to the same PR? Options include: queue and process latest only, debounce, or allow concurrent cycles with last-write-wins.
 
@@ -199,15 +224,20 @@ The following open-ended questions need human input:
 
 **High**. This is a cross-cutting architectural change that:
 
-- Replaces 8 GHA workflow files and 6 bash scripts
+- Replaces 8+ GHA workflow files and 8 bash scripts (with 2 potentially out of scope)
 - Restructures the babysit-pr loop from sequential to concurrent BRC
 - Consolidates three review criteria into one agent role
 - Adds a new pipeline trigger mechanism
-- Modifies the entrypoint/CLI layer (`gha_exec()` removal)
-- Potentially affects external workflow consumers
+- Modifies the entrypoint/CLI layer (`gha_exec()` removal across 4 files)
+- Must address external workflow consumers (especially `reusable-autofix.yml`)
 - Requires end-to-end validation against the cutover PR itself
 
-Multiple independent workstreams (prompt consolidation, BRC refactoring, GHA workflow replacement, trigger mechanism) could be parallelized.
+Multiple independent workstreams could be parallelized:
+1. BRC refactoring of babysit-pr loop (~10 files in `shared/egg_babysit/`)
+2. Prompt consolidation (Python prompt modules already exist in `prompts.py`)
+3. GHA workflow replacement (new trigger workflow + delete old workflows)
+4. `gha_exec()` removal (4 files)
+5. Review criteria consolidation (shared/prompts/ files)
 
 ---
 
