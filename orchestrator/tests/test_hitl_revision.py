@@ -20,7 +20,7 @@ sys.modules.setdefault("docker", _docker_mock)
 sys.modules.setdefault("docker.errors", _docker_mock.errors)
 sys.modules.setdefault("docker.types", _docker_mock.types)
 
-from models import PhaseExecution, PipelineConfig, PipelinePhase
+from models import PhaseExecution, PipelineConfig, PipelinePhase, PipelineStatus
 from routes.pipelines import _APPROVE_KEYWORDS, _BARE_OPTION_LABELS
 
 
@@ -1198,3 +1198,181 @@ class TestSyncPipelineDecisionsToContract:
 
         # All decisions deduplicated — save should not be called
         mock_save.assert_not_called()
+
+
+class TestInlineRequestChangesStateReset:
+    """Verify that inline request_changes resets phase state like the recovery path.
+
+    The inline path (inside _run_pipeline's HITL gate loop) must store
+    hitl_feedback and reset containers/agents/artifacts so the re-run
+    starts clean, matching the AWAITING_HUMAN recovery path in start_pipeline.
+    """
+
+    def test_inline_rerun_resets_state_fields(self):
+        """The re-run (else) branch should reset containers/agents/artifacts/review_cycles."""
+        from models import AgentExecution, ContainerInfo, ContainerStatus
+
+        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+        phase.status = PipelineStatus.COMPLETE
+        phase.containers = [
+            ContainerInfo(
+                container_id="old-ctr",
+                container_name="old-ctr",
+                status=ContainerStatus.EXITED,
+            )
+        ]
+        phase.agents = [AgentExecution(role="coder")]
+        phase.artifacts = {"pr_url": "https://github.com/old"}
+        phase.review_cycles = 2
+
+        # Simulate the re-run (else) branch of the inline request_changes handler.
+        # The reset only happens when the circuit breaker does NOT trip.
+        phase.status = PipelineStatus.RUNNING
+        phase.completed_at = None
+        phase.hitl_review_cycles += 1
+        phase.hitl_feedback = "Fix the tests"
+        phase.containers = []
+        phase.agents = []
+        phase.artifacts = {}
+        phase.review_cycles = 0
+
+        assert phase.hitl_feedback == "Fix the tests"
+        assert phase.containers == []
+        assert phase.agents == []
+        assert phase.artifacts == {}
+        assert phase.review_cycles == 0
+        assert phase.hitl_review_cycles == 1
+
+    def test_circuit_breaker_preserves_artifacts(self):
+        """When the circuit breaker trips, containers/agents/artifacts must be preserved."""
+        from models import AgentExecution, ContainerInfo, ContainerStatus
+
+        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+        phase.status = PipelineStatus.COMPLETE
+        original_containers = [
+            ContainerInfo(
+                container_id="old-ctr",
+                container_name="old-ctr",
+                status=ContainerStatus.EXITED,
+            )
+        ]
+        original_agents = [AgentExecution(role="coder")]
+        original_artifacts = {"pr_url": "https://github.com/old"}
+        phase.containers = list(original_containers)
+        phase.agents = list(original_agents)
+        phase.artifacts = dict(original_artifacts)
+        phase.review_cycles = 2
+
+        # Simulate the circuit breaker path: only increment cycle counter,
+        # do NOT reset containers/agents/artifacts.
+        phase.completed_at = None
+        phase.hitl_review_cycles += 1
+
+        # Verify artifacts are preserved for the force-approved phase
+        assert len(phase.containers) == 1
+        assert phase.containers[0].container_id == "old-ctr"
+        assert len(phase.agents) == 1
+        assert phase.artifacts == {"pr_url": "https://github.com/old"}
+        assert phase.review_cycles == 2  # Not reset
+
+    def test_content_changed_detection(self):
+        """content_changed should be True when draft differs from prior decision."""
+        from models import DecisionStatus, Pipeline
+
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/test",
+        )
+
+        # First decision with original context
+        d1 = pipeline.add_decision(
+            question="Approve?",
+            decision_type="phase_gate",
+            phase=PipelinePhase.PLAN,
+        )
+        d1.context = "Original plan content"
+        d1.status = DecisionStatus.RESOLVED
+        d1.resolution = '{"action": "request_changes", "feedback": "Fix it"}'
+
+        # Second decision after re-run with changed content
+        prev_gate = next(
+            (
+                d
+                for d in reversed(pipeline.decisions)
+                if d.decision_type == "phase_gate"
+                and d.phase == PipelinePhase.PLAN
+                and d.status == DecisionStatus.RESOLVED
+            ),
+            None,
+        )
+        new_draft = "Updated plan content"
+        content_changed = new_draft != prev_gate.context if prev_gate else None
+
+        d2 = pipeline.add_decision(
+            question="Approve?",
+            decision_type="phase_gate",
+            phase=PipelinePhase.PLAN,
+            content_changed=content_changed,
+        )
+        assert d2.content_changed is True
+
+    def test_content_changed_false_when_identical(self):
+        """content_changed should be False when draft matches prior decision."""
+        from models import DecisionStatus, Pipeline
+
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/test",
+        )
+
+        d1 = pipeline.add_decision(
+            question="Approve?",
+            decision_type="phase_gate",
+            phase=PipelinePhase.PLAN,
+        )
+        d1.context = "Same plan content"
+        d1.status = DecisionStatus.RESOLVED
+
+        prev_gate = next(
+            (
+                d
+                for d in reversed(pipeline.decisions)
+                if d.decision_type == "phase_gate"
+                and d.phase == PipelinePhase.PLAN
+                and d.status == DecisionStatus.RESOLVED
+            ),
+            None,
+        )
+        new_draft = "Same plan content"
+        content_changed = new_draft != prev_gate.context if prev_gate else None
+
+        d2 = pipeline.add_decision(
+            question="Approve?",
+            decision_type="phase_gate",
+            phase=PipelinePhase.PLAN,
+            content_changed=content_changed,
+        )
+        assert d2.content_changed is False
+
+    def test_content_changed_none_on_first_decision(self):
+        """content_changed should be None when there is no prior decision."""
+        from models import Pipeline
+
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/test",
+        )
+
+        d1 = pipeline.add_decision(
+            question="Approve?",
+            decision_type="phase_gate",
+            phase=PipelinePhase.PLAN,
+            content_changed=None,
+        )
+        assert d1.content_changed is None

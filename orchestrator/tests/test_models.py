@@ -106,6 +106,24 @@ class TestHITLDecision:
         )
         assert decision.decision_type == "phase_gate"
 
+    def test_content_changed_default_none(self):
+        """Test that content_changed defaults to None."""
+        decision = HITLDecision(
+            id="decision-1",
+            question="Approve?",
+        )
+        assert decision.content_changed is None
+
+    def test_content_changed_set(self):
+        """Test creating a decision with content_changed set."""
+        decision = HITLDecision(
+            id="decision-1",
+            question="Approve?",
+            decision_type="phase_gate",
+            content_changed=True,
+        )
+        assert decision.content_changed is True
+
     def test_questions_default_empty(self):
         """Test that questions defaults to empty list."""
         decision = HITLDecision(
@@ -510,6 +528,32 @@ class TestPipeline:
         decision = pipeline.add_decision(question="Pick one?", options=["A", "B"])
         assert decision.decision_type == "choice"
         assert decision.questions == []
+
+    def test_add_decision_with_content_changed(self):
+        """Test that add_decision passes content_changed to the decision."""
+        pipeline = Pipeline(
+            id="issue-496",
+            issue_number=496,
+            repo="owner/repo",
+            branch="egg/issue-496",
+        )
+        decision = pipeline.add_decision(
+            question="Approve?",
+            decision_type="phase_gate",
+            content_changed=True,
+        )
+        assert decision.content_changed is True
+
+    def test_add_decision_content_changed_default_none(self):
+        """Test that add_decision defaults content_changed to None."""
+        pipeline = Pipeline(
+            id="issue-496",
+            issue_number=496,
+            repo="owner/repo",
+            branch="egg/issue-496",
+        )
+        decision = pipeline.add_decision(question="Pick one?")
+        assert decision.content_changed is None
 
     def test_backward_compat_old_format_dict(self):
         """Test that old-format dict without decision_type/questions parses correctly."""

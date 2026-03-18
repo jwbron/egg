@@ -364,6 +364,50 @@ class TestRunConcurrentPhaseWait:
 
         assert exit_code == 0
 
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_review_feedback_forwarded_to_build_prompt(
+        self, MockExecutor, mock_build_prompt, mock_state_lock, mock_monotonic, mock_sleep
+    ):
+        """review_feedback parameter is forwarded to _build_agent_prompt calls."""
+        mock_monotonic.return_value = 0.0
+
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-abc"),
+        ]
+        pipeline, mock_store, mock_spawner, mock_docker, phase_exec = self._make_mocks(executions)
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = _NO_CONSENSUS
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_state_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            repo_volumes={},
+            gateway_mode="public",
+            repos=["owner/repo"],
+            sandbox_env={},
+            store=mock_store,
+            certs_volume=None,
+            worktree_repo_path=Path("/tmp/test-repo"),
+            review_feedback="Please fix the error handling",
+        )
+
+        # Verify _build_agent_prompt was called with review_feedback
+        assert mock_build_prompt.call_count >= 1
+        call_kwargs = mock_build_prompt.call_args_list[0]
+        assert call_kwargs.kwargs.get("review_feedback") == "Please fix the error handling"
+
 
 class TestPartialSpawnFailureCleanup:
     """Tests for stopping orphaned containers when some agents fail to spawn."""
