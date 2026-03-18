@@ -5250,8 +5250,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     _hitl_review_feedback = _recovery_phase.hitl_feedback
                     _recovery_phase.hitl_feedback = None
                     store.save_pipeline(_recovery_pipeline)
-        except Exception:
-            pass  # Non-fatal — feedback is best-effort
+        except Exception as e:
+            logger.debug("Failed to read hitl_feedback from recovery path", error=str(e))
 
         # Warn if EGG_REPO_CHECKS is set — the checker role has been removed
         # and repo-specific check commands are no longer consumed. The tester
@@ -5601,8 +5601,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                     _phase_review_feedback = _fb_phase.hitl_feedback
                                     _fb_phase.hitl_feedback = None
                                     store.save_pipeline(_fb_pipeline)
-                        except Exception:
-                            pass  # Non-fatal
+                        except Exception as e:
+                            logger.debug("Failed to read hitl_feedback for phase", error=str(e))
 
                     try:
                         exit_code, container_logs = _run_concurrent_phase(
@@ -6035,16 +6035,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase_execution.completed_at = None  # Reset — phase is re-running
                         phase_execution.hitl_review_cycles += 1
 
-                        # Store feedback so the re-running agents receive it.
-                        phase_execution.hitl_feedback = _revision_feedback
-
-                        # Reset containers/agents so the re-run starts clean,
-                        # matching what the AWAITING_HUMAN recovery path does.
-                        phase_execution.containers = []
-                        phase_execution.agents = []
-                        phase_execution.artifacts = {}
-                        phase_execution.review_cycles = 0
-
                         # Circuit breaker: don't allow unbounded HITL revision loops.
                         # Uses a dedicated counter so agentic review cycles don't
                         # consume the human's revision budget.
@@ -6060,6 +6050,17 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             store.save_pipeline(pipeline)
                             # Fall through to the approval path below
                         else:
+                            # Store feedback so the re-running agents receive it.
+                            phase_execution.hitl_feedback = _revision_feedback
+
+                            # Reset containers/agents/artifacts so the re-run
+                            # starts clean, resetting the same container/agent/
+                            # artifact fields that the recovery path resets.
+                            phase_execution.containers = []
+                            phase_execution.agents = []
+                            phase_execution.artifacts = {}
+                            phase_execution.review_cycles = 0
+
                             store.save_pipeline(pipeline)
                             report_pipeline_status(
                                 pipeline,

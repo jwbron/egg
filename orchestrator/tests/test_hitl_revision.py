@@ -1208,8 +1208,8 @@ class TestInlineRequestChangesStateReset:
     starts clean, matching the AWAITING_HUMAN recovery path in start_pipeline.
     """
 
-    def test_inline_resets_match_recovery_path(self):
-        """Inline request_changes should reset the same fields as recovery."""
+    def test_inline_rerun_resets_state_fields(self):
+        """The re-run (else) branch should reset containers/agents/artifacts/review_cycles."""
         from models import AgentExecution, ContainerInfo, ContainerStatus
 
         phase = PhaseExecution(phase=PipelinePhase.PLAN)
@@ -1225,7 +1225,8 @@ class TestInlineRequestChangesStateReset:
         phase.artifacts = {"pr_url": "https://github.com/old"}
         phase.review_cycles = 2
 
-        # Simulate inline request_changes state reset
+        # Simulate the re-run (else) branch of the inline request_changes handler.
+        # The reset only happens when the circuit breaker does NOT trip.
         phase.status = PipelineStatus.RUNNING
         phase.completed_at = None
         phase.hitl_review_cycles += 1
@@ -1241,6 +1242,38 @@ class TestInlineRequestChangesStateReset:
         assert phase.artifacts == {}
         assert phase.review_cycles == 0
         assert phase.hitl_review_cycles == 1
+
+    def test_circuit_breaker_preserves_artifacts(self):
+        """When the circuit breaker trips, containers/agents/artifacts must be preserved."""
+        from models import AgentExecution, ContainerInfo, ContainerStatus
+
+        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+        phase.status = PipelineStatus.COMPLETE
+        original_containers = [
+            ContainerInfo(
+                container_id="old-ctr",
+                container_name="old-ctr",
+                status=ContainerStatus.EXITED,
+            )
+        ]
+        original_agents = [AgentExecution(role="coder")]
+        original_artifacts = {"pr_url": "https://github.com/old"}
+        phase.containers = list(original_containers)
+        phase.agents = list(original_agents)
+        phase.artifacts = dict(original_artifacts)
+        phase.review_cycles = 2
+
+        # Simulate the circuit breaker path: only increment cycle counter,
+        # do NOT reset containers/agents/artifacts.
+        phase.completed_at = None
+        phase.hitl_review_cycles += 1
+
+        # Verify artifacts are preserved for the force-approved phase
+        assert len(phase.containers) == 1
+        assert phase.containers[0].container_id == "old-ctr"
+        assert len(phase.agents) == 1
+        assert phase.artifacts == {"pr_url": "https://github.com/old"}
+        assert phase.review_cycles == 2  # Not reset
 
     def test_content_changed_detection(self):
         """content_changed should be True when draft differs from prior decision."""

@@ -192,7 +192,7 @@ class HITLDecision(BaseModel):
     )
     content_changed: bool | None = Field(
         default=None,
-        description="Whether the phase output changed compared to the previous decision's context",
+        description="Whether the phase output changed compared to the previous decision's context (literal string comparison, not semantic)",
     )
 
 
