@@ -1386,56 +1386,11 @@ class TestInlineRequestChangesClearsConcurrentState:
     the re-run doesn't short-circuit on stale CONSENSUS_CONFIRMED messages.
     """
 
-    def test_inline_rerun_clears_message_store(self):
-        """The inline request_changes handler should clear the message store."""
-        from unittest.mock import patch
-
-        mock_msg_store = MagicMock()
-
-        with patch("message_store.get_message_store", return_value=mock_msg_store):
-            from message_store import get_message_store
-
-            store = get_message_store()
-            store.clear("pipeline-42")
-
-        mock_msg_store.clear.assert_called_once_with("pipeline-42")
-
-    def test_inline_rerun_clears_peer_consensus_tracker(self):
-        """The inline request_changes handler should remove the peer consensus tracker."""
-        from unittest.mock import patch
-
-        mock_remove = MagicMock()
-
-        with patch("peer_consensus.remove_peer_consensus_tracker", mock_remove):
-            from peer_consensus import remove_peer_consensus_tracker
-
-            remove_peer_consensus_tracker("pipeline-42")
-
-        mock_remove.assert_called_once_with("pipeline-42")
-
-    def test_inline_rerun_clears_consensus_evaluator(self):
-        """The inline request_changes handler should clear the consensus evaluator."""
-        from unittest.mock import patch
-
-        mock_evaluator = MagicMock()
-
-        with patch("consensus.get_consensus_evaluator", return_value=mock_evaluator):
-            from consensus import get_consensus_evaluator
-
-            evaluator = get_consensus_evaluator()
-            evaluator.clear("pipeline-42")
-
-        mock_evaluator.clear.assert_called_once_with("pipeline-42")
-
-    def test_clearing_code_in_pipelines_inline_handler(self):
-        """Verify the clearing code exists in the inline request_changes handler."""
+    def test_inline_handler_calls_clear_concurrent_state(self):
+        """Verify the inline handler delegates to _clear_concurrent_state."""
         import inspect
 
         from routes import pipelines
 
         source = inspect.getsource(pipelines._run_pipeline)
-        # The clearing code should appear in the inline handler, inside
-        # the else branch that handles request_changes re-runs.
-        assert "get_message_store().clear(pipeline_id)" in source
-        assert "remove_peer_consensus_tracker(pipeline_id)" in source
-        assert "get_consensus_evaluator().clear(pipeline_id)" in source
+        assert "_clear_concurrent_state(pipeline_id)" in source
