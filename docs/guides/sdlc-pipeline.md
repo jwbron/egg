@@ -641,8 +641,9 @@ Pipeline decisions made during refine and plan phases are automatically synced t
 1. Agents create decisions via `OrchClient.create_decision()` or by queueing HITL checkpoints
 2. Human resolves the decision (via terminal in prompt-driven mode, or checkbox in issue-driven mode)
 3. After the phase completes, `_sync_pipeline_decisions_to_contract()` converts resolved non-phase-gate `HITLDecision` objects to contract `Decision` format
-4. Synced decisions appear in `.egg-state/contracts/{identifier}.json` under the `decisions` array
-5. Implement-phase agents can read these decisions from the contract to understand context
+4. For phase gate approvals with context/feedback, `_persist_phase_gate_resolution()` additionally syncs the resolution to the contract and appends it to the phase draft file
+5. Synced decisions appear in `.egg-state/contracts/{identifier}.json` under the `decisions` array
+6. Implement-phase agents can read these decisions from the contract to understand context
 
 **What gets synced:**
 
