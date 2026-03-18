@@ -316,8 +316,120 @@
       "started_at": "2026-03-18T03:54:24.485480",
       "work_started_at": "2026-03-18T03:54:24.514942",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "775c50103b5b1b90a6ded6890510625afb5d5a89d84025cab629aa8e99ddc4af",
+          "container_name": "issue-1014-documenter",
+          "status": "running",
+          "started_at": "2026-03-18T03:54:25.578073",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "documenter",
+          "session_token": null
+        },
+        {
+          "container_id": "ca4ea08c2aef8fd0d85a3cc806a3782c4b04f05016b5744efb98ff07283267ca",
+          "container_name": "issue-1014-reviewer_contract",
+          "status": "running",
+          "started_at": "2026-03-18T03:54:25.578085",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_contract",
+          "session_token": null
+        },
+        {
+          "container_id": "263055f71d6d12a83684e8cdeabcb80ef19e16f4319cb2108bcabcfda9243bbc",
+          "container_name": "issue-1014-reviewer_code",
+          "status": "running",
+          "started_at": "2026-03-18T03:54:25.578093",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_code",
+          "session_token": null
+        },
+        {
+          "container_id": "5c8de977609d8f92d14d7d73992f31ef4858e8b75e5b4a1debd846fb191abab5",
+          "container_name": "issue-1014-tester",
+          "status": "running",
+          "started_at": "2026-03-18T03:54:25.578099",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "tester",
+          "session_token": null
+        },
+        {
+          "container_id": "05526c7a1da3ffa772f65bef8a10e9731204e44863ea42ea4e1078f9e9d5bd7f",
+          "container_name": "issue-1014-coder",
+          "status": "running",
+          "started_at": "2026-03-18T03:54:25.578105",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "coder",
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "documenter",
+          "status": "running",
+          "container_id": "775c50103b5b1b90a6ded6890510625afb5d5a89d84025cab629aa8e99ddc4af",
+          "started_at": "2026-03-18T03:54:25.578080",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_contract",
+          "status": "running",
+          "container_id": "ca4ea08c2aef8fd0d85a3cc806a3782c4b04f05016b5744efb98ff07283267ca",
+          "started_at": "2026-03-18T03:54:25.578089",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_code",
+          "status": "running",
+          "container_id": "263055f71d6d12a83684e8cdeabcb80ef19e16f4319cb2108bcabcfda9243bbc",
+          "started_at": "2026-03-18T03:54:25.578095",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "tester",
+          "status": "running",
+          "container_id": "5c8de977609d8f92d14d7d73992f31ef4858e8b75e5b4a1debd846fb191abab5",
+          "started_at": "2026-03-18T03:54:25.578102",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "coder",
+          "status": "running",
+          "container_id": "05526c7a1da3ffa772f65bef8a10e9731204e44863ea42ea4e1078f9e9d5bd7f",
+          "started_at": "2026-03-18T03:54:25.578108",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -385,9 +497,9 @@
     }
   ],
   "created_at": "2026-03-18T02:39:58.796747",
-  "updated_at": "2026-03-18T03:54:24.517557",
+  "updated_at": "2026-03-18T03:54:25.578180",
   "contract_synced": true,
   "network_mode": null,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 37
+  "version": 38
 }
