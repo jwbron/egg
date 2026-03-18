@@ -4,7 +4,7 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1014",
   "prompt": null,
-  "status": "awaiting_human",
+  "status": "running",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -36,10 +36,10 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "awaiting_human",
+      "status": "running",
       "started_at": "2026-03-18T02:40:23.721604",
       "work_started_at": "2026-03-18T02:40:23.732908",
-      "completed_at": "2026-03-18T02:52:25.777008",
+      "completed_at": null,
       "containers": [
         {
           "container_id": "1de4893ed7eec7d7015871c898ed169895ceff22543cd6daf2a0ae1c93923013",
@@ -111,7 +111,7 @@
         }
       ],
       "review_cycles": 0,
-      "hitl_review_cycles": 0,
+      "hitl_review_cycles": 1,
       "cycle_timings": [
         {
           "cycle": 0,
@@ -145,9 +145,9 @@
     }
   ],
   "created_at": "2026-03-18T02:39:58.796747",
-  "updated_at": "2026-03-18T03:16:39.404109",
+  "updated_at": "2026-03-18T03:16:40.457319",
   "contract_synced": true,
   "network_mode": null,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 13
+  "version": 14
 }
