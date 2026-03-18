@@ -260,6 +260,36 @@ class TestReconcileContainerState:
         assert agent.status == AgentExecutionStatus.FAILED
         assert agent.completed_at is not None
 
+    def test_skips_container_with_complete_agent(self):
+        """Reconciliation skips containers whose agent is already COMPLETE.
+
+        Regression test for issue #1294: when agents complete via consensus,
+        the container monitor should not mark those containers as FAILED even
+        if the container exits with a non-zero code (from SIGTERM/SIGKILL).
+        """
+        container_id = "consensus_done_xyz"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+
+        # Simulate consensus completion: agent is COMPLETE, container still RUNNING
+        phase.agents[0].status = AgentExecutionStatus.COMPLETE
+        phase.agents[0].completed_at = datetime.utcnow()
+
+        store = _make_store(pipeline)
+        exited_info = _make_container_info(container_id, exit_code=137)  # SIGKILL
+
+        result = _reconcile_container_state(store, exited_info)
+
+        # No changes should be saved — the container was skipped
+        assert result is False
+        # Pipeline should remain RUNNING (not FAILED)
+        assert pipeline.status == PipelineStatus.RUNNING
+        # Container status should still be RUNNING (unchanged by reconciler)
+        ci = phase.containers[0]
+        assert ci.status == ContainerStatus.RUNNING
+        # Agent should still be COMPLETE (not overwritten to FAILED)
+        assert phase.agents[0].status == AgentExecutionStatus.COMPLETE
+
 
 # ---------------------------------------------------------------------------
 # Tests: create_pipeline_reconciliation_handler

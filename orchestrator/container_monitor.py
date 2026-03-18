@@ -696,11 +696,27 @@ def _reconcile_container_state(store: Any, container_info: ContainerInfo) -> boo
             changed = False
 
             for phase_execution in pipeline.phases.values():
+                # Build set of container IDs belonging to COMPLETE agents
+                complete_agent_cids = {
+                    a.container_id
+                    for a in phase_execution.agents
+                    if a.status == AgentExecutionStatus.COMPLETE and a.container_id
+                }
+
                 for ci in phase_execution.containers:
                     if (
                         ci.container_id == container_info.container_id
                         and ci.status == ContainerStatus.RUNNING
                     ):
+                        # Skip if the agent using this container already completed
+                        # successfully (consensus path). See issue #1294.
+                        if ci.container_id in complete_agent_cids:
+                            logger.info(
+                                "Runtime reconciliation: skipping container whose agent is COMPLETE",
+                                pipeline_id=pipeline_id,
+                                container_id=ci.container_id[:12],
+                            )
+                            continue
                         logger.warning(
                             "Runtime reconciliation: container exited, marking FAILED",
                             pipeline_id=pipeline_id,
