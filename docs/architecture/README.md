@@ -170,7 +170,7 @@ The SDLC pipeline orchestrates agent-based development with structurally enforce
 - `orchestrator/decision_queue.py` - Human-in-the-loop decision handling with debounce
 - `orchestrator/state_store.py` - Git-backed pipeline state management
 - `orchestrator/routes/pipelines.py` - Pipeline API, prompt building, and visualization
-- `.github/workflows/reusable-review.yml` - PR-based code review (invoked for draft PRs during implement phase)
+- `.github/workflows/on-push-babysit.yml` - Babysit-PR pipeline trigger (concurrent fixer+reviewer for draft PRs during implement phase)
 
 **Resilience features:**
 - HITL escalation: Generates checkbox-based decision UI with 30-second debounce

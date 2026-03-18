@@ -389,21 +389,15 @@ Key workflows for PR automation (see `.github/workflows/` for complete list):
 
 ```
 .github/workflows/
-├── on-pull-request.yml                     # AI code review on PR open/sync
-├── on-check-failure.yml                    # Auto-fix failing checks
-├── on-merge-conflict.yml                   # Auto-resolve merge conflicts
-├── on-review-feedback.yml                  # Address review feedback on bot/authorized-user PRs
+├── on-push-babysit.yml                     # Babysit-PR pipeline: concurrent fixer+reviewer via BRC
 ├── on-push-doc-updater.yml                 # Auto-update docs after merge
-├── on-pull-request-agent-mode-design.yml   # Agent-mode design review
-├── on-pull-request-contract-verify.yml    # Contract verification on PRs
-├── reusable-review.yml                     # PR-based code review workflow
-├── reusable-autofix.yml                    # Reusable auto-fix logic (deprecated, use reusable-check-fixer.yml)
-├── reusable-check-fixer.yml                # Per-check fixer with non-LLM fixes and retry tracking
-├── reusable-conflict-resolve.yml           # Reusable conflict resolution
+├── reusable-autofix.yml                    # Reusable auto-fix logic (deprecated, kept for external repos)
 ├── lint.yml                                # Lint workflow
 ├── test.yml                                # Test workflow
 └── test-integration.yml                    # Integration test workflow
 ```
+
+The following workflows were previously listed here but have been replaced by the babysit-pr pipeline (`on-push-babysit.yml`): `on-pull-request.yml`, `on-check-failure.yml`, `on-merge-conflict.yml`, `on-review-feedback.yml`, `on-pull-request-agent-mode-design.yml`, `on-pull-request-contract-verify.yml`, `reusable-review.yml`, `reusable-check-fixer.yml`, `reusable-conflict-resolve.yml`. See [Babysit-PR Guide](../guides/babysit-pr.md) for details.
 
 ## GitHub Workflow Scripts
 

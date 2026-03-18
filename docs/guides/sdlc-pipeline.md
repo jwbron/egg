@@ -44,7 +44,7 @@ The pipeline enforces role-based field ownership in contracts:
 | **Reviewer** | `status`, `review_feedback`, `current_phase` | `commit`, task definitions |
 | **Human** | All fields | — |
 
-Code reviews are performed by the existing PR review workflow (`reusable-review.yml`), which provides line-level feedback on draft PRs created during the implement phase.
+Code reviews are performed by the [babysit-pr pipeline](babysit-pr.md), which provides line-level feedback on draft PRs created during the implement phase.
 
 ### 4. Human-in-the-Loop at Critical Points
 
@@ -496,7 +496,7 @@ The SDLC pipeline automatically merges the latest main branch into the issue bra
 4. **Automatic conflict resolution** — If merge conflicts occur:
    - Aborts the conflicted merge
    - Looks up the PR number for the branch
-   - Triggers the `on-merge-conflict.yml` workflow
+   - Triggers conflict resolution via the babysit-pr pipeline
    - Waits for conflict resolution to complete
    - Pulls the resolved changes and continues
    - Fails if no PR exists (required for `workflow_dispatch` targeting) or conflict resolution fails
@@ -511,7 +511,7 @@ The implement phase uses PR-based automated code review:
 2. **Implementer executes tasks** — The implementer agent runs, commits changes, and pushes to the branch
 3. **Draft PR created** — After implementation succeeds, a draft PR is created automatically with commit messages in the description
 4. **CI and review checks** — The pipeline waits for all GitHub check runs (linting, tests, and PR review) to complete
-5. **Review feedback** — The `reusable-review.yml` workflow provides line-level code review comments on the draft PR
+5. **Review feedback** — The babysit-pr pipeline provides line-level code review comments on the draft PR
 6. **Re-implementation cycles** — If checks fail or review requests changes, the implementer is re-invoked with feedback
 7. **PR finalization** — Once all checks pass and review approves, the draft PR is marked ready for human merge
 8. **Issue closure** — When the PR is merged, the original issue is automatically closed (the PR body includes `Closes #<issue>`)
@@ -998,7 +998,7 @@ work → tester (run checks → fix → re-run, up to 3x) → review
 | `orchestrator/routes/pipelines.py` | Pipeline API, prompt building, JSON resolution parsing |
 | `sandbox/egg_lib/sdlc_hitl.py` | Type-aware terminal HITL handler |
 | `sandbox/egg_lib/orch_client.py` | Orchestrator API client (create_decision with type support) |
-| `.github/workflows/reusable-review.yml` | PR-based code review workflow |
+| `.github/workflows/on-push-babysit.yml` | Babysit-PR pipeline trigger (concurrent fixer+reviewer via BRC) |
 | `sandbox/scripts/gh` | gh wrapper with self-review fallback |
 | `shared/egg_contracts/models.py` | Pydantic models for contract (includes CheckDefinition, CheckResult, PhaseConfig) |
 | `shared/egg_contracts/agent_roles.py` | Agent role definitions and file access patterns |

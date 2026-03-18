@@ -6,6 +6,8 @@ Automated PR lifecycle management -- monitors a GitHub pull request through CI c
 
 `egg_babysit` implements the "babysit-pr" loop: a state machine that drives a PR from open to merged by automatically handling merge conflicts, CI failures, code review, and review feedback. At each step it spawns Claude agent sessions (via `egg_agent`) for LLM-powered fixes or falls back to non-LLM shell commands defined in `check-fixers.yml`. When the loop cannot make progress, it escalates to a human through the orchestrator HITL system, GitHub PR comments, and Slack notifications.
 
+The loop supports two execution modes: **sequential** (one agent at a time) and **concurrent BRC** (fixer and reviewer agents run simultaneously during the review/feedback phase, coordinating via [BRC consensus](../../docs/guides/concurrent-execution.md)). Concurrent mode is activated when `EGG_CONCURRENT_MODE` is set, typically via the orchestrator pipeline triggered by `on-push-babysit.yml`.
+
 ## CLI Usage
 
 ```bash
@@ -65,6 +67,8 @@ Frozen dataclass (`config.py`) with all loop parameters:
 | `check_fixers_path` | `str` | `""` | Path to `check-fixers.yml`; auto-detected if empty |
 | `orchestrator_url` | `str` | `""` | Orchestrator URL; auto-detected from `EGG_ORCHESTRATOR_URL` |
 | `pipeline_id` | `str` | `""` | Pipeline ID; auto-generated as `pr-{N}` if empty |
+| `consensus_timeout_minutes` | `int` | `30` | BRC consensus timeout before HITL escalation |
+| `max_consensus_rounds` | `int` | `3` | Maximum BRC propose/NACK/re-propose cycles (flip-flop cap) |
 
 ### Environment Variables
 
@@ -73,6 +77,10 @@ Frozen dataclass (`config.py`) with all loop parameters:
 | `EGG_ORCHESTRATOR_URL` | Orchestrator API URL for progress events and escalation |
 | `EGG_PIPELINE_ID` | Pipeline ID; defaults to `pr-{N}` if unset |
 | `EGG_REPO_PATH` | Working directory for git remote auto-detection |
+| `EGG_CONCURRENT_MODE` | When `true`, enables concurrent BRC mode for the review/feedback phase |
+| `EGG_BRC_ROLE_TYPE` | Agent's BRC role: `producer` (fixer) or `reviewer` |
+| `EGG_BRC_REVIEWERS` | Comma-separated list of reviewer agent IDs |
+| `EGG_BRC_PRODUCERS` | Comma-separated list of producer agent IDs |
 
 ### check-fixers.yml Integration
 
@@ -109,17 +117,32 @@ Each iteration proceeds as follows:
 
 6. **ADDRESS_FEEDBACK** -- If the review requests changes, call `address_feedback()` to spawn a fixer agent that addresses review comments. Increment `feedback_rounds`; escalate when `max_feedback_rounds` is exceeded. Loop back to step 1.
 
+### Concurrent BRC Execution
+
+When `EGG_CONCURRENT_MODE` is set, the review/feedback phase is handled by `concurrent.py` instead of the sequential reviewer→fixer handoff. The `ConcurrentReviewExecutor` spawns both agents simultaneously:
+
+1. **Fixer** starts as a BRC **producer** using `build_consensus_wrapped_command()` — its prompt includes instructions to run `egg-orch consensus propose` after completing fixes
+2. **Reviewer** starts as a BRC **reviewer** — its prompt includes instructions to run `egg-orch consensus ack` or `egg-orch consensus nack` after reviewing
+3. Both agents communicate via the orchestrator message bus (HANDOFF messages signal new commits)
+4. The executor waits for BRC consensus (all reviewers ACK) or escalates on timeout/flip-flop
+
+Non-LLM fixes (e.g., `make lint-fix`) still run outside the BRC loop — if they succeed, the fix is auto-proposed without LLM involvement.
+
+Sequential phases (CHECK_CONFLICTS, WAIT_CI, FIX_CHECKS) are unaffected by concurrent mode — they run the same way regardless.
+
 ### Concurrent Push Detection
 
 On each iteration, the loop compares the PR's HEAD SHA against `LoopState.last_head_sha`. If the SHA changed (indicating an external push), per-job retry counts are reset to avoid penalizing fixes for a now-stale branch state.
 
 ### Agent Sessions
 
-Sub-agents are spawned as subprocesses via `egg_agent.build_agent_command`:
+Sub-agents are spawned as subprocesses via `egg_agent.build_agent_command` (sequential mode) or `egg_agent.build_consensus_wrapped_command` (concurrent BRC mode):
 
-- **Fixer** (`fixer.py`) -- Read-write agent that fixes CI failures, resolves merge conflicts, or addresses review feedback. Supports both shell-command fixes and full LLM agent sessions.
-- **Reviewer** (`reviewer.py`) -- Read-only agent that reviews the PR diff and posts a GitHub review via `gh pr review`. Captures the review verdict from PR state after the agent completes.
-- **Prompt builder** (`prompts.py`) -- Constructs task-specific prompts for each agent role, incorporating `check-fixers.yml` config, failure logs, and review comments.
+- **Fixer** (`fixer.py`) -- Read-write agent that fixes CI failures, resolves merge conflicts, or addresses review feedback. Supports both shell-command fixes and full LLM agent sessions. In BRC mode, uses consensus propose/confirmed flow.
+- **Reviewer** (`reviewer.py`) -- Read-only agent that reviews the PR diff and posts a GitHub review via `gh pr review`. Captures the review verdict from PR state after the agent completes. In BRC mode, ACKs or NACKs fixer proposals.
+- **Concurrent executor** (`concurrent.py`) -- Manages the concurrent review/feedback phase: spawns fixer and reviewer simultaneously, waits for BRC consensus, handles NACK cycles and timeout escalation.
+- **Prompt builder** (`prompts.py`) -- Constructs task-specific prompts for each agent role, incorporating `check-fixers.yml` config, failure logs, review comments, and BRC consensus instructions when in concurrent mode.
+- **Status comments** (`comments.py`) -- Manages PR status comments with `<!-- egg-status-comment -->` markers: posts new comments, minimizes prior ones as "OUTDATED", and deduplicates on the same commit SHA.
 
 ### Orchestrator Integration
 
@@ -144,19 +167,21 @@ The loop installs `SIGTERM` and `SIGINT` handlers for graceful shutdown. On rece
 | Module | Description |
 |--------|-------------|
 | `__init__.py` | Public API exports: `babysit()`, `BabysitConfig`, `BabysitLoop`, and all type classes |
-| `config.py` | `BabysitConfig` frozen dataclass with all loop parameters |
-| `types.py` | Enums (`BabysitStep`, `BabysitExitReason`, `CICheckStatus`, `ReviewVerdict`) and data classes (`PRState`, `LoopState`, `CICheckResult`, `BabysitResult`) |
+| `config.py` | `BabysitConfig` frozen dataclass with all loop parameters including BRC consensus fields |
+| `types.py` | Enums (`BabysitStep`, `BabysitExitReason`, `CICheckStatus`, `ReviewVerdict`) and data classes (`PRState`, `LoopState`, `CICheckResult`, `BabysitResult`). Includes BRC agent role constants. |
 | `cli.py` | CLI entry point: argument parsing, repo auto-detection from `git remote -v`, orchestrator pipeline registration |
-| `loop.py` | `BabysitLoop` state machine and `babysit()` convenience function |
+| `loop.py` | `BabysitLoop` state machine and `babysit()` convenience function. Delegates to `concurrent.py` for the review/feedback phase when `EGG_CONCURRENT_MODE` is set. |
+| `concurrent.py` | `ConcurrentReviewExecutor`: manages concurrent fixer+reviewer execution with BRC consensus for the review/feedback phase. Handles propose/ACK/NACK cycles, flip-flop cap, and consensus timeout. |
+| `comments.py` | Status comment lifecycle: post with `<!-- egg-status-comment -->` markers, minimize prior comments as "OUTDATED", deduplicate on same commit SHA. |
 | `ci_waiter.py` | CI polling loop with configurable interval and stale-check detection (20-poll threshold) |
-| `pr_state.py` | PR metadata, CI status, and review verdict fetching via `gh` CLI JSON output |
-| `fixer.py` | `FixerResult` dataclass and agent spawner for CI fixes, conflict resolution, and feedback addressing |
-| `reviewer.py` | `ReviewResult` dataclass and read-only reviewer agent spawner |
-| `prompts.py` | Prompt construction for all agent types; `check-fixers.yml` loading and search path resolution |
+| `pr_state.py` | PR metadata, CI status, review verdict fetching via `gh` CLI JSON output. Supports conditional review criteria detection (labels, changed file paths). |
+| `fixer.py` | `FixerResult` dataclass and agent spawner for CI fixes, conflict resolution, and feedback addressing. Supports both sequential and BRC consensus-wrapped execution. |
+| `reviewer.py` | `ReviewResult` dataclass and read-only reviewer agent spawner. In BRC mode, uses consensus ACK/NACK flow. Supports consolidated review criteria (base code + conditional contract verification + agent-mode design). |
+| `prompts.py` | Prompt construction for all agent types; `check-fixers.yml` loading and search path resolution. Includes BRC consensus instructions when `EGG_CONCURRENT_MODE` is active. Conditional inclusion of contract verification and agent-mode design review criteria. |
 | `escalation.py` | Multi-channel HITL escalation: orchestrator decisions, GitHub PR comments, Slack notifications |
 | `steps/conflict.py` | Merge conflict detection and resolution step |
 | `steps/check_fix.py` | CI check fixer step (non-LLM first, then LLM agent) |
-| `steps/review.py` | Code review posting step |
+| `steps/review.py` | Code review posting step with status comment management |
 | `steps/feedback.py` | Review feedback addressing step |
 | `__main__.py` | `python -m egg_babysit` support |
 

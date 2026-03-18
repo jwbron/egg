@@ -7,23 +7,70 @@ credentials, merge PRs, or push outside its branch namespace.
 **Using these workflows in external repositories?** See the [Reusable Workflows guide](reusable-workflows.md)
 for how to call egg's workflows from your own repositories.
 
-**Want a continuous review/fix loop instead of event-driven workflows?** See the [Babysit-PR Guide](babysit-pr.md) — it consolidates the check fixer, conflict resolver, reviewer, and feedback responder into a single polling loop that runs until the PR merges.
+> **Note:** Most PR automation workflows (code review, check fixing, conflict resolution, feedback addressing) have been replaced by the [Babysit-PR pipeline](babysit-pr.md), which runs a single concurrent agent cycle on each push to a PR branch. The `on-push-babysit.yml` workflow triggers babysit-pr via the orchestrator. See the [Babysit-PR Guide](babysit-pr.md) for details.
 
-## Workflows Overview
+## Active Workflows
 
 | Workflow | Trigger | What It Does |
 |----------|---------|--------------|
-| [AI Code Review](#ai-code-review) | PR opened/updated | Reviews code changes, posts feedback via `gh pr review` |
-| [Address Review Feedback](#address-review-feedback) | Review posted on bot/authorized-user PR, or human @mention | Automatically addresses review feedback, enabling review loops |
-| [Design Review](#design-review) | PR opened/updated (specialized) | Applies project-specific review rules via the same reusable framework |
-| [Contract Verification](#contract-verification) | PR with sdlc:pr label or new contract file added | Verifies implementation matches SDLC contract |
-| [Check Autofixer](#check-autofixer) | CI check failure on a PR | Diagnoses failures, auto-fixes or reports |
-| [Conflict Resolver](#conflict-resolver) | Push to main / schedule / manual | Resolves merge conflicts via merge commits |
+| [Babysit-PR Pipeline](#babysit-pr-pipeline) | PR opened/updated | Single-cycle babysit-pr with concurrent fixer+reviewer agents via BRC consensus |
 | [Doc Updater](#doc-updater) | Push to main | Checks if code changes require documentation updates |
+
+## Babysit-PR Pipeline
+
+**Workflow:** `.github/workflows/on-push-babysit.yml`
+
+Replaces the previous individual PR automation workflows (code review, design review, contract verification, check autofixer, conflict resolver, feedback responder) with a single orchestrator-based babysit-pr cycle triggered on each push to a PR branch.
+
+### How It Works
+
+1. **Trigger** — Runs on `pull_request` events (`opened`, `synchronize`, `ready_for_review`, `reopened`) and via `workflow_dispatch` with a PR number
+2. **Deduplication** — Uses concurrency group `egg-babysit-${{ github.event.pull_request.number }}` with `cancel-in-progress: true` to prevent duplicate cycles on rapid pushes
+3. **Pipeline creation** — Calls the orchestrator API to create a `mode=babysit` pipeline with fixer and reviewer agents registered for BRC consensus
+4. **Execution** — The babysit-pr cycle runs through: conflict resolution → CI wait → check fix → review → feedback addressing. The review/feedback phase runs fixer and reviewer concurrently using BRC consensus.
+
+For full details, see the [Babysit-PR Guide](babysit-pr.md).
+
+## Replaced Workflows
+
+The following workflows have been replaced by the babysit-pr pipeline and are no longer present in the repository:
+
+| Former Workflow | Replaced By |
+|-----------------|-------------|
+| `on-pull-request.yml` (AI Code Review) | Babysit-PR review step |
+| `reusable-review.yml` (Reusable review framework) | Babysit-PR review step |
+| `on-pull-request-agent-mode-design.yml` (Design Review) | Babysit-PR review step (conditional agent-design criteria) |
+| `on-pull-request-contract-verify.yml` (Contract Verification) | Babysit-PR review step (conditional contract criteria) |
+| `on-review-feedback.yml` (Address Review Feedback) | Babysit-PR feedback addressing step |
+| `on-check-failure.yml` (Check Autofixer trigger) | Babysit-PR check fix step |
+| `reusable-check-fixer.yml` (Check Autofixer) | Babysit-PR check fix step |
+| `on-merge-conflict.yml` (Conflict Resolver) | Babysit-PR conflict resolution step |
+| `reusable-conflict-resolve.yml` (Conflict Resolver) | Babysit-PR conflict resolution step |
+
+The following bash prompt builder scripts have also been replaced by Python prompt modules in `shared/egg_babysit/prompts.py`:
+
+| Former Script | Replaced By |
+|---------------|-------------|
+| `action/build-review-prompt.sh` | `build_review_prompt()` |
+| `action/build-contract-verification-prompt.sh` | `build_review_prompt()` (conditional) |
+| `action/build-agent-mode-design-review-prompt.sh` | `build_review_prompt()` (conditional) |
+| `action/build-check-fixer-prompt.sh` | `build_check_fixer_prompt()` |
+| `action/build-feedback-prompt.sh` | `build_feedback_fixer_prompt()` |
+| `action/build-conflict-prompt.sh` | `build_conflict_resolution_prompt()` |
+
+### Retained Legacy Workflows
+
+| Workflow / Script | Status | Reason |
+|-------------------|--------|--------|
+| `reusable-autofix.yml` | Deprecated | Kept for external repo consumers that still reference it |
+| `action/build-autofixer-prompt.sh` | Active | Used by `reusable-autofix.yml` |
+| `action/build-doc-updater-prompt.sh` | Active | Used by `on-push-doc-updater.yml` |
+
+> **Note:** `gha_exec()` in `action/entrypoint.sh` is retained because `on-push-doc-updater.yml` and `reusable-autofix.yml` still route through it.
 
 ### Shared Prompt Criteria
 
-Review criteria for each workflow are defined in `shared/prompts/` as markdown files. Both the GitHub Actions prompt builder scripts (`action/build-*-prompt.sh`) and the local orchestrator (`orchestrator/routes/pipelines.py`) read from the same shared files, ensuring consistent review behavior across both flows.
+Review criteria are defined in `shared/prompts/` as markdown files. The babysit-pr Python prompt modules (`shared/egg_babysit/prompts.py`) and the orchestrator (`orchestrator/routes/pipelines.py`) read from the same shared files, ensuring consistent review behavior across both flows.
 
 | File | Used By |
 |------|---------|
@@ -38,10 +85,9 @@ Repositories can override criteria by placing a custom file in `.egg/` (e.g., `.
 
 **Keeping reviewers in sync**: The PR reviewer (GitHub Action) and SDLC reviewer (orchestrator) share criteria files but have separate inline fallbacks and conventions. See [`shared/prompts/REVIEWER-SYNC.md`](../../shared/prompts/REVIEWER-SYNC.md) for the sync guide and modification checklist.
 
-## AI Code Review
+## AI Code Review (Replaced)
 
-**Workflow:** [`.github/workflows/on-pull-request.yml`](../../.github/workflows/on-pull-request.yml)
-**Framework:** [`.github/workflows/reusable-review.yml`](../../.github/workflows/reusable-review.yml)
+> **Replaced by [Babysit-PR](babysit-pr.md).** The workflows `on-pull-request.yml` and `reusable-review.yml` have been deleted. Code review is now handled by the babysit-pr review step with consolidated review criteria. The documentation below is retained for historical reference.
 
 Triggers on `pull_request` events (`opened`, `synchronize`, `ready_for_review`, `reopened`)
 and via `workflow_dispatch` with a PR number.
@@ -113,9 +159,9 @@ Check-waiting logic filters out `egg-review /` in check run names. If a new revi
 workflow doesn't follow this convention, it will cause infinite loops where reviewers
 wait on each other indefinitely.
 
-## Address Review Feedback
+## Address Review Feedback (Replaced)
 
-**Workflow:** [`.github/workflows/on-review-feedback.yml`](../../.github/workflows/on-review-feedback.yml)
+> **Replaced by [Babysit-PR](babysit-pr.md).** The workflow `on-review-feedback.yml` has been deleted. Feedback addressing is now handled by the babysit-pr feedback step. The documentation below is retained for historical reference.
 
 Triggers when a review bot posts feedback on a PR, or when a human @mentions the bot, enabling an automated review loop:
 PR opened → review → address feedback → re-review → ... → approval or human escalation.
@@ -210,10 +256,9 @@ The workflow follows the trusted prompt build pattern:
 2. Agent runs in the sandbox with no credential access
 3. Gateway enforces branch ownership and blocks merges
 
-## Design Review
+## Design Review (Replaced)
 
-**Workflow:** [`.github/workflows/on-pull-request-agent-mode-design.yml`](../../.github/workflows/on-pull-request-agent-mode-design.yml)
-**Framework:** [`.github/workflows/reusable-review.yml`](../../.github/workflows/reusable-review.yml)
+> **Replaced by [Babysit-PR](babysit-pr.md).** The workflow `on-pull-request-agent-mode-design.yml` has been deleted. Agent-mode design review is now handled by the babysit-pr reviewer with conditional criteria inclusion (triggered when changed files match `action/`, `.github/workflows/`, `sandbox/`, `shared/prompts/`). The documentation below is retained for historical reference.
 
 A specialized reviewer that checks PRs for alignment with [agent-mode design principles](agent-mode-design.md).
 Uses the same reusable framework as AI Code Review but with a focused prompt.
@@ -258,10 +303,9 @@ The reviewer applies guidelines with judgment, not as absolute rules:
 If a PR has no agent-mode concerns, the reviewer approves with a brief note rather
 than providing general feedback that duplicates the base review.
 
-## Contract Verification
+## Contract Verification (Replaced)
 
-**Workflow:** [`.github/workflows/on-pull-request-contract-verify.yml`](../../.github/workflows/on-pull-request-contract-verify.yml)
-**Framework:** [`.github/workflows/reusable-review.yml`](../../.github/workflows/reusable-review.yml)
+> **Replaced by [Babysit-PR](babysit-pr.md).** The workflow `on-pull-request-contract-verify.yml` has been deleted. Contract verification is now handled by the babysit-pr reviewer with conditional criteria inclusion (triggered when the PR has the `sdlc:pr` label). The documentation below is retained for historical reference.
 
 Verifies that PR implementations match their SDLC pipeline contracts. This workflow ensures agents stay aligned with approved plans and task requirements during the implementation phase.
 
@@ -295,10 +339,10 @@ Supports `workflow_dispatch` with a `pr_number` input for manual verification ru
 
 Contract files follow the schema at `.egg/schemas/contract.schema.json`. The workflow specifically checks for task-commit linkages and ensures all contract tasks have corresponding implementation.
 
-## Check Autofixer
+## Check Autofixer (Replaced)
 
-**Workflow:** [`.github/workflows/on-check-failure.yml`](../../.github/workflows/on-check-failure.yml)
-**Framework:** [`.github/workflows/reusable-check-fixer.yml`](../../.github/workflows/reusable-check-fixer.yml)
+> **Replaced by [Babysit-PR](babysit-pr.md).** The workflows `on-check-failure.yml` and `reusable-check-fixer.yml` have been deleted. Check fixing is now handled by the babysit-pr check fix step, which uses the same `check-fixers.yml` config and non-LLM-first strategy. The documentation below is retained for historical reference.
+
 **Config:** [`shared/check-fixers.yml`](../../shared/check-fixers.yml)
 
 Triggers when `Lint`, `Test`, or `Integration Tests` workflows fail on a PR, or via `workflow_dispatch`.
@@ -388,9 +432,9 @@ Per-job settings in `check-fixers.yml`:
 
 Repos can override by placing `.egg/check-fixers.yml` in their repository.
 
-## Conflict Resolver
+## Conflict Resolver (Replaced)
 
-**Workflow:** [`.github/workflows/on-merge-conflict.yml`](../../.github/workflows/on-merge-conflict.yml)
+> **Replaced by [Babysit-PR](babysit-pr.md).** The workflows `on-merge-conflict.yml` and `reusable-conflict-resolve.yml` have been deleted. Conflict resolution is now handled by the babysit-pr conflict resolution step. The documentation below is retained for historical reference.
 
 Resolves merge conflicts on PRs via merge commits. Can be triggered on push to main, via schedule, or manually with `workflow_dispatch`.
 

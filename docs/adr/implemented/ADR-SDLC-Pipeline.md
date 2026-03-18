@@ -228,7 +228,7 @@ The SDLC pipeline is now executed by the local distributed orchestrator (`orches
 - `orchestrator/decision_queue.py` — HITL decision handling
 - `orchestrator/state_store.py` — Git-backed pipeline state
 
-Code review happens through PR comments via `.github/workflows/reusable-review.yml`.
+Code review happens through PR comments via the babysit-pr pipeline (`.github/workflows/on-push-babysit.yml`), which replaced `reusable-review.yml`.
 
 ### HITL Processing
 
@@ -284,7 +284,7 @@ Long-running jobs checkpoint state before timeout:
 | Gateway endpoints | `gateway/contract_api.py`, `gateway/phase_api.py` |
 | Orchestrator | `orchestrator/` |
 | CLI tools | `sandbox/egg_lib/contract_cli.py` |
-| PR review workflow | `.github/workflows/reusable-review.yml` |
+| PR review workflow | `.github/workflows/on-push-babysit.yml` (babysit-pr pipeline) |
 | Templates | `docs/templates/analysis.md`, `docs/templates/plan.md`, `docs/templates/phase-completion.md` |
 | HITL documentation | `docs/hitl-decisions.md` |
 | HITL integration tests | `tests/workflows/test_hitl_integration.py` |

@@ -2,9 +2,11 @@
 
 This guide explains how to use egg's reusable workflows in your own repositories.
 
+> **Migration Notice:** Most reusable workflows (`reusable-review.yml`, `reusable-check-fixer.yml`, `reusable-conflict-resolve.yml`, `on-review-feedback.yml`) have been replaced by the [Babysit-PR pipeline](babysit-pr.md). Only `reusable-autofix.yml` remains available for external consumers (deprecated, will be removed in a future release). External repositories should migrate to babysit-pr for new integrations.
+
 ## Overview
 
-The egg project provides a set of reusable GitHub Actions workflows for AI-powered code review, autofix, conflict resolution, and review feedback handling. These workflows can be called from any repository that has the required secrets configured.
+The egg project previously provided reusable GitHub Actions workflows for AI-powered code review, autofix, conflict resolution, and review feedback handling. Most of these have been consolidated into the babysit-pr pipeline. The `reusable-autofix.yml` workflow is kept for backward compatibility with external repositories that still reference it.
 
 ## Version Pinning
 
@@ -27,7 +29,9 @@ uses: jwbron/egg/.github/workflows/reusable-review.yml@main
 
 ## Available Workflows
 
-### Core Review Workflow
+### Core Review Workflow (Removed)
+
+> **Removed.** `reusable-review.yml` has been deleted. Use the [Babysit-PR pipeline](babysit-pr.md) for PR review automation. The example below is retained for historical reference.
 
 **`reusable-review.yml`** - The foundation for all AI review bots.
 
@@ -50,7 +54,9 @@ jobs:
       ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
 ```
 
-### Autofix Workflow
+### Autofix Workflow (Deprecated)
+
+> **Deprecated.** `reusable-autofix.yml` is kept for external repositories that still reference it, but new integrations should use the [Babysit-PR pipeline](babysit-pr.md) which handles check fixing as part of its cycle.
 
 **`reusable-autofix.yml`** - Automatically fix failing checks.
 
@@ -72,7 +78,9 @@ jobs:
       ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
 ```
 
-### Conflict Resolution Workflow
+### Conflict Resolution Workflow (Removed)
+
+> **Removed.** `reusable-conflict-resolve.yml` has been deleted. Conflict resolution is now handled by the [Babysit-PR pipeline](babysit-pr.md). The example below is retained for historical reference.
 
 **`reusable-conflict-resolve.yml`** - Resolve merge conflicts automatically.
 
@@ -92,7 +100,9 @@ jobs:
       ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
 ```
 
-### Review Feedback Workflow
+### Review Feedback Workflow (Removed)
+
+> **Removed.** `on-review-feedback.yml` has been deleted. Feedback addressing is now handled by the [Babysit-PR pipeline](babysit-pr.md). The example below is retained for historical reference.
 
 **`on-review-feedback.yml`** - Address review feedback on bot-authored or authorized-user-authored PRs.
 

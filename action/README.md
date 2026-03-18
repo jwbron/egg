@@ -14,19 +14,16 @@ This action runs the egg autonomous coding agent within GitHub Actions. It sets 
 | `entrypoint.sh` | Main entry point that orchestrates container setup and execution |
 | `generate-config.sh` | Generates runtime configuration from action inputs |
 | **Prompt Builders** | |
-| `build-review-prompt.sh` | Builds prompts for PR review workflows |
-| `build-feedback-prompt.sh` | Builds prompts for addressing review feedback workflows |
-| `build-autofixer-prompt.sh` | Builds prompts for autofixer workflows |
-| `build-agent-mode-design-review-prompt.sh` | Builds prompts for agent-mode design reviews |
+| `build-autofixer-prompt.sh` | Builds prompts for autofixer workflows (deprecated, used by `reusable-autofix.yml`) |
 | `build-doc-updater-prompt.sh` | Builds prompts for documentation update workflows |
-| `build-conflict-prompt.sh` | Builds prompts for merge conflict resolution |
-| `build-contract-verification-prompt.sh` | Builds prompts for contract verification reviews |
 | **Convention Documents** | |
 | `review-conventions.md` | Code review conventions and guidelines |
 | `autofixer-conventions.md` | Autofixer workflow conventions |
 | `conflict-conventions.md` | Merge conflict resolution conventions |
 
-Prompt builders load review criteria from `shared/prompts/` (shared with the local orchestrator) with inline fallbacks for rollout safety. Repositories can override criteria via `.egg/` files (e.g., `.egg/review-rules.md`).
+> **Note:** The following prompt builders have been replaced by Python modules in `shared/egg_babysit/prompts.py` and deleted: `build-review-prompt.sh`, `build-feedback-prompt.sh`, `build-agent-mode-design-review-prompt.sh`, `build-conflict-prompt.sh`, `build-contract-verification-prompt.sh`, `build-check-fixer-prompt.sh`. See [Babysit-PR Guide](../docs/guides/babysit-pr.md) for details.
+
+Remaining prompt builders load review criteria from `shared/prompts/` (shared with the local orchestrator) with inline fallbacks for rollout safety. Repositories can override criteria via `.egg/` files (e.g., `.egg/review-rules.md`).
 
 ## Quick Start
 
