@@ -137,20 +137,20 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-03-18T20:36:34.998091",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-03-18T20:46:15.273871",
+      "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved Decisions\\n\\n### Decision 1: Trigger Mechanism\\nAnswer: New GHA workflow (on-push-babysit.yml) that calls the orchestrator API to create a babysit pipeline on push.\\n\\n### Decision 2: on-check-failure.yml Handling\\nAnswer: Delete it. babysit-pr handles check fixing as part of its cycle.\\n\\n### Decision 3: reusable-autofix.yml and External Consumers\\nAnswer: Delete it. External consumers must migrate. Document the breaking change.\\n\\n### Decision 4: Review Marker Compatibility\\nAnswer: New marker format that includes BRC consensus state (cycle number, consensus status).\\n\\n### Decision 5: Review Criteria Consolidation Strategy\\nAnswer: Do NOT consolidate into a single reviewer agent. Keep separate reviewer agents (e.g., reviewer_code, reviewer_contract, reviewer_agent_design) — same pattern as the current BRC refine workflow. Each reviewer evaluates its own domain independently.\\n\\n### Decision 6: Scope of Bash Script Deletion\\nAnswer: Delete 7 scripts, keep build-doc-updater-prompt.sh (serves the doc-updater workflow which is NOT being replaced).\\n\\n### Feedback: Iteration Limit\\nAnswer: Increase to 10 for the concurrent BRC model.\\n\\n### Feedback: gha_exec() Removal Scope\\nAnswer: Remove from all 4 files (cli.py definition, __init__.py re-export, runtime.py reference, entrypoint.sh invocation). Clean removal.\\n\\n### Feedback: Pipeline Deduplication\\nAnswer: Debounce — wait a short period after push before starting cycle, to batch rapid pushes.\\n\\n## General Feedback\\n\\nCRITICAL: Any behavior or prompting that exists in the GHA workflows but is missing in the BRC equivalent MUST be added. The prompts between local (babysit-pr) and GHA should be reused as much as possible — shared prompt content should live in a common location, with only the additional context necessary for the two different workflow modes (local vs GHA-triggered) being added on top. Do not duplicate prompt content; factor out the shared parts.\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-03-18T20:21:46.458052",
-  "updated_at": "2026-03-18T20:36:35.013663",
+  "updated_at": "2026-03-18T20:46:15.277726",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 12
+  "version": 13
 }
