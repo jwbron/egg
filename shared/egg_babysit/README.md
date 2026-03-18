@@ -50,23 +50,26 @@ egg babysit-pr <PR>
 
 ```
 shared/egg_babysit/
-├── __init__.py          # Public API exports
-├── config.py            # BabysitConfig dataclass (PR number, repo, timeout, limits)
-├── types.py             # PRState, CICheckResult, ReviewVerdict, LoopStep enums
-├── pr_state.py          # PR state poller via gh CLI (metadata, CI, merge status)
-├── ci_waiter.py         # CI check waiter with configurable poll interval
-├── loop.py              # Main babysit loop with step transitions and exit conditions
-├── prompts.py           # Python wrappers for bash prompt builders
-├── fixer.py             # Fixer agent spawner (conflict, check fix, feedback)
-├── reviewer.py          # Reviewer agent spawner (read-only, posts GitHub review)
-├── escalation.py        # HITL escalation (decision queue, GitHub comment, Slack)
-├── cli.py               # CLI entry point (egg babysit-pr)
+├── __init__.py          # Public API: babysit(), BabysitConfig, BabysitLoop, type exports
 ├── __main__.py          # python -m egg_babysit support
+├── cli.py               # CLI entry point (egg-babysit / egg babysit-pr)
+├── config.py            # BabysitConfig frozen dataclass
+├── types.py             # BabysitStep, BabysitExitReason, CICheckStatus, ReviewVerdict,
+│                        #   CICheckResult, PRState, LoopState, BabysitResult
+├── pr_state.py          # PR state poller via gh CLI (fetch_pr_state, fetch_ci_checks,
+│                        #   get_full_pr_state, detect_head_sha_change)
+├── ci_waiter.py         # CI check waiter with poll interval and stale detection
+├── loop.py              # BabysitLoop class and babysit() entry point
+├── prompts.py           # Prompt builders: load check-fixers.yml, build fixer/review prompts
+├── fixer.py             # Fixer agent spawner (FixerResult, run non-LLM and LLM fixes)
+├── reviewer.py          # Reviewer agent spawner (ReviewResult, read-only mode)
+├── escalation.py        # HITL escalation (orchestrator decisions, GitHub comments, Slack)
 ├── steps/               # Individual loop step implementations
-│   ├── __init__.py
+│   ├── __init__.py      # Re-exports: fix_failed_checks, resolve_conflicts,
+│   │                    #   address_feedback, run_review
 │   ├── conflict.py      # Merge conflict detection and resolution
 │   ├── check_fix.py     # CI check fixer (non-LLM first, then LLM agent)
-│   ├── review.py        # Code review posting
+│   ├── review.py        # Code review posting (ReviewStepResult)
 │   └── feedback.py      # Review feedback addressing
 └── README.md            # This file
 ```
@@ -216,7 +219,17 @@ Coordinator (PR-seeded task)
   └── Report completion
 ```
 
-The loop module is designed as a standalone, importable component for this purpose. The `babysit()` function and step methods can be called directly by the coordinator without going through the CLI.
+The loop module is designed as a standalone, importable component for this purpose. The `babysit()` function returns a `BabysitResult` synchronously:
+
+```python
+from egg_babysit import babysit, BabysitConfig
+
+config = BabysitConfig(pr_number=42, repo="owner/repo")
+result = babysit(config)
+print(result.exit_reason)  # "merged", "timeout", "escalated", etc.
+```
+
+The `BabysitLoop` class can also be instantiated directly for more control over the loop lifecycle.
 
 ## Testing
 
