@@ -37,7 +37,7 @@ from health_checks.types import (
     HealthTier,
     HealthTrigger,
 )
-from models import PipelineStatus
+from models import Pipeline, PipelineStatus
 
 logger = get_logger("orchestrator.health_checks.consensus_stall")
 
@@ -113,7 +113,7 @@ class ConsensusStallCheck:
     # Consensus detection — try tracker first, then message fallback
     # ------------------------------------------------------------------
 
-    def _check_consensus_complete(self, pipeline_id: str, pipeline: object) -> bool:
+    def _check_consensus_complete(self, pipeline_id: str, pipeline: Pipeline) -> bool:
         """Return True if BRC consensus is complete (all agents confirmed)."""
         # Strategy 1: check the in-memory tracker
         try:
@@ -129,19 +129,14 @@ class ConsensusStallCheck:
         # Strategy 2: scan messages for CONSENSUS_CONFIRMED from all roles
         return self._check_consensus_from_messages(pipeline_id, pipeline)
 
-    def _check_consensus_from_messages(self, pipeline_id: str, pipeline: object) -> bool:
+    def _check_consensus_from_messages(self, pipeline_id: str, pipeline: Pipeline) -> bool:
         """Fallback: check if all expected roles sent CONSENSUS_CONFIRMED."""
         try:
             from message_store import get_message_store
             from review_graph import get_review_graph_for_phase
 
-            current_phase = getattr(pipeline, "current_phase", None)
-            repo = getattr(pipeline, "repo", None)
-            if current_phase is None or repo is None:
-                return False
-
-            phase_value = current_phase.value
-            graph = get_review_graph_for_phase(phase_value, repo=repo)
+            phase_value = pipeline.current_phase.value
+            graph = get_review_graph_for_phase(phase_value, repo=pipeline.repo)
             expected_roles = graph.all_roles()
             if not expected_roles:
                 return False

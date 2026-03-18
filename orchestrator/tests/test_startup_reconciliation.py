@@ -614,3 +614,61 @@ class TestStartupConsensusReconstruction:
             mock_reconstruct.assert_called_once()
             call_args = mock_reconstruct.call_args
             assert call_args[0][0] == "issue-concurrent"
+
+    def test_marks_phase_complete_when_consensus_already_done(self):
+        """If reconstructed tracker shows consensus complete, phase is marked COMPLETE."""
+
+        pipeline = Pipeline(
+            id="issue-concurrent",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        pipeline.config.concurrent_execution = True
+
+        phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        phase.status = PipelineStatus.RUNNING
+        phase.started_at = datetime.utcnow()
+        phase.containers.append(
+            ContainerInfo(
+                container_id="live123",
+                container_name="egg-coder",
+                status=ContainerStatus.RUNNING,
+                started_at=datetime.utcnow(),
+            )
+        )
+        phase.agents.append(
+            AgentExecution(
+                role=AgentRole.CODER,
+                status=AgentExecutionStatus.RUNNING,
+                container_id="live123",
+                started_at=datetime.utcnow(),
+            )
+        )
+
+        store = _make_store(pipeline)
+        docker_client = _make_docker_client(["live123"])
+
+        mock_tracker = MagicMock()
+        mock_tracker.evaluate.return_value = {"is_complete": True}
+
+        with (
+            patch("peer_consensus.reconstruct_tracker_from_messages") as mock_reconstruct,
+            patch("concurrent_executor.is_concurrent_execution", return_value=True),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=None),
+        ):
+            mock_reconstruct.return_value = mock_tracker
+
+            reconcile_stale_containers(store, docker_client)
+
+        # Phase should be marked COMPLETE with completed_at set
+        assert phase.status == PipelineStatus.COMPLETE
+        assert phase.completed_at is not None
+        # Agent should be marked COMPLETE with completed_at set
+        assert phase.agents[0].status == AgentExecutionStatus.COMPLETE
+        assert phase.agents[0].completed_at is not None
+        # save_pipeline should have been called
+        store.save_pipeline.assert_called()

@@ -112,24 +112,15 @@ class TestConsensusStallCheck:
         result = ConsensusStallCheck().run(ctx)
         assert result.status == HealthStatus.HEALTHY
 
-    @patch("health_checks.tier1.consensus_stall.is_concurrent_execution", create=True)
-    def test_healthy_when_not_concurrent(self, mock_is_concurrent):
+    def test_healthy_when_not_concurrent(self):
         """Non-concurrent phases should be skipped."""
-        mock_is_concurrent.return_value = False
         pipeline = _make_pipeline()
         ctx = _make_context(pipeline)
 
-        with patch.dict("sys.modules", {"concurrent_executor": MagicMock()}):
-            with patch(
-                "health_checks.tier1.consensus_stall.ConsensusStallCheck.run",
-                wraps=ConsensusStallCheck().run,
-            ):
-                check = ConsensusStallCheck()
-                # Patch the import inside the run method
-                mock_module = MagicMock()
-                mock_module.is_concurrent_execution.return_value = False
-                with patch.dict("sys.modules", {"concurrent_executor": mock_module}):
-                    result = check.run(ctx)
+        mock_module = MagicMock()
+        mock_module.is_concurrent_execution.return_value = False
+        with patch.dict("sys.modules", {"concurrent_executor": mock_module}):
+            result = ConsensusStallCheck().run(ctx)
         assert result.status == HealthStatus.HEALTHY
 
     def test_healthy_when_phase_not_running(self):
