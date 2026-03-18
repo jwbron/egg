@@ -56,6 +56,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Concurrent Execution](guides/concurrent-execution.md) | Concurrent agent execution: message bus, readiness signaling, consensus protocol |
 | [Checkpoint Access](guides/checkpoint-access.md) | Querying cross-agent checkpoints in multi-agent pipelines |
 | [Pipeline Health Monitoring](guides/pipeline-health-monitoring.md) | Two-tier health monitoring: orchestrator tripwires + overseer agent |
+| [Babysit-PR](guides/babysit-pr.md) | Autonomous PR review/fix loop: conflict resolution, CI fixing, code review, feedback addressing |
 | [Anchor Recovery](guides/anchor-recovery.md) | Agent post-compaction state recovery via persistent anchors |
 
 ### Reference
@@ -94,7 +95,7 @@ Each major component has detailed documentation:
 | [Gateway Sidecar](../gateway/README.md) | `gateway/` | Policy enforcement, credential injection, API endpoints |
 | [Orchestrator](../orchestrator/README.md) | `orchestrator/` | Local SDLC pipeline execution, state management, container lifecycle |
 | [Sandbox Container](../sandbox/README.md) | `sandbox/` | Agent environment, tools, entrypoint |
-| [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, git utilities, and SDLC contracts |
+| [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, git utilities, SDLC contracts, and babysit-pr loop |
 | [Configuration](../config/README.md) | `config/` | Repository and host configuration |
 | [CLI Entry Points](../bin/README.md) | `bin/` | `egg` and `egg-sdlc` commands |
 | [GitHub Action](../action/README.md) | `action/` | Composite action for GitHub Actions |
@@ -119,6 +120,7 @@ Each major component has detailed documentation:
 | **SDLC pipeline changes** | [SDLC Pipeline Guide](guides/sdlc-pipeline.md) | [The Agentic Feedback Loop](agentic-feedback-loop.md), [ADR: SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md), [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), `orchestrator/` package |
 | **Agent teams / Deliberative Consensus** | [Agent Teams Guide](guides/agent-teams.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md) |
 | **Agent anchor / recovery changes** | [Anchor Recovery Guide](guides/anchor-recovery.md) | [egg_anchor README](../shared/egg_anchor/README.md), [Orchestrator CLI](reference/orchestrator-cli.md), [Concurrent Execution](guides/concurrent-execution.md) |
+| **Babysit-PR / PR review loops** | [Babysit-PR Guide](guides/babysit-pr.md) | [GitHub Automation](guides/github-automation.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [`egg_babysit` README](../shared/egg_babysit/README.md) |
 | **Concurrent execution mode** | [Concurrent Execution Guide](guides/concurrent-execution.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Checkpoint Access](guides/checkpoint-access.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Agent roles and file permissions** | [Agent Roles Reference](reference/agent-roles.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Architecture Overview](architecture/README.md) |
 | **Agent failure recovery** | [Agent Recovery Reference](reference/agent-recovery.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [Orchestrator Architecture](architecture/orchestrator.md) |

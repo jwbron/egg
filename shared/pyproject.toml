@@ -9,5 +9,8 @@ dependencies = ["pyyaml>=6.0"]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+[project.scripts]
+egg-babysit = "egg_babysit.cli:main"
+
 [tool.setuptools.packages.find]
-include = ["beads*", "egg_agent*", "egg_config*", "egg_container*", "egg_git*", "egg_logging*", "egg_orchestrator*", "enrichment*", "git_utils*", "notifications*", "text_utils*"]
+include = ["beads*", "egg_agent*", "egg_babysit*", "egg_config*", "egg_container*", "egg_git*", "egg_logging*", "egg_orchestrator*", "enrichment*", "git_utils*", "notifications*", "text_utils*"]

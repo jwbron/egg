@@ -1,0 +1,506 @@
+{
+  "issue": 1014,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 1,
+  "title": "Architecture analysis: PR-based workflows — coordinator PR-seeded tasks and babysit-pr review/fix loop",
+
+  "summary": "Add two PR-based workflow capabilities to egg: (1) PR-seeded coordinator sessions where a PR's title/description becomes the task prompt and agents push to the PR branch, and (2) a babysit-pr review/fix loop that monitors a PR, fixes CI failures, resolves conflicts, addresses review feedback, and loops until merged or timed out. Both build on existing infrastructure — the coordinator (#1028), cross-agent messaging (#1027), and GitHub Actions reusable workflows. The recommended approach extracts the current GitHub Actions workflow logic into shared Python modules that both the coordinator and CLI can consume, introduces a new pipeline ID format (pr-{number}), and adds a babysit-pr coordinator capability that can also run standalone via `egg babysit-pr <PR>`.",
+
+  "problem_statement": {
+    "description": "egg currently only creates pipelines from GitHub issues (issue-{N} format). There is no way to point the system at an existing PR and have it manage the implementation, review/fix, and merge-readiness lifecycle. PR #1011 demonstrated the exact review/fix cycle we want to automate — check fixing, review, feedback addressing — but it required multiple workflow triggers and manual intervention at several points. We need: (a) a way for the coordinator to accept a PR as input and manage agents that push to the PR branch, and (b) a standalone review/fix loop that can babysit any PR until it's merged.",
+    "constraints": [
+      "No new agent roles — reuse existing coder, tester, documenter, reviewer, check fixer, conflict resolver",
+      "Both workflows must run inside the sandbox with full gateway enforcement",
+      "Depends on #1028 (conversational coordinator) for PR-seeded task orchestration",
+      "Depends on #1027 (cross-agent communication) for agent coordination and async operation — already implemented",
+      "Gateway branch ownership policy must allow pushing to existing PR branches (already supported when bot has open PR on branch)",
+      "Must support both standalone CLI invocation and coordinator sub-task mode",
+      "Babysit-pr must be async — survives terminal disconnects, configurable timeout"
+    ]
+  },
+
+  "current_architecture": {
+    "pipeline_creation": {
+      "description": "Pipelines are created via POST /api/v1/pipelines with issue_number, repo, branch. Pipeline IDs follow issue-{N} format. The orchestrator creates a worktree on egg/issue-{N}/work branch, creates an SDLC contract, and runs phases sequentially (refine → plan → implement → PR). The PR phase is handled by the orchestrator itself (not an agent) — it calls _auto_create_pr() to build and submit the PR.",
+      "key_files": [
+        "orchestrator/routes/pipelines.py",
+        "orchestrator/models.py",
+        "orchestrator/container_spawner.py",
+        "orchestrator/gateway_client.py",
+        "bin/egg-sdlc"
+      ]
+    },
+    "github_actions_workflows": {
+      "description": "Four reusable workflows implement the review/fix lifecycle as GitHub Actions: check fixer (non-LLM then LLM, retry tracking via HTML markers), code review (three-phase: should-run → wait-for-checks → review), conflict resolution (merge-based), and review feedback addressing (iteration-limited). Prompt builders in action/ construct minimal prompts; agents fetch PR context dynamically. State is tracked via HTML comment markers (egg-autofix-state, egg-automated-review, egg-feedback-addressing).",
+      "key_files": [
+        ".github/workflows/reusable-check-fixer.yml",
+        ".github/workflows/reusable-review.yml",
+        ".github/workflows/reusable-conflict-resolve.yml",
+        ".github/workflows/on-review-feedback.yml",
+        "action/build-check-fixer-prompt.sh",
+        "action/build-review-prompt.sh",
+        "action/build-feedback-prompt.sh",
+        "shared/check-fixers.yml",
+        "shared/prompts/code-review-criteria.md",
+        "shared/prompts/autofixer-rules.md"
+      ]
+    },
+    "gateway_policy": {
+      "description": "The gateway enforces branch ownership (egg-prefixed or bot-authored PR), PR ownership checks, phase-based operation filtering, file-level access restrictions, and session branch locking. Push-target enforcement ensures pipeline sessions push only to their assigned branch. Post-agent auto-commit handles uncommitted work on container exit.",
+      "key_files": [
+        "gateway/policy.py",
+        "gateway/session_manager.py",
+        "gateway/post_agent_commit.py"
+      ]
+    },
+    "concurrent_execution": {
+      "description": "Issue #1027's infrastructure is fully implemented: Redis-backed message store with long-polling, concurrent phase executor that spawns all agents simultaneously, BRC consensus protocol for peer coordination, and agent CLI commands (egg-orch message, egg-orch consensus). Agents coordinate through the message bus rather than sequential handoffs.",
+      "key_files": [
+        "orchestrator/message_store.py",
+        "orchestrator/redis_message_store.py",
+        "orchestrator/concurrent_executor.py",
+        "orchestrator/peer_consensus.py",
+        "orchestrator/routes/messages.py"
+      ]
+    },
+    "coordinator": {
+      "description": "Issue #1028 (conversational coordinator) is in plan phase with architecture defined but not yet implemented. The coordinator will be an embedded agent with elevated gateway permissions, capable of spawning agents dynamically, monitoring progress, advancing/skipping phases, and escalating to humans. It follows the EGG200 convention (LLM reasoning inside Claude Code sessions). Both PR workflows described in #1014 are coordinator capabilities.",
+      "status": "planned_not_implemented"
+    }
+  },
+
+  "analysis_options_and_rationale": {
+    "description": "Three approaches were evaluated for implementing PR-based workflows. The key architectural question is how to bridge the gap between the event-driven GitHub Actions workflows (which handle check fixing, review, conflict resolution today) and the coordinator-driven model (which will orchestrate agents dynamically).",
+    "options": [
+      {
+        "id": "A",
+        "title": "Shared Module Extraction — extract workflow logic into Python modules consumed by both Actions and coordinator",
+        "approach": "Extract the core logic from GitHub Actions workflows (check fixing loop, review posting, conflict resolution, feedback addressing, retry/state tracking) into shared Python modules under shared/pr_lifecycle/. The coordinator and babysit-pr CLI consume these modules directly. The GitHub Actions workflows become thin wrappers that call the same modules. The babysit-pr loop is a coordinator capability that can also run standalone. Pipeline creation is extended to accept pr_number and target existing PR branches.",
+        "pros": [
+          "Single source of truth for review/fix logic — no duplication between Actions and coordinator paths",
+          "Incremental: existing Actions workflows continue working during migration",
+          "Shared modules are testable in isolation (pytest) unlike shell scripts in Actions",
+          "Coordinator gets the same battle-tested logic that Actions have been running",
+          "Natural fit with #1028 — babysit-pr becomes a coordinator capability",
+          "State markers (HTML comments) work identically in both contexts"
+        ],
+        "cons": [
+          "Significant refactoring of existing shell-script workflow logic into Python",
+          "Need to handle GitHub API authentication differently in Actions vs sandbox contexts",
+          "Migration risk: any bug in extraction could break existing Actions workflows",
+          "Shared modules need both Actions and sandbox as consumers, adding test matrix complexity"
+        ]
+      },
+      {
+        "id": "B",
+        "title": "Coordinator-Native — implement PR workflows purely as coordinator capabilities, leave Actions unchanged",
+        "approach": "Build the babysit-pr loop as new coordinator logic that reimplements the review/fix cycle using the same prompts and criteria but with its own orchestration code. GitHub Actions workflows remain unchanged and continue handling event-driven triggers. The coordinator uses gh CLI and git commands directly rather than calling shared modules.",
+        "pros": [
+          "No risk to existing Actions workflows — completely independent implementation",
+          "Faster to implement initially — no extraction/refactoring of existing code",
+          "Coordinator can make dynamic decisions (which Actions can't) about retry strategy",
+          "Clean separation: Actions = event-driven, coordinator = session-driven"
+        ],
+        "cons": [
+          "Duplicated logic between Actions and coordinator (check fixing, review posting, retry tracking)",
+          "Bug fixes must be applied in two places",
+          "Divergence over time as each path evolves independently",
+          "State markers (HTML comments) may drift in format between the two implementations",
+          "Violates DRY — the issue explicitly calls out consolidation as a goal"
+        ]
+      },
+      {
+        "id": "C",
+        "title": "Actions-First — implement babysit-pr as a GitHub Actions workflow that chains existing reusable workflows",
+        "approach": "Build babysit-pr as a new GitHub Actions workflow that calls the existing reusable workflows in a loop (check-fixer → review → feedback-addressing → repeat). The coordinator triggers this workflow via GitHub API rather than running the loop itself.",
+        "pros": [
+          "Maximum reuse of existing workflow code — zero duplication",
+          "Well-understood execution model (GitHub Actions runners)",
+          "Natural event-driven triggers already exist"
+        ],
+        "cons": [
+          "GitHub Actions are not designed for long-running loops — each workflow run has time limits",
+          "Chaining workflows is fragile (workflow_dispatch triggers, status propagation)",
+          "Coordinator has no direct control over the loop — can only observe and re-trigger",
+          "Cannot run inside the sandbox — requires GitHub Actions runners",
+          "Async operation is awkward (workflow runs are not easily tracked as a single session)",
+          "Fundamentally incompatible with the coordinator model described in #1028"
+        ],
+        "rejected_reason": "GitHub Actions workflow chaining is fragile and time-limited. The coordinator needs direct control over the review/fix loop to make dynamic decisions. This approach also can't run inside the sandbox, violating a key requirement."
+      }
+    ],
+    "recommendation": "Option A: Shared Module Extraction",
+    "recommendation_rationale": "The issue explicitly identifies consolidation of check fixer, reviewer, conflict resolver, and feedback responder as a goal. Option A achieves this by creating shared Python modules that both Actions and the coordinator consume. The migration can be incremental — extract one module at a time, update the Action wrapper, verify, then proceed. The coordinator's babysit-pr loop calls the same modules, ensuring consistent behavior. Option B would work but creates technical debt from day one. Option C is incompatible with the coordinator model."
+  },
+
+  "architecture_design": {
+    "overview": "The design introduces three new capabilities: (1) PR-scoped pipeline creation, (2) shared PR lifecycle modules, and (3) babysit-pr as a coordinator capability / standalone CLI command. The shared modules extract the core logic from GitHub Actions workflows into Python, making it available to both the coordinator and the Actions wrappers.",
+
+    "components": [
+      {
+        "name": "PR-scoped pipeline creation",
+        "description": "Extend the orchestrator's pipeline creation API to accept pr_number as an alternative to issue_number. Pipeline ID format: pr-{number}. The orchestrator fetches PR metadata (title, body, branch, diff, checks, reviews) and uses it as the task context. The worktree targets the existing PR branch instead of creating a new egg/issue-{N}/work branch.",
+        "changes": [
+          {
+            "file": "orchestrator/models.py",
+            "change": "Add pr_number field to Pipeline model. Add PR-specific metadata (pr_branch, pr_base_branch, pr_author). Extend PipelineConfig with pr_mode flag."
+          },
+          {
+            "file": "orchestrator/routes/pipelines.py",
+            "change": "Accept pr_number in POST /api/v1/pipelines. When pr_number is set: (1) fetch PR metadata via gateway, (2) set pipeline_id to pr-{number}, (3) target existing PR branch for worktree, (4) skip worktree creation if branch already exists, (5) include PR context in contract/agent prompts."
+          },
+          {
+            "file": "orchestrator/gateway_client.py",
+            "change": "Add get_pr_metadata() method to fetch PR title, body, diff, check status, reviews, and branch info via GitHub API."
+          },
+          {
+            "file": "bin/egg-sdlc",
+            "change": "Add --pr flag as alternative to --issue. Sets EGG_PIPELINE_ID=pr-{number}, EGG_PR_NUMBER={number}."
+          }
+        ]
+      },
+      {
+        "name": "Shared PR lifecycle modules",
+        "description": "Extract core workflow logic from GitHub Actions into shared Python modules. These modules encapsulate check fixing, code review, conflict resolution, feedback addressing, and state marker management. Both the coordinator and the Actions wrappers consume them.",
+        "location": "shared/egg_pr_lifecycle/",
+        "modules": [
+          {
+            "module": "state_markers.py",
+            "purpose": "Parse, create, and update HTML comment markers (egg-autofix-state, egg-automated-review, egg-feedback-addressing, egg-status-comment). Provides typed Python interfaces instead of shell-script regex parsing."
+          },
+          {
+            "module": "check_fixer.py",
+            "purpose": "Core check-fixing logic: identify failed checks, load check-fixers.yml config, run non-LLM fixes, determine if LLM fixer needed, track retry state, detect escalation conditions. Consumes state_markers for retry tracking."
+          },
+          {
+            "module": "reviewer.py",
+            "purpose": "Core review logic: check if commit already reviewed (idempotency), wait for CI checks, build review prompt, post review via gh CLI, dismiss stale reviews. Consumes state_markers for review tracking."
+          },
+          {
+            "module": "conflict_resolver.py",
+            "purpose": "Merge conflict detection and resolution: check for conflicts, attempt merge-based resolution, push resolution commit."
+          },
+          {
+            "module": "feedback_handler.py",
+            "purpose": "Review feedback handling: collect feedback from reviews and comments, filter by authorized users, build feedback prompt, track iteration count, detect max-iterations escalation."
+          },
+          {
+            "module": "pr_monitor.py",
+            "purpose": "PR state monitoring: poll for merge status, check CI status, detect new reviews/comments, determine next action in the babysit loop."
+          },
+          {
+            "module": "config.py",
+            "purpose": "Configuration loading: parse check-fixers.yml (shared or repo-local), load review criteria, resolve prompt templates."
+          }
+        ]
+      },
+      {
+        "name": "Babysit-PR coordinator capability",
+        "description": "The babysit-pr review/fix loop, implemented as a coordinator capability that can also run standalone. The coordinator enters babysit mode after implementation is complete (for PR-seeded tasks) or directly (for standalone babysit-pr invocations). The loop uses the shared PR lifecycle modules.",
+        "changes": [
+          {
+            "file": "shared/prompts/babysit-pr-instructions.md",
+            "change": "New coordinator/agent instructions for the babysit-pr loop. Describes the review/fix cycle, exit conditions, escalation rules, and interaction with shared modules."
+          },
+          {
+            "file": "sandbox/agent-config/",
+            "change": "Add babysit-pr skill/tool configuration that the coordinator uses to enter babysit mode."
+          }
+        ],
+        "loop_design": {
+          "description": "The babysit-pr loop runs inside a single agent container (coordinator or standalone). It uses the shared PR lifecycle modules to execute each step, with the coordinator's judgment driving decisions between steps.",
+          "steps": [
+            {
+              "step": 1,
+              "name": "Check merge conflicts",
+              "module": "conflict_resolver.py",
+              "description": "Detect conflicts with base branch. If found, attempt automatic resolution. If resolution fails, escalate."
+            },
+            {
+              "step": 2,
+              "name": "Wait for CI checks",
+              "module": "pr_monitor.py",
+              "description": "Poll GitHub check runs API. Wait for all checks to complete (configurable timeout per poll cycle)."
+            },
+            {
+              "step": 3,
+              "name": "Fix failing checks",
+              "module": "check_fixer.py",
+              "description": "For each failed check: try non-LLM fix first, then LLM fixer. Track retries per check. Escalate if max retries exceeded."
+            },
+            {
+              "step": 4,
+              "name": "Wait for CI after fix",
+              "module": "pr_monitor.py",
+              "description": "Wait for CI to re-run after fix push. If still failing, loop back to step 3."
+            },
+            {
+              "step": 5,
+              "name": "Post code review",
+              "module": "reviewer.py",
+              "description": "Run code review using shared review criteria. Post as GitHub review (read-only — reviewer never pushes)."
+            },
+            {
+              "step": 6,
+              "name": "Address review feedback",
+              "module": "feedback_handler.py",
+              "description": "If reviewer requests changes, address feedback and push. Track feedback iterations. Escalate if max iterations exceeded."
+            },
+            {
+              "step": 7,
+              "name": "Loop or exit",
+              "module": "pr_monitor.py",
+              "description": "Check exit conditions: PR merged (success), timeout reached, max iterations, or human escalation needed. If none, loop back to step 1."
+            }
+          ],
+          "exit_conditions": [
+            {"condition": "PR merged", "detection": "GitHub API polling (pr.state == 'merged')", "action": "Report success, exit cleanly"},
+            {"condition": "Timeout", "detection": "Configurable max lifetime (default: 4h)", "action": "Post status comment, notify via Slack/message bus, exit"},
+            {"condition": "Max iterations", "detection": "Configurable limit (default: 5 full cycles)", "action": "Post escalation comment, notify, exit"},
+            {"condition": "Unresolvable issue", "detection": "Coordinator judgment or repeated failures on same check", "action": "Post 'needs human' comment, notify, exit"}
+          ]
+        }
+      },
+      {
+        "name": "Standalone babysit-pr CLI",
+        "description": "A CLI command `egg babysit-pr <PR>` that spawns a coordinator session scoped to the review/fix loop only. This is a thin wrapper that creates a pr-{number} pipeline and starts the coordinator in babysit-only mode.",
+        "changes": [
+          {
+            "file": "bin/egg-babysit-pr",
+            "change": "New CLI entry point. Accepts PR number, optional --repo, --timeout, --max-iterations. Creates a pipeline via orchestrator API with pr_number and babysit_only=true flag. Starts the coordinator container."
+          }
+        ]
+      },
+      {
+        "name": "Gateway policy extensions",
+        "description": "Extend gateway policy to support PR-scoped pipelines. The key change is allowing agents to push to an existing PR branch that they didn't create, as long as the pipeline owns the PR.",
+        "changes": [
+          {
+            "file": "gateway/policy.py",
+            "change": "Add pr_number to session metadata. When pr_number is set, allow push to the PR's head branch regardless of branch naming convention. Validate that the PR exists and matches the pipeline's pr_number."
+          },
+          {
+            "file": "gateway/session_manager.py",
+            "change": "Extend Session model with pr_number field. Pass PR branch as assigned_branch for pipeline sessions."
+          }
+        ]
+      }
+    ],
+
+    "agent_roles_for_babysit_pr": {
+      "description": "babysit-pr reuses existing agent roles without creating new ones. The coordinator (or standalone babysit agent) acts as the loop controller, spawning fixer and reviewer sub-tasks as needed.",
+      "roles": [
+        {
+          "role": "coordinator (or babysit controller)",
+          "access": "Read-write: manages the loop, makes decisions, pushes fixes",
+          "reuses": "Coordinator agent from #1028. In standalone mode, a dedicated babysit agent with similar capabilities."
+        },
+        {
+          "role": "fixer (sub-task)",
+          "access": "Read-write: commits and pushes to PR branch",
+          "reuses": "Check fixer from reusable-check-fixer.yml, conflict resolver from reusable-conflict-resolve.yml, feedback responder from on-review-feedback.yml. All via shared modules."
+        },
+        {
+          "role": "reviewer (sub-task)",
+          "access": "Read-only: posts GitHub reviews, cannot modify code",
+          "reuses": "Review from reusable-review.yml, prompts from build-review-prompt.sh + code-review-criteria.md."
+        }
+      ]
+    },
+
+    "cross_agent_communication": {
+      "description": "Both workflows use #1027's message bus for coordination. The babysit-pr loop reports progress through the message bus, enabling real-time visibility. Escalations route through the orchestrator to Slack/GitHub comments.",
+      "message_types": [
+        "PROGRESS — loop iteration status (which step, attempt counts)",
+        "STATUS — PR state changes (checks passed, review posted, conflicts detected)",
+        "AGENT_FAILED — fixer or reviewer failure within the loop",
+        "Existing HITL escalation through egg-contract add-decision"
+      ]
+    }
+  },
+
+  "implementation_phases": [
+    {
+      "phase": 1,
+      "title": "PR-scoped pipeline creation",
+      "description": "Extend the orchestrator to accept pr_number and create pipelines that target existing PR branches. This is the foundation that both PR-seeded tasks and babysit-pr depend on.",
+      "deliverables": [
+        "Pipeline model extensions (pr_number, pr_branch, pr metadata)",
+        "Pipeline creation API accepts pr_number",
+        "Gateway client PR metadata fetching",
+        "Gateway policy extensions for PR-scoped sessions",
+        "Unit tests for new pipeline creation path"
+      ],
+      "estimated_complexity": "medium"
+    },
+    {
+      "phase": 2,
+      "title": "Shared PR lifecycle modules",
+      "description": "Extract workflow logic from GitHub Actions into shared Python modules. Migrate one module at a time, updating Actions wrappers to consume the shared modules.",
+      "deliverables": [
+        "shared/egg_pr_lifecycle/ package with state_markers, check_fixer, reviewer, conflict_resolver, feedback_handler, pr_monitor, config modules",
+        "Unit tests for each module",
+        "Integration tests verifying Actions wrappers still work with shared modules"
+      ],
+      "estimated_complexity": "high",
+      "notes": "This is the highest-risk phase. Incremental migration with parallel testing (old shell scripts vs new Python modules) is critical."
+    },
+    {
+      "phase": 3,
+      "title": "Babysit-PR loop implementation",
+      "description": "Implement the babysit-pr review/fix loop using shared modules. Create the coordinator capability and standalone CLI.",
+      "deliverables": [
+        "Babysit-pr loop logic using shared modules",
+        "Coordinator babysit-pr capability (instructions, tools)",
+        "Standalone egg babysit-pr CLI",
+        "Exit condition handling (merge, timeout, max iterations, escalation)",
+        "Integration tests for the full loop"
+      ],
+      "estimated_complexity": "medium",
+      "dependencies": ["#1028 coordinator must be implemented first"]
+    },
+    {
+      "phase": 4,
+      "title": "PR-seeded coordinator session",
+      "description": "Extend the coordinator to accept a PR as input, assess work already done, spawn agents as needed, and transition to babysit-pr mode when implementation is complete.",
+      "deliverables": [
+        "Coordinator PR assessment logic",
+        "Dynamic agent spawning based on PR state",
+        "Transition from implementation to babysit mode",
+        "End-to-end integration tests"
+      ],
+      "estimated_complexity": "medium",
+      "dependencies": ["#1028 coordinator must be implemented first", "Phase 3 babysit-pr loop"]
+    }
+  ],
+
+  "risks_and_mitigations": [
+    {
+      "risk": "Dependency on unimplemented #1028 coordinator",
+      "severity": "high",
+      "impact": "Phases 3-4 cannot start until the coordinator is implemented. PR-seeded tasks are coordinator capabilities by design.",
+      "mitigation": "Phases 1-2 are independent of #1028 and can proceed immediately. The standalone babysit-pr CLI can use a simplified agent (not full coordinator) as an interim solution, then migrate to coordinator mode when #1028 lands. The shared modules (phase 2) are valuable regardless of coordinator status."
+    },
+    {
+      "risk": "Extracting workflow logic into shared modules may break existing Actions",
+      "severity": "medium",
+      "impact": "Check fixer, reviewer, conflict resolver, and feedback handler are production workflows. Regressions could disrupt all PR automation.",
+      "mitigation": "Incremental migration: extract one module at a time. Run parallel testing (old shell path and new Python module) before switching Actions wrappers. Feature flag in Actions to toggle between old and new paths. Maintain backwards compatibility in marker formats."
+    },
+    {
+      "risk": "Gateway policy may not cover all PR-scoped push scenarios",
+      "severity": "medium",
+      "impact": "Agents may be blocked from pushing to PR branches they didn't create, especially for external contributor PRs or PRs from forks.",
+      "mitigation": "Fork PRs are explicitly out of scope (consistent with existing conflict resolver behavior). For non-fork PRs, the gateway already allows pushes when the bot has an open PR on the branch. Extend session metadata to include pr_number so the gateway can verify ownership."
+    },
+    {
+      "risk": "Babysit-pr loop may run indefinitely or get stuck",
+      "severity": "medium",
+      "impact": "Resource waste, potential for unbounded API calls and CI runs.",
+      "mitigation": "Multiple exit conditions: configurable timeout (default 4h), max iterations (default 5 full cycles), per-check max retries. Health monitoring via orchestrator tripwires. Coordinator judgment for unresolvable issues."
+    },
+    {
+      "risk": "State marker format divergence between Actions and shared modules",
+      "severity": "low",
+      "impact": "If markers written by Actions can't be read by shared modules (or vice versa), state tracking breaks.",
+      "mitigation": "state_markers.py is the single parser/writer for all markers. Actions wrappers call the same module. Add validation tests that verify round-trip compatibility."
+    }
+  ],
+
+  "technical_decisions": [
+    {
+      "decision": "Shared modules in Python, not shell scripts",
+      "rationale": "The existing workflow logic is in shell scripts (build-check-fixer-prompt.sh, etc.) which are hard to test, debug, and reuse outside Actions. Python modules can be unit-tested with pytest, consumed by both the coordinator (Python) and Actions (via python3 call), and benefit from type hints and error handling.",
+      "alternatives_considered": ["Keep shell scripts and source them from both contexts — rejected due to portability issues and testing difficulty"]
+    },
+    {
+      "decision": "Pipeline ID format pr-{number} for PR-scoped pipelines",
+      "rationale": "Consistent with existing issue-{N} format. Clearly identifies the pipeline source. Avoids collision with issue-based pipelines.",
+      "alternatives_considered": ["Use issue-{N} format with a flag — rejected because PR-scoped pipelines may not have an associated issue"]
+    },
+    {
+      "decision": "Babysit-pr as coordinator capability, not a new agent role",
+      "rationale": "The issue explicitly states 'no new agents.' The babysit-pr loop is a coordinator decision-making capability that uses existing fixer and reviewer roles. In standalone mode, a coordinator session is scoped to babysit-only.",
+      "alternatives_considered": ["New 'babysitter' agent role — rejected per issue requirements"]
+    },
+    {
+      "decision": "Shared modules location: shared/egg_pr_lifecycle/",
+      "rationale": "Follows existing pattern (shared/egg_config/, shared/egg_contracts/, shared/egg_anchor/). The shared/ directory is the established location for cross-component Python packages.",
+      "alternatives_considered": ["Inside orchestrator/ — rejected because modules must be available in sandbox too", "Inside sandbox/ — rejected because modules must be available to orchestrator too"]
+    },
+    {
+      "decision": "Fork PRs explicitly out of scope",
+      "rationale": "The gateway cannot push to fork branches (no credentials). The existing conflict resolver already skips forks. Fork support would require architectural changes to credential management.",
+      "alternatives_considered": ["Support forks via PR-level tokens — deferred to future iteration"]
+    },
+    {
+      "decision": "Incremental extraction with parallel testing for shared modules",
+      "rationale": "The existing Actions workflows are production-critical. Extracting all logic at once is too risky. Each module should be extracted, tested in isolation, and then wired into the Actions wrapper with a feature flag for rollback.",
+      "alternatives_considered": ["Big-bang rewrite — rejected due to production risk", "Leave Actions unchanged and duplicate in Python — rejected per DRY and issue requirements"]
+    }
+  ],
+
+  "open_questions": [
+    {
+      "question": "Should babysit-pr support a mode where it only reviews (no fixing) for trusted human PRs?",
+      "impact": "Would affect the loop design — reviewer-only mode skips steps 3, 4, 6.",
+      "recommendation": "Defer to v2. The initial implementation should focus on the full review/fix loop as described in the issue."
+    },
+    {
+      "question": "How should the babysit-pr loop handle concurrent human pushes to the same PR branch?",
+      "impact": "If a human pushes while the babysit agent is working, there could be conflicts or the agent's work could be based on stale code.",
+      "recommendation": "The loop should pull latest before each fix attempt and abort the current fix if the branch has moved. This is similar to how the check fixer already handles concurrent pushes (cancel-in-progress in Actions)."
+    },
+    {
+      "question": "Should the standalone babysit-pr CLI require the coordinator (#1028) or work with a simpler agent?",
+      "impact": "If #1028 is not yet implemented, standalone babysit-pr would need a simplified agent or a hardcoded loop.",
+      "recommendation": "Implement a simplified standalone agent that runs the hardcoded loop using shared modules. When #1028 lands, migrate to coordinator-based mode. The shared modules are the same either way."
+    }
+  ],
+
+  "files_inventory": {
+    "new_files": [
+      "shared/egg_pr_lifecycle/__init__.py",
+      "shared/egg_pr_lifecycle/state_markers.py",
+      "shared/egg_pr_lifecycle/check_fixer.py",
+      "shared/egg_pr_lifecycle/reviewer.py",
+      "shared/egg_pr_lifecycle/conflict_resolver.py",
+      "shared/egg_pr_lifecycle/feedback_handler.py",
+      "shared/egg_pr_lifecycle/pr_monitor.py",
+      "shared/egg_pr_lifecycle/config.py",
+      "shared/prompts/babysit-pr-instructions.md",
+      "bin/egg-babysit-pr"
+    ],
+    "modified_files": [
+      "orchestrator/models.py",
+      "orchestrator/routes/pipelines.py",
+      "orchestrator/gateway_client.py",
+      "gateway/policy.py",
+      "gateway/session_manager.py",
+      "bin/egg-sdlc"
+    ],
+    "existing_files_consumed": [
+      ".github/workflows/reusable-check-fixer.yml",
+      ".github/workflows/reusable-review.yml",
+      ".github/workflows/reusable-conflict-resolve.yml",
+      ".github/workflows/on-review-feedback.yml",
+      "action/build-check-fixer-prompt.sh",
+      "action/build-review-prompt.sh",
+      "action/build-feedback-prompt.sh",
+      "shared/check-fixers.yml",
+      "shared/prompts/code-review-criteria.md",
+      "shared/prompts/autofixer-rules.md"
+    ]
+  },
+
+  "dependency_graph": {
+    "description": "Implementation dependency ordering",
+    "dependencies": [
+      {"from": "Phase 1 (PR-scoped pipelines)", "to": null, "notes": "No dependencies, can start immediately"},
+      {"from": "Phase 2 (Shared modules)", "to": null, "notes": "No dependencies, can start immediately. Can parallelize with Phase 1."},
+      {"from": "Phase 3 (Babysit-PR loop)", "to": "Phase 2, #1028 (coordinator) or simplified standalone agent", "notes": "Needs shared modules. Can start with simplified agent before #1028."},
+      {"from": "Phase 4 (PR-seeded coordinator)", "to": "Phase 1, Phase 3, #1028 (coordinator)", "notes": "Needs PR-scoped pipelines, babysit-pr loop, and coordinator."}
+    ]
+  }
+}

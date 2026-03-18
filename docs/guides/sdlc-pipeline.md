@@ -52,6 +52,8 @@ The pipeline pauses for human approval at phase transitions (refine and plan). T
 
 ## Pipeline Architecture
 
+> **Note**: The architecture below describes the standard **issue mode** pipeline. For the **babysit mode** (PR review/fix loop), see the [Babysit-PR Guide](babysit-pr.md).
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                           SDLC PIPELINE                                 │

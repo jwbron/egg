@@ -242,6 +242,29 @@ Shared prompt criteria files consumed by both GitHub Actions prompt builder scri
 
 These files are output-format-agnostic (no `gh` commands or verdict JSON references). Repositories can override criteria by placing a custom file in `.egg/` (e.g., `.egg/review-rules.md`).
 
+### [egg_babysit](egg_babysit/README.md)
+
+Autonomous PR review/fix loop that monitors a pull request through its lifecycle.
+
+- `get_full_pr_state()` — PR state polling via `gh` CLI (merge status, CI checks, reviews)
+- `wait_for_ci()` — CI check waiter with configurable poll interval and stale detection
+- `BabysitConfig` — frozen configuration dataclass (PR number, repo, timeout, poll interval, retry limits)
+- `PRState` — typed PR state snapshot with properties: `has_conflicts`, `ci_status`, `failed_checks`
+
+```python
+from egg_babysit.config import BabysitConfig
+from egg_babysit.pr_state import get_full_pr_state
+from egg_babysit.ci_waiter import wait_for_ci
+
+config = BabysitConfig(pr_number=42, repo="owner/repo")
+state = get_full_pr_state(config.pr_number, config.repo)
+status, checks = wait_for_ci(config.pr_number, config.repo)
+```
+
+**CLI**: `egg babysit-pr <PR> [--repo OWNER/REPO] [--timeout DURATION] [--max-iterations N]`
+
+See [egg_babysit README](egg_babysit/README.md) for full documentation and the [Babysit-PR Guide](../docs/guides/babysit-pr.md) for operational usage.
+
 ### egg_contracts
 
 SDLC contract models, role-based validation, plan parsing, resilience utilities, and agent checkpoint capture.

@@ -164,7 +164,7 @@ lint-python:
 	@$(RUFF) format --check .
 	@echo "==> Mypy..."
 	@if command -v $(MYPY) >/dev/null 2>&1; then \
-		$(MYPY) gateway shared sandbox --exclude 'gateway/tests/' --exclude 'shared/egg_contracts/tests/'; \
+		$(MYPY) gateway shared sandbox --exclude 'gateway/tests/' --exclude 'shared/egg_contracts/tests/' --exclude 'shared/tests/'; \
 	else \
 		echo "SKIP: mypy not installed"; \
 	fi
@@ -230,7 +230,7 @@ lint-custom:
 test: export PYTHONPATH := shared:gateway:orchestrator
 test: venv
 	@echo "==> Running unit tests..."
-	$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ -v $(PYTEST_ARGS)
+	$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ -v $(PYTEST_ARGS)
 
 security:
 	@echo "==> Running security scan..."

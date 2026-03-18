@@ -1,0 +1,767 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1014,
+    "title": "Issue #1014",
+    "url": "https://github.com/jwbron/egg/issues/1014"
+  },
+  "pipeline_id": "issue-1014",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Core Loop Module and PR State Polling",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create shared/egg_babysit/ package structure with config, types, and __init__",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Package importable; BabysitConfig and PRState dataclasses defined with all fields",
+          "files_affected": [
+            "shared/egg_babysit/__init__.py",
+            "shared/egg_babysit/config.py",
+            "shared/egg_babysit/types.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Implement PR state poller using gh CLI for PR metadata, CI checks, and merge status",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "PRState correctly parses gh pr view --json and gh pr checks --json output; handles API errors",
+          "files_affected": [
+            "shared/egg_babysit/pr_state.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Implement main babysit loop skeleton with step transitions and exit conditions",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Loop runs, detects PR merged and exits; respects timeout and max-iterations; emits progress",
+          "files_affected": [
+            "shared/egg_babysit/loop.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Implement CI check waiter with configurable poll interval and status streaming",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Waiter polls CI, detects pass/fail/pending, returns structured result with failed job details",
+          "files_affected": [
+            "shared/egg_babysit/ci_waiter.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add unit tests for PR state parsing, loop transitions, and CI waiter",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All unit tests pass; covers state parsing, loop exit conditions, CI status detection",
+          "files_affected": [
+            "shared/tests/test_egg_babysit/__init__.py",
+            "shared/tests/test_egg_babysit/test_pr_state.py",
+            "shared/tests/test_egg_babysit/test_loop.py",
+            "shared/tests/test_egg_babysit/test_ci_waiter.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Fixer and Reviewer Agent Integration",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Implement Python wrappers for bash prompt builders (check-fixer and review prompts)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Wrappers call bash scripts via subprocess and return valid prompt strings; load check-fixers.yml",
+          "files_affected": [
+            "shared/egg_babysit/prompts.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-2",
+          "description": "Implement fixer agent spawner with container lifecycle and commit SHA capture",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Fixer container spawns with correct prompt, captures commit SHA, handles failures with retry",
+          "files_affected": [
+            "shared/egg_babysit/fixer.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-3",
+          "description": "Implement reviewer agent spawner in read-only mode with review verdict capture",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Reviewer spawns read-only, posts GitHub review, returns verdict (approve/request-changes/comment)",
+          "files_affected": [
+            "shared/egg_babysit/reviewer.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-4",
+          "description": "Implement conflict resolution step with detection and fixer invocation",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Detects mergeable_state dirty, spawns fixer, verifies resolution, escalates if unresolvable",
+          "files_affected": [
+            "shared/egg_babysit/steps/conflict.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-5",
+          "description": "Implement check fixer step with non-LLM-first strategy and retry tracking",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tries non-LLM fix per check-fixers.yml, falls back to LLM, tracks retries via markers, escalates after max",
+          "files_affected": [
+            "shared/egg_babysit/steps/check_fix.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-6",
+          "description": "Implement review and feedback addressing steps with round capping",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Reviewer posts review after CI passes; fixer addresses requested changes; caps at max rounds",
+          "files_affected": [
+            "shared/egg_babysit/steps/review.py",
+            "shared/egg_babysit/steps/feedback.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-7",
+          "description": "Add integration tests for agent spawning, prompt building, and retry logic",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests pass with mocked container spawner; cover prompt output, retry counting, escalation",
+          "files_affected": [
+            "shared/tests/test_egg_babysit/test_fixer.py",
+            "shared/tests/test_egg_babysit/test_reviewer.py",
+            "shared/tests/test_egg_babysit/test_prompts.py",
+            "shared/tests/test_egg_babysit/test_steps.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Orchestrator Pipeline Mode and CLI Command",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Extend Pipeline model with mode field (issue/babysit) and pr_number; support pr-N pipeline IDs",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Pipeline model accepts mode and pr_number; state store serializes/deserializes correctly",
+          "files_affected": [
+            "orchestrator/models.py",
+            "orchestrator/state_store.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add babysit pipeline lifecycle to orchestrator routes (create, start, status)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "POST /api/v1/pipelines with mode=babysit creates pr-N pipeline; start triggers loop; status shows loop state",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-3",
+          "description": "Build CLI command (egg babysit-pr) with argument parsing and orchestrator registration",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "egg babysit-pr <PR> creates pipeline, starts loop, streams status; --help shows options",
+          "files_affected": [
+            "shared/egg_babysit/cli.py",
+            "shared/egg_babysit/__main__.py",
+            "shared/pyproject.toml"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-4",
+          "description": "Implement HITL escalation with decision queue and GitHub comment notification",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Unrecoverable state creates HITL decision; PR comment posted explaining blocker; loop pauses until resolved",
+          "files_affected": [
+            "shared/egg_babysit/escalation.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-5",
+          "description": "Implement graceful shutdown (SIGTERM/SIGINT) and crash recovery from saved pipeline state",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "SIGTERM saves state; restart resumes from saved iteration/step; no duplicate agent sessions",
+          "files_affected": [
+            "shared/egg_babysit/loop.py",
+            "shared/egg_babysit/cli.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-6",
+          "description": "Add end-to-end tests for CLI, pipeline lifecycle, HITL escalation, and shutdown/resume",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests pass covering full CLI invocation, pipeline CRUD, escalation flow, and resume",
+          "files_affected": [
+            "integration_tests/test_babysit_pr/__init__.py",
+            "integration_tests/test_babysit_pr/test_cli.py",
+            "integration_tests/test_babysit_pr/test_pipeline.py",
+            "integration_tests/test_babysit_pr/test_escalation.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Gateway Validation, Documentation, and Polish",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Write integration test validating gateway allows push to PR branches for bot/trusted-user PRs",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test confirms push allowed for bot-authored PR; push allowed for trusted-user PR; push denied for untrusted",
+          "files_affected": [
+            "integration_tests/test_babysit_pr/test_gateway.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-2",
+          "description": "Implement concurrent push detection (head SHA change) and rate limit backoff",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Detects unexpected head SHA change and re-fetches state; backs off when rate limit headers indicate throttling",
+          "files_affected": [
+            "shared/egg_babysit/pr_state.py",
+            "shared/egg_babysit/loop.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-3",
+          "description": "Add module docstrings, type hints, and README with usage examples",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All public functions have docstrings and type hints; README covers usage, config, and architecture",
+          "files_affected": [
+            "shared/egg_babysit/README.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-4",
+          "description": "Update shared/pyproject.toml with egg_babysit package and console_scripts entry point",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "pip install -e shared/ registers egg-babysit-pr command; package discoverable",
+          "files_affected": [
+            "shared/pyproject.toml"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "babysit-pr Execution Model: Should babysit-pr use the orchestrator for lifecycle management, or run as a standalone process?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Orchestrator-backed \u2014 Checkpoints, container lifecycle, health monitoring built in; slower startup",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Standalone \u2014 Faster, simpler loop; no checkpoints or orchestrator observability",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Both \u2014 Orchestrator by default, --standalone flag for lightweight mode",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Prompt Builder Strategy: How should the Python babysit-pr module consume the existing bash prompt builders (action/build-*.sh)?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Call existing bash scripts via subprocess \u2014 Minimal change, single source of truth",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Port to Python modules \u2014 Cleaner integration, duplicates logic until Actions updated",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Thin Python wrappers that call bash scripts \u2014 Python API, bash implementation underneath",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "PR Branch Handling: When agents manage a PR-seeded pipeline, should they push to the PR's existing head branch or create a new branch?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Push to existing PR head branch \u2014 Simpler, risks conflicts with PR author",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Create new branch and update PR head \u2014 Safer isolation, changes PR branch",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Use existing branch, expect no concurrent pushes \u2014 Simple, relies on coordination",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "babysit-pr Scope \u2014 Conflict Resolution: Should v1 include merge conflict resolution, or defer to v2?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes, include conflict resolution \u2014 Full loop as described in issue",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No, defer to v2 \u2014 Simpler v1: CI wait \u2192 check fix \u2192 review \u2192 feedback only",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Terminal UX: What level of terminal output is expected for the babysit-pr CLI in v1?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Minimal \u2014 Periodic status line updates (poll and print)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Medium \u2014 Rich terminal output with progress bars and color",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Full \u2014 Live-streaming agent output to terminal",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Review-Only vs Review-and-Fix: Should babysit-pr always pair review with auto-fix, or support a review-only mode?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Always fix \u2014 Review always followed by auto-fix attempt",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Optional review-only \u2014 --review-only flag to post review and stop",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Both by default \u2014 Auto-fix with --no-fix flag to opt out",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Non-Trusted-User PR Handling: How should babysit-pr handle PRs authored by someone not in GATEWAY_TRUSTED_USERS?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Require trusted user \u2014 Only babysit PRs from trusted users or bot-authored PRs",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Add bot as co-author \u2014 Bot opens its own PR to same branch",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Gateway policy extension \u2014 New babysit permission mode for explicit requests",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Dependency Sequencing: Should babysit-pr ship independently before the coordinator (#1028), or wait?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Ship babysit-pr standalone first \u2014 Deliver value immediately, integrate with coordinator later",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Wait for coordinator \u2014 Implement both together to avoid rework",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "babysit-pr standalone + PR-seeded as coordinator milestone \u2014 Two separate deliverables",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": [
+    {
+      "role": "coder",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "tester",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "documenter",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_agent_design",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-03-18T03:17:02.502516Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "task_planner",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-03-18T03:26:47.705297Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "architect",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-03-18T03:26:48.076708Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "risk_analyst",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-03-18T03:26:48.756987Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    }
+  ]
+}

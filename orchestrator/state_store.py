@@ -28,13 +28,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
-from models import Pipeline, PipelineStatus
+from models import Pipeline, PipelineMode, PipelineStatus
 from pydantic import ValidationError
 
 logger = logging.getLogger("orchestrator.state_store")
 
-# Valid pipeline ID format: issue-{number} or local-{8 hex chars}
-PIPELINE_ID_PATTERN = re.compile(r"^(issue-[0-9]+|local-[0-9a-f]{8})$")
+# Valid pipeline ID format: issue-{number}, local-{8 hex chars}, or pr-{number}
+PIPELINE_ID_PATTERN = re.compile(r"^(issue-[0-9]+|local-[0-9a-f]{8}|pr-[0-9]+)$")
 
 # Dedicated branch for pipeline state (orphan, never merged into main).
 # Shared constant — also referenced by gateway.py's INFRASTRUCTURE_BRANCHES.
@@ -665,6 +665,8 @@ class StateStore:
         prompt: str | None = None,
         pipeline_id: str | None = None,
         network_mode: str | None = None,
+        mode: PipelineMode | None = None,
+        pr_number: int | None = None,
     ) -> Pipeline:
         """Create a new pipeline.
 
@@ -676,6 +678,8 @@ class StateStore:
             prompt: User prompt (for prompt-driven pipelines)
             pipeline_id: Explicit pipeline ID (auto-generated if not provided)
             network_mode: Network mode for spawned containers ("public", "private", or None)
+            mode: Pipeline mode (ISSUE or BABYSIT). Defaults to ISSUE if not set.
+            pr_number: PR number for babysit-mode pipelines (optional).
 
         Returns:
             Created pipeline
@@ -707,16 +711,21 @@ class StateStore:
                 else:
                     raise StateStoreError(f"Pipeline {pipeline_id} already exists")
 
-            pipeline = Pipeline(
-                id=pipeline_id,
-                issue_number=issue_number,
-                repo=repo,
-                branch=branch,
-                prompt=prompt,
-                network_mode=network_mode,
+            pipeline_kwargs: dict[str, Any] = {
+                "id": pipeline_id,
+                "issue_number": issue_number,
+                "repo": repo,
+                "branch": branch,
+                "prompt": prompt,
+                "network_mode": network_mode,
                 # Contract is created separately — mark as unsynced until verified
-                contract_synced=False,
-            )
+                "contract_synced": False,
+            }
+            if mode is not None:
+                pipeline_kwargs["mode"] = mode
+            if pr_number is not None:
+                pipeline_kwargs["pr_number"] = pr_number
+            pipeline = Pipeline(**pipeline_kwargs)
 
             if config:
                 from models import PipelineConfig

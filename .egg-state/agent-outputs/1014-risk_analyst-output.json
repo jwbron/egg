@@ -1,0 +1,382 @@
+{
+  "issue_number": 1014,
+  "pipeline_id": "issue-1014",
+  "phase": "plan",
+  "agent_role": "risk_analyst",
+  "generated_at": "2026-03-18T03:25:00Z",
+  "overall_risk_level": "HIGH",
+  "executive_summary": "Issue #1014 proposes two interrelated PR-based workflows: a PR-seeded coordinator session and a standalone babysit-pr review/fix loop. The overall risk level is HIGH due to the hard dependency on unimplemented coordinator (#1028), novel long-running agent lifecycle patterns, security boundary extensions for PR branch access, and the complexity of consolidating event-driven GitHub Actions workflows into an orchestrator-managed loop. The cross-agent communication dependency (#1027) is already merged and operational, reducing that risk vector. Mitigation strategies focus on incremental delivery (babysit-pr standalone first), strict gateway enforcement for PR branches, cost guardrails, and comprehensive integration testing.",
+  "dependency_risk_assessment": {
+    "summary": "Critical dependency chain: #1014 depends on #1028 (coordinator, NOT yet implemented) and #1027 (cross-agent communication, MERGED). The #1028 dependency is the primary schedule and technical risk.",
+    "dependencies": [
+      {
+        "id": "DEP-1",
+        "dependency": "#1027 — Cross-agent communication and concurrent phase execution",
+        "status": "MERGED",
+        "risk_level": "LOW",
+        "assessment": "Fully implemented and operational. Message bus (Redis Streams + in-memory fallback), BRC consensus protocol, concurrent executor, and structured progress reporting are all available. No blocking issues.",
+        "risks": [
+          "Redis Streams backend assumes single-orchestrator deployment; if horizontal scaling is attempted, message ordering could be affected. Low probability for #1014 scope."
+        ]
+      },
+      {
+        "id": "DEP-2",
+        "dependency": "#1028 — Conversational coordinator for dynamic agent orchestration",
+        "status": "NOT IMPLEMENTED (plan complete, analysis done)",
+        "risk_level": "HIGH",
+        "assessment": "Architecture is documented with agent outputs from prior plan phase, but implementation has not started. PR-seeded coordinator workflow is a coordinator capability — it cannot be built until the coordinator exists. The babysit-pr standalone loop CAN be built independently.",
+        "risks": [
+          "Schedule risk: #1028 implementation timeline is unknown. #1014 PR-seeded workflow is blocked until #1028 ships.",
+          "Interface instability: Coordinator API/tool interface may change during implementation, requiring rework of #1014 integration points.",
+          "Known blockers from #1028 risk assessment: signal handler locking (signals.py has zero lock usage), worktree API integration TODO (pipelines.py:3942-3946), extra_env denylist missing on spawn endpoint.",
+          "MCP server authentication has not been tested with real Claude Code clients."
+        ],
+        "mitigation": "Build babysit-pr as a standalone loop module first (no coordinator dependency). Integrate with coordinator as a second phase after #1028 ships. Define a stable interface contract between babysit-pr module and coordinator early."
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "RISK-1",
+      "title": "Gateway branch ownership for non-bot PR branches",
+      "category": "security",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "HIGH",
+      "description": "The babysit-pr workflow must push to an existing PR's head branch. The gateway currently allows pushes to branches with open PRs authored by the bot or trusted users. For PRs authored by untrusted users, the gateway will reject pushes. This means babysit-pr will fail silently or noisily for community/external PRs unless the branch ownership policy is extended.",
+      "affected_components": [
+        "gateway/policy.py — branch ownership validation",
+        "gateway/session_manager.py — session registration with PR context"
+      ],
+      "mitigation": "Extend gateway session registration to accept a 'babysit_pr_number' field. When set, the gateway validates the PR exists and is open, then allows pushes to that PR's head branch for the duration of the session. This is a scoped permission grant — not a blanket override. Require that the orchestrator (not the agent) sets this field during container spawn.",
+      "rollback_plan": "If the extended permission is exploited, disable babysit-pr sessions at the gateway level (session type filter). Existing issue-based pipelines are unaffected.",
+      "needs_human_review": true,
+      "human_review_reason": "Security boundary extension: allowing agents to push to branches they don't own requires careful review of the trust model."
+    },
+    {
+      "id": "RISK-2",
+      "title": "Concurrent push conflicts between babysit-pr agent and PR author",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "MEDIUM",
+      "description": "When babysit-pr is fixing CI failures or addressing review feedback, the PR author may also push commits to the same branch simultaneously. This creates race conditions: the agent may rebase/merge on stale state, create merge conflicts, or overwrite the author's changes with a force push (if permitted).",
+      "affected_components": [
+        "babysit-pr loop — conflict detection logic",
+        "gateway/git_client.py — push validation"
+      ],
+      "mitigation": "1) Gateway MUST block force-push from babysit-pr agents (already the case for non-force pushes). 2) Before each fix cycle, babysit-pr must fetch latest and check if HEAD has advanced since last check. If so, abort current fix and restart the loop iteration. 3) On push rejection (non-fast-forward), the agent should pull, rebase its fix, and retry once — then escalate to human if still failing. 4) Consider a lightweight 'lock' mechanism: babysit-pr posts a PR comment indicating it's actively working, and pauses if it detects recent author pushes (within last 5 minutes).",
+      "rollback_plan": "Disable babysit-pr for the specific PR. Author's changes are never lost since force-push is blocked.",
+      "needs_human_review": false
+    },
+    {
+      "id": "RISK-3",
+      "title": "Runaway cost from long-running babysit-pr sessions",
+      "category": "performance",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "babysit-pr runs until PR merge or timeout (default 4 hours). Each loop iteration spawns short-lived agent sessions for fix/review. A PR with cascading CI failures could trigger dozens of fix attempts, each consuming API tokens and compute. The issue mentions configurable timeout but does not specify cost caps.",
+      "affected_components": [
+        "orchestrator/models.py — PipelineConfig guardrails",
+        "babysit-pr loop — iteration counting and cost tracking",
+        "orchestrator/container_spawner.py — container lifecycle"
+      ],
+      "mitigation": "1) Implement per-PR cost budget (configurable, e.g., $50 default). Track cumulative token usage across all agent sessions within a babysit-pr run. 2) Enforce max iteration count per cycle type: max 3 check-fix retries per check (already in check-fixers.yml), max 5 review-feedback rounds (already in on-review-feedback.yml), max 2 conflict resolution attempts. 3) Implement exponential backoff between iterations — if the same check fails 3 times, wait longer before retrying. 4) Emit structured progress events (egg-orch progress emit) with cost data so health monitoring can alert. 5) HITL escalation when cost exceeds 50% of budget.",
+      "rollback_plan": "Kill the babysit-pr container via orchestrator API. Uncommitted changes are auto-committed by post-agent-commit hook. PR remains in its last state.",
+      "needs_human_review": true,
+      "human_review_reason": "Cost guardrail thresholds and default budget need business decision input."
+    },
+    {
+      "id": "RISK-4",
+      "title": "Prompt injection via PR description or review comments",
+      "category": "security",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "PR-seeded workflows use the PR title and description as task input for the coordinator. A malicious PR could embed prompt injection payloads in the description, review comments, or commit messages to manipulate agent behavior — e.g., instructing the agent to push to a different branch, leak secrets, or approve its own code. The existing GitHub Actions workflows mitigate this by building prompts from the trusted main branch, but the PR content itself (description, comments) is consumed as untrusted input.",
+      "affected_components": [
+        "coordinator — PR context ingestion",
+        "babysit-pr — review comment processing",
+        "shared prompts — system prompt construction"
+      ],
+      "mitigation": "1) System prompts MUST be loaded from trusted main branch (existing pattern in action/build-*.sh). 2) PR content (title, description, comments, diff) must be clearly delimited as untrusted user input in the agent prompt — use XML tags or similar structured boundaries. 3) Agent system prompts must include explicit instructions to ignore instructions embedded in PR content. 4) Gateway enforcement is the ultimate backstop — even if the agent is manipulated, it cannot push to protected branches, merge PRs, or access credentials. 5) Review agent must remain read-only (no push access). 6) Sanitize PR content before passing to agents — strip HTML comments that could interfere with egg's marker system.",
+      "rollback_plan": "Disable PR-seeded pipelines at orchestrator level. Revert to issue-only pipeline creation.",
+      "needs_human_review": true,
+      "human_review_reason": "Prompt injection is an active research area. The defense-in-depth strategy should be reviewed by security-aware engineers."
+    },
+    {
+      "id": "RISK-5",
+      "title": "Context window exhaustion in long-running babysit-pr sessions",
+      "category": "performance",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "MEDIUM",
+      "description": "A babysit-pr session running for hours will accumulate context from multiple fix attempts, CI logs, review comments, and code diffs. Claude's context window (~200k tokens) will be exhausted, causing degraded reasoning quality or session failures. The issue notes this: 'The loop should use short-lived agent sessions for each fix/review cycle rather than a single persistent session.'",
+      "affected_components": [
+        "babysit-pr loop — session lifecycle management",
+        "orchestrator/container_spawner.py — per-iteration container spawning"
+      ],
+      "mitigation": "1) Each iteration of the babysit-pr loop should spawn a fresh, short-lived agent session with only the relevant context for that iteration (current CI failure logs, current diff, relevant review comments). 2) The babysit-pr orchestration layer (the loop controller) should be a lightweight Python process, NOT a Claude session — it only needs to poll GitHub API and dispatch agent sessions. 3) Use checkpoint recovery (egg-checkpoint) to provide continuity between sessions if needed. 4) Cap individual agent session context by passing only the failing check's logs, not all historical logs.",
+      "rollback_plan": "If context exhaustion causes bad fixes, the loop's max retry limits will cap damage. Manual intervention to reset the PR to a known-good state.",
+      "needs_human_review": false
+    },
+    {
+      "id": "RISK-6",
+      "title": "GitHub API rate limiting during babysit-pr polling",
+      "category": "performance",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "babysit-pr polls for CI check status, PR reviews, merge state, and conflicts. At high polling frequency across multiple concurrent babysit-pr sessions, the GitHub App's rate limit (5000 requests/hour for installations) could be exhausted. The gateway proxies all GitHub API calls but does not currently implement rate-aware throttling.",
+      "affected_components": [
+        "gateway/gateway.py — gh command proxying",
+        "babysit-pr loop — polling frequency",
+        "orchestrator — concurrent babysit-pr session management"
+      ],
+      "mitigation": "1) Use GitHub webhooks (already available via on-check-failure.yml pattern) instead of polling where possible. 2) For polling, use exponential backoff starting at 30 seconds, capping at 5 minutes. 3) Implement gateway-level rate-aware throttling that tracks remaining API quota and slows requests when below 20% remaining. 4) Limit concurrent babysit-pr sessions per installation (e.g., max 5 simultaneous). 5) Use GitHub's conditional requests (If-None-Match) to reduce quota consumption for unchanged resources.",
+      "rollback_plan": "Reduce polling frequency or pause babysit-pr sessions until rate limit resets (hourly).",
+      "needs_human_review": false
+    },
+    {
+      "id": "RISK-7",
+      "title": "State management complexity for PR-seeded pipeline IDs",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The issue proposes pr-{number} pipeline IDs for PR-seeded workflows. The existing pipeline state model uses issue-{N} IDs. Introducing a new ID scheme requires changes to state store, gateway session registration, health monitoring, and all components that parse pipeline IDs. Edge case: a PR may be linked to an issue — should it use issue-{N} or pr-{N}? Pipeline ID conflicts are possible if both an issue pipeline and a PR pipeline target the same branch.",
+      "affected_components": [
+        "orchestrator/models.py — Pipeline.id field",
+        "orchestrator/state_store.py — pipeline ID generation and lookup",
+        "gateway/session_manager.py — session.pipeline_id parsing",
+        "orchestrator/health_monitor.py — pipeline ID filtering"
+      ],
+      "mitigation": "1) Add source_mode field to Pipeline model (values: 'issue', 'pr', 'prompt') to distinguish pipeline origin without relying solely on ID prefix parsing. 2) Validate uniqueness: reject pipeline creation if an active pipeline already targets the same branch. 3) Document ID format contract and ensure all ID-parsing code uses the source_mode field rather than string prefix matching. 4) Add migration path for persisted pipeline state that predates the new fields.",
+      "rollback_plan": "If PR-seeded pipeline IDs cause state corruption, the affected pipelines can be individually deleted from the state store branch (egg/pipeline-state). Issue-based pipelines are unaffected.",
+      "needs_human_review": false
+    },
+    {
+      "id": "RISK-8",
+      "title": "Trusted prompt build pattern not portable to orchestrator-managed sessions",
+      "category": "security",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "MEDIUM",
+      "description": "The existing GitHub Actions workflows checkout main branch to build prompts from trusted source. This prevents prompt injection from PR branches. When babysit-pr runs inside the sandbox (not as a GitHub Action), it operates on the PR branch worktree — there is no 'checkout main' equivalent. The shared prompts in shared/prompts/ are available in the container, but they are mounted from the repo at container build time, which may be stale if main has been updated since the sandbox image was built.",
+      "affected_components": [
+        "sandbox/entrypoint.py — prompt loading",
+        "shared/prompts/ — review criteria, autofixer rules",
+        "babysit-pr module — prompt construction"
+      ],
+      "mitigation": "1) Mount shared prompts from the orchestrator's copy of the repo (not the agent's worktree) as a read-only volume. The orchestrator always has access to the latest main branch. 2) Alternatively, fetch prompt files from main via gateway's git operations before each agent session. 3) Mark prompt files as immutable in the container (read-only mount). 4) Include a hash verification step: compare prompt file hashes against known-good values from main.",
+      "rollback_plan": "Fall back to bundled prompts from container image (stale but safe). Accept version lag as a tradeoff for security.",
+      "needs_human_review": true,
+      "human_review_reason": "Prompt trust model is a security-critical design decision that affects all future orchestrator-managed workflows, not just #1014."
+    },
+    {
+      "id": "RISK-9",
+      "title": "Marker collision and state corruption between GitHub Actions and babysit-pr",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "Both the existing GitHub Actions workflows and babysit-pr use the same HTML comment markers in PR comments to track state (autofix retries, review commit SHAs, feedback iteration count). If both systems run on the same PR simultaneously — e.g., a CI failure triggers both the on-check-failure Action and babysit-pr's fix loop — they will compete for the same markers, potentially corrupting state or causing duplicate fixes.",
+      "affected_components": [
+        "Marker-based state: <!-- egg-autofix-state -->, <!-- egg-automated-review -->, <!-- egg-feedback-addressing -->",
+        "babysit-pr loop — marker reads/writes",
+        ".github/workflows/on-check-failure.yml — marker reads/writes"
+      ],
+      "mitigation": "1) Define mutual exclusion: when babysit-pr is active on a PR, GitHub Actions workflows should be suppressed. Implement via a PR label (e.g., 'egg:babysit-active') that Actions check before proceeding. 2) Alternatively, scope markers with a source identifier: <!-- egg-autofix-state source=actions --> vs <!-- egg-autofix-state source=babysit -->. 3) The simplest approach: babysit-pr disables Action-based automation on the PR when it starts (remove triggers or add skip label) and re-enables on exit.",
+      "rollback_plan": "Remove the babysit-active label to re-enable GitHub Actions workflows. Clear corrupted markers manually.",
+      "needs_human_review": true,
+      "human_review_reason": "The mutual exclusion strategy between Actions-based and orchestrator-based automation is an architectural decision with long-term implications."
+    },
+    {
+      "id": "RISK-10",
+      "title": "Coordinator crash recovery during PR-seeded sessions",
+      "category": "performance",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "If the coordinator crashes during a PR-seeded workflow, it must recover state about what agents are running, what fixes have been applied, and what the current loop iteration is. The coordinator's checkpoint-based recovery (from #1028) may lose in-flight state, causing duplicate fixes, skipped reviews, or orphaned agent containers.",
+      "affected_components": [
+        "orchestrator/container_spawner.py — container lifecycle tracking",
+        "coordinator — checkpoint recovery",
+        "orchestrator/state_store.py — pipeline state persistence"
+      ],
+      "mitigation": "1) Persist babysit-pr loop state in the pipeline state store (not just coordinator memory). Each iteration should commit its state before spawning agents. 2) On recovery, the coordinator reads pipeline state to determine current iteration, active containers, and last successful step. 3) Use idempotent operations: if a fix was already pushed, the next iteration detects the existing commit and skips re-fixing. 4) Implement container liveness checks on recovery — query Docker for running containers before spawning duplicates. 5) Cumulative guardrail counters must persist in state store, not coordinator memory (per #1028 risk assessment).",
+      "rollback_plan": "Manual cleanup of orphaned containers via orchestrator API. Pipeline state can be manually reset via state store.",
+      "needs_human_review": false
+    },
+    {
+      "id": "RISK-11",
+      "title": "Scope creep from consolidating GitHub Actions into shared modules",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "MEDIUM",
+      "description": "The issue proposes extracting core logic from GitHub Actions workflows (check fixer, reviewer, conflict resolver, feedback responder) into shared modules consumable by both Actions and babysit-pr. This consolidation is large and risky: the current workflows have battle-tested edge case handling (concurrency groups, marker management, reviewer bot identity switching, etc.) that may be lost or broken during extraction.",
+      "affected_components": [
+        ".github/workflows/reusable-*.yml — all reusable workflows",
+        "action/build-*.sh — prompt builders",
+        "shared/ — new shared modules",
+        "babysit-pr module — consumer of shared modules"
+      ],
+      "mitigation": "1) Phase the consolidation: babysit-pr v1 should call the existing bash scripts via subprocess (Option opt-1 from HITL decision-2). Full Python port is a separate task. 2) Maintain the GitHub Actions workflows as-is for v1 — no changes to the event-driven path. 3) Add integration tests that verify identical behavior between Actions-invoked and babysit-pr-invoked paths. 4) Extract incrementally: start with the simplest component (check-fixers.yml config loading) and validate before moving to complex components (prompt building, marker management).",
+      "rollback_plan": "Keep using bash scripts via subprocess. The GitHub Actions workflows remain unchanged and functional.",
+      "needs_human_review": false
+    },
+    {
+      "id": "RISK-12",
+      "title": "Signal handler race conditions inherited from #1028 blockers",
+      "category": "security",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "HIGH",
+      "description": "The #1028 risk assessment identified that orchestrator/routes/signals.py has ZERO lock usage across all four signal handlers (complete, progress, error, heartbeat), while the MultiAgentExecutor (40+ usages) and other components expect thread-safe state access. babysit-pr's fixer and reviewer agents will send signals concurrently, making race conditions in signal handling a near-certainty.",
+      "affected_components": [
+        "orchestrator/routes/signals.py — all signal handlers",
+        "orchestrator/routes/pipelines.py — pipeline state management"
+      ],
+      "mitigation": "This is a PREREQUISITE fix, not just a mitigation. Before #1014 implementation: 1) Add get_pipeline_state_lock() calls to all signal handlers in signals.py. 2) Add regression tests verifying lock usage under concurrent signal delivery. 3) This fix benefits all concurrent pipelines, not just #1014.",
+      "rollback_plan": "Not applicable — this must be fixed before #1014 work begins.",
+      "needs_human_review": true,
+      "human_review_reason": "Prerequisite fix that affects all concurrent agent execution, not just #1014."
+    },
+    {
+      "id": "RISK-13",
+      "title": "Reviewer read-only enforcement in babysit-pr context",
+      "category": "security",
+      "severity": "HIGH",
+      "likelihood": "LOW",
+      "impact": "HIGH",
+      "description": "In the GitHub Actions workflow, the reviewer agent is inherently read-only because the Actions workflow only gives it permission to post reviews via gh pr review. In babysit-pr, both fixer and reviewer run in sandbox containers with gateway sessions. If the reviewer's gateway session is misconfigured, it could gain push access, violating the separation of concerns between reviewing and fixing code.",
+      "affected_components": [
+        "gateway/session_manager.py — session role permissions",
+        "gateway/phase_filter.py — phase-based operation filtering",
+        "babysit-pr module — reviewer session configuration"
+      ],
+      "mitigation": "1) Define a new gateway phase/role for 'reviewer-readonly' that explicitly blocks git push, git commit, and only allows gh pr review and gh api (GET only). 2) The babysit-pr module must enforce that reviewer agents are spawned with the readonly role. 3) Add integration tests that verify reviewer agents cannot push even if they attempt to. 4) Consider using the existing SDLC phase restrictions (pr phase allows review but not code push) as a model.",
+      "rollback_plan": "Revoke reviewer agent's gateway session. Reviews are non-destructive — worst case is a bad review posted, which can be dismissed.",
+      "needs_human_review": true,
+      "human_review_reason": "Role-based access control extension for a new execution context."
+    }
+  ],
+  "risk_matrix": {
+    "critical": [],
+    "high": ["RISK-1", "RISK-3", "RISK-4", "RISK-8", "RISK-12"],
+    "medium": ["RISK-2", "RISK-5", "RISK-6", "RISK-7", "RISK-9", "RISK-10", "RISK-11", "RISK-13"],
+    "low": []
+  },
+  "prerequisites": [
+    {
+      "id": "PREREQ-1",
+      "description": "Fix signal handler locking in orchestrator/routes/signals.py",
+      "source_risk": "RISK-12",
+      "blocking": true,
+      "effort": "Small (add lock calls to 4 handlers + tests)"
+    },
+    {
+      "id": "PREREQ-2",
+      "description": "Complete #1028 coordinator implementation (for PR-seeded workflow only; babysit-pr standalone can proceed without)",
+      "source_risk": "DEP-2",
+      "blocking": true,
+      "effort": "Large (full coordinator implementation)"
+    },
+    {
+      "id": "PREREQ-3",
+      "description": "Add extra_env denylist to coordinator spawn endpoint (blocks privilege escalation)",
+      "source_risk": "DEP-2",
+      "blocking": true,
+      "effort": "Small (denylist validation + tests)"
+    }
+  ],
+  "recommended_implementation_order": [
+    {
+      "phase": 1,
+      "description": "Prerequisites and foundation",
+      "items": [
+        "Fix signal handler locking (PREREQ-1)",
+        "Design gateway session extension for PR branch access (RISK-1)",
+        "Define mutual exclusion strategy between Actions and babysit-pr (RISK-9)",
+        "Design reviewer-readonly gateway role (RISK-13)"
+      ]
+    },
+    {
+      "phase": 2,
+      "description": "babysit-pr standalone loop (no coordinator dependency)",
+      "items": [
+        "Implement babysit-pr as standalone Python loop (lightweight, no Claude session for orchestration)",
+        "Implement cost guardrails and iteration limits (RISK-3)",
+        "Use subprocess calls to existing bash prompt builders (RISK-11 mitigation)",
+        "Add concurrent push detection and handling (RISK-2)",
+        "Implement GitHub API rate-aware polling (RISK-6)"
+      ]
+    },
+    {
+      "phase": 3,
+      "description": "PR-seeded coordinator integration (requires #1028)",
+      "items": [
+        "Add pr_number and source_mode to Pipeline model (RISK-7)",
+        "Implement PR context ingestion with prompt injection defenses (RISK-4)",
+        "Mount trusted prompts from orchestrator (RISK-8)",
+        "Implement coordinator crash recovery for babysit-pr state (RISK-10)",
+        "Integration testing for full PR-seeded → babysit-pr flow"
+      ]
+    }
+  ],
+  "items_needing_human_review": [
+    {
+      "risk_id": "RISK-1",
+      "topic": "Gateway branch ownership extension for PR branches",
+      "reason": "Security boundary change: allowing agents to push to branches they don't own",
+      "suggested_reviewers": ["gateway maintainer", "security-aware engineer"]
+    },
+    {
+      "risk_id": "RISK-3",
+      "topic": "Cost guardrail defaults for babysit-pr sessions",
+      "reason": "Business decision: default budget, iteration limits, timeout values",
+      "suggested_reviewers": ["product owner", "platform team lead"]
+    },
+    {
+      "risk_id": "RISK-4",
+      "topic": "Prompt injection defense strategy for PR content",
+      "reason": "Active security research area; defense-in-depth strategy needs expert review",
+      "suggested_reviewers": ["security team", "agent prompt expert"]
+    },
+    {
+      "risk_id": "RISK-8",
+      "topic": "Trusted prompt delivery to orchestrator-managed agent sessions",
+      "reason": "Architectural decision affecting all future orchestrator workflows",
+      "suggested_reviewers": ["platform architect", "security team"]
+    },
+    {
+      "risk_id": "RISK-9",
+      "topic": "Mutual exclusion between GitHub Actions and babysit-pr automation",
+      "reason": "Architectural decision with long-term implications for automation strategy",
+      "suggested_reviewers": ["platform architect", "CI/CD maintainer"]
+    },
+    {
+      "risk_id": "RISK-12",
+      "topic": "Signal handler locking prerequisite fix",
+      "reason": "Affects all concurrent agent execution, not just #1014",
+      "suggested_reviewers": ["orchestrator maintainer"]
+    },
+    {
+      "risk_id": "RISK-13",
+      "topic": "Reviewer read-only enforcement in sandbox context",
+      "reason": "New role-based access control pattern for gateway",
+      "suggested_reviewers": ["gateway maintainer"]
+    }
+  ],
+  "rollback_strategy": {
+    "summary": "The phased implementation order enables incremental rollback. Each phase can be independently disabled without affecting the others.",
+    "steps": [
+      "Phase 3 rollback: Disable PR-seeded pipeline creation at orchestrator API level. Issue-based pipelines and standalone babysit-pr continue working.",
+      "Phase 2 rollback: Disable babysit-pr CLI command. GitHub Actions workflows (check fixer, reviewer, feedback responder) continue operating independently as they do today.",
+      "Phase 1 rollback: Prerequisite fixes (signal locking, gateway roles) are improvements that should not be rolled back. If gateway PR branch extension causes issues, disable babysit-pr sessions specifically."
+    ]
+  },
+  "note_on_architect_output": "The architect output for issue 1014 was not yet available at the time of this assessment. This risk analysis was conducted based on the issue description, the refine phase analysis (.egg-state/drafts/1014-analysis.md), the SDLC contract (.egg-state/contracts/1014.json), extensive codebase research (orchestrator, gateway, sandbox, shared prompts, GitHub Actions workflows), and prior risk assessments for dependencies #1027 and #1028. If the architect's output introduces additional components or architectural decisions, this risk assessment should be reviewed for completeness."
+}

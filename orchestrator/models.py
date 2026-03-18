@@ -24,6 +24,13 @@ class PipelineStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class PipelineMode(StrEnum):
+    """Pipeline execution mode."""
+
+    ISSUE = "issue"  # Standard issue-driven SDLC pipeline
+    BABYSIT = "babysit"  # PR babysit loop (review/fix cycle)
+
+
 class AgentExecutionStatus(StrEnum):
     """Status of an individual agent execution."""
 
@@ -387,6 +394,15 @@ class Pipeline(BaseModel):
     network_mode: str | None = Field(
         default=None,
         description="Network mode for spawned containers: 'public', 'private', or None (auto from pipeline mode)",
+    )
+    mode: PipelineMode = Field(
+        default=PipelineMode.ISSUE,
+        description="Pipeline execution mode: 'issue' for standard SDLC, 'babysit' for PR review/fix loop",
+    )
+    pr_number: int | None = Field(
+        default=None,
+        ge=1,
+        description="PR number for babysit mode pipelines",
     )
     error: str | None = Field(default=None, description="Error if failed")
     version: int = Field(

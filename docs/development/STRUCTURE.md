@@ -220,6 +220,24 @@ shared/
 │   ├── client.py           # run_agent(), run_agent_async() via claude-agent-sdk
 │   ├── command.py          # build_agent_command() for orchestrator-spawned containers
 │   └── result.py           # AgentResult dataclass
+├── egg_babysit/            # Autonomous PR review/fix loop (babysit-pr command)
+│   ├── __init__.py         # Public API exports
+│   ├── config.py           # BabysitConfig dataclass
+│   ├── types.py            # PRState, CICheckResult, ReviewVerdict, LoopStep
+│   ├── pr_state.py         # PR state poller via gh CLI
+│   ├── ci_waiter.py        # CI check waiter with configurable poll interval
+│   ├── loop.py             # Main babysit loop with step transitions
+│   ├── prompts.py          # Python wrappers for bash prompt builders
+│   ├── fixer.py            # Fixer agent spawner (conflict, check fix, feedback)
+│   ├── reviewer.py         # Reviewer agent spawner (read-only mode)
+│   ├── escalation.py       # HITL escalation (decision queue, notifications)
+│   ├── cli.py              # CLI entry point (egg babysit-pr)
+│   ├── __main__.py         # python -m egg_babysit support
+│   └── steps/              # Individual loop step implementations
+│       ├── conflict.py     # Merge conflict detection and resolution
+│       ├── check_fix.py    # CI check fixer (non-LLM first, then LLM)
+│       ├── review.py       # Code review posting
+│       └── feedback.py     # Review feedback addressing
 ├── egg_anchor/             # Agent anchor mechanism for post-compaction state recovery
 │   ├── __init__.py         # Public API exports
 │   ├── models.py           # Pydantic models (AgentAnchor, AnchorMeta, ProgressItem, Decision, BRCState)
