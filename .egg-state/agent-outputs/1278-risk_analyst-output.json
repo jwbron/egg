@@ -1,0 +1,191 @@
+{
+  "issue_number": 1278,
+  "phase": "plan",
+  "agent_role": "risk_analyst",
+  "timestamp": "2026-03-18T20:40:00Z",
+  "summary": "Risk assessment for replacing 8 GHA review workflows with a single-cycle babysit-pr pipeline using concurrent BRC consensus. Identified 8 risks across security, reliability, compatibility, and architecture categories. Two are HIGH severity: the one-shot cutover strategy with no rollback, and race conditions in the concurrent BRC execution model. Mitigations provided for all risks.",
+  "risks": [
+    {
+      "id": "RISK-01",
+      "title": "One-shot cutover with no rollback path",
+      "category": "reliability",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "The migration strategy calls for a one-shot cutover: a single PR that adds the babysit-pr cycle pipeline, deletes all 8 GHA workflow files, deletes 6 bash prompt builder scripts, and removes gha_exec(). If the new babysit-pr pipeline has a bug or edge case not covered by testing, ALL PR automation stops working simultaneously. There is no parallel operation period and no gradual rollback — reverting the PR re-enables the old workflows but requires a full revert commit plus re-deploy.",
+      "affected_components": [
+        ".github/workflows/on-pull-request.yml",
+        ".github/workflows/reusable-review.yml",
+        ".github/workflows/on-pull-request-contract-verify.yml",
+        ".github/workflows/on-pull-request-agent-mode-design.yml",
+        ".github/workflows/on-review-feedback.yml",
+        ".github/workflows/reusable-check-fixer.yml",
+        ".github/workflows/reusable-conflict-resolve.yml",
+        ".github/workflows/on-merge-conflict.yml",
+        "action/entrypoint.sh",
+        "sandbox/egg_lib/cli.py"
+      ],
+      "mitigation": "1. **Self-validate on cutover PR**: As the issue suggests, exercise the babysit-pr cycle against the cutover PR itself before merge. This provides end-to-end validation.\n2. **Feature flag or environment variable**: Add a kill switch (e.g., `EGG_BABYSIT_ENABLED`) that can disable the new pipeline and fall back to a no-op, giving operators time to manually re-enable old workflows via git revert if needed.\n3. **Keep old workflow files disabled, not deleted**: Instead of deleting the 8 workflow YAML files, rename them with a `.disabled` extension or move them to a `deprecated/` directory in the first PR. Delete them in a follow-up PR after the new pipeline is validated in production for 1-2 weeks.\n4. **Prepare a revert branch**: Before merge, create a `revert/pre-babysit` branch at the commit before the cutover so a one-command revert is ready.",
+      "rollback_plan": "Revert the cutover PR via `git revert` on the merge commit. This restores all 8 GHA workflow files and the bash prompt builders. Push the revert and verify GHA workflows trigger on the next PR event.",
+      "human_review_needed": true,
+      "human_review_reason": "The cutover strategy is a critical architectural decision. The issue explicitly chose one-shot cutover — the team should confirm they accept the risk or prefer a phased approach."
+    },
+    {
+      "id": "RISK-02",
+      "title": "Concurrent BRC race conditions between fixer and reviewer",
+      "category": "reliability",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The proposed model runs fixer (read-write) and reviewer (read-only) agents concurrently on the same PR branch. Race conditions arise when: (1) The reviewer reads code at HEAD while the fixer is mid-push, seeing partial state. (2) The reviewer posts a review on commit A, but the fixer has already pushed commit B, making the review stale immediately. (3) The reviewer NACKs based on stale code, triggering unnecessary fixer iterations. The existing babysit-pr loop runs sequentially (one agent at a time), so this is a new failure mode introduced by the concurrent BRC refactoring.",
+      "affected_components": [
+        "shared/egg_babysit/loop.py",
+        "shared/egg_babysit/fixer.py",
+        "shared/egg_babysit/reviewer.py",
+        "shared/egg_babysit/steps/"
+      ],
+      "mitigation": "1. **Head SHA gating**: Before the reviewer begins evaluation, capture the current HEAD SHA. After generating the review, verify HEAD hasn't changed. If it has, discard the review and re-read. This is already partially implemented in `pr_state.py` via `detect_head_sha_change()`.\n2. **Push-then-notify pattern**: The fixer sends a `PROGRESS` message via the BRC message bus after each push. The reviewer waits for this message before starting evaluation, ensuring it always reviews the latest state.\n3. **Review pinning**: Pin GitHub reviews to specific commit SHAs (the `EGG_COMMIT_SHA` env var pattern already exists in the codebase for this purpose).\n4. **Stale NACK detection**: If a NACK references a commit SHA that is no longer HEAD, the fixer should ignore it and wait for a fresh review.",
+      "rollback_plan": "Fall back to sequential execution by configuring the babysit-pr loop to disable BRC concurrency (set a config flag to run fixer and reviewer sequentially as the current implementation does).",
+      "human_review_needed": true,
+      "human_review_reason": "The concurrent BRC model is the core architectural change. The team should validate the race condition mitigations are sufficient before committing to this approach."
+    },
+    {
+      "id": "RISK-03",
+      "title": "Breaking external consumers of reusable workflows",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The `reusable-autofix.yml` header comment explicitly states it is 'kept for external repos that still reference it.' Deleting it breaks those external consumers with no warning. Additionally, `reusable-review.yml`, `reusable-check-fixer.yml`, and `reusable-conflict-resolve.yml` are callable via `workflow_call` and may have external consumers not documented in the codebase. Since these are reusable GitHub Actions workflows, external repos reference them by path — deletion causes immediate workflow failures in those repos.",
+      "affected_components": [
+        ".github/workflows/reusable-autofix.yml",
+        ".github/workflows/reusable-review.yml",
+        ".github/workflows/reusable-check-fixer.yml",
+        ".github/workflows/reusable-conflict-resolve.yml"
+      ],
+      "mitigation": "1. **Audit external consumers**: Before deleting any reusable workflow, search for references in external repos. Use `gh api search/code?q=reusable-review.yml+org:jwbron` or check the GitHub Actions 'used by' badge.\n2. **Deprecation period**: Keep reusable workflows that have external consumers. Add deprecation notices and a target removal date (e.g., 30 days). Post the deprecation to any shared channel external teams use.\n3. **Keep `reusable-autofix.yml` as-is**: Since the issue's scope is the 8 listed workflows and `reusable-autofix.yml` is explicitly out of scope, leave it untouched.\n4. **Stub workflows**: For deleted reusable workflows with external consumers, replace the content with a stub that posts a comment explaining the workflow was replaced and linking to migration docs.",
+      "rollback_plan": "Restore deleted workflow files from git history. External consumers will recover automatically on their next run.",
+      "human_review_needed": true,
+      "human_review_reason": "Need to identify which external repos reference these reusable workflows before deletion. This requires access to org-wide search."
+    },
+    {
+      "id": "RISK-04",
+      "title": "Review criteria loss during consolidation",
+      "category": "correctness",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "Three separate review workflows (base code review, contract verification, agent-mode design review) each have distinct review criteria and prompt templates. Consolidating them into a single reviewer agent role risks losing specialized criteria. The base review uses `shared/prompts/code-review-criteria.md`, contract verification has its own criteria in `build-contract-verification-prompt.sh` (including SDLC contract structure validation, phase gate compliance), and agent-mode design review checks agent autonomy patterns, tool access, and sandbox boundaries. If any criteria are omitted in the consolidated prompt, review quality degrades silently — no error, just weaker reviews.",
+      "affected_components": [
+        "action/build-review-prompt.sh",
+        "action/build-contract-verification-prompt.sh",
+        "action/build-agent-mode-design-review-prompt.sh",
+        "shared/prompts/code-review-criteria.md",
+        "shared/egg_babysit/prompts.py"
+      ],
+      "mitigation": "1. **Criteria inventory**: Before consolidation, create a comprehensive inventory of every review criterion from all three bash prompt builders. Diff this inventory against the consolidated Python prompt to verify completeness.\n2. **Conditional inclusion**: As suggested in the refine analysis (Decision 5, Option B), include contract verification criteria only when `sdlc:pr` label is present, and design review criteria only when relevant file paths are changed. This avoids prompt bloat while preserving all criteria.\n3. **Test with historical PRs**: Run the consolidated reviewer prompt against 3-5 historical PRs that were previously reviewed by each specialized reviewer. Compare the review output to verify no criteria gaps.\n4. **Reviewer sync guide**: The `shared/prompts/REVIEWER-SYNC.md` guide documents the single-source-of-truth for review criteria. Update it to reflect the consolidation.",
+      "rollback_plan": "Keep the three separate prompt builder Python functions in `prompts.py` and invoke them conditionally rather than merging into a single prompt. This preserves criteria separation while still using the new pipeline.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-05",
+      "title": "Pipeline deduplication gap — rapid pushes create duplicate cycles",
+      "category": "reliability",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "LOW",
+      "description": "The current GHA workflows use concurrency groups (`egg-$bot_name-$pr_number`) to cancel in-flight runs when a new push arrives. The orchestrator-based babysit-pr pipeline has no equivalent deduplication mechanism documented. Rapid pushes to a PR branch (e.g., a developer pushing multiple fixup commits) could spawn multiple concurrent babysit-pr cycles for the same PR, wasting resources and potentially creating conflicting reviews.",
+      "affected_components": [
+        "orchestrator/routes/pipelines.py",
+        "shared/egg_babysit/loop.py",
+        "shared/egg_babysit/pr_state.py"
+      ],
+      "mitigation": "1. **Pipeline ID deduplication**: Use `pr-{N}` as the pipeline ID (already documented in babysit-pr guide). The orchestrator should reject or cancel existing pipelines with the same ID before creating a new one.\n2. **Head SHA change detection**: The babysit-pr loop already has `detect_head_sha_change()` in `pr_state.py`. Extend this to abort the current cycle step and restart from the top when a new push is detected.\n3. **Debounce at trigger level**: If using a GHA workflow as the trigger (Decision 1, Option A), use GHA concurrency groups on the new trigger workflow to cancel stale triggers before they create pipelines.",
+      "rollback_plan": "N/A — this is a gap that needs to be addressed in the implementation, not a regression from the migration.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-06",
+      "title": "gha_exec() removal breaks GHA action for non-babysit use cases",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "impact": "HIGH",
+      "description": "The `gha_exec()` function in `sandbox/egg_lib/cli.py` is the primary execution path for the GitHub Action (`action/entrypoint.sh`). The issue says to 'remove gha_exec() from action/entrypoint.sh', but `gha_exec()` is also used by the GHA action for non-review tasks (e.g., any custom prompt passed via the `prompt` input). If `gha_exec()` is fully removed from `cli.py`, it breaks the GitHub Action entirely — not just the review workflows. The issue scope is replacing review workflows, not the entire GHA action.",
+      "affected_components": [
+        "sandbox/egg_lib/cli.py",
+        "sandbox/egg_lib/__init__.py",
+        "sandbox/egg_lib/runtime.py",
+        "action/entrypoint.sh"
+      ],
+      "mitigation": "1. **Scope the removal carefully**: Only remove the GHA workflow files and bash prompt builders that are being replaced. Keep `gha_exec()` functional for other GHA action use cases (custom prompts, non-review tasks).\n2. **Replace `claude --print` inside `gha_exec()` with Agent SDK**: Instead of removing `gha_exec()`, refactor it to use `build_agent_command()` from `egg_agent` instead of `claude --print`. This resolves the EGG100 linter contradiction without breaking the GHA action.\n3. **Audit callers**: The refine analysis identified 4 files referencing `gha_exec()`. Verify each caller's use case before modifying.",
+      "rollback_plan": "Restore `gha_exec()` from git history if removed too aggressively. The function is self-contained in `cli.py`.",
+      "human_review_needed": true,
+      "human_review_reason": "Need to clarify whether the intent is to remove gha_exec() entirely or just stop the review workflows from using it. This affects the GHA action's viability for non-review use cases."
+    },
+    {
+      "id": "RISK-07",
+      "title": "Security: prompt injection via untrusted PR branches",
+      "category": "security",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "impact": "HIGH",
+      "description": "The current bash prompt builders read configuration (like `check-fixers.yml`) from the trusted `main` branch via `git show origin/main:...` to prevent malicious PR branches from injecting arbitrary shell commands. The Python `prompts.py` in `shared/egg_babysit/` already implements this pattern (`_read_from_base_branch()` reads from `origin/{base_branch}`). However, during the consolidation, if new prompt assembly logic is added that reads from the working tree (PR branch) instead of the base branch, it could introduce a prompt injection vector. Additionally, the `build_feedback_fixer_prompt()` function in `prompts.py` includes review comments verbatim in the prompt — it has an 'untrusted content' warning but no sanitization beyond the warning.",
+      "affected_components": [
+        "shared/egg_babysit/prompts.py",
+        "shared/check-fixers.yml"
+      ],
+      "mitigation": "1. **Preserve base-branch reading pattern**: Any new prompt assembly code MUST read configuration from the base branch, not the PR branch. Review all `prompts.py` changes for this pattern.\n2. **Review comment sandboxing**: The `build_feedback_fixer_prompt()` already wraps review comments in `<review-comments>` tags with an untrusted content warning. Ensure the consolidated reviewer prompt maintains this sandboxing.\n3. **Security review gate**: Flag the prompt consolidation changes for explicit security review, specifically looking for any path that reads from the working tree.\n4. **Test with adversarial inputs**: Create a test PR with a malicious `check-fixers.yml` on the branch and verify the pipeline reads from `main` instead.",
+      "rollback_plan": "If a prompt injection is discovered post-merge, immediately revert the prompt consolidation changes and restore the bash prompt builders.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-08",
+      "title": "on-check-failure.yml orphaned by reusable-check-fixer.yml deletion",
+      "category": "correctness",
+      "severity": "LOW",
+      "likelihood": "HIGH",
+      "impact": "LOW",
+      "description": "The issue lists 8 workflows to replace but does not include `on-check-failure.yml`, which calls `reusable-check-fixer.yml` via `workflow_call`. Since `reusable-check-fixer.yml` IS being deleted, `on-check-failure.yml` will fail on every check failure event with a 'reusable workflow not found' error. The refine analysis flagged this (Decision 2) but it needs explicit resolution in the implementation plan.",
+      "affected_components": [
+        ".github/workflows/on-check-failure.yml",
+        ".github/workflows/reusable-check-fixer.yml"
+      ],
+      "mitigation": "1. **Delete `on-check-failure.yml` alongside its callee**: Since babysit-pr handles check fixing as part of its cycle, the separate check-failure trigger is redundant.\n2. **Add to the cutover PR scope**: Explicitly include `on-check-failure.yml` in the list of files to delete in the cutover PR.",
+      "rollback_plan": "Restore both `on-check-failure.yml` and `reusable-check-fixer.yml` together if reverted.",
+      "human_review_needed": false
+    }
+  ],
+  "areas_requiring_human_review": [
+    {
+      "area": "Cutover strategy (one-shot vs. phased)",
+      "reason": "RISK-01: One-shot cutover disables all PR automation simultaneously with no parallel operation period. Team must accept or modify this risk.",
+      "risk_ids": ["RISK-01"]
+    },
+    {
+      "area": "Concurrent BRC execution model",
+      "reason": "RISK-02: The sequential-to-concurrent refactoring introduces new race condition failure modes not present in the current implementation. Team should validate mitigations.",
+      "risk_ids": ["RISK-02"]
+    },
+    {
+      "area": "External reusable workflow consumers",
+      "reason": "RISK-03: Unknown external repos may reference reusable workflows being deleted. Org-wide audit needed before deletion.",
+      "risk_ids": ["RISK-03"]
+    },
+    {
+      "area": "gha_exec() removal scope",
+      "reason": "RISK-06: Clarify whether intent is full removal or just decoupling review workflows from gha_exec(). Full removal breaks the GHA action.",
+      "risk_ids": ["RISK-06"]
+    }
+  ],
+  "overall_risk_level": "HIGH",
+  "overall_assessment": "This is a high-complexity, cross-cutting architectural change that replaces 8+ GHA workflows and restructures the babysit-pr loop from sequential to concurrent BRC. The two highest risks are the one-shot cutover strategy (RISK-01) and concurrent BRC race conditions (RISK-02). Both are mitigable but require deliberate attention during implementation. The existing babysit-pr implementation in shared/egg_babysit/ is mature and well-structured, which reduces implementation risk for the prompt consolidation and pipeline wiring. The dependencies (#1014, #1027, #1028) are all closed/implemented, so there are no blocking external dependencies. The main concern is that the concurrent BRC refactoring is the most architecturally novel part — it should be implemented and tested independently before the cutover PR combines it with workflow deletion.",
+  "recommended_implementation_order": [
+    "1. Implement concurrent BRC refactoring of babysit-pr loop (RISK-02 mitigation: test in isolation)",
+    "2. Consolidate review criteria into Python prompts (RISK-04 mitigation: inventory and test)",
+    "3. Add pipeline deduplication mechanism (RISK-05 mitigation: prevent duplicate cycles)",
+    "4. Audit external workflow consumers (RISK-03 mitigation: identify before deletion)",
+    "5. Create cutover PR: add trigger, delete workflows, delete bash scripts (RISK-01: validate against itself)",
+    "6. Address gha_exec() separately based on human decision (RISK-06)"
+  ]
+}
