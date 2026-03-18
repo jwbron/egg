@@ -183,7 +183,9 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 **Purpose**: Verify acceptance criteria are met and all tasks are marked complete in the contract.
 
-**File access**: Same as `reviewer_code`.
+**File access**:
+- Allowed writes: `.egg-state/reviews/`, `.egg-state/agent-outputs/`, `.egg-state/contracts/`
+- Blocked: All source, docs, tests, drafts
 
 **Outputs**:
 - `.egg-state/reviews/{identifier}-implement-reviewer_contract-review.json` — Verdict file
