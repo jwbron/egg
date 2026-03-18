@@ -981,3 +981,92 @@ class TestFailedRecovery:
         # and once for _update_agents_complete.  If recovery also ran, it
         # would be 3.
         assert mock_lock.call_count == 2
+
+
+class TestUpdateAgentsCompleteContainerCleanup:
+    """Verify _update_agents_complete also marks containers EXITED (issue #1294)."""
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_consensus_marks_containers_exited(
+        self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
+    ):
+        """When consensus completes, RUNNING containers for completed agents are marked EXITED.
+
+        Regression test for issue #1294: stale RUNNING container entries caused the
+        container monitor to mark the pipeline FAILED during phase transition.
+        """
+        mock_monotonic.return_value = 10.0
+
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.TESTER, "tester-1"),
+        ]
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions)
+
+        # Set up a real pipeline object so we can inspect state mutations
+        real_pipeline = _make_concurrent_pipeline()
+        phase_exec = real_pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        phase_exec.status = PipelineStatus.RUNNING
+        phase_exec.started_at = datetime.utcnow()
+
+        # Add RUNNING agents with container IDs
+        for e in executions:
+            phase_exec.agents.append(
+                AgentExecution(
+                    role=e.role,
+                    status=AgentExecutionStatus.RUNNING,
+                    container_id=e.container_id,
+                    started_at=datetime.utcnow(),
+                )
+            )
+            phase_exec.containers.append(
+                ContainerInfo(
+                    container_id=e.container_id,
+                    container_name=f"issue-999-{e.role.value}",
+                    status=ContainerStatus.RUNNING,
+                    started_at=datetime.utcnow(),
+                )
+            )
+
+        mock_store.load_pipeline.return_value = real_pipeline
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = {
+            "is_complete": True,
+            "has_objections": False,
+            "blocking_agents": [],
+        }
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        assert exit_code == 0
+
+        # Agents should be marked COMPLETE
+        for agent in phase_exec.agents:
+            assert agent.status == AgentExecutionStatus.COMPLETE
+            assert agent.completed_at is not None
+
+        # Containers should be marked EXITED with exit_code=0 (issue #1294)
+        for ci in phase_exec.containers:
+            assert ci.status == ContainerStatus.EXITED, (
+                f"Container {ci.container_id} should be EXITED, got {ci.status}"
+            )
+            assert ci.exit_code == 0
+            assert ci.exited_at is not None
