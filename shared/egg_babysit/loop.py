@@ -27,6 +27,7 @@ from .types import (
     BabysitStep,
     CICheckStatus,
     LoopState,
+    PRState,
     ReviewVerdict,
 )
 
@@ -243,7 +244,7 @@ class BabysitLoop:
             message=f"Exceeded {self.config.max_iterations} iterations",
         )
 
-    def _fetch_pr_state(self):
+    def _fetch_pr_state(self) -> PRState | None:
         """Fetch PR state, returning None on error."""
         try:
             return get_full_pr_state(self.config.pr_number, self.config.repo)

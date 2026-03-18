@@ -95,7 +95,7 @@ def get_non_llm_fix_command(
     if isinstance(job_config, dict):
         command = job_config.get("non_llm_fix")
         if command and isinstance(command, str):
-            return command.strip()
+            return str(command.strip())
     return None
 
 
@@ -117,14 +117,14 @@ def get_max_retries(
         Maximum retry count.
     """
     defaults = config.get("defaults", {})
-    default_retries = defaults.get("max_retries", 3)
+    default_retries = int(defaults.get("max_retries", 3))
 
     workflows = config.get("workflows", {})
     workflow_config = workflows.get(workflow, {})
     job_config = workflow_config.get(job, {})
 
     if isinstance(job_config, dict):
-        return job_config.get("max_retries", default_retries)
+        return int(job_config.get("max_retries", default_retries))
     return default_retries
 
 

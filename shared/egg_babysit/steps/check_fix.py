@@ -7,6 +7,7 @@ Tracks per-job retry counts and escalates after max retries.
 
 import logging
 import os
+from typing import Any
 
 from ..config import BabysitConfig
 from ..fixer import run_fixer, run_non_llm_fix
@@ -139,7 +140,7 @@ def fix_failed_checks(
 
 def _match_job(
     job_name: str,
-    config: dict,
+    config: dict[str, Any],
 ) -> tuple[str, str]:
     """Match a CI job name to a workflow/job pair in check-fixers config.
 
