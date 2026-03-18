@@ -1,250 +1,194 @@
 # egg_babysit
 
-Autonomous PR review/fix loop that monitors a pull request through its lifecycle — resolving merge conflicts, fixing CI failures, posting code reviews, and addressing feedback — until the PR is merged or a timeout is reached.
+Automated PR lifecycle management -- monitors a GitHub pull request through CI checks, code review, and feedback resolution until it is merged, times out, or escalates to a human.
 
 ## Overview
 
-`egg_babysit` is a shared Python package that implements the `babysit-pr` workflow described in [issue #1014](https://github.com/jwbron/egg/issues/1014). It runs as a standalone CLI command or as a sub-task of the coordinator (#1028).
+`egg_babysit` implements the "babysit-pr" loop: a state machine that drives a PR from open to merged by automatically handling merge conflicts, CI failures, code review, and review feedback. At each step it spawns Claude agent sessions (via `egg_agent`) for LLM-powered fixes or falls back to non-LLM shell commands defined in `check-fixers.yml`. When the loop cannot make progress, it escalates to a human through the orchestrator HITL system, GitHub PR comments, and Slack notifications.
 
-The loop replicates the manual review/fix cycle demonstrated in [PR #1011](https://github.com/jwbron/egg/pull/1011), automating steps 1-9 of the typical PR lifecycle:
-
-1. Code pushed → CI checks run
-2. Failures detected → fixer applies corrections
-3. Reviews posted → feedback addressed
-4. Loop continues until PR merges or escalation
-
-## Quick Start
+## CLI Usage
 
 ```bash
-# Monitor a PR through its review/fix lifecycle
-egg babysit-pr 42
-
-# With options
-egg babysit-pr 42 --repo owner/repo --timeout 4h --max-iterations 10
+egg-babysit <PR_NUMBER> [options]
 ```
 
-## Architecture
+Can also be invoked as a module:
 
-```
-egg babysit-pr <PR>
-  └── Creates orchestrator pipeline (pr-{N}, mode: babysit)
-  └── Main loop (shared/egg_babysit/loop.py):
-        ┌──────────────────────────────────────┐
-        │  1. Check merge conflicts             │
-        │     → spawn fixer if dirty            │
-        │  2. Wait for CI checks                │
-        │     → poll gh pr checks               │
-        │  3. Fix failing checks                │
-        │     → non-LLM first, then LLM fixer  │
-        │  4. Wait for CI re-run                │
-        │  5. Post code review                  │
-        │     → read-only reviewer agent        │
-        │  6. Address review feedback            │
-        │     → fixer agent if changes requested│
-        │  7. Loop back to step 1               │
-        └──────────────────────────────────────┘
-  └── Exit when: merged | timeout | max iterations | HITL escalation
+```bash
+python -m egg_babysit <PR_NUMBER> [options]
 ```
 
-## Package Structure
+### Flags
 
-```
-shared/egg_babysit/
-├── __init__.py          # Public API: babysit(), BabysitConfig, BabysitLoop, type exports
-├── __main__.py          # python -m egg_babysit support
-├── cli.py               # CLI entry point (egg-babysit / egg babysit-pr)
-├── config.py            # BabysitConfig frozen dataclass
-├── types.py             # BabysitStep, BabysitExitReason, CICheckStatus, ReviewVerdict,
-│                        #   CICheckResult, PRState, LoopState, BabysitResult
-├── pr_state.py          # PR state poller via gh CLI (fetch_pr_state, fetch_ci_checks,
-│                        #   get_full_pr_state, detect_head_sha_change)
-├── ci_waiter.py         # CI check waiter with poll interval and stale detection
-├── loop.py              # BabysitLoop class and babysit() entry point
-├── prompts.py           # Prompt builders: load check-fixers.yml, build fixer/review prompts
-├── fixer.py             # Fixer agent spawner (FixerResult, run non-LLM and LLM fixes)
-├── reviewer.py          # Reviewer agent spawner (ReviewResult, read-only mode)
-├── escalation.py        # HITL escalation (orchestrator decisions, GitHub comments, Slack)
-├── steps/               # Individual loop step implementations
-│   ├── __init__.py      # Re-exports: fix_failed_checks, resolve_conflicts,
-│   │                    #   address_feedback, run_review
-│   ├── conflict.py      # Merge conflict detection and resolution
-│   ├── check_fix.py     # CI check fixer (non-LLM first, then LLM agent)
-│   ├── review.py        # Code review posting (ReviewStepResult)
-│   └── feedback.py      # Review feedback addressing
-└── README.md            # This file
-```
+| Flag | Default | Description |
+|------|---------|-------------|
+| `<PR_NUMBER>` | *(required)* | GitHub PR number to babysit |
+| `--repo OWNER/REPO` | auto-detected | Repository in `owner/repo` format. Parsed from `git remote -v` if omitted. |
+| `--timeout SECONDS` | `14400` (4h) | Maximum wall-clock time before timeout exit |
+| `--max-iterations N` | `10` | Maximum fix-check-review loop iterations |
+| `--poll-interval SECONDS` | `30` | Seconds between CI status polls |
+| `--max-retries N` | `3` | Default max retries per failing CI job |
+| `--max-feedback-rounds N` | `5` | Maximum rounds of review feedback addressing |
+| `--check-fixers PATH` | auto-detected | Path to `check-fixers.yml` config |
+| `--verbose`, `-v` | off | Enable debug logging |
 
-## Configuration
+### Exit Codes
 
-### BabysitConfig
+- `0` -- PR merged, escalated to human, or cancelled (valid outcomes)
+- `1` -- Timeout, max iterations exceeded, or error
 
-Frozen dataclass defined in `config.py`:
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `pr_number` | `int` | required | PR number to monitor |
-| `repo` | `str` | required | Repository in `owner/repo` format |
-| `timeout_seconds` | `int` | 14400 (4h) | Maximum wall-clock time in seconds |
-| `max_iterations` | `int` | 10 | Maximum loop iterations |
-| `poll_interval_seconds` | `int` | 30 | CI check poll interval in seconds |
-| `max_retries_per_job` | `int` | 3 | Max fix retries per failing CI job |
-| `max_feedback_rounds` | `int` | 5 | Max review/feedback rounds per iteration |
-| `check_fixers_path` | `str` | auto-detected | Path to `check-fixers.yml` |
-| `orchestrator_url` | `str` | auto-detected | Orchestrator API URL (from `EGG_ORCHESTRATOR_URL`) |
-| `pipeline_id` | `str` | auto-generated | Pipeline ID (defaults to `pr-{N}`) |
-
-### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `EGG_ORCHESTRATOR_URL` | Orchestrator API URL (for pipeline registration) |
-| `EGG_PIPELINE_ID` | Auto-set to `pr-{N}` when running via orchestrator |
-| `GATEWAY_URL` | Gateway sidecar URL (for `gh` CLI routing) |
-
-## How It Works
-
-### PR State Polling
-
-The `pr_state` module fetches PR metadata using `gh` CLI commands routed through the gateway:
-
-```python
-from egg_babysit.pr_state import get_full_pr_state, detect_head_sha_change
-
-# Fetch complete PR state (metadata + CI checks + review comments)
-state = get_full_pr_state(pr_number=42, repo="owner/repo")
-# state.merged           -> bool
-# state.mergeable_state  -> "clean" | "dirty" | "blocked" | "unknown"
-# state.has_conflicts     -> bool (property: mergeable_state == "dirty")
-# state.ci_checks        -> list[CICheckResult]
-# state.ci_status        -> CICheckStatus (aggregated property)
-# state.failed_checks    -> list[CICheckResult] (property: failing checks)
-# state.review_verdict   -> ReviewVerdict (approved/changes_requested/pending)
-# state.head_sha         -> str
-
-# Detect concurrent pushes
-changed = detect_head_sha_change(old_sha="abc123", new_state=state)
-```
-
-Internally, `get_full_pr_state()` combines three `gh` CLI calls:
-- `gh pr view --json ...` for PR metadata and review decision
-- `gh pr checks --json ...` for CI check statuses
-- `gh api repos/{owner}/{repo}/pulls/{N}/reviews` for review comment bodies
-
-### Agent Spawning
-
-Each fix/review step spawns a short-lived agent container via the orchestrator's `ContainerSpawner`:
-
-- **Fixer agents** get read-write access to the PR branch. They receive a prompt tailored to the fix type (conflict resolution, check fix, or feedback addressing) and push commits.
-- **Reviewer agents** run in read-only mode. They post GitHub reviews using `gh pr review` with the same prompts and criteria as `egg-reviewer`.
-
-### Check Fixing Strategy
-
-The check fixer follows a non-LLM-first strategy:
-
-1. Look up the failing job in `shared/check-fixers.yml` for a non-LLM fix command
-2. If a non-LLM fix exists, run it first (e.g., `make lint-fix` for lint failures)
-3. If the non-LLM fix doesn't resolve the issue, spawn an LLM fixer agent
-4. Track retries per job using `<!-- egg-autofix-state -->` HTML markers in PR comments
-5. Escalate to HITL after `max_retries_per_job` attempts
-
-### Retry Tracking
-
-Retry state is tracked via HTML comment markers on the PR, consistent with the existing GitHub Actions check fixer behavior:
-
-```html
-<!-- egg-autofix-state {"job":"lint","attempts":2,"max":3} -->
-```
-
-### HITL Escalation
-
-When the loop encounters an unrecoverable state:
-
-1. Creates a HITL decision via the orchestrator's `DecisionQueue`
-2. Posts a GitHub comment on the PR explaining the blocker
-3. Optionally sends a Slack notification via `notifications.slack_notify`
-4. Loop pauses until the decision is resolved, then resumes or exits
-
-### Exit Conditions
-
-| Condition | Behavior |
-|-----------|----------|
-| PR merged | Exit with success |
-| Timeout reached | Exit with timeout status |
-| Max iterations | Exit with iteration limit status |
-| HITL escalation (unresolved) | Pause, wait for human decision |
-| Agent crash (unrecoverable) | Exit with error, notify human |
-
-## Orchestrator Integration
-
-The CLI registers a pipeline with the orchestrator for observability:
-
-- **Pipeline ID**: `pr-{N}` (e.g., `pr-42`)
-- **Pipeline mode**: `babysit`
-- **State tracking**: Loop iteration, current step, per-job retry counts
-- **Health monitoring**: OverseerMonitor detects stalled loops
-- **Crash recovery**: Loop state persisted in pipeline state; restart resumes from saved position
-
-## Shared Components
-
-`egg_babysit` reuses existing egg infrastructure:
-
-| Component | Source | Usage |
-|-----------|--------|-------|
-| Check fixer config | `shared/check-fixers.yml` | Non-LLM fix commands, retry limits, model selection |
-| Review prompt builder | `action/build-review-prompt.sh` | Constructs review prompts from PR diff |
-| Check fixer prompt | `action/build-check-fixer-prompt.sh` | Constructs fix prompts from failure logs |
-| Review criteria | `shared/prompts/code-review-criteria.md` | Code review standards |
-| Autofixer rules | `shared/prompts/autofixer-rules.md` | Fix vs. report classification |
-| Container spawner | `orchestrator/container_spawner.py` | Agent container lifecycle |
-| Gateway sidecar | `gateway/` | Git/GitHub operations, credential injection |
-
-## Gateway Compatibility
-
-The gateway already allows pushing to PR branches when:
-
-- The bot has an open PR on that branch, OR
-- The push comes from a trusted user (`GATEWAY_TRUSTED_USERS` / `TRUSTED_BRANCH_OWNERS`)
-
-No gateway changes are required for core babysit-pr functionality.
-
-## Future: Coordinator Integration
-
-When the coordinator (#1028) is implemented, `egg_babysit` will be consumed as a sub-task:
-
-```
-Coordinator (PR-seeded task)
-  └── Assess PR state
-  └── Spawn agents as needed (coder, tester, documenter)
-  └── Enter babysit-pr mode (calls egg_babysit.loop.babysit())
-  └── Report completion
-```
-
-The loop module is designed as a standalone, importable component for this purpose. The `babysit()` function returns a `BabysitResult` synchronously:
+### Programmatic Usage
 
 ```python
 from egg_babysit import babysit, BabysitConfig
 
 config = BabysitConfig(pr_number=42, repo="owner/repo")
 result = babysit(config)
-print(result.exit_reason)  # "merged", "timeout", "escalated", etc.
+print(result.exit_reason)  # "merged", "timeout", etc.
 ```
 
-The `BabysitLoop` class can also be instantiated directly for more control over the loop lifecycle.
+## Configuration
 
-## Testing
+### BabysitConfig
 
-```bash
-# Unit tests
-pytest shared/tests/test_egg_babysit/ -v
+Frozen dataclass (`config.py`) with all loop parameters:
 
-# Integration tests (requires Docker)
-pytest integration_tests/test_babysit_pr/ -v
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `pr_number` | `int` | *(required)* | PR number to babysit |
+| `repo` | `str` | *(required)* | Repository in `owner/repo` format |
+| `timeout_seconds` | `int` | `14400` (4h) | Wall-clock timeout |
+| `max_iterations` | `int` | `10` | Max fix-check-review iterations |
+| `poll_interval_seconds` | `int` | `30` | CI poll interval |
+| `max_retries_per_job` | `int` | `3` | Max retries per failing CI job |
+| `max_feedback_rounds` | `int` | `5` | Max review feedback rounds |
+| `check_fixers_path` | `str` | `""` | Path to `check-fixers.yml`; auto-detected if empty |
+| `orchestrator_url` | `str` | `""` | Orchestrator URL; auto-detected from `EGG_ORCHESTRATOR_URL` |
+| `pipeline_id` | `str` | `""` | Pipeline ID; auto-generated as `pr-{N}` if empty |
+
+### Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `EGG_ORCHESTRATOR_URL` | Orchestrator API URL for progress events and escalation |
+| `EGG_PIPELINE_ID` | Pipeline ID; defaults to `pr-{N}` if unset |
+| `EGG_REPO_PATH` | Working directory for git remote auto-detection |
+
+### check-fixers.yml Integration
+
+Defines non-LLM fix commands and per-job retry limits for CI failures. The file is searched at:
+
+1. Explicit path from `--check-fixers` / `check_fixers_path`
+2. `.egg/check-fixers.yml` in the repo root
+
+When a CI job fails, the loop checks this config for a matching shell command (e.g., `make lint-fix` for lint failures) before spawning an LLM agent.
+
+## Architecture
+
+### Loop Lifecycle
+
+The `BabysitLoop` class (`loop.py`) implements a state machine that cycles through these steps:
+
+```
+CHECK_CONFLICTS --> WAIT_CI --> FIX_CHECKS --> WAIT_CI --> REVIEW --> ADDRESS_FEEDBACK
+      ^                                                                      |
+      |______________________________________________________________________|
 ```
 
-## Related Documentation
+Each iteration proceeds as follows:
 
-- [Issue #1014](https://github.com/jwbron/egg/issues/1014) — Feature specification
-- [PR #1011](https://github.com/jwbron/egg/pull/1011) — Reference implementation of the review/fix lifecycle
-- [Babysit-PR Guide](../../docs/guides/babysit-pr.md) — Operational guide
-- [GitHub Automation Guide](../../docs/guides/github-automation.md) — Related automation workflows
-- [SDLC Pipeline Guide](../../docs/guides/sdlc-pipeline.md) — Pipeline lifecycle
+1. **CHECK_CONFLICTS** -- Fetch PR state via `gh` CLI. If already merged or closed, exit immediately. If the PR has merge conflicts (`mergeable_state == "dirty"`), call `resolve_conflicts()` to spawn a fixer agent. Escalate if conflicts are unresolvable.
+
+2. **WAIT_CI** -- Poll CI check statuses at `poll_interval_seconds` via `wait_for_ci()`. The CI wait has a 30-minute cap (or remaining timeout, whichever is smaller). Stale checks (no status change after 20 consecutive polls) trigger escalation.
+
+3. **FIX_CHECKS** -- For each failing check, call `fix_failed_checks()` which attempts a non-LLM fix from `check-fixers.yml` first, then spawns an LLM fixer agent. Per-job retry counts are tracked in `LoopState.retry_counts`; escalation occurs when `max_retries_per_job` is exceeded.
+
+4. **WAIT_CI** (post-fix) -- Re-poll CI after fixes are pushed. If checks still fail, loop back to step 1 for the next iteration.
+
+5. **REVIEW** -- If all CI checks pass and the PR is not already approved, call `run_review()` to spawn a read-only reviewer agent that posts a GitHub review. If the review approves the PR, exit with `MERGED`.
+
+6. **ADDRESS_FEEDBACK** -- If the review requests changes, call `address_feedback()` to spawn a fixer agent that addresses review comments. Increment `feedback_rounds`; escalate when `max_feedback_rounds` is exceeded. Loop back to step 1.
+
+### Concurrent Push Detection
+
+On each iteration, the loop compares the PR's HEAD SHA against `LoopState.last_head_sha`. If the SHA changed (indicating an external push), per-job retry counts are reset to avoid penalizing fixes for a now-stale branch state.
+
+### Agent Sessions
+
+Sub-agents are spawned as subprocesses via `egg_agent.build_agent_command`:
+
+- **Fixer** (`fixer.py`) -- Read-write agent that fixes CI failures, resolves merge conflicts, or addresses review feedback. Supports both shell-command fixes and full LLM agent sessions.
+- **Reviewer** (`reviewer.py`) -- Read-only agent that reviews the PR diff and posts a GitHub review via `gh pr review`. Captures the review verdict from PR state after the agent completes.
+- **Prompt builder** (`prompts.py`) -- Constructs task-specific prompts for each agent role, incorporating `check-fixers.yml` config, failure logs, and review comments.
+
+### Orchestrator Integration
+
+When `EGG_ORCHESTRATOR_URL` is set, the loop integrates with the egg orchestrator:
+
+- **Startup** -- Registers the pipeline via `egg-orch progress emit --step babysit_start`
+- **Per-step progress** -- Emits structured progress events after each step (`conflict_resolution`, `fix_checks`, `review`, `address_feedback`) with working/blocked/complete states
+- **Escalation** -- Routes HITL escalations through the orchestrator's decision queue, GitHub PR comments, and Slack notifications (via `escalation.py`)
+
+All orchestrator calls are best-effort -- failures are logged at debug level but never interrupt the loop.
+
+### Signal Handling
+
+The loop installs `SIGTERM` and `SIGINT` handlers for graceful shutdown. On receipt, the `_cancelled` flag is set; the current iteration completes and the loop exits with `CANCELLED`.
+
+### Crash Recovery
+
+`LoopState` is a serializable dataclass tracking: iteration count, current step, last HEAD SHA, per-job retry counts, feedback round count, and ISO 8601 timestamps (`started_at`, `last_activity_at`). This state is designed for persistence so a coordinator can resume the loop from the last known position after a container restart.
+
+## Module Reference
+
+| Module | Description |
+|--------|-------------|
+| `__init__.py` | Public API exports: `babysit()`, `BabysitConfig`, `BabysitLoop`, and all type classes |
+| `config.py` | `BabysitConfig` frozen dataclass with all loop parameters |
+| `types.py` | Enums (`BabysitStep`, `BabysitExitReason`, `CICheckStatus`, `ReviewVerdict`) and data classes (`PRState`, `LoopState`, `CICheckResult`, `BabysitResult`) |
+| `cli.py` | CLI entry point: argument parsing, repo auto-detection from `git remote -v`, orchestrator pipeline registration |
+| `loop.py` | `BabysitLoop` state machine and `babysit()` convenience function |
+| `ci_waiter.py` | CI polling loop with configurable interval and stale-check detection (20-poll threshold) |
+| `pr_state.py` | PR metadata, CI status, and review verdict fetching via `gh` CLI JSON output |
+| `fixer.py` | `FixerResult` dataclass and agent spawner for CI fixes, conflict resolution, and feedback addressing |
+| `reviewer.py` | `ReviewResult` dataclass and read-only reviewer agent spawner |
+| `prompts.py` | Prompt construction for all agent types; `check-fixers.yml` loading and search path resolution |
+| `escalation.py` | Multi-channel HITL escalation: orchestrator decisions, GitHub PR comments, Slack notifications |
+| `steps/conflict.py` | Merge conflict detection and resolution step |
+| `steps/check_fix.py` | CI check fixer step (non-LLM first, then LLM agent) |
+| `steps/review.py` | Code review posting step |
+| `steps/feedback.py` | Review feedback addressing step |
+| `__main__.py` | `python -m egg_babysit` support |
+
+## Integration with Coordinator
+
+The `egg_babysit` package is designed to be consumed as a library by the future coordinator (#1028). The key integration points:
+
+- **`babysit(config)`** -- Single-function entry point. Pass a `BabysitConfig`, receive a `BabysitResult`. The coordinator calls this as a sub-task within a larger PR-seeded workflow.
+- **`BabysitLoop`** -- For finer control, instantiate the loop directly. The coordinator can inspect `loop.state` (a `LoopState` instance) between iterations or subclass `BabysitLoop` to override individual steps.
+- **`BabysitResult`** -- Structured result with `exit_reason`, `iterations`, `duration_seconds`, `last_step`, and `message`. The coordinator can branch on `exit_reason` to decide next actions (e.g., notify on escalation, retry on timeout).
+- **`LoopState`** -- Fully serializable state for crash recovery. The coordinator can persist this to disk and restore it across container restarts to resume the loop mid-iteration.
+- **Progress events** -- The loop emits `egg-orch progress` events at each step. The coordinator can consume these for dashboard reporting without modifying babysit internals.
+
+Expected coordinator flow:
+
+```
+Coordinator (PR-seeded task)
+  -> Assess PR state
+  -> Spawn agents as needed (coder, tester, documenter)
+  -> Enter babysit-pr mode: babysit(config)
+  -> Inspect BabysitResult, report completion or escalate
+```
+
+## Exit Conditions
+
+The loop exits and returns a `BabysitResult` when any of these conditions is met:
+
+| Exit Reason | Trigger | Exit Code |
+|-------------|---------|-----------|
+| `merged` | PR is merged, or PR is approved with all CI checks passing | 0 |
+| `timeout` | Wall-clock time exceeds `timeout_seconds` (default 4h) | 1 |
+| `max_iterations` | Iteration count exceeds `max_iterations` (default 10) | 1 |
+| `escalated` | Unresolvable merge conflicts, stale CI checks, per-job retry limit exceeded, or feedback round limit exceeded | 0 |
+| `error` | Unhandled exception or repeated failure to fetch PR state | 1 |
+| `cancelled` | `SIGTERM`/`SIGINT` received, or PR was closed without merging | 0 |
