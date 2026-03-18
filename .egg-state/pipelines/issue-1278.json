@@ -129,13 +129,20 @@
       "phase": "plan",
       "status": "running",
       "started_at": "2026-03-18T20:46:15.647994",
-      "work_started_at": null,
+      "work_started_at": "2026-03-18T20:46:15.671652",
       "completed_at": null,
       "containers": [],
       "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [],
+      "cycle_timings": [
+        {
+          "cycle": 0,
+          "started_at": "2026-03-18T20:46:15.671652",
+          "completed_at": null,
+          "commit_sha": "9ce213dfc6d531a1fe06bfcf1a39f500e74f70a9"
+        }
+      ],
       "artifacts": {},
       "error": null,
       "hitl_feedback": null,
@@ -162,11 +169,11 @@
     }
   ],
   "created_at": "2026-03-18T20:21:46.458052",
-  "updated_at": "2026-03-18T20:46:15.648351",
+  "updated_at": "2026-03-18T20:46:15.674100",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 16
+  "version": 17
 }
