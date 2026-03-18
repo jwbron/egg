@@ -107,7 +107,7 @@ See [Pipeline Health Monitoring Guide](../guides/pipeline-health-monitoring.md) 
 The orchestrator supports two pipeline modes:
 
 - **`issue`** (default): Standard SDLC pipeline triggered by a GitHub issue. Progresses through refine → plan → implement phases with structured agent teams.
-- **`babysit`**: PR review/fix loop triggered by `egg babysit-pr <PR>`. Runs a continuous polling loop (conflict fix → CI wait → check fix → review → feedback → loop) instead of phase-based progression. Pipeline ID uses `pr-{N}` format. See [Babysit-PR Guide](../guides/babysit-pr.md).
+- **`babysit`**: PR review/fix loop triggered by `egg-babysit <PR>`. Runs a continuous polling loop (conflict fix → CI wait → check fix → review → feedback → loop) instead of phase-based progression. Pipeline ID uses `pr-{N}` format. See [Babysit-PR Guide](../guides/babysit-pr.md).
 
 The `babysit` mode registers with the same orchestrator infrastructure (state store, health monitoring, HITL decision queue) but replaces phase-based progression with the review/fix loop from `shared/egg_babysit/loop.py`.
 

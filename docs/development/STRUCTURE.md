@@ -304,6 +304,12 @@ integration_tests/
 ├── test_policy_enforcement.py     # Policy enforcement tests
 ├── test_rate_limiting.py          # Rate limiting tests
 ├── test_stack_lifecycle.py        # Container lifecycle tests
+├── test_babysit_pr/               # Babysit-PR loop integration tests
+│   ├── conftest.py                # Fixtures for babysit-pr tests
+│   ├── test_cli.py                # CLI argument parsing and invocation tests
+│   ├── test_escalation.py         # HITL escalation flow tests
+│   ├── test_gateway.py            # Gateway interaction tests
+│   └── test_pipeline.py           # End-to-end babysit loop pipeline tests
 ├── deployment_validation/         # Deployment validation integration tests
 │   ├── __init__.py
 │   └── test_deployment_check_e2e.py  # End-to-end devserver lifecycle tests
