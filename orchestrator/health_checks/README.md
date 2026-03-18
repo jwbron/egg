@@ -143,6 +143,15 @@ Cross-references orchestrator state against Docker reality and contract state.
   3. COMPLETE agents with PENDING contract tasks → **DEGRADED**
 - Uses `worst_action` to determine aggregate severity
 
+### ConsensusStallCheck (`tier1/consensus_stall.py`)
+
+Detects BRC consensus-complete-but-phase-stuck conditions for concurrent execution phases.
+
+- **Triggers:** RUNTIME_TICK, ON_DEMAND
+- **DEGRADED** (+ ALERT): All agents confirmed but phase still RUNNING past grace period (default 60s)
+- **HEALTHY**: Pipeline not running, phase not using concurrent execution, within grace period, or consensus not yet complete
+- Recovery is driven by `ContainerMonitor._handle_consensus_stall_recovery()`: tracker reconstruction first, then aggressive agent/phase completion with optimistic locking
+
 ## Tier 2 Checks
 
 ### AgentInspectorCheck (`tier2/agent_inspector.py`)

@@ -130,6 +130,7 @@ orchestrator/
 │   │   ├── container_liveness.py   # Verify RUNNING containers exist in Docker
 │   │   ├── startup_state.py        # Post-startup reconciliation verification
 │   │   ├── phase_output.py         # Detect missing artifacts (commits, plans)
+│   │   ├── consensus_stall.py      # Detect BRC consensus-complete-but-phase-stuck
 │   │   └── state_consistency.py    # Cross-reference orchestrator state vs Docker vs contract
 │   └── tier2/              # Semantic checks (LLM-powered)
 │       └── agent_inspector.py   # Claude-powered agent progress analysis
