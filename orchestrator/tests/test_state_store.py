@@ -461,10 +461,14 @@ class TestPipelineIdValidation:
         with pytest.raises(InvalidPipelineIdError):
             _validate_pipeline_id("123")
 
+    def test_valid_pr_prefix(self):
+        """Test pipeline ID with pr- prefix is accepted (babysit mode)."""
+        _validate_pipeline_id("pr-123")  # Should not raise
+
     def test_invalid_wrong_prefix(self):
         """Test pipeline ID with wrong prefix is rejected."""
         with pytest.raises(InvalidPipelineIdError):
-            _validate_pipeline_id("pr-123")
+            _validate_pipeline_id("xyz-123")
 
     def test_invalid_special_characters(self):
         """Test pipeline ID with special characters is rejected."""

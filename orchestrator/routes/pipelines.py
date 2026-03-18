@@ -71,6 +71,7 @@ except ImportError:
         CycleTiming,
         DecisionStatus,
         Pipeline,
+        PipelineMode,
         PipelinePhase,
         PipelineStatus,
         ReviewVerdict,
@@ -591,6 +592,22 @@ def create_pipeline() -> tuple[Response, int]:
     repo = data.get("repo")
     branch = data.get("branch")
     prompt = data.get("prompt")
+    mode = data.get("mode", "issue")
+    pr_number = data.get("pr_number")
+
+    # Validate mode
+    valid_modes = {m.value for m in PipelineMode}
+    if mode not in valid_modes:
+        return make_error_response(
+            f"Invalid mode: {mode!r} (must be one of {sorted(valid_modes)})"
+        )
+
+    # Babysit mode requires pr_number
+    if mode == PipelineMode.BABYSIT:
+        if not pr_number:
+            return make_error_response("Missing pr_number (required for babysit mode)")
+        if not isinstance(pr_number, int) or pr_number < 1:
+            return make_error_response("pr_number must be a positive integer")
 
     if not repo:
         return make_error_response("Missing repo")
@@ -598,6 +615,11 @@ def create_pipeline() -> tuple[Response, int]:
     # Issue-driven pipelines require a branch; prompt-driven ones do not
     if issue_number and not branch:
         return make_error_response("Missing branch")
+
+    # Determine pipeline ID for babysit mode
+    pipeline_id = None
+    if mode == PipelineMode.BABYSIT:
+        pipeline_id = f"pr-{pr_number}"
 
     # Prompt-driven pipelines use the base EGG_REPO_PATH so that
     # list/get/start resolve to the same path.
@@ -617,7 +639,14 @@ def create_pipeline() -> tuple[Response, int]:
             config=data.get("config"),
             prompt=prompt,
             network_mode=network_mode,
+            pipeline_id=pipeline_id,
         )
+
+        # Set babysit mode fields on the pipeline
+        if mode == PipelineMode.BABYSIT:
+            pipeline.mode = PipelineMode.BABYSIT
+            pipeline.pr_number = pr_number
+            store.save_pipeline(pipeline, message=f"Set babysit mode for pr-{pr_number}")
 
         # Contract creation is deferred to _run_pipeline so it writes
         # into the per-pipeline worktree instead of the main repo.
