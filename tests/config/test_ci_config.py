@@ -36,7 +36,7 @@ class TestPytestConfigConsolidation:
             cfg = tomllib.load(f)
 
         testpaths = cfg["tool"]["pytest"]["ini_options"]["testpaths"]
-        expected = {"tests", "gateway/tests", "orchestrator/tests"}
+        expected = {"tests", "gateway/tests", "orchestrator/tests", "shared/tests"}
         assert set(testpaths) == expected, (
             f"testpaths={testpaths} does not match expected={expected}"
         )
@@ -75,10 +75,10 @@ class TestCIWorkflowConsistency:
         return (REPO_ROOT / "Makefile").read_text()
 
     def test_unit_job_runs_all_test_directories(self):
-        """The Makefile test target must include tests/, gateway/tests/, and orchestrator/tests/."""
+        """The Makefile test target must include all test directories."""
         makefile = self._load_makefile()
 
-        for test_dir in ["tests/", "gateway/tests/", "orchestrator/tests/"]:
+        for test_dir in ["tests/", "gateway/tests/", "orchestrator/tests/", "shared/tests/"]:
             assert test_dir in makefile, f"'{test_dir}' not found in Makefile test target"
 
     def test_unit_job_pythonpath_includes_orchestrator(self):

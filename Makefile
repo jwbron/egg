@@ -230,7 +230,7 @@ lint-custom:
 test: export PYTHONPATH := shared:gateway:orchestrator
 test: venv
 	@echo "==> Running unit tests..."
-	$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ -v $(PYTEST_ARGS)
+	$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ -v $(PYTEST_ARGS)
 
 security:
 	@echo "==> Running security scan..."
