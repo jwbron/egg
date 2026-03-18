@@ -210,6 +210,34 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
                     "Startup reconciliation: reconstructed consensus tracker",
                     pipeline_id=pipeline_id,
                 )
+
+                # If consensus was already complete before the restart,
+                # mark agents and phase COMPLETE so the pipeline can advance.
+                try:
+                    evaluation = tracker.evaluate()
+                    if evaluation.get("is_complete"):
+                        logger.warning(
+                            "Startup reconciliation: consensus already complete, "
+                            "marking phase complete for recovery",
+                            pipeline_id=pipeline_id,
+                        )
+                        from models import AgentExecutionStatus
+
+                        phase_exec = pipeline.phases.get(pipeline.current_phase.value)
+                        if phase_exec is not None:
+                            for agent in phase_exec.agents:
+                                if agent.status == AgentExecutionStatus.RUNNING:
+                                    agent.status = AgentExecutionStatus.COMPLETE
+                                    agent.completed_at = datetime.utcnow()
+                            phase_exec.status = PipelineStatus.COMPLETE
+                            phase_exec.completed_at = datetime.utcnow()
+                            store.save_pipeline(pipeline)
+                except Exception as eval_err:
+                    logger.warning(
+                        "Startup reconciliation: consensus evaluation failed",
+                        pipeline_id=pipeline_id,
+                        error=str(eval_err),
+                    )
     except ImportError:
         logger.debug("Peer consensus module not available for startup reconstruction")
     except Exception as e:

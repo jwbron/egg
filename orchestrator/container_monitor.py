@@ -5,13 +5,19 @@ Monitors sandbox container health and removes orphaned containers.
 Detects unhealthy/exited containers and triggers appropriate actions.
 """
 
+from __future__ import annotations
+
 import sys
 import threading
 import time
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from models import Pipeline
+    from state_store import StateStore
 
 # Add shared directory to path for logging
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -185,7 +191,8 @@ class ContainerMonitor:
                         docker_client=self.docker_client,
                         state_store=store,
                     )
-                    self._health_check_runner.run(ctx, HealthTrigger.RUNTIME_TICK)
+                    results = self._health_check_runner.run(ctx, HealthTrigger.RUNTIME_TICK)
+                    self._handle_consensus_stall_recovery(results, pipeline, store)
                 except Exception as per_pipeline_err:
                     logger.debug(
                         "RUNTIME_TICK health check failed for pipeline",
@@ -194,6 +201,148 @@ class ContainerMonitor:
                     )
         except Exception as exc:
             logger.debug("RUNTIME_TICK health check failed", error=str(exc))
+
+    def _handle_consensus_stall_recovery(
+        self,
+        results: list,
+        pipeline: Pipeline,
+        store: StateStore,
+    ) -> None:
+        """Drive phase transition recovery when consensus stall is detected.
+
+        Two-track recovery:
+        1. Attempt tracker reconstruction so the polling loop picks up consensus.
+        2. If reconstruction fails, aggressive recovery: reload the pipeline with
+           optimistic locking and mark agents/phase COMPLETE.
+        """
+        from health_checks.types import HealthStatus
+
+        for result in results:
+            if result.check_name != "consensus_stall":
+                continue
+            if result.status != HealthStatus.DEGRADED:
+                continue
+
+            details = result.details or {}
+            pipeline_id = details.get("pipeline_id")
+
+            # Track 1: attempt tracker reconstruction (moved from health check
+            # to keep the check purely diagnostic).
+            if self._attempt_tracker_reconstruction(pipeline_id, pipeline):
+                logger.info(
+                    "Consensus stall detected — tracker reconstructed, polling loop should recover",
+                    pipeline_id=pipeline_id,
+                )
+                return
+
+            # Track 2: aggressive recovery — mark agents and phase COMPLETE so
+            # the polling loop exits its wait.
+            logger.warning(
+                "Consensus stall detected — tracker reconstruction failed, "
+                "performing aggressive recovery",
+                pipeline_id=pipeline_id,
+            )
+            try:
+                from models import AgentExecutionStatus, PipelineStatus
+                from state_store import VersionConflictError
+
+                phase_key = details.get("phase")
+                if phase_key is None:
+                    return
+
+                # Reload pipeline for optimistic locking — the initial load may
+                # be stale after health checks and Redis queries.
+                fresh_pipeline = store.load_pipeline(pipeline_id)
+                original_version = fresh_pipeline.version
+
+                phase_exec = fresh_pipeline.phases.get(phase_key)
+                if phase_exec is None:
+                    return
+
+                # Phase already transitioned — recovery is unnecessary.
+                if phase_exec.status != PipelineStatus.RUNNING:
+                    logger.info(
+                        "Phase already transitioned, skipping aggressive recovery",
+                        pipeline_id=pipeline_id,
+                        phase=phase_key,
+                    )
+                    return
+
+                for agent in phase_exec.agents:
+                    if agent.status == AgentExecutionStatus.RUNNING:
+                        agent.status = AgentExecutionStatus.COMPLETE
+                        agent.completed_at = datetime.utcnow()
+                phase_exec.status = PipelineStatus.COMPLETE
+                phase_exec.completed_at = datetime.utcnow()
+
+                store.save_pipeline(fresh_pipeline, expected_version=original_version)
+                logger.info(
+                    "Aggressive consensus stall recovery complete",
+                    pipeline_id=pipeline_id,
+                    phase=phase_key,
+                )
+            except VersionConflictError:
+                # Another writer updated the pipeline concurrently.  Check
+                # whether the phase already transitioned (making recovery moot).
+                try:
+                    reloaded = store.load_pipeline(pipeline_id)
+                    reloaded_phase = reloaded.phases.get(phase_key)
+                    if reloaded_phase and reloaded_phase.status != PipelineStatus.RUNNING:
+                        logger.info(
+                            "Version conflict during recovery, but phase already transitioned",
+                            pipeline_id=pipeline_id,
+                            phase=phase_key,
+                        )
+                    else:
+                        logger.warning(
+                            "Version conflict during recovery, phase still running — "
+                            "will retry on next tick",
+                            pipeline_id=pipeline_id,
+                            phase=phase_key,
+                        )
+                except Exception:
+                    logger.warning(
+                        "Version conflict during recovery, re-check failed",
+                        pipeline_id=pipeline_id,
+                        exc_info=True,
+                    )
+            except Exception:
+                logger.warning(
+                    "Aggressive consensus stall recovery failed",
+                    pipeline_id=pipeline_id,
+                    exc_info=True,
+                )
+            return
+
+    @staticmethod
+    def _attempt_tracker_reconstruction(pipeline_id: str, pipeline: Pipeline) -> bool:
+        """Try to reconstruct the consensus tracker from messages.
+
+        Returns True if the tracker was successfully reconstructed (or already
+        existed), False otherwise.
+        """
+        try:
+            from peer_consensus import (
+                get_peer_consensus_tracker,
+                reconstruct_tracker_from_messages,
+            )
+            from review_graph import get_review_graph_for_phase
+
+            if get_peer_consensus_tracker(pipeline_id) is not None:
+                return True
+
+            current_phase = pipeline.current_phase
+            phase_value = current_phase.value
+            graph = get_review_graph_for_phase(phase_value, repo=pipeline.repo)
+            tracker = reconstruct_tracker_from_messages(pipeline_id, graph)
+            return tracker is not None
+        except Exception:
+            logger.debug(
+                "Tracker reconstruction failed",
+                pipeline_id=pipeline_id,
+                exc_info=True,
+            )
+            return False
 
     def _check_container(self, container: ContainerInfo) -> None:
         """Check a single container and emit events for changes.
