@@ -4,7 +4,7 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1014",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -207,10 +207,10 @@
         {
           "container_id": "1e05949c4daa20d210f28dbc7b4be46b143894b0b1ed4fa4ca7d332de57ff1eb",
           "container_name": "issue-1014-task_planner",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-03-18T03:18:58.610178",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-18T03:26:47.757037Z",
+          "exit_code": 143,
           "agent_role": "task_planner",
           "session_token": null
         },
@@ -346,9 +346,9 @@
     }
   ],
   "created_at": "2026-03-18T02:39:58.796747",
-  "updated_at": "2026-03-18T03:26:48.974842",
+  "updated_at": "2026-03-18T03:26:56.378279",
   "contract_synced": true,
   "network_mode": null,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 29
+  "version": 30
 }
