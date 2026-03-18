@@ -18,6 +18,7 @@ def address_feedback(
     config: BabysitConfig,
     review_comments: list[str],
     round_number: int,
+    elapsed: float = 0,
 ) -> StepResult:
     """Address review feedback on the PR.
 
@@ -64,7 +65,7 @@ def address_feedback(
         config.repo,
         review_comments,
     )
-    result = run_fixer(prompt, config, step_name=f"feedback_round_{round_number}")
+    result = run_fixer(prompt, config, step_name=f"feedback_round_{round_number}", elapsed=elapsed)
 
     if not result.success:
         logger.warning(

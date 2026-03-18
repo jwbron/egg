@@ -35,6 +35,7 @@ def run_fixer(
     prompt: str,
     config: BabysitConfig,
     step_name: str,
+    elapsed: float = 0,
 ) -> FixerResult:
     """Spawn a fixer agent to address an issue.
 
@@ -62,7 +63,7 @@ def run_fixer(
             cmd,
             capture_output=True,
             text=True,
-            timeout=_agent_timeout(config),
+            timeout=_agent_timeout(config, elapsed),
             cwd=_repo_path(config),
         )
 

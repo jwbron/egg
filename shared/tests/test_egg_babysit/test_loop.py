@@ -68,18 +68,22 @@ class TestBabysitLoop:
         assert result.exit_reason == BabysitExitReason.MAX_ITERATIONS
         assert result.iterations == 2
 
+    @patch("egg_babysit.loop.time.monotonic")
     @patch("egg_babysit.loop.get_full_pr_state")
     @patch("egg_babysit.loop.wait_for_ci")
     @patch("egg_babysit.loop.subprocess.run")
-    def test_loop_respects_timeout(self, mock_subprocess, mock_ci, mock_get_state):
+    def test_loop_respects_timeout(self, mock_subprocess, mock_ci, mock_get_state, mock_time):
         """Loop exits after timeout."""
         config = BabysitConfig(
             pr_number=42,
             repo="owner/repo",
-            timeout_seconds=0,
+            timeout_seconds=10,
             max_iterations=100,
             poll_interval_seconds=1,
         )
+        # First call sets _start_time (in __init__), subsequent calls return
+        # a value well past the timeout so the loop exits immediately.
+        mock_time.side_effect = [0.0] + [100.0] * 20
         mock_get_state.return_value = _make_pr_state()
         mock_ci.return_value = (CICheckStatus.PENDING, [])
 

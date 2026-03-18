@@ -123,6 +123,16 @@ class TestEscalateViaOrchestrator:
         assert "egg-contract" in call_args
 
     @patch("egg_babysit.escalation.subprocess.run")
+    def test_skips_when_only_pipeline_id(self, mock_run):
+        """Skips when pipeline_id is set but orchestrator_url is empty."""
+        from egg_babysit.escalation import _escalate_via_orchestrator
+
+        config = BabysitConfig(pr_number=42, repo="owner/repo", pipeline_id="pr-42")
+        _escalate_via_orchestrator(config, "reason", "context")
+
+        mock_run.assert_not_called()
+
+    @patch("egg_babysit.escalation.subprocess.run")
     def test_handles_file_not_found(self, mock_run, escalation_config):
         from egg_babysit.escalation import _escalate_via_orchestrator
 

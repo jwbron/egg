@@ -33,8 +33,8 @@ class TestDetectRepo:
         assert result == "owner/repo"
 
     @patch("egg_babysit.cli.subprocess.run")
-    def test_ssh_remote_not_supported(self, mock_run):
-        """SSH git@github.com:owner/repo format is not parsed (no github.com/ match)."""
+    def test_ssh_remote_colon_format(self, mock_run):
+        """SSH git@github.com:owner/repo format is correctly parsed."""
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout="origin\tgit@github.com:owner/repo.git (fetch)\n",
@@ -42,8 +42,7 @@ class TestDetectRepo:
 
         result = _detect_repo()
 
-        # Implementation splits on "github.com/" — SSH colon format doesn't match.
-        assert result == ""
+        assert result == "owner/repo"
 
     @patch("egg_babysit.cli.subprocess.run")
     def test_ssh_with_slash_format(self, mock_run):

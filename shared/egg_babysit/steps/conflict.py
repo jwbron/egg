@@ -34,6 +34,7 @@ class StepResult:
 def resolve_conflicts(
     config: BabysitConfig,
     pr_state: PRState,
+    elapsed: float = 0,
 ) -> StepResult:
     """Resolve merge conflicts on the PR.
 
@@ -58,7 +59,7 @@ def resolve_conflicts(
     )
 
     prompt = build_conflict_resolution_prompt(config.pr_number, config.repo)
-    result = run_fixer(prompt, config, step_name="conflict_resolution")
+    result = run_fixer(prompt, config, step_name="conflict_resolution", elapsed=elapsed)
 
     if not result.success:
         logger.warning(

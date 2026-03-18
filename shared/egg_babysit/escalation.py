@@ -109,8 +109,8 @@ def _escalate_via_orchestrator(
         reason: Escalation reason.
         context: Detailed context.
     """
-    if not config.orchestrator_url and not config.pipeline_id:
-        logger.debug("No orchestrator configured, skipping HITL decision")
+    if not config.orchestrator_url:
+        logger.debug("No orchestrator URL configured, skipping HITL decision")
         return
 
     try:

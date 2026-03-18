@@ -31,6 +31,25 @@ class BabysitConfig:
     orchestrator_url: str = ""
     pipeline_id: str = ""
 
+    def __post_init__(self) -> None:
+        """Validate configuration bounds."""
+        if self.timeout_seconds <= 0:
+            raise ValueError(f"timeout_seconds must be positive, got {self.timeout_seconds}")
+        if self.max_iterations <= 0:
+            raise ValueError(f"max_iterations must be positive, got {self.max_iterations}")
+        if self.poll_interval_seconds <= 0:
+            raise ValueError(
+                f"poll_interval_seconds must be positive, got {self.poll_interval_seconds}"
+            )
+        if self.max_retries_per_job < 0:
+            raise ValueError(
+                f"max_retries_per_job must be non-negative, got {self.max_retries_per_job}"
+            )
+        if self.max_feedback_rounds < 0:
+            raise ValueError(
+                f"max_feedback_rounds must be non-negative, got {self.max_feedback_rounds}"
+            )
+
 
 __all__ = [
     "BabysitConfig",

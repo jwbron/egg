@@ -75,6 +75,8 @@ class BabysitLoop:
         except Exception as exc:
             logger.error("Babysit loop error: %s", exc, exc_info=True)
             return self._result(BabysitExitReason.ERROR, message=str(exc))
+        finally:
+            self._restore_signal_handlers()
 
     def _loop(self) -> BabysitResult:
         """Inner loop implementation."""
@@ -117,7 +119,7 @@ class BabysitLoop:
 
             # Step 2: Check and resolve conflicts.
             if pr_state.has_conflicts:
-                conflict_result = resolve_conflicts(self.config, pr_state)
+                conflict_result = resolve_conflicts(self.config, pr_state, elapsed=self._elapsed())
                 self._emit_progress("conflict_resolution", conflict_result.success)
 
                 if conflict_result.escalate:
@@ -152,6 +154,7 @@ class BabysitLoop:
                     failed,
                     self.state.retry_counts,
                     base_branch=pr_state.base_branch,
+                    elapsed=self._elapsed(),
                 )
                 self._emit_progress("fix_checks", fix_result.success)
 
@@ -214,6 +217,7 @@ class BabysitLoop:
                         self.config,
                         review_result.comments,
                         self.state.feedback_rounds,
+                        elapsed=self._elapsed(),
                     )
                     self._emit_progress("address_feedback", feedback_result.success)
 
@@ -318,7 +322,13 @@ class BabysitLoop:
             logger.debug("Failed to emit progress: %s", exc)
 
     def _install_signal_handlers(self) -> None:
-        """Install signal handlers for graceful shutdown."""
+        """Install signal handlers for graceful shutdown.
+
+        Saves original handlers so they can be restored by
+        ``_restore_signal_handlers`` when the loop exits.
+        """
+        self._prev_sigterm = None
+        self._prev_sigint = None
 
         def _handle_signal(signum: int, frame: FrameType | None) -> None:
             sig_name = signal.Signals(signum).name
@@ -326,11 +336,21 @@ class BabysitLoop:
             self._cancelled = True
 
         try:
-            signal.signal(signal.SIGTERM, _handle_signal)
-            signal.signal(signal.SIGINT, _handle_signal)
+            self._prev_sigterm = signal.signal(signal.SIGTERM, _handle_signal)
+            self._prev_sigint = signal.signal(signal.SIGINT, _handle_signal)
         except (OSError, ValueError):
             # Cannot set signal handlers (e.g., not main thread).
             logger.debug("Could not install signal handlers")
+
+    def _restore_signal_handlers(self) -> None:
+        """Restore original signal handlers saved by ``_install_signal_handlers``."""
+        try:
+            if self._prev_sigterm is not None:
+                signal.signal(signal.SIGTERM, self._prev_sigterm)
+            if self._prev_sigint is not None:
+                signal.signal(signal.SIGINT, self._prev_sigint)
+        except (OSError, ValueError):
+            logger.debug("Could not restore signal handlers")
 
 
 def babysit(config: BabysitConfig) -> BabysitResult:

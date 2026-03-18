@@ -218,3 +218,10 @@ class TestBuildFeedbackFixerPrompt:
     def test_contains_pr_number(self):
         prompt = build_feedback_fixer_prompt(42, "owner/repo", ["comment"])
         assert "42" in prompt
+
+    def test_contains_untrusted_content_delimiter(self):
+        """Review comments are wrapped in delimiters and marked as untrusted."""
+        prompt = build_feedback_fixer_prompt(42, "owner/repo", ["Fix it"])
+        assert "<review-comments>" in prompt
+        assert "</review-comments>" in prompt
+        assert "untrusted" in prompt.lower()

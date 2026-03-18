@@ -28,6 +28,7 @@ def fix_failed_checks(
     failed_checks: list[CICheckResult],
     retry_counts: dict[str, int],
     base_branch: str = "main",
+    elapsed: float = 0,
 ) -> StepResult:
     """Fix failing CI checks.
 
@@ -42,6 +43,7 @@ def fix_failed_checks(
         failed_checks: List of failing CI check results.
         retry_counts: Mutable dict of job_name -> retry count. Updated in place.
         base_branch: PR target branch for loading repo config (default "main").
+        elapsed: Seconds already elapsed in the babysit loop.
 
     Returns:
         StepResult indicating success, failure, or escalation.
@@ -113,7 +115,7 @@ def fix_failed_checks(
                 [job_name],
                 repo_path=repo_path,
             )
-            result = run_fixer(prompt, config, step_name=f"check_fix:{job_name}")
+            result = run_fixer(prompt, config, step_name=f"check_fix:{job_name}", elapsed=elapsed)
             if result.success:
                 jobs_fixed.append(job_name)
             else:
@@ -148,8 +150,10 @@ def _match_job(
 ) -> tuple[str, str]:
     """Match a CI job name to a workflow/job pair in check-fixers config.
 
-    Uses case-insensitive substring matching since GitHub Actions job
-    names may differ from the config keys.
+    Uses a two-pass strategy: exact match first, then checks if the
+    config key is a substring of the job name. The reverse direction
+    (job name is substring of config key) is intentionally excluded to
+    prevent overly permissive matches (e.g., job "a" matching key "Java").
 
     Args:
         job_name: GitHub Actions job name.
@@ -161,11 +165,20 @@ def _match_job(
     workflows = config.get("workflows", {})
     job_lower = job_name.lower()
 
+    # First pass: exact match (case-insensitive).
     for workflow_name, jobs in workflows.items():
         if not isinstance(jobs, dict):
             continue
         for job_key in jobs:
-            if job_key.lower() in job_lower or job_lower in job_key.lower():
+            if job_key.lower() == job_lower:
+                return workflow_name, job_key
+
+    # Second pass: config key is a substring of the job name.
+    for workflow_name, jobs in workflows.items():
+        if not isinstance(jobs, dict):
+            continue
+        for job_key in jobs:
+            if job_key.lower() in job_lower:
                 return workflow_name, job_key
 
     return "", ""
@@ -218,9 +231,11 @@ def _commit_non_llm_fix(job_name: str, repo_path: str) -> bool:
             cwd=effective_path,
             check=True,
         )
-        # Push the fix.
+        # Push the fix with explicit remote and ref to avoid relying on
+        # git push defaults, which may fail or target the wrong branch
+        # in the gateway-restricted egg environment.
         subprocess.run(
-            ["git", "push"],
+            ["git", "push", "origin", "HEAD"],
             capture_output=True,
             text=True,
             timeout=60,

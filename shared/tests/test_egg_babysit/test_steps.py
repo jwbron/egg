@@ -220,6 +220,13 @@ class TestMatchJob:
         assert workflow == ""
         assert job == ""
 
+    def test_short_job_name_no_reverse_match(self):
+        """Short job names must not match via reverse substring (job in key)."""
+        config = {"workflows": {"Build": {"JavaScript": {}}}}
+        workflow, job = _match_job("a", config)
+        assert workflow == ""
+        assert job == ""
+
 
 # --- Review step tests ---
 

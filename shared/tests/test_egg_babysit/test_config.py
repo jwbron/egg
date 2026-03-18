@@ -65,3 +65,41 @@ class TestBabysitConfig:
             pr_number=42, repo="owner/repo", check_fixers_path="/path/to/config.yml"
         )
         assert config.check_fixers_path == "/path/to/config.yml"
+
+
+class TestBabysitConfigValidation:
+    """Tests for BabysitConfig bounds validation."""
+
+    def test_zero_timeout_raises(self):
+        with pytest.raises(ValueError, match="timeout_seconds must be positive"):
+            BabysitConfig(pr_number=42, repo="owner/repo", timeout_seconds=0)
+
+    def test_negative_timeout_raises(self):
+        with pytest.raises(ValueError, match="timeout_seconds must be positive"):
+            BabysitConfig(pr_number=42, repo="owner/repo", timeout_seconds=-1)
+
+    def test_zero_max_iterations_raises(self):
+        with pytest.raises(ValueError, match="max_iterations must be positive"):
+            BabysitConfig(pr_number=42, repo="owner/repo", max_iterations=0)
+
+    def test_zero_poll_interval_raises(self):
+        with pytest.raises(ValueError, match="poll_interval_seconds must be positive"):
+            BabysitConfig(pr_number=42, repo="owner/repo", poll_interval_seconds=0)
+
+    def test_negative_max_retries_raises(self):
+        with pytest.raises(ValueError, match="max_retries_per_job must be non-negative"):
+            BabysitConfig(pr_number=42, repo="owner/repo", max_retries_per_job=-1)
+
+    def test_negative_max_feedback_rounds_raises(self):
+        with pytest.raises(ValueError, match="max_feedback_rounds must be non-negative"):
+            BabysitConfig(pr_number=42, repo="owner/repo", max_feedback_rounds=-1)
+
+    def test_zero_retries_allowed(self):
+        """Zero retries is valid (disables retries)."""
+        config = BabysitConfig(pr_number=42, repo="owner/repo", max_retries_per_job=0)
+        assert config.max_retries_per_job == 0
+
+    def test_zero_feedback_rounds_allowed(self):
+        """Zero feedback rounds is valid (disables feedback)."""
+        config = BabysitConfig(pr_number=42, repo="owner/repo", max_feedback_rounds=0)
+        assert config.max_feedback_rounds == 0

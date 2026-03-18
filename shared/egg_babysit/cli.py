@@ -170,14 +170,16 @@ def _detect_repo() -> str:
         for line in result.stdout.splitlines():
             if "(fetch)" not in line:
                 continue
-            # Parse HTTPS URL: https://github.com/owner/repo.git
-            if "github.com/" in line:
-                parts = line.split("github.com/")
+            # Supports both HTTPS and SSH remote formats:
+            #   HTTPS: https://github.com/owner/repo.git
+            #   SSH:   git@github.com:owner/repo.git
+            if "github.com/" in line or "github.com:" in line:
+                # Normalize SSH colon format to slash for uniform parsing.
+                normalized = line.replace("github.com:", "github.com/")
+                parts = normalized.split("github.com/")
                 if len(parts) >= 2:
                     repo = parts[1].split()[0]
                     repo = repo.removesuffix(".git")
-                    # Handle SSH format: git@github.com:owner/repo.git
-                    repo = repo.lstrip(":")
                     if "/" in repo:
                         return repo
 
