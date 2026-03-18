@@ -131,8 +131,98 @@
       "started_at": "2026-03-18T20:46:15.647994",
       "work_started_at": "2026-03-18T21:10:09.697704",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "825977906e8bdec5e176c3b1d78f707055db194c4902cc25f0c77d0dd72d882d",
+          "container_name": "issue-1278-reviewer_plan",
+          "status": "running",
+          "started_at": "2026-03-18T21:10:37.030152",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_plan",
+          "session_token": null
+        },
+        {
+          "container_id": "a4ddf53136f1b352f14120b6be59933ee8b088776e84094ac2a9102379d6cd34",
+          "container_name": "issue-1278-task_planner",
+          "status": "running",
+          "started_at": "2026-03-18T21:10:37.030164",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "task_planner",
+          "session_token": null
+        },
+        {
+          "container_id": "ef527aa891bcbe4508a05a95bf552e0f41b189b1bb4dde7b7d4b46c10c10cd74",
+          "container_name": "issue-1278-risk_analyst",
+          "status": "running",
+          "started_at": "2026-03-18T21:10:37.030170",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "risk_analyst",
+          "session_token": null
+        },
+        {
+          "container_id": "9e21e16cd47c18860469485bed6940acb739903c63f26b51ca2700a03a927511",
+          "container_name": "issue-1278-architect",
+          "status": "running",
+          "started_at": "2026-03-18T21:10:37.030176",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "architect",
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "reviewer_plan",
+          "status": "running",
+          "container_id": "825977906e8bdec5e176c3b1d78f707055db194c4902cc25f0c77d0dd72d882d",
+          "started_at": "2026-03-18T21:10:37.030159",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "task_planner",
+          "status": "running",
+          "container_id": "a4ddf53136f1b352f14120b6be59933ee8b088776e84094ac2a9102379d6cd34",
+          "started_at": "2026-03-18T21:10:37.030167",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "risk_analyst",
+          "status": "running",
+          "container_id": "ef527aa891bcbe4508a05a95bf552e0f41b189b1bb4dde7b7d4b46c10c10cd74",
+          "started_at": "2026-03-18T21:10:37.030173",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "architect",
+          "status": "running",
+          "container_id": "9e21e16cd47c18860469485bed6940acb739903c63f26b51ca2700a03a927511",
+          "started_at": "2026-03-18T21:10:37.030178",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 1,
       "cycle_timings": [
@@ -192,11 +282,11 @@
     }
   ],
   "created_at": "2026-03-18T20:21:46.458052",
-  "updated_at": "2026-03-18T21:10:09.711348",
+  "updated_at": "2026-03-18T21:10:37.030257",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 27
+  "version": 28
 }
