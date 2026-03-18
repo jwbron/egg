@@ -34,7 +34,7 @@ python -m egg_babysit <PR_NUMBER> [options]
 
 ### Exit Codes
 
-- `0` -- PR merged, escalated to human, or cancelled (valid outcomes)
+- `0` -- PR merged, ready to merge, escalated to human, or cancelled (valid outcomes)
 - `1` -- Timeout, max iterations exceeded, or error
 
 ### Programmatic Usage
@@ -105,7 +105,7 @@ Each iteration proceeds as follows:
 
 4. **WAIT_CI** (post-fix) -- Re-poll CI after fixes are pushed. If checks still fail, loop back to step 1 for the next iteration.
 
-5. **REVIEW** -- If all CI checks pass and the PR is not already approved, call `run_review()` to spawn a read-only reviewer agent that posts a GitHub review. If the review approves the PR, exit with `MERGED`.
+5. **REVIEW** -- If all CI checks pass and the PR is not already approved, call `run_review()` to spawn a read-only reviewer agent that posts a GitHub review. If the review approves the PR, exit with `READY_TO_MERGE` (the loop does not merge PRs — a human or coordinator does).
 
 6. **ADDRESS_FEEDBACK** -- If the review requests changes, call `address_feedback()` to spawn a fixer agent that addresses review comments. Increment `feedback_rounds`; escalate when `max_feedback_rounds` is exceeded. Loop back to step 1.
 
@@ -186,7 +186,8 @@ The loop exits and returns a `BabysitResult` when any of these conditions is met
 
 | Exit Reason | Trigger | Exit Code |
 |-------------|---------|-----------|
-| `merged` | PR is merged, or PR is approved with all CI checks passing | 0 |
+| `merged` | PR is actually merged (detected via PR state) | 0 |
+| `ready_to_merge` | PR is approved with all CI checks passing — ready for human merge | 0 |
 | `timeout` | Wall-clock time exceeds `timeout_seconds` (default 4h) | 1 |
 | `max_iterations` | Iteration count exceeds `max_iterations` (default 10) | 1 |
 | `escalated` | Unresolvable merge conflicts, stale CI checks, per-job retry limit exceeded, or feedback round limit exceeded | 0 |

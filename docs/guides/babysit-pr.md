@@ -93,6 +93,7 @@ The coordinator calls `egg_babysit.loop.babysit()` directly, using the same loop
 | Condition | What Happens |
 |-----------|--------------|
 | **PR merged** | Loop exits with success status |
+| **PR approved + CI passing** | Loop exits with `ready_to_merge` — human or coordinator merges |
 | **Timeout** | Loop exits (default: 4 hours). Configurable via `--timeout` |
 | **Max iterations** | Loop exits (default: 10). Configurable via `--max-iterations` |
 | **HITL escalation** | Loop pauses. GitHub comment posted, Slack notification sent. Resumes after human decision |
