@@ -96,9 +96,11 @@ class OverseerMonitor:
         # HITL resolution propagation tracking
         self._hitl_resolution_pending: dict[str, float] = {}  # decision_id -> first-seen ts
         self._hitl_resolution_verified: set[str] = set()
+        self._hitl_resolution_alerted: set[str] = set()  # failures already alerted
 
-        # Cross-phase consistency: track phase transitions
+        # Cross-phase consistency: track phase transitions and deduplication
         self._last_phase_name: str | None = None
+        self._cross_phase_checked: set[tuple[str, str]] = set()
 
         # Oversight logging to .egg-state/oversight/
         self._oversight_dir = self._resolve_oversight_dir()
@@ -254,8 +256,9 @@ class OverseerMonitor:
             6. Route anomalies through classifier (with consensus context)
             7. Route classified results through decision maker / execute actions
             8. Check pipeline status for terminal state
-            9. Check for post-consensus stalls
-            10. Update self-monitoring
+            9. Cross-phase consistency (LLM-based, only on phase transitions)
+            10. Check for post-consensus stalls
+            11. Update self-monitoring
         """
         cycle_start = time.time()
 
@@ -307,9 +310,6 @@ class OverseerMonitor:
             for escalation in escalations:
                 await self.handle_escalation(escalation, consensus=consensus)
 
-            # 8a. Cross-phase consistency (LLM-based, only on phase transitions)
-            await self._check_cross_phase_consistency(current_phase, decisions, contract_data=None)
-
             # 8. Check pipeline status for terminal state
             if status in ("complete", "failed", "cancelled"):
                 self._log_oversight_event(
@@ -321,13 +321,19 @@ class OverseerMonitor:
                 self._running = False
                 self.write_health_summary()
 
-            # 9. Check for post-consensus stall
+            # 9. Cross-phase consistency (LLM-based, only on phase transitions)
+            if status not in ("complete", "failed", "cancelled"):
+                await self._check_cross_phase_consistency(
+                    current_phase, decisions, contract_data=None
+                )
+
+            # 10. Check for post-consensus stall
             await self._check_post_consensus_stall(consensus, status)
 
         except Exception:
             logger.exception("Error in overseer poll cycle")
 
-        # 10. Update self-monitoring
+        # 11. Update self-monitoring
         duration = time.time() - cycle_start
         self.self_monitor.record_poll_cycle(duration)
 
@@ -770,20 +776,26 @@ class OverseerMonitor:
                 continue
 
             work_duration: float | None = None
+            try:
+                import datetime as _dt
+
+                r = _dt.datetime.fromisoformat(resolved_at)
+            except (ValueError, TypeError):
+                continue
+
             for ct in cycle_timings:
                 started = ct.get("started_at")
                 completed = ct.get("completed_at")
-                if started and completed and started >= resolved_at:
-                    # Parse ISO timestamps into epoch seconds for comparison
-                    try:
-                        import datetime as _dt
-
-                        s = _dt.datetime.fromisoformat(started).timestamp()
-                        c = _dt.datetime.fromisoformat(completed).timestamp()
-                        work_duration = c - s
-                    except (ValueError, TypeError):
-                        pass
-                    break
+                if not started or not completed:
+                    continue
+                try:
+                    s = _dt.datetime.fromisoformat(started)
+                    c = _dt.datetime.fromisoformat(completed)
+                    if s >= r:
+                        work_duration = (c - s).total_seconds()
+                except (ValueError, TypeError):
+                    continue
+                break
 
             if work_duration is not None and work_duration < min_work:
                 message = (
@@ -804,8 +816,10 @@ class OverseerMonitor:
         """Detect pipeline status=failed when all agents show status=complete."""
         status = pipeline_data.get("status", "")
         if status != "failed":
-            # Not in failed state — reset tracking
+            # Not in failed state — reset tracking so alert can re-fire
+            # if the pipeline re-enters failed state later.
             self._status_inconsistency_first_seen = None
+            self._status_inconsistency_reported = False
             return
 
         if self._status_inconsistency_reported:
@@ -851,9 +865,11 @@ class OverseerMonitor:
         timeout = getattr(self.config, "overseer_hitl_propagation_timeout_seconds", 300)
         now = time.time()
 
+        # First pass: identify which decisions need a contract check
+        timed_out: list[tuple[str, float]] = []
         for d in decisions:
             did = d.get("id", "")
-            if did in self._hitl_resolution_verified:
+            if did in self._hitl_resolution_verified or did in self._hitl_resolution_alerted:
                 continue
             if d.get("decision_type") != "phase_gate":
                 continue
@@ -865,12 +881,17 @@ class OverseerMonitor:
                 continue
 
             elapsed = now - self._hitl_resolution_pending[did]
-            if elapsed < timeout:
-                continue
+            if elapsed >= timeout:
+                timed_out.append((did, elapsed))
 
-            # Timeout reached — check the contract
-            contract = await self._query_contract_data()
-            contract_decisions = contract.get("decisions", [])
+        if not timed_out:
+            return
+
+        # Single contract query for all timed-out decisions
+        contract = await self._query_contract_data()
+        contract_decisions = contract.get("decisions", [])
+
+        for did, elapsed in timed_out:
             propagated = any(
                 cd.get("id") == did and cd.get("status") == "resolved" for cd in contract_decisions
             )
@@ -895,7 +916,7 @@ class OverseerMonitor:
             )
             await self._create_hitl_decision("orchestrator", message)
             await self._send_slack_notification("orchestrator", message)
-            self._hitl_resolution_verified.add(did)
+            self._hitl_resolution_alerted.add(did)
             self._hitl_resolution_pending.pop(did, None)
 
     async def _check_cross_phase_consistency(
@@ -917,9 +938,13 @@ class OverseerMonitor:
         if current_phase_name == self._last_phase_name:
             return
 
-        # Phase changed — run consistency check
+        # Phase changed — run consistency check (deduplicate per transition pair)
         previous_phase = self._last_phase_name
         self._last_phase_name = current_phase_name
+
+        if (previous_phase, current_phase_name) in self._cross_phase_checked:
+            return
+        self._cross_phase_checked.add((previous_phase, current_phase_name))
 
         # Collect resolved decisions from prior phases
         prior_decisions = [
@@ -938,6 +963,9 @@ class OverseerMonitor:
             return
 
         result = await self._check_decision_consistency_cls(contract_data, prior_decisions)
+        # TODO: Propagate actual token count and cost from the classifier.
+        # Currently _call_classifier does not return usage metadata, so we
+        # record the call for tracking purposes with zero tokens/cost.
         self.self_monitor.record_llm_call("haiku", 0, 0.0)
 
         if not result.get("consistent", True) and result.get("confidence", 0) > 0.7:

@@ -246,10 +246,13 @@ async def check_decision_consistency(
     )
 
     raw = await _call_classifier(prompt, context)
-    result = _parse_json_or_fallback(
-        raw,
-        {"consistent": True, "concerns": [], "confidence": 0.5},
-    )
+    fallback = {"consistent": True, "concerns": [], "confidence": 0.5}
+    result = _parse_json_or_fallback(raw, fallback)
+    if result is fallback:
+        logger.warning(
+            "check_decision_consistency: LLM returned unparseable response, "
+            "using fail-open fallback (consistent=True, confidence=0.5)"
+        )
 
     _cache_put(key, result)
     return result

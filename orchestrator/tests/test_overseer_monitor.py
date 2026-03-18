@@ -1086,7 +1086,7 @@ class TestHitlResolutionPropagation:
         _run(monitor._check_hitl_resolution_propagation(decisions))
         monitor._create_hitl_decision.assert_awaited_once()
         monitor._send_slack_notification.assert_awaited_once()
-        assert "d-10" in monitor._hitl_resolution_verified
+        assert "d-10" in monitor._hitl_resolution_alerted
 
     def test_no_flag_when_propagated(self) -> None:
         """No flag when contract has the resolved decision."""
@@ -1251,3 +1251,129 @@ class TestCrossPhaseConsistency:
         _run(monitor._check_cross_phase_consistency({"current_phase": "implement"}, []))
 
         classifier.check_decision_consistency.assert_not_awaited()
+
+    def test_deduplicates_same_transition(self) -> None:
+        """Does not re-check the same phase transition pair."""
+        classifier = _MockClassifier()
+        classifier.check_decision_consistency = AsyncMock(
+            return_value={"consistent": False, "concerns": ["Issue"], "confidence": 0.9}
+        )
+
+        monitor = OverseerMonitor(
+            pipeline_id="test-crossphase-006",
+            config=_MockConfig(),
+            classifier=classifier,
+        )
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+        monitor._query_contract_data = AsyncMock(return_value={"tasks": [{"id": "t1"}]})
+        monitor._last_phase_name = "plan"
+
+        decisions = [{"id": "d-30", "status": "resolved", "phase": "plan", "resolution": "approve"}]
+
+        # First transition: plan -> implement
+        _run(monitor._check_cross_phase_consistency({"current_phase": "implement"}, decisions))
+        assert classifier.check_decision_consistency.await_count == 1
+
+        # Simulate oscillation back to plan, then to implement again
+        monitor._last_phase_name = "plan"
+        _run(monitor._check_cross_phase_consistency({"current_phase": "implement"}, decisions))
+
+        # Should not fire again for the same pair
+        assert classifier.check_decision_consistency.await_count == 1
+
+    def test_returns_early_when_contract_empty(self) -> None:
+        """Returns without calling classifier when contract query returns empty dict."""
+        classifier = _MockClassifier()
+        classifier.check_decision_consistency = AsyncMock()
+
+        monitor = OverseerMonitor(
+            pipeline_id="test-crossphase-007",
+            config=_MockConfig(),
+            classifier=classifier,
+        )
+        monitor._query_contract_data = AsyncMock(return_value={})
+        monitor._last_phase_name = "plan"
+
+        decisions = [{"id": "d-31", "status": "resolved", "phase": "plan", "resolution": "approve"}]
+
+        _run(monitor._check_cross_phase_consistency({"current_phase": "implement"}, decisions))
+
+        classifier.check_decision_consistency.assert_not_awaited()
+
+
+# ===================================================================
+# test_rerun_anomaly_missing_resolved_at
+# ===================================================================
+
+
+class TestRerunAnomalyMissingResolvedAt:
+    """Test _check_rerun_anomaly with missing or None resolved_at."""
+
+    def test_skips_missing_resolved_at(self) -> None:
+        """Decision with resolved_at=None is silently skipped."""
+        config = _MockConfig()
+        config.overseer_rerun_min_work_seconds = 60
+
+        monitor = OverseerMonitor(pipeline_id="test-rerun-missing-001", config=config)
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+
+        decisions = [
+            {
+                "id": "d-missing-1",
+                "decision_type": "phase_gate",
+                "resolution": "request_changes",
+                "content_changed": False,
+                "status": "resolved",
+                "resolved_at": None,
+            }
+        ]
+        phase_data = {
+            "phase_execution": {
+                "cycle_timings": [
+                    {
+                        "cycle": 1,
+                        "started_at": "2026-03-18T10:00:05",
+                        "completed_at": "2026-03-18T10:00:15",
+                    }
+                ]
+            }
+        }
+
+        _run(monitor._check_rerun_anomaly(decisions, phase_data))
+        monitor._create_hitl_decision.assert_not_awaited()
+
+    def test_skips_absent_resolved_at_key(self) -> None:
+        """Decision without resolved_at key is silently skipped."""
+        config = _MockConfig()
+        config.overseer_rerun_min_work_seconds = 60
+
+        monitor = OverseerMonitor(pipeline_id="test-rerun-missing-002", config=config)
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+
+        decisions = [
+            {
+                "id": "d-missing-2",
+                "decision_type": "phase_gate",
+                "resolution": "request_changes",
+                "content_changed": False,
+                "status": "resolved",
+                # no resolved_at key at all
+            }
+        ]
+        phase_data = {
+            "phase_execution": {
+                "cycle_timings": [
+                    {
+                        "cycle": 1,
+                        "started_at": "2026-03-18T10:00:05",
+                        "completed_at": "2026-03-18T10:00:15",
+                    }
+                ]
+            }
+        }
+
+        _run(monitor._check_rerun_anomaly(decisions, phase_data))
+        monitor._create_hitl_decision.assert_not_awaited()
