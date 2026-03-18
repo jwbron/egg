@@ -197,9 +197,10 @@ def _commit_non_llm_fix(job_name: str, repo_path: str) -> bool:
         if not status.stdout.strip():
             return False
 
-        # Stage and commit.
+        # Stage only tracked modified files (git add -u) to avoid
+        # accidentally staging sensitive untracked files like .env.
         subprocess.run(
-            ["git", "add", "-A"],
+            ["git", "add", "-u"],
             capture_output=True,
             text=True,
             timeout=10,

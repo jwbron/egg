@@ -161,13 +161,21 @@ def _repo_path(config: BabysitConfig) -> str:
     return os.environ.get("EGG_REPO_PATH", ".")
 
 
-def _agent_timeout(config: BabysitConfig) -> int:
+def _agent_timeout(config: BabysitConfig, elapsed: float = 0) -> int:
     """Calculate agent subprocess timeout.
 
     Uses half the remaining babysit timeout to leave room for other
     operations, with a minimum of 300 seconds.
+
+    Args:
+        config: Babysit configuration.
+        elapsed: Seconds already elapsed in the babysit loop.
+
+    Returns:
+        Timeout in seconds for the agent subprocess.
     """
-    return max(300, config.timeout_seconds // 2)
+    remaining = max(0, config.timeout_seconds - int(elapsed))
+    return max(300, remaining // 2)
 
 
 __all__ = [

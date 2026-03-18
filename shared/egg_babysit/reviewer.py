@@ -53,7 +53,15 @@ def run_reviewer(
     logger.info("Spawning reviewer agent for PR #%d", config.pr_number)
 
     # Build agent command. Reviewer uses sonnet for cost efficiency.
-    cmd = build_agent_command(prompt, model="sonnet", max_turns=100)
+    # Add read-only instruction to the prompt to enforce no-push behavior.
+    readonly_prompt = (
+        "IMPORTANT: You are running in READ-ONLY review mode. "
+        "Do NOT run git push, git commit, or modify any files. "
+        "Your only job is to review code and post a GitHub review via "
+        "`gh pr review`.\n\n"
+        + prompt
+    )
+    cmd = build_agent_command(readonly_prompt, model="sonnet", max_turns=100)
 
     try:
         result = subprocess.run(

@@ -42,6 +42,7 @@ class TestBabysitExitReason:
     def test_all_values(self):
         assert set(BabysitExitReason) == {
             BabysitExitReason.MERGED,
+            BabysitExitReason.READY_TO_MERGE,
             BabysitExitReason.TIMEOUT,
             BabysitExitReason.MAX_ITERATIONS,
             BabysitExitReason.ESCALATED,

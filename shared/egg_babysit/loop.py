@@ -172,11 +172,11 @@ class BabysitLoop:
                     return self._result(BabysitExitReason.MERGED, message="PR merged")
 
                 if pr_state and pr_state.review_verdict == ReviewVerdict.APPROVED:
-                    logger.info("PR #%d already approved and CI passing", self.config.pr_number)
+                    logger.info("PR #%d approved and CI passing — ready for merge", self.config.pr_number)
                     self._set_step(BabysitStep.DONE)
                     return self._result(
-                        BabysitExitReason.MERGED,
-                        message="PR approved with all checks passing",
+                        BabysitExitReason.READY_TO_MERGE,
+                        message="PR approved with all checks passing — ready for merge",
                     )
 
                 self._set_step(BabysitStep.REVIEW)
@@ -184,11 +184,11 @@ class BabysitLoop:
                 self._emit_progress("review", review_result.success)
 
                 if review_result.verdict == ReviewVerdict.APPROVED:
-                    logger.info("PR #%d approved by reviewer", self.config.pr_number)
+                    logger.info("PR #%d approved by reviewer — ready for merge", self.config.pr_number)
                     self._set_step(BabysitStep.DONE)
                     return self._result(
-                        BabysitExitReason.MERGED,
-                        message="PR approved with all checks passing",
+                        BabysitExitReason.READY_TO_MERGE,
+                        message="PR approved with all checks passing — ready for merge",
                     )
 
                 # Step 6: Address review feedback.

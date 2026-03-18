@@ -138,8 +138,8 @@ class TestBabysitLoop:
         loop = BabysitLoop(config)
         result = loop.run()
 
-        # PR approved + CI passing = MERGED exit
-        assert result.exit_reason == BabysitExitReason.MERGED
+        # PR approved + CI passing = READY_TO_MERGE exit (not merged yet)
+        assert result.exit_reason == BabysitExitReason.READY_TO_MERGE
 
     def test_loop_state_tracking(self, fast_config):
         """Verify LoopState is properly initialized."""

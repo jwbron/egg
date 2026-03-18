@@ -24,6 +24,7 @@ class BabysitExitReason(StrEnum):
     """Reasons the babysit loop can exit."""
 
     MERGED = "merged"
+    READY_TO_MERGE = "ready_to_merge"
     TIMEOUT = "timeout"
     MAX_ITERATIONS = "max_iterations"
     ESCALATED = "escalated"
