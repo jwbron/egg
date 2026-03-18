@@ -1378,6 +1378,216 @@ class TestInlineRequestChangesStateReset:
         assert d1.content_changed is None
 
 
+class TestPhaseGateResolutionPersistence:
+    """Verify _persist_phase_gate_resolution propagates context to contract and draft."""
+
+    def _make_decision(self, resolution, phase="refine"):
+        from models import DecisionStatus, HITLDecision, PipelinePhase
+
+        return HITLDecision(
+            id="gate-1",
+            question="Approve refine phase?",
+            decision_type="phase_gate",
+            status=DecisionStatus.RESOLVED,
+            resolution=resolution,
+            phase=PipelinePhase(phase),
+            options=["approve", "request changes"],
+        )
+
+    def test_phase_gate_resolution_persisted_to_contract(self, tmp_path):
+        """After a phase gate approval with context, the contract should contain the resolution."""
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract
+        from routes.pipelines import _persist_phase_gate_resolution
+
+        # Set up a minimal contract
+        contract = Contract(pipeline_id="test-pipe")
+        save_contract(contract, tmp_path)
+
+        decision = self._make_decision(
+            json.dumps({"action": "approve", "context": "Use the adapter pattern for the refactor"})
+        )
+
+        _persist_phase_gate_resolution(
+            tmp_path,
+            "test-pipe",
+            decision,
+            "refine",
+            None,
+        )
+
+        updated = load_contract("test-pipe", tmp_path)
+        assert len(updated.decisions) == 1
+        assert updated.decisions[0].resolution == "Use the adapter pattern for the refactor"
+        assert "[Phase gate: refine]" in updated.decisions[0].question
+        assert updated.decisions[0].resolved is True
+        # Verify options were mapped to DecisionOption objects
+        assert len(updated.decisions[0].options) == 2
+        assert updated.decisions[0].options[0].label == "approve"
+        assert updated.decisions[0].options[1].label == "request changes"
+
+    def test_phase_gate_resolution_appended_to_draft(self, tmp_path):
+        """The draft file should get a HITL Resolution section appended.
+
+        Note: No contract is set up intentionally — this tests the draft append
+        path in isolation.  The contract sync silently fails via the except
+        handler, which is the expected behaviour when no contract exists.
+        """
+        from routes.pipelines import _persist_phase_gate_resolution
+
+        # Create a draft file (no contract — tests draft append in isolation)
+        draft_dir = tmp_path / ".egg-state" / "drafts"
+        draft_dir.mkdir(parents=True)
+        draft_path = draft_dir / "test-pipe-analysis.md"
+        draft_path.write_text("# Refine Draft\n\nSome analysis content.\n")
+
+        decision = self._make_decision(
+            json.dumps({"action": "approve", "context": "Focus on error handling improvements"})
+        )
+
+        _persist_phase_gate_resolution(
+            tmp_path,
+            "test-pipe",
+            decision,
+            "refine",
+            None,
+        )
+
+        content = draft_path.read_text()
+        assert "## HITL Resolution" in content
+        assert "Focus on error handling improvements" in content
+
+    def test_phase_gate_resolution_no_context_skipped(self, tmp_path):
+        """When resolution is structured JSON with no context/feedback, nothing is persisted."""
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract
+        from routes.pipelines import _persist_phase_gate_resolution
+
+        contract = Contract(pipeline_id="test-pipe")
+        save_contract(contract, tmp_path)
+
+        # Resolution with action but no context or feedback — should be skipped
+        decision = self._make_decision('{"action": "approve"}')
+
+        _persist_phase_gate_resolution(
+            tmp_path,
+            "test-pipe",
+            decision,
+            "refine",
+            None,
+        )
+
+        # No decisions persisted — approve without context has nothing meaningful to propagate
+        updated = load_contract("test-pipe", tmp_path)
+        assert len(updated.decisions) == 0
+
+    def test_phase_gate_resolution_plain_text(self, tmp_path):
+        """When resolution is a plain string (not JSON), it should be used as-is."""
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract
+        from routes.pipelines import _persist_phase_gate_resolution
+
+        contract = Contract(pipeline_id="test-pipe")
+        save_contract(contract, tmp_path)
+
+        decision = self._make_decision("approve")
+
+        _persist_phase_gate_resolution(
+            tmp_path,
+            "test-pipe",
+            decision,
+            "refine",
+            None,
+        )
+
+        updated = load_contract("test-pipe", tmp_path)
+        assert len(updated.decisions) == 1
+        assert updated.decisions[0].resolution == "approve"
+
+    def test_phase_gate_resolution_deduplication(self, tmp_path):
+        """Calling twice with the same decision should not create duplicate entries."""
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract
+        from routes.pipelines import _persist_phase_gate_resolution
+
+        contract = Contract(pipeline_id="test-pipe")
+        save_contract(contract, tmp_path)
+
+        decision = self._make_decision(
+            json.dumps({"action": "approve", "context": "Use adapter pattern"})
+        )
+
+        _persist_phase_gate_resolution(
+            tmp_path,
+            "test-pipe",
+            decision,
+            "refine",
+            None,
+        )
+        _persist_phase_gate_resolution(
+            tmp_path,
+            "test-pipe",
+            decision,
+            "refine",
+            None,
+        )
+
+        updated = load_contract("test-pipe", tmp_path)
+        assert len(updated.decisions) == 1
+
+    def test_phase_gate_resolution_empty_resolution_skipped(self, tmp_path):
+        """Empty/None resolution should not persist anything."""
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract
+        from routes.pipelines import _persist_phase_gate_resolution
+
+        contract = Contract(pipeline_id="test-pipe")
+        save_contract(contract, tmp_path)
+
+        decision = self._make_decision(None)
+
+        _persist_phase_gate_resolution(
+            tmp_path,
+            "test-pipe",
+            decision,
+            "refine",
+            None,
+        )
+
+        updated = load_contract("test-pipe", tmp_path)
+        assert len(updated.decisions) == 0
+
+    def test_phase_gate_resolution_with_issue_number(self, tmp_path):
+        """When issue_number is provided, it should be used as the contract identifier."""
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract
+        from routes.pipelines import _persist_phase_gate_resolution
+
+        contract = Contract(
+            issue={
+                "number": 42,
+                "title": "Test",
+                "repo": "owner/repo",
+                "url": "https://github.com/owner/repo/issues/42",
+            }
+        )
+        save_contract(contract, tmp_path)
+
+        decision = self._make_decision(json.dumps({"action": "approve", "context": "Ship it"}))
+
+        _persist_phase_gate_resolution(
+            tmp_path,
+            "test-pipe",
+            decision,
+            "refine",
+            42,
+        )
+
+        updated = load_contract(42, tmp_path)
+        assert len(updated.decisions) == 1
+        assert updated.decisions[0].resolution == "Ship it"
+
+
 class TestInlineRequestChangesClearsConcurrentState:
     """Verify that inline request_changes clears stale consensus state (#1296).
 
