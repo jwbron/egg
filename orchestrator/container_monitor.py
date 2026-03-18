@@ -185,7 +185,8 @@ class ContainerMonitor:
                         docker_client=self.docker_client,
                         state_store=store,
                     )
-                    self._health_check_runner.run(ctx, HealthTrigger.RUNTIME_TICK)
+                    results = self._health_check_runner.run(ctx, HealthTrigger.RUNTIME_TICK)
+                    self._handle_consensus_stall_recovery(results, pipeline, store)
                 except Exception as per_pipeline_err:
                     logger.debug(
                         "RUNTIME_TICK health check failed for pipeline",
@@ -194,6 +195,70 @@ class ContainerMonitor:
                     )
         except Exception as exc:
             logger.debug("RUNTIME_TICK health check failed", error=str(exc))
+
+    def _handle_consensus_stall_recovery(
+        self, results: list, pipeline: object, store: object
+    ) -> None:
+        """Drive phase transition recovery when consensus stall is detected.
+
+        If the health check reconstructed the tracker successfully, the existing
+        polling loop will pick up consensus on its next iteration — nothing more
+        to do here.  If reconstruction failed and the check flagged a stall, we
+        perform aggressive recovery: mark all RUNNING agents and the phase
+        execution as COMPLETE so the polling loop falls through.
+        """
+        from health_checks.types import HealthStatus
+
+        for result in results:
+            if result.check_name != "consensus_stall":
+                continue
+            if result.status != HealthStatus.DEGRADED:
+                continue
+
+            details = result.details or {}
+            if details.get("tracker_reconstructed"):
+                logger.info(
+                    "Consensus stall detected — tracker reconstructed, polling loop should recover",
+                    pipeline_id=details.get("pipeline_id"),
+                )
+                return
+
+            # Aggressive recovery: mark agents and phase COMPLETE so the
+            # polling loop exits its wait.
+            logger.warning(
+                "Consensus stall detected — tracker reconstruction failed, "
+                "performing aggressive recovery",
+                pipeline_id=details.get("pipeline_id"),
+            )
+            try:
+                from models import AgentExecutionStatus, PipelineStatus
+
+                phase_key = details.get("phase")
+                if phase_key is None:
+                    return
+                phase_exec = pipeline.phases.get(phase_key)  # type: ignore[union-attr]
+                if phase_exec is None:
+                    return
+
+                for agent in phase_exec.agents:
+                    if agent.status == AgentExecutionStatus.RUNNING:
+                        agent.status = AgentExecutionStatus.COMPLETE
+                phase_exec.status = PipelineStatus.COMPLETE
+                phase_exec.consensus_recovery = True  # type: ignore[attr-defined]
+
+                store.save_pipeline(pipeline)  # type: ignore[union-attr]
+                logger.info(
+                    "Aggressive consensus stall recovery complete",
+                    pipeline_id=details.get("pipeline_id"),
+                    phase=phase_key,
+                )
+            except Exception:
+                logger.warning(
+                    "Aggressive consensus stall recovery failed",
+                    pipeline_id=details.get("pipeline_id"),
+                    exc_info=True,
+                )
+            return
 
     def _check_container(self, container: ContainerInfo) -> None:
         """Check a single container and emit events for changes.
