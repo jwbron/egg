@@ -162,6 +162,8 @@ Lightweight Haiku agents handle classification tasks. They run only when the orc
 | **Error triage** | "Is this error recoverable or fatal?" |
 | **Off-track detection** | "Is this agent's work aligned with the contract?" |
 
+**Consensus-aware stall classification**: The stall classifier receives BRC consensus state as authoritative context when available. The classifier is instructed that an agent with confirmed consensus is not stalled — this prevents false stall diagnoses during the window between consensus confirmation and phase transition.
+
 Characteristics:
 - Short, focused prompts — single-purpose classification
 - Results are cached to avoid re-analyzing the same log lines
@@ -204,6 +206,8 @@ Overseer receives escalation (or detects anomaly in own polling)
           → Execute action (nudge / redirect / HITL / file issue / Slack)
 ```
 
+**Phase-scoped alert processing**: Health alerts are filtered to only include agents in the current pipeline phase. Alerts for agents from completed phases (e.g., a coder alert during the test phase) are excluded to prevent false stall diagnoses.
+
 ### Corrective Action Ladder
 
 The overseer follows a progressive escalation ladder:
@@ -215,6 +219,12 @@ The overseer follows a progressive escalation ladder:
 | 3 | **HITL escalation** | Agent still stuck after max redirects |
 | 4 | **File GitHub issue** | Structured diagnostic report for persistent problems |
 | 5 | **Slack notification** | Human escalation for urgent issues |
+
+**Escalation safety net**: If the decision-maker selects `nudge` or `redirect` but the accompanying message indicates human intervention is required (e.g., contains phrases combining human/manual/operator with intervention/review/needed), the action is automatically upgraded to `hitl`. This prevents under-escalation caused by LLM phrasing that signals urgency without selecting the appropriate action level.
+
+### Post-Consensus Stall Detection
+
+If all agents have confirmed BRC consensus but the pipeline phase has not transitioned within ~90 seconds (3× the poll interval), the overseer escalates with a HITL decision and Slack notification. This detects potential orchestrator transition failures after a successful concurrent phase. The escalation fires only once per consensus cycle to avoid duplicate alerts.
 
 ### Autonomous Issue Filing
 
