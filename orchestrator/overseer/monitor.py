@@ -33,6 +33,11 @@ from overseer.self_monitor import OverseerSelfMonitor
 
 logger = logging.getLogger(__name__)
 
+# Keywords for the escalation safety net — match common LLM phrasings
+# indicating human intervention is needed.
+_HUMAN_WORDS = ("human", "manual", "operator")
+_ACTION_WORDS = ("intervention", "attention", "review", "required", "needed", "escalat")
+
 
 class _DefaultConfig:
     """Fallback config when no PipelineConfig is provided."""
@@ -73,6 +78,10 @@ class OverseerMonitor:
         # Allow dependency injection for testing
         self._classifier = classifier
         self._decision_maker = decision_maker
+
+        # Post-consensus stall deduplication
+        self._post_consensus_stall_reported = False
+        self._post_consensus_stall_first_seen: float | None = None
 
         # Oversight logging to .egg-state/oversight/
         self._oversight_dir = self._resolve_oversight_dir()
@@ -130,10 +139,15 @@ class OverseerMonitor:
     # Classifier / decision maker accessors
     # -----------------------------------------------------------------
 
-    async def _classify_stall(self, logs: list[dict], progress: list[dict]) -> dict:
+    async def _classify_stall(
+        self,
+        logs: list[dict],
+        progress: list[dict],
+        consensus: dict | None = None,
+    ) -> dict:
         if self._classifier and hasattr(self._classifier, "classify_stall"):
-            return await self._classifier.classify_stall(logs, progress)
-        return await classify_stall(logs, progress)
+            return await self._classifier.classify_stall(logs, progress, consensus=consensus)
+        return await classify_stall(logs, progress, consensus=consensus)
 
     async def _classify_error(self, error_context: dict) -> dict:
         if self._classifier and hasattr(self._classifier, "classify_error"):
@@ -208,32 +222,48 @@ class OverseerMonitor:
         """Execute a single monitoring cycle.
 
         Steps:
-            1. Query progress events
-            2. Query health alerts
-            3. Check for escalation messages from orchestrator
-            4. Route anomalies through classifier
-            5. Route classified results through decision maker
-            6. Execute corrective actions
-            7. Update self-monitoring
+            1. Query consensus status and current phase
+            2. Query progress events
+            3. Query health alerts
+            4. Query pipeline status (single call for filtering + terminal check)
+            5. Check for escalation messages from orchestrator
+            6. Route anomalies through classifier (with consensus context)
+            7. Route classified results through decision maker / execute actions
+            8. Check pipeline status for terminal state
+            9. Check for post-consensus stalls
+            10. Update self-monitoring
         """
         cycle_start = time.time()
 
         try:
-            # 1. Query progress events
+            # 1. Query consensus status and current phase
+            consensus = await self._query_consensus_status()
+            current_phase = await self._query_current_phase()
+
+            # 2. Query progress events
             progress_events = await self._query_progress()
 
-            # 2. Query health alerts
+            # 3. Query health alerts
             alerts = await self._query_health_alerts()
 
-            # 3. Check for escalation messages
+            # 4. Query pipeline status (single call, used for filtering + terminal check)
+            pipeline_data = await self._query_pipeline_data()
+            status = pipeline_data.get("status", "running") if pipeline_data else "running"
+
+            # Filter alerts to only current-phase agents
+            if current_phase and pipeline_data:
+                alerts = self._filter_current_phase_agents(alerts, pipeline_data)
+
+            # 5. Check for escalation messages
             escalations = await self._poll_escalation_messages()
 
-            # 4 & 5. Process any anomalies
+            # 6 & 7. Process any anomalies (with consensus context)
             for alert in alerts:
                 agent_role = alert.get("agent_role", alert.get("agent_id", "unknown"))
                 classification = await self._classify_stall(
                     logs=alert.get("logs", []),
                     progress=progress_events,
+                    consensus=consensus or None,
                 )
                 decision = await self._decide_corrective_action(
                     classification,
@@ -241,12 +271,11 @@ class OverseerMonitor:
                 )
                 await self._execute_action(decision, agent_role)
 
-            # Process escalation messages
+            # Process escalation messages (with consensus context)
             for escalation in escalations:
-                await self.handle_escalation(escalation)
+                await self.handle_escalation(escalation, consensus=consensus)
 
-            # Check pipeline status for terminal state
-            status = await self._query_pipeline_status()
+            # 8. Check pipeline status for terminal state
             if status in ("complete", "failed", "cancelled"):
                 self._log_oversight_event(
                     {
@@ -257,10 +286,13 @@ class OverseerMonitor:
                 self._running = False
                 self.write_health_summary()
 
+            # 9. Check for post-consensus stall
+            await self._check_post_consensus_stall(consensus, status)
+
         except Exception:
             logger.exception("Error in overseer poll cycle")
 
-        # 7. Update self-monitoring
+        # 10. Update self-monitoring
         duration = time.time() - cycle_start
         self.self_monitor.record_poll_cycle(duration)
 
@@ -268,7 +300,7 @@ class OverseerMonitor:
     # Escalation handling
     # -----------------------------------------------------------------
 
-    async def handle_escalation(self, escalation: dict) -> None:
+    async def handle_escalation(self, escalation: dict, consensus: dict | None = None) -> None:
         """Handle an escalation from the orchestrator's tripwire processor.
 
         Implements a hallucination guard: the Sonnet decision tier only
@@ -276,6 +308,7 @@ class OverseerMonitor:
 
         Args:
             escalation: Dict with escalation details from the orchestrator.
+            consensus: Optional current BRC consensus status.
         """
         agent_role = escalation.get("agent_role", escalation.get("agent_id", "unknown"))
 
@@ -283,6 +316,7 @@ class OverseerMonitor:
         classification = await self._classify_stall(
             logs=escalation.get("logs", []),
             progress=escalation.get("progress", []),
+            consensus=consensus,
         )
 
         # Check redirect history for this agent
@@ -325,12 +359,33 @@ class OverseerMonitor:
     async def _execute_action(self, decision: dict, agent_role: str) -> None:
         """Execute a corrective action based on a decision.
 
+        Includes a safety net: if the decision message indicates human
+        intervention is required but the action is only ``nudge`` or
+        ``redirect``, the action is upgraded to ``hitl``.
+
         Args:
             decision: Output from decide_corrective_action.
             agent_role: The target agent role.
         """
         action = decision.get("action", "nudge")
         message = decision.get("message", "")
+
+        # Safety net: upgrade to hitl if message indicates human intervention
+        # but action is too weak.  Match common LLM phrasings — the message
+        # comes from a classifier so we check for "human" or "manual" paired
+        # with action-oriented words.
+        if action in ("nudge", "redirect"):
+            msg_lower = message.lower()
+            if any(hw in msg_lower for hw in _HUMAN_WORDS) and any(
+                aw in msg_lower for aw in _ACTION_WORDS
+            ):
+                logger.info(
+                    "Upgrading action from %s to hitl for %s: message indicates "
+                    "human intervention required",
+                    action,
+                    agent_role,
+                )
+                action = "hitl"
 
         logger.info(
             "Executing %s action for %s in pipeline %s: %s",
@@ -455,8 +510,12 @@ class OverseerMonitor:
             logger.debug("Failed to poll escalation messages", exc_info=True)
         return []
 
-    async def _query_pipeline_status(self) -> str:
-        """Query the current pipeline status."""
+    async def _query_pipeline_data(self) -> dict:
+        """Query the full pipeline status data.
+
+        Returns:
+            Pipeline status dict, or empty dict on failure.
+        """
         try:
             rc, stdout, _ = await self._run_cli(
                 "egg-orch",
@@ -468,10 +527,143 @@ class OverseerMonitor:
             if rc == 0 and stdout.strip():
                 data = json.loads(stdout)
                 if isinstance(data, dict):
-                    return data.get("status", "running")
+                    return data
         except Exception:
             logger.debug("Failed to query pipeline status", exc_info=True)
-        return "running"
+        return {}
+
+    async def _query_consensus_status(self) -> dict:
+        """Query current BRC consensus state from the orchestrator."""
+        try:
+            rc, stdout, _ = await self._run_cli(
+                "egg-orch",
+                "consensus",
+                "status",
+                "--pipeline",
+                self.pipeline_id,
+                "--json",
+            )
+            if rc == 0 and stdout.strip():
+                data = json.loads(stdout)
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            logger.debug("Failed to query consensus status", exc_info=True)
+        return {}
+
+    async def _query_current_phase(self) -> dict:
+        """Query current phase name and status from the orchestrator."""
+        try:
+            rc, stdout, _ = await self._run_cli(
+                "egg-orch",
+                "phase",
+                "get",
+                "--pipeline",
+                self.pipeline_id,
+                "--json",
+            )
+            if rc == 0 and stdout.strip():
+                data = json.loads(stdout)
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            logger.debug("Failed to query current phase", exc_info=True)
+        return {}
+
+    def _filter_current_phase_agents(self, alerts: list[dict], pipeline_status: dict) -> list[dict]:
+        """Filter alerts to only include agents in the current phase.
+
+        Args:
+            alerts: Health alerts from the orchestrator.
+            pipeline_status: Full pipeline status including concurrent agent info.
+
+        Returns:
+            Alerts filtered to only current-phase agents.
+        """
+        concurrent = pipeline_status.get("concurrent", {})
+        current_agents = concurrent.get("agents", [])
+        if not current_agents:
+            # No agent list available — return all alerts unfiltered
+            return alerts
+
+        # Build set of current phase agent roles/ids
+        current_agent_ids: set[str] = set()
+        for agent in current_agents:
+            if isinstance(agent, dict):
+                current_agent_ids.add(agent.get("role", ""))
+                current_agent_ids.add(agent.get("agent_id", ""))
+            elif isinstance(agent, str):
+                current_agent_ids.add(agent)
+        current_agent_ids.discard("")
+
+        return [
+            alert
+            for alert in alerts
+            if alert.get("agent_role", alert.get("agent_id", "")) in current_agent_ids
+        ]
+
+    async def _check_post_consensus_stall(self, consensus: dict, pipeline_status_str: str) -> None:
+        """Detect and escalate when consensus is complete but phase hasn't transitioned.
+
+        Includes deduplication (only fires once) and a grace period of 3 poll
+        cycles to avoid false positives during normal phase transitions.
+
+        Args:
+            consensus: Current consensus status dict.
+            pipeline_status_str: Current pipeline status string (e.g. "running").
+        """
+        if not consensus.get("is_complete"):
+            # Consensus not complete — reset tracking state
+            self._post_consensus_stall_reported = False
+            self._post_consensus_stall_first_seen = None
+            return
+        if pipeline_status_str != "running":
+            return
+
+        # Already escalated — don't spam
+        if self._post_consensus_stall_reported:
+            return
+
+        # Grace period: wait 3 poll cycles before escalating to allow
+        # normal phase transition to complete
+        poll_interval = getattr(self.config, "overseer_poll_interval_seconds", 30)
+        grace_seconds = poll_interval * 3
+        now = time.time()
+
+        if self._post_consensus_stall_first_seen is None:
+            self._post_consensus_stall_first_seen = now
+            return
+
+        if (now - self._post_consensus_stall_first_seen) < grace_seconds:
+            return
+
+        logger.warning(
+            "Post-consensus stall detected for pipeline %s: "
+            "consensus complete but pipeline still running",
+            self.pipeline_id,
+        )
+
+        message = (
+            "All agents confirmed consensus but the pipeline phase has not "
+            "transitioned. Possible orchestrator transition failure. "
+            f"Pipeline: {self.pipeline_id}"
+        )
+
+        # Create HITL decision for human attention
+        await self._create_hitl_decision("orchestrator", message)
+
+        # Also send Slack notification for visibility
+        await self._send_slack_notification("orchestrator", message)
+
+        self._post_consensus_stall_reported = True
+
+        self._log_oversight_event(
+            {
+                "event": "post_consensus_stall",
+                "consensus": consensus,
+                "pipeline_status": pipeline_status_str,
+            }
+        )
 
     async def _send_message(self, agent_role: str, message: str) -> None:
         """Send a message to an agent via the orchestrator."""

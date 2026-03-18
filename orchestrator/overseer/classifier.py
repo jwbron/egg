@@ -77,12 +77,19 @@ async def _call_classifier(prompt: str, context: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def classify_stall(logs: list[dict], progress: list[dict]) -> dict:
+async def classify_stall(
+    logs: list[dict],
+    progress: list[dict],
+    consensus: dict | None = None,
+) -> dict:
     """Classify whether an agent is stuck or doing legitimate work.
 
     Args:
         logs: Recent log entries from the agent.
         progress: Recent progress events from the agent.
+        consensus: Optional current BRC consensus status from the orchestrator.
+            When provided, the classifier uses this authoritative state instead
+            of inferring agent status solely from progress events.
 
     Returns:
         A dict with keys:
@@ -90,20 +97,33 @@ async def classify_stall(logs: list[dict], progress: list[dict]) -> dict:
             confidence: float between 0.0 and 1.0
             reasoning: str explaining the classification
     """
-    key = _cache_key("classify_stall", logs, progress)
+    key = _cache_key("classify_stall", logs, progress, consensus)
     if key in _cache:
         return _cache[key]  # type: ignore[no-any-return]
+
+    consensus_instruction = ""
+    if consensus:
+        consensus_instruction = (
+            "\n\nIMPORTANT: The 'consensus' field contains the current BRC "
+            "consensus status from the orchestrator. This is authoritative — "
+            "if an agent has confirmed consensus (confirmed=true), it is NOT "
+            "stalled. Progress events may be stale; prefer consensus state.\n"
+        )
 
     prompt = (
         "You are a pipeline health classifier. Analyze the following agent "
         "logs and progress events to determine if the agent is stuck, doing "
         "legitimate work, or needs help.\n\n"
+        f"{consensus_instruction}"
         "Respond with ONLY a JSON object (no markdown fences) with these keys:\n"
         '  "classification": one of "stuck", "working", "needs_help"\n'
         '  "confidence": float between 0.0 and 1.0\n'
         '  "reasoning": brief explanation\n'
     )
-    context = json.dumps({"logs": logs, "progress": progress}, default=str)
+    context_data: dict[str, Any] = {"logs": logs, "progress": progress}
+    if consensus:
+        context_data["consensus"] = consensus
+    context = json.dumps(context_data, default=str)
 
     raw = await _call_classifier(prompt, context)
     result = _parse_json_or_fallback(
