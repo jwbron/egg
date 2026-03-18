@@ -44,9 +44,9 @@
         {
           "container_id": "9b6df1b40e52b294849fe2e1ba6f65c752e8c60b5883fc862df37ace22acfa6c",
           "container_name": "issue-1278-refiner",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T20:22:13.983834",
-          "exited_at": null,
+          "exited_at": "2026-03-18T21:19:48.941453",
           "exit_code": null,
           "agent_role": "refiner",
           "session_token": null
@@ -64,9 +64,9 @@
         {
           "container_id": "cf60a973bb2e9d0decf835b2a2c10be5f9f9f026a322bae6aa9b5c6927f18780",
           "container_name": "issue-1278-reviewer_refine",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T20:22:13.983859",
-          "exited_at": null,
+          "exited_at": "2026-03-18T21:19:48.941453",
           "exit_code": null,
           "agent_role": "reviewer_refine",
           "session_token": null
@@ -135,9 +135,9 @@
         {
           "container_id": "825977906e8bdec5e176c3b1d78f707055db194c4902cc25f0c77d0dd72d882d",
           "container_name": "issue-1278-reviewer_plan",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T21:10:37.030152",
-          "exited_at": null,
+          "exited_at": "2026-03-18T21:19:48.941453",
           "exit_code": null,
           "agent_role": "reviewer_plan",
           "session_token": null
@@ -155,9 +155,9 @@
         {
           "container_id": "ef527aa891bcbe4508a05a95bf552e0f41b189b1bb4dde7b7d4b46c10c10cd74",
           "container_name": "issue-1278-risk_analyst",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T21:10:37.030170",
-          "exited_at": null,
+          "exited_at": "2026-03-18T21:19:48.941453",
           "exit_code": null,
           "agent_role": "risk_analyst",
           "session_token": null
@@ -165,9 +165,9 @@
         {
           "container_id": "9e21e16cd47c18860469485bed6940acb739903c63f26b51ca2700a03a927511",
           "container_name": "issue-1278-architect",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T21:10:37.030176",
-          "exited_at": null,
+          "exited_at": "2026-03-18T21:19:48.941453",
           "exit_code": null,
           "agent_role": "architect",
           "session_token": null
@@ -254,9 +254,9 @@
         {
           "container_id": "98d07cd1ce546991d32416ace048287ee31d1e6e4f86e2f83974516c20b58e6e",
           "container_name": "issue-1278-tester",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T21:17:42.961983",
-          "exited_at": null,
+          "exited_at": "2026-03-18T21:19:48.941453",
           "exit_code": null,
           "agent_role": "tester",
           "session_token": null
@@ -264,9 +264,9 @@
         {
           "container_id": "d5001c99af1f69d23a38c247d2eb2eed79303d8447175a52c3785a8d3a0a08c1",
           "container_name": "issue-1278-coder",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T21:17:42.961998",
-          "exited_at": null,
+          "exited_at": "2026-03-18T21:19:48.941453",
           "exit_code": null,
           "agent_role": "coder",
           "session_token": null
@@ -274,9 +274,9 @@
         {
           "container_id": "99b36cdb12e88c8f41d77094e19d98c19ad14ef6e6d6b2624211a20f6377a0f7",
           "container_name": "issue-1278-reviewer_contract",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T21:17:42.962005",
-          "exited_at": null,
+          "exited_at": "2026-03-18T21:19:48.941453",
           "exit_code": null,
           "agent_role": "reviewer_contract",
           "session_token": null
@@ -284,9 +284,9 @@
         {
           "container_id": "85f4fe7d06ee5e62d7a2e407bc4ba38654520ce15287167308303f7e42455b07",
           "container_name": "issue-1278-reviewer_code",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T21:17:42.962010",
-          "exited_at": null,
+          "exited_at": "2026-03-18T21:19:48.941453",
           "exit_code": null,
           "agent_role": "reviewer_code",
           "session_token": null
@@ -294,9 +294,9 @@
         {
           "container_id": "e36f9440e3f3b2e1f90031639a26b4a48bbdefd58777aa5b502ea7c0c328a88d",
           "container_name": "issue-1278-documenter",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-03-18T21:17:42.962016",
-          "exited_at": null,
+          "exited_at": "2026-03-18T21:19:48.941453",
           "exit_code": null,
           "agent_role": "documenter",
           "session_token": null
@@ -305,61 +305,61 @@
       "agents": [
         {
           "role": "tester",
-          "status": "running",
+          "status": "failed",
           "container_id": "98d07cd1ce546991d32416ace048287ee31d1e6e4f86e2f83974516c20b58e6e",
           "started_at": "2026-03-18T21:17:42.961993",
-          "completed_at": null,
+          "completed_at": "2026-03-18T21:19:48.941453",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pipeline running",
           "retry_count": 0,
           "conflicts": []
         },
         {
           "role": "coder",
-          "status": "running",
+          "status": "failed",
           "container_id": "d5001c99af1f69d23a38c247d2eb2eed79303d8447175a52c3785a8d3a0a08c1",
           "started_at": "2026-03-18T21:17:42.962001",
-          "completed_at": null,
+          "completed_at": "2026-03-18T21:19:48.941453",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pipeline running",
           "retry_count": 0,
           "conflicts": []
         },
         {
           "role": "reviewer_contract",
-          "status": "running",
+          "status": "failed",
           "container_id": "99b36cdb12e88c8f41d77094e19d98c19ad14ef6e6d6b2624211a20f6377a0f7",
           "started_at": "2026-03-18T21:17:42.962007",
-          "completed_at": null,
+          "completed_at": "2026-03-18T21:19:48.941453",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pipeline running",
           "retry_count": 0,
           "conflicts": []
         },
         {
           "role": "reviewer_code",
-          "status": "running",
+          "status": "failed",
           "container_id": "85f4fe7d06ee5e62d7a2e407bc4ba38654520ce15287167308303f7e42455b07",
           "started_at": "2026-03-18T21:17:42.962013",
-          "completed_at": null,
+          "completed_at": "2026-03-18T21:19:48.941453",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pipeline running",
           "retry_count": 0,
           "conflicts": []
         },
         {
           "role": "documenter",
-          "status": "running",
+          "status": "failed",
           "container_id": "e36f9440e3f3b2e1f90031639a26b4a48bbdefd58777aa5b502ea7c0c328a88d",
           "started_at": "2026-03-18T21:17:42.962019",
-          "completed_at": null,
+          "completed_at": "2026-03-18T21:19:48.941453",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pipeline running",
           "retry_count": 0,
           "conflicts": []
         }
@@ -434,11 +434,11 @@
     }
   ],
   "created_at": "2026-03-18T20:21:46.458052",
-  "updated_at": "2026-03-18T21:17:42.962095",
+  "updated_at": "2026-03-18T21:19:48.941720",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 40
+  "version": 41
 }
