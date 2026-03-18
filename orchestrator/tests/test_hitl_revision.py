@@ -1588,7 +1588,6 @@ class TestPhaseGateResolutionPersistence:
         assert updated.decisions[0].resolution == "Ship it"
 
 
-
 class TestInlineRequestChangesClearsConcurrentState:
     """Verify that inline request_changes clears stale consensus state (#1296).
 
