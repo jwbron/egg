@@ -290,20 +290,20 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "cancelled",
       "created_at": "2026-03-18T21:10:57.800057",
-      "resolved_at": null,
+      "resolved_at": "2026-03-18T21:17:34.822926",
       "resolution": null,
       "phase": "plan",
       "content_changed": false
     }
   ],
   "created_at": "2026-03-18T20:21:46.458052",
-  "updated_at": "2026-03-18T21:17:34.772594",
+  "updated_at": "2026-03-18T21:17:34.824473",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 34
+  "version": 35
 }
