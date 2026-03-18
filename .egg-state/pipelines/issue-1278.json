@@ -4,7 +4,7 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1278",
   "prompt": null,
-  "status": "pending",
+  "status": "running",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -36,11 +36,11 @@
   "phases": {},
   "decisions": [],
   "created_at": "2026-03-18T20:21:46.458052",
-  "updated_at": "2026-03-18T20:21:46.458241",
+  "updated_at": "2026-03-18T20:21:46.510782",
   "contract_synced": false,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "error": null,
-  "version": 2
+  "version": 3
 }
