@@ -42,6 +42,7 @@ try:
         ContainerStatus,
         CycleTiming,
         DecisionStatus,
+        HITLDecision,
         Pipeline,
         PipelineMode,
         PipelinePhase,
@@ -72,6 +73,7 @@ except ImportError:
         ContainerStatus,
         CycleTiming,
         DecisionStatus,
+        HITLDecision,
         Pipeline,
         PipelineMode,
         PipelinePhase,
@@ -4992,6 +4994,135 @@ def _sync_pipeline_decisions_to_contract(
         )
 
 
+def _persist_phase_gate_resolution(
+    repo_path: Path,
+    pipeline_id: str,
+    decision: HITLDecision,
+    phase: str,
+    issue_number: int | None = None,
+) -> None:
+    """Persist a phase-gate resolution to the contract and draft.
+
+    After a human approves a phase gate, the resolution context needs to be
+    visible to agents in the next phase.  This function:
+
+    1. Adds the resolution as a HITL decision in the contract so next-phase
+       agents see it when they load the contract.
+    2. Appends a ``## HITL Resolution`` section to the phase draft file so
+       agents reading the draft also see the human's decisions.
+
+    See: #1295
+    """
+    # Extract structured context from JSON resolution, or use raw string
+    resolution_context: str = ""
+    raw = (decision.resolution or "").strip()
+    if raw:
+        try:
+            payload = json.loads(raw)
+            if isinstance(payload, dict):
+                resolution_context = payload.get("context", "") or payload.get("feedback", "")
+                if not resolution_context:
+                    logger.debug(
+                        "Phase gate approved without context, nothing to persist",
+                        pipeline_id=pipeline_id,
+                        phase=phase,
+                    )
+                    return
+            else:
+                resolution_context = raw
+        except (json.JSONDecodeError, TypeError):
+            resolution_context = raw
+
+    if not resolution_context:
+        logger.debug(
+            "Phase gate resolution has no context to persist",
+            pipeline_id=pipeline_id,
+            phase=phase,
+        )
+        return
+
+    # --- 1. Sync to contract ---
+    try:
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Decision, DecisionOption, DecisionType
+
+        contract_id: int | str = _pipeline_identifier(issue_number, pipeline_id)
+        contract = load_contract(contract_id, repo_path)
+
+        existing_questions = {d.question for d in contract.decisions}
+        question_text = f"[Phase gate: {phase}] {decision.question}"
+
+        if question_text not in existing_questions:
+            # Determine next decision ID
+            max_existing_id = 0
+            for d in contract.decisions:
+                try:
+                    num = int(d.id.split("-")[1])
+                    max_existing_id = max(max_existing_id, num)
+                except (IndexError, ValueError):
+                    pass
+
+            contract_options = [
+                DecisionOption(id=f"opt-{i + 1}", label=opt)
+                for i, opt in enumerate(decision.options)
+            ]
+
+            contract_decision = Decision(
+                id=f"decision-{max_existing_id + 1}",
+                question=question_text,
+                type=DecisionType.HITL,
+                options=contract_options,
+                resolved=True,
+                resolution=resolution_context,
+                resolved_by="human",
+                resolved_at=decision.resolved_at,
+            )
+            contract.decisions.append(contract_decision)
+            save_contract(contract, repo_path)
+            logger.info(
+                "Persisted phase gate resolution to contract",
+                pipeline_id=pipeline_id,
+                phase=phase,
+            )
+    except ImportError:
+        logger.warning("egg_contracts not available, skipping phase gate contract sync")
+    except Exception:
+        logger.warning(
+            "Failed to persist phase gate resolution to contract (continuing)",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            exc_info=True,
+        )
+
+    # --- 2. Append to draft ---
+    try:
+        draft_rel = _get_draft_path(phase, issue_number, pipeline_id)
+        if draft_rel:
+            draft_path = repo_path / draft_rel
+            if draft_path.exists():
+                existing = draft_path.read_text(encoding="utf-8")
+                if "## HITL Resolution" not in existing:
+                    section = (
+                        f"\n\n## HITL Resolution\n\n"
+                        f"The following was approved by a human reviewer at the "
+                        f"{phase} phase gate:\n\n{resolution_context}\n"
+                    )
+                    draft_path.write_text(existing + section, encoding="utf-8")
+                    logger.info(
+                        "Appended HITL resolution to draft",
+                        pipeline_id=pipeline_id,
+                        phase=phase,
+                        draft=draft_rel,
+                    )
+    except Exception:
+        logger.warning(
+            "Failed to append phase gate resolution to draft (continuing)",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            exc_info=True,
+        )
+
+
 def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     """Run a pipeline by spawning containers for each phase.
 
@@ -6129,6 +6260,43 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase_execution.completed_at = datetime.utcnow()
                     store.save_pipeline(pipeline)
 
+                # Persist phase gate resolution to contract and draft so
+                # next-phase agents can see the human's decisions.  #1295
+                _persist_phase_gate_resolution(
+                    worktree_repo_path,
+                    pipeline_id,
+                    resolved_decision,
+                    current_phase.value,
+                    pipeline.issue_number,
+                )
+
+                # Commit and push updated statefiles (contract + draft with resolution)
+                try:
+                    _commit_statefiles_to_worktree(
+                        worktree_repo_path,
+                        f"Persist HITL resolution after {current_phase.value} phase gate",
+                    )
+                except subprocess.CalledProcessError as git_err:
+                    logger.warning(
+                        "Failed to commit statefiles after phase gate resolution (continuing)",
+                        pipeline_id=pipeline_id,
+                        error=str(git_err),
+                    )
+
+                if pipeline.branch and worktree_repo_path != repo_path:
+                    try:
+                        spawner.gateway.push_worktree_branch(
+                            pipeline_id=pipeline_id,
+                            repo_path=str(worktree_repo_path),
+                            branch=pipeline.branch,
+                        )
+                    except Exception as push_err:
+                        logger.warning(
+                            "Failed to push statefiles after phase gate resolution (continuing)",
+                            pipeline_id=pipeline_id,
+                            error=str(push_err),
+                        )
+
             # Determine next phase
             next_phases = transitions.get(current_phase, [])
 
@@ -6402,6 +6570,46 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     phase_execution.status = PipelineStatus.COMPLETE
                     if phase_execution.completed_at is None:
                         phase_execution.completed_at = datetime.utcnow()
+
+                    # Persist phase gate resolution so next-phase agents see it.  #1295
+                    if phase_gate_decisions:
+                        _persist_phase_gate_resolution(
+                            repo_path,
+                            pipeline_id,
+                            phase_gate_decisions[0],
+                            pipeline.current_phase.value,
+                            pipeline.issue_number,
+                        )
+
+                        # Commit statefiles so worktrees created by _run_pipeline
+                        # include the contract/draft changes.
+                        try:
+                            _commit_statefiles_to_worktree(
+                                repo_path,
+                                f"Persist HITL resolution after {pipeline.current_phase.value} phase gate",
+                            )
+                        except subprocess.CalledProcessError as git_err:
+                            logger.warning(
+                                "Failed to commit statefiles after phase gate resolution (continuing)",
+                                pipeline_id=pipeline_id,
+                                error=str(git_err),
+                            )
+
+                        # Push if this repo tracks a remote branch
+                        if pipeline.branch:
+                            try:
+                                _spawner = get_container_spawner()
+                                _spawner.gateway.push_worktree_branch(
+                                    pipeline_id=pipeline_id,
+                                    repo_path=str(repo_path),
+                                    branch=pipeline.branch,
+                                )
+                            except Exception as push_err:
+                                logger.warning(
+                                    "Failed to push statefiles after phase gate resolution (continuing)",
+                                    pipeline_id=pipeline_id,
+                                    error=str(push_err),
+                                )
 
                     from routes.phases import PHASE_TRANSITIONS
 
