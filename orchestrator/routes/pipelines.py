@@ -6091,16 +6091,19 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             # messages from the previous run (issue #1296).
                             try:
                                 from message_store import get_message_store
+
                                 get_message_store().clear(pipeline_id)
                             except Exception:
                                 pass
                             try:
                                 from peer_consensus import remove_peer_consensus_tracker
+
                                 remove_peer_consensus_tracker(pipeline_id)
                             except Exception:
                                 pass
                             try:
                                 from consensus import get_consensus_evaluator
+
                                 get_consensus_evaluator().clear(pipeline_id)
                             except Exception:
                                 pass
@@ -6449,16 +6452,19 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     # Same fix as inline path — clear stale consensus state (issue #1296).
                     try:
                         from message_store import get_message_store
+
                         get_message_store().clear(pipeline_id)
                     except Exception:
                         pass
                     try:
                         from peer_consensus import remove_peer_consensus_tracker
+
                         remove_peer_consensus_tracker(pipeline_id)
                     except Exception:
                         pass
                     try:
                         from consensus import get_consensus_evaluator
+
                         get_consensus_evaluator().clear(pipeline_id)
                     except Exception:
                         pass

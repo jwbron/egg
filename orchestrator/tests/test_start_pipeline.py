@@ -597,9 +597,11 @@ class TestStartAwaitingHumanPipeline:
         )
         _setup_mocks(mock_get_repo, mock_resolve, pipeline)
 
-        with patch("message_store.get_message_store", return_value=mock_msg_store), \
-             patch("peer_consensus.remove_peer_consensus_tracker", mock_remove_tracker), \
-             patch("consensus.get_consensus_evaluator", return_value=mock_evaluator):
+        with (
+            patch("message_store.get_message_store", return_value=mock_msg_store),
+            patch("peer_consensus.remove_peer_consensus_tracker", mock_remove_tracker),
+            patch("consensus.get_consensus_evaluator", return_value=mock_evaluator),
+        ):
             resp = client.post("/api/v1/pipelines/issue-42/start")
 
         assert resp.status_code == 200
