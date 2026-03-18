@@ -74,11 +74,15 @@ All concurrent agent containers are wrapped with a shell script defined in `orch
 
 **Key design principle:** Agents must **explicitly** participate in consensus. The wrapper never auto-signals `READY` on behalf of an agent — it restarts the agent so it can assess state and signal for itself.
 
+**Design intent — safety net, not primary mechanism:** The wrapper exists as a fallback for the edge case where an agent exits prematurely (e.g., context exhaustion). The intended lifecycle is for agents to run with enough turns to finish their work *and* complete the full BRC consensus protocol (including stay-alive polling while peers finish). The orchestrator detects consensus and sends SIGTERM to terminate containers — agents should exit because they are told to, not because they exhaust turns. The restart path is expensive (requires reloading context and re-evaluating BRC state) and should be rare.
+
 **Configuration:**
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
+| `max_turns` | `1000` | Maximum tool-call turns per agent run (set high so agents can complete work and stay alive for the full BRC lifecycle) |
 | `max_restarts` | `2` | Maximum restart attempts (passed to `build_consensus_wrapped_command()`) |
+| `max_ready_polls` | `10` | Maximum poll cycles (each ~30 s) to wait for global consensus when this agent has already reached `CONFIRMED` |
 | `EGG_MESSAGE_POLL_INTERVAL` | `30` | Seconds between message polls during restarts |
 
 ## Message Bus
