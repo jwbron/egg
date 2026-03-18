@@ -127,10 +127,10 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-03-18T20:46:15.647994",
       "work_started_at": "2026-03-18T20:46:15.671652",
-      "completed_at": null,
+      "completed_at": "2026-03-18T20:58:18.842974",
       "containers": [
         {
           "container_id": "1fc0d27d37439a598055693b769fd4a180624fe9a43ae8bac9ef8334b8726772",
@@ -259,11 +259,11 @@
     }
   ],
   "created_at": "2026-03-18T20:21:46.458052",
-  "updated_at": "2026-03-18T20:58:17.446062",
+  "updated_at": "2026-03-18T20:58:18.843148",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 19
+  "version": 20
 }
