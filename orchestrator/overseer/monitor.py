@@ -793,9 +793,9 @@ class OverseerMonitor:
                     c = _dt.datetime.fromisoformat(completed)
                     if s >= r:
                         work_duration = (c - s).total_seconds()
+                        break
                 except (ValueError, TypeError):
                     continue
-                break
 
             if work_duration is not None and work_duration < min_work:
                 message = (
