@@ -460,6 +460,52 @@ class TestPhaseScoping:
         logs_arg = call_args.kwargs.get("logs") or call_args.args[0]
         assert logs_arg == []  # tester's logs
 
+    def test_filters_with_agent_id_only(self) -> None:
+        """Alerts with only agent_id (production format) use the fallback correctly."""
+        classifier = _MockClassifier()
+        decision_maker = _MockDecisionMaker()
+
+        monitor = OverseerMonitor(
+            pipeline_id="test-phase-003",
+            config=_MockConfig(),
+            classifier=classifier,
+            decision_maker=decision_maker,
+        )
+
+        phase_data = {"name": "test", "status": "active"}
+        pipeline_data = {
+            "status": "running",
+            "concurrent": {"agents": [{"role": "tester"}]},
+        }
+        # Production-realistic alerts: only agent_id, no agent_role
+        alerts = [
+            {"agent_id": "coder", "logs": []},
+            {"agent_id": "tester", "logs": []},
+        ]
+
+        async def mock_run_cli(*args, **kwargs):
+            cmd = " ".join(args)
+            if "consensus status" in cmd:
+                return (0, "{}", "")
+            if "phase get" in cmd:
+                return (0, json.dumps(phase_data), "")
+            if "health alerts" in cmd:
+                return (0, json.dumps(alerts), "")
+            if "pipeline status" in cmd:
+                return (0, json.dumps(pipeline_data), "")
+            if "message poll" in cmd:
+                return (0, "[]", "")
+            if "progress query" in cmd:
+                return (0, "[]", "")
+            return (0, "[]", "")
+
+        monitor._run_cli = AsyncMock(side_effect=mock_run_cli)
+
+        _run(monitor._poll_cycle())
+
+        # Only tester alert should be processed (coder filtered out via agent_id fallback)
+        assert classifier.classify_stall.await_count == 1
+
     def test_no_filter_when_no_agent_list(self) -> None:
         """When pipeline status has no agent list, all alerts are processed."""
         classifier = _MockClassifier()

@@ -33,6 +33,11 @@ from overseer.self_monitor import OverseerSelfMonitor
 
 logger = logging.getLogger(__name__)
 
+# Keywords for the escalation safety net — match common LLM phrasings
+# indicating human intervention is needed.
+_HUMAN_WORDS = ("human", "manual", "operator")
+_ACTION_WORDS = ("intervention", "attention", "review", "required", "needed", "escalat")
+
 
 class _DefaultConfig:
     """Fallback config when no PipelineConfig is provided."""
@@ -371,15 +376,6 @@ class OverseerMonitor:
         # with action-oriented words.
         if action in ("nudge", "redirect"):
             msg_lower = message.lower()
-            _HUMAN_WORDS = ("human", "manual", "operator")
-            _ACTION_WORDS = (
-                "intervention",
-                "attention",
-                "review",
-                "required",
-                "needed",
-                "escalat",
-            )
             if any(hw in msg_lower for hw in _HUMAN_WORDS) and any(
                 aw in msg_lower for aw in _ACTION_WORDS
             ):
@@ -535,14 +531,6 @@ class OverseerMonitor:
         except Exception:
             logger.debug("Failed to query pipeline status", exc_info=True)
         return {}
-
-    async def _query_pipeline_status(self) -> str:
-        """Query the current pipeline status string.
-
-        Convenience wrapper around :meth:`_query_pipeline_data`.
-        """
-        data = await self._query_pipeline_data()
-        return data.get("status", "running")
 
     async def _query_consensus_status(self) -> dict:
         """Query current BRC consensus state from the orchestrator."""
