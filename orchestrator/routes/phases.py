@@ -182,6 +182,18 @@ def get_current_phase(pipeline_id: str) -> tuple[Response, int]:
                     if phase_execution.completed_at
                     else None,
                     "review_cycles": phase_execution.review_cycles,
+                    "hitl_review_cycles": phase_execution.hitl_review_cycles,
+                    "cycle_timings": [
+                        {
+                            "cycle": ct.cycle,
+                            "started_at": ct.started_at.isoformat() if ct.started_at else None,
+                            "completed_at": ct.completed_at.isoformat()
+                            if ct.completed_at
+                            else None,
+                            "commit_sha": ct.commit_sha,
+                        }
+                        for ct in phase_execution.cycle_timings
+                    ],
                 },
             },
         )
