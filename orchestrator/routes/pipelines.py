@@ -6086,6 +6086,25 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             phase_execution.artifacts = {}
                             phase_execution.review_cycles = 0
 
+                            # Clear message store and consensus tracker so the
+                            # re-run doesn't short-circuit on stale CONSENSUS_CONFIRMED
+                            # messages from the previous run (issue #1296).
+                            try:
+                                from message_store import get_message_store
+                                get_message_store().clear(pipeline_id)
+                            except Exception:
+                                pass
+                            try:
+                                from peer_consensus import remove_peer_consensus_tracker
+                                remove_peer_consensus_tracker(pipeline_id)
+                            except Exception:
+                                pass
+                            try:
+                                from consensus import get_consensus_evaluator
+                                get_consensus_evaluator().clear(pipeline_id)
+                            except Exception:
+                                pass
+
                             store.save_pipeline(pipeline)
                             report_pipeline_status(
                                 pipeline,
@@ -6426,6 +6445,23 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         phase_execution.containers = []
                         phase_execution.agents = []
                         phase_execution.artifacts = {}
+
+                    # Same fix as inline path — clear stale consensus state (issue #1296).
+                    try:
+                        from message_store import get_message_store
+                        get_message_store().clear(pipeline_id)
+                    except Exception:
+                        pass
+                    try:
+                        from peer_consensus import remove_peer_consensus_tracker
+                        remove_peer_consensus_tracker(pipeline_id)
+                    except Exception:
+                        pass
+                    try:
+                        from consensus import get_consensus_evaluator
+                        get_consensus_evaluator().clear(pipeline_id)
+                    except Exception:
+                        pass
 
                     # Preserve the reviewer's feedback so the re-launched
                     # _run_pipeline thread can pass it to the agent.
