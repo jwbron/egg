@@ -48,9 +48,7 @@ def wait_for_ci(
     while True:
         elapsed = time.monotonic() - start
         if elapsed >= timeout:
-            logger.warning(
-                "CI wait timed out after %.0fs for PR #%d", elapsed, pr_number
-            )
+            logger.warning("CI wait timed out after %.0fs for PR #%d", elapsed, pr_number)
             # Fetch final state and return whatever we have.
             checks = _safe_fetch(pr_number, repo)
             return CICheckStatus.PENDING, checks
@@ -66,8 +64,7 @@ def wait_for_ci(
 
         # Check if all checks are in a terminal state.
         all_terminal = all(
-            c.status in (CICheckStatus.PASSING, CICheckStatus.FAILING)
-            for c in checks
+            c.status in (CICheckStatus.PASSING, CICheckStatus.FAILING) for c in checks
         )
 
         if all_terminal:
@@ -98,9 +95,7 @@ def wait_for_ci(
             return CICheckStatus.STALE, checks
 
         # Log progress.
-        pending = sum(
-            1 for c in checks if c.status == CICheckStatus.PENDING
-        )
+        pending = sum(1 for c in checks if c.status == CICheckStatus.PENDING)
         terminal = len(checks) - pending
         logger.info(
             "CI progress for PR #%d: %d/%d complete (%.0fs elapsed)",

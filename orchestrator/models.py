@@ -27,8 +27,8 @@ class PipelineStatus(StrEnum):
 class PipelineMode(StrEnum):
     """Pipeline execution mode."""
 
-    ISSUE = "issue"       # Standard issue-driven SDLC pipeline
-    BABYSIT = "babysit"   # PR babysit loop (review/fix cycle)
+    ISSUE = "issue"  # Standard issue-driven SDLC pipeline
+    BABYSIT = "babysit"  # PR babysit loop (review/fix cycle)
 
 
 class AgentExecutionStatus(StrEnum):

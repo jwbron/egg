@@ -81,7 +81,9 @@ class BabysitLoop:
             # Check for cancellation.
             if self._cancelled:
                 logger.info("Babysit loop cancelled")
-                return self._result(BabysitExitReason.CANCELLED, message="Received termination signal")
+                return self._result(
+                    BabysitExitReason.CANCELLED, message="Received termination signal"
+                )
 
             # Check timeout.
             if self._is_timed_out():
@@ -119,7 +121,9 @@ class BabysitLoop:
 
                 if conflict_result.escalate:
                     escalate(self.config, "Merge conflicts", conflict_result.message)
-                    return self._result(BabysitExitReason.ESCALATED, message=conflict_result.message)
+                    return self._result(
+                        BabysitExitReason.ESCALATED, message=conflict_result.message
+                    )
 
                 if not conflict_result.success:
                     continue  # Retry next iteration.
@@ -172,7 +176,9 @@ class BabysitLoop:
                     return self._result(BabysitExitReason.MERGED, message="PR merged")
 
                 if pr_state and pr_state.review_verdict == ReviewVerdict.APPROVED:
-                    logger.info("PR #%d approved and CI passing — ready for merge", self.config.pr_number)
+                    logger.info(
+                        "PR #%d approved and CI passing — ready for merge", self.config.pr_number
+                    )
                     self._set_step(BabysitStep.DONE)
                     return self._result(
                         BabysitExitReason.READY_TO_MERGE,
@@ -184,7 +190,9 @@ class BabysitLoop:
                 self._emit_progress("review", review_result.success)
 
                 if review_result.verdict == ReviewVerdict.APPROVED:
-                    logger.info("PR #%d approved by reviewer — ready for merge", self.config.pr_number)
+                    logger.info(
+                        "PR #%d approved by reviewer — ready for merge", self.config.pr_number
+                    )
                     self._set_step(BabysitStep.DONE)
                     return self._result(
                         BabysitExitReason.READY_TO_MERGE,
@@ -284,10 +292,15 @@ class BabysitLoop:
         try:
             subprocess.run(
                 [
-                    "egg-orch", "progress", "emit",
-                    "--step", step,
-                    "--state", state,
-                    "--detail", detail,
+                    "egg-orch",
+                    "progress",
+                    "emit",
+                    "--step",
+                    step,
+                    "--state",
+                    state,
+                    "--detail",
+                    detail,
                 ],
                 capture_output=True,
                 text=True,
@@ -300,6 +313,7 @@ class BabysitLoop:
 
     def _install_signal_handlers(self) -> None:
         """Install signal handlers for graceful shutdown."""
+
         def _handle_signal(signum: int, frame: FrameType | None) -> None:
             sig_name = signal.Signals(signum).name
             logger.info("Received %s, cancelling babysit loop", sig_name)

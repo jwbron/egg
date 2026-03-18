@@ -72,7 +72,8 @@ def main() -> None:
         help="Path to check-fixers.yml config.",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Enable debug logging.",
     )
@@ -113,7 +114,12 @@ def main() -> None:
     )
 
     logger.info("Babysitting PR #%d in %s", config.pr_number, config.repo)
-    logger.info("Config: timeout=%ds, max_iter=%d, poll=%ds", config.timeout_seconds, config.max_iterations, config.poll_interval_seconds)
+    logger.info(
+        "Config: timeout=%ds, max_iter=%d, poll=%ds",
+        config.timeout_seconds,
+        config.max_iterations,
+        config.poll_interval_seconds,
+    )
 
     # Register pipeline with orchestrator (best-effort).
     _register_pipeline(config)
@@ -193,10 +199,15 @@ def _register_pipeline(config: BabysitConfig) -> None:
     try:
         subprocess.run(
             [
-                "egg-orch", "progress", "emit",
-                "--step", "babysit_start",
-                "--state", "working",
-                "--detail", f"Babysitting PR #{config.pr_number} in {config.repo}",
+                "egg-orch",
+                "progress",
+                "emit",
+                "--step",
+                "babysit_start",
+                "--state",
+                "working",
+                "--detail",
+                f"Babysitting PR #{config.pr_number} in {config.repo}",
             ],
             capture_output=True,
             text=True,

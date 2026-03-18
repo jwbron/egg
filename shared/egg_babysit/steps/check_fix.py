@@ -116,9 +116,7 @@ def fix_failed_checks(
 
     # Build result summary.
     if jobs_exceeding_retries:
-        escalate_msg = (
-            f"Jobs exceeding max retries: {', '.join(jobs_exceeding_retries)}"
-        )
+        escalate_msg = f"Jobs exceeding max retries: {', '.join(jobs_exceeding_retries)}"
         if jobs_failed:
             escalate_msg += f"; Jobs still failing: {', '.join(jobs_failed)}"
         return StepResult(

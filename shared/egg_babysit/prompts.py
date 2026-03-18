@@ -302,8 +302,7 @@ def build_feedback_fixer_prompt(
         Complete prompt string for the feedback fixer agent.
     """
     comments_section = "\n\n---\n\n".join(
-        f"**Comment {i + 1}:**\n{comment}"
-        for i, comment in enumerate(review_comments)
+        f"**Comment {i + 1}:**\n{comment}" for i, comment in enumerate(review_comments)
     )
 
     return f"""\

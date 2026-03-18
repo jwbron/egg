@@ -598,9 +598,7 @@ def create_pipeline() -> tuple[Response, int]:
     # Validate mode
     valid_modes = {m.value for m in PipelineMode}
     if mode not in valid_modes:
-        return make_error_response(
-            f"Invalid mode: {mode!r} (must be one of {sorted(valid_modes)})"
-        )
+        return make_error_response(f"Invalid mode: {mode!r} (must be one of {sorted(valid_modes)})")
 
     # Babysit mode requires pr_number
     if mode == PipelineMode.BABYSIT:

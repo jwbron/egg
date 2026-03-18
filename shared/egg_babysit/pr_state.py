@@ -131,12 +131,17 @@ def fetch_pr_state(pr_number: int, repo: str) -> PRState:
         "number,title,state,merged,mergeable,"
         "mergeableState,headRefOid,baseRefName,headRefName,reviewDecision"
     )
-    raw = _run_gh([
-        "pr", "view",
-        "--json", fields,
-        "--repo", repo,
-        str(pr_number),
-    ])
+    raw = _run_gh(
+        [
+            "pr",
+            "view",
+            "--json",
+            fields,
+            "--repo",
+            repo,
+            str(pr_number),
+        ]
+    )
     data = _parse_json(raw, context=f"pr view #{pr_number}")
 
     # Map mergeable string to bool.
@@ -178,12 +183,17 @@ def fetch_ci_checks(pr_number: int, repo: str) -> list[CICheckResult]:
         subprocess.CalledProcessError: If gh command fails.
         ValueError: If response JSON is malformed.
     """
-    raw = _run_gh([
-        "pr", "checks",
-        "--json", "name,state,conclusion,detailsUrl",
-        "--repo", repo,
-        str(pr_number),
-    ])
+    raw = _run_gh(
+        [
+            "pr",
+            "checks",
+            "--json",
+            "name,state,conclusion,detailsUrl",
+            "--repo",
+            repo,
+            str(pr_number),
+        ]
+    )
     data = _parse_json(raw, context=f"pr checks #{pr_number}")
 
     if not isinstance(data, list):
@@ -198,12 +208,14 @@ def fetch_ci_checks(pr_number: int, repo: str) -> list[CICheckResult]:
         url = check.get("detailsUrl", "")
 
         status = _map_check_status(state, conclusion)
-        results.append(CICheckResult(
-            name=name,
-            status=status,
-            conclusion=conclusion or state,
-            url=url,
-        ))
+        results.append(
+            CICheckResult(
+                name=name,
+                status=status,
+                conclusion=conclusion or state,
+                url=url,
+            )
+        )
 
     return results
 
@@ -222,11 +234,14 @@ def fetch_review_comments(pr_number: int, repo: str) -> list[str]:
         List of comment body strings.
     """
     try:
-        raw = _run_gh([
-            "api",
-            f"repos/{repo}/pulls/{pr_number}/reviews",
-            "--jq", ".[].body",
-        ])
+        raw = _run_gh(
+            [
+                "api",
+                f"repos/{repo}/pulls/{pr_number}/reviews",
+                "--jq",
+                ".[].body",
+            ]
+        )
         # Each line is a comment body; filter out empty lines.
         return [line.strip() for line in raw.splitlines() if line.strip()]
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:

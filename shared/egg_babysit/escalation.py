@@ -66,10 +66,14 @@ def post_pr_comment(pr_number: int, repo: str, body: str) -> bool:
     try:
         result = subprocess.run(
             [
-                "gh", "pr", "comment",
+                "gh",
+                "pr",
+                "comment",
                 str(pr_number),
-                "--repo", repo,
-                "--body", body,
+                "--repo",
+                repo,
+                "--body",
+                body,
             ],
             capture_output=True,
             text=True,
@@ -113,9 +117,14 @@ def _escalate_via_orchestrator(
         # Use egg-contract for HITL decision if available.
         subprocess.run(
             [
-                "egg-contract", "add-decision",
-                "--question", f"Babysit escalation: {reason}",
-                "--options", "Resolve manually", "Retry babysit", "Close PR",
+                "egg-contract",
+                "add-decision",
+                "--question",
+                f"Babysit escalation: {reason}",
+                "--options",
+                "Resolve manually",
+                "Retry babysit",
+                "Close PR",
             ],
             capture_output=True,
             text=True,
