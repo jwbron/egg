@@ -244,7 +244,7 @@ def fetch_review_comments(pr_number: int, repo: str) -> list[str]:
         )
         bodies = json.loads(raw)
         return [b.strip() for b in bodies if isinstance(b, str) and b.strip()]
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
         logger.warning("Failed to fetch review comments for PR #%d: %s", pr_number, exc)
         return []
 

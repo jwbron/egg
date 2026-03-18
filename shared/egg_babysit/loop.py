@@ -147,7 +147,12 @@ class BabysitLoop:
             if ci_status == CICheckStatus.FAILING:
                 self._set_step(BabysitStep.FIX_CHECKS)
                 failed = [c for c in ci_checks if c.status == CICheckStatus.FAILING]
-                fix_result = fix_failed_checks(self.config, failed, self.state.retry_counts)
+                fix_result = fix_failed_checks(
+                    self.config,
+                    failed,
+                    self.state.retry_counts,
+                    base_branch=pr_state.base_branch,
+                )
                 self._emit_progress("fix_checks", fix_result.success)
 
                 if fix_result.escalate:

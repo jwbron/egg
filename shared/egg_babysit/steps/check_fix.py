@@ -27,6 +27,7 @@ def fix_failed_checks(
     config: BabysitConfig,
     failed_checks: list[CICheckResult],
     retry_counts: dict[str, int],
+    base_branch: str = "main",
 ) -> StepResult:
     """Fix failing CI checks.
 
@@ -40,6 +41,7 @@ def fix_failed_checks(
         config: Babysit configuration.
         failed_checks: List of failing CI check results.
         retry_counts: Mutable dict of job_name -> retry count. Updated in place.
+        base_branch: PR target branch for loading repo config (default "main").
 
     Returns:
         StepResult indicating success, failure, or escalation.
@@ -47,7 +49,9 @@ def fix_failed_checks(
     if not failed_checks:
         return StepResult(success=True, message="No failing checks to fix")
 
-    check_fixers_config = load_check_fixers_config(config.check_fixers_path)
+    check_fixers_config = load_check_fixers_config(
+        config.check_fixers_path, base_branch=base_branch
+    )
     repo_path = os.environ.get("EGG_REPO_PATH", "")
     jobs_exceeding_retries: list[str] = []
     jobs_fixed: list[str] = []

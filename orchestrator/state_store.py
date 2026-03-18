@@ -678,6 +678,8 @@ class StateStore:
             prompt: User prompt (for prompt-driven pipelines)
             pipeline_id: Explicit pipeline ID (auto-generated if not provided)
             network_mode: Network mode for spawned containers ("public", "private", or None)
+            mode: Pipeline mode (ISSUE or BABYSIT). Defaults to ISSUE if not set.
+            pr_number: PR number for babysit-mode pipelines (optional).
 
         Returns:
             Created pipeline
