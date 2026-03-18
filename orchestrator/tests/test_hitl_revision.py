@@ -1391,6 +1391,7 @@ class TestPhaseGateResolutionPersistence:
             status=DecisionStatus.RESOLVED,
             resolution=resolution,
             phase=PipelinePhase(phase),
+            options=["approve", "request changes"],
         )
 
     def test_phase_gate_resolution_persisted_to_contract(self, tmp_path):
@@ -1412,7 +1413,6 @@ class TestPhaseGateResolutionPersistence:
             "test-pipe",
             decision,
             "refine",
-            "local",
             None,
         )
 
@@ -1421,12 +1421,21 @@ class TestPhaseGateResolutionPersistence:
         assert updated.decisions[0].resolution == "Use the adapter pattern for the refactor"
         assert "[Phase gate: refine]" in updated.decisions[0].question
         assert updated.decisions[0].resolved is True
+        # Verify options were mapped to DecisionOption objects
+        assert len(updated.decisions[0].options) == 2
+        assert updated.decisions[0].options[0].label == "approve"
+        assert updated.decisions[0].options[1].label == "request changes"
 
     def test_phase_gate_resolution_appended_to_draft(self, tmp_path):
-        """The draft file should get a HITL Resolution section appended."""
+        """The draft file should get a HITL Resolution section appended.
+
+        Note: No contract is set up intentionally — this tests the draft append
+        path in isolation.  The contract sync silently fails via the except
+        handler, which is the expected behaviour when no contract exists.
+        """
         from routes.pipelines import _persist_phase_gate_resolution
 
-        # Create a draft file
+        # Create a draft file (no contract — tests draft append in isolation)
         draft_dir = tmp_path / ".egg-state" / "drafts"
         draft_dir.mkdir(parents=True)
         draft_path = draft_dir / "test-pipe-analysis.md"
@@ -1441,7 +1450,6 @@ class TestPhaseGateResolutionPersistence:
             "test-pipe",
             decision,
             "refine",
-            "local",
             None,
         )
 
@@ -1449,8 +1457,8 @@ class TestPhaseGateResolutionPersistence:
         assert "## HITL Resolution" in content
         assert "Focus on error handling improvements" in content
 
-    def test_phase_gate_resolution_no_context_graceful(self, tmp_path):
-        """When resolution has no context field, function should handle gracefully."""
+    def test_phase_gate_resolution_no_context_skipped(self, tmp_path):
+        """When resolution is structured JSON with no context/feedback, nothing is persisted."""
         from egg_contracts.loader import load_contract, save_contract
         from egg_contracts.models import Contract
         from routes.pipelines import _persist_phase_gate_resolution
@@ -1458,7 +1466,7 @@ class TestPhaseGateResolutionPersistence:
         contract = Contract(pipeline_id="test-pipe")
         save_contract(contract, tmp_path)
 
-        # Resolution with action but no context or feedback — falls back to raw string
+        # Resolution with action but no context or feedback — should be skipped
         decision = self._make_decision('{"action": "approve"}')
 
         _persist_phase_gate_resolution(
@@ -1466,14 +1474,12 @@ class TestPhaseGateResolutionPersistence:
             "test-pipe",
             decision,
             "refine",
-            "local",
             None,
         )
 
-        # The raw JSON string is used as fallback since context and feedback are empty
+        # No decisions persisted — approve without context has nothing meaningful to propagate
         updated = load_contract("test-pipe", tmp_path)
-        assert len(updated.decisions) == 1
-        assert updated.decisions[0].resolution == '{"action": "approve"}'
+        assert len(updated.decisions) == 0
 
     def test_phase_gate_resolution_plain_text(self, tmp_path):
         """When resolution is a plain string (not JSON), it should be used as-is."""
@@ -1491,7 +1497,6 @@ class TestPhaseGateResolutionPersistence:
             "test-pipe",
             decision,
             "refine",
-            "local",
             None,
         )
 
@@ -1517,7 +1522,6 @@ class TestPhaseGateResolutionPersistence:
             "test-pipe",
             decision,
             "refine",
-            "local",
             None,
         )
         _persist_phase_gate_resolution(
@@ -1525,7 +1529,6 @@ class TestPhaseGateResolutionPersistence:
             "test-pipe",
             decision,
             "refine",
-            "local",
             None,
         )
 
@@ -1548,7 +1551,6 @@ class TestPhaseGateResolutionPersistence:
             "test-pipe",
             decision,
             "refine",
-            "local",
             None,
         )
 
@@ -1578,7 +1580,6 @@ class TestPhaseGateResolutionPersistence:
             "test-pipe",
             decision,
             "refine",
-            "issue",
             42,
         )
 

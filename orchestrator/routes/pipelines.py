@@ -4983,7 +4983,6 @@ def _persist_phase_gate_resolution(
     pipeline_id: str,
     decision: HITLDecision,
     phase: str,
-    pipeline_mode: str = "local",
     issue_number: int | None = None,
 ) -> None:
     """Persist a phase-gate resolution to the contract and draft.
@@ -5005,9 +5004,14 @@ def _persist_phase_gate_resolution(
         try:
             payload = json.loads(raw)
             if isinstance(payload, dict):
-                resolution_context = (
-                    payload.get("context", "") or payload.get("feedback", "") or raw
-                )
+                resolution_context = payload.get("context", "") or payload.get("feedback", "")
+                if not resolution_context:
+                    logger.debug(
+                        "Phase gate approved without context, nothing to persist",
+                        pipeline_id=pipeline_id,
+                        phase=phase,
+                    )
+                    return
             else:
                 resolution_context = raw
         except (json.JSONDecodeError, TypeError):
@@ -6240,7 +6244,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     pipeline_id,
                     resolved_decision,
                     current_phase.value,
-                    pipeline_mode,
                     pipeline.issue_number,
                 )
 
@@ -6552,9 +6555,38 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                             pipeline_id,
                             phase_gate_decisions[0],
                             pipeline.current_phase.value,
-                            "issue" if pipeline.issue_number is not None else "prompt",
                             pipeline.issue_number,
                         )
+
+                        # Commit statefiles so worktrees created by _run_pipeline
+                        # include the contract/draft changes.
+                        try:
+                            _commit_statefiles_to_worktree(
+                                repo_path,
+                                f"Persist HITL resolution after {pipeline.current_phase.value} phase gate",
+                            )
+                        except subprocess.CalledProcessError as git_err:
+                            logger.warning(
+                                "Failed to commit statefiles after phase gate resolution (continuing)",
+                                pipeline_id=pipeline_id,
+                                error=str(git_err),
+                            )
+
+                        # Push if this repo tracks a remote branch
+                        if pipeline.branch:
+                            try:
+                                _spawner = get_container_spawner()
+                                _spawner.gateway.push_worktree_branch(
+                                    pipeline_id=pipeline_id,
+                                    repo_path=str(repo_path),
+                                    branch=pipeline.branch,
+                                )
+                            except Exception as push_err:
+                                logger.warning(
+                                    "Failed to push statefiles after phase gate resolution (continuing)",
+                                    pipeline_id=pipeline_id,
+                                    error=str(push_err),
+                                )
 
                     from routes.phases import PHASE_TRANSITIONS
 
