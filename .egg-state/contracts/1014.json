@@ -1,0 +1,283 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1014,
+    "title": "Issue #1014",
+    "url": "https://github.com/jwbron/egg/issues/1014"
+  },
+  "pipeline_id": "issue-1014",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "babysit-pr Execution Model: Should babysit-pr use the orchestrator for lifecycle management, or run as a standalone process?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Orchestrator-backed \u2014 Checkpoints, container lifecycle, health monitoring built in; slower startup",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Standalone \u2014 Faster, simpler loop; no checkpoints or orchestrator observability",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Both \u2014 Orchestrator by default, --standalone flag for lightweight mode",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Prompt Builder Strategy: How should the Python babysit-pr module consume the existing bash prompt builders (action/build-*.sh)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Call existing bash scripts via subprocess \u2014 Minimal change, single source of truth",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Port to Python modules \u2014 Cleaner integration, duplicates logic until Actions updated",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Thin Python wrappers that call bash scripts \u2014 Python API, bash implementation underneath",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "PR Branch Handling: When agents manage a PR-seeded pipeline, should they push to the PR's existing head branch or create a new branch?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Push to existing PR head branch \u2014 Simpler, risks conflicts with PR author",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Create new branch and update PR head \u2014 Safer isolation, changes PR branch",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Use existing branch, expect no concurrent pushes \u2014 Simple, relies on coordination",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "babysit-pr Scope \u2014 Conflict Resolution: Should v1 include merge conflict resolution, or defer to v2?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes, include conflict resolution \u2014 Full loop as described in issue",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No, defer to v2 \u2014 Simpler v1: CI wait \u2192 check fix \u2192 review \u2192 feedback only",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Terminal UX: What level of terminal output is expected for the babysit-pr CLI in v1?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Minimal \u2014 Periodic status line updates (poll and print)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Medium \u2014 Rich terminal output with progress bars and color",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Full \u2014 Live-streaming agent output to terminal",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Review-Only vs Review-and-Fix: Should babysit-pr always pair review with auto-fix, or support a review-only mode?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Always fix \u2014 Review always followed by auto-fix attempt",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Optional review-only \u2014 --review-only flag to post review and stop",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Both by default \u2014 Auto-fix with --no-fix flag to opt out",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Non-Trusted-User PR Handling: How should babysit-pr handle PRs authored by someone not in GATEWAY_TRUSTED_USERS?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Require trusted user \u2014 Only babysit PRs from trusted users or bot-authored PRs",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Add bot as co-author \u2014 Bot opens its own PR to same branch",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Gateway policy extension \u2014 New babysit permission mode for explicit requests",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Dependency Sequencing: Should babysit-pr ship independently before the coordinator (#1028), or wait?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Ship babysit-pr standalone first \u2014 Deliver value immediately, integrate with coordinator later",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Wait for coordinator \u2014 Implement both together to avoid rework",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "babysit-pr standalone + PR-seeded as coordinator milestone \u2014 Two separate deliverables",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
