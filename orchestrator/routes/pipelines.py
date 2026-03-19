@@ -21,6 +21,11 @@ _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
+# Add repo root to path for config module
+_repo_root = Path(__file__).parent.parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
 try:
     from egg_logging import get_logger
 except ImportError:
@@ -28,6 +33,13 @@ except ImportError:
 
     def get_logger(name: str, **kwargs) -> logging.Logger:  # type: ignore[misc]
         return logging.getLogger(name)
+
+try:
+    from config.repo_config import get_repo_checks
+except ImportError:
+
+    def get_repo_checks(repo: str) -> list[dict[str, str]]:  # type: ignore[misc]
+        return []
 
 
 # Import orchestrator modules - try relative import first
@@ -3483,6 +3495,14 @@ def _build_agent_prompt(
     lines.append("## Your Task\n")
 
     if role_value == "tester":
+        # Look up per-repo check commands from repositories.yaml
+        repo_checks: list[dict[str, str]] = []
+        if repo:
+            try:
+                repo_checks = get_repo_checks(repo)
+            except (FileNotFoundError, Exception):
+                repo_checks = []
+
         lines.extend(
             [
                 "Validate the changes and find gaps in the CODER agent's implementation. "
@@ -3507,13 +3527,44 @@ def _build_agent_prompt(
                 "",
                 "After writing tests, run all project checks and fix auto-fixable issues:",
                 "",
-                "1. **Discover commands**: Look for Makefile, pyproject.toml, package.json, "
-                "setup.cfg, tox.ini, or similar build/test configuration files",
-                "2. **Run linters**: Execute linters (ruff, eslint, golangci-lint, etc.)",
-                "3. **Run type checkers**: Execute type checkers (mypy, pyright, tsc, etc.)",
-                "4. **Auto-fix**: Fix auto-fixable issues (formatting, import order, simple type errors)",
-                "5. **Repeat**: Re-run checks to verify fixes. Repeat up to 3 times.",
-                "6. **Commit fixes**: Commit all auto-fixes together with a descriptive message",
+            ]
+        )
+
+        if repo_checks:
+            # Inject explicit check commands from repositories.yaml
+            lines.extend(
+                [
+                    "The following check commands are configured for this repository. "
+                    "Run them **in order** instead of auto-discovering commands:",
+                    "",
+                ]
+            )
+            for i, check in enumerate(repo_checks, 1):
+                lines.append(f"{i}. **{check['name']}**: `{check['command']}`")
+            lines.extend(
+                [
+                    "",
+                    "After running these checks:",
+                ]
+            )
+        else:
+            # Fall back to auto-discovery
+            lines.extend(
+                [
+                    "1. **Discover commands**: Look for Makefile, pyproject.toml, package.json, "
+                    "setup.cfg, tox.ini, or similar build/test configuration files",
+                    "2. **Run linters**: Execute linters (ruff, eslint, golangci-lint, etc.)",
+                    "3. **Run type checkers**: Execute type checkers (mypy, pyright, tsc, etc.)",
+                    "",
+                    "After running checks:",
+                ]
+            )
+
+        lines.extend(
+            [
+                "- **Auto-fix**: Fix auto-fixable issues (formatting, import order, simple type errors)",
+                "- **Repeat**: Re-run checks to verify fixes. Repeat up to 3 times.",
+                "- **Commit fixes**: Commit all auto-fixes together with a descriptive message",
                 "",
                 "Auto-fixable (commit fixes directly):",
                 "- Lint errors (formatting, import order, code style)",
