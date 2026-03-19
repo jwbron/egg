@@ -178,7 +178,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
             # Start periodic reconciliation to detect stale containers
             # that may have exited between event-driven checks.
             if not stores:
-                stores = [get_state_store(rp) for rp in repo_paths]
+                for rp in repo_paths:
+                    try:
+                        stores.append(get_state_store(rp))
+                    except Exception:
+                        logger.debug("Could not create state store", repo=str(rp))
             monitor.start_periodic_reconciliation(stores)
         except Exception as monitor_err:
             logger.warning(

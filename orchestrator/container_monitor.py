@@ -103,6 +103,7 @@ class ContainerMonitor:
         # Optional health check runner integration (set via set_health_check_runner)
         self._health_check_runner: Any = None
         self._health_check_repo_paths: list[Path] = []
+        self._health_check_stores: dict[Path, Any] = {}  # cached StateStore per repo
 
         # Periodic reconciliation state
         self._reconciliation_running = False
@@ -184,10 +185,18 @@ class ContainerMonitor:
             from state_store import get_state_store
 
             for repo_path in self._health_check_repo_paths:
-                try:
-                    store = get_state_store(repo_path)
-                except Exception:
-                    continue
+                store = self._health_check_stores.get(repo_path)
+                if store is None:
+                    try:
+                        store = get_state_store(repo_path)
+                        self._health_check_stores[repo_path] = store
+                    except Exception as store_err:
+                        logger.debug(
+                            "RUNTIME_TICK: could not create state store",
+                            repo=str(repo_path),
+                            error=str(store_err),
+                        )
+                        continue
                 for pid in store.list_pipelines():
                     try:
                         pipeline = store.load_pipeline(pid)
