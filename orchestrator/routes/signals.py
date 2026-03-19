@@ -37,7 +37,7 @@ from egg_contracts.agent_roles import AgentRole as ContractAgentRole
 from egg_contracts.loader import ContractNotFoundError
 from egg_contracts.orchestrator import create_orchestrator
 from handoffs import AgentOutput, save_agent_output
-from models import AgentRole
+from models import AgentRole, PipelineStatus
 from state_store import InvalidPipelineIdError, PipelineNotFoundError, get_state_store
 
 logger = get_logger("orchestrator.signals")
@@ -56,6 +56,14 @@ _AGENT_ROLE_TO_CONTRACT_ROLE: dict[AgentRole, ContractAgentRole] = {
     AgentRole.REVIEWER_CONTRACT: ContractAgentRole.REVIEWER_CONTRACT,
     AgentRole.REVIEWER_AGENT_DESIGN: ContractAgentRole.REVIEWER_AGENT_DESIGN,
 }
+
+_SIGTERM_EXIT_CODE = "143"
+
+
+def _is_sigterm_after_completion(pipeline: Any, error_message: str) -> bool:
+    """Return True if this error is a SIGTERM exit on an already-complete pipeline."""
+    return pipeline.status == PipelineStatus.COMPLETE and _SIGTERM_EXIT_CODE in error_message
+
 
 signals_bp = Blueprint("signals", __name__, url_prefix="/api/v1/pipelines")
 
@@ -503,6 +511,23 @@ def handle_error_signal(
         store = get_state_store(repo_path)
         pipeline = store.load_pipeline(pipeline_id)
 
+        # SIGTERM (exit code 143) is expected when the orchestrator stops
+        # agents after pipeline completion.  Suppress the error to avoid
+        # noisy warnings on every successful run.
+        if _is_sigterm_after_completion(pipeline, error_message):
+            logger.info(
+                "Agent stopped after pipeline completion (SIGTERM — expected)",
+                pipeline_id=pipeline_id,
+                role=agent_role.value,
+            )
+            return make_success_response(
+                "Clean shutdown acknowledged",
+                data={
+                    "agent_role": agent_role.value,
+                    "clean_shutdown": True,
+                },
+            )
+
         # Contracts live in per-pipeline worktrees, not the main repo.
         contract_path = resolve_worktree_path(pipeline_id, repo_path)
 
@@ -549,6 +574,19 @@ def handle_error_signal(
             status_code=404,
         )
     except ContractNotFoundError:
+        if _is_sigterm_after_completion(pipeline, error_message):
+            logger.info(
+                "Agent stopped after pipeline completion (SIGTERM — expected)",
+                pipeline_id=pipeline_id,
+                role=agent_role_str,
+            )
+            return make_success_response(
+                "Clean shutdown acknowledged",
+                data={
+                    "agent_role": agent_role_str,
+                    "clean_shutdown": True,
+                },
+            )
         logger.warning(
             "Contract not found for error signal (non-fatal)",
             pipeline_id=pipeline_id,
