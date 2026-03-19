@@ -120,6 +120,52 @@ def resolve_repo_path_for_pipeline(pipeline_id: str, base_path: Path) -> Path:
     return base_path
 
 
+def get_state_store_for_pipeline(pipeline_id: str) -> tuple["StateStore", "Pipeline"]:
+    """Get state store and pipeline, resolving multi-repo paths automatically.
+
+    This is the preferred way for routes to load a pipeline.  It handles
+    the multi-repo case where ``get_repo_path()`` returns a parent
+    directory (e.g. ``/home/egg/repos``) by searching all discovered
+    repos for the pipeline.
+
+    Args:
+        pipeline_id: Pipeline ID to look up
+
+    Returns:
+        (StateStore, Pipeline) tuple
+
+    Raises:
+        PipelineNotFoundError: if the pipeline cannot be found
+        InvalidPipelineIdError: if the ID format is invalid
+    """
+    from state_store import (
+        InvalidPipelineIdError,
+        PipelineNotFoundError,
+        StateStoreError,
+        discover_repo_paths,
+        get_state_store,
+    )
+
+    base_path = get_repo_path()
+
+    # Fast path: base_path is itself a git repo
+    if (base_path / ".git").exists():
+        store = get_state_store(base_path)
+        pipeline = store.load_pipeline(pipeline_id)
+        return store, pipeline
+
+    # Multi-repo: search all discovered repos
+    for repo_path in discover_repo_paths(base_path):
+        try:
+            store = get_state_store(repo_path)
+            pipeline = store.load_pipeline(pipeline_id)
+            return store, pipeline
+        except (PipelineNotFoundError, StateStoreError):
+            continue
+
+    raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found") from None
+
+
 # Must match the gateway's WORKTREE_BASE_DIR and docker-compose volume mounts.
 _WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
 

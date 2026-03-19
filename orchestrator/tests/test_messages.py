@@ -93,11 +93,10 @@ class TestDelphiFiltering:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store") as mock_state_store,
-                patch("routes.messages.get_repo_path", return_value=Path("/tmp")),
+                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
                 patch("peer_consensus.get_peer_consensus_tracker", return_value=tracker),
             ):
-                mock_state_store.return_value.load_pipeline.return_value = _make_pipeline_mock()
+                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages?role=reviewer_code")
                 data = json.loads(resp.data)
@@ -150,11 +149,10 @@ class TestDelphiFiltering:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store") as mock_state_store,
-                patch("routes.messages.get_repo_path", return_value=Path("/tmp")),
+                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
                 patch("peer_consensus.get_peer_consensus_tracker", return_value=tracker),
             ):
-                mock_state_store.return_value.load_pipeline.return_value = _make_pipeline_mock()
+                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages?role=reviewer_code")
                 data = json.loads(resp.data)
@@ -198,11 +196,10 @@ class TestDelphiFiltering:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store") as mock_state_store,
-                patch("routes.messages.get_repo_path", return_value=Path("/tmp")),
+                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
                 patch("peer_consensus.get_peer_consensus_tracker", return_value=tracker),
             ):
-                mock_state_store.return_value.load_pipeline.return_value = _make_pipeline_mock()
+                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
                 # documenter is not a reviewer in this graph
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages?role=documenter")
@@ -227,10 +224,9 @@ class TestDelphiFiltering:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store") as mock_state_store,
-                patch("routes.messages.get_repo_path", return_value=Path("/tmp")),
+                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
             ):
-                mock_state_store.return_value.load_pipeline.return_value = _make_pipeline_mock()
+                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages")
                 data = json.loads(resp.data)
@@ -248,10 +244,9 @@ class TestLongPolling:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store") as mock_state_store,
-                patch("routes.messages.get_repo_path", return_value=Path("/tmp")),
+                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
             ):
-                mock_state_store.return_value.load_pipeline.return_value = _make_pipeline_mock()
+                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
                 # wait=0 should work (no blocking)
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages?wait=0")
@@ -264,10 +259,9 @@ class TestLongPolling:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store") as mock_state_store,
-                patch("routes.messages.get_repo_path", return_value=Path("/tmp")),
+                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
             ):
-                mock_state_store.return_value.load_pipeline.return_value = _make_pipeline_mock()
+                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages?wait=-5")
                 assert resp.status_code == 200
@@ -279,10 +273,9 @@ class TestLongPolling:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store") as mock_state_store,
-                patch("routes.messages.get_repo_path", return_value=Path("/tmp")),
+                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
             ):
-                mock_state_store.return_value.load_pipeline.return_value = _make_pipeline_mock()
+                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages?wait=999")
                 assert resp.status_code == 200
@@ -294,10 +287,9 @@ class TestLongPolling:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store") as mock_state_store,
-                patch("routes.messages.get_repo_path", return_value=Path("/tmp")),
+                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
             ):
-                mock_state_store.return_value.load_pipeline.return_value = _make_pipeline_mock()
+                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages?wait=abc")
                 assert resp.status_code == 200
@@ -318,10 +310,9 @@ class TestLongPolling:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store") as mock_state_store,
-                patch("routes.messages.get_repo_path", return_value=Path("/tmp")),
+                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
             ):
-                mock_state_store.return_value.load_pipeline.return_value = _make_pipeline_mock()
+                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
                 # In-memory store doesn't support wait, should fall back
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages?wait=5")
@@ -349,10 +340,9 @@ class TestMessageStatus:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store") as mock_state_store,
-                patch("routes.messages.get_repo_path", return_value=Path("/tmp")),
+                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
             ):
-                mock_state_store.return_value.load_pipeline.return_value = _make_pipeline_mock()
+                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages/status")
                 data = json.loads(resp.data)

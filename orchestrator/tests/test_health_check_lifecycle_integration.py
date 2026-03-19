@@ -394,9 +394,8 @@ class TestContainerMonitorHealthIntegrationExtra:
 class TestPhaseAdvanceHealthCheck:
     """Test PHASE_COMPLETE health check integration in routes/phases.py."""
 
-    @patch("routes.phases.get_repo_path", return_value=Path("/tmp/repo"))
-    @patch("routes.phases.get_state_store")
-    def test_fail_pipeline_blocks_phase_advance(self, mock_get_store, mock_repo_path, app):
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_fail_pipeline_blocks_phase_advance(self, mock_get_store_for_pipeline, app):
         """When health checks return FAIL_PIPELINE, phase advance returns 409."""
         from routes.phases import phases_bp
 
@@ -413,8 +412,8 @@ class TestPhaseAdvanceHealthCheck:
         plan_exec.status = PipelineStatus.COMPLETE
 
         mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_get_store.return_value = mock_store
+        mock_store.repo_path = Path("/tmp/repo")
+        mock_get_store_for_pipeline.return_value = (mock_store, pipeline)
 
         with app.test_client() as client:
             resp = client.post(
@@ -425,9 +424,8 @@ class TestPhaseAdvanceHealthCheck:
             data = json.loads(resp.data)
             assert "health" in data.get("message", "").lower()
 
-    @patch("routes.phases.get_repo_path", return_value=Path("/tmp/repo"))
-    @patch("routes.phases.get_state_store")
-    def test_force_flag_bypasses_health_checks(self, mock_get_store, mock_repo_path, app):
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_force_flag_bypasses_health_checks(self, mock_get_store_for_pipeline, app):
         """When force=true, health checks are skipped."""
         from routes.phases import phases_bp
 
@@ -444,8 +442,8 @@ class TestPhaseAdvanceHealthCheck:
         plan_exec.status = PipelineStatus.COMPLETE
 
         mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_get_store.return_value = mock_store
+        mock_store.repo_path = Path("/tmp/repo")
+        mock_get_store_for_pipeline.return_value = (mock_store, pipeline)
 
         with app.test_client() as client:
             resp = client.post(
@@ -456,9 +454,8 @@ class TestPhaseAdvanceHealthCheck:
             assert resp.status_code != 409
             mock_runner.run.assert_not_called()
 
-    @patch("routes.phases.get_repo_path", return_value=Path("/tmp/repo"))
-    @patch("routes.phases.get_state_store")
-    def test_healthy_results_allow_phase_advance(self, mock_get_store, mock_repo_path, app):
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_healthy_results_allow_phase_advance(self, mock_get_store_for_pipeline, app):
         """When all health checks pass, phase advance proceeds normally."""
         from routes.phases import phases_bp
 
@@ -475,8 +472,8 @@ class TestPhaseAdvanceHealthCheck:
         plan_exec.status = PipelineStatus.COMPLETE
 
         mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_get_store.return_value = mock_store
+        mock_store.repo_path = Path("/tmp/repo")
+        mock_get_store_for_pipeline.return_value = (mock_store, pipeline)
 
         with app.test_client() as client:
             resp = client.post(
@@ -485,10 +482,9 @@ class TestPhaseAdvanceHealthCheck:
             )
             assert resp.status_code != 409
 
-    @patch("routes.phases.get_repo_path", return_value=Path("/tmp/repo"))
-    @patch("routes.phases.get_state_store")
+    @patch("routes.phases.get_state_store_for_pipeline")
     def test_health_check_exception_does_not_block_advance(
-        self, mock_get_store, mock_repo_path, app
+        self, mock_get_store_for_pipeline, app
     ):
         """Exceptions in health checks should not block phase advance."""
         from routes.phases import phases_bp
@@ -504,8 +500,8 @@ class TestPhaseAdvanceHealthCheck:
         plan_exec.status = PipelineStatus.COMPLETE
 
         mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_get_store.return_value = mock_store
+        mock_store.repo_path = Path("/tmp/repo")
+        mock_get_store_for_pipeline.return_value = (mock_store, pipeline)
 
         with app.test_client() as client:
             resp = client.post(
@@ -515,9 +511,8 @@ class TestPhaseAdvanceHealthCheck:
             # Should proceed despite exception
             assert resp.status_code != 409
 
-    @patch("routes.phases.get_repo_path", return_value=Path("/tmp/repo"))
-    @patch("routes.phases.get_state_store")
-    def test_no_runner_allows_advance(self, mock_get_store, mock_repo_path, app):
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_no_runner_allows_advance(self, mock_get_store_for_pipeline, app):
         """When HEALTH_CHECK_RUNNER is not set, advance proceeds normally."""
         from routes.phases import phases_bp
 
@@ -531,8 +526,8 @@ class TestPhaseAdvanceHealthCheck:
         plan_exec.status = PipelineStatus.COMPLETE
 
         mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_get_store.return_value = mock_store
+        mock_store.repo_path = Path("/tmp/repo")
+        mock_get_store_for_pipeline.return_value = (mock_store, pipeline)
 
         with app.test_client() as client:
             resp = client.post(
@@ -541,9 +536,8 @@ class TestPhaseAdvanceHealthCheck:
             )
             assert resp.status_code != 409
 
-    @patch("routes.phases.get_repo_path", return_value=Path("/tmp/repo"))
-    @patch("routes.phases.get_state_store")
-    def test_alert_action_allows_advance(self, mock_get_store, mock_repo_path, app):
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_alert_action_allows_advance(self, mock_get_store_for_pipeline, app):
         """ALERT action should not block phase advance (only FAIL_PIPELINE blocks)."""
         from routes.phases import phases_bp
 
@@ -560,8 +554,8 @@ class TestPhaseAdvanceHealthCheck:
         plan_exec.status = PipelineStatus.COMPLETE
 
         mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_get_store.return_value = mock_store
+        mock_store.repo_path = Path("/tmp/repo")
+        mock_get_store_for_pipeline.return_value = (mock_store, pipeline)
 
         with app.test_client() as client:
             resp = client.post(

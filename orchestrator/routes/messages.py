@@ -31,8 +31,8 @@ except ImportError:
 
 from events import EventType, emit_event
 from message_store import Message, get_message_store
-from routes import get_repo_path
-from state_store import InvalidPipelineIdError, PipelineNotFoundError, get_state_store
+from routes import get_state_store_for_pipeline
+from state_store import InvalidPipelineIdError, PipelineNotFoundError, StateStoreError
 
 logger = get_logger("orchestrator.messages")
 
@@ -78,9 +78,8 @@ def send_message(pipeline_id: str) -> tuple[Response, int]:
 
     # Validate pipeline exists
     try:
-        store = get_state_store(get_repo_path())
-        pipeline = store.load_pipeline(pipeline_id)
-    except (InvalidPipelineIdError, PipelineNotFoundError) as e:
+        store, pipeline = get_state_store_for_pipeline(pipeline_id)
+    except (InvalidPipelineIdError, PipelineNotFoundError, StateStoreError) as e:
         return _make_error(str(e), 404)
 
     # Skip strict role validation — agents may send before being registered in phase execution
@@ -133,9 +132,8 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
     """
     # Validate pipeline exists (consistent with send_message)
     try:
-        store = get_state_store(get_repo_path())
-        store.load_pipeline(pipeline_id)
-    except (InvalidPipelineIdError, PipelineNotFoundError) as e:
+        get_state_store_for_pipeline(pipeline_id)
+    except (InvalidPipelineIdError, PipelineNotFoundError, StateStoreError) as e:
         return _make_error(str(e), 404)
 
     role = request.args.get("role")
@@ -204,9 +202,8 @@ def message_status(pipeline_id: str) -> tuple[Response, int]:
     """Get message bus status for a pipeline."""
     # Validate pipeline exists (consistent with send_message)
     try:
-        store = get_state_store(get_repo_path())
-        store.load_pipeline(pipeline_id)
-    except (InvalidPipelineIdError, PipelineNotFoundError) as e:
+        get_state_store_for_pipeline(pipeline_id)
+    except (InvalidPipelineIdError, PipelineNotFoundError, StateStoreError) as e:
         return _make_error(str(e), 404)
 
     message_store = get_message_store()

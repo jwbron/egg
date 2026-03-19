@@ -68,7 +68,7 @@ def make_success_response(
     return jsonify(response), 200
 
 
-from routes import get_repo_path  # noqa: E402 — shared helper
+from routes import get_repo_path, resolve_repo_path_for_pipeline  # noqa: E402 — shared helper
 
 
 @decisions_bp.route("/<pipeline_id>/decisions", methods=["GET"])
@@ -97,7 +97,7 @@ def list_decisions(pipeline_id: str) -> tuple[Response, int]:
             }
         }
     """
-    repo_path = get_repo_path()
+    repo_path = resolve_repo_path_for_pipeline(pipeline_id, get_repo_path())
     pending_only = request.args.get("pending_only", "false").lower() == "true"
 
     try:
@@ -165,7 +165,7 @@ def queue_decision(pipeline_id: str) -> tuple[Response, int]:
             }
         }
     """
-    repo_path = get_repo_path()
+    repo_path = resolve_repo_path_for_pipeline(pipeline_id, get_repo_path())
     data = request.get_json() or {}
 
     question = data.get("question")
@@ -249,7 +249,7 @@ def get_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
             }
         }
     """
-    repo_path = get_repo_path()
+    repo_path = resolve_repo_path_for_pipeline(pipeline_id, get_repo_path())
 
     try:
         queue = get_decision_queue(pipeline_id, repo_path)
@@ -310,7 +310,7 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             }
         }
     """
-    repo_path = get_repo_path()
+    repo_path = resolve_repo_path_for_pipeline(pipeline_id, get_repo_path())
     data = request.get_json() or {}
 
     resolution = data.get("resolution")
@@ -413,7 +413,7 @@ def cancel_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
             "message": "Decision cancelled"
         }
     """
-    repo_path = get_repo_path()
+    repo_path = resolve_repo_path_for_pipeline(pipeline_id, get_repo_path())
 
     try:
         queue = get_decision_queue(pipeline_id, repo_path)
@@ -466,7 +466,7 @@ def get_queue_status(pipeline_id: str) -> tuple[Response, int]:
             }
         }
     """
-    repo_path = get_repo_path()
+    repo_path = resolve_repo_path_for_pipeline(pipeline_id, get_repo_path())
 
     try:
         queue = get_decision_queue(pipeline_id, repo_path)

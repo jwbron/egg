@@ -78,7 +78,7 @@ def make_success_response(
     return jsonify(response), 200
 
 
-from routes import get_repo_path  # noqa: E402 — shared helper
+from routes import get_repo_path, get_state_store_for_pipeline  # noqa: E402 — shared helper
 from routes.checks import teardown_devserver  # noqa: E402
 
 
@@ -156,11 +156,8 @@ def get_current_phase(pipeline_id: str) -> tuple[Response, int]:
             }
         }
     """
-    repo_path = get_repo_path()
-
     try:
-        store = get_state_store(repo_path)
-        pipeline = store.load_pipeline(pipeline_id)
+        store, pipeline = get_state_store_for_pipeline(pipeline_id)
 
         phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
 
@@ -234,7 +231,6 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             }
         }
     """
-    repo_path = get_repo_path()
     data = request.get_json() or {}
 
     target_phase_str = data.get("target_phase")
@@ -251,8 +247,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
     force = data.get("force", False)
 
     try:
-        store = get_state_store(repo_path)
-        pipeline = store.load_pipeline(pipeline_id)
+        store, pipeline = get_state_store_for_pipeline(pipeline_id)
         original_version = pipeline.version  # Capture version for optimistic locking
 
         previous_phase = pipeline.current_phase
@@ -295,7 +290,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
 
                     ctx = PipelineHealthContext(
                         pipeline=pipeline,
-                        repo_path=Path(get_repo_path()),
+                        repo_path=store.repo_path,
                         trigger=HealthTrigger.PHASE_COMPLETE.value,
                         docker_client=dc,
                         state_store=store,
@@ -393,11 +388,8 @@ def start_phase(pipeline_id: str) -> tuple[Response, int]:
             }
         }
     """
-    repo_path = get_repo_path()
-
     try:
-        store = get_state_store(repo_path)
-        pipeline = store.load_pipeline(pipeline_id)
+        store, pipeline = get_state_store_for_pipeline(pipeline_id)
         original_version = pipeline.version
 
         phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
@@ -466,12 +458,10 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
             }
         }
     """
-    repo_path = get_repo_path()
     data = request.get_json() or {}
 
     try:
-        store = get_state_store(repo_path)
-        pipeline = store.load_pipeline(pipeline_id)
+        store, pipeline = get_state_store_for_pipeline(pipeline_id)
         original_version = pipeline.version
 
         phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
@@ -544,7 +534,6 @@ def fail_phase(pipeline_id: str) -> tuple[Response, int]:
             "message": "Phase marked as failed"
         }
     """
-    repo_path = get_repo_path()
     data = request.get_json() or {}
 
     error_message = data.get("error")
@@ -552,8 +541,7 @@ def fail_phase(pipeline_id: str) -> tuple[Response, int]:
         return make_error_response("Missing error message")
 
     try:
-        store = get_state_store(repo_path)
-        pipeline = store.load_pipeline(pipeline_id)
+        store, pipeline = get_state_store_for_pipeline(pipeline_id)
         original_version = pipeline.version
 
         phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
