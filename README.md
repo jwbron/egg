@@ -198,14 +198,14 @@ egg
 `egg` starts the gateway and sandbox automatically. First run prompts for repository and credential configuration via `egg --setup`. Default is public mode (full internet); use `egg --private` for network-locked mode.
 
 ```bash
-# Launch a full SDLC pipeline
-egg-sdlc -r myrepo -i 123        # From a GitHub issue
-egg-sdlc -r myrepo -p "Add auth" # From a prompt
-egg-sdlc                          # Interactive local mode
-
-# Or from inside an egg session
-/sdlc -r myrepo -i 123
+# From inside an egg session, launch a full SDLC pipeline
+/sdlc 123                        # From a GitHub issue number
+/sdlc Add auth middleware         # From a description
+/sdlc --short Fix flaky test      # Lightweight coder+reviewer mode
+/sdlc                             # Interactive — browse issues or describe a task
 ```
+
+Or use the MCP server directly from any MCP-compatible client (see [Integration Points](#mcp-server)).
 
 See [Local Quickstart](docs/guides/local-quickstart.md) for detailed setup and [Deployment Guide](docs/guides/deployment.md) for Docker Compose and production options.
 
