@@ -62,9 +62,14 @@ def get_repo_path() -> Path:
                 candidate = base / repo_name
                 if (candidate / ".git").exists():
                     return candidate
+                logger.warning(
+                    "Repo not found in multi-repo base directory",
+                    repo_name=repo_name,
+                    base_path=str(base),
+                )
                 abort(
                     400,
-                    description=f"Repo '{repo_name}' not found under {base}",
+                    description=f"Repo '{repo_name}' not found",
                 )
         return base
 
