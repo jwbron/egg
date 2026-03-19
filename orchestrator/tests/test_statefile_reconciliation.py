@@ -91,6 +91,25 @@ class TestEnsureStatefilesOnBranch:
         )
         mock_commit.assert_called_once()
 
+    def test_canonical_path_guard_prevents_recreation(self, tmp_path: Path):
+        """When hardcoded path is missing but canonical path exists, skip recreation."""
+        pipeline = _make_pipeline()
+        # Do NOT create the hardcoded contract file — simulate path drift where
+        # get_contract_path resolves to a different location that does exist.
+        alt_dir = tmp_path / ".egg-state" / "alt-contracts"
+        alt_dir.mkdir(parents=True)
+        alt_contract = alt_dir / "42.json"
+        alt_contract.write_text("{}")
+
+        with (
+            patch("egg_contracts.loader.get_contract_path", return_value=alt_contract),
+            patch("egg_contracts.loader.create_contract") as mock_create,
+        ):
+            result = _ensure_statefiles_on_branch(tmp_path, pipeline)
+
+        assert result is True
+        mock_create.assert_not_called()
+
     def test_returns_false_when_restoration_fails(self, tmp_path: Path):
         """When contract re-creation raises an exception, return False."""
         pipeline = _make_pipeline()
