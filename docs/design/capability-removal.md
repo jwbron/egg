@@ -4,9 +4,9 @@ Most agent safety today comes down to prompt engineering. "Don't merge pull requ
 
 Prompts are suggestions weighted against everything else in the context window. Under context pressure, long conversations, or prompt injection, an agent told "never merge" can still decide merging is the right call. Writing more emphatic prompts doesn't fix this. The agent still *can* merge. It just *shouldn't*.
 
-## What we did instead
+## Remove the capability instead
 
-[egg](https://github.com/jwbron/egg) removes the capability entirely. Instead of rules the agent might forget, we built an environment where the dangerous action doesn't exist.
+[egg](https://github.com/jwbron/egg) enforces this at the infrastructure level. Instead of rules the agent might forget, the environment simply doesn't have the dangerous action.
 
 Every git and GitHub operation routes through a gateway sidecar. The agent uses `git` and `gh` normally, with no special APIs. Shell wrappers intercept each command and forward it to the gateway, which decides whether the operation is allowed.
 
