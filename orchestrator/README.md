@@ -350,7 +350,7 @@ The `health_monitor.py` module subscribes to EventBus events and evaluates five 
 
 ### Overseer Agent
 
-Auto-spawned on every pipeline (when `overseer_enabled` is true). Uses Haiku for anomaly classification and Sonnet/Opus for corrective decisions via `shared/egg_agent/`. No repo access. See `orchestrator/overseer/` for server-side logic.
+Auto-spawned on every pipeline (when `overseer_enabled` is true). Uses Haiku for anomaly classification and Sonnet/Opus for corrective decisions via `shared/egg_agent/`. No code access. See `orchestrator/overseer/` for server-side logic.
 
 See the [Pipeline Health Monitoring Guide](../docs/guides/pipeline-health-monitoring.md) for the full reference.
 
