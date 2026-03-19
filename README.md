@@ -27,7 +27,7 @@ The gateway is a trusted sidecar that sits between every agent and the outside w
 
 **What the gateway enforces:**
 
-- **No credentials in the sandbox.** The agent environment has zero tokens, zero keys. The gateway holds all credentials and injects them into proxied requests — agents never see or handle secrets.
+- **No credentials in the sandbox.** The agent environment has zero tokens, zero keys. The gateway holds all credentials and injects them into proxied requests. Agents never see or handle secrets.
 - **No merging.** The merge endpoint doesn't exist. There's no prompt saying "don't merge"; the capability is absent from the agent's world.
 - **Phase-locked operations.** An agent in the "plan" phase physically cannot push code. An agent in the "implement" phase cannot modify the contract. The gateway validates every git operation against the current SDLC phase.
 - **Branch ownership.** Agents can only push to `egg/`-prefixed branches. They can only edit PRs they created. Role-based file restrictions prevent agents from modifying protected state.
@@ -145,10 +145,10 @@ Within each phase, specialized agents run concurrently via BRC (enabled by defau
 ## Architecture
 
 ```
-┌────────────────────────────────────────────────────────────────────────────────────┐
-│                                       egg                                          │
-│                                                                                    │
-│  ┌─────────────────────┐  ┌──────────────────────────┐  ┌───────────────────────┐ │
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                                       egg                                           │
+│                                                                                     │
+│  ┌──────────────────────┐  ┌───────────────────────────┐  ┌───────────────────────┐ │
 │  │    Orchestrator      │  │    Gateway Sidecar        │  │  Sandbox Containers   │ │
 │  │                      │  │    (Trusted)              │  │  (Untrusted)          │ │
 │  │  • Pipeline state    │  │                           │  │                       │ │
@@ -159,14 +159,14 @@ Within each phase, specialized agents run concurrently via BRC (enabled by defau
 │  │  • HITL decisions    │  │  • Role-based file gates  │  │  • No merge endpoint  │ │
 │  │  • MCP server        │  │  • Network isolation      │  │  • Proxied network    │ │
 │  │  • Message bus       │  │  • Post-agent auto-commit │  │                       │ │
-│  └─────────────────────┘  └──────────────────────────┘  └───────────────────────┘ │
-│                                                                                    │
-│  ┌─────────────────────┐                                                           │
+│  └──────────────────────┘  └───────────────────────────┘  └───────────────────────┘ │
+│                                                                                     │
+│  ┌──────────────────────┐                                                           │
 │  │    Overseer Agent    │  Lightweight model classifies anomalies continuously.     │
-│  │    (Monitoring-only) │  No repo access. Corrective action ladder.               │
-│  │                      │  Auto-respawned on crash (up to 3x).                     │
-│  └─────────────────────┘                                                           │
-└────────────────────────────────────────────────────────────────────────────────────┘
+│  │    (Monitoring-only) │  No repo access. Corrective action ladder.                │
+│  │                      │  Auto-respawned on crash (up to 3x).                      │
+│  └──────────────────────┘                                                           │
+└─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key principle**: The agent cannot bypass controls because the capabilities don't exist in its environment. This is infrastructure enforcement, not behavioral controls.
@@ -182,19 +182,6 @@ The orchestrator exposes an MCP server (port 9850) for controlling pipelines fro
 - `provide_input`: resolve HITL decisions programmatically
 - `list_containers` / `get_container_logs`: debugging
 - `send_message` / `get_consensus_status`: agent coordination
-
-### GitHub Action
-
-egg ships as a GitHub Action for CI/CD integration: automated PR review, auto-fixing failing checks, merge conflict resolution, and review feedback addressing.
-
-```yaml
-- uses: jwbron/egg/action@v0
-  with:
-    prompt: "Review this pull request"
-    anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
-```
-
-See [action/README.md](action/README.md) for full documentation.
 
 ## Quick Start
 
@@ -244,7 +231,6 @@ See [Local Quickstart](docs/guides/local-quickstart.md) for detailed setup and [
 | **GitHub automation** | [GitHub Automation Guide](docs/guides/github-automation.md) |
 | **Health monitoring** | [Health Monitoring Guide](docs/guides/pipeline-health-monitoring.md) |
 | **Sandbox environment** | [Sandbox README](sandbox/README.md) |
-| **Architecture decisions** | [ADR Index](docs/adr/README.md) |
 | **Contributing** | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## Development
