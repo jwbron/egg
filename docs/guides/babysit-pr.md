@@ -47,38 +47,38 @@ The coordinator calls `egg_babysit.loop.babysit()` directly, using the same loop
 
 ```
 ┌─────────────────────────────────────────────┐
-│              BABYSIT-PR LOOP                 │
+│              BABYSIT-PR LOOP                │
 │                                             │
-│  ┌─────────┐   conflicts?   ┌──────────┐   │
-│  │  Start   │──────yes──────→│  Fixer   │   │
-│  │iteration │                │(conflict)│   │
-│  └────┬─────┘       no      └────┬─────┘   │
-│       │              │            │          │
-│       ▼              ▼            ▼          │
-│  ┌──────────┐   ┌──────────┐               │
-│  │ Wait CI  │←──│ Wait CI  │               │
-│  │ checks   │   │ (re-run) │               │
-│  └────┬─────┘   └────┬─────┘               │
-│       │               │                     │
+│  ┌──────────┐   conflicts?  ┌──────────┐    │
+│  │  Start   │──────yes─────→│  Fixer   │    │
+│  │iteration │               │(conflict)│    │
+│  └────┬─────┘       no      └────┬─────┘    │
+│       │              │           │          │
+│       ▼              ▼           ▼          │
+│  ┌──────────┐   ┌──────────┐                │
+│  │ Wait CI  │←──│ Wait CI  │                │
+│  │ checks   │   │ (re-run) │                │
+│  └────┬─────┘   └────┬─────┘                │
+│       │              │                      │
 │       ▼          fails?                     │
-│  all pass?──no──→┌──────────┐               │
-│       │          │  Fixer   │               │
-│       │          │(check fix)│               │
-│      yes         └────┬─────┘               │
-│       │               │                     │
-│       ▼               ▼                     │
-│  ┌──────────┐                               │
-│  │ Reviewer │                               │
-│  │(read-only)│                               │
-│  └────┬─────┘                               │
+│  all pass?──no──→┌───────────┐              │
+│       │          │  Fixer    │              │
+│       │          │(check fix)│              │
+│      yes         └─────┬─────┘              │
+│       │                │                    │
+│       ▼                ▼                    │
+│  ┌───────────┐                              │
+│  │ Reviewer  │                              │
+│  │(read-only)│                              │
+│  └────┬──────┘                              │
 │       │                                     │
 │       ▼                                     │
-│  changes    ┌──────────┐                    │
-│  requested?─→│  Fixer   │                    │
-│       │     │(feedback)│                    │
-│      no     └────┬─────┘                    │
-│       │          │                          │
-│       ▼          ▼                          │
+│  changes     ┌──────────┐                   │
+│  requested?─→│  Fixer   │                   │
+│       │      │(feedback)│                   │
+│      no      └────┬─────┘                   │
+│       │           │                         │
+│       ▼           ▼                         │
 │  ┌──────────┐                               │
 │  │ Merged?  │──yes──→ EXIT (success)        │
 │  └────┬─────┘                               │
