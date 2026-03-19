@@ -108,7 +108,7 @@ Egg supports separate tokens for writable and readable repositories:
 | `GITHUB_TOKEN` | Token for writable repos (or use GitHub App for auto-refresh) |
 | `GITHUB_READONLY_TOKEN` | Separate PAT for read-only repos (optional, falls back to `GITHUB_TOKEN`) |
 
-Using a separate read-only token provides security benefits. GitHub App setup is covered in `./setup.py` and the ADRs.
+Using a separate read-only token provides security benefits. GitHub App setup is covered in `./setup.py` and the [architecture docs](../docs/architecture/).
 
 ### Reviewer GitHub App (Optional)
 

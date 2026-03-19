@@ -719,7 +719,7 @@ def setup_anthropic_api(config: Config, logger: Logger) -> None:
 def setup_worktrees(config: Config, logger: Logger) -> bool:
     """Validate gateway-managed worktree configuration.
 
-    This implements the Gateway-Managed Worktrees ADR:
+    This implements the Gateway-Managed Worktrees architecture:
     - Gateway creates/manages worktrees before container starts
     - Container mounts only working directory (no git metadata access)
     - All git operations route through gateway API
@@ -936,7 +936,7 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
                     stale_repo.unlink()
 
     logger.success("AI agent rules installed: ~/.claude/CLAUDE.md (global)")
-    logger.info(f"  Combined {len(rules_order)} rule files (index-based per LLM Doc ADR)")
+    logger.info(f"  Combined {len(rules_order)} rule files (index-based per LLM Doc architecture)")
     logger.info("  Note: Reference docs at $EGG_REPO_PATH/docs/ (fetched on-demand)")
 
 

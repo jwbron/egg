@@ -545,9 +545,6 @@ docs/
 │   ├── quickstart.md             # Getting started
 │   ├── deployment.md             # Deployment options
 │   └── <topic>.md                # Additional guides
-└── adr/
-    └── README.md                 # ADR index
-
 <component>/README.md             # Per-component READMEs
 ```
 

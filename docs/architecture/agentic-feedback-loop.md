@@ -231,10 +231,10 @@ Important constraints (like the human-merge invariant) are enforced structurally
 
 ## Related Documentation
 
-- [SDLC Pipeline Guide](guides/sdlc-pipeline.md) — Operational details of the pipeline
-- [ADR: SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md) — Architecture and security model
+- [SDLC Pipeline Guide](../guides/sdlc-pipeline.md) — Operational details of the pipeline
+- [SDLC Pipeline Architecture](sdlc-pipeline.md) — Architecture and security model
 - [Why egg Works](collaboration-effectiveness.md) — Safety, quality, and collaboration model
-- [HITL Decisions](hitl-decisions.md) — Human-in-the-loop workflow details
+- [HITL Decisions](../hitl-decisions.md) — Human-in-the-loop workflow details
 
 ---
 
