@@ -6005,6 +6005,17 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             )
             _emit_pipeline_event(pipeline, "phase.completed")
 
+            # Sync worktree with remote before post-phase modifications
+            # so that agent-pushed commits (including plan drafts) are
+            # incorporated.  This must run BEFORE _populate_contract_from_plan
+            # and _sync_pipeline_decisions_to_contract — otherwise
+            # git reset --hard in _sync_worktree_with_remote would revert
+            # their on-disk modifications.  Running the sync first also
+            # ensures _populate_contract_from_plan can read agent-produced
+            # draft files that only exist on the remote.
+            if pipeline.branch and worktree_repo_path != repo_path:
+                _sync_worktree_with_remote(spawner, pipeline_id, worktree_repo_path)
+
             # After plan phase: populate contract with task structure.
             # NOTE: worktree_repo_path is used for both draft reads and
             # contract load/save inside _populate_contract_from_plan.
@@ -6027,12 +6038,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 _sync_pipeline_decisions_to_contract(
                     worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
                 )
-
-            # Sync worktree with remote before committing statefiles so
-            # that agent-pushed commits are incorporated and the subsequent
-            # push does not fail with non-fast-forward errors.
-            if pipeline.branch and worktree_repo_path != repo_path:
-                _sync_worktree_with_remote(spawner, pipeline_id, worktree_repo_path)
 
             # Commit any .egg-state/ files produced during this phase
             # (drafts, reviews, check results, contract updates).  Mirrors
