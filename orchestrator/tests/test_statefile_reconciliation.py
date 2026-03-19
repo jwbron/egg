@@ -1,4 +1,4 @@
-"""Tests for statefile reconciliation: _ensure_statefiles_on_branch and contract_synced gating."""
+"""Tests for statefile reconciliation: _ensure_statefiles_on_branch."""
 
 import sys
 from pathlib import Path
@@ -44,8 +44,8 @@ class TestEnsureStatefilesOnBranch:
         # Create the expected contract file
         contract_dir = tmp_path / ".egg-state" / "contracts"
         contract_dir.mkdir(parents=True)
-        contract_file = contract_dir / "42.yml"
-        contract_file.write_text("existing contract")
+        contract_file = contract_dir / "42.json"
+        contract_file.write_text("{}")
 
         result = _ensure_statefiles_on_branch(tmp_path, pipeline)
 
@@ -101,40 +101,4 @@ class TestEnsureStatefilesOnBranch:
         ):
             result = _ensure_statefiles_on_branch(tmp_path, pipeline)
 
-        assert result is False
-
-
-class TestContractSyncedGating:
-    """Tests that contract_synced reflects actual push outcome."""
-
-    def _run_contract_sync_block(
-        self,
-        push_return: bool = True,
-        push_raises: Exception | None = None,
-    ) -> bool:
-        """Simulate the contract sync block from _run_pipeline_phases and
-        return the value of pipeline.contract_synced after execution."""
-        # This tests the logic pattern, not the full function
-        push_succeeded = True
-        if push_raises:
-            push_succeeded = False
-        else:
-            push_succeeded = push_return
-        return push_succeeded
-
-    def test_contract_synced_true_when_push_succeeds(self):
-        """contract_synced should be True when push returns True."""
-        result = self._run_contract_sync_block(push_return=True)
-        assert result is True
-
-    def test_contract_synced_false_when_push_fails(self):
-        """contract_synced should be False when push returns False."""
-        result = self._run_contract_sync_block(push_return=False)
-        assert result is False
-
-    def test_contract_synced_false_when_push_raises(self):
-        """contract_synced should be False when push raises an exception."""
-        result = self._run_contract_sync_block(
-            push_raises=RuntimeError("network error"),
-        )
         assert result is False

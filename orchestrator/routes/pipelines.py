@@ -2419,7 +2419,7 @@ def _ensure_statefiles_on_branch(
     False if restoration failed.
     """
     identifier = _pipeline_identifier(pipeline.issue_number, pipeline.id)
-    contract_path = worktree_repo_path / ".egg-state" / "contracts" / f"{identifier}.yml"
+    contract_path = worktree_repo_path / ".egg-state" / "contracts" / f"{identifier}.json"
 
     if contract_path.exists():
         return True
@@ -2431,7 +2431,20 @@ def _ensure_statefiles_on_branch(
     )
 
     try:
-        from egg_contracts.loader import create_contract
+        from egg_contracts.loader import create_contract, get_contract_path
+
+        # Double-check using the canonical contract path from the loader to
+        # guard against path-construction drift between this function and the
+        # contract library.  This prevents data loss if the file exists under
+        # a slightly different naming convention.
+        canonical_path = get_contract_path(identifier, worktree_repo_path)
+        if canonical_path.exists():
+            logger.info(
+                "Contract file found at canonical path — skipping recreation",
+                pipeline_id=pipeline.id,
+                canonical_path=str(canonical_path),
+            )
+            return True
 
         if pipeline.issue_number is not None:
             issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
@@ -5439,7 +5452,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         title=(pipeline.prompt or "")[:100],
                         repo_root=worktree_repo_path,
                     )
-                pipeline.contract_synced = True
 
                 # Commit all .egg-state/ files so they're on the feature branch
                 issue_ref = (
@@ -5747,7 +5759,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Ensure contract and statefiles exist before PR creation
                 # (safety net for short-flow pipelines where initial push
                 # may have failed).
-                _ensure_statefiles_on_branch(worktree_repo_path, pipeline)
+                if not _ensure_statefiles_on_branch(worktree_repo_path, pipeline):
+                    logger.warning(
+                        "Contract reconciliation failed — PR may be missing contract",
+                        pipeline_id=pipeline_id,
+                    )
 
                 # Push latest commits before creating PR
                 if pipeline.branch and worktree_repo_path != repo_path:
