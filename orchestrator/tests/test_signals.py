@@ -251,6 +251,129 @@ class TestErrorSignalContractNotFound:
 
 
 # ---------------------------------------------------------------------------
+# SIGTERM clean shutdown tests (issue #1336)
+# ---------------------------------------------------------------------------
+
+
+class TestSigtermCleanShutdown:
+    """Error signals for SIGTERM on completed pipelines are treated as clean shutdown."""
+
+    @pytest.fixture
+    def completed_pipeline(self):
+        """Create a mock pipeline with COMPLETE status."""
+        from models import Pipeline, PipelineStatus
+
+        return Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+            status=PipelineStatus.COMPLETE,
+        )
+
+    @patch("routes.signals.get_state_store")
+    def test_sigterm_on_complete_pipeline_returns_clean_shutdown(
+        self,
+        mock_get_store,
+        app,
+        completed_pipeline,
+    ):
+        """SIGTERM (exit code 143) on a completed pipeline is a clean shutdown."""
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = completed_pipeline
+        mock_get_store.return_value = mock_store
+
+        with app.app_context():
+            from routes.signals import handle_error_signal
+
+            response, status_code = handle_error_signal(
+                "issue-42",
+                {
+                    "agent_role": "coder",
+                    "error": "Container exited with code 143",
+                    "recoverable": False,
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 200
+        data = json.loads(response.data)
+        assert data["data"]["clean_shutdown"] is True
+
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    def test_non_sigterm_on_complete_pipeline_still_records_error(
+        self,
+        mock_get_store,
+        mock_resolve_wt,
+        app,
+        completed_pipeline,
+    ):
+        """Non-SIGTERM errors on a completed pipeline are still recorded."""
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = completed_pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        with app.app_context():
+            from routes.signals import handle_error_signal
+
+            response, status_code = handle_error_signal(
+                "issue-42",
+                {
+                    "agent_role": "refiner",
+                    "error": "Out of memory",
+                    "recoverable": False,
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 200
+        data = json.loads(response.data)
+        assert "clean_shutdown" not in data.get("data", {})
+
+    @patch("routes.signals.save_contract")
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("routes.signals.load_contract")
+    def test_sigterm_on_non_complete_pipeline_still_records_error(
+        self,
+        mock_load_contract,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_save_contract,
+        app,
+        mock_pipeline,
+    ):
+        """SIGTERM on a non-complete (PENDING) pipeline is NOT treated as clean shutdown."""
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_orch = MagicMock()
+        mock_orch.apply_to_contract.return_value = MagicMock()
+
+        with patch("routes.signals.create_orchestrator", return_value=mock_orch):
+            with app.app_context():
+                from routes.signals import handle_error_signal
+
+                response, status_code = handle_error_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "coder",
+                        "error": "Container exited with code 143",
+                        "recoverable": False,
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 200
+        data = json.loads(response.data)
+        assert "clean_shutdown" not in data.get("data", {})
+
+
+# ---------------------------------------------------------------------------
 # Completion signal branch verification tests (TASK-5-3)
 # ---------------------------------------------------------------------------
 
