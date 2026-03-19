@@ -129,7 +129,7 @@ This creates an issue-driven pipeline with full GitHub integration. The `-r/--re
 # From inside the sandbox
 egg-contract show                    # view contract state
 curl http://egg-orchestrator:9849/api/v1/pipelines/issue-123 | jq .
-curl http://egg-orchestrator:9849/api/v1/pipelines/local-a1b2c3d4 | jq .
+curl http://egg-orchestrator:9849/api/v1/pipelines/pipeline-85170faf | jq .
 
 # From your host (issue pipelines only)
 gh issue view 123                    # see comments + phase labels
