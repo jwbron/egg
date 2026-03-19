@@ -205,7 +205,7 @@ egg
 /sdlc                             # Interactive — browse issues or describe a task
 ```
 
-Or use the MCP server directly from any MCP-compatible client (see [Integration Points](#mcp-server)).
+Or use the MCP server directly from any MCP-compatible client (see [MCP Server](#mcp-server)).
 
 See [Local Quickstart](docs/guides/local-quickstart.md) for detailed setup and [Deployment Guide](docs/guides/deployment.md) for Docker Compose and production options.
 
