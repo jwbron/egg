@@ -147,7 +147,7 @@ The overseer is a continuously running, read-only agent that handles cases the o
 - **Runs across all phases** — spawned at pipeline start, persists until pipeline completion
 - **Auto-respawned** if the overseer exits before the pipeline reaches a terminal state (up to `overseer_max_respawns` attempts, checked every 30 seconds by the orchestrator's health monitor thread)
 - **One overseer per pipeline**
-- **No repo access** — cannot clone, checkout, or modify code
+- **No code access** — cannot clone, checkout, or modify code
 
 ### Internal Architecture
 
