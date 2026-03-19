@@ -34,6 +34,7 @@ except ImportError:
     def get_logger(name: str, **kwargs) -> logging.Logger:  # type: ignore[misc]
         return logging.getLogger(name)
 
+
 try:
     from config.repo_config import get_repo_checks
 except ImportError:
