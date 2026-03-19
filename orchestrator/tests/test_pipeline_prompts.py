@@ -1512,6 +1512,116 @@ class TestTesterGapFindingPrompts:
         assert "found issues with your previous draft" not in result
 
 
+class TestTesterRepoChecksInjection:
+    """Tests for injecting per-repo check commands into the tester prompt."""
+
+    def test_tester_prompt_with_explicit_checks(self):
+        """When repo has configured checks, they appear in the tester prompt."""
+        checks = [
+            {"name": "lint", "command": "npm run lint"},
+            {"name": "test", "command": "npm test"},
+        ]
+        with patch("routes.pipelines.get_repo_checks", return_value=checks):
+            result = _build_agent_prompt(
+                role_value="tester",
+                phase="implement",
+                pipeline_id="pid-1",
+                pipeline_mode="issue",
+                prompt="# Feature\n\nDetail.",
+                issue_number=1,
+                repo="testuser/web-app",
+            )
+        assert "configured for this repository" in result
+        assert "**lint**" in result
+        assert "`npm run lint`" in result
+        assert "**test**" in result
+        assert "`npm test`" in result
+        # Auto-discovery instructions should NOT be present
+        assert "Discover commands" not in result
+
+    def test_tester_prompt_without_checks_uses_autodiscovery(self):
+        """When repo has no configured checks, auto-discovery instructions are used."""
+        with patch("routes.pipelines.get_repo_checks", return_value=[]):
+            result = _build_agent_prompt(
+                role_value="tester",
+                phase="implement",
+                pipeline_id="pid-1",
+                pipeline_mode="issue",
+                prompt="# Feature\n\nDetail.",
+                issue_number=1,
+                repo="testuser/web-app",
+            )
+        assert "Discover commands" in result
+        assert "configured for this repository" not in result
+
+    def test_tester_prompt_without_repo_uses_autodiscovery(self):
+        """When repo is None, auto-discovery instructions are used."""
+        result = _build_agent_prompt(
+            role_value="tester",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+            repo=None,
+        )
+        assert "Discover commands" in result
+        assert "configured for this repository" not in result
+
+    def test_tester_prompt_checks_preserve_order(self):
+        """Configured checks appear in the order defined in repositories.yaml."""
+        checks = [
+            {"name": "install", "command": "npm install"},
+            {"name": "lint", "command": "npm run lint"},
+            {"name": "test", "command": "npm test"},
+        ]
+        with patch("routes.pipelines.get_repo_checks", return_value=checks):
+            result = _build_agent_prompt(
+                role_value="tester",
+                phase="implement",
+                pipeline_id="pid-1",
+                pipeline_mode="issue",
+                prompt="# Feature",
+                issue_number=1,
+                repo="testuser/web-app",
+            )
+        # Verify ordering via numbered list
+        assert "1. **install**" in result
+        assert "2. **lint**" in result
+        assert "3. **test**" in result
+
+    def test_tester_prompt_checks_still_has_autofix_instructions(self):
+        """Even with explicit checks, auto-fix and commit instructions are present."""
+        checks = [{"name": "lint", "command": "make lint"}]
+        with patch("routes.pipelines.get_repo_checks", return_value=checks):
+            result = _build_agent_prompt(
+                role_value="tester",
+                phase="implement",
+                pipeline_id="pid-1",
+                pipeline_mode="issue",
+                prompt="# Feature",
+                issue_number=1,
+                repo="org/repo",
+            )
+        assert "Auto-fix" in result
+        assert "Commit fixes" in result
+
+    def test_tester_prompt_handles_missing_config(self):
+        """When get_repo_checks raises FileNotFoundError, falls back to auto-discovery."""
+        with patch("routes.pipelines.get_repo_checks", side_effect=FileNotFoundError):
+            result = _build_agent_prompt(
+                role_value="tester",
+                phase="implement",
+                pipeline_id="pid-1",
+                pipeline_mode="issue",
+                prompt="# Feature\n\nDetail.",
+                issue_number=1,
+                repo="testuser/web-app",
+            )
+        assert "Discover commands" in result
+        assert "configured for this repository" not in result
+
+
 class TestReadTesterGapsNamespacedEdgeCases:
     """Additional edge-case tests for _read_tester_gaps with identifier."""
 
