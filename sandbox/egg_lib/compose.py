@@ -133,7 +133,7 @@ def _generate_env_file(compose_file: Path) -> bool:
         if key in secrets_dict:
             env_vars[key] = secrets_dict[key]
 
-    # Git identity and per-repo checks from repositories.yaml
+    # Git identity from repositories.yaml
     if config_file.exists():
         git_name, git_email = _get_user_git_config(config_file)
         if git_name:
