@@ -2405,6 +2405,67 @@ def _commit_statefiles_to_worktree(
     )
 
 
+def _ensure_statefiles_on_branch(
+    worktree_repo_path: Path,
+    pipeline: "Pipeline",
+) -> bool:
+    """Verify the contract file exists in the worktree and re-create if missing.
+
+    This is a safety net for short-flow pipelines where the initial contract
+    push may have failed silently (``contract_synced`` set True despite push
+    failure) or where subsequent pushes diverged.
+
+    Returns True if the contract exists (or was successfully restored),
+    False if restoration failed.
+    """
+    identifier = _pipeline_identifier(pipeline.issue_number, pipeline.id)
+    contract_path = worktree_repo_path / ".egg-state" / "contracts" / f"{identifier}.yml"
+
+    if contract_path.exists():
+        return True
+
+    logger.warning(
+        "Contract file missing from worktree — attempting restoration",
+        pipeline_id=pipeline.id,
+        expected_path=str(contract_path),
+    )
+
+    try:
+        from egg_contracts.loader import create_contract
+
+        if pipeline.issue_number is not None:
+            issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
+            create_contract(
+                issue_number=pipeline.issue_number,
+                title=f"Issue #{pipeline.issue_number}",
+                url=issue_url,
+                repo_root=worktree_repo_path,
+            )
+        else:
+            create_contract(
+                pipeline_id=pipeline.id,
+                title=(pipeline.prompt or "")[:100],
+                repo_root=worktree_repo_path,
+            )
+
+        _commit_statefiles_to_worktree(
+            worktree_repo_path,
+            f"Restore missing contract for {identifier}",
+        )
+        logger.info(
+            "Contract file restored successfully",
+            pipeline_id=pipeline.id,
+        )
+        return True
+    except Exception as restore_err:
+        logger.error(
+            "Failed to restore contract file",
+            pipeline_id=pipeline.id,
+            error=str(restore_err),
+        )
+        return False
+
+
 def _build_pr_body(
     pipeline: Pipeline,
     worktree_repo_path: Path,
@@ -5399,14 +5460,16 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     )
 
                 # Push contract statefiles to remote so agents see them
+                push_succeeded = True
                 if pipeline.branch and worktree_repo_path != repo_path:
                     try:
-                        spawner.gateway.push_worktree_branch(
+                        push_succeeded = spawner.gateway.push_worktree_branch(
                             pipeline_id=pipeline_id,
                             repo_path=str(worktree_repo_path),
                             branch=pipeline.branch,
                         )
                     except Exception as push_err:
+                        push_succeeded = False
                         logger.warning(
                             "Failed to push statefiles after contract init (continuing)",
                             pipeline_id=pipeline_id,
@@ -5415,7 +5478,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
-                    pipeline.contract_synced = True
+                    pipeline.contract_synced = push_succeeded
                     store.save_pipeline(pipeline, commit=False)
                 logger.info(
                     "Pipeline contract created in worktree",
@@ -5681,6 +5744,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     phase_execution.work_started_at = datetime.utcnow()
                     store.save_pipeline(pipeline)
 
+                # Ensure contract and statefiles exist before PR creation
+                # (safety net for short-flow pipelines where initial push
+                # may have failed).
+                _ensure_statefiles_on_branch(worktree_repo_path, pipeline)
+
                 # Push latest commits before creating PR
                 if pipeline.branch and worktree_repo_path != repo_path:
                     try:
@@ -5943,6 +6011,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 _sync_pipeline_decisions_to_contract(
                     worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
                 )
+
+            # Sync worktree with remote before committing statefiles so
+            # that agent-pushed commits are incorporated and the subsequent
+            # push does not fail with non-fast-forward errors.
+            if pipeline.branch and worktree_repo_path != repo_path:
+                _sync_worktree_with_remote(spawner, pipeline_id, worktree_repo_path)
 
             # Commit any .egg-state/ files produced during this phase
             # (drafts, reviews, check results, contract updates).  Mirrors
