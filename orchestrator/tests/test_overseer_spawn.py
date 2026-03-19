@@ -257,6 +257,7 @@ class TestSpawnOverseerEnvVars:
         assert env.get("EGG_OVERSEER_MODE") == "true"
         assert env.get("EGG_OVERSEER_POLL_INTERVAL") == "30"
         assert env.get("EGG_OVERSEER_DECISION_MODEL") == "sonnet"
+        assert env.get("BASH_COMMAND_TIMEOUT") == "0"
 
     def test_spawn_overseer_disables_bash_timeout(self, spawner):
         """Overseer container must disable BASH_COMMAND_TIMEOUT (issue #1333)."""
