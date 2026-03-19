@@ -250,6 +250,14 @@ RUN if [ -f /opt/prebuilt-deps/extra-packages-apt.txt ] && [ -s /opt/prebuilt-de
         rm -rf /var/lib/apt/lists/*; \
     fi
 
+# Restore system-level directories installed by build_commands in Stage 1.
+# These are absolute-path installations (e.g., /usr/local/go, /usr/local/node)
+# that were persisted to /opt/prebuilt-deps/_system_/<abs_path> by docker-setup.py.
+# Copy the entire tree back to / so paths are restored to their original locations.
+RUN if [ -d /opt/prebuilt-deps/_system_ ]; then \
+        cp -a /opt/prebuilt-deps/_system_/. /; \
+    fi
+
 # Copy sandbox runtime scripts and tools to /opt/egg-runtime
 # This provides container-resident executables available in PATH
 # The bin/ directory contains symlinks to all executables

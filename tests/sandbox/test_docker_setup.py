@@ -925,6 +925,161 @@ class TestPersistDirs:
         assert result[0]["persist_dirs"] == ["node_modules"]
 
 
+class TestPersistSystemDirs:
+    """Tests for persist_system_dirs in build_commands."""
+
+    def test_get_build_commands_includes_persist_system_dirs(self):
+        """persist_system_dirs is extracted from config."""
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "commands": ["make install-go"],
+                        "persist_system_dirs": ["/usr/local/go", "/usr/local/node"],
+                    }
+                }
+            }
+        }
+        result = get_build_commands(config)
+        assert len(result) == 1
+        assert result[0]["persist_system_dirs"] == ["/usr/local/go", "/usr/local/node"]
+
+    def test_get_build_commands_defaults_persist_system_dirs_to_empty(self):
+        """Missing persist_system_dirs defaults to empty list."""
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "commands": ["npm ci"],
+                    }
+                }
+            }
+        }
+        result = get_build_commands(config)
+        assert result[0]["persist_system_dirs"] == []
+
+    def test_get_build_commands_handles_non_list_persist_system_dirs(self):
+        """Non-list persist_system_dirs defaults to empty list."""
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "commands": ["npm ci"],
+                        "persist_system_dirs": "not-a-list",
+                    }
+                }
+            }
+        }
+        result = get_build_commands(config)
+        assert result[0]["persist_system_dirs"] == []
+
+    def test_persist_system_dirs_copies_to_prebuilt(self, tmp_path, capsys):
+        """persist_system_dirs copies absolute-path directories to _system_ subdir."""
+        from docker_setup import persist_build_dirs
+
+        # Simulate a system-level Go installation
+        go_dir = tmp_path / "fake_root" / "usr" / "local" / "go" / "bin"
+        go_dir.mkdir(parents=True)
+        (go_dir / "go").write_text("#!/bin/sh\necho go")
+        (go_dir.parent / "src").mkdir()
+
+        prebuilt = tmp_path / "prebuilt-deps"
+        repo_deps = tmp_path / "repo-deps"
+        (repo_deps / "org--app").mkdir(parents=True)
+
+        # Use the fake root path as the system dir
+        sys_dir = str(tmp_path / "fake_root" / "usr" / "local" / "go")
+
+        persist_build_dirs(
+            [
+                {
+                    "repo": "org/app",
+                    "commands": ["install go"],
+                    "persist_dirs": [],
+                    "persist_system_dirs": [sys_dir],
+                }
+            ],
+            repo_deps_base=repo_deps,
+            prebuilt_base=prebuilt,
+        )
+
+        # Should be stored under _system_/<stripped_path>
+        dest = prebuilt / "_system_" / sys_dir.lstrip("/")
+        assert dest.is_dir()
+        assert (dest / "bin" / "go").exists()
+
+        captured = capsys.readouterr()
+        assert "Persisting system dir" in captured.out
+
+    def test_persist_system_dirs_skips_nonexistent(self, tmp_path, capsys):
+        """persist_system_dirs skips directories that don't exist."""
+        from docker_setup import persist_build_dirs
+
+        repo_deps = tmp_path / "repo-deps"
+        (repo_deps / "org--app").mkdir(parents=True)
+
+        persist_build_dirs(
+            [
+                {
+                    "repo": "org/app",
+                    "commands": ["install go"],
+                    "persist_dirs": [],
+                    "persist_system_dirs": ["/nonexistent/path/go"],
+                }
+            ],
+            repo_deps_base=repo_deps,
+            prebuilt_base=tmp_path / "prebuilt",
+        )
+
+        captured = capsys.readouterr()
+        assert "does not exist after build" in captured.out
+
+    def test_persist_system_dirs_skips_relative_paths(self, tmp_path, capsys):
+        """persist_system_dirs rejects non-absolute paths."""
+        from docker_setup import persist_build_dirs
+
+        repo_deps = tmp_path / "repo-deps"
+        (repo_deps / "org--app").mkdir(parents=True)
+
+        persist_build_dirs(
+            [
+                {
+                    "repo": "org/app",
+                    "commands": ["install go"],
+                    "persist_dirs": [],
+                    "persist_system_dirs": ["relative/path"],
+                }
+            ],
+            repo_deps_base=repo_deps,
+            prebuilt_base=tmp_path / "prebuilt",
+        )
+
+        captured = capsys.readouterr()
+        assert "is not absolute" in captured.out
+
+    def test_manifest_preserves_persist_system_dirs(self, tmp_path):
+        """persist_system_dirs is preserved through manifest loading."""
+        import json
+
+        manifest = {
+            "build_commands": [
+                {
+                    "repo": "org/app",
+                    "commands": ["install go"],
+                    "watch_files": ["go.mod"],
+                    "persist_dirs": [],
+                    "persist_system_dirs": ["/usr/local/go"],
+                }
+            ]
+        }
+        manifest_file = tmp_path / "manifest.json"
+        manifest_file.write_text(json.dumps(manifest))
+
+        result = load_build_commands_manifest(str(manifest_file))
+        assert len(result) == 1
+        assert result[0]["persist_system_dirs"] == ["/usr/local/go"]
+
+
 class TestMain:
     """Tests for main entry point."""
 

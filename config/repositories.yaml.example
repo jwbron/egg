@@ -95,6 +95,10 @@ readable_repos:
 #       the mounted repo at container startup. Use this for local dependencies
 #       like node_modules that would otherwise be lost when the build context
 #       is cleaned up. (e.g., node_modules, .venv)
+#     - persist_system_dirs: List of absolute paths to preserve from the build
+#       stage into the final Docker image. Use this for system-level tool
+#       installations that build_commands place outside the repo directory.
+#       (e.g., /usr/local/go, /usr/local/node)
 repo_settings:
   # Example:
   # YOUR_USERNAME/egg:
@@ -130,6 +134,16 @@ repo_settings:
   #     commands:
   #       - pip install -r requirements.txt
   #       - pip install -r requirements-dev.txt
+  # YOUR_USERNAME/go-service:
+  #   build_commands:
+  #     watch_files:
+  #       - go.mod
+  #       - go.sum
+  #     commands:
+  #       - GO_VERSION=$(grep '^go ' go.mod | awk '{print $2}') && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-$(dpkg --print-architecture).tar.gz" | tar -xz -C /usr/local
+  #       - PATH=/usr/local/go/bin:$PATH go mod download
+  #     persist_system_dirs:
+  #       - /usr/local/go
 
 # User mode configuration (optional)
 # When auth_mode is set to "user" for a repo, operations will be

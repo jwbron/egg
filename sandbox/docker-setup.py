@@ -185,12 +185,16 @@ def get_build_commands(config: dict[str, Any]) -> list[dict[str, Any]]:
         persist_dirs = build_cmds.get("persist_dirs", [])
         if not isinstance(persist_dirs, list):
             persist_dirs = []
+        persist_system_dirs = build_cmds.get("persist_system_dirs", [])
+        if not isinstance(persist_system_dirs, list):
+            persist_system_dirs = []
         result.append(
             {
                 "repo": repo_name,
                 "watch_files": [str(f) for f in watch_files],
                 "commands": [str(c) for c in commands],
                 "persist_dirs": [str(d) for d in persist_dirs],
+                "persist_system_dirs": [str(d) for d in persist_system_dirs],
             }
         )
     return result
@@ -369,6 +373,37 @@ def persist_build_dirs(
             dest_dir = dest_base / rel_dir
             dest_dir.parent.mkdir(parents=True, exist_ok=True)
             print(f"  Persisting {repo}/{rel_dir} -> {dest_dir}")
+            shutil.copytree(src_dir, dest_dir, symlinks=True)
+            persist_count += 1
+
+    # Persist system-level directories (absolute paths like /usr/local/go)
+    for entry in build_commands:
+        repo = entry["repo"]
+        system_dirs = entry.get("persist_system_dirs", [])
+        if not system_dirs:
+            continue
+
+        system_dest = prebuilt_base / "_system_"
+
+        for abs_dir in system_dirs:
+            abs_dir = str(abs_dir)
+            if not abs_dir.startswith("/"):
+                print(f"  Warning: persist_system_dirs: {abs_dir} is not absolute, skipping")
+                continue
+
+            src_dir = Path(abs_dir)
+            if not src_dir.is_dir():
+                print(
+                    f"  Warning: persist_system_dirs: {abs_dir} does not exist "
+                    f"after build ({repo}), skipping"
+                )
+                continue
+
+            # Store under _system_/<abs_path> so it can be restored to the same location
+            # Strip leading / for the destination path
+            dest_dir = system_dest / abs_dir.lstrip("/")
+            dest_dir.parent.mkdir(parents=True, exist_ok=True)
+            print(f"  Persisting system dir {abs_dir} ({repo}) -> {dest_dir}")
             shutil.copytree(src_dir, dest_dir, symlinks=True)
             persist_count += 1
 
