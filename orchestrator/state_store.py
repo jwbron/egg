@@ -930,7 +930,7 @@ def release_pipeline_state_lock(pipeline_id: str) -> None:
             _pipeline_state_locks.pop(pipeline_id, None)
 
 
-def discover_repo_paths(base_path: Path | str) -> list[Path]:
+def discover_repo_paths(base_path: Path | str, *, require_state_branch: bool = False) -> list[Path]:
     """Discover git repositories under a base path.
 
     If *base_path* is itself a git repo, returns ``[base_path]``.
@@ -938,6 +938,9 @@ def discover_repo_paths(base_path: Path | str) -> list[Path]:
 
     Args:
         base_path: A git repo or a parent directory containing repos.
+        require_state_branch: If True, only return repos that already have
+            the ``egg/pipeline-state`` branch locally.  This avoids noisy
+            remote-restore attempts for repos that have never had pipelines.
 
     Returns:
         List of paths to git repositories (may be empty).
@@ -945,13 +948,33 @@ def discover_repo_paths(base_path: Path | str) -> list[Path]:
     if isinstance(base_path, str):
         base_path = Path(base_path)
     if (base_path / ".git").exists():
-        return [base_path]
-    repos = []
-    if base_path.is_dir():
-        for child in sorted(base_path.iterdir()):
-            if child.is_dir() and (child / ".git").exists():
-                repos.append(child)
-    return repos
+        candidates = [base_path]
+    elif base_path.is_dir():
+        candidates = [
+            child
+            for child in sorted(base_path.iterdir())
+            if child.is_dir() and (child / ".git").exists()
+        ]
+    else:
+        candidates = []
+
+    if not require_state_branch:
+        return candidates
+
+    result = []
+    for repo in candidates:
+        try:
+            r = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "--verify", f"refs/heads/{STATE_BRANCH}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if r.returncode == 0:
+                result.append(repo)
+        except Exception:
+            continue
+    return result
 
 
 def get_state_store(repo_path: Path | str) -> StateStore:

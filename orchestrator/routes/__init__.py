@@ -95,7 +95,7 @@ def resolve_repo_path_for_pipeline(pipeline_id: str, base_path: Path) -> Path:
         # Import here to avoid circular imports
         from state_store import discover_repo_paths, get_state_store
 
-        for repo_path in discover_repo_paths(base_path):
+        for repo_path in discover_repo_paths(base_path, require_state_branch=True):
             try:
                 store = get_state_store(repo_path)
                 pipeline = store.load_pipeline(pipeline_id)

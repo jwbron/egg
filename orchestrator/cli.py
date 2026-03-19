@@ -136,9 +136,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
             from startup_reconciliation import reconcile_stale_containers
             from state_store import discover_repo_paths, get_state_store
 
-            repo_paths = discover_repo_paths(repo_path)
+            repo_paths = discover_repo_paths(repo_path, require_state_branch=True)
             if not repo_paths:
-                logger.warning("No git repos found under EGG_REPO_PATH", path=repo_path)
+                logger.info(
+                    "No repos with pipeline state found under EGG_REPO_PATH", path=repo_path
+                )
             for rp in repo_paths:
                 try:
                     store = get_state_store(rp)
@@ -170,7 +172,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
             from state_store import discover_repo_paths as _discover
 
             monitor = get_container_monitor()
-            for rp in _discover(repo_path):
+            for rp in _discover(repo_path, require_state_branch=True):
                 monitor.add_handler(create_pipeline_reconciliation_handler(str(rp)))
             monitor.start()
             logger.info("Container monitor started for runtime liveness checks")
@@ -180,7 +182,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
             if not stores:
                 from state_store import get_state_store as _get_state_store
 
-                stores = [_get_state_store(rp) for rp in _discover(repo_path)]
+                stores = [
+                    _get_state_store(rp) for rp in _discover(repo_path, require_state_branch=True)
+                ]
             monitor.start_periodic_reconciliation(stores)
         except Exception as monitor_err:
             logger.warning(
@@ -224,7 +228,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 from state_store import discover_repo_paths as _disc
 
                 monitor = get_container_monitor()
-                monitor.set_health_check_runner(runner, _disc(repo_path))
+                monitor.set_health_check_runner(runner, _disc(repo_path, require_state_branch=True))
             except Exception:
                 pass  # Monitor may not be available; health checks still work on-demand
 

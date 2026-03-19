@@ -364,7 +364,7 @@ def _resolve_pipeline(pipeline_id: str, base_path: Path) -> tuple[StateStore, Pi
     """
     from state_store import discover_repo_paths
 
-    for repo_path in discover_repo_paths(base_path):
+    for repo_path in discover_repo_paths(base_path, require_state_branch=True):
         try:
             store = get_state_store(repo_path)
             pipeline = store.load_pipeline(pipeline_id)
@@ -396,7 +396,7 @@ def _collect_all_pipelines(base_path: Path) -> list:
             except StateStoreError:
                 continue
 
-    for repo_path in discover_repo_paths(base_path):
+    for repo_path in discover_repo_paths(base_path, require_state_branch=True):
         try:
             _add_from_store(get_state_store(repo_path))
         except StateStoreError:
