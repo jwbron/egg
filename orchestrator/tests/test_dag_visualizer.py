@@ -5,7 +5,7 @@ Covers core rendering functions and status report generation.
 Extended edge-case tests are in test_dag_visualizer_extended.py.
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from dag_visualizer import (
     PHASE_ORDER,
@@ -59,21 +59,21 @@ class TestFormatDuration:
 
     def test_seconds_only(self):
         """Test duration under a minute."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         start = now - timedelta(seconds=45)
         result = _format_duration(start, now)
         assert result == "45s"
 
     def test_minutes_and_seconds(self):
         """Test duration under an hour."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         start = now - timedelta(minutes=5, seconds=30)
         result = _format_duration(start, now)
         assert result == "5m30s"
 
     def test_hours_and_minutes(self):
         """Test duration over an hour."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         start = now - timedelta(hours=2, minutes=15)
         result = _format_duration(start, now)
         assert result == "2h15m"
@@ -85,7 +85,7 @@ class TestFormatDuration:
 
     def test_no_end_time_uses_now(self):
         """Test with no end time defaults to now."""
-        start = datetime.utcnow() - timedelta(seconds=10)
+        start = datetime.now(UTC) - timedelta(seconds=10)
         result = _format_duration(start)
         # Should be approximately 10 seconds
         assert "s" in result
@@ -426,7 +426,7 @@ class TestRenderPhaseDetail:
 
     def test_phase_with_all_details(self):
         """Test detail view with full phase execution data."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         phases = {
             "implement": PhaseExecution(
                 phase=PipelinePhase.IMPLEMENT,
@@ -476,7 +476,7 @@ class TestRenderPhaseDetail:
 
     def test_duration_uses_work_started_at(self):
         """Test that duration calculation prefers work_started_at over started_at."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         phases = {
             "implement": PhaseExecution(
                 phase=PipelinePhase.IMPLEMENT,
@@ -505,7 +505,7 @@ class TestRenderPhaseDetail:
 
     def test_duration_falls_back_to_started_at(self):
         """Test that duration falls back to started_at when work_started_at is None."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         phases = {
             "implement": PhaseExecution(
                 phase=PipelinePhase.IMPLEMENT,
@@ -522,7 +522,7 @@ class TestRenderPhaseDetail:
 
     def test_dag_duration_uses_work_started_at(self):
         """Test that DAG overview duration prefers work_started_at."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         phases = {
             "refine": PhaseExecution(
                 phase=PipelinePhase.REFINE,
@@ -875,7 +875,7 @@ class TestCycleTimingDisplay:
 
     def test_multi_cycle_dag_shows_cycle_and_total(self):
         """DAG box shows [cycle: Xm | total: Ym] when multiple cycles completed."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         phases = {
             "implement": PhaseExecution(
                 phase=PipelinePhase.IMPLEMENT,
@@ -910,7 +910,7 @@ class TestCycleTimingDisplay:
 
     def test_single_cycle_dag_shows_simple_duration(self):
         """DAG box shows [Xm] with no cycle/total split for single cycle."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         phases = {
             "refine": PhaseExecution(
                 phase=PipelinePhase.REFINE,
@@ -938,7 +938,7 @@ class TestCycleTimingDisplay:
 
     def test_phase_detail_shows_cycle_breakdown(self):
         """Phase detail view shows per-cycle timing breakdown."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         phases = {
             "implement": PhaseExecution(
                 phase=PipelinePhase.IMPLEMENT,
@@ -979,7 +979,7 @@ class TestCycleTimingDisplay:
 
     def test_phase_detail_running_cycle(self):
         """Phase detail view shows 'running' for incomplete cycle."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         phases = {
             "implement": PhaseExecution(
                 phase=PipelinePhase.IMPLEMENT,

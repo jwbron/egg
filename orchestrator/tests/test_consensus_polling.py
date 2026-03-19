@@ -4,7 +4,7 @@ Covers the polling loop that checks consensus, handles objections and timeouts,
 and falls back to container-exit-based completion.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -53,7 +53,7 @@ def _make_execution(role: AgentRole, container_id: str, status=AgentExecutionSta
         role=role,
         status=status,
         container_id=container_id,
-        started_at=datetime.utcnow(),
+        started_at=datetime.now(UTC),
     )
 
 
@@ -282,7 +282,7 @@ class TestConsensusTimeout:
             container_name="issue-999-coder",
             status=ContainerStatus.EXITED,
             exit_code=0,
-            exited_at=datetime.utcnow(),
+            exited_at=datetime.now(UTC),
         )
 
         mock_executor_instance = MagicMock()
@@ -336,7 +336,7 @@ class TestConsensusTimeout:
             container_name="issue-999-coder",
             status=ContainerStatus.EXITED,
             exit_code=0,
-            exited_at=datetime.utcnow(),
+            exited_at=datetime.now(UTC),
         )
 
         mock_executor_instance = MagicMock()
@@ -400,7 +400,7 @@ class TestObjectionHandling:
             container_name="issue-999-coder",
             status=ContainerStatus.EXITED,
             exit_code=0,
-            exited_at=datetime.utcnow(),
+            exited_at=datetime.now(UTC),
         )
 
         def _get_info(cid):
@@ -470,14 +470,14 @@ class TestContainerExitFallback:
                 container_name="issue-999-coder",
                 status=ContainerStatus.EXITED,
                 exit_code=0,
-                exited_at=datetime.utcnow(),
+                exited_at=datetime.now(UTC),
             ),
             "tester-1": ContainerInfo(
                 container_id="tester-1",
                 container_name="issue-999-tester",
                 status=ContainerStatus.EXITED,
                 exit_code=0,
-                exited_at=datetime.utcnow(),
+                exited_at=datetime.now(UTC),
             ),
         }
 
@@ -529,7 +529,7 @@ class TestContainerExitFallback:
                 container_name="issue-999-coder",
                 status=ContainerStatus.FAILED,
                 exit_code=1,
-                exited_at=datetime.utcnow(),
+                exited_at=datetime.now(UTC),
             ),
         }
 
@@ -596,7 +596,7 @@ class TestMixedScenarios:
             container_name="issue-999-coder",
             status=ContainerStatus.EXITED,
             exit_code=0,
-            exited_at=datetime.utcnow(),
+            exited_at=datetime.now(UTC),
         )
         running_tester = ContainerInfo(
             container_id="tester-1",
@@ -663,14 +663,14 @@ class TestMixedScenarios:
                 container_name="issue-999-coder",
                 status=ContainerStatus.FAILED,
                 exit_code=137,
-                exited_at=datetime.utcnow(),
+                exited_at=datetime.now(UTC),
             ),
             "tester-1": ContainerInfo(
                 container_id="tester-1",
                 container_name="issue-999-tester",
                 status=ContainerStatus.EXITED,
                 exit_code=0,
-                exited_at=datetime.utcnow(),
+                exited_at=datetime.now(UTC),
             ),
         }
 
@@ -733,7 +733,7 @@ class TestMixedScenarios:
             container_name="issue-999-coder",
             status=ContainerStatus.FAILED,
             exit_code=137,
-            exited_at=datetime.utcnow(),
+            exited_at=datetime.now(UTC),
         )
         running_tester = ContainerInfo(
             container_id="tester-1",
@@ -811,7 +811,7 @@ class TestMixedScenarios:
             container_name="issue-999-coder",
             status=ContainerStatus.EXITED,
             exit_code=0,
-            exited_at=datetime.utcnow(),
+            exited_at=datetime.now(UTC),
         )
 
         def _get_info(cid):
@@ -1012,7 +1012,7 @@ class TestUpdateAgentsCompleteContainerCleanup:
         real_pipeline = _make_concurrent_pipeline()
         phase_exec = real_pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         phase_exec.status = PipelineStatus.RUNNING
-        phase_exec.started_at = datetime.utcnow()
+        phase_exec.started_at = datetime.now(UTC)
 
         # Add RUNNING agents with container IDs
         for e in executions:
@@ -1021,7 +1021,7 @@ class TestUpdateAgentsCompleteContainerCleanup:
                     role=e.role,
                     status=AgentExecutionStatus.RUNNING,
                     container_id=e.container_id,
-                    started_at=datetime.utcnow(),
+                    started_at=datetime.now(UTC),
                 )
             )
             phase_exec.containers.append(
@@ -1029,7 +1029,7 @@ class TestUpdateAgentsCompleteContainerCleanup:
                     container_id=e.container_id,
                     container_name=f"issue-999-{e.role.value}",
                     status=ContainerStatus.RUNNING,
-                    started_at=datetime.utcnow(),
+                    started_at=datetime.now(UTC),
                 )
             )
 

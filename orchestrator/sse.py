@@ -12,7 +12,7 @@ import threading
 import time
 from collections import defaultdict
 from collections.abc import Generator
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from queue import Empty, Full, Queue
 from typing import Any
@@ -203,7 +203,7 @@ class SSEClientManager:
         payload = {
             "event_type": event.event_type.value,
             "pipeline_id": pipeline_id,
-            "timestamp": event.timestamp.isoformat() + "Z",
+            "timestamp": event.timestamp.isoformat(),
             "data": event.data,
         }
 
@@ -415,7 +415,7 @@ def create_sse_stream(
                 # Send heartbeat comment periodically to keep connection alive
                 now = time.monotonic()
                 if now - last_heartbeat >= HEARTBEAT_INTERVAL:
-                    yield format_sse_comment(f"heartbeat {datetime.utcnow().isoformat()}Z")
+                    yield format_sse_comment(f"heartbeat {datetime.now(UTC).isoformat()}Z")
                     last_heartbeat = now
 
                 # Send a visualization refresh so the client stays
@@ -443,7 +443,7 @@ def create_sse_stream(
                     last_refresh_dag = current_dag
 
                     refresh["event_type"] = "refresh"
-                    refresh["timestamp"] = datetime.utcnow().isoformat() + "Z"
+                    refresh["timestamp"] = datetime.now(UTC).isoformat()
                     yield format_sse_event(refresh, event="refresh")
                 except Exception:
                     # If refresh fails, keep the stream alive

@@ -24,7 +24,7 @@ import threading
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -479,7 +479,7 @@ class StateStore:
                 pass  # New pipeline, no conflict possible
 
         # Update timestamp and increment version
-        pipeline.updated_at = datetime.utcnow()
+        pipeline.updated_at = datetime.now(UTC)
         pipeline.version = (pipeline.version or 0) + 1
 
         # Write state to the worktree

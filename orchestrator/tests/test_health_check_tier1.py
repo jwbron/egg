@@ -3,7 +3,7 @@
 import json
 import sys
 import tempfile
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -66,14 +66,14 @@ def _make_pipeline_with_running_agent(container_id: str = "abc123") -> Pipeline:
     pipeline = _make_pipeline()
     phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
     phase.status = PipelineStatus.RUNNING
-    phase.started_at = datetime.utcnow()
+    phase.started_at = datetime.now(UTC)
 
     phase.containers.append(
         ContainerInfo(
             container_id=container_id,
             container_name="egg-coder-issue-99",
             status=ContainerStatus.RUNNING,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(UTC),
         )
     )
     phase.agents.append(
@@ -81,7 +81,7 @@ def _make_pipeline_with_running_agent(container_id: str = "abc123") -> Pipeline:
             role=AgentRole.CODER,
             status=AgentExecutionStatus.RUNNING,
             container_id=container_id,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(UTC),
         )
     )
     return pipeline
@@ -95,14 +95,14 @@ def _make_pipeline_with_completed_agent(
     pipeline = _make_pipeline(phase=phase)
     phase_exec = pipeline.get_phase_execution(phase)
     phase_exec.status = PipelineStatus.RUNNING
-    phase_exec.started_at = datetime.utcnow()
+    phase_exec.started_at = datetime.now(UTC)
     phase_exec.agents.append(
         AgentExecution(
             role=AgentRole.CODER,
             status=AgentExecutionStatus.COMPLETE,
             container_id="coder-123",
-            started_at=datetime.utcnow(),
-            completed_at=datetime.utcnow(),
+            started_at=datetime.now(UTC),
+            completed_at=datetime.now(UTC),
             commit=commit,
         )
     )

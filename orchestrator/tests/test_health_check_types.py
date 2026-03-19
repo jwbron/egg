@@ -185,7 +185,7 @@ class TestHealthResult:
         assert d["tier"] == "tier2"
         assert d["action"] == "alert"
         assert d["details"] == {"missing": ["file.txt"]}
-        assert d["timestamp"].endswith("Z")
+        assert d["timestamp"].endswith("+00:00")
 
     def test_frozen(self):
         result = HealthResult(

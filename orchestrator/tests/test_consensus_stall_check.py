@@ -1,7 +1,7 @@
 """Tests for ConsensusStallCheck health check."""
 
 import sys
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -63,7 +63,7 @@ def _make_concurrent_pipeline(
     pipeline = _make_pipeline()
     phase_exec = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
     phase_exec.status = PipelineStatus.RUNNING
-    phase_exec.started_at = datetime.utcnow() - timedelta(seconds=phase_started_seconds_ago)
+    phase_exec.started_at = datetime.now(UTC) - timedelta(seconds=phase_started_seconds_ago)
 
     for role in [AgentRole.CODER, AgentRole.TESTER]:
         phase_exec.containers.append(
@@ -71,7 +71,7 @@ def _make_concurrent_pipeline(
                 container_id=f"container-{role.value}",
                 container_name=f"egg-{role.value}-issue-1014",
                 status=ContainerStatus.RUNNING,
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
         )
         phase_exec.agents.append(
@@ -79,7 +79,7 @@ def _make_concurrent_pipeline(
                 role=role,
                 status=AgentExecutionStatus.RUNNING,
                 container_id=f"container-{role.value}",
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
         )
     return pipeline
@@ -486,7 +486,7 @@ class TestHandleConsensusStallRecovery:
         fresh_pipeline = _make_concurrent_pipeline()
         phase_exec = fresh_pipeline.phases.get("implement")
         phase_exec.status = PipelineStatus.COMPLETE
-        phase_exec.completed_at = datetime.utcnow()
+        phase_exec.completed_at = datetime.now(UTC)
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = fresh_pipeline

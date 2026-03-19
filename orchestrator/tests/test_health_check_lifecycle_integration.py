@@ -202,7 +202,7 @@ class TestPipelineHealthEndpointAggregation:
         assert r["status"] == "degraded"
         assert r["action"] == "alert"
         assert r["details"]["completed_agent_count"] == 2
-        assert r["timestamp"].endswith("Z")
+        assert r["timestamp"].endswith("+00:00")
 
 
 # ===========================================================================

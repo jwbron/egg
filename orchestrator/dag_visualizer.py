@@ -6,7 +6,7 @@ phases, their status, review cycles, and agent execution state.
 """
 
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -102,7 +102,7 @@ def _format_duration(started_at: datetime | None, ended_at: datetime | None = No
     if not started_at:
         return ""
 
-    end = ended_at or datetime.utcnow()
+    end = ended_at or datetime.now(UTC)
     total_seconds = int((end - started_at).total_seconds())
     return _format_seconds(total_seconds)
 
@@ -111,7 +111,7 @@ def _total_work_seconds(phase_exec: PhaseExecution) -> int:
     """Sum of all completed cycle durations in seconds."""
     total = 0
     for ct in phase_exec.cycle_timings:
-        end = ct.completed_at or datetime.utcnow()
+        end = ct.completed_at or datetime.now(UTC)
         total += int((end - ct.started_at).total_seconds())
     return total
 
@@ -694,6 +694,6 @@ def generate_status_report(
             for phase in PHASE_ORDER
         },
         "pending_decisions": len(pipeline.get_pending_decisions()),
-        "updated_at": pipeline.updated_at.isoformat() + "Z",
-        "timestamp": pipeline.updated_at.isoformat() + "Z",
+        "updated_at": pipeline.updated_at.isoformat(),
+        "timestamp": pipeline.updated_at.isoformat(),
     }

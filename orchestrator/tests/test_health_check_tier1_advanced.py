@@ -3,7 +3,7 @@
 import json
 import sys
 import tempfile
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -75,7 +75,7 @@ def _add_agent_and_container(
     phase_exec = pipeline.get_phase_execution(phase)
     phase_exec.status = PipelineStatus.RUNNING
     if not phase_exec.started_at:
-        phase_exec.started_at = datetime.utcnow()
+        phase_exec.started_at = datetime.now(UTC)
     phase_exec.containers.append(
         ContainerInfo(
             container_id=container_id,
@@ -88,7 +88,7 @@ def _add_agent_and_container(
             role=role,
             status=agent_status,
             container_id=container_id,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(UTC),
             commit=commit,
         )
     )
@@ -422,7 +422,7 @@ class TestPhaseOutputEdgeCases:
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
         phase_exec = pipeline.get_phase_execution(PipelinePhase.PLAN)
         phase_exec.status = PipelineStatus.RUNNING
-        phase_exec.started_at = datetime.utcnow()
+        phase_exec.started_at = datetime.now(UTC)
         phase_exec.agents.append(
             AgentExecution(
                 role=AgentRole.ARCHITECT,
@@ -449,7 +449,7 @@ class TestPhaseOutputEdgeCases:
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
         phase_exec = pipeline.get_phase_execution(PipelinePhase.PLAN)
         phase_exec.status = PipelineStatus.RUNNING
-        phase_exec.started_at = datetime.utcnow()
+        phase_exec.started_at = datetime.now(UTC)
         phase_exec.agents.append(
             AgentExecution(
                 role=AgentRole.ARCHITECT,
@@ -476,7 +476,7 @@ class TestPhaseOutputEdgeCases:
         pipeline = _make_pipeline(phase=PipelinePhase.PR)
         phase_exec = pipeline.get_phase_execution(PipelinePhase.PR)
         phase_exec.status = PipelineStatus.RUNNING
-        phase_exec.started_at = datetime.utcnow()
+        phase_exec.started_at = datetime.now(UTC)
         phase_exec.agents.append(
             AgentExecution(
                 role=AgentRole.CODER,

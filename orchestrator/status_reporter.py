@@ -10,7 +10,7 @@ import os
 import sys
 import threading
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -60,7 +60,7 @@ class StatusUpdate:
         self.message = message
         self.visualization = visualization or {}
         self.data = data or {}
-        self.timestamp = datetime.utcnow()
+        self.timestamp = datetime.now(UTC)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -72,7 +72,7 @@ class StatusUpdate:
             "message": self.message,
             "visualization": self.visualization,
             "data": self.data,
-            "timestamp": self.timestamp.isoformat() + "Z",
+            "timestamp": self.timestamp.isoformat(),
         }
 
     def to_json(self) -> str:

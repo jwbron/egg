@@ -5,7 +5,7 @@ Provides REST endpoints for advancing pipeline phases with validation.
 """
 
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -316,7 +316,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         # Mark previous phase as complete
         prev_execution = pipeline.get_phase_execution(previous_phase)
         prev_execution.status = PipelineStatus.COMPLETE
-        prev_execution.completed_at = datetime.utcnow()
+        prev_execution.completed_at = datetime.now(UTC)
 
         # Transition to target phase
         pipeline.current_phase = target_phase
@@ -325,8 +325,8 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         # Initialize target phase execution
         target_execution = pipeline.get_phase_execution(target_phase)
         target_execution.status = PipelineStatus.RUNNING
-        target_execution.started_at = datetime.utcnow()
-        target_execution.work_started_at = datetime.utcnow()
+        target_execution.started_at = datetime.now(UTC)
+        target_execution.work_started_at = datetime.now(UTC)
 
         # Save updated pipeline with optimistic locking
         store.save_pipeline(pipeline, expected_version=original_version)
@@ -397,8 +397,8 @@ def start_phase(pipeline_id: str) -> tuple[Response, int]:
             return make_error_response(f"Phase {pipeline.current_phase.value} is already running")
 
         phase_execution.status = PipelineStatus.RUNNING
-        phase_execution.started_at = datetime.utcnow()
-        phase_execution.work_started_at = datetime.utcnow()
+        phase_execution.started_at = datetime.now(UTC)
+        phase_execution.work_started_at = datetime.now(UTC)
         pipeline.status = PipelineStatus.RUNNING
 
         store.save_pipeline(pipeline, expected_version=original_version)
@@ -465,7 +465,7 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
 
         phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
         phase_execution.status = PipelineStatus.COMPLETE
-        phase_execution.completed_at = datetime.utcnow()
+        phase_execution.completed_at = datetime.now(UTC)
 
         # Store artifacts if provided
         if data.get("artifacts"):
@@ -546,7 +546,7 @@ def fail_phase(pipeline_id: str) -> tuple[Response, int]:
         phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
         phase_execution.status = PipelineStatus.FAILED
         phase_execution.error = error_message
-        phase_execution.completed_at = datetime.utcnow()
+        phase_execution.completed_at = datetime.now(UTC)
 
         pipeline.status = PipelineStatus.FAILED
         pipeline.error = error_message

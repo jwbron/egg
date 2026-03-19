@@ -11,7 +11,7 @@ import logging
 import os
 import sys
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -68,7 +68,7 @@ class ProxyStats:
 
     def _check_anomaly(self) -> bool:
         """Check if blocked request rate exceeds threshold."""
-        cutoff = datetime.utcnow() - timedelta(minutes=self.window_minutes)
+        cutoff = datetime.now(UTC) - timedelta(minutes=self.window_minutes)
         recent_blocks = [r for r in self.blocked_requests if r.timestamp > cutoff]
 
         return len(recent_blocks) >= self.alert_threshold
@@ -76,7 +76,7 @@ class ProxyStats:
     def _send_alert(self) -> None:
         """Send security alert for anomalous traffic."""
         alert = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "event_type": "security_alert",
             "alert_type": "high_block_rate",
             "message": (
@@ -148,7 +148,7 @@ def log_blocked_request(
         stats: Optional ProxyStats instance to update
     """
     entry = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(UTC).isoformat(),
         "event_type": "proxy_request_blocked",
         "client_ip": client_ip,
         "destination": destination,
@@ -162,7 +162,7 @@ def log_blocked_request(
 
     if stats:
         request = BlockedRequest(
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             client_ip=client_ip,
             destination=destination,
             method=method,
@@ -188,7 +188,7 @@ def log_allowed_request(
     """
     if os.environ.get("PROXY_LOG_VERBOSE", "0") == "1":
         entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(UTC).isoformat(),
             "event_type": "proxy_request_allowed",
             "client_ip": client_ip,
             "destination": destination,

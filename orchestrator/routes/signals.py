@@ -7,7 +7,7 @@ progress updates, and errors back to the orchestrator.
 
 import subprocess
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -601,7 +601,7 @@ def handle_heartbeat_signal(
     return make_success_response(
         "Heartbeat acknowledged",
         data={
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         },
     )
 

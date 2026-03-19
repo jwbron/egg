@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from functools import wraps
 from pathlib import Path
@@ -96,7 +96,7 @@ class CircuitBreaker:
             if self._state == CircuitState.OPEN:
                 # Check if recovery timeout has passed
                 if self._last_failure_time:
-                    elapsed = (datetime.utcnow() - self._last_failure_time).total_seconds()
+                    elapsed = (datetime.now(UTC) - self._last_failure_time).total_seconds()
                     if elapsed >= self.recovery_timeout:
                         self._state = CircuitState.HALF_OPEN
                         self._success_count = 0
@@ -123,7 +123,7 @@ class CircuitBreaker:
         """Record a failed operation."""
         with self._lock:
             self._failure_count += 1
-            self._last_failure_time = datetime.utcnow()
+            self._last_failure_time = datetime.now(UTC)
 
             if self._state == CircuitState.HALF_OPEN:
                 # Any failure in half-open goes back to open

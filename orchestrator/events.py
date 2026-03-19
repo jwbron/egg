@@ -106,9 +106,7 @@ class Event:
         return {
             "event_type": self.event_type.value,
             "pipeline_id": self.pipeline_id,
-            "timestamp": self.timestamp.isoformat().replace("+00:00", "Z")
-            if self.timestamp.tzinfo is not None
-            else self.timestamp.isoformat() + "Z",
+            "timestamp": self.timestamp.isoformat(),
             "data": self.data,
             "source": self.source,
         }

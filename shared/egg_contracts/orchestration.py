@@ -14,7 +14,7 @@ Key concepts:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from .agent_roles import AgentRole, get_role_definition
@@ -170,7 +170,7 @@ class OrchestrationState:
         Returns:
             The updated AgentExecutionModel
         """
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(UTC).isoformat()
 
         key = _composite_key(role, phase_id)
 
@@ -196,10 +196,10 @@ class OrchestrationState:
         execution.status = status
 
         if status == AgentExecutionStatus.RUNNING and execution.started_at is None:
-            execution.started_at = datetime.fromisoformat(now.replace("Z", "+00:00"))
+            execution.started_at = now
 
         if status in (AgentExecutionStatus.COMPLETE, AgentExecutionStatus.FAILED):
-            execution.completed_at = datetime.fromisoformat(now.replace("Z", "+00:00"))
+            execution.completed_at = now
 
         if commit is not None:
             execution.commit = commit
@@ -271,7 +271,7 @@ class OrchestrationState:
             source_agent=source,
             target_agents=targets,
             data=data,
-            timestamp=datetime.utcnow().isoformat() + "Z",
+            timestamp=datetime.now(UTC).isoformat(),
         )
         self.handoffs.append(handoff)
         return handoff
@@ -373,7 +373,7 @@ def initialize_orchestration(
         Initialized OrchestrationState
     """
     state = OrchestrationState()
-    state.started_at = datetime.utcnow().isoformat() + "Z"
+    state.started_at = datetime.now(UTC).isoformat()
 
     if roles is not None:
         enabled_roles = roles

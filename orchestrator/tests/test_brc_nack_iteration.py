@@ -8,7 +8,7 @@ Covers:
 """
 
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -178,7 +178,7 @@ def _make_execution(role, container_id, status=AgentExecutionStatus.RUNNING):
         role=role,
         status=status,
         container_id=container_id,
-        started_at=datetime.utcnow(),
+        started_at=datetime.now(UTC),
     )
 
 
@@ -257,14 +257,14 @@ class TestPollingLoopWithNacks:
                 container_name="issue-999-coder",
                 status=ContainerStatus.EXITED,
                 exit_code=0,
-                exited_at=datetime.utcnow(),
+                exited_at=datetime.now(UTC),
             ),
             "reviewer-1": ContainerInfo(
                 container_id="reviewer-1",
                 container_name="issue-999-reviewer_code",
                 status=ContainerStatus.EXITED,
                 exit_code=0,
-                exited_at=datetime.utcnow(),
+                exited_at=datetime.now(UTC),
             ),
         }
 
@@ -331,7 +331,7 @@ class TestPollingLoopWithNacks:
                 container_name="issue-999-coder",
                 status=ContainerStatus.EXITED,
                 exit_code=0,
-                exited_at=datetime.utcnow(),
+                exited_at=datetime.now(UTC),
             ),
         }
 
@@ -391,7 +391,7 @@ class TestTimeoutWithNacks:
             container_name="issue-999-coder",
             status=ContainerStatus.EXITED,
             exit_code=0,
-            exited_at=datetime.utcnow(),
+            exited_at=datetime.now(UTC),
         )
 
         mock_executor_instance = MagicMock()
@@ -470,7 +470,7 @@ class TestDuplicatePhaseGatePrevention:
                 container_name="issue-999-coder",
                 status=ContainerStatus.EXITED,
                 exit_code=0,
-                exited_at=datetime.utcnow(),
+                exited_at=datetime.now(UTC),
             ),
         }
         pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(
