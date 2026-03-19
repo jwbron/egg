@@ -650,8 +650,8 @@ class StateStore:
             logger.info("Restored state branch from remote")
             return True
         except Exception as e:
-            logger.warning(
-                "Failed to restore state branch from remote: %s",
+            logger.debug(
+                "Could not restore state branch from remote (will create fresh): %s",
                 e,
             )
             return False
@@ -930,7 +930,7 @@ def release_pipeline_state_lock(pipeline_id: str) -> None:
             _pipeline_state_locks.pop(pipeline_id, None)
 
 
-def discover_repo_paths(base_path: Path | str, *, require_state_branch: bool = False) -> list[Path]:
+def discover_repo_paths(base_path: Path | str) -> list[Path]:
     """Discover git repositories under a base path.
 
     If *base_path* is itself a git repo, returns ``[base_path]``.
@@ -938,9 +938,6 @@ def discover_repo_paths(base_path: Path | str, *, require_state_branch: bool = F
 
     Args:
         base_path: A git repo or a parent directory containing repos.
-        require_state_branch: If True, only return repos that already have
-            the ``egg/pipeline-state`` branch locally.  This avoids noisy
-            remote-restore attempts for repos that have never had pipelines.
 
     Returns:
         List of paths to git repositories (may be empty).
@@ -948,33 +945,14 @@ def discover_repo_paths(base_path: Path | str, *, require_state_branch: bool = F
     if isinstance(base_path, str):
         base_path = Path(base_path)
     if (base_path / ".git").exists():
-        candidates = [base_path]
-    elif base_path.is_dir():
-        candidates = [
+        return [base_path]
+    if base_path.is_dir():
+        return [
             child
             for child in sorted(base_path.iterdir())
             if child.is_dir() and (child / ".git").exists()
         ]
-    else:
-        candidates = []
-
-    if not require_state_branch:
-        return candidates
-
-    result = []
-    for repo in candidates:
-        try:
-            r = subprocess.run(
-                ["git", "-C", str(repo), "rev-parse", "--verify", f"refs/heads/{STATE_BRANCH}"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if r.returncode == 0:
-                result.append(repo)
-        except Exception:
-            continue
-    return result
+    return []
 
 
 def get_state_store(repo_path: Path | str) -> StateStore:
