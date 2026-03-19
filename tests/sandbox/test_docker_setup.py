@@ -1003,7 +1003,7 @@ class TestPersistSystemDirs:
             prebuilt_base=prebuilt,
         )
 
-        # Should be stored under _system_/<stripped_path>
+        # Should be stored under __egg_system_dirs__/<stripped_path>
         dest = prebuilt / "__egg_system_dirs__" / sys_dir.lstrip("/")
         assert dest.is_dir()
         assert (dest / "bin" / "go").exists()

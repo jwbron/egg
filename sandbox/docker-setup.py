@@ -379,6 +379,14 @@ def persist_build_dirs(
             shutil.copytree(src_dir, dest_dir, symlinks=True)
             persist_count += 1
 
+    # Dangerous prefixes and exact paths that should never be persisted
+    DENIED_PREFIXES = ("/proc", "/sys", "/dev", "/run", "/boot")
+    DENIED_EXACT = ("/", "/etc", "/bin", "/sbin", "/lib", "/lib64", "/usr", "/var")
+
+    # Also deny the prebuilt and repo-deps directories themselves to prevent
+    # self-referential copies that would bloat the image
+    denied_exact = DENIED_EXACT + (str(prebuilt_base), str(repo_deps_base))
+
     # Persist system-level directories (absolute paths like /usr/local/go)
     for entry in build_commands:
         repo = entry["repo"]
@@ -387,10 +395,6 @@ def persist_build_dirs(
             continue
 
         system_dest = prebuilt_base / "__egg_system_dirs__"
-
-        # Dangerous prefixes and exact paths that should never be persisted
-        DENIED_PREFIXES = ("/proc", "/sys", "/dev", "/run", "/boot")
-        DENIED_EXACT = ("/", "/etc", "/bin", "/sbin", "/lib", "/lib64", "/usr", "/var")
 
         for abs_dir in system_dirs:
             abs_dir = str(abs_dir)
@@ -402,7 +406,7 @@ def persist_build_dirs(
             resolved = Path(abs_dir).resolve()
             abs_dir_clean = str(resolved)
 
-            if abs_dir_clean in DENIED_EXACT or any(
+            if abs_dir_clean in denied_exact or any(
                 abs_dir_clean.startswith(p + "/") for p in DENIED_PREFIXES
             ):
                 print(
