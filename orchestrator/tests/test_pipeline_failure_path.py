@@ -236,7 +236,7 @@ class TestFailurePathPushesWorktreeBranch:
     @patch(_COMMON_PATCHES[2])
     @patch(_COMMON_PATCHES[1])
     @patch(_COMMON_PATCHES[0])
-    def test_push_skipped_when_no_branch(
+    def test_push_uses_generated_branch_when_no_explicit_branch(
         self,
         mock_emit,
         mock_get_spawner,
@@ -247,8 +247,9 @@ class TestFailurePathPushesWorktreeBranch:
         mock_read_draft,
         mock_report,
     ):
-        """When pipeline.branch is not set, push_worktree_branch should not be called."""
-        from routes.pipelines import _run_pipeline
+        """When pipeline.branch is not set, a fallback branch is generated and
+        persisted, so push_worktree_branch is called with the generated name."""
+        from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
 
         pipeline = _make_running_pipeline(branch=None)
         mock_store, mock_gateway = _setup_mocks(
@@ -263,13 +264,24 @@ class TestFailurePathPushesWorktreeBranch:
             pipeline,
         )
 
+        worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
+        mock_gateway.create_worktrees.return_value = MagicMock(
+            success=True,
+            worktrees={"repo": str(worktree_dir)},
+            errors=[],
+        )
+
         with (
             patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
             patch("pathlib.Path.exists", return_value=True),
         ):
             _run_pipeline("issue-42", Path("/repo"))
 
-        mock_gateway.push_worktree_branch.assert_not_called()
+        mock_gateway.push_worktree_branch.assert_called_once_with(
+            pipeline_id="issue-42",
+            repo_path=str(worktree_dir),
+            branch="egg/issue-42/work",
+        )
 
 
 class TestFailurePathPreservesWorktrees:
@@ -566,7 +578,7 @@ class TestSuccessPathPushesStatefiles:
     @patch(_COMMON_PATCHES[2])
     @patch(_COMMON_PATCHES[1])
     @patch(_COMMON_PATCHES[0])
-    def test_push_not_called_without_branch(
+    def test_push_uses_generated_branch_on_success_without_explicit_branch(
         self,
         mock_emit,
         mock_get_spawner,
@@ -578,9 +590,10 @@ class TestSuccessPathPushesStatefiles:
         mock_report,
         mock_commit_statefiles,
     ):
-        """When pipeline.branch is not set, push_worktree_branch should not be
-        called even on success."""
-        from routes.pipelines import _run_pipeline
+        """When pipeline.branch is not set, a fallback branch is generated and
+        persisted, so push_worktree_branch is called with the generated name
+        even on the success path."""
+        from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
 
         pipeline = Pipeline(
             id="issue-42",
@@ -610,13 +623,33 @@ class TestSuccessPathPushesStatefiles:
 
         mock_spawn_wait.return_value = (0, "success")
 
+        worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
+        mock_gateway.create_worktrees.return_value = MagicMock(
+            success=True,
+            worktrees={"repo": str(worktree_dir)},
+            errors=[],
+        )
+
         with (
             patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
             patch("pathlib.Path.exists", return_value=True),
         ):
             _run_pipeline("issue-42", Path("/repo"))
 
-        mock_gateway.push_worktree_branch.assert_not_called()
+        # Generated branch should be used for pushing
+        push_calls = mock_gateway.push_worktree_branch.call_args_list
+        assert len(push_calls) >= 1, (
+            f"Expected push_worktree_branch to be called with generated branch, "
+            f"got {push_calls}"
+        )
+        assert push_calls[0] == (
+            (),
+            {
+                "pipeline_id": "issue-42",
+                "repo_path": str(worktree_dir),
+                "branch": "egg/issue-42/work",
+            },
+        )
 
 
 class TestNetworkModeAutoDetection:
