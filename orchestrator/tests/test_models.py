@@ -274,36 +274,6 @@ class TestStartPhaseValidator:
             PipelineConfig(start_phase="nonexistent")
 
 
-class TestImplementRolesValidator:
-    """Tests for PipelineConfig.implement_roles validation."""
-
-    def test_valid_roles_accepted(self):
-        config = PipelineConfig(implement_roles=["coder", "reviewer_code"])
-        assert config.implement_roles == ["coder", "reviewer_code"]
-
-    def test_none_accepted(self):
-        config = PipelineConfig(implement_roles=None)
-        assert config.implement_roles is None
-
-    def test_invalid_role_rejected(self):
-        import pytest
-
-        with pytest.raises(ValueError, match="Invalid role names in implement_roles"):
-            PipelineConfig(implement_roles=["coder", "nonexistent"])
-
-    def test_all_invalid_roles_rejected(self):
-        import pytest
-
-        with pytest.raises(ValueError, match="Invalid role names in implement_roles"):
-            PipelineConfig(implement_roles=["fake_role"])
-
-    def test_empty_list_rejected(self):
-        import pytest
-
-        with pytest.raises(ValueError, match="implement_roles cannot be empty"):
-            PipelineConfig(implement_roles=[])
-
-
 class TestPipeline:
     """Tests for Pipeline model."""
 

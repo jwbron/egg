@@ -3877,20 +3877,12 @@ def _run_concurrent_phase(
     from egg_contracts.agent_roles import get_roles_for_phase as _get_roles_for_phase
 
     roles: list[AgentRole] = []
-    # Honor implement_roles config override
-    if phase_str == "implement" and pipeline.config.implement_roles:
-        for name in pipeline.config.implement_roles:
-            try:
-                roles.append(AgentRole(name))
-            except ValueError:
-                logger.warning("Unknown role in implement_roles config", role=name)
-    else:
-        for r in _get_roles_for_phase(phase_str, include_reviewers=True, repo=pipeline.repo):
-            try:
-                roles.append(AgentRole(r.value))
-            except ValueError:
-                # New roles not yet in orchestrator AgentRole — skip
-                continue
+    for r in _get_roles_for_phase(phase_str, include_reviewers=True, repo=pipeline.repo):
+        try:
+            roles.append(AgentRole(r.value))
+        except ValueError:
+            # New roles not yet in orchestrator AgentRole — skip
+            continue
 
     # Build a review graph filtered to only active roles so consensus
     # tracking doesn't wait for unspawned agents.

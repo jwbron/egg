@@ -717,13 +717,6 @@ class TestValidateConfig:
         assert result["valid"] is False
         assert any("start_phase" in str(e) for e in result["errors"])
 
-    def test_invalid_implement_roles(self, handler):
-        result = handler.handle_tool_call(
-            "validate_config", {"config": {"implement_roles": ["bad_role"]}}
-        )
-        assert result["valid"] is False
-        assert any("implement_roles" in str(e) for e in result["errors"])
-
     def test_config_as_json_string(self, handler):
         result = handler.handle_tool_call(
             "validate_config",

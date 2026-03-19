@@ -1136,7 +1136,6 @@ Or pass it in the pipeline config JSON (e.g. via the API):
 | `concurrent_execution` | bool | `false` | Enable concurrent mode (opt-in) |
 | `concurrent_phases` | list[str] | `["refine", "plan", "implement"]` | Phases where BRC is active when `concurrent_execution` is `false` |
 | `start_phase` | str | `null` | Skip earlier phases and start execution from `"plan"` or `"implement"` |
-| `implement_roles` | list[str] | `null` | Override which roles run in the implement phase (e.g. `["coder", "reviewer_code"]`); defaults to all implement roles |
 | `max_concurrent_agents` | int | `6` | Maximum agents running simultaneously |
 | `message_poll_hint_seconds` | int | `30` | Suggested polling interval for agents |
 | `consensus_timeout_minutes` | int | `30` | Timeout before HITL escalation |
