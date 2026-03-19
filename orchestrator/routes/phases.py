@@ -38,7 +38,6 @@ from state_store import (
     InvalidPipelineIdError,
     PipelineNotFoundError,
     VersionConflictError,
-    get_state_store,
 )
 
 logger = get_logger("orchestrator.phases")
@@ -78,7 +77,7 @@ def make_success_response(
     return jsonify(response), 200
 
 
-from routes import get_repo_path, get_state_store_for_pipeline  # noqa: E402 — shared helper
+from routes import get_state_store_for_pipeline  # noqa: E402 — shared helper
 from routes.checks import teardown_devserver  # noqa: E402
 
 

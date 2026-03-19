@@ -93,7 +93,9 @@ class TestDelphiFiltering:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
                 patch("peer_consensus.get_peer_consensus_tracker", return_value=tracker),
             ):
                 mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
@@ -149,7 +151,9 @@ class TestDelphiFiltering:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
                 patch("peer_consensus.get_peer_consensus_tracker", return_value=tracker),
             ):
                 mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
@@ -196,7 +200,9 @@ class TestDelphiFiltering:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
                 patch("peer_consensus.get_peer_consensus_tracker", return_value=tracker),
             ):
                 mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
@@ -224,7 +230,9 @@ class TestDelphiFiltering:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
             ):
                 mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
@@ -244,7 +252,9 @@ class TestLongPolling:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
             ):
                 mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
@@ -259,7 +269,9 @@ class TestLongPolling:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
             ):
                 mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
@@ -273,7 +285,9 @@ class TestLongPolling:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
             ):
                 mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
@@ -287,7 +301,9 @@ class TestLongPolling:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
             ):
                 mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
@@ -310,7 +326,9 @@ class TestLongPolling:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
             ):
                 mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
@@ -340,7 +358,9 @@ class TestMessageStatus:
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
-                patch("routes.messages.get_state_store_for_pipeline") as mock_get_store_for_pipeline,
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
             ):
                 mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 

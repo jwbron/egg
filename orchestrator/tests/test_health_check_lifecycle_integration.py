@@ -483,9 +483,7 @@ class TestPhaseAdvanceHealthCheck:
             assert resp.status_code != 409
 
     @patch("routes.phases.get_state_store_for_pipeline")
-    def test_health_check_exception_does_not_block_advance(
-        self, mock_get_store_for_pipeline, app
-    ):
+    def test_health_check_exception_does_not_block_advance(self, mock_get_store_for_pipeline, app):
         """Exceptions in health checks should not block phase advance."""
         from routes.phases import phases_bp
 
