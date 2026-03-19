@@ -11,10 +11,10 @@ from unittest.mock import MagicMock, patch
 
 from models import (
     AgentRole,
+    Pipeline,
     PipelineConfig,
     PipelinePhase,
     PipelineStatus,
-    Pipeline,
 )
 from routes.pipelines import _run_concurrent_phase
 
@@ -151,9 +151,7 @@ class TestShortFlowContractReviewer:
         roles = call_kwargs.kwargs.get("roles", [])
         # Count reviewer_contract — should appear exactly once
         contract_count = sum(1 for r in roles if r == AgentRole.REVIEWER_CONTRACT)
-        assert contract_count == 1, (
-            f"reviewer_contract appeared {contract_count} times"
-        )
+        assert contract_count == 1, f"reviewer_contract appeared {contract_count} times"
 
     @patch("routes.pipelines.time.sleep")
     @patch("routes.pipelines.time.monotonic", return_value=10.0)

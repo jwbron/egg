@@ -3888,10 +3888,7 @@ def _run_concurrent_phase(
         # that normally validate the contract are skipped.  Ensure the contract
         # reviewer is always present so the contract is validated before code
         # is written.  See: https://github.com/jwbron/egg/issues/1339
-        if (
-            pipeline.config.start_phase == "implement"
-            and AgentRole.REVIEWER_CONTRACT not in roles
-        ):
+        if pipeline.config.start_phase == "implement" and AgentRole.REVIEWER_CONTRACT not in roles:
             roles.append(AgentRole.REVIEWER_CONTRACT)
             logger.info(
                 "Auto-added reviewer_contract for short flow pipeline",
