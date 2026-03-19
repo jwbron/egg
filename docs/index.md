@@ -26,6 +26,12 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [The Agentic Feedback Loop](agentic-feedback-loop.md) | The foundational work-review-feedback cycle that drives quality in agent-human collaboration |
 | [Why egg Works](collaboration-effectiveness.md) | How the public, sandboxed, async model delivers safety, quality, and collaboration |
 
+### Design
+
+| Document | Description |
+|----------|-------------|
+| [Capability Removal](design/capability-removal.md) | Why infrastructure-level constraints beat prompt-based rules for agent safety |
+
 ### Architecture
 
 | Document | Description |

@@ -19,9 +19,12 @@ Two examples:
   MERGE OPERATIONS NOT SUPPORTED
 ================================================================================
 
+The gateway sidecar does not support merge operations.
+
 Human must merge PRs via the GitHub web interface.
 
 This is a safety measure to ensure human review before merging.
+
 ================================================================================
 ```
 
@@ -55,7 +58,7 @@ The agent doesn't need to memorize branch naming conventions upfront. It discove
 
 This turns out to be more effective than front-loading rules into the system prompt. The agent doesn't waste context on rules it may never need. And when it does hit a boundary, the error is right there in the conversation, not buried in a system prompt the model wrote off 50,000 tokens ago.
 
-We see the same pattern with self-reviews. GitHub blocks bots from approving their own PRs. Rather than telling the agent about this edge case, the wrapper detects it, automatically downgrades the review to a comment, and preserves the original verdict in a hidden HTML marker. The agent doesn't know the workaround happened. It just works.
+The same pattern applies to self-reviews — see "Silent adaptation" below.
 
 ## Errors as guidance
 
