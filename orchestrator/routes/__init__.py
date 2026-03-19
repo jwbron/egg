@@ -7,8 +7,13 @@ Each module provides a Flask Blueprint for a logical group of endpoints.
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from flask import abort, request
+
+if TYPE_CHECKING:
+    from models import Pipeline
+    from state_store import StateStore
 
 # Add shared directory to path for logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
@@ -127,6 +132,53 @@ def resolve_repo_path_for_pipeline(pipeline_id: str, base_path: Path) -> Path:
         )
 
     return base_path
+
+
+def get_state_store_for_pipeline(pipeline_id: str) -> tuple["StateStore", "Pipeline"]:
+    """Get state store and pipeline, resolving multi-repo paths automatically.
+
+    This is the preferred way for routes to load a pipeline.  It handles
+    the multi-repo case where ``get_repo_path()`` returns a parent
+    directory (e.g. ``/home/egg/repos``) by searching all discovered
+    repos for the pipeline.
+
+    Args:
+        pipeline_id: Pipeline ID to look up
+
+    Returns:
+        (StateStore, Pipeline) tuple
+
+    Raises:
+        PipelineNotFoundError: if the pipeline cannot be found
+        InvalidPipelineIdError: if the ID format is invalid
+    """
+    from state_store import (
+        PipelineNotFoundError,
+        discover_repo_paths,
+        get_state_store,
+    )
+
+    base_path = get_repo_path()
+
+    # Fast path: base_path is itself a git repo
+    if (base_path / ".git").exists():
+        store = get_state_store(base_path)
+        pipeline = store.load_pipeline(pipeline_id)
+        return store, pipeline
+
+    # Multi-repo: search all discovered repos.
+    # Only catch PipelineNotFoundError here — InvalidPipelineIdError and
+    # other StateStoreErrors should propagate immediately since an invalid
+    # ID or infrastructure failure won't resolve in a different repo.
+    for repo_path in discover_repo_paths(base_path):
+        try:
+            store = get_state_store(repo_path)
+            pipeline = store.load_pipeline(pipeline_id)
+            return store, pipeline
+        except PipelineNotFoundError:
+            continue
+
+    raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found") from None
 
 
 # Must match the gateway's WORKTREE_BASE_DIR and docker-compose volume mounts.
