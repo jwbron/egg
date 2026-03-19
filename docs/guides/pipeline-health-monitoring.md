@@ -134,6 +134,8 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `overseer_max_redirects_before_escalation` | `2` | Redirect attempts before HITL escalation |
 | `overseer_decision_maker_model` | `"sonnet"` | LLM model for overseer decision-making tier |
 | `overseer_max_respawns` | `3` | Max times to auto-respawn the overseer if it exits mid-pipeline (0 disables respawning) |
+| `overseer_rerun_min_work_seconds` | `60` | Minimum work duration required after a `request_changes` phase-gate decision; completions faster than this with `content_changed=False` are flagged as re-run anomalies |
+| `overseer_hitl_propagation_timeout_seconds` | `300` | Seconds to wait for a resolved phase-gate decision to appear in the SDLC contract before raising a propagation-failure alert |
 
 ## Tier 2: Overseer Agent
 
@@ -161,6 +163,7 @@ Lightweight Haiku agents handle classification tasks. They run only when the orc
 | **Loop detection** | "Is this agent repeating the same actions in a cycle?" |
 | **Error triage** | "Is this error recoverable or fatal?" |
 | **Off-track detection** | "Is this agent's work aligned with the contract?" |
+| **Decision consistency** | "Does this phase's output respect prior resolved HITL decisions?" |
 
 **Consensus-aware stall classification**: The stall classifier receives BRC consensus state as authoritative context when available. The classifier is instructed that an agent with confirmed consensus is not stalled — this prevents false stall diagnoses during the window between consensus confirmation and phase transition.
 
@@ -225,6 +228,17 @@ The overseer follows a progressive escalation ladder:
 ### Post-Consensus Stall Detection
 
 If all agents have confirmed BRC consensus but the pipeline phase has not transitioned within ~90 seconds (3× the poll interval), the overseer escalates with a HITL decision and Slack notification. This detects potential orchestrator transition failures after a successful concurrent phase. The escalation fires only once per consensus cycle to avoid duplicate alerts.
+
+### Additional Overseer Health Checks
+
+Each poll cycle the overseer evaluates four targeted health checks (the fourth triggers only on phase transitions). The first three are deterministic (no LLM cost):
+
+| Check | Detects | Action |
+|-------|---------|--------|
+| **Re-run anomaly** | Agent completes in < `overseer_rerun_min_work_seconds` after a `request_changes` phase-gate decision with `content_changed=False` — a likely no-op re-run | HITL escalation + Slack notification (deduplicated per decision ID) |
+| **Status inconsistency** | Pipeline shows `failed` while all agents show `complete` — a possible transient state | HITL escalation + Slack notification (after one poll-cycle grace period) |
+| **HITL propagation failure** | A resolved phase-gate decision is not reflected in the SDLC contract after `overseer_hitl_propagation_timeout_seconds` | HITL escalation + Slack notification |
+| **Cross-phase consistency** | On a phase transition, the new phase's contract output may not honour prior resolved HITL decisions (uses the Haiku `decision_consistency` classifier; requires confidence > 0.7 to escalate) | HITL escalation + Slack notification (deduplicated per phase-transition pair) |
 
 ### Autonomous Issue Filing
 
