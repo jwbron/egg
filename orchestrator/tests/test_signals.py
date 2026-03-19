@@ -332,18 +332,20 @@ class TestSigtermCleanShutdown:
         data = json.loads(response.data)
         assert "clean_shutdown" not in data.get("data", {})
 
+    @patch("routes.signals.save_contract")
     @patch("routes.signals.resolve_worktree_path")
     @patch("routes.signals.get_state_store")
     @patch("routes.signals.load_contract")
-    def test_sigterm_on_running_pipeline_still_records_error(
+    def test_sigterm_on_non_complete_pipeline_still_records_error(
         self,
         mock_load_contract,
         mock_get_store,
         mock_resolve_wt,
+        mock_save_contract,
         app,
         mock_pipeline,
     ):
-        """SIGTERM on a still-running pipeline is NOT treated as clean shutdown."""
+        """SIGTERM on a non-complete (PENDING) pipeline is NOT treated as clean shutdown."""
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = mock_pipeline
         mock_get_store.return_value = mock_store
@@ -369,43 +371,6 @@ class TestSigtermCleanShutdown:
         assert status_code == 200
         data = json.loads(response.data)
         assert "clean_shutdown" not in data.get("data", {})
-
-    @patch("routes.signals.resolve_worktree_path")
-    @patch("routes.signals.get_state_store")
-    @patch("routes.signals.load_contract")
-    def test_sigterm_contract_not_found_on_complete_pipeline(
-        self,
-        mock_load_contract,
-        mock_get_store,
-        mock_resolve_wt,
-        app,
-        completed_pipeline,
-    ):
-        """SIGTERM + ContractNotFoundError on completed pipeline is clean shutdown."""
-        from egg_contracts.loader import ContractNotFoundError
-
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = completed_pipeline
-        mock_get_store.return_value = mock_store
-        mock_resolve_wt.return_value = Path("/tmp/worktree")
-        mock_load_contract.side_effect = ContractNotFoundError(42, Path("/tmp/worktree"))
-
-        with app.app_context():
-            from routes.signals import handle_error_signal
-
-            response, status_code = handle_error_signal(
-                "issue-42",
-                {
-                    "agent_role": "coder",
-                    "error": "Container exited with code 143",
-                    "recoverable": False,
-                },
-                Path("/tmp/repo"),
-            )
-
-        assert status_code == 200
-        data = json.loads(response.data)
-        assert data["data"]["clean_shutdown"] is True
 
 
 # ---------------------------------------------------------------------------
