@@ -5662,11 +5662,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     if not pipeline.branch:
                         pipeline.branch = generated_branch
                         store.save_pipeline(pipeline)
-                logger.info(
-                    "Recorded generated branch on pipeline",
-                    pipeline_id=pipeline_id,
-                    branch=generated_branch,
-                )
+                        logger.info(
+                            "Recorded generated branch on pipeline",
+                            pipeline_id=pipeline_id,
+                            branch=generated_branch,
+                        )
             if pipeline.prompt:
                 sandbox_env["EGG_PIPELINE_PROMPT"] = pipeline.prompt
 

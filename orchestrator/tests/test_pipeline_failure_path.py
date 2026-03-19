@@ -283,6 +283,13 @@ class TestFailurePathPushesWorktreeBranch:
             branch="egg/issue-42/work",
         )
 
+        # Verify the generated branch was persisted via save_pipeline
+        save_calls = mock_store.save_pipeline.call_args_list
+        branch_saved = any(
+            call.args[0].branch == "egg/issue-42/work" for call in save_calls if call.args
+        )
+        assert branch_saved, "Expected save_pipeline to persist the generated branch"
+
 
 class TestFailurePathPreservesWorktrees:
     """Verify skip_cleanup is set when pipeline status is FAILED in finally block."""
@@ -636,12 +643,13 @@ class TestSuccessPathPushesStatefiles:
         ):
             _run_pipeline("issue-42", Path("/repo"))
 
-        # Generated branch should be used for pushing
+        # Generated branch should be used for pushing (called twice on success path:
+        # once during phase execution and once in the final push)
         push_calls = mock_gateway.push_worktree_branch.call_args_list
-        assert len(push_calls) >= 1, (
-            f"Expected push_worktree_branch to be called with generated branch, got {push_calls}"
+        assert len(push_calls) == 2, (
+            f"Expected push_worktree_branch to be called exactly 2 times, got {len(push_calls)}"
         )
-        assert push_calls[0] == (
+        expected_call = (
             (),
             {
                 "pipeline_id": "issue-42",
@@ -649,6 +657,15 @@ class TestSuccessPathPushesStatefiles:
                 "branch": "egg/issue-42/work",
             },
         )
+        assert push_calls[0] == expected_call
+        assert push_calls[1] == expected_call
+
+        # Verify the generated branch was persisted via save_pipeline
+        save_calls = mock_store.save_pipeline.call_args_list
+        branch_saved = any(
+            call.args[0].branch == "egg/issue-42/work" for call in save_calls if call.args
+        )
+        assert branch_saved, "Expected save_pipeline to persist the generated branch"
 
 
 class TestNetworkModeAutoDetection:
