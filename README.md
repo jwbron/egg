@@ -27,7 +27,7 @@ The gateway is a trusted sidecar that sits between every agent and the outside w
 
 **What the gateway enforces:**
 
-- **No credentials in the sandbox.** The agent environment has zero tokens, zero keys. The gateway injects credentials at operation time and strips them after.
+- **No credentials in the sandbox.** The agent environment has zero tokens, zero keys. The gateway holds all credentials and injects them into proxied requests — agents never see or handle secrets.
 - **No merging.** The merge endpoint doesn't exist. There's no prompt saying "don't merge"; the capability is absent from the agent's world.
 - **Phase-locked operations.** An agent in the "plan" phase physically cannot push code. An agent in the "implement" phase cannot modify the contract. The gateway validates every git operation against the current SDLC phase.
 - **Branch ownership.** Agents can only push to `egg/`-prefixed branches. They can only edit PRs they created. Role-based file restrictions prevent agents from modifying protected state.
@@ -188,7 +188,7 @@ The orchestrator exposes an MCP server (port 9850) for controlling pipelines fro
 egg ships as a GitHub Action for CI/CD integration: automated PR review, auto-fixing failing checks, merge conflict resolution, and review feedback addressing.
 
 ```yaml
-- uses: jwbron/egg@main
+- uses: jwbron/egg/action@v0
   with:
     prompt: "Review this pull request"
     anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
@@ -215,6 +215,9 @@ egg
 egg-sdlc -r myrepo -i 123        # From a GitHub issue
 egg-sdlc -r myrepo -p "Add auth" # From a prompt
 egg-sdlc                          # Interactive local mode
+
+# Or from inside an egg session
+/sdlc -r myrepo -i 123
 ```
 
 See [Local Quickstart](docs/guides/local-quickstart.md) for detailed setup and [Deployment Guide](docs/guides/deployment.md) for Docker Compose and production options.
@@ -240,6 +243,8 @@ See [Local Quickstart](docs/guides/local-quickstart.md) for detailed setup and [
 | **Agent roles & permissions** | [Agent Roles Reference](docs/reference/agent-roles.md) |
 | **GitHub automation** | [GitHub Automation Guide](docs/guides/github-automation.md) |
 | **Health monitoring** | [Health Monitoring Guide](docs/guides/pipeline-health-monitoring.md) |
+| **Sandbox environment** | [Sandbox README](sandbox/README.md) |
+| **Architecture decisions** | [ADR Index](docs/adr/README.md) |
 | **Contributing** | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## Development
@@ -249,6 +254,7 @@ make setup             # Install dev dependencies
 make lint              # Run all linters
 make test              # Run all tests
 make test-integration  # Run integration tests (Docker required)
+make lint-fix          # Auto-fix lint issues
 make security          # Run security scans
 make build             # Build Docker images
 ```
