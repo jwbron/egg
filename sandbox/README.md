@@ -189,10 +189,11 @@ Per-repo `build_commands` in `repositories.yaml` allow project-specific dependen
 2. The Dockerfile `COPY repo-deps/` layer picks up these files — changes to watch files (e.g., `package-lock.json`) invalidate the Docker cache for this layer
 3. `docker-setup.py` reads `build_commands` and `extra_packages` from `manifest.json` in `repo-deps/` (since `repositories.yaml` is unavailable in the build context) and executes each repo's commands in its watch files directory
 4. `compute_build_hash()` includes watch file contents, so `egg` automatically detects when a rebuild is needed
-5. If `persist_dirs` is configured, `persist_build_dirs()` copies those directories (e.g., `node_modules`) from the build context to `/opt/prebuilt-deps/<repo>/` in the image
-6. At container startup, `restore_prebuilt_deps()` in `entrypoint.py` restores persisted directories into the mounted repo, making them available without network access
+5. If `persist_dirs` is configured, `persist_build_dirs()` copies those directories (e.g., `node_modules`) from the build context to `/opt/prebuilt-deps/<repo>/` in the image; if `persist_system_dirs` is configured, absolute-path system directories (e.g., `/usr/local/go`) are copied to `/opt/prebuilt-deps/__egg_system_dirs__/<abs_path>/`
+6. The Dockerfile restores `__egg_system_dirs__` to `/` so system tools are available at their original absolute paths in the final image
+7. At container startup, `restore_prebuilt_deps()` in `entrypoint.py` restores `persist_dirs` directories into the mounted repo, making them available without network access
 
-> **Note:** `persist_dirs` is not included in `compute_build_hash()`. Changing only `persist_dirs` won't trigger an automatic rebuild — add or modify a `watch_files` entry or use `egg --rebuild`.
+> **Note:** `persist_dirs` and `persist_system_dirs` are not included in `compute_build_hash()`. Changing only these fields won't trigger an automatic rebuild — add or modify a `watch_files` entry or use `egg --rebuild`.
 
 **Config propagation:** During Docker builds, `repositories.yaml` is not available in the build context. Both `build_commands` and `extra_packages` are propagated via a `manifest.json` file that `create_dockerfile()` writes into `repo-deps/`. The `docker-setup.py` script reads this manifest as a fallback when `repositories.yaml` is not found.
 
