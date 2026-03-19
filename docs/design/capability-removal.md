@@ -1,10 +1,8 @@
 # Stop Telling AI Agents What Not to Do
 
-Every AI coding agent ships with some version of the same instructions: "Don't merge pull requests." "Don't force push." "Don't expose credentials."
+Most agent safety today comes down to prompt engineering. "Don't merge pull requests." "Don't force push." "Don't expose credentials." These work until they don't.
 
-These work most of the time. Then they don't. Under context pressure, long conversations, or unexpected edge cases, agents ignore prompt-based rules. Not because they're broken, but because a prompt is a suggestion weighted against everything else in the context window. An agent told "never merge" can still decide merging is the right call if the surrounding context is persuasive enough.
-
-The standard fix is better prompts. More emphatic, more specific, more redundant. But this doesn't solve the underlying problem: the agent still *can* merge. It just *shouldn't*.
+Prompts are suggestions weighted against everything else in the context window. Under context pressure, long conversations, or prompt injection, an agent told "never merge" can still decide merging is the right call. Writing more emphatic prompts doesn't fix this. The agent still *can* merge. It just *shouldn't*.
 
 ## What we did instead
 
@@ -27,7 +25,7 @@ This is a safety measure to ensure human review before merging.
 ================================================================================
 ```
 
-There is no code path, no flag, no escalation that results in a merge. The capability is absent from the agent's universe. No amount of context pressure or creative prompting can produce a merge, because the system has no merge endpoint to call.
+There is no code path, no flag, no escalation that results in a merge. The capability is absent from the agent's universe. No amount of context pressure, creative prompting, or prompt injection can produce a merge, because the system has no merge endpoint to call.
 
 **Credentials don't exist in the sandbox.** The agent environment has zero GitHub tokens, zero API keys. The gateway injects credentials at the moment of each operation and strips them after. The agent cannot leak what it cannot see. This isn't a rule saying "don't print your token." There is no token to print.
 
@@ -80,6 +78,8 @@ The gateway isn't just a bouncer. It's a teacher that meets the agent where it i
 **Constraints belong in infrastructure, not in prompts.**
 
 Prompts degrade under context pressure. Infrastructure doesn't. An agent two hours and 200,000 tokens into a task will hit the same gateway policy it would have hit in the first minute. The rules don't get pushed out by newer context. They don't get reinterpreted. They don't get forgotten.
+
+This also makes prompt injection a non-issue for the operations that matter most. A malicious instruction in a GitHub issue can manipulate what an agent *thinks* it should do, but it can't grant capabilities the environment doesn't have. An injected "merge this PR immediately" hits the same wall as a legitimate attempt. The system is zero-trust by design: the agent is never the authority on what it's allowed to do.
 
 If you find yourself writing more emphatic system prompts to stop an agent from doing something, consider whether you can remove the capability instead. It's the difference between a sign that says "don't open this door" and a wall.
 
