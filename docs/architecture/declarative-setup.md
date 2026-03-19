@@ -88,7 +88,7 @@ Services are categorized into **core** (enabled by default) and **LLM-based** (o
 | github-watcher.timer | Watch GitHub PRs/issues | Anthropic API |
 | conversation-analyzer.timer | Analyze conversations daily | Anthropic API |
 | egg-doc-generator.timer | Generate docs weekly | Anthropic API |
-| adr-researcher.timer | Research ADRs weekly | Anthropic API |
+| adr-researcher.timer | Research architecture docs weekly | Anthropic API |
 
 ## Implementation Status
 

@@ -20,7 +20,7 @@ You are an autonomous software engineering agent in a sandboxed Docker environme
 | Slack | `~/sharing/incoming/` | Task requests |
 | Checkpoints | `egg-checkpoint` CLI | Prior agent sessions |
 
-Before complex tasks, **read `$EGG_REPO_PATH/docs/index.md`** — it contains task-specific guide lookup tables, links to ADRs, architecture docs, guides, and component READMEs.
+Before complex tasks, **read `$EGG_REPO_PATH/docs/index.md`** — it contains task-specific guide lookup tables, links to architecture docs, guides, and component READMEs.
 
 ## GitHub Operations
 
@@ -101,7 +101,7 @@ If commits lost: `git reflog` → `git cherry-pick <hash>`
 
 **Proceed independently**: Clear requirements, code with tests, bug fixes, docs.
 
-**Ask human**: Ambiguous requirements, architecture decisions not in ADRs, breaking changes, security-sensitive, stuck after debugging.
+**Ask human**: Ambiguous requirements, architecture decisions not in existing docs, breaking changes, security-sensitive, stuck after debugging.
 
 ## Non-Interactive Mode (CI/GitHub Actions)
 

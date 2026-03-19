@@ -343,10 +343,10 @@ ${high_risk_step}
    **Skip architecture docs larger than 10KB** — these are reference material that rarely
    need updating from code changes, and reading them burns significant context.
 
-   This step is critical — guides and ADRs that discuss the same feature area
+   This step is critical — guides and architecture docs that discuss the same feature area
    often need updating when that feature changes. For example, if a commit adds
    a new CLI flag, any guide that documents that CLI needs to mention the new
-   flag. If a commit changes a workflow's behavior, any guide or ADR that
+   flag. If a commit changes a workflow's behavior, any guide or architecture doc that
    describes that workflow needs to reflect the new behavior.
 
    Pay special attention to \`docs/guides/deployment.md\` — it must stay in sync

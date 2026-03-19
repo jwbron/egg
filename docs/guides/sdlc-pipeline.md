@@ -6,7 +6,7 @@ This document describes the SDLC (Software Development Lifecycle) pipeline that 
 
 For the conceptual foundation of this pipeline—the feedback loop model that drives quality—see [The Agentic Feedback Loop](../architecture/agentic-feedback-loop.md).
 
-For the architectural decision record with threat model and security properties, see [SDLC Pipeline Architecture](../architecture/sdlc-pipeline.md).
+For the architecture document with threat model and security properties, see [SDLC Pipeline Architecture](../architecture/sdlc-pipeline.md).
 
 ## Guiding Principles
 

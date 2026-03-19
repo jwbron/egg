@@ -1,6 +1,6 @@
 # egg — Agent-Powered SDLC Platform
 
-Start with **[docs/index.md](docs/index.md)** — it has task-specific lookup tables, architecture docs, ADRs, and component READMEs.
+Start with **[docs/index.md](docs/index.md)** — it has task-specific lookup tables, architecture docs, and component READMEs.
 
 ## Quick Reference
 
@@ -21,7 +21,7 @@ make security      # Run security scans (bandit, safety, trivy)
 | `gateway/` | Policy-enforcement sidecar — validates git/gh operations, injects credentials |
 | `sandbox/` | Untrusted agent container — Claude Code config, tools, entrypoint |
 | `shared/` | Shared Python packages and agent prompt templates |
-| `docs/` | All documentation — guides, ADRs, architecture, references |
+| `docs/` | All documentation — guides, architecture, references |
 | `integration_tests/` | Cross-component integration tests |
 | `scripts/` | Build, release, and CI helper scripts |
 
