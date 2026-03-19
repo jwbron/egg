@@ -16,6 +16,15 @@ _shared_path = Path(__file__).parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
+# Ensure the repo root is on sys.path so that `from orchestrator.*` imports
+# work when this module is loaded from the MCP server sidecar (which runs
+# inside the orchestrator/ directory, not from the repo root).
+_repo_root_path = Path(__file__).parent.parent
+if (_repo_root_path / "orchestrator" / "__init__.py").exists() and str(
+    _repo_root_path
+) not in sys.path:
+    sys.path.insert(0, str(_repo_root_path))
+
 try:
     from egg_config import GATEWAY_PORT
 except ImportError:
