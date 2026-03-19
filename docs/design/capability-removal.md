@@ -33,7 +33,7 @@ The same pattern applies across the system. Agents can only push to `egg/`-prefi
 
 ## Guidance at the point of failure
 
-Here's the part that surprised us. We expected agents to get confused when operations failed. Instead, they adapted immediately, because the error messages tell them exactly what to do.
+Agents adapt immediately when operations fail, because the error messages tell them exactly what to do. No rules need to be front-loaded into the system prompt.
 
 When a push is blocked:
 
