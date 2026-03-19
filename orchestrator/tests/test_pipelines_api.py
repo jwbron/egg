@@ -248,9 +248,7 @@ class TestCreatePipelineMultiRepo:
 
     @patch("routes.pipelines.get_state_store")
     @patch("routes.pipelines.get_repo_path")
-    def test_create_pipeline_uses_get_repo_path(
-        self, mock_repo_path, mock_get_store, client
-    ):
+    def test_create_pipeline_uses_get_repo_path(self, mock_repo_path, mock_get_store, client):
         """create_pipeline should call get_repo_path() for all pipeline types."""
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
         mock_store = MagicMock()
