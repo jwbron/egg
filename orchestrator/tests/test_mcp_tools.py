@@ -733,9 +733,7 @@ class TestValidateConfig:
         assert result["config"]["start_phase"] == "implement"
 
     def test_config_as_invalid_json_string(self, handler):
-        result = handler.handle_tool_call(
-            "validate_config", {"config": "not valid json"}
-        )
+        result = handler.handle_tool_call("validate_config", {"config": "not valid json"})
         assert result["valid"] is False
         assert any("JSON" in str(e) for e in result["errors"])
 
