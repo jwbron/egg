@@ -580,14 +580,7 @@ def create_pipeline() -> tuple[Response, int]:
     if mode == PipelineMode.BABYSIT:
         pipeline_id = f"pr-{pr_number}"
 
-    # Prompt-driven pipelines use the base EGG_REPO_PATH so that
-    # list/get/start resolve to the same path.
-    if not issue_number:
-        repo_path = Path(os.environ.get("EGG_REPO_PATH", "."))
-        if not repo_path.is_absolute():
-            repo_path = Path.cwd() / repo_path
-    else:
-        repo_path = get_repo_path()
+    repo_path = get_repo_path()
 
     # Validate config before creating the pipeline so invalid config
     # returns a 400 instead of bubbling up as a 500.

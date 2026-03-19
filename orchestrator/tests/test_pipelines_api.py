@@ -4,6 +4,8 @@ Tests for pipeline API endpoints.
 Covers branch cleanup during pipeline deletion.
 """
 
+import os
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -240,6 +242,75 @@ class TestDeletePipelineBranchCleanup:
 
         # Pipeline should still be deleted despite branch cleanup exception
         mock_store.delete_pipeline.assert_called_once_with("test-pipeline")
+
+
+class TestCreatePipelineMultiRepo:
+    """Tests that create_pipeline resolves repo paths in multi-repo setups (#1323)."""
+
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_create_pipeline_uses_get_repo_path(self, mock_repo_path, mock_get_store, client):
+        """create_pipeline should call get_repo_path() for all pipeline types."""
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_store = MagicMock()
+        mock_pipeline = MagicMock()
+        mock_pipeline.id = "issue-42"
+        mock_pipeline.model_dump.return_value = {"id": "issue-42"}
+        mock_store.create_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "issue_number": 42,
+                "repo": "Khan/webapp",
+                "branch": "egg/issue-42",
+            },
+        )
+        assert response.status_code == 200
+        mock_repo_path.assert_called_once()
+        mock_get_store.assert_called_once_with(Path("/home/egg/repos/webapp"))
+
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_create_prompt_pipeline_uses_get_repo_path(
+        self, mock_repo_path, mock_get_store, client
+    ):
+        """Prompt-driven pipelines (no issue_number) also use get_repo_path()."""
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_store = MagicMock()
+        mock_pipeline = MagicMock()
+        mock_pipeline.id = "prompt-abc"
+        mock_pipeline.model_dump.return_value = {"id": "prompt-abc"}
+        mock_store.create_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "repo": "Khan/webapp",
+                "prompt": "Fix the login bug",
+            },
+        )
+        assert response.status_code == 200
+        mock_repo_path.assert_called_once()
+        mock_get_store.assert_called_once_with(Path("/home/egg/repos/webapp"))
+
+    def test_get_repo_path_returns_400_when_repo_not_found(self, client, tmp_path):
+        """get_repo_path() returns 400 when repo subdir is missing in multi-repo setup."""
+        with patch.dict(os.environ, {"EGG_REPO_PATH": str(tmp_path)}):
+            response = client.post(
+                "/api/v1/pipelines",
+                json={
+                    "issue_number": 42,
+                    "repo": "Khan/webapp",
+                    "branch": "egg/issue-42",
+                },
+            )
+        assert response.status_code == 400
+        body = response.get_json() or {}
+        msg = body.get("message", "") or body.get("description", "")
+        assert "webapp" in msg or "webapp" in response.get_data(as_text=True)
 
 
 def _make_cancellable_pipeline(pipeline_id="test-pipeline"):
