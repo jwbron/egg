@@ -269,7 +269,7 @@ class TestContainerMonitorHealthIntegration:
         monitor.set_health_check_runner(mock_runner, "/tmp/repo")
 
         assert monitor._health_check_runner is mock_runner
-        assert monitor._health_check_repo_path == "/tmp/repo"
+        assert monitor._health_check_repo_paths == [Path("/tmp/repo")]
 
     def test_run_runtime_tick_checks_no_runner(self):
         """Should silently return when no runner is set."""

@@ -398,14 +398,78 @@ class TestGetStateStore:
     """Tests for get_state_store helper."""
 
     def test_get_state_store_with_path(self, tmp_path, mock_git):
-        """Test getting state store with Path."""
+        """Test getting state store with Path (git repo)."""
+        (tmp_path / ".git").mkdir()
         store = get_state_store(tmp_path)
         assert store.repo_path == tmp_path
 
     def test_get_state_store_with_string(self, tmp_path, mock_git):
-        """Test getting state store with string path."""
+        """Test getting state store with string path (git repo)."""
+        (tmp_path / ".git").mkdir()
         store = get_state_store(str(tmp_path))
         assert store.repo_path == tmp_path
+
+    def test_get_state_store_rejects_non_git_dir(self, tmp_path):
+        """Test that get_state_store raises for non-git directories."""
+        with pytest.raises(StateStoreError, match="non-git directory"):
+            get_state_store(tmp_path)
+
+    def test_single_child_repo_uses_default_worktree(self, tmp_path, mock_git, monkeypatch):
+        """When EGG_REPO_PATH is parent with a single child repo, use default worktree."""
+        parent = tmp_path / "repos"
+        parent.mkdir()
+        child = parent / "myrepo"
+        child.mkdir()
+        (child / ".git").mkdir()
+        monkeypatch.setenv("EGG_REPO_PATH", str(parent))
+        store = get_state_store(child)
+        # Should use the default worktree path, NOT the per-repo suffix
+        from state_store import _DEFAULT_WORKTREE_DIR
+
+        assert store._worktree_dir == _DEFAULT_WORKTREE_DIR
+
+    def test_multi_repo_uses_per_repo_worktree(self, tmp_path, mock_git, monkeypatch):
+        """When EGG_REPO_PATH has multiple child repos, each gets a unique worktree."""
+        parent = tmp_path / "repos"
+        parent.mkdir()
+        for name in ("repo-a", "repo-b"):
+            child = parent / name
+            child.mkdir()
+            (child / ".git").mkdir()
+        monkeypatch.setenv("EGG_REPO_PATH", str(parent))
+        monkeypatch.setenv("EGG_STATE_DIR", str(tmp_path / "state"))
+        store_a = get_state_store(parent / "repo-a")
+        store_b = get_state_store(parent / "repo-b")
+        assert store_a._worktree_dir == tmp_path / "state" / "pipeline-worktree-repo-a"
+        assert store_b._worktree_dir == tmp_path / "state" / "pipeline-worktree-repo-b"
+
+
+class TestDiscoverRepoPaths:
+    """Tests for discover_repo_paths helper."""
+
+    def test_single_git_repo(self, tmp_path):
+        """Single git repo returns [path]."""
+        from state_store import discover_repo_paths
+
+        (tmp_path / ".git").mkdir()
+        assert discover_repo_paths(tmp_path) == [tmp_path]
+
+    def test_parent_with_child_repos(self, tmp_path):
+        """Parent dir returns child git repos."""
+        from state_store import discover_repo_paths
+
+        (tmp_path / "repo-a" / ".git").mkdir(parents=True)
+        (tmp_path / "repo-b" / ".git").mkdir(parents=True)
+        (tmp_path / "not-a-repo").mkdir()
+        result = discover_repo_paths(tmp_path)
+        assert len(result) == 2
+        assert tmp_path / "not-a-repo" not in result
+
+    def test_empty_dir(self, tmp_path):
+        """Empty dir returns []."""
+        from state_store import discover_repo_paths
+
+        assert discover_repo_paths(tmp_path) == []
 
 
 class TestGenerateCommitMessage:

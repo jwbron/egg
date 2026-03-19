@@ -93,15 +93,22 @@ def resolve_repo_path_for_pipeline(pipeline_id: str, base_path: Path) -> Path:
 
     try:
         # Import here to avoid circular imports
-        from state_store import get_state_store
+        from state_store import discover_repo_paths, get_state_store
 
-        store = get_state_store(base_path)
-        pipeline = store.load_pipeline(pipeline_id)
-        if pipeline.repo:
-            repo_name = pipeline.repo.split("/")[-1]
-            candidate = base_path / repo_name
-            if candidate.exists() and (candidate / ".git").exists():
-                return candidate
+        for repo_path in discover_repo_paths(base_path):
+            try:
+                store = get_state_store(repo_path)
+                pipeline = store.load_pipeline(pipeline_id)
+                if pipeline.repo:
+                    repo_name = pipeline.repo.split("/")[-1]
+                    candidate = base_path / repo_name
+                    if candidate.exists() and (candidate / ".git").exists():
+                        return candidate
+                # Pipeline found in this repo — return it even if repo field
+                # is missing.
+                return repo_path
+            except Exception:
+                continue
     except Exception as e:
         logger.warning(
             "Failed to resolve repo path for pipeline",

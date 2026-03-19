@@ -310,7 +310,8 @@ class TestContainerMonitorHealthIntegrationExtra:
         monitor = ContainerMonitor.__new__(ContainerMonitor)
         monitor.docker_client = MagicMock()
         monitor._health_check_runner = MagicMock()
-        monitor._health_check_repo_path = "/tmp/repo"
+        monitor._health_check_repo_paths = [Path("/tmp/repo")]
+        monitor._health_check_stores = {}
 
         p1 = _make_pipeline(status=PipelineStatus.RUNNING)
         p1.id = "pipeline-1"
@@ -333,7 +334,8 @@ class TestContainerMonitorHealthIntegrationExtra:
         monitor = ContainerMonitor.__new__(ContainerMonitor)
         monitor.docker_client = MagicMock()
         monitor._health_check_runner = MagicMock()
-        monitor._health_check_repo_path = "/tmp/repo"
+        monitor._health_check_repo_paths = [Path("/tmp/repo")]
+        monitor._health_check_stores = {}
 
         mock_store = MagicMock()
         mock_store.list_pipelines.return_value = []
@@ -350,7 +352,8 @@ class TestContainerMonitorHealthIntegrationExtra:
         monitor = ContainerMonitor.__new__(ContainerMonitor)
         monitor.docker_client = MagicMock()
         monitor._health_check_runner = MagicMock()
-        monitor._health_check_repo_path = "/tmp/repo"
+        monitor._health_check_repo_paths = [Path("/tmp/repo")]
+        monitor._health_check_stores = {}
 
         mock_get_store.side_effect = RuntimeError("Store unavailable")
         # Should not raise
@@ -364,7 +367,8 @@ class TestContainerMonitorHealthIntegrationExtra:
         monitor = ContainerMonitor.__new__(ContainerMonitor)
         monitor.docker_client = MagicMock()
         monitor._health_check_runner = MagicMock()
-        monitor._health_check_repo_path = "/tmp/repo"
+        monitor._health_check_repo_paths = [Path("/tmp/repo")]
+        monitor._health_check_stores = {}
 
         mock_store = MagicMock()
         mock_store.list_pipelines.return_value = ["pipeline-1", "pipeline-2"]
