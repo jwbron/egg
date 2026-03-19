@@ -141,24 +141,6 @@ def _generate_env_file(compose_file: Path) -> bool:
         if git_email:
             env_vars["EGG_USER_GIT_EMAIL"] = git_email
 
-        # Build per-repo checks map for the orchestrator
-        try:
-            import yaml
-            from egg_config.validators import validate_checks
-
-            with config_file.open() as f:
-                cfg = yaml.safe_load(f) or {}
-            repo_checks: dict[str, list[dict[str, str]]] = {}
-            for repo_name, settings in (cfg.get("repo_settings") or {}).items():
-                checks = settings.get("checks") if isinstance(settings, dict) else None
-                if checks and isinstance(checks, list):
-                    valid = validate_checks(checks)
-                    if valid:
-                        repo_checks[repo_name] = valid
-            env_vars["EGG_REPO_CHECKS"] = json.dumps(repo_checks)
-        except Exception:
-            env_vars["EGG_REPO_CHECKS"] = "{}"
-
     # Write .env file
     env_file = compose_file.parent / ".env"
     lines = [

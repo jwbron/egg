@@ -174,7 +174,6 @@ Checks run sequentially during the implement phase tester step. If not configure
 **Configuration:**
 - Setup flow: Run `egg --setup` and answer "yes" to "Configure SDLC check commands?"
 - Manual: Edit `~/.config/egg/repositories.yaml` and add `checks` under `repo_settings.{repo}`
-- Runtime: The gateway injects repo checks via the `EGG_REPO_CHECKS` environment variable (JSON-encoded)
 
 ### Per-Repo Build Commands (Dependency Caching)
 

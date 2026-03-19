@@ -5406,19 +5406,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         except Exception as e:
             logger.debug("Failed to read hitl_feedback from recovery path", error=str(e))
 
-        # Warn if EGG_REPO_CHECKS is set — the checker role has been removed
-        # and repo-specific check commands are no longer consumed. The tester
-        # now discovers check commands from project config files instead.
-        _repo_checks_raw = os.environ.get("EGG_REPO_CHECKS", "{}")
-        if _repo_checks_raw not in ("{}", ""):
-            logger.warning(
-                "EGG_REPO_CHECKS is set but no longer consumed — the checker role "
-                "has been removed and the tester discovers check commands from "
-                "project config files (Makefile, pyproject.toml, package.json). "
-                "Remove EGG_REPO_CHECKS from your configuration.",
-                pipeline_id=pipeline_id,
-            )
-
         # Spawn overseer container for pipeline health monitoring.
         # The overseer runs without repo access and monitors health via
         # the orchestrator API.  Spawned early (before first phase) so it
