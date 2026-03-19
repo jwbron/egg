@@ -192,26 +192,38 @@ repo_settings:
         - pip install -r requirements.txt
       persist_dirs:
         - node_modules    # restored into repo mount at container startup
+  your-org/go-service:
+    build_commands:
+      watch_files:
+        - go.mod
+        - go.sum
+      commands:
+        - GO_VERSION=$(grep '^go ' go.mod | awk '{print $2}') && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-$(dpkg --print-architecture).tar.gz" | tar -xz -C /usr/local
+        - PATH=/usr/local/go/bin:$PATH go mod download
+      persist_system_dirs:
+        - /usr/local/go   # baked into image at original absolute path
 ```
 
 Each `build_commands` entry has:
 - `watch_files`: Files that trigger a rebuild when changed. These are copied into the Docker build context so Docker layer caching invalidates correctly — only a change to these files triggers a dependency rebuild.
 - `commands`: Shell commands to run during the image build (e.g., `npm ci`, `pip install`, `make deps`). Commands run as root in a directory seeded with the watch files.
 - `persist_dirs`: Directories (relative to repo root) to preserve from the build context into the Docker image. After `commands` run, these directories are copied to `/opt/prebuilt-deps/<repo>/` and restored into the mounted repo at container startup by `entrypoint.py`. Use this for local dependencies like `node_modules` that would otherwise be lost when the build context is cleaned up.
+- `persist_system_dirs`: Absolute-path system directories to preserve from the build stage into the final image. After `commands` run, these directories are copied to `/opt/prebuilt-deps/__egg_system_dirs__/<abs_path>/` and the Dockerfile restores them to their original absolute locations. Use this for system-level tool installations that land outside the repo directory (e.g., `/usr/local/go`, `/usr/local/node`). Top-level system paths (`/`, `/etc`, `/usr`, `/var`, etc.) and all paths under `/proc`, `/sys`, `/dev`, `/run`, `/boot` are blocked.
 
 **How it works:**
 1. `create_dockerfile()` copies each repo's watch files from `local_repos.paths` into the build context at `~/.config/egg/repo-deps/<repo-name>/`
 2. `compute_build_hash()` includes watch file contents, so the image rebuilds automatically when dependency files change
 3. During `docker build`, the `docker-setup.py` script reads both `build_commands` and `extra_packages` from `manifest.json` (since `repositories.yaml` is unavailable in the build context) and executes them in order
 4. All repos' dependencies are installed into the **same image** — no per-repo images
-5. After commands run, `persist_build_dirs()` copies `persist_dirs` entries from the build context to `/opt/prebuilt-deps/<repo>/` inside the image
-6. At container startup, `restore_prebuilt_deps()` in `entrypoint.py` copies those directories into the mounted repo (skipping files that already exist)
+5. After commands run, `persist_build_dirs()` copies `persist_dirs` entries to `/opt/prebuilt-deps/<repo>/` and `persist_system_dirs` entries to `/opt/prebuilt-deps/__egg_system_dirs__/<abs_path>/` inside the image
+6. The Dockerfile copies `__egg_system_dirs__` back to `/` so system tools are available at their original absolute paths
+7. At container startup, `restore_prebuilt_deps()` in `entrypoint.py` copies `persist_dirs` directories into the mounted repo (skipping files that already exist)
 
 **Key properties:**
 - Repos without `build_commands` are unaffected (backwards compatible)
 - Docker layer caching means no rebuild when dependencies are unchanged
-- `persist_dirs` is optional — omit it for Python venvs installed into a fixed path; use it for JS `node_modules` or other repo-relative directories
-- Changing `persist_dirs` alone does not trigger a rebuild — add or modify a `watch_files` entry or use `egg --rebuild`
+- `persist_dirs` is for repo-relative directories (e.g., `node_modules`); `persist_system_dirs` is for absolute-path system installations (e.g., `/usr/local/go`)
+- Changing `persist_dirs` or `persist_system_dirs` alone does not trigger a rebuild — add or modify a `watch_files` entry or use `egg --rebuild`
 - The existing `docker_setup.extra_packages` (apt/dnf) remains for OS-level packages; `build_commands` is for project-level dependencies
 - Both `build_commands` and `extra_packages` are included in `manifest.json` for the Docker build context
 
