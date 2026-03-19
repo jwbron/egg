@@ -7,8 +7,13 @@ Each module provides a Flask Blueprint for a logical group of endpoints.
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from flask import request
+
+if TYPE_CHECKING:
+    from models import Pipeline
+    from state_store import StateStore
 
 # Add shared directory to path for logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
@@ -139,7 +144,6 @@ def get_state_store_for_pipeline(pipeline_id: str) -> tuple["StateStore", "Pipel
         InvalidPipelineIdError: if the ID format is invalid
     """
     from state_store import (
-        InvalidPipelineIdError,
         PipelineNotFoundError,
         StateStoreError,
         discover_repo_paths,
