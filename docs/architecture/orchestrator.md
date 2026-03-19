@@ -19,7 +19,7 @@ The orchestrator persists pipeline state using a dedicated git worktree on an or
 **Architecture:**
 - All pipeline state is stored in `.egg-state/pipelines/{id}.json` files
 - Files live on the `egg/pipeline-state` orphan branch (never merged to main)
-- Accessed via a persistent git worktree at `/home/egg/.egg-state/pipeline-worktree` (single-repo) or `/home/egg/.egg-state/pipeline-worktree-{repo_name}` per repo (multi-repo)
+- Accessed via a persistent git worktree: `/home/egg/.egg-state/pipeline-worktree` for single-repo deployments, or `/home/egg/.egg-state/pipeline-worktree-{repo_name}` for multi-repo
 - State branch is synced to remote after every commit (best-effort, async push via daemon thread)
 - On startup, restores from remote if local branch is missing (cross-host recovery)
 
