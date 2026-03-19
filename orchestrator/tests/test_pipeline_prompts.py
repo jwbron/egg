@@ -1606,6 +1606,21 @@ class TestTesterRepoChecksInjection:
         assert "Auto-fix" in result
         assert "Commit fixes" in result
 
+    def test_tester_prompt_handles_missing_config(self):
+        """When get_repo_checks raises FileNotFoundError, falls back to auto-discovery."""
+        with patch("routes.pipelines.get_repo_checks", side_effect=FileNotFoundError):
+            result = _build_agent_prompt(
+                role_value="tester",
+                phase="implement",
+                pipeline_id="pid-1",
+                pipeline_mode="issue",
+                prompt="# Feature\n\nDetail.",
+                issue_number=1,
+                repo="testuser/web-app",
+            )
+        assert "Discover commands" in result
+        assert "configured for this repository" not in result
+
 
 class TestReadTesterGapsNamespacedEdgeCases:
     """Additional edge-case tests for _read_tester_gaps with identifier."""

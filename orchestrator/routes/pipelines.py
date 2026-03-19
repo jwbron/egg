@@ -21,10 +21,10 @@ _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
-# Add repo root to path for config module
-_repo_root = Path(__file__).parent.parent.parent
-if str(_repo_root) not in sys.path:
-    sys.path.insert(0, str(_repo_root))
+# Add config directory to path for repo_config module
+_config_path = Path(__file__).parent.parent.parent / "config"
+if _config_path.exists() and str(_config_path) not in sys.path:
+    sys.path.insert(0, str(_config_path))
 
 try:
     from egg_logging import get_logger
@@ -36,7 +36,7 @@ except ImportError:
 
 
 try:
-    from config.repo_config import get_repo_checks
+    from repo_config import get_repo_checks
 except ImportError:
 
     def get_repo_checks(repo: str) -> list[dict[str, str]]:  # type: ignore[misc]
@@ -3501,7 +3501,7 @@ def _build_agent_prompt(
         if repo:
             try:
                 repo_checks = get_repo_checks(repo)
-            except (FileNotFoundError, Exception):
+            except FileNotFoundError:
                 repo_checks = []
 
         lines.extend(
@@ -3541,7 +3541,9 @@ def _build_agent_prompt(
                 ]
             )
             for i, check in enumerate(repo_checks, 1):
-                lines.append(f"{i}. **{check['name']}**: `{check['command']}`")
+                name = check["name"].replace("\n", " ").strip()
+                cmd = check["command"].replace("\n", " ").strip()
+                lines.append(f"{i}. **{name}**: `{cmd}`")
             lines.extend(
                 [
                     "",
