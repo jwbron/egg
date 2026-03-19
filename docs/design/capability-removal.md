@@ -59,15 +59,21 @@ This turns out to be more effective than front-loading rules into the system pro
 
 We see the same pattern with self-reviews. GitHub blocks bots from approving their own PRs. Rather than telling the agent about this edge case, the wrapper detects it, automatically downgrades the review to a comment, and preserves the original verdict in a hidden HTML marker. The agent doesn't know the workaround happened. It just works.
 
-## Why wrappers, not MCP
+## Errors as guidance
 
-A natural question: why not use MCP to expose constrained tool definitions?
+The error messages aren't just rejections. They're designed to be useful to an LLM.
 
-MCP front-loads tool schemas and descriptions into context before the agent does anything. For a proprietary API the agent has never seen, that cost is justified. Without it, the agent is blind.
+Every blocked operation explains why it was blocked and lists the specific options for moving forward. The agent doesn't need to search documentation or guess at the right fix. The answer is right there in the output, structured so the agent can act on it in the next turn.
 
-But agents already know `git` and `gh`. The training data *is* the documentation. Re-describing `git push` as an MCP tool wastes context and adds indirection to something the agent can already do natively.
+This creates a spectrum of enforcement:
 
-Wrappers let agents use familiar tools in a familiar way. When an operation is denied, the agent gets a clear error at the exact moment it matters. MCP is the right choice for tools agents need to learn. Wrappers are the right choice for tools they already know.
+**Hard walls.** The capability doesn't exist. Merge has no endpoint. Credentials aren't in the environment. No error message needed because there's nothing to attempt.
+
+**Clear redirection.** The agent tries something, it fails, and the error tells it exactly how to succeed. Push to a non-prefixed branch? The error lists the naming convention. Try to commit files outside your phase? The error names the restricted paths. The agent course-corrects immediately because the feedback is specific and actionable.
+
+**Silent adaptation.** The agent doesn't even know something went wrong. Self-review is the best example: GitHub blocks bots from approving their own PRs, so the wrapper detects it, downgrades the review to a comment, and preserves the original verdict in a hidden HTML marker. The agent's intent is honored. No error, no retry, no wasted tokens.
+
+The gateway isn't just a bouncer. It's a teacher that meets the agent where it is.
 
 ## The principle
 
