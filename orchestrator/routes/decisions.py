@@ -38,7 +38,7 @@ from decision_queue import (
 from events import EventType, emit_event
 from models import PipelinePhase
 from peer_consensus import get_peer_consensus_tracker
-from state_store import InvalidPipelineIdError
+from state_store import InvalidPipelineIdError, PipelineNotFoundError
 
 logger = get_logger("orchestrator.decisions")
 
@@ -68,7 +68,7 @@ def make_success_response(
     return jsonify(response), 200
 
 
-from routes import get_repo_path, resolve_repo_path_for_pipeline  # noqa: E402 — shared helper
+from routes import get_state_store_for_pipeline  # noqa: E402 — shared helper
 
 
 @decisions_bp.route("/<pipeline_id>/decisions", methods=["GET"])
@@ -97,11 +97,23 @@ def list_decisions(pipeline_id: str) -> tuple[Response, int]:
             }
         }
     """
-    repo_path = resolve_repo_path_for_pipeline(pipeline_id, get_repo_path())
+    try:
+        store, _pipeline = get_state_store_for_pipeline(pipeline_id)
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
+    except PipelineNotFoundError:
+        return make_error_response(
+            f"Pipeline {pipeline_id} not found",
+            status_code=404,
+        )
+
     pending_only = request.args.get("pending_only", "false").lower() == "true"
 
     try:
-        queue = get_decision_queue(pipeline_id, repo_path)
+        queue = get_decision_queue(pipeline_id, store.repo_path)
 
         if pending_only:
             decisions = queue.get_pending_decisions()
@@ -132,11 +144,6 @@ def list_decisions(pipeline_id: str) -> tuple[Response, int]:
             data={"decisions": decision_data},
         )
 
-    except InvalidPipelineIdError:
-        return make_error_response(
-            f"Invalid pipeline ID format: {pipeline_id}",
-            status_code=400,
-        )
     except Exception as e:
         logger.error("Failed to list decisions", pipeline_id=pipeline_id, error=str(e))
         return make_error_response(f"Failed to list decisions: {e}", status_code=500)
@@ -165,7 +172,6 @@ def queue_decision(pipeline_id: str) -> tuple[Response, int]:
             }
         }
     """
-    repo_path = resolve_repo_path_for_pipeline(pipeline_id, get_repo_path())
     data = request.get_json() or {}
 
     question = data.get("question")
@@ -191,7 +197,20 @@ def queue_decision(pipeline_id: str) -> tuple[Response, int]:
             )
 
     try:
-        queue = get_decision_queue(pipeline_id, repo_path)
+        store, _pipeline = get_state_store_for_pipeline(pipeline_id)
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
+    except PipelineNotFoundError:
+        return make_error_response(
+            f"Pipeline {pipeline_id} not found",
+            status_code=404,
+        )
+
+    try:
+        queue = get_decision_queue(pipeline_id, store.repo_path)
         decision = queue.queue_decision(
             question=question,
             context=data.get("context", ""),
@@ -222,11 +241,6 @@ def queue_decision(pipeline_id: str) -> tuple[Response, int]:
             },
         )
 
-    except InvalidPipelineIdError:
-        return make_error_response(
-            f"Invalid pipeline ID format: {pipeline_id}",
-            status_code=400,
-        )
     except Exception as e:
         logger.error("Failed to queue decision", pipeline_id=pipeline_id, error=str(e))
         return make_error_response(f"Failed to queue decision: {e}", status_code=500)
@@ -249,10 +263,21 @@ def get_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
             }
         }
     """
-    repo_path = resolve_repo_path_for_pipeline(pipeline_id, get_repo_path())
+    try:
+        store, _pipeline = get_state_store_for_pipeline(pipeline_id)
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
+    except PipelineNotFoundError:
+        return make_error_response(
+            f"Pipeline {pipeline_id} not found",
+            status_code=404,
+        )
 
     try:
-        queue = get_decision_queue(pipeline_id, repo_path)
+        queue = get_decision_queue(pipeline_id, store.repo_path)
         decision = queue.get_decision(decision_id)
 
         return make_success_response(
@@ -276,11 +301,6 @@ def get_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
             },
         )
 
-    except InvalidPipelineIdError:
-        return make_error_response(
-            f"Invalid pipeline ID format: {pipeline_id}",
-            status_code=400,
-        )
     except DecisionNotFoundError:
         return make_error_response(
             f"Decision {decision_id} not found",
@@ -310,7 +330,6 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             }
         }
     """
-    repo_path = resolve_repo_path_for_pipeline(pipeline_id, get_repo_path())
     data = request.get_json() or {}
 
     resolution = data.get("resolution")
@@ -318,7 +337,20 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
         return make_error_response("Missing resolution")
 
     try:
-        queue = get_decision_queue(pipeline_id, repo_path)
+        store, _pipeline = get_state_store_for_pipeline(pipeline_id)
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
+    except PipelineNotFoundError:
+        return make_error_response(
+            f"Pipeline {pipeline_id} not found",
+            status_code=404,
+        )
+
+    try:
+        queue = get_decision_queue(pipeline_id, store.repo_path)
         decision = queue.resolve_decision(decision_id, resolution)
 
         logger.info(
@@ -384,11 +416,6 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             },
         )
 
-    except InvalidPipelineIdError:
-        return make_error_response(
-            f"Invalid pipeline ID format: {pipeline_id}",
-            status_code=400,
-        )
     except DecisionNotFoundError:
         return make_error_response(
             f"Decision {decision_id} not found",
@@ -413,10 +440,21 @@ def cancel_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
             "message": "Decision cancelled"
         }
     """
-    repo_path = resolve_repo_path_for_pipeline(pipeline_id, get_repo_path())
+    try:
+        store, _pipeline = get_state_store_for_pipeline(pipeline_id)
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
+    except PipelineNotFoundError:
+        return make_error_response(
+            f"Pipeline {pipeline_id} not found",
+            status_code=404,
+        )
 
     try:
-        queue = get_decision_queue(pipeline_id, repo_path)
+        queue = get_decision_queue(pipeline_id, store.repo_path)
         decision = queue.cancel_decision(decision_id)
 
         logger.info(
@@ -435,11 +473,6 @@ def cancel_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
             },
         )
 
-    except InvalidPipelineIdError:
-        return make_error_response(
-            f"Invalid pipeline ID format: {pipeline_id}",
-            status_code=400,
-        )
     except DecisionNotFoundError:
         return make_error_response(
             f"Decision {decision_id} not found",
@@ -466,19 +499,25 @@ def get_queue_status(pipeline_id: str) -> tuple[Response, int]:
             }
         }
     """
-    repo_path = resolve_repo_path_for_pipeline(pipeline_id, get_repo_path())
-
     try:
-        queue = get_decision_queue(pipeline_id, repo_path)
-        status = queue.get_queue_status()
-
-        return make_success_response("Status retrieved", data=status)
-
+        store, _pipeline = get_state_store_for_pipeline(pipeline_id)
     except InvalidPipelineIdError:
         return make_error_response(
             f"Invalid pipeline ID format: {pipeline_id}",
             status_code=400,
         )
+    except PipelineNotFoundError:
+        return make_error_response(
+            f"Pipeline {pipeline_id} not found",
+            status_code=404,
+        )
+
+    try:
+        queue = get_decision_queue(pipeline_id, store.repo_path)
+        status = queue.get_queue_status()
+
+        return make_success_response("Status retrieved", data=status)
+
     except Exception as e:
         logger.error("Failed to get queue status", pipeline_id=pipeline_id, error=str(e))
         return make_error_response(f"Failed to get status: {e}", status_code=500)

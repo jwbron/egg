@@ -145,7 +145,6 @@ def get_state_store_for_pipeline(pipeline_id: str) -> tuple["StateStore", "Pipel
     """
     from state_store import (
         PipelineNotFoundError,
-        StateStoreError,
         discover_repo_paths,
         get_state_store,
     )
@@ -158,13 +157,16 @@ def get_state_store_for_pipeline(pipeline_id: str) -> tuple["StateStore", "Pipel
         pipeline = store.load_pipeline(pipeline_id)
         return store, pipeline
 
-    # Multi-repo: search all discovered repos
+    # Multi-repo: search all discovered repos.
+    # Only catch PipelineNotFoundError here — InvalidPipelineIdError and
+    # other StateStoreErrors should propagate immediately since an invalid
+    # ID or infrastructure failure won't resolve in a different repo.
     for repo_path in discover_repo_paths(base_path):
         try:
             store = get_state_store(repo_path)
             pipeline = store.load_pipeline(pipeline_id)
             return store, pipeline
-        except (PipelineNotFoundError, StateStoreError):
+        except PipelineNotFoundError:
             continue
 
     raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found") from None

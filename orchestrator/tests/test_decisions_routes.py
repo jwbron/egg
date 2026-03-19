@@ -79,14 +79,21 @@ def _make_decision(
     )
 
 
+def _mock_store_for_pipeline(tmp_path):
+    """Return a (store, pipeline) tuple suitable for mocking get_state_store_for_pipeline."""
+    return (MagicMock(repo_path=tmp_path), MagicMock())
+
+
 class TestCreateDecisionWithType:
     """Tests for POST create-decision with decision_type and questions."""
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
-    def test_create_with_decision_type_feedback(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_create_with_decision_type_feedback(
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
+    ):
         """POST with decision_type='feedback' and questions creates correct decision."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         questions = [
             {"id": "q-1", "question": "Expected volume?", "answer": ""},
@@ -125,13 +132,13 @@ class TestCreateDecisionWithType:
             phase=None,
         )
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
     def test_create_with_decision_type_phase_gate(
-        self, mock_get_queue, mock_repo, client, tmp_path
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
     ):
         """POST with decision_type='phase_gate' creates correct decision."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         mock_decision = _make_decision(decision_type="phase_gate")
         mock_queue.queue_decision.return_value = mock_decision
@@ -150,11 +157,13 @@ class TestCreateDecisionWithType:
         data = response.get_json()
         assert data["data"]["decision"]["decision_type"] == "phase_gate"
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
-    def test_create_without_new_fields_defaults(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_create_without_new_fields_defaults(
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
+    ):
         """POST without decision_type and questions applies defaults."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         mock_decision = _make_decision()  # defaults: decision_type='choice', questions=[]
         mock_queue.queue_decision.return_value = mock_decision
@@ -185,11 +194,13 @@ class TestCreateDecisionWithType:
 class TestListDecisionsSerialization:
     """Tests for GET list-decisions including decision_type and questions."""
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
-    def test_list_includes_new_fields(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_list_includes_new_fields(
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
+    ):
         """GET list-decisions includes decision_type and questions in response."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
 
         questions = [{"id": "q-1", "question": "Why?", "answer": ""}]
@@ -222,11 +233,13 @@ class TestListDecisionsSerialization:
         assert decisions[1]["decision_type"] == "feedback"
         assert decisions[1]["questions"] == questions
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
-    def test_get_single_includes_new_fields(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_get_single_includes_new_fields(
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
+    ):
         """GET single decision includes decision_type and questions."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
 
         questions = [{"id": "q-1", "question": "Why?", "answer": ""}]
@@ -244,11 +257,13 @@ class TestListDecisionsSerialization:
         assert decision["decision_type"] == "feedback"
         assert decision["questions"] == questions
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
-    def test_list_default_type_for_old_decisions(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_list_default_type_for_old_decisions(
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
+    ):
         """Decisions without explicit type serialize as 'choice' with empty questions."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
 
         # Simulate an old-style decision (defaults applied by Pydantic)
@@ -272,11 +287,8 @@ class TestListDecisionsSerialization:
 class TestDecisionTypeValidation:
     """Tests for decision_type validation in the POST create-decision endpoint."""
 
-    @patch("routes.decisions.get_repo_path")
-    def test_invalid_decision_type_returns_400(self, mock_repo, client, tmp_path):
+    def test_invalid_decision_type_returns_400(self, client, tmp_path):
         """POST with an unrecognized decision_type returns 400."""
-        mock_repo.return_value = tmp_path
-
         response = client.post(
             "/api/v1/pipelines/test-pipeline/decisions",
             json={
@@ -291,11 +303,8 @@ class TestDecisionTypeValidation:
         assert "Invalid decision_type" in data["message"]
         assert "phase_gat" in data["message"]
 
-    @patch("routes.decisions.get_repo_path")
-    def test_empty_string_decision_type_returns_400(self, mock_repo, client, tmp_path):
+    def test_empty_string_decision_type_returns_400(self, client, tmp_path):
         """POST with empty string decision_type returns 400."""
-        mock_repo.return_value = tmp_path
-
         response = client.post(
             "/api/v1/pipelines/test-pipeline/decisions",
             json={
@@ -308,11 +317,8 @@ class TestDecisionTypeValidation:
         data = response.get_json()
         assert data["success"] is False
 
-    @patch("routes.decisions.get_repo_path")
-    def test_arbitrary_string_decision_type_returns_400(self, mock_repo, client, tmp_path):
+    def test_arbitrary_string_decision_type_returns_400(self, client, tmp_path):
         """POST with arbitrary decision_type returns 400 with valid types listed."""
-        mock_repo.return_value = tmp_path
-
         response = client.post(
             "/api/v1/pipelines/test-pipeline/decisions",
             json={
@@ -327,11 +333,13 @@ class TestDecisionTypeValidation:
         assert "choice" in data["message"]
         assert "feedback" in data["message"]
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
-    def test_valid_decision_types_accepted(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_valid_decision_types_accepted(
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
+    ):
         """POST with each valid decision_type succeeds."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         mock_get_queue.return_value = mock_queue
 
@@ -346,13 +354,13 @@ class TestDecisionTypeValidation:
             )
             assert response.status_code == 200, f"Expected 200 for decision_type={dtype}"
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
     def test_missing_decision_type_defaults_to_choice(
-        self, mock_get_queue, mock_repo, client, tmp_path
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
     ):
         """POST without decision_type defaults to 'choice' and succeeds."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         mock_decision = _make_decision()
         mock_queue.queue_decision.return_value = mock_decision
@@ -372,11 +380,8 @@ class TestDecisionTypeValidation:
 class TestPhaseValidation:
     """Tests for phase validation in the POST create-decision endpoint."""
 
-    @patch("routes.decisions.get_repo_path")
-    def test_invalid_phase_returns_400(self, mock_repo, client, tmp_path):
+    def test_invalid_phase_returns_400(self, client, tmp_path):
         """POST with an unrecognized phase returns 400."""
-        mock_repo.return_value = tmp_path
-
         response = client.post(
             "/api/v1/pipelines/test-pipeline/decisions",
             json={
@@ -391,11 +396,13 @@ class TestPhaseValidation:
         assert "Invalid phase" in data["message"]
         assert "implment" in data["message"]
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
-    def test_valid_phases_accepted(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_valid_phases_accepted(
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
+    ):
         """POST with each valid phase succeeds."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         mock_get_queue.return_value = mock_queue
 
@@ -414,11 +421,13 @@ class TestPhaseValidation:
                 f"Expected PipelinePhase enum for phase={phase}, got {call_kwargs[1]['phase']!r}"
             )
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
-    def test_missing_phase_defaults_to_none(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_missing_phase_defaults_to_none(
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
+    ):
         """POST without phase defaults to None."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         mock_queue.queue_decision.return_value = _make_decision()
         mock_get_queue.return_value = mock_queue
@@ -436,11 +445,8 @@ class TestPhaseValidation:
 class TestQueueDecisionValidation:
     """Tests for POST create-decision input validation and error handling."""
 
-    @patch("routes.decisions.get_repo_path")
-    def test_missing_question_returns_400(self, mock_repo, client, tmp_path):
+    def test_missing_question_returns_400(self, client, tmp_path):
         """POST without question field returns 400."""
-        mock_repo.return_value = tmp_path
-
         response = client.post(
             "/api/v1/pipelines/test-pipeline/decisions",
             json={"options": ["A", "B"]},
@@ -451,11 +457,8 @@ class TestQueueDecisionValidation:
         assert data["success"] is False
         assert "question" in data["message"].lower()
 
-    @patch("routes.decisions.get_repo_path")
-    def test_empty_body_returns_400(self, mock_repo, client, tmp_path):
+    def test_empty_body_returns_400(self, client, tmp_path):
         """POST with empty body returns 400."""
-        mock_repo.return_value = tmp_path
-
         response = client.post(
             "/api/v1/pipelines/test-pipeline/decisions",
             content_type="application/json",
@@ -464,11 +467,13 @@ class TestQueueDecisionValidation:
 
         assert response.status_code == 400
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
-    def test_create_with_choice_type_and_options(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_create_with_choice_type_and_options(
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
+    ):
         """POST with decision_type='choice' and explicit options."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         mock_decision = _make_decision(
             decision_type="choice",
@@ -499,11 +504,11 @@ class TestQueueDecisionValidation:
 class TestResolveDecisionEndpoint:
     """Tests for POST resolve-decision endpoint."""
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
-    def test_resolve_success(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_resolve_success(self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path):
         """POST resolve returns resolved decision."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
 
         resolved_decision = _make_decision(
@@ -523,11 +528,8 @@ class TestResolveDecisionEndpoint:
         assert data["success"] is True
         assert data["data"]["decision"]["status"] == "resolved"
 
-    @patch("routes.decisions.get_repo_path")
-    def test_resolve_missing_resolution_returns_400(self, mock_repo, client, tmp_path):
+    def test_resolve_missing_resolution_returns_400(self, client, tmp_path):
         """POST resolve without resolution field returns 400."""
-        mock_repo.return_value = tmp_path
-
         response = client.post(
             "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
             json={},
@@ -537,13 +539,15 @@ class TestResolveDecisionEndpoint:
         data = response.get_json()
         assert data["success"] is False
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
-    def test_resolve_not_found_returns_404(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_resolve_not_found_returns_404(
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
+    ):
         """POST resolve for non-existent decision returns 404."""
         from decision_queue import DecisionNotFoundError
 
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         mock_queue.resolve_decision.side_effect = DecisionNotFoundError("Not found")
         mock_get_queue.return_value = mock_queue
@@ -555,15 +559,15 @@ class TestResolveDecisionEndpoint:
 
         assert response.status_code == 404
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
     def test_resolve_already_resolved_returns_409(
-        self, mock_get_queue, mock_repo, client, tmp_path
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
     ):
         """POST resolve for already-resolved decision returns 409."""
         from decision_queue import DecisionAlreadyResolvedError
 
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         mock_queue.resolve_decision.side_effect = DecisionAlreadyResolvedError("Already resolved")
         mock_get_queue.return_value = mock_queue
@@ -580,15 +584,15 @@ class TestResolveEmitsEvent:
     """Tests that resolving a decision emits DECISION_RESOLVED event."""
 
     @patch("routes.decisions.emit_event")
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
     def test_resolve_emits_decision_resolved_event(
-        self, mock_get_queue, mock_repo, mock_emit, client, tmp_path
+        self, mock_get_queue, mock_get_store_for_pipeline, mock_emit, client, tmp_path
     ):
         """Resolving a decision emits EventType.DECISION_RESOLVED."""
         from events import EventType
 
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         resolved_decision = _make_decision(
             status="resolved",
@@ -613,13 +617,13 @@ class TestResolveEmitsEvent:
         )
 
     @patch("routes.decisions.emit_event", side_effect=Exception("event bus down"))
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
     def test_resolve_succeeds_even_if_event_emission_fails(
-        self, mock_get_queue, mock_repo, mock_emit, client, tmp_path
+        self, mock_get_queue, mock_get_store_for_pipeline, mock_emit, client, tmp_path
     ):
         """Event emission failure does not break the resolve endpoint."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         resolved_decision = _make_decision(
             status="resolved",
@@ -643,13 +647,19 @@ class TestContinueWithoutExcusesReviewer:
 
     @patch("routes.decisions.get_peer_consensus_tracker")
     @patch("routes.decisions.emit_event")
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
     def test_continue_without_calls_excuse_reviewer(
-        self, mock_get_queue, mock_repo, mock_emit, mock_get_tracker, client, tmp_path
+        self,
+        mock_get_queue,
+        mock_get_store_for_pipeline,
+        mock_emit,
+        mock_get_tracker,
+        client,
+        tmp_path,
     ):
         """Resolving with 'Continue without' calls excuse_reviewer for the failed role."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         resolved_decision = _make_decision(
             status="resolved",
@@ -677,13 +687,19 @@ class TestContinueWithoutExcusesReviewer:
 
     @patch("routes.decisions.get_peer_consensus_tracker")
     @patch("routes.decisions.emit_event")
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
     def test_non_continue_without_does_not_call_excuse(
-        self, mock_get_queue, mock_repo, mock_emit, mock_get_tracker, client, tmp_path
+        self,
+        mock_get_queue,
+        mock_get_store_for_pipeline,
+        mock_emit,
+        mock_get_tracker,
+        client,
+        tmp_path,
     ):
         """Resolving with other options does not call excuse_reviewer."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         resolved_decision = _make_decision(
             status="resolved",
@@ -705,11 +721,11 @@ class TestContinueWithoutExcusesReviewer:
 class TestCancelDecisionEndpoint:
     """Tests for POST cancel-decision endpoint."""
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
-    def test_cancel_success(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_cancel_success(self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path):
         """POST cancel returns cancelled decision."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
 
         cancelled_decision = _make_decision(status="cancelled")
@@ -729,13 +745,15 @@ class TestCancelDecisionEndpoint:
         assert data["success"] is True
         assert data["data"]["decision"]["status"] == "cancelled"
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
-    def test_cancel_not_found_returns_404(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_cancel_not_found_returns_404(
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
+    ):
         """POST cancel for non-existent decision returns 404."""
         from decision_queue import DecisionNotFoundError
 
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         mock_queue.cancel_decision.side_effect = DecisionNotFoundError("Not found")
         mock_get_queue.return_value = mock_queue
@@ -750,13 +768,15 @@ class TestCancelDecisionEndpoint:
 class TestGetDecisionEndpointErrors:
     """Tests for GET single decision error handling."""
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
-    def test_get_not_found_returns_404(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_get_not_found_returns_404(
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
+    ):
         """GET non-existent decision returns 404."""
         from decision_queue import DecisionNotFoundError
 
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         mock_queue.get_decision.side_effect = DecisionNotFoundError("Not found")
         mock_get_queue.return_value = mock_queue
@@ -771,11 +791,11 @@ class TestGetDecisionEndpointErrors:
 class TestQueueStatusEndpoint:
     """Tests for GET queue-status endpoint."""
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
-    def test_status_success(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_status_success(self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path):
         """GET queue status returns counts."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
         mock_queue.get_queue_status.return_value = {
             "pipeline_id": "test-pipeline",
@@ -802,11 +822,13 @@ class TestQueueStatusEndpoint:
 class TestListDecisionsFiltering:
     """Tests for GET list-decisions with pending_only filter."""
 
-    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
-    def test_pending_only_filter(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_pending_only_filter(
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
+    ):
         """GET with pending_only=true returns only pending decisions."""
-        mock_repo.return_value = tmp_path
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
         mock_queue = MagicMock()
 
         pending = _make_decision(decision_id="d1", status="pending")

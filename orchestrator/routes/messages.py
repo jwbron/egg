@@ -32,7 +32,7 @@ except ImportError:
 from events import EventType, emit_event
 from message_store import Message, get_message_store
 from routes import get_state_store_for_pipeline
-from state_store import InvalidPipelineIdError, PipelineNotFoundError, StateStoreError
+from state_store import InvalidPipelineIdError, PipelineNotFoundError
 
 logger = get_logger("orchestrator.messages")
 
@@ -79,7 +79,7 @@ def send_message(pipeline_id: str) -> tuple[Response, int]:
     # Validate pipeline exists
     try:
         store, pipeline = get_state_store_for_pipeline(pipeline_id)
-    except (InvalidPipelineIdError, PipelineNotFoundError, StateStoreError) as e:
+    except (InvalidPipelineIdError, PipelineNotFoundError) as e:
         return _make_error(str(e), 404)
 
     # Skip strict role validation — agents may send before being registered in phase execution
@@ -133,7 +133,7 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
     # Validate pipeline exists (consistent with send_message)
     try:
         get_state_store_for_pipeline(pipeline_id)
-    except (InvalidPipelineIdError, PipelineNotFoundError, StateStoreError) as e:
+    except (InvalidPipelineIdError, PipelineNotFoundError) as e:
         return _make_error(str(e), 404)
 
     role = request.args.get("role")
@@ -203,7 +203,7 @@ def message_status(pipeline_id: str) -> tuple[Response, int]:
     # Validate pipeline exists (consistent with send_message)
     try:
         get_state_store_for_pipeline(pipeline_id)
-    except (InvalidPipelineIdError, PipelineNotFoundError, StateStoreError) as e:
+    except (InvalidPipelineIdError, PipelineNotFoundError) as e:
         return _make_error(str(e), 404)
 
     message_store = get_message_store()
