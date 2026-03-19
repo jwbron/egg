@@ -457,7 +457,7 @@ needs updating, and creates a PR if so.
    to gateway enforcement trigger enforcement table validation.
 6. **Related doc discovery** — Extracts domain-specific terms from changed file paths
    and commit subjects, then searches both `docs/` and root-level markdown files for
-   references to those terms. This catches guides and ADRs that discuss the same
+   references to those terms. This catches guides and architecture docs that discuss the same
    feature area as the code change (e.g., `docs/guides/sdlc-pipeline.md` when SDLC
    code changes).
 7. **PR creation** — If updates are needed, creates a PR with the documentation changes.
