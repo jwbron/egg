@@ -4,6 +4,7 @@ Tests for pipeline API endpoints.
 Covers branch cleanup during pipeline deletion.
 """
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -294,6 +295,22 @@ class TestCreatePipelineMultiRepo:
         assert response.status_code == 200
         mock_repo_path.assert_called_once()
         mock_get_store.assert_called_once_with(Path("/home/egg/repos/webapp"))
+
+    def test_get_repo_path_returns_400_when_repo_not_found(self, client, tmp_path):
+        """get_repo_path() returns 400 when repo subdir is missing in multi-repo setup."""
+        with patch.dict(os.environ, {"EGG_REPO_PATH": str(tmp_path)}):
+            response = client.post(
+                "/api/v1/pipelines",
+                json={
+                    "issue_number": 42,
+                    "repo": "Khan/webapp",
+                    "branch": "egg/issue-42",
+                },
+            )
+        assert response.status_code == 400
+        body = response.get_json() or {}
+        msg = body.get("message", "") or body.get("description", "")
+        assert "webapp" in msg or "webapp" in response.get_data(as_text=True)
 
 
 def _make_cancellable_pipeline(pipeline_id="test-pipeline"):

@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-from flask import request
+from flask import abort, request
 
 # Add shared directory to path for logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
@@ -62,6 +62,10 @@ def get_repo_path() -> Path:
                 candidate = base / repo_name
                 if (candidate / ".git").exists():
                     return candidate
+                abort(
+                    400,
+                    description=f"Repo '{repo_name}' not found under {base}",
+                )
         return base
 
     # Default to current working directory
