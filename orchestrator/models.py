@@ -334,6 +334,7 @@ class PipelineConfig(BaseModel):
         "Valid values: 'plan', 'implement'. When set, the pipeline starts "
         "at this phase instead of 'refine'.",
     )
+
     @field_validator("start_phase")
     @classmethod
     def validate_start_phase(cls, v: str | None) -> str | None:
