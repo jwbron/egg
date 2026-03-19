@@ -3,7 +3,7 @@
 Validates all required configuration at startup to fail fast with clear errors.
 This validates the network lockdown implementation.
 
-Reference: ADR-Internet-Tool-Access-Lockdown.md
+Reference: docs/architecture/network-isolation.md
 
 Security Model (PRIVATE_MODE):
 - PRIVATE_MODE=true: Network locked down (Anthropic API only) + private repos only

@@ -336,11 +336,11 @@ ${high_risk_step}
    shows doc files that mention concepts related to the code changes. For each
    file, read it and check whether it describes behavior, interfaces, or
    workflows that were affected by this commit. Prioritize guides (\`docs/guides/\`)
-   and implemented ADRs (\`docs/adr/implemented/\`) — these are most likely to
+   and architecture docs (\`docs/architecture/\`) — these are most likely to
    need updates. You can skip docs that only mention the terms in passing
    (e.g., a table of contents entry) without discussing the changed feature.
 
-   **Skip ADRs larger than 10KB** — these are reference material that rarely
+   **Skip architecture docs larger than 10KB** — these are reference material that rarely
    need updating from code changes, and reading them burns significant context.
 
    This step is critical — guides and ADRs that discuss the same feature area

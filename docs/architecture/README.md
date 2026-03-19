@@ -179,14 +179,12 @@ The SDLC pipeline orchestrates agent-based development with structurally enforce
 
 ## Key Architectural Decisions
 
-See [ADR Overview](../adr/README.md) for the full list. Key decisions:
-
-- [Git Isolation Architecture](../adr/implemented/ADR-Git-Isolation-Architecture.md) - Worktree isolation via gateway
-- [Gateway Credential Injection](../adr/implemented/ADR-Gateway-Credential-Injection.md) - Zero-credential sandbox
-- [Anthropic API Credential Injection](../adr/implemented/ADR-Anthropic-API-Credential-Injection.md) - API key proxy
-- [Declarative Setup Architecture](../adr/implemented/ADR-Declarative-Setup-Architecture.md) - Python-based setup
-- [Standardized Logging Interface](../adr/implemented/ADR-Standardized-Logging-Interface.md) - Structured JSON logging
-- [Internet Tool Access Lockdown](../adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) - Public/private network modes
+- [Git Isolation](git-isolation.md) - Worktree isolation via gateway
+- [Credential Injection](credential-injection.md) - Zero-credential sandbox with API key proxy
+- [Network Isolation](network-isolation.md) - Public/private network modes
+- [SDLC Pipeline](sdlc-pipeline.md) - Structurally enforced agent checkpoints
+- [Declarative Setup](declarative-setup.md) - Python-based setup
+- [Logging](logging.md) - Structured JSON logging
 
 ## Why Wrappers, Not MCP
 

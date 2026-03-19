@@ -358,5 +358,5 @@ dependencies = [
 ## Related Documentation
 
 - [egg_config README](egg_config/README.md) - Full config framework documentation
-- [ADR: Standardized Logging](../docs/adr/implemented/ADR-Standardized-Logging-Interface.md) - Logging design decisions
-- [ADR: Declarative Setup](../docs/adr/implemented/ADR-Declarative-Setup-Architecture.md) - Config architecture
+- [Logging Architecture](../docs/architecture/logging.md) - Logging design decisions
+- [Declarative Setup Architecture](../docs/architecture/declarative-setup.md) - Config architecture
