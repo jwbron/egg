@@ -6,6 +6,12 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 ## Core Documentation
 
+### Design
+
+| Document | Description |
+|----------|-------------|
+| [Capability Removal](design/capability-removal.md) | Why infrastructure-level constraints beat prompt-based rules for agent safety |
+
 ### Architecture
 
 | Document | Description |
