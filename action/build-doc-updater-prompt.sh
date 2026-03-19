@@ -336,17 +336,17 @@ ${high_risk_step}
    shows doc files that mention concepts related to the code changes. For each
    file, read it and check whether it describes behavior, interfaces, or
    workflows that were affected by this commit. Prioritize guides (\`docs/guides/\`)
-   and implemented ADRs (\`docs/adr/implemented/\`) — these are most likely to
+   and architecture docs (\`docs/architecture/\`) — these are most likely to
    need updates. You can skip docs that only mention the terms in passing
    (e.g., a table of contents entry) without discussing the changed feature.
 
-   **Skip ADRs larger than 10KB** — these are reference material that rarely
+   **Skip architecture docs larger than 10KB** — these are reference material that rarely
    need updating from code changes, and reading them burns significant context.
 
-   This step is critical — guides and ADRs that discuss the same feature area
+   This step is critical — guides and architecture docs that discuss the same feature area
    often need updating when that feature changes. For example, if a commit adds
    a new CLI flag, any guide that documents that CLI needs to mention the new
-   flag. If a commit changes a workflow's behavior, any guide or ADR that
+   flag. If a commit changes a workflow's behavior, any guide or architecture doc that
    describes that workflow needs to reflect the new behavior.
 
    Pay special attention to \`docs/guides/deployment.md\` — it must stay in sync

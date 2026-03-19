@@ -43,9 +43,6 @@ docs/
 ├── guides/
 │   ├── quickstart.md             # Getting started for new developers
 │   └── <topic>.md                # Additional guides as needed
-└── adr/
-    └── README.md                 # ADR index (if ADRs exist)
-
 <component>/README.md             # Per-component READMEs (alongside code)
 CONTRIBUTING.md                   # Development workflow (repo root)
 ```
@@ -136,8 +133,8 @@ If one doesn't exist, create it at the repository root. Include:
 
 - **Incorporate, don't replace.** If docs already exist, reorganize them into this
   structure. Preserve content and authorship.
-- **ADRs are immutable.** Never modify existing Architecture Decision Records. You may
-  create an ADR index (`docs/adr/README.md`) that links to them.
+- **Architecture docs are living documents.** Architecture documents in `docs/architecture/`
+  should be updated when the design they describe changes.
 - **README.md at root stays.** The root README is the public face of the project. Update
   it to link to `docs/index.md` for detailed documentation, but don't gut it.
 - **Respect .egg/ overrides.** If `.egg/onboarding-rules.md` exists in the target

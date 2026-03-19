@@ -6,32 +6,20 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 ## Core Documentation
 
-### Architecture Decision Records (ADRs)
-
-| Document | Description |
-|----------|-------------|
-| [ADR Overview](adr/README.md) | Index of all ADRs and their status |
-| [Git Isolation Architecture](adr/implemented/ADR-Git-Isolation-Architecture.md) | Gateway sidecar design for credential isolation |
-| [Gateway Credential Injection](adr/implemented/ADR-Gateway-Credential-Injection.md) | Zero-credential sandbox design |
-| [Anthropic API Credential Injection](adr/implemented/ADR-Anthropic-API-Credential-Injection.md) | API key proxy via gateway |
-| [Declarative Setup Architecture](adr/implemented/ADR-Declarative-Setup-Architecture.md) | Python-based declarative setup |
-| [Standardized Logging Interface](adr/implemented/ADR-Standardized-Logging-Interface.md) | Structured JSON logging |
-| [Internet Tool Access Lockdown](adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) | Public/private network modes |
-| [SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md) | Structurally enforced agent checkpoints and verification gates |
-
-### Strategy
-
-| Document | Description |
-|----------|-------------|
-| [The Agentic Feedback Loop](agentic-feedback-loop.md) | The foundational work-review-feedback cycle that drives quality in agent-human collaboration |
-| [Why egg Works](collaboration-effectiveness.md) | How the public, sandboxed, async model delivers safety, quality, and collaboration |
-
 ### Architecture
 
 | Document | Description |
 |----------|-------------|
 | [Architecture Overview](architecture/README.md) | High-level system design and security model |
 | [Orchestrator Architecture](architecture/orchestrator.md) | Orchestrator deployment modes and sandbox-to-orchestrator communication |
+| [Git Isolation](architecture/git-isolation.md) | Gateway sidecar design for worktree isolation and credential separation |
+| [Credential Injection](architecture/credential-injection.md) | Zero-credential sandbox with API key proxy via gateway |
+| [Network Isolation](architecture/network-isolation.md) | Public/private network modes and domain allowlist |
+| [SDLC Pipeline](architecture/sdlc-pipeline.md) | Structurally enforced agent checkpoints and verification gates |
+| [Declarative Setup](architecture/declarative-setup.md) | Python-based declarative setup system |
+| [Logging](architecture/logging.md) | Structured JSON logging with OpenTelemetry alignment |
+| [The Agentic Feedback Loop](architecture/agentic-feedback-loop.md) | The foundational work-review-feedback cycle that drives quality |
+| [Why egg Works](architecture/collaboration-effectiveness.md) | How the public, sandboxed, async model delivers safety and collaboration |
 
 ### Development
 
@@ -105,8 +93,8 @@ Each major component has detailed documentation:
 
 | Task Type | Read First | Also Helpful |
 |-----------|------------|--------------|
-| **Gateway changes** | [Architecture Overview](architecture/README.md) | [ADR: Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md), [Gateway README](../gateway/README.md) |
-| **Security-related changes** | [Architecture Overview](architecture/README.md) | [Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md) |
+| **Gateway changes** | [Architecture Overview](architecture/README.md) | [Git Isolation](architecture/git-isolation.md), [Gateway README](../gateway/README.md) |
+| **Security-related changes** | [Architecture Overview](architecture/README.md) | [Git Isolation](architecture/git-isolation.md) |
 | **Sandbox changes** | [Sandbox README](../sandbox/README.md) | [Architecture Overview](architecture/README.md) |
 | **Configuration changes** | [Config README](../config/README.md) | [egg_config README](../shared/egg_config/README.md) |
 | **Docker build / dependency caching** | [Sandbox README](../sandbox/README.md#build-time-dependency-installation) | [Config README](../config/README.md#per-repo-build-commands-dependency-caching) |
@@ -117,7 +105,7 @@ Each major component has detailed documentation:
 | **Using workflows in external repos** | [Reusable Workflows](guides/reusable-workflows.md) | [GitHub Automation](guides/github-automation.md), [GitHub Action](../action/README.md) |
 | **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Architecture Overview](architecture/README.md) |
 | **Adding bot workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Action README](../action/README.md), existing workflows in `.github/workflows/` |
-| **SDLC pipeline changes** | [SDLC Pipeline Guide](guides/sdlc-pipeline.md) | [The Agentic Feedback Loop](agentic-feedback-loop.md), [ADR: SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md), [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), `orchestrator/` package |
+| **SDLC pipeline changes** | [SDLC Pipeline Guide](guides/sdlc-pipeline.md) | [The Agentic Feedback Loop](architecture/agentic-feedback-loop.md), [SDLC Pipeline Architecture](architecture/sdlc-pipeline.md), [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), `orchestrator/` package |
 | **Agent teams / Deliberative Consensus** | [Agent Teams Guide](guides/agent-teams.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md) |
 | **Agent anchor / recovery changes** | [Anchor Recovery Guide](guides/anchor-recovery.md) | [egg_anchor README](../shared/egg_anchor/README.md), [Orchestrator CLI](reference/orchestrator-cli.md), [Concurrent Execution](guides/concurrent-execution.md) |
 | **Babysit-PR / PR review loops** | [Babysit-PR Guide](guides/babysit-pr.md) | [GitHub Automation](guides/github-automation.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [`egg_babysit` README](../shared/egg_babysit/README.md) |
@@ -141,5 +129,3 @@ Each major component has detailed documentation:
 2. [Project Structure](development/STRUCTURE.md) - Code organization
 
 ---
-
-*Last updated: 2026-03-12*

@@ -4,7 +4,7 @@
 # Format: One domain per line, supports subdomains via .domain.com syntax
 # Lines starting with # are comments
 #
-# Reference: ADR-Internet-Tool-Access-Lockdown.md Phase 2
+# Reference: docs/architecture/network-isolation.md
 
 # IMPORTANT: api.anthropic.com is intentionally NOT in this allowlist.
 # Anthropic API traffic MUST go through the gateway's HTTP proxy endpoint

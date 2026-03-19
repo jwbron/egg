@@ -527,6 +527,6 @@ make test
 ## Related Documentation
 
 - [Architecture Overview](../docs/architecture/README.md) - System design
-- [ADR: Git Isolation](../docs/adr/implemented/ADR-Git-Isolation-Architecture.md) - Worktree isolation design
-- [ADR: Credential Injection](../docs/adr/implemented/ADR-Gateway-Credential-Injection.md) - Zero-credential sandbox
-- [ADR: Internet Lockdown](../docs/adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) - Network modes
+- [Git Isolation](../docs/architecture/git-isolation.md) - Worktree isolation design
+- [Credential Injection](../docs/architecture/credential-injection.md) - Zero-credential sandbox
+- [Network Isolation](../docs/architecture/network-isolation.md) - Network modes

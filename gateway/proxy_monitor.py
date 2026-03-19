@@ -3,7 +3,7 @@
 This module provides utilities for monitoring Squid proxy traffic and
 detecting anomalies that might indicate attempted policy violations.
 
-Reference: ADR-Internet-Tool-Access-Lockdown.md
+Reference: docs/architecture/network-isolation.md
 """
 
 import json

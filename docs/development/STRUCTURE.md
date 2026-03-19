@@ -451,9 +451,7 @@ config/
 ```
 docs/
 ├── index.md                # Documentation navigation hub
-├── README.md               # Documentation overview
-├── adr/                    # Architecture Decision Records
-├── architecture/           # System design docs
+├── architecture/           # System design and architecture docs
 ├── development/            # Developer guides (this file)
 ├── reference/              # Quick reference guides
 ├── setup/                  # Setup instructions
