@@ -33,8 +33,8 @@ from pydantic import ValidationError
 
 logger = logging.getLogger("orchestrator.state_store")
 
-# Valid pipeline ID format: issue-{number}, local-{8 hex chars}, or pr-{number}
-PIPELINE_ID_PATTERN = re.compile(r"^(issue-[0-9]+|local-[0-9a-f]{8}|pr-[0-9]+)$")
+# Valid pipeline ID format: issue-{number}, local-{8 hex chars}, pipeline-{8 hex chars}, or pr-{number}
+PIPELINE_ID_PATTERN = re.compile(r"^(issue-[0-9]+|local-[0-9a-f]{8}|pipeline-[0-9a-f]{8}|pr-[0-9]+)$")
 
 # Dedicated branch for pipeline state (orphan, never merged into main).
 # Shared constant — also referenced by gateway.py's INFRASTRUCTURE_BRANCHES.

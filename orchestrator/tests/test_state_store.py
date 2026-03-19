@@ -461,6 +461,11 @@ class TestPipelineIdValidation:
         with pytest.raises(InvalidPipelineIdError):
             _validate_pipeline_id("123")
 
+    def test_valid_pipeline_prefix(self):
+        """Test pipeline ID with pipeline- prefix is accepted (prompt-driven)."""
+        _validate_pipeline_id("pipeline-85170faf")  # Should not raise
+        _validate_pipeline_id("pipeline-a1b2c3d4")  # Should not raise
+
     def test_valid_pr_prefix(self):
         """Test pipeline ID with pr- prefix is accepted (babysit mode)."""
         _validate_pipeline_id("pr-123")  # Should not raise
