@@ -19,6 +19,7 @@ if str(_orchestrator_path) not in sys.path:
 
 from message_store import Message, MessageStore, MessageType, reset_message_store
 from routes.messages import messages_bp
+from state_store import InvalidPipelineIdError
 
 
 @pytest.fixture
@@ -369,3 +370,37 @@ class TestMessageStatus:
 
                 assert resp.status_code == 200
                 assert data["data"]["total"] == 1
+
+
+class TestInvalidPipelineId:
+    """Test that InvalidPipelineIdError returns 400 (not 404) in all message routes."""
+
+    def test_send_message_invalid_pipeline_id_returns_400(self, client, app):
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline",
+                side_effect=InvalidPipelineIdError("bad-id"),
+            ):
+                resp = client.post(
+                    "/api/v1/pipelines/bad-id/messages",
+                    json={"from_role": "coder", "message_type": "PROGRESS"},
+                )
+                assert resp.status_code == 400
+
+    def test_poll_messages_invalid_pipeline_id_returns_400(self, client, app):
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline",
+                side_effect=InvalidPipelineIdError("bad-id"),
+            ):
+                resp = client.get("/api/v1/pipelines/bad-id/messages")
+                assert resp.status_code == 400
+
+    def test_message_status_invalid_pipeline_id_returns_400(self, client, app):
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline",
+                side_effect=InvalidPipelineIdError("bad-id"),
+            ):
+                resp = client.get("/api/v1/pipelines/bad-id/messages/status")
+                assert resp.status_code == 400
