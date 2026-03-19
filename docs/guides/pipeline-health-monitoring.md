@@ -231,7 +231,7 @@ If all agents have confirmed BRC consensus but the pipeline phase has not transi
 
 ### Additional Overseer Health Checks
 
-Each poll cycle the overseer also runs four targeted health checks. The first three are deterministic (no LLM cost); the fourth is LLM-based but runs only on phase transitions:
+Each poll cycle the overseer evaluates four targeted health checks (the fourth triggers only on phase transitions). The first three are deterministic (no LLM cost):
 
 | Check | Detects | Action |
 |-------|---------|--------|

@@ -318,6 +318,16 @@ class PipelineConfig(BaseModel):
         le=50,
         description="Max times to respawn the overseer if it exits mid-pipeline",
     )
+    overseer_rerun_min_work_seconds: int = Field(
+        default=60,
+        ge=1,
+        description="Min work seconds after request_changes before flagging re-run anomaly",
+    )
+    overseer_hitl_propagation_timeout_seconds: int = Field(
+        default=300,
+        ge=10,
+        description="Seconds before raising HITL propagation failure alert",
+    )
     start_phase: str | None = Field(
         default=None,
         description="Phase to start execution from, skipping earlier phases. "
