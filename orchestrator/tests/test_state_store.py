@@ -461,6 +461,30 @@ class TestPipelineIdValidation:
         with pytest.raises(InvalidPipelineIdError):
             _validate_pipeline_id("123")
 
+    def test_valid_local_prefix(self):
+        """Test pipeline ID with local- prefix is accepted."""
+        _validate_pipeline_id("local-a1b2c3d4")  # Should not raise
+
+    def test_valid_pipeline_prefix(self):
+        """Test pipeline ID with pipeline- prefix is accepted (prompt-driven)."""
+        _validate_pipeline_id("pipeline-85170faf")  # Should not raise
+        _validate_pipeline_id("pipeline-a1b2c3d4")  # Should not raise
+
+    def test_invalid_pipeline_prefix_non_hex(self):
+        """Test pipeline ID with non-hex suffix is rejected."""
+        with pytest.raises(InvalidPipelineIdError):
+            _validate_pipeline_id("pipeline-ZZZZZZZZ")
+
+    def test_invalid_pipeline_prefix_too_short(self):
+        """Test pipeline ID with too-short hex suffix is rejected."""
+        with pytest.raises(InvalidPipelineIdError):
+            _validate_pipeline_id("pipeline-123")
+
+    def test_invalid_pipeline_prefix_too_long(self):
+        """Test pipeline ID with too-long hex suffix is rejected."""
+        with pytest.raises(InvalidPipelineIdError):
+            _validate_pipeline_id("pipeline-a1b2c3d4e5")
+
     def test_valid_pr_prefix(self):
         """Test pipeline ID with pr- prefix is accepted (babysit mode)."""
         _validate_pipeline_id("pr-123")  # Should not raise
