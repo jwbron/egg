@@ -170,7 +170,7 @@ class OrchestrationState:
         Returns:
             The updated AgentExecutionModel
         """
-        now = datetime.now(UTC).isoformat()
+        now = datetime.now(UTC)
 
         key = _composite_key(role, phase_id)
 
