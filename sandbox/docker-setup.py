@@ -162,7 +162,8 @@ def get_build_commands(config: dict[str, Any]) -> list[dict[str, Any]]:
     """Extract build_commands from all repo_settings entries.
 
     Returns:
-        List of dicts with 'repo', 'watch_files', 'commands', and 'persist_dirs' keys.
+        List of dicts with 'repo', 'watch_files', 'commands', 'persist_dirs',
+        and 'persist_system_dirs' keys.
         Only includes repos that have non-empty commands lists.
     """
     repo_settings = config.get("repo_settings", {})
@@ -217,7 +218,8 @@ def load_build_commands_manifest(
         manifest_path: Path to the manifest file (default: /tmp/repo-deps/manifest.json)
 
     Returns:
-        List of dicts with 'repo', 'watch_files', 'commands', and 'persist_dirs' keys.
+        List of dicts with 'repo', 'watch_files', 'commands', 'persist_dirs',
+        and 'persist_system_dirs' keys.
     """
     path = Path(manifest_path)
     if not path.exists():
@@ -341,7 +343,8 @@ def persist_build_dirs(
     They are restored into mounted repos at container startup by entrypoint.py.
 
     Args:
-        build_commands: List of dicts with 'repo', 'commands', and 'persist_dirs' keys.
+        build_commands: List of dicts with 'repo', 'commands', 'persist_dirs',
+            and 'persist_system_dirs' keys.
         repo_deps_base: Base path for repo build contexts (default: /tmp/repo-deps).
         prebuilt_base: Destination base for persisted directories (default: /opt/prebuilt-deps).
     """
@@ -383,7 +386,11 @@ def persist_build_dirs(
         if not system_dirs:
             continue
 
-        system_dest = prebuilt_base / "_system_"
+        system_dest = prebuilt_base / "__egg_system_dirs__"
+
+        # Dangerous prefixes and exact paths that should never be persisted
+        DENIED_PREFIXES = ("/proc", "/sys", "/dev", "/run", "/boot")
+        DENIED_EXACT = ("/", "/etc", "/bin", "/sbin", "/lib", "/lib64", "/usr", "/var")
 
         for abs_dir in system_dirs:
             abs_dir = str(abs_dir)
@@ -391,7 +398,20 @@ def persist_build_dirs(
                 print(f"  Warning: persist_system_dirs: {abs_dir} is not absolute, skipping")
                 continue
 
-            src_dir = Path(abs_dir)
+            # Resolve to canonical path to prevent .. traversal
+            resolved = Path(abs_dir).resolve()
+            abs_dir_clean = str(resolved)
+
+            if abs_dir_clean in DENIED_EXACT or any(
+                abs_dir_clean.startswith(p + "/") for p in DENIED_PREFIXES
+            ):
+                print(
+                    f"  Warning: persist_system_dirs: {abs_dir} resolves to "
+                    f"denied path {abs_dir_clean}, skipping"
+                )
+                continue
+
+            src_dir = resolved
             if not src_dir.is_dir():
                 print(
                     f"  Warning: persist_system_dirs: {abs_dir} does not exist "
@@ -399,12 +419,12 @@ def persist_build_dirs(
                 )
                 continue
 
-            # Store under _system_/<abs_path> so it can be restored to the same location
+            # Store under __egg_system_dirs__/<abs_path> so it can be restored to the same location
             # Strip leading / for the destination path
-            dest_dir = system_dest / abs_dir.lstrip("/")
+            dest_dir = system_dest / abs_dir_clean.lstrip("/")
             dest_dir.parent.mkdir(parents=True, exist_ok=True)
-            print(f"  Persisting system dir {abs_dir} ({repo}) -> {dest_dir}")
-            shutil.copytree(src_dir, dest_dir, symlinks=True)
+            print(f"  Persisting system dir {abs_dir_clean} ({repo}) -> {dest_dir}")
+            shutil.copytree(src_dir, dest_dir, symlinks=True, dirs_exist_ok=True)
             persist_count += 1
 
     if persist_count:

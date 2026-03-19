@@ -1004,7 +1004,7 @@ class TestPersistSystemDirs:
         )
 
         # Should be stored under _system_/<stripped_path>
-        dest = prebuilt / "_system_" / sys_dir.lstrip("/")
+        dest = prebuilt / "__egg_system_dirs__" / sys_dir.lstrip("/")
         assert dest.is_dir()
         assert (dest / "bin" / "go").exists()
 
@@ -1056,6 +1056,98 @@ class TestPersistSystemDirs:
 
         captured = capsys.readouterr()
         assert "is not absolute" in captured.out
+
+    def test_persist_system_dirs_blocks_path_traversal(self, tmp_path, capsys):
+        """persist_system_dirs rejects paths that resolve to denied locations via .. traversal."""
+        from docker_setup import persist_build_dirs
+
+        repo_deps = tmp_path / "repo-deps"
+        (repo_deps / "org--app").mkdir(parents=True)
+
+        # /usr/../etc resolves to /etc which is in DENIED_EXACT
+        persist_build_dirs(
+            [
+                {
+                    "repo": "org/app",
+                    "commands": ["install go"],
+                    "persist_dirs": [],
+                    "persist_system_dirs": ["/usr/../etc"],
+                }
+            ],
+            repo_deps_base=repo_deps,
+            prebuilt_base=tmp_path / "prebuilt",
+        )
+
+        captured = capsys.readouterr()
+        assert "denied path" in captured.out
+        assert "/etc" in captured.out
+
+    def test_persist_system_dirs_blocks_denied_exact_paths(self, tmp_path, capsys):
+        """persist_system_dirs rejects exact denied paths like /etc, /usr, /."""
+        from docker_setup import persist_build_dirs
+
+        repo_deps = tmp_path / "repo-deps"
+        (repo_deps / "org--app").mkdir(parents=True)
+
+        persist_build_dirs(
+            [
+                {
+                    "repo": "org/app",
+                    "commands": ["install go"],
+                    "persist_dirs": [],
+                    "persist_system_dirs": ["/etc", "/usr", "/"],
+                }
+            ],
+            repo_deps_base=repo_deps,
+            prebuilt_base=tmp_path / "prebuilt",
+        )
+
+        captured = capsys.readouterr()
+        assert captured.out.count("denied path") == 3
+
+    def test_persist_system_dirs_duplicate_across_repos(self, tmp_path, capsys):
+        """persist_system_dirs handles duplicate dirs from different repos without crashing."""
+        from docker_setup import persist_build_dirs
+
+        # Create a fake system dir
+        go_dir = tmp_path / "fake_go" / "bin"
+        go_dir.mkdir(parents=True)
+        (go_dir / "go").write_text("#!/bin/sh\necho go")
+
+        prebuilt = tmp_path / "prebuilt-deps"
+        repo_deps = tmp_path / "repo-deps"
+        (repo_deps / "org--app1").mkdir(parents=True)
+        (repo_deps / "org--app2").mkdir(parents=True)
+
+        sys_dir = str(tmp_path / "fake_go")
+
+        # Two repos both persist the same system dir — should not crash
+        persist_build_dirs(
+            [
+                {
+                    "repo": "org/app1",
+                    "commands": ["install go"],
+                    "persist_dirs": [],
+                    "persist_system_dirs": [sys_dir],
+                },
+                {
+                    "repo": "org/app2",
+                    "commands": ["install go"],
+                    "persist_dirs": [],
+                    "persist_system_dirs": [sys_dir],
+                },
+            ],
+            repo_deps_base=repo_deps,
+            prebuilt_base=prebuilt,
+        )
+
+        # Both should succeed (dirs_exist_ok=True merges)
+        dest = prebuilt / "__egg_system_dirs__" / sys_dir.lstrip("/")
+        assert dest.is_dir()
+        assert (dest / "bin" / "go").exists()
+
+        captured = capsys.readouterr()
+        assert captured.out.count("Persisting system dir") == 2
 
     def test_manifest_preserves_persist_system_dirs(self, tmp_path):
         """persist_system_dirs is preserved through manifest loading."""

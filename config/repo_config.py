@@ -439,6 +439,8 @@ def get_repo_build_commands(repo: str) -> dict[str, Any]:
         Dictionary with:
         - watch_files: list[str] - Files that trigger rebuild when changed
         - commands: list[str] - Commands to run during build
+        - persist_dirs: list[str] - Relative dirs to persist from build context
+        - persist_system_dirs: list[str] - Absolute system dirs to persist
         Returns empty dict if no build_commands configured.
     """
     build_cmds = get_repo_setting(repo, "build_commands", None)
