@@ -985,27 +985,21 @@ def get_state_store(repo_path: Path | str) -> StateStore:
 
     # Determine whether we need a per-repo worktree path.
     env_path = os.environ.get("EGG_REPO_PATH", "")
-    if env_path and Path(env_path).resolve() == repo_path.resolve():
-        # Single-repo: EGG_REPO_PATH points directly to this repo.
-        worktree_dir = None
+    if env_path:
+        env_resolved = Path(env_path).resolve()
+        repo_resolved = repo_path.resolve()
+        if env_resolved == repo_resolved:
+            # Single-repo: EGG_REPO_PATH points directly to this repo.
+            worktree_dir = None
+        elif len(discover_repo_paths(env_resolved)) == 1:
+            # EGG_REPO_PATH is a parent dir with a single child repo —
+            # use the default worktree path for backward compatibility.
+            worktree_dir = None
+        else:
+            # Multi-repo: derive a unique worktree path per repo.
+            state_dir = Path(os.environ.get("EGG_STATE_DIR", "/home/egg/.egg-state"))
+            worktree_dir = state_dir / f"pipeline-worktree-{repo_path.name}"
     else:
-        # Multi-repo: derive a unique worktree path per repo.
-        state_dir = Path(os.environ.get("EGG_STATE_DIR", "/home/egg/.egg-state"))
-        worktree_dir = state_dir / f"pipeline-worktree-{repo_path.name}"
+        worktree_dir = None
 
     return StateStore(repo_path, worktree_dir=worktree_dir)
-
-
-def get_all_state_stores(base_path: Path | str) -> dict[str, StateStore]:
-    """Get state stores for all git repos under *base_path*.
-
-    Args:
-        base_path: A git repo or a parent directory containing repos.
-
-    Returns:
-        Dict mapping repo directory name to its StateStore.
-    """
-    stores: dict[str, StateStore] = {}
-    for rp in discover_repo_paths(base_path):
-        stores[rp.name] = get_state_store(rp)
-    return stores

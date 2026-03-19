@@ -150,7 +150,7 @@ class ContainerMonitor:
                     error=str(e),
                 )
 
-    def set_health_check_runner(self, runner: Any, repo_paths: list[Path] | str) -> None:
+    def set_health_check_runner(self, runner: Any, repo_paths: list[Path] | Path | str) -> None:
         """Connect a HealthCheckRunner for RUNTIME_TICK integration.
 
         When set, health checks run automatically after each container
@@ -158,7 +158,7 @@ class ContainerMonitor:
 
         Args:
             runner: HealthCheckRunner instance (from cli.py startup).
-            repo_paths: List of repo paths (or single path string for
+            repo_paths: List of repo paths (or single Path/string for
                 backward compat) for context construction.
         """
         self._health_check_runner = runner
@@ -176,7 +176,7 @@ class ContainerMonitor:
         debug level so the monitor continues operating even if health
         checks fail.
         """
-        if self._health_check_runner is None or not getattr(self, "_health_check_repo_paths", None):
+        if self._health_check_runner is None or not self._health_check_repo_paths:
             return
         try:
             from health_checks.context import PipelineHealthContext

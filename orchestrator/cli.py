@@ -130,15 +130,16 @@ def cmd_serve(args: argparse.Namespace) -> int:
     )
 
     if repo_path != "not set":
-        stores: list = []
+        from state_store import StateStore, discover_repo_paths, get_state_store
+
+        repo_paths: list[Path] = discover_repo_paths(repo_path)
+        stores: list[StateStore] = []
+        if not repo_paths:
+            logger.warning("No git repos found under EGG_REPO_PATH", path=repo_path)
         try:
             from docker_client import get_docker_client
             from startup_reconciliation import reconcile_stale_containers
-            from state_store import discover_repo_paths, get_state_store
 
-            repo_paths = discover_repo_paths(repo_path)
-            if not repo_paths:
-                logger.warning("No git repos found under EGG_REPO_PATH", path=repo_path)
             for rp in repo_paths:
                 try:
                     store = get_state_store(rp)
@@ -167,10 +168,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 create_pipeline_reconciliation_handler,
                 get_container_monitor,
             )
-            from state_store import discover_repo_paths as _discover
 
             monitor = get_container_monitor()
-            for rp in _discover(repo_path):
+            for rp in repo_paths:
                 monitor.add_handler(create_pipeline_reconciliation_handler(str(rp)))
             monitor.start()
             logger.info("Container monitor started for runtime liveness checks")
@@ -178,9 +178,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
             # Start periodic reconciliation to detect stale containers
             # that may have exited between event-driven checks.
             if not stores:
-                from state_store import get_state_store as _get_state_store
-
-                stores = [_get_state_store(rp) for rp in _discover(repo_path)]
+                stores = [get_state_store(rp) for rp in repo_paths]
             monitor.start_periodic_reconciliation(stores)
         except Exception as monitor_err:
             logger.warning(
@@ -221,10 +219,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
             # Wire runner into container monitor so RUNTIME_TICK checks fire
             # automatically when container state changes are detected.
             try:
-                from state_store import discover_repo_paths as _disc
-
                 monitor = get_container_monitor()
-                monitor.set_health_check_runner(runner, _disc(repo_path))
+                monitor.set_health_check_runner(runner, repo_paths)
             except Exception:
                 pass  # Monitor may not be available; health checks still work on-demand
 
