@@ -5654,7 +5654,19 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             if pipeline.branch:
                 sandbox_env["EGG_BRANCH"] = pipeline.branch
             else:
-                sandbox_env["EGG_BRANCH"] = f"egg/{pipeline_id}/work"
+                generated_branch = f"egg/{pipeline_id}/work"
+                sandbox_env["EGG_BRANCH"] = generated_branch
+                # Persist the generated branch so the PR phase can use it
+                with get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    if not pipeline.branch:
+                        pipeline.branch = generated_branch
+                        store.save_pipeline(pipeline)
+                        logger.info(
+                            "Recorded generated branch on pipeline",
+                            pipeline_id=pipeline_id,
+                            branch=generated_branch,
+                        )
             if pipeline.prompt:
                 sandbox_env["EGG_PIPELINE_PROMPT"] = pipeline.prompt
 
