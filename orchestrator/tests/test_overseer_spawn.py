@@ -257,6 +257,19 @@ class TestSpawnOverseerEnvVars:
         assert env.get("EGG_OVERSEER_MODE") == "true"
         assert env.get("EGG_OVERSEER_POLL_INTERVAL") == "30"
         assert env.get("EGG_OVERSEER_DECISION_MODEL") == "sonnet"
+        assert env.get("BASH_COMMAND_TIMEOUT") == "0"
+
+    def test_spawn_overseer_disables_bash_timeout(self, spawner):
+        """Overseer container must disable BASH_COMMAND_TIMEOUT (issue #1333)."""
+        result = spawner.spawn_overseer_container(
+            pipeline_id="issue-1333",
+            issue_number=1333,
+        )
+
+        env = result.environment
+        assert env.get("BASH_COMMAND_TIMEOUT") == "0", (
+            "Overseer must set BASH_COMMAND_TIMEOUT=0 to prevent monitoring loop from being killed"
+        )
 
     def test_spawn_overseer_agent_role_env(self, spawner):
         """Overseer container has EGG_AGENT_ROLE set to overseer."""
