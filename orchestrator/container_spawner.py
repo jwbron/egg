@@ -680,6 +680,11 @@ class ContainerSpawner:
             "EGG_OVERSEER_MODE": "true",
             "EGG_OVERSEER_POLL_INTERVAL": str(poll_interval),
             "EGG_OVERSEER_DECISION_MODEL": decision_model,
+            # Disable per-command bash timeout for the overseer.  The overseer
+            # runs a continuous monitoring loop for the entire pipeline lifetime
+            # (30+ minutes).  The default 300s timeout kills the loop mid-cycle
+            # (see issue #1333).  Setting to "0" disables the timeout wrapper.
+            "BASH_COMMAND_TIMEOUT": "0",
         }
 
         # Build an Agent SDK command for the overseer.  The overseer is a
