@@ -728,8 +728,12 @@ class StateStore:
             pipeline = Pipeline(**pipeline_kwargs)
 
             if config:
+                import json as _json
+
                 from models import PipelineConfig
 
+                if isinstance(config, str):
+                    config = _json.loads(config)
                 pipeline.config = PipelineConfig.model_validate(config)
 
             commit_msg = f"Create pipeline {pipeline_id}"

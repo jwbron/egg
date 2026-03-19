@@ -400,6 +400,20 @@ PIPELINE_TOOLS = [
             },
         },
     },
+    {
+        "name": "validate_config",
+        "description": "Validate a pipeline configuration without creating a pipeline. Returns validation results including any errors.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "object",
+                    "description": 'Pipeline configuration to validate (e.g. {"start_phase": "implement", "implement_roles": ["coder", "reviewer_code"], "hitl_gates": false})',
+                },
+            },
+            "required": ["config"],
+        },
+    },
 ]
 
 
@@ -443,6 +457,7 @@ class PipelineToolHandler:
             "list_checkpoints": self._handle_list_checkpoints,
             "search_checkpoints": self._handle_search_checkpoints,
             "get_contract": self._handle_get_contract,
+            "validate_config": self._handle_validate_config,
         }
 
         handler = handlers.get(tool_name)
@@ -490,7 +505,10 @@ class PipelineToolHandler:
         if args.get("repo"):
             data["repo"] = args["repo"]
         if args.get("config"):
-            data["config"] = args["config"]
+            config = args["config"]
+            if isinstance(config, str):
+                config = json.loads(config)
+            data["config"] = config
 
         try:
             result = self._make_request("/api/v1/pipelines", method="POST", data=data)
@@ -531,6 +549,35 @@ class PipelineToolHandler:
             "status": "started",
             "message": f"Task submitted: {args['description'][:100]}",
         }
+
+    def _handle_validate_config(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Validate a pipeline configuration without creating a pipeline."""
+        import json
+
+        from models import PipelineConfig
+        from pydantic import ValidationError
+
+        config = args.get("config", {})
+        if isinstance(config, str):
+            try:
+                config = json.loads(config)
+            except json.JSONDecodeError as e:
+                return {"valid": False, "errors": [f"Invalid JSON: {e}"]}
+
+        try:
+            validated = PipelineConfig.model_validate(config)
+            return {
+                "valid": True,
+                "config": validated.model_dump(mode="json"),
+            }
+        except ValidationError as e:
+            return {
+                "valid": False,
+                "errors": [
+                    {"field": ".".join(str(loc) for loc in err["loc"]), "message": err["msg"]}
+                    for err in e.errors()
+                ],
+            }
 
     def _handle_get_status(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get enriched pipeline status.
