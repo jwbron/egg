@@ -5,7 +5,7 @@ Note: These tests mock Docker SDK since real Docker operations
 are not available in the sandbox.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -295,7 +295,7 @@ class TestCleanup:
         # Container exited 48 hours ago
         from datetime import timedelta
 
-        old_time = datetime.utcnow() - timedelta(hours=48)
+        old_time = datetime.now(timezone.utc) - timedelta(hours=48)
 
         mock_docker.containers.list.return_value = [mock_container]
         mock_docker.containers.get.return_value = mock_container
