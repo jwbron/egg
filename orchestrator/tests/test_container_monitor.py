@@ -461,7 +461,7 @@ class TestPeriodicReconciliation:
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
         with patch("container_monitor._reconcile_container_state") as mock_reconcile:
-            monitor._reconciliation_store = store
+            monitor._reconciliation_stores = [store]
             monitor._reconciliation_running = True
             monitor._reconciliation_interval = 0.01
 
@@ -486,7 +486,7 @@ class TestPeriodicReconciliation:
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
         with patch("container_monitor._reconcile_container_state") as mock_reconcile:
-            monitor._reconciliation_store = store
+            monitor._reconciliation_stores = [store]
             monitor._reconciliation_running = True
             monitor._reconciliation_interval = 0.01
 
@@ -506,7 +506,7 @@ class TestPeriodicReconciliation:
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
         with patch("container_monitor._reconcile_container_state") as mock_reconcile:
-            monitor._reconciliation_store = store
+            monitor._reconciliation_stores = [store]
             monitor._reconciliation_running = True
             monitor._reconciliation_interval = 0.01
 
@@ -569,7 +569,7 @@ class TestPeriodicReconciliation:
             patch("container_monitor._reconcile_container_state") as mock_reconcile,
             patch("container_monitor.logger") as mock_logger,
         ):
-            monitor._reconciliation_store = store
+            monitor._reconciliation_stores = [store]
             monitor._reconciliation_running = True
             monitor._reconciliation_interval = 0.01
 
@@ -607,7 +607,7 @@ class TestPeriodicReconciliation:
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
         with patch("container_monitor._reconcile_container_state") as mock_reconcile:
-            monitor._reconciliation_store = store
+            monitor._reconciliation_stores = [store]
             monitor._reconciliation_running = True
             monitor._reconciliation_interval = 0.01
 
@@ -639,7 +639,7 @@ class TestPeriodicReconciliation:
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
         with patch("container_monitor._reconcile_container_state") as mock_reconcile:
-            monitor._reconciliation_store = store
+            monitor._reconciliation_stores = [store]
             monitor._reconciliation_running = True
             monitor._reconciliation_interval = 0.01
 
@@ -665,7 +665,7 @@ class TestPeriodicReconciliation:
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
         with patch("container_monitor._reconcile_container_state") as mock_reconcile:
-            monitor._reconciliation_store = store
+            monitor._reconciliation_stores = [store]
             monitor._reconciliation_running = True
             monitor._reconciliation_interval = 0.01
 

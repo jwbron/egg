@@ -398,14 +398,49 @@ class TestGetStateStore:
     """Tests for get_state_store helper."""
 
     def test_get_state_store_with_path(self, tmp_path, mock_git):
-        """Test getting state store with Path."""
+        """Test getting state store with Path (git repo)."""
+        (tmp_path / ".git").mkdir()
         store = get_state_store(tmp_path)
         assert store.repo_path == tmp_path
 
     def test_get_state_store_with_string(self, tmp_path, mock_git):
-        """Test getting state store with string path."""
+        """Test getting state store with string path (git repo)."""
+        (tmp_path / ".git").mkdir()
         store = get_state_store(str(tmp_path))
         assert store.repo_path == tmp_path
+
+    def test_get_state_store_rejects_non_git_dir(self, tmp_path):
+        """Test that get_state_store raises for non-git directories."""
+        with pytest.raises(StateStoreError, match="non-git directory"):
+            get_state_store(tmp_path)
+
+
+class TestDiscoverRepoPaths:
+    """Tests for discover_repo_paths helper."""
+
+    def test_single_git_repo(self, tmp_path):
+        """Single git repo returns [path]."""
+        from state_store import discover_repo_paths
+
+        (tmp_path / ".git").mkdir()
+        assert discover_repo_paths(tmp_path) == [tmp_path]
+
+    def test_parent_with_child_repos(self, tmp_path):
+        """Parent dir returns child git repos."""
+        from state_store import discover_repo_paths
+
+        (tmp_path / "repo-a" / ".git").mkdir(parents=True)
+        (tmp_path / "repo-b" / ".git").mkdir(parents=True)
+        (tmp_path / "not-a-repo").mkdir()
+        result = discover_repo_paths(tmp_path)
+        assert len(result) == 2
+        assert tmp_path / "not-a-repo" not in result
+
+    def test_empty_dir(self, tmp_path):
+        """Empty dir returns []."""
+        from state_store import discover_repo_paths
+
+        assert discover_repo_paths(tmp_path) == []
 
 
 class TestGenerateCommitMessage:

@@ -118,6 +118,19 @@ if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; the
     gosu "$HOST_UID:$HOST_GID" git config --global user.name "egg-orchestrator"
     gosu "$HOST_UID:$HOST_GID" git config --global user.email "egg@localhost"
 
+    # Mark all repo bind-mounts and per-repo state worktrees as safe
+    # directories.  Ownership mismatches between host UID and container UID
+    # cause git to reject operations with "dubious ownership" errors.
+    for repo_dir in /home/egg/repos/*/; do
+        if [ -d "$repo_dir/.git" ]; then
+            repo_name=$(basename "$repo_dir")
+            gosu "$HOST_UID:$HOST_GID" git config --global --add safe.directory "$repo_dir"
+            gosu "$HOST_UID:$HOST_GID" git config --global --add safe.directory "/home/egg/.egg-state/pipeline-worktree-${repo_name}"
+        fi
+    done
+    # Backward compat: single-repo setups use the unsuffixed worktree path
+    gosu "$HOST_UID:$HOST_GID" git config --global --add safe.directory /home/egg/.egg-state/pipeline-worktree
+
     exec gosu "$HOST_UID:$HOST_GID" python -u cli.py $CMD_ARGS
 elif [ "$(id -u)" = "0" ]; then
     # Running as root without HOST_UID/HOST_GID — refuse to continue.

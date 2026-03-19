@@ -352,12 +352,8 @@ def make_success_response(
 def _resolve_pipeline(pipeline_id: str, base_path: Path) -> tuple[StateStore, Pipeline]:
     """Load a pipeline, resolving the correct repo subdirectory.
 
-    The StateStore uses a global shared worktree, so it can find any
-    pipeline regardless of which ``repo_path`` is used.  When
-    ``base_path`` is a parent directory (no ``.git``), we resolve the
-    correct repo subdirectory using the pipeline's ``repo`` field so
-    that ``store.repo_path`` points to the actual git repository
-    (needed for reading draft files, verdict files, contracts, etc.).
+    Each repo has its own state store and worktree.  This function
+    searches all repos under ``base_path`` to find the pipeline.
 
     Returns:
         (store, pipeline) tuple
@@ -366,59 +362,27 @@ def _resolve_pipeline(pipeline_id: str, base_path: Path) -> tuple[StateStore, Pi
         PipelineNotFoundError: if the pipeline cannot be found anywhere
         InvalidPipelineIdError: if the ID format is invalid
     """
-    # Try the base path first
-    try:
-        store = get_state_store(base_path)
-        pipeline = store.load_pipeline(pipeline_id)
-    except PipelineNotFoundError:
-        # If base_path is not itself a git repo, scan subdirectories
-        store = None
-        pipeline = None
-        if not (base_path / ".git").exists():
-            for child in sorted(base_path.iterdir()):
-                if child.is_dir() and (child / ".git").exists():
-                    try:
-                        store = get_state_store(child)
-                        pipeline = store.load_pipeline(pipeline_id)
-                        return store, pipeline
-                    except (PipelineNotFoundError, StateStoreError):
-                        continue
-        raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found") from None
+    from state_store import discover_repo_paths
 
-    # The global worktree means the pipeline is always found at base_path,
-    # even when base_path is a parent directory (e.g. /home/egg/repos/).
-    # Resolve to the correct repo subdirectory using the pipeline's repo field.
-    # NOTE: The pipeline was loaded from the original store, but both stores
-    # share the same underlying worktree state — only repo_path differs.
-    if not (base_path / ".git").exists():
-        if pipeline.repo:
-            repo_name = pipeline.repo.split("/")[-1]
-            candidate = base_path / repo_name
-            if candidate.exists() and (candidate / ".git").exists():
-                store = get_state_store(candidate)
-            else:
-                logger.warning(
-                    "Repo subdirectory not found for pipeline",
-                    pipeline_id=pipeline_id,
-                    repo=pipeline.repo,
-                    candidate=str(candidate),
-                )
-        else:
-            logger.warning(
-                "Pipeline has no repo field, cannot resolve subdirectory",
-                pipeline_id=pipeline_id,
-            )
+    for repo_path in discover_repo_paths(base_path):
+        try:
+            store = get_state_store(repo_path)
+            pipeline = store.load_pipeline(pipeline_id)
+            return store, pipeline
+        except (PipelineNotFoundError, StateStoreError):
+            continue
 
-    return store, pipeline
+    raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found") from None
 
 
 def _collect_all_pipelines(base_path: Path) -> list:
-    """Collect pipelines from base_path and all repo subdirectories.
+    """Collect pipelines from all git repos under base_path.
 
-    All StateStore instances share a single global worktree, so we deduplicate
-    by pipeline ID to avoid returning the same pipeline multiple times when
-    both the base path and child repo paths resolve to the same store.
+    Each repo has its own state store and worktree. Pipelines are
+    deduplicated by ID in case of overlapping stores.
     """
+    from state_store import discover_repo_paths
+
     seen: set[str] = set()
     pipelines = []
 
@@ -432,18 +396,11 @@ def _collect_all_pipelines(base_path: Path) -> list:
             except StateStoreError:
                 continue
 
-    # Check base path itself
-    if (base_path / ".egg-state" / "pipelines").exists():
-        _add_from_store(get_state_store(base_path))
-
-    # Check repo subdirectories if base_path is not a git repo
-    if not (base_path / ".git").exists():
-        for child in sorted(base_path.iterdir()):
-            if child.is_dir() and (child / ".git").exists():
-                try:
-                    _add_from_store(get_state_store(child))
-                except StateStoreError:
-                    continue
+    for repo_path in discover_repo_paths(base_path):
+        try:
+            _add_from_store(get_state_store(repo_path))
+        except StateStoreError:
+            continue
 
     return pipelines
 

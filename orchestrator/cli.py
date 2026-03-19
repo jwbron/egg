@@ -130,16 +130,32 @@ def cmd_serve(args: argparse.Namespace) -> int:
     )
 
     if repo_path != "not set":
-        store = None
+        stores: list = []
         try:
             from docker_client import get_docker_client
             from startup_reconciliation import reconcile_stale_containers
-            from state_store import get_state_store
+            from state_store import discover_repo_paths, get_state_store
 
-            store = get_state_store(repo_path)
-            recovered = reconcile_stale_containers(store, get_docker_client())
-            if recovered:
-                logger.warning("Recovered stale pipelines on startup", count=recovered)
+            repo_paths = discover_repo_paths(repo_path)
+            if not repo_paths:
+                logger.warning("No git repos found under EGG_REPO_PATH", path=repo_path)
+            for rp in repo_paths:
+                try:
+                    store = get_state_store(rp)
+                    stores.append(store)
+                    recovered = reconcile_stale_containers(store, get_docker_client())
+                    if recovered:
+                        logger.warning(
+                            "Recovered stale pipelines on startup",
+                            count=recovered,
+                            repo=str(rp),
+                        )
+                except Exception as reconcile_err:
+                    logger.warning(
+                        "Startup reconciliation failed",
+                        error=str(reconcile_err),
+                        repo=str(rp),
+                    )
         except Exception as reconcile_err:
             logger.warning(
                 "Startup reconciliation failed",
@@ -151,19 +167,21 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 create_pipeline_reconciliation_handler,
                 get_container_monitor,
             )
+            from state_store import discover_repo_paths as _discover
 
             monitor = get_container_monitor()
-            monitor.add_handler(create_pipeline_reconciliation_handler(repo_path))
+            for rp in _discover(repo_path):
+                monitor.add_handler(create_pipeline_reconciliation_handler(str(rp)))
             monitor.start()
             logger.info("Container monitor started for runtime liveness checks")
 
             # Start periodic reconciliation to detect stale containers
             # that may have exited between event-driven checks.
-            if store is None:
+            if not stores:
                 from state_store import get_state_store as _get_state_store
 
-                store = _get_state_store(repo_path)
-            monitor.start_periodic_reconciliation(store)
+                stores = [_get_state_store(rp) for rp in _discover(repo_path)]
+            monitor.start_periodic_reconciliation(stores)
         except Exception as monitor_err:
             logger.warning(
                 "Container monitor startup failed",
@@ -203,8 +221,10 @@ def cmd_serve(args: argparse.Namespace) -> int:
             # Wire runner into container monitor so RUNTIME_TICK checks fire
             # automatically when container state changes are detected.
             try:
+                from state_store import discover_repo_paths as _disc
+
                 monitor = get_container_monitor()
-                monitor.set_health_check_runner(runner, repo_path)
+                monitor.set_health_check_runner(runner, _disc(repo_path))
             except Exception:
                 pass  # Monitor may not be available; health checks still work on-demand
 
@@ -212,40 +232,39 @@ def cmd_serve(args: argparse.Namespace) -> int:
             # any inconsistencies left over from a previous crash/restart.
             from health_checks.context import PipelineHealthContext
             from health_checks.types import HealthTrigger
-            from state_store import get_state_store as _get_store
 
-            startup_store = _get_store(repo_path)
-            for pid in startup_store.list_pipelines():
-                try:
-                    pipeline = startup_store.load_pipeline(pid)
-                    if pipeline.status.value == "running":
-                        try:
-                            from docker_client import get_docker_client as _get_dc
+            for startup_store in stores:
+                for pid in startup_store.list_pipelines():
+                    try:
+                        pipeline = startup_store.load_pipeline(pid)
+                        if pipeline.status.value == "running":
+                            try:
+                                from docker_client import get_docker_client as _get_dc
 
-                            dc = _get_dc()
-                        except Exception:
-                            dc = None
-                        ctx = PipelineHealthContext(
-                            pipeline=pipeline,
-                            repo_path=Path(repo_path),
-                            trigger=HealthTrigger.STARTUP.value,
-                            docker_client=dc,
-                            state_store=startup_store,
-                        )
-                        results = runner.run(ctx, HealthTrigger.STARTUP)
-                        if results:
-                            logger.info(
-                                "Startup health check completed",
-                                pipeline_id=pid,
-                                result_count=len(results),
+                                dc = _get_dc()
+                            except Exception:
+                                dc = None
+                            ctx = PipelineHealthContext(
+                                pipeline=pipeline,
+                                repo_path=startup_store.repo_path,
+                                trigger=HealthTrigger.STARTUP.value,
+                                docker_client=dc,
+                                state_store=startup_store,
                             )
-                except Exception as hc_err:
-                    # Per-pipeline errors are non-fatal; log and continue
-                    logger.debug(
-                        "Startup health check failed for pipeline",
-                        pipeline_id=pid,
-                        error=str(hc_err),
-                    )
+                            results = runner.run(ctx, HealthTrigger.STARTUP)
+                            if results:
+                                logger.info(
+                                    "Startup health check completed",
+                                    pipeline_id=pid,
+                                    result_count=len(results),
+                                )
+                    except Exception as hc_err:
+                        # Per-pipeline errors are non-fatal; log and continue
+                        logger.debug(
+                            "Startup health check failed for pipeline",
+                            pipeline_id=pid,
+                            error=str(hc_err),
+                        )
 
             logger.info("Health check framework initialized")
         except Exception as hc_init_err:

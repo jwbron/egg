@@ -102,12 +102,12 @@ class ContainerMonitor:
 
         # Optional health check runner integration (set via set_health_check_runner)
         self._health_check_runner: Any = None
-        self._health_check_repo_path: str | None = None
+        self._health_check_repo_paths: list[Path] = []
 
         # Periodic reconciliation state
         self._reconciliation_running = False
         self._reconciliation_thread: threading.Thread | None = None
-        self._reconciliation_store: Any = None
+        self._reconciliation_stores: list[Any] = []
         self._reconciliation_interval: int = 30
         self._clean_exit_skipped: set[str] = set()  # container IDs already logged as clean-exit
 
@@ -150,7 +150,7 @@ class ContainerMonitor:
                     error=str(e),
                 )
 
-    def set_health_check_runner(self, runner: Any, repo_path: str) -> None:
+    def set_health_check_runner(self, runner: Any, repo_paths: list[Path] | str) -> None:
         """Connect a HealthCheckRunner for RUNTIME_TICK integration.
 
         When set, health checks run automatically after each container
@@ -158,47 +158,56 @@ class ContainerMonitor:
 
         Args:
             runner: HealthCheckRunner instance (from cli.py startup).
-            repo_path: Path to repository root for context construction.
+            repo_paths: List of repo paths (or single path string for
+                backward compat) for context construction.
         """
         self._health_check_runner = runner
-        self._health_check_repo_path = repo_path
+        if isinstance(repo_paths, (str, Path)):
+            self._health_check_repo_paths: list[Path] = [Path(repo_paths)]
+        else:
+            self._health_check_repo_paths = list(repo_paths)
 
     def _run_runtime_tick_checks(self) -> None:
         """Run RUNTIME_TICK health checks after container state changes.
 
         Called at the end of each monitor poll cycle.  Iterates over all
-        RUNNING pipelines and runs Tier 1 checks (Tier 2 never runs on
-        RUNTIME_TICK).  Errors are non-fatal: logged at debug level so
-        the monitor continues operating even if health checks fail.
+        RUNNING pipelines across all repos and runs Tier 1 checks (Tier 2
+        never runs on RUNTIME_TICK).  Errors are non-fatal: logged at
+        debug level so the monitor continues operating even if health
+        checks fail.
         """
-        if self._health_check_runner is None or self._health_check_repo_path is None:
+        if self._health_check_runner is None or not getattr(self, "_health_check_repo_paths", None):
             return
         try:
             from health_checks.context import PipelineHealthContext
             from health_checks.types import HealthTrigger
             from state_store import get_state_store
 
-            store = get_state_store(self._health_check_repo_path)
-            for pid in store.list_pipelines():
+            for repo_path in self._health_check_repo_paths:
                 try:
-                    pipeline = store.load_pipeline(pid)
-                    if pipeline.status.value != "running":
-                        continue  # Only check active pipelines
-                    ctx = PipelineHealthContext(
-                        pipeline=pipeline,
-                        repo_path=Path(self._health_check_repo_path),
-                        trigger=HealthTrigger.RUNTIME_TICK.value,
-                        docker_client=self.docker_client,
-                        state_store=store,
-                    )
-                    results = self._health_check_runner.run(ctx, HealthTrigger.RUNTIME_TICK)
-                    self._handle_consensus_stall_recovery(results, pipeline, store)
-                except Exception as per_pipeline_err:
-                    logger.debug(
-                        "RUNTIME_TICK health check failed for pipeline",
-                        pipeline_id=pid,
-                        error=str(per_pipeline_err),
-                    )
+                    store = get_state_store(repo_path)
+                except Exception:
+                    continue
+                for pid in store.list_pipelines():
+                    try:
+                        pipeline = store.load_pipeline(pid)
+                        if pipeline.status.value != "running":
+                            continue  # Only check active pipelines
+                        ctx = PipelineHealthContext(
+                            pipeline=pipeline,
+                            repo_path=repo_path,
+                            trigger=HealthTrigger.RUNTIME_TICK.value,
+                            docker_client=self.docker_client,
+                            state_store=store,
+                        )
+                        results = self._health_check_runner.run(ctx, HealthTrigger.RUNTIME_TICK)
+                        self._handle_consensus_stall_recovery(results, pipeline, store)
+                    except Exception as per_pipeline_err:
+                        logger.debug(
+                            "RUNTIME_TICK health check failed for pipeline",
+                            pipeline_id=pid,
+                            error=str(per_pipeline_err),
+                        )
         except Exception as exc:
             logger.debug("RUNTIME_TICK health check failed", error=str(exc))
 
@@ -441,22 +450,26 @@ class ContainerMonitor:
             check_interval=self.check_interval,
         )
 
-    def start_periodic_reconciliation(self, store: Any, interval: int = 30) -> None:
+    def start_periodic_reconciliation(self, stores: Any, interval: int = 30) -> None:
         """Start a background thread that periodically reconciles stale containers.
 
-        Every *interval* seconds, lists all RUNNING pipelines and checks
-        whether containers marked RUNNING in the current phase still exist
-        in Docker.  Missing containers are reconciled via
-        ``_reconcile_container_state``.
+        Every *interval* seconds, lists all RUNNING pipelines across all
+        stores and checks whether containers marked RUNNING in the current
+        phase still exist in Docker.  Missing containers are reconciled
+        via ``_reconcile_container_state``.
 
         Args:
-            store: StateStore instance (already bound to the correct repo path).
+            stores: StateStore instance or list of StateStore instances.
             interval: Seconds between reconciliation sweeps (default 30).
         """
         if self._reconciliation_running:
             return
 
-        self._reconciliation_store = store
+        # Accept a single store for backward compat.
+        if isinstance(stores, list):
+            self._reconciliation_stores = stores
+        else:
+            self._reconciliation_stores = [stores]
         self._reconciliation_interval = interval
         self._reconciliation_running = True
         self._reconciliation_thread = threading.Thread(
@@ -479,68 +492,76 @@ class ContainerMonitor:
 
         while self._reconciliation_running:
             try:
-                store = self._reconciliation_store
-                pipeline_ids: list[str] = store.list_pipelines()
-
                 live_containers = self.docker_client.list_containers(all=False)
                 live_ids: set[str] = {ci.container_id for ci in live_containers}
 
-                for pipeline_id in pipeline_ids:
+                for store in self._reconciliation_stores:
                     try:
-                        pipeline = store.load_pipeline(pipeline_id)
-                    except Exception:
+                        pipeline_ids: list[str] = store.list_pipelines()
+                    except Exception as e:
+                        logger.warning(
+                            "Periodic reconciliation: could not list pipelines",
+                            repo=str(store.repo_path),
+                            error=str(e),
+                        )
                         continue
 
-                    if pipeline.status != PipelineStatus.RUNNING:
-                        continue
+                    for pipeline_id in pipeline_ids:
+                        try:
+                            pipeline = store.load_pipeline(pipeline_id)
+                        except Exception:
+                            continue
 
-                    # Check only the current phase for stale containers
-                    current_phase_key = pipeline.current_phase.value
-                    phase_execution = pipeline.phases.get(current_phase_key)
-                    if phase_execution is None:
-                        continue
+                        if pipeline.status != PipelineStatus.RUNNING:
+                            continue
 
-                    for agent in phase_execution.agents:
-                        if (
-                            agent.status == AgentExecutionStatus.RUNNING
-                            and agent.container_id
-                            and agent.container_id not in live_ids
-                        ):
-                            # Check actual exit code before reconciling.
-                            # Clean exits (code 0) indicate the consensus
-                            # wrapper exited gracefully — don't mark the
-                            # pipeline FAILED for those (issue #1273).
-                            actual_exit_code = self._get_exited_container_exit_code(
-                                agent.container_id
-                            )
-                            if actual_exit_code == 0:
-                                if agent.container_id not in self._clean_exit_skipped:
-                                    logger.info(
-                                        "Container exited cleanly (code 0), "
-                                        "skipping FAILED reconciliation",
+                        # Check only the current phase for stale containers
+                        current_phase_key = pipeline.current_phase.value
+                        phase_execution = pipeline.phases.get(current_phase_key)
+                        if phase_execution is None:
+                            continue
+
+                        for agent in phase_execution.agents:
+                            if (
+                                agent.status == AgentExecutionStatus.RUNNING
+                                and agent.container_id
+                                and agent.container_id not in live_ids
+                            ):
+                                # Check actual exit code before reconciling.
+                                # Clean exits (code 0) indicate the consensus
+                                # wrapper exited gracefully — don't mark the
+                                # pipeline FAILED for those (issue #1273).
+                                actual_exit_code = self._get_exited_container_exit_code(
+                                    agent.container_id
+                                )
+                                if actual_exit_code == 0:
+                                    if agent.container_id not in self._clean_exit_skipped:
+                                        logger.info(
+                                            "Container exited cleanly (code 0), "
+                                            "skipping FAILED reconciliation",
+                                            pipeline_id=pipeline_id,
+                                            container_id=agent.container_id,
+                                            agent_role=str(agent.role),
+                                        )
+                                        self._clean_exit_skipped.add(agent.container_id)
+                                    continue
+
+                                # Find the matching ContainerInfo to pass to _reconcile
+                                matching_ci = None
+                                for ci in phase_execution.containers:
+                                    if ci.container_id == agent.container_id:
+                                        matching_ci = ci
+                                        break
+
+                                if matching_ci is not None:
+                                    _reconcile_container_state(store, matching_ci)
+                                else:
+                                    logger.debug(
+                                        "Stale agent has no matching ContainerInfo",
                                         pipeline_id=pipeline_id,
                                         container_id=agent.container_id,
                                         agent_role=str(agent.role),
                                     )
-                                    self._clean_exit_skipped.add(agent.container_id)
-                                continue
-
-                            # Find the matching ContainerInfo to pass to _reconcile
-                            matching_ci = None
-                            for ci in phase_execution.containers:
-                                if ci.container_id == agent.container_id:
-                                    matching_ci = ci
-                                    break
-
-                            if matching_ci is not None:
-                                _reconcile_container_state(store, matching_ci)
-                            else:
-                                logger.debug(
-                                    "Stale agent has no matching ContainerInfo",
-                                    pipeline_id=pipeline_id,
-                                    container_id=agent.container_id,
-                                    agent_role=str(agent.role),
-                                )
 
             except Exception as e:
                 logger.warning(
