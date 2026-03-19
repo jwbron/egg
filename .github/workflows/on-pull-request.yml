@@ -38,7 +38,7 @@ jobs:
       bot_username: ${{ vars.EGG_BOT_USERNAME }}
       branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}
       # action_ref: jwbron/egg/action@main  # Cannot be passed dynamically; hardcoded in reusable workflow
-      timeout: "10"
+      timeout: "30"
       pr_title: ${{ github.event.pull_request.title || '' }}
       event_name: ${{ github.event_name }}
     secrets:
