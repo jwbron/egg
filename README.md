@@ -182,6 +182,7 @@ The orchestrator exposes an MCP server (port 9850) for controlling pipelines fro
 - `provide_input`: resolve HITL decisions programmatically
 - `list_containers` / `get_container_logs`: debugging
 - `send_message` / `get_consensus_status`: agent coordination
+- `validate_config`: validate a pipeline config without creating a pipeline
 
 ## Quick Start
 
