@@ -639,8 +639,7 @@ class TestSuccessPathPushesStatefiles:
         # Generated branch should be used for pushing
         push_calls = mock_gateway.push_worktree_branch.call_args_list
         assert len(push_calls) >= 1, (
-            f"Expected push_worktree_branch to be called with generated branch, "
-            f"got {push_calls}"
+            f"Expected push_worktree_branch to be called with generated branch, got {push_calls}"
         )
         assert push_calls[0] == (
             (),
