@@ -217,6 +217,8 @@ RUN if [ "$CLAUDE_AGENT_SDK_VERSION" = "latest" ]; then \
 # build-arg is omitted (e.g. manual docker build without the egg script).
 ARG CLAUDE_CODE_VERSION=stable
 RUN su - egg -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CODE_VERSION" && \
+    # Fail the build if the CLI binary is missing (e.g. install script 403'd)
+    test -x /home/egg/.local/bin/claude && \
     # Save installed version for update checks (non-fatal if this fails)
     (/home/egg/.local/bin/claude --version 2>/dev/null | head -1 > /home/egg/.local/VERSION || true) && \
     # Replace bundled ripgrep with system ripgrep to avoid ARM64 crashes on Asahi Linux
