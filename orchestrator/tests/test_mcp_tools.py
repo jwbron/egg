@@ -735,7 +735,9 @@ class TestValidateConfig:
     def test_config_as_invalid_json_string(self, handler):
         result = handler.handle_tool_call("validate_config", {"config": "not valid json"})
         assert result["valid"] is False
-        assert any("JSON" in str(e) for e in result["errors"])
+        assert len(result["errors"]) == 1
+        assert result["errors"][0]["field"] == "config"
+        assert "Invalid JSON" in result["errors"][0]["message"]
 
 
 class TestSubmitTaskConfigDeserialization:
@@ -775,3 +777,16 @@ class TestSubmitTaskConfigDeserialization:
         assert isinstance(body["config"], dict)
         assert body["config"]["start_phase"] == "implement"
         assert body["config"]["hitl_gates"] is False
+
+    def test_config_malformed_json_string(self, handler):
+        """Malformed JSON config string should return a structured error."""
+        result = handler.handle_tool_call(
+            "submit_task",
+            {
+                "description": "Test task",
+                "repo": "owner/repo",
+                "config": "not valid json",
+            },
+        )
+        assert "error" in result
+        assert "Invalid config JSON" in result["error"]

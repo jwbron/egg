@@ -507,7 +507,10 @@ class PipelineToolHandler:
         if args.get("config"):
             config = args["config"]
             if isinstance(config, str):
-                config = json.loads(config)
+                try:
+                    config = json.loads(config)
+                except json.JSONDecodeError as e:
+                    return {"error": f"Invalid config JSON: {e}"}
             data["config"] = config
 
         try:
@@ -562,7 +565,10 @@ class PipelineToolHandler:
             try:
                 config = json.loads(config)
             except json.JSONDecodeError as e:
-                return {"valid": False, "errors": [f"Invalid JSON: {e}"]}
+                return {
+                    "valid": False,
+                    "errors": [{"field": "config", "message": f"Invalid JSON: {e}"}],
+                }
 
         try:
             validated = PipelineConfig.model_validate(config)
