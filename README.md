@@ -70,7 +70,7 @@ See [Agent Teams and Deliberative Consensus](docs/guides/agent-teams.md) for the
 
 ### 3. The Overseer: AI Monitoring AI
 
-The overseer is a lightweight agent that watches all other agents in real-time. It runs on every pipeline automatically, has no repository access (monitoring-only), and follows a corrective action ladder:
+The overseer is a lightweight agent that watches all other agents in real-time. It runs on every pipeline automatically, has no code access (it can file GitHub issues but cannot read or modify repository contents), and follows a corrective action ladder:
 
 ```
 Detect anomaly (stall, loop, error, off-track behavior)
@@ -163,7 +163,7 @@ Within each phase, specialized agents run concurrently via BRC (enabled by defau
 │                                                                                     │
 │  ┌──────────────────────┐                                                           │
 │  │    Overseer Agent    │  Lightweight model classifies anomalies continuously.     │
-│  │    (Monitoring-only) │  No repo access. Corrective action ladder.                │
+│  │    (Monitoring-only) │  No code access. Corrective action ladder.                │
 │  │                      │  Auto-respawned on crash (up to 3x).                      │
 │  └──────────────────────┘                                                           │
 └─────────────────────────────────────────────────────────────────────────────────────┘
