@@ -58,7 +58,7 @@ The agent doesn't need to memorize branch naming conventions upfront. It discove
 
 This turns out to be more effective than front-loading rules into the system prompt. The agent doesn't waste context on rules it may never need. And when it does hit a boundary, the error is right there in the conversation, not buried in a system prompt the model wrote off 50,000 tokens ago.
 
-The same pattern applies to self-reviews — see "Silent adaptation" below.
+The same pattern applies to self-reviews. See "Silent adaptation" below.
 
 ## Errors as guidance
 
