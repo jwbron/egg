@@ -3877,30 +3877,12 @@ def _run_concurrent_phase(
     from egg_contracts.agent_roles import get_roles_for_phase as _get_roles_for_phase
 
     roles: list[AgentRole] = []
-    # Honor implement_roles config override
-    if phase_str == "implement" and pipeline.config.implement_roles:
-        for name in pipeline.config.implement_roles:
-            try:
-                roles.append(AgentRole(name))
-            except ValueError:
-                logger.warning("Unknown role in implement_roles config", role=name)
-        # In short flow pipelines (start_phase=implement), refine/plan phases
-        # that normally validate the contract are skipped.  Ensure the contract
-        # reviewer is always present so the contract is validated before code
-        # is written.  See: https://github.com/jwbron/egg/issues/1339
-        if pipeline.config.start_phase == "implement" and AgentRole.REVIEWER_CONTRACT not in roles:
-            roles.append(AgentRole.REVIEWER_CONTRACT)
-            logger.info(
-                "Auto-added reviewer_contract for short flow pipeline",
-                pipeline_id=pipeline_id,
-            )
-    else:
-        for r in _get_roles_for_phase(phase_str, include_reviewers=True, repo=pipeline.repo):
-            try:
-                roles.append(AgentRole(r.value))
-            except ValueError:
-                # New roles not yet in orchestrator AgentRole — skip
-                continue
+    for r in _get_roles_for_phase(phase_str, include_reviewers=True, repo=pipeline.repo):
+        try:
+            roles.append(AgentRole(r.value))
+        except ValueError:
+            # New roles not yet in orchestrator AgentRole — skip
+            continue
 
     # Build a review graph filtered to only active roles so consensus
     # tracking doesn't wait for unspawned agents.

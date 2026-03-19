@@ -855,7 +855,7 @@ Arguments:
     <the plan from Phase S3, formatted as markdown — include tasks and acceptance criteria
     so the remote agents have full context>
   repo: <owner/name>
-  config: {"start_phase": "implement", "implement_roles": ["coder", "reviewer_code"], "hitl_gates": false, "overseer_enabled": false}
+  config: {"start_phase": "implement", "hitl_gates": false, "overseer_enabled": false}
 ```
 
 The description includes the generated plan context so the remote coder+reviewer agents can use it.
@@ -982,7 +982,7 @@ Phase: <phase where failure occurred>
 
 - **Always use MCP tools** (`submit_task`, `get_status`, `provide_input`, `cancel_task`) — never call orchestrator APIs directly
 - **Always serialize JSON payloads as strings** for `provide_input`
-- **Always pass `config`** with `{"start_phase": "implement", "implement_roles": ["coder", "reviewer_code"], "hitl_gates": false, "overseer_enabled": false}` when calling `submit_task`
+- **Always pass `config`** with `{"start_phase": "implement", "hitl_gates": false, "overseer_enabled": false}` when calling `submit_task`
 - **Auto-approve phase gates** — this is a no-HITL flow; if a gate appears, approve it automatically and inform the user
 - **Validate the contract** — always construct and validate a `Contract` Pydantic model in Phase S3. The contract is informational — it's not persisted to `.egg-state/` since the remote pipeline will create its own
 - **Include plan context in submit** — the description sent to `submit_task` must include the generated plan so remote agents have it

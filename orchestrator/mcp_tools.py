@@ -68,7 +68,7 @@ PIPELINE_TOOLS = [
                 },
                 "config": {
                     "type": "object",
-                    "description": 'Optional pipeline configuration overrides (e.g. {"start_phase": "implement", "implement_roles": ["coder", "reviewer_code"], "hitl_gates": false})',
+                    "description": 'Optional pipeline configuration overrides (e.g. {"start_phase": "implement", "hitl_gates": false})',
                 },
             },
             "required": ["description", "repo"],
@@ -417,7 +417,7 @@ PIPELINE_TOOLS = [
             "properties": {
                 "config": {
                     "type": "object",
-                    "description": 'Pipeline configuration to validate (e.g. {"start_phase": "implement", "implement_roles": ["coder", "reviewer_code"], "hitl_gates": false})',
+                    "description": 'Pipeline configuration to validate (e.g. {"start_phase": "implement", "hitl_gates": false})',
                 },
             },
             "required": ["config"],
