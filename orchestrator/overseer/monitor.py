@@ -19,6 +19,7 @@ from typing import Any
 
 from overseer.classifier import (
     check_alignment,
+    check_decision_consistency,
     classify_error,
     classify_stall,
     detect_loop,
@@ -45,6 +46,8 @@ class _DefaultConfig:
     overseer_poll_interval_seconds: int = 30
     overseer_max_redirects_before_escalation: int = 2
     overseer_decision_maker_model: str = "sonnet"
+    overseer_rerun_min_work_seconds: int = 60
+    overseer_hitl_propagation_timeout_seconds: int = 300
 
 
 class OverseerMonitor:
@@ -82,6 +85,22 @@ class OverseerMonitor:
         # Post-consensus stall deduplication
         self._post_consensus_stall_reported = False
         self._post_consensus_stall_first_seen: float | None = None
+
+        # Re-run anomaly deduplication (decision IDs already flagged)
+        self._rerun_anomaly_reported: set[str] = set()
+
+        # Status inconsistency deduplication
+        self._status_inconsistency_reported = False
+        self._status_inconsistency_first_seen: float | None = None
+
+        # HITL resolution propagation tracking
+        self._hitl_resolution_pending: dict[str, float] = {}  # decision_id -> first-seen ts
+        self._hitl_resolution_verified: set[str] = set()
+        self._hitl_resolution_alerted: set[str] = set()  # failures already alerted
+
+        # Cross-phase consistency: track phase transitions and deduplication
+        self._last_phase_name: str | None = None
+        self._cross_phase_checked: set[tuple[str, str]] = set()
 
         # Oversight logging to .egg-state/oversight/
         self._oversight_dir = self._resolve_oversight_dir()
@@ -164,6 +183,13 @@ class OverseerMonitor:
             return await self._classifier.check_alignment(activity, contract)
         return await check_alignment(activity, contract)
 
+    async def _check_decision_consistency_cls(
+        self, phase_output: dict, prior_decisions: list[dict]
+    ) -> dict:
+        if self._classifier and hasattr(self._classifier, "check_decision_consistency"):
+            return await self._classifier.check_decision_consistency(phase_output, prior_decisions)
+        return await check_decision_consistency(phase_output, prior_decisions)
+
     async def _decide_corrective_action(self, classification: dict, context: dict) -> dict:
         model = getattr(self.config, "overseer_decision_maker_model", "sonnet")
         if self._decision_maker and hasattr(self._decision_maker, "decide_corrective_action"):
@@ -226,12 +252,16 @@ class OverseerMonitor:
             2. Query progress events
             3. Query health alerts
             4. Query pipeline status (single call for filtering + terminal check)
+            4a. Query decisions for deterministic health checks
+            4b. Run deterministic health checks (rerun anomaly, status
+                consistency, HITL resolution propagation)
             5. Check for escalation messages from orchestrator
             6. Route anomalies through classifier (with consensus context)
             7. Route classified results through decision maker / execute actions
             8. Check pipeline status for terminal state
-            9. Check for post-consensus stalls
-            10. Update self-monitoring
+            9. Cross-phase consistency (LLM-based, only on phase transitions)
+            10. Check for post-consensus stalls
+            11. Update self-monitoring
         """
         cycle_start = time.time()
 
@@ -249,6 +279,14 @@ class OverseerMonitor:
             # 4. Query pipeline status (single call, used for filtering + terminal check)
             pipeline_data = await self._query_pipeline_data()
             status = pipeline_data.get("status", "running") if pipeline_data else "running"
+
+            # 4a. Query decisions for health checks
+            decisions = await self._query_decisions()
+
+            # 4b. Deterministic health checks
+            await self._check_rerun_anomaly(decisions, current_phase)
+            await self._check_status_consistency(pipeline_data)
+            await self._check_hitl_resolution_propagation(decisions)
 
             # Filter alerts to only current-phase agents
             if current_phase and pipeline_data:
@@ -286,13 +324,19 @@ class OverseerMonitor:
                 self._running = False
                 self.write_health_summary()
 
-            # 9. Check for post-consensus stall
+            # 9. Cross-phase consistency (LLM-based, only on phase transitions)
+            if status not in ("complete", "failed", "cancelled"):
+                await self._check_cross_phase_consistency(
+                    current_phase, decisions, contract_data=None
+                )
+
+            # 10. Check for post-consensus stall
             await self._check_post_consensus_stall(consensus, status)
 
         except Exception:
             logger.exception("Error in overseer poll cycle")
 
-        # 10. Update self-monitoring
+        # 11. Update self-monitoring
         duration = time.time() - cycle_start
         self.self_monitor.record_poll_cycle(duration)
 
@@ -570,6 +614,43 @@ class OverseerMonitor:
             logger.debug("Failed to query current phase", exc_info=True)
         return {}
 
+    async def _query_decisions(self) -> list[dict]:
+        """Query all decisions (including resolved) for the pipeline."""
+        try:
+            rc, stdout, _ = await self._run_cli(
+                "egg-orch",
+                "decision",
+                "list",
+                "--pipeline",
+                self.pipeline_id,
+                "--json",
+            )
+            if rc == 0 and stdout.strip():
+                data = json.loads(stdout)
+                if isinstance(data, list):
+                    return data
+                if isinstance(data, dict) and data.get("decisions"):
+                    return data["decisions"]
+        except Exception:
+            logger.debug("Failed to query decisions", exc_info=True)
+        return []
+
+    async def _query_contract_data(self) -> dict:
+        """Query SDLC contract state via egg-contract show."""
+        try:
+            rc, stdout, _ = await self._run_cli(
+                "egg-contract",
+                "show",
+                "--json",
+            )
+            if rc == 0 and stdout.strip():
+                data = json.loads(stdout)
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            logger.debug("Failed to query contract data", exc_info=True)
+        return {}
+
     def _filter_current_phase_agents(self, alerts: list[dict], pipeline_status: dict) -> list[dict]:
         """Filter alerts to only include agents in the current phase.
 
@@ -664,6 +745,260 @@ class OverseerMonitor:
                 "pipeline_status": pipeline_status_str,
             }
         )
+
+    # -----------------------------------------------------------------
+    # Health checks (issue #1297)
+    # -----------------------------------------------------------------
+
+    async def _check_rerun_anomaly(self, decisions: list[dict], phase_data: dict) -> None:
+        """Detect agents that completed suspiciously fast after request_changes.
+
+        Flags phase_gate decisions where the resolution contains
+        ``request_changes``, ``content_changed`` is ``False``, and the
+        subsequent work cycle lasted less than ``overseer_rerun_min_work_seconds``.
+        """
+        import datetime as _dt
+
+        cycle_timings = phase_data.get("phase_execution", {}).get("cycle_timings", [])
+
+        min_work = getattr(self.config, "overseer_rerun_min_work_seconds", 60)
+
+        for d in decisions:
+            did = d.get("id", "")
+            if did in self._rerun_anomaly_reported:
+                continue
+            if d.get("decision_type") != "phase_gate":
+                continue
+            resolution = d.get("resolution") or ""
+            if "request_changes" not in resolution.lower():
+                continue
+            if d.get("content_changed") is not False:
+                continue
+
+            # Find the cycle that started after this decision was resolved
+            resolved_at = d.get("resolved_at")
+            if not resolved_at:
+                continue
+
+            work_duration: float | None = None
+            try:
+                r = _dt.datetime.fromisoformat(resolved_at)
+            except (ValueError, TypeError):
+                continue
+
+            for ct in cycle_timings:
+                started = ct.get("started_at")
+                completed = ct.get("completed_at")
+                if not started or not completed:
+                    continue
+                try:
+                    s = _dt.datetime.fromisoformat(started)
+                    c = _dt.datetime.fromisoformat(completed)
+                    if s >= r:
+                        work_duration = (c - s).total_seconds()
+                        break
+                except (ValueError, TypeError):
+                    continue
+
+            if work_duration is not None and work_duration < min_work:
+                message = (
+                    f"Re-run anomaly: decision {did} requested changes but agent "
+                    f"completed in {work_duration:.0f}s (< {min_work}s) with "
+                    f"content_changed=False. Possible no-op re-run. "
+                    f"Pipeline: {self.pipeline_id}"
+                )
+                logger.warning("Re-run anomaly detected: %s", did)
+                self._log_oversight_event(
+                    {"event": "rerun_anomaly", "decision_id": did, "work_seconds": work_duration}
+                )
+                await self._create_hitl_decision("overseer", message)
+                await self._send_slack_notification("overseer", message)
+                self._rerun_anomaly_reported.add(did)
+
+    async def _check_status_consistency(self, pipeline_data: dict) -> None:
+        """Detect pipeline status=failed when all agents show status=complete."""
+        status = pipeline_data.get("status", "")
+        if status != "failed":
+            # Not in failed state — reset tracking so alert can re-fire
+            # if the pipeline re-enters failed state later.
+            self._status_inconsistency_first_seen = None
+            self._status_inconsistency_reported = False
+            return
+
+        if self._status_inconsistency_reported:
+            return
+
+        agents = pipeline_data.get("concurrent", {}).get("agents", [])
+        if not agents:
+            return
+
+        all_complete = all(
+            (a.get("status") == "complete" if isinstance(a, dict) else False) for a in agents
+        )
+        if not all_complete:
+            self._status_inconsistency_first_seen = None
+            return
+
+        # Grace period: 1 poll cycle
+        poll_interval = getattr(self.config, "overseer_poll_interval_seconds", 30)
+        now = time.time()
+
+        if self._status_inconsistency_first_seen is None:
+            self._status_inconsistency_first_seen = now
+            return
+
+        if (now - self._status_inconsistency_first_seen) < poll_interval:
+            return
+
+        message = (
+            "Status inconsistency: pipeline status is 'failed' but all agents "
+            f"show status 'complete'. Possible transient failure state. "
+            f"Pipeline: {self.pipeline_id}"
+        )
+        logger.warning("Status inconsistency detected for pipeline %s", self.pipeline_id)
+        self._log_oversight_event(
+            {"event": "status_inconsistency", "pipeline_status": status, "agents": agents}
+        )
+        await self._create_hitl_decision("orchestrator", message)
+        await self._send_slack_notification("orchestrator", message)
+        self._status_inconsistency_reported = True
+
+    async def _check_hitl_resolution_propagation(self, decisions: list[dict]) -> None:
+        """Detect resolved phase_gate decisions not propagated to the contract."""
+        timeout = getattr(self.config, "overseer_hitl_propagation_timeout_seconds", 300)
+        now = time.time()
+
+        # First pass: identify which decisions need a contract check
+        timed_out: list[tuple[str, float]] = []
+        for d in decisions:
+            did = d.get("id", "")
+            if did in self._hitl_resolution_verified or did in self._hitl_resolution_alerted:
+                continue
+            if d.get("decision_type") != "phase_gate":
+                continue
+            if d.get("status") != "resolved":
+                continue
+
+            if did not in self._hitl_resolution_pending:
+                self._hitl_resolution_pending[did] = now
+                continue
+
+            elapsed = now - self._hitl_resolution_pending[did]
+            if elapsed >= timeout:
+                timed_out.append((did, elapsed))
+
+        if not timed_out:
+            return
+
+        # Single contract query for all timed-out decisions
+        contract = await self._query_contract_data()
+        if not contract:
+            return  # contract unavailable — retry next cycle
+        contract_decisions = contract.get("decisions", [])
+
+        for did, elapsed in timed_out:
+            propagated = any(
+                cd.get("id") == did and cd.get("status") == "resolved" for cd in contract_decisions
+            )
+
+            if propagated:
+                self._hitl_resolution_verified.add(did)
+                self._hitl_resolution_pending.pop(did, None)
+                continue
+
+            message = (
+                f"HITL propagation failure: decision {did} was resolved "
+                f"{elapsed:.0f}s ago but is not reflected in the SDLC contract. "
+                f"Pipeline: {self.pipeline_id}"
+            )
+            logger.warning("HITL propagation failure detected: %s", did)
+            self._log_oversight_event(
+                {
+                    "event": "hitl_propagation_failure",
+                    "decision_id": did,
+                    "elapsed_seconds": elapsed,
+                }
+            )
+            await self._create_hitl_decision("orchestrator", message)
+            await self._send_slack_notification("orchestrator", message)
+            self._hitl_resolution_alerted.add(did)
+            self._hitl_resolution_pending.pop(did, None)
+
+    async def _check_cross_phase_consistency(
+        self,
+        phase_data: dict,
+        decisions: list[dict],
+        contract_data: dict | None = None,
+    ) -> None:
+        """On phase transition, check that phase output respects prior HITL decisions."""
+        current_phase_name = phase_data.get("current_phase") or phase_data.get("name")
+        if not current_phase_name:
+            return
+
+        # Detect phase transition
+        if self._last_phase_name is None:
+            self._last_phase_name = current_phase_name
+            return
+
+        if current_phase_name == self._last_phase_name:
+            return
+
+        # Phase changed — run consistency check (deduplicate per transition pair)
+        previous_phase = self._last_phase_name
+        self._last_phase_name = current_phase_name
+
+        if (previous_phase, current_phase_name) in self._cross_phase_checked:
+            return
+        self._cross_phase_checked.add((previous_phase, current_phase_name))
+
+        # Collect resolved decisions from prior phases
+        prior_decisions = [
+            d
+            for d in decisions
+            if d.get("status") == "resolved" and d.get("phase") != current_phase_name
+        ]
+        if not prior_decisions:
+            return
+
+        # Fetch contract data lazily if not provided
+        if contract_data is None:
+            contract_data = await self._query_contract_data()
+
+        if not contract_data:
+            return
+
+        result = await self._check_decision_consistency_cls(contract_data, prior_decisions)
+        # TODO: Propagate actual token count and cost from the classifier.
+        # Currently _call_classifier does not return usage metadata, so we
+        # record the call for tracking purposes with zero tokens/cost.
+        self.self_monitor.record_llm_call("haiku", 0, 0.0)
+
+        if not result.get("consistent", True) and result.get("confidence", 0) > 0.7:
+            concerns = result.get("concerns", [])
+            concerns_text = "; ".join(concerns) if concerns else "No specific concerns listed"
+            message = (
+                f"Cross-phase consistency issue: phase '{current_phase_name}' output "
+                f"may not respect prior HITL decisions from '{previous_phase}'. "
+                f"Concerns: {concerns_text}. "
+                f"Pipeline: {self.pipeline_id}"
+            )
+            logger.warning(
+                "Cross-phase consistency issue for pipeline %s: %s -> %s",
+                self.pipeline_id,
+                previous_phase,
+                current_phase_name,
+            )
+            self._log_oversight_event(
+                {
+                    "event": "cross_phase_inconsistency",
+                    "from_phase": previous_phase,
+                    "to_phase": current_phase_name,
+                    "concerns": concerns,
+                    "confidence": result.get("confidence"),
+                }
+            )
+            await self._create_hitl_decision("overseer", message)
+            await self._send_slack_notification("overseer", message)
 
     async def _send_message(self, agent_role: str, message: str) -> None:
         """Send a message to an agent via the orchestrator."""

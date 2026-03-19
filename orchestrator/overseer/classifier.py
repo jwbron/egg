@@ -211,6 +211,53 @@ async def detect_loop(recent_actions: list[dict]) -> dict:
     return result
 
 
+async def check_decision_consistency(
+    phase_output: dict,
+    prior_decisions: list[dict],
+) -> dict:
+    """Check if phase output respects and references prior HITL decisions.
+
+    Args:
+        phase_output: Current phase contract state or output summary.
+        prior_decisions: Resolved HITL decisions from prior phases.
+
+    Returns:
+        A dict with keys:
+            consistent: bool — whether the output honours prior decisions
+            concerns: list[str] of consistency concerns
+            confidence: float between 0.0 and 1.0
+    """
+    key = _cache_key("check_decision_consistency", phase_output, prior_decisions)
+    if key in _cache:
+        return _cache[key]  # type: ignore[no-any-return]
+
+    prompt = (
+        "You are a pipeline decision-consistency checker. Compare the current "
+        "phase output against prior resolved HITL decisions and determine "
+        "whether the output respects and incorporates those decisions.\n\n"
+        "Respond with ONLY a JSON object (no markdown fences) with these keys:\n"
+        '  "consistent": boolean — true if the phase output honours all prior decisions\n'
+        '  "concerns": list of strings describing any consistency issues\n'
+        '  "confidence": float between 0.0 and 1.0\n'
+    )
+    context = json.dumps(
+        {"phase_output": phase_output, "prior_decisions": prior_decisions},
+        default=str,
+    )
+
+    raw = await _call_classifier(prompt, context)
+    fallback = {"consistent": True, "concerns": [], "confidence": 0.5}
+    result = _parse_json_or_fallback(raw, fallback)
+    if result is fallback:
+        logger.warning(
+            "check_decision_consistency: LLM returned unparseable response, "
+            "using fail-open fallback (consistent=True, confidence=0.5)"
+        )
+
+    _cache_put(key, result)
+    return result
+
+
 async def check_alignment(activity: list[dict], contract: dict) -> dict:
     """Check if agent activity aligns with assigned contract tasks.
 

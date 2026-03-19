@@ -122,6 +122,7 @@ def list_decisions(pipeline_id: str) -> tuple[Response, int]:
                 "resolved_at": d.resolved_at.isoformat() if d.resolved_at else None,
                 "resolution": d.resolution,
                 "phase": d.phase.value if d.phase else None,
+                "content_changed": d.content_changed,
             }
             for d in decisions
         ]
