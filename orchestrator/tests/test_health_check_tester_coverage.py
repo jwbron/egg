@@ -1266,8 +1266,7 @@ class TestHealthResultExtra:
         d = result.to_dict()
         assert d["timestamp"].endswith("+00:00")
         # Should be parseable as ISO
-        ts = d["timestamp"].rstrip("Z")
-        datetime.fromisoformat(ts)
+        datetime.fromisoformat(d["timestamp"])
 
     def test_to_dict_with_details(self):
         """Details dict is preserved in serialization."""

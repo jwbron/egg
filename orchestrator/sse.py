@@ -415,7 +415,7 @@ def create_sse_stream(
                 # Send heartbeat comment periodically to keep connection alive
                 now = time.monotonic()
                 if now - last_heartbeat >= HEARTBEAT_INTERVAL:
-                    yield format_sse_comment(f"heartbeat {datetime.now(UTC).isoformat()}Z")
+                    yield format_sse_comment(f"heartbeat {datetime.now(UTC).isoformat()}")
                     last_heartbeat = now
 
                 # Send a visualization refresh so the client stays

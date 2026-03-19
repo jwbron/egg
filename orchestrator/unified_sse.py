@@ -320,7 +320,7 @@ def create_unified_sse_stream(
                 # end the unified stream — we keep watching all pipelines.
 
             except Empty:
-                yield format_sse_comment(f"heartbeat {datetime.now(UTC).isoformat()}Z")
+                yield format_sse_comment(f"heartbeat {datetime.now(UTC).isoformat()}")
 
     finally:
         manager.remove_client(q)
