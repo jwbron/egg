@@ -632,13 +632,37 @@ def create_pipeline() -> tuple[Response, int]:
     else:
         repo_path = get_repo_path()
 
+    # Validate config before creating the pipeline so invalid config
+    # returns a 400 instead of bubbling up as a 500.
+    config = data.get("config")
+    if config is not None:
+        if isinstance(config, str):
+            try:
+                config = json.loads(config)
+            except json.JSONDecodeError as e:
+                return make_error_response(f"Invalid config JSON: {e}")
+        try:
+            from models import PipelineConfig
+            from pydantic import ValidationError
+
+            PipelineConfig.model_validate(config)
+        except ValidationError as e:
+            errors = [
+                {"field": ".".join(str(loc) for loc in err["loc"]), "message": err["msg"]}
+                for err in e.errors()
+            ]
+            return make_error_response(
+                f"Invalid pipeline config: {errors}",
+                details={"validation_errors": errors},
+            )
+
     try:
         store = get_state_store(repo_path)
         pipeline = store.create_pipeline(
             issue_number=issue_number,
             repo=repo,
             branch=branch,
-            config=data.get("config"),
+            config=config,
             prompt=prompt,
             network_mode=network_mode,
             pipeline_id=pipeline_id,

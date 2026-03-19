@@ -685,6 +685,7 @@ class TestToolRouting:
             "list_checkpoints",
             "search_checkpoints",
             "get_contract",
+            "validate_config",
         }
         assert tool_names == expected
 
@@ -692,3 +693,100 @@ class TestToolRouting:
         result = handler.handle_tool_call("nonexistent", {})
         assert "error" in result
         assert "Unknown tool" in result["error"]
+
+
+class TestValidateConfig:
+    def test_valid_config(self, handler):
+        result = handler.handle_tool_call(
+            "validate_config",
+            {"config": {"start_phase": "implement", "hitl_gates": False}},
+        )
+        assert result["valid"] is True
+        assert result["config"]["start_phase"] == "implement"
+        assert result["config"]["hitl_gates"] is False
+
+    def test_valid_config_defaults(self, handler):
+        result = handler.handle_tool_call("validate_config", {"config": {}})
+        assert result["valid"] is True
+        assert "config" in result
+
+    def test_invalid_start_phase(self, handler):
+        result = handler.handle_tool_call(
+            "validate_config", {"config": {"start_phase": "nonexistent"}}
+        )
+        assert result["valid"] is False
+        assert any("start_phase" in str(e) for e in result["errors"])
+
+    def test_invalid_implement_roles(self, handler):
+        result = handler.handle_tool_call(
+            "validate_config", {"config": {"implement_roles": ["bad_role"]}}
+        )
+        assert result["valid"] is False
+        assert any("implement_roles" in str(e) for e in result["errors"])
+
+    def test_config_as_json_string(self, handler):
+        result = handler.handle_tool_call(
+            "validate_config",
+            {"config": '{"start_phase": "implement", "hitl_gates": false}'},
+        )
+        assert result["valid"] is True
+        assert result["config"]["start_phase"] == "implement"
+
+    def test_config_as_invalid_json_string(self, handler):
+        result = handler.handle_tool_call("validate_config", {"config": "not valid json"})
+        assert result["valid"] is False
+        assert len(result["errors"]) == 1
+        assert result["errors"][0]["field"] == "config"
+        assert "Invalid JSON" in result["errors"][0]["message"]
+
+
+class TestSubmitTaskConfigDeserialization:
+    """Test that submit_task correctly deserializes config strings."""
+
+    @patch("urllib.request.build_opener")
+    def test_config_string_deserialized_to_dict(self, mock_build_opener, handler):
+        """Config passed as a JSON string should be deserialized before forwarding."""
+        import json
+
+        # Mock the HTTP responses for both pipeline creation and start
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(
+            {"data": {"pipeline": {"id": "test-pipeline"}}}
+        ).encode()
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+
+        mock_opener = MagicMock()
+        mock_opener.open.return_value = mock_response
+        mock_build_opener.return_value = mock_opener
+
+        config_str = '{"start_phase": "implement", "hitl_gates": false}'
+        handler.handle_tool_call(
+            "submit_task",
+            {
+                "description": "Test task",
+                "repo": "owner/repo",
+                "config": config_str,
+            },
+        )
+
+        # Verify the request was made with deserialized config
+        call_args = mock_opener.open.call_args_list[0]
+        request_obj = call_args[0][0]
+        body = json.loads(request_obj.data)
+        assert isinstance(body["config"], dict)
+        assert body["config"]["start_phase"] == "implement"
+        assert body["config"]["hitl_gates"] is False
+
+    def test_config_malformed_json_string(self, handler):
+        """Malformed JSON config string should return a structured error."""
+        result = handler.handle_tool_call(
+            "submit_task",
+            {
+                "description": "Test task",
+                "repo": "owner/repo",
+                "config": "not valid json",
+            },
+        )
+        assert "error" in result
+        assert "Invalid config JSON" in result["error"]

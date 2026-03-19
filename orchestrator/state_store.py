@@ -732,6 +732,11 @@ class StateStore:
             if config:
                 from models import PipelineConfig
 
+                if isinstance(config, str):
+                    try:
+                        config = json.loads(config)
+                    except json.JSONDecodeError as e:
+                        raise StateStoreError(f"Invalid config JSON: {e}") from e
                 pipeline.config = PipelineConfig.model_validate(config)
 
             commit_msg = f"Create pipeline {pipeline_id}"
