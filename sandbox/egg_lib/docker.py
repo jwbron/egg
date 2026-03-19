@@ -380,12 +380,16 @@ def _copy_repo_watch_files(quiet: bool = False) -> None:
         persist_dirs = build_cmds.get("persist_dirs", [])
         if not isinstance(persist_dirs, list):
             persist_dirs = []
+        persist_system_dirs = build_cmds.get("persist_system_dirs", [])
+        if not isinstance(persist_system_dirs, list):
+            persist_system_dirs = []
         build_commands_list.append(
             {
                 "repo": repo_name,
                 "watch_files": [str(f) for f in watch_files],
                 "commands": [str(c) for c in commands],
                 "persist_dirs": [str(d) for d in persist_dirs],
+                "persist_system_dirs": [str(d) for d in persist_system_dirs],
             }
         )
 
