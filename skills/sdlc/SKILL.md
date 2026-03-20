@@ -2,7 +2,7 @@
 name: sdlc
 description: "Run an egg SDLC pipeline: full lifecycle (default) or lightweight coder+reviewer with --short."
 disable-model-invocation: true
-argument-hint: "[--short <description>] [issue# or description] [--repo owner/name]"
+argument-hint: "[--short <description>] [JIRA-1234 or issue# or description] [--repo owner/name]"
 ---
 
 # SDLC Pipeline
@@ -15,6 +15,16 @@ Parse the arguments provided after `/sdlc`. Check for the `--short` flag first:
 
 - If `--short` is present, remove it from the arguments and branch into the **[Short Flow](#short-flow)** below.
 - Otherwise, continue with the **Full Flow** (default) — walk through 6 phases: Seed, Pre-Refine, Submit, Monitor, HITL, and Complete.
+
+### JIRA Ticket Detection
+
+Any argument matching the pattern `<LETTER><ALPHANUMERIC>-<DIGITS>` (e.g., `KORE-1234`, `ENG-42`, `PLAT-999`) is a **JIRA ticket identifier**. This applies to both the Full Flow and Short Flow. When detected:
+
+1. The ticket ID is extracted and stored as `jira_ticket_id`
+2. JIRA and Confluence context is fetched automatically (see [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) below)
+3. The ticket summary becomes the task description, enriched with JIRA context
+
+The regex pattern for detection: `^[A-Z][A-Z0-9]+-\d+$` (case-insensitive match, then uppercase for API calls).
 
 ---
 
@@ -44,11 +54,15 @@ If the user provided arguments after `/sdlc`, parse them:
 |-------|---------------|
 | `/sdlc 1059` | Issue number (bare integer) |
 | `/sdlc #1059` | Issue number (with hash) |
+| `/sdlc KORE-1234` | JIRA ticket (matches `<LETTER><ALPHANUMERIC>-<DIGITS>` pattern) |
 | `/sdlc Add retry logic for API calls` | Free-text task description |
 | `/sdlc --repo jwbron/egg 1059` | Repo override + issue number |
 | `/sdlc --issue 1059` | Issue number (legacy flag, same as bare integer) |
+| `/sdlc --repo jwbron/egg KORE-1234` | Repo override + JIRA ticket |
 
 When an issue number is provided, fetch it immediately with `gh issue view <N> --repo <repo> --json title,body,comments,labels,assignees` and use the title+body as the task description. Proceed directly to Phase 1.5 (Pre-Refine) — no questions needed. Retain the full response (including comments, labels, and assignees) for use in Phase 1.5.
+
+When a JIRA ticket ID is provided (matches `^[A-Z][A-Z0-9]+-\d+$` case-insensitive), run the [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) procedure. Use the ticket summary as the task description, enriched with the gathered context. Proceed directly to Phase 1.5 (Pre-Refine) — no questions needed.
 
 When a free-text description is provided and the repo was auto-detected, proceed directly to Phase 1.5 (Pre-Refine).
 
@@ -56,7 +70,7 @@ When a free-text description is provided and the repo was auto-detected, proceed
 
 If the user ran `/sdlc` with no arguments, ask a **single** `AskUserQuestion`:
 
-- **Question**: "What should the pipeline work on? Type an issue number or task description below, or browse recent issues."
+- **Question**: "What should the pipeline work on? Type an issue number, JIRA ticket (e.g. KORE-1234), or task description below, or browse recent issues."
 - **Header**: "Task"
 - **Options**:
   - **"Browse recent issues"** — description: "List recent open issues to pick from"
@@ -66,12 +80,113 @@ The user will select an option or type in the auto-added "Other" field.
 
 Handle each response:
 
+- **Other (matches `<LETTER><ALPHANUMERIC>-<DIGITS>`)** → Treat as a JIRA ticket ID. Run [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) and proceed to Phase 1.5 (Pre-Refine).
 - **Other (integer)** → Treat as an issue number. Fetch with `gh issue view <N> --repo <repo> --json title,body,comments,labels,assignees` and proceed to Phase 1.5 (Pre-Refine).
 - **Other (text)** → Treat as a free-text task description. Proceed to Phase 1.5 (Pre-Refine).
 - **Browse recent issues** → Run `gh issue list --repo <repo> --state open --limit 10 --json number,title` and present the results as a second `AskUserQuestion` with each issue as an option. Once the user selects an issue, fetch it with `gh issue view <N> --repo <repo> --json title,body,comments,labels,assignees` and use the title+body as the task description. Then proceed to Phase 1.5 (Pre-Refine).
 - **Help me scope the task** → Ask 1–2 follow-up questions about scope and acceptance criteria. Synthesize the user's answers into a refined task description (incorporating scope boundaries and acceptance criteria) before proceeding to Phase 1.5 (Pre-Refine).
 
 **Never ask for the repo and the task in separate questions.** If the repo could not be auto-detected, include a repo question in the same `AskUserQuestion` call (multi-question mode).
+
+## JIRA & Confluence Context Gathering
+
+When a JIRA ticket ID is detected (e.g., `KORE-1234`), gather context from JIRA and Confluence before proceeding. This runs automatically — no user interaction needed.
+
+### Step 1: Fetch the JIRA ticket
+
+Check for local context-sync files first, then fall back to the API:
+
+1. **Local files** — Check `~/context-sync/jira/` for a cached ticket file (e.g., `KORE-1234.json` or `KORE-1234.md`). If found, read it and use the content.
+
+2. **JIRA API** — If no local file exists, fetch via the JIRA REST API:
+   ```bash
+   curl -s -u "$JIRA_USERNAME:$JIRA_API_TOKEN" \
+     "$JIRA_BASE_URL/rest/api/3/issue/<TICKET_ID>?expand=renderedFields" \
+     2>/dev/null
+   ```
+   Extract from the response:
+   - `fields.summary` — ticket title
+   - `fields.description` (or `renderedFields.description`) — full description
+   - `fields.status.name` — current status
+   - `fields.priority.name` — priority
+   - `fields.labels` — labels
+   - `fields.components` — components
+   - `fields.assignee.displayName` — assignee
+   - `fields.comment.comments` — comments (last 10)
+   - `fields.issuelinks` — linked issues (blockers, relates-to, etc.)
+   - `fields.subtasks` — subtasks if any
+   - `fields.parent` — parent epic/story if this is a subtask
+
+3. **Fallback** — If both local files and API fail (e.g., no credentials configured, private mode), inform the user:
+   ```
+   Could not fetch JIRA ticket <TICKET_ID>. JIRA credentials may not be configured.
+   Proceeding with the ticket ID as the task description.
+   ```
+   Use the raw ticket ID as the task description and continue — do not block the pipeline.
+
+### Step 2: Search for related Confluence documentation
+
+Use the JIRA ticket's project key, summary, and labels to find relevant Confluence docs:
+
+1. **Local files** — Search `~/context-sync/confluence/` for files matching the project key or ticket keywords:
+   ```bash
+   find ~/context-sync/confluence/ -name "*.md" -o -name "*.json" | head -20
+   ```
+   Then grep for the project key (e.g., `KORE`) and key terms from the ticket summary.
+
+2. **Confluence API** — If local files are insufficient, search via the Confluence REST API:
+   ```bash
+   curl -s -u "$CONFLUENCE_USERNAME:$CONFLUENCE_API_TOKEN" \
+     "$CONFLUENCE_BASE_URL/rest/api/content/search?cql=text~\"<TICKET_ID>\" OR text~\"<key terms from summary>\"&limit=5" \
+     2>/dev/null
+   ```
+   For each matching page, fetch its body:
+   ```bash
+   curl -s -u "$CONFLUENCE_USERNAME:$CONFLUENCE_API_TOKEN" \
+     "$CONFLUENCE_BASE_URL/rest/api/content/<page_id>?expand=body.storage" \
+     2>/dev/null
+   ```
+
+3. **Fallback** — If Confluence is unavailable, skip silently. Confluence context is supplementary, not required.
+
+### Step 3: Build enriched task description
+
+Compose the task description from the gathered context:
+
+```
+## JIRA Ticket: <TICKET_ID>
+
+**Summary**: <ticket summary>
+**Status**: <status> | **Priority**: <priority>
+**Labels**: <labels> | **Components**: <components>
+**Assignee**: <assignee>
+
+### Description
+
+<ticket description — rendered as markdown>
+
+### Key Comments
+
+<last 3-5 substantive comments, with author and date>
+
+### Linked Issues
+
+<linked issues with relationship type, key, summary, and status>
+
+## Confluence Context
+
+<relevant Confluence page excerpts, if found — include page title and a concise summary of each>
+```
+
+This enriched description replaces the raw ticket ID as the task description for all downstream phases.
+
+### Step 4: Determine the repository (if not already known)
+
+If `--repo` was not provided and the repo was not auto-detected, try to infer it from the JIRA ticket:
+
+1. Check the ticket's `components` or `labels` for a repo name
+2. Check if the project key maps to a known repo (e.g., project metadata or custom fields)
+3. If still unknown, ask the user via `AskUserQuestion`
 
 ## Phase 1.5 — Pre-Refine
 
@@ -82,6 +197,8 @@ A quick local triage pass to ensure the task description is clear and complete b
 ### Step 1: Review issue context (if available)
 
 If an issue number was provided, use the data already fetched in Phase 1 (which includes `title,body,comments,labels,assignees`). Do **not** re-fetch the issue.
+
+If a JIRA ticket was provided, the enriched description from [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) is already available. Use the JIRA ticket's linked issues, comments, and Confluence context to inform the code scan in Step 2. Do **not** re-fetch the ticket.
 
 Note any linked PRs or referenced issues mentioned in the body or comments — these provide useful context for the refiner.
 
@@ -164,16 +281,19 @@ Call the `submit_task` MCP tool with the gathered parameters:
 ```
 Tool: submit_task
 Arguments:
-  description: <task description>
+  description: <task description — enriched with JIRA/Confluence context if a JIRA ticket was provided>
   repo: <owner/name>
   issue_number: <number, if provided>
 ```
+
+When a JIRA ticket was the source, the `description` field should contain the full enriched description built in [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) Step 3 (including the JIRA ticket details, comments, linked issues, and any Confluence context). This ensures the pipeline agents have full context without needing JIRA access themselves.
 
 Store the returned `task_id`. Confirm submission to the user:
 
 > Task submitted successfully.
 > **Task ID**: `<task_id>`
-> **Description**: <description>
+> **Source**: JIRA `<TICKET_ID>` (or GitHub Issue `#<N>`, or free-text)
+> **Description**: <description summary — first line of the enriched description>
 > **Repository**: <repo>
 
 ## Phase 3 — Monitor
@@ -668,7 +788,7 @@ When the `--short` flag is detected, run this lightweight flow instead of the fu
 
 ## Phase S1 — Seed
 
-Collect the **repository** and **task description**. No issue number support — bare integers are treated as free-text descriptions, not issue lookups. Use the Full Flow for issue-based workflows.
+Collect the **repository** and **task description**. Bare integers are treated as free-text descriptions, not issue lookups (use the Full Flow for GitHub issue-based workflows). However, **JIRA ticket IDs are supported** — any argument matching `<LETTER><ALPHANUMERIC>-<DIGITS>` triggers automatic JIRA context gathering.
 
 ### Step 1: Auto-detect the repository (NEVER ask if detectable)
 
@@ -688,6 +808,10 @@ After stripping the `--short` flag, parse remaining arguments:
 |-------|---------------|
 | `/sdlc --short Add retry logic to the API client` | Free-text task description |
 | `/sdlc --short --repo jwbron/egg Fix flaky test` | Repo override + task description |
+| `/sdlc --short KORE-1234` | JIRA ticket (matches `<LETTER><ALPHANUMERIC>-<DIGITS>` pattern) |
+| `/sdlc --short --repo jwbron/egg ENG-42` | Repo override + JIRA ticket |
+
+When a JIRA ticket ID is detected, run the [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) procedure and use the enriched description as the task description. Proceed directly to Phase S2.
 
 When a free-text description is provided and the repo was auto-detected, proceed directly to Phase S2.
 
@@ -695,7 +819,7 @@ When a free-text description is provided and the repo was auto-detected, proceed
 
 If no task description was provided, ask a **single** `AskUserQuestion`:
 
-- **Question**: "What task should the agent implement?"
+- **Question**: "What task should the agent implement? Enter a JIRA ticket (e.g. KORE-1234) or describe the task."
 - **Header**: "Task"
 - **Options**:
   - **"Help me scope the task"** — description: "Ask clarifying questions about requirements before submitting"
@@ -704,6 +828,7 @@ The user will type their description in the auto-added "Other" field, or select 
 
 Handle each response:
 
+- **Other (matches `<LETTER><ALPHANUMERIC>-<DIGITS>`)** → Treat as a JIRA ticket ID. Run [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) and proceed to Phase S2.
 - **Other (text)** → Treat as a free-text task description. Proceed to Phase S2.
 - **Help me scope the task** → Ask 1–2 follow-up questions about scope and acceptance criteria, then proceed to Phase S2.
 
