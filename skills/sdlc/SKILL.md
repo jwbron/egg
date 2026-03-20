@@ -18,7 +18,7 @@ Parse the arguments provided after `/sdlc`. Check for the `--short` flag first:
 
 ### JIRA Ticket Detection
 
-Any argument matching the pattern `<LETTERS>-<DIGITS>` (e.g., `KORE-1234`, `ENG-42`, `PLAT-999`) is a **JIRA ticket identifier**. This applies to both the Full Flow and Short Flow. When detected:
+Any argument matching the pattern `<LETTER><ALPHANUMERIC>-<DIGITS>` (e.g., `KORE-1234`, `ENG-42`, `PLAT-999`) is a **JIRA ticket identifier**. This applies to both the Full Flow and Short Flow. When detected:
 
 1. The ticket ID is extracted and stored as `jira_ticket_id`
 2. JIRA and Confluence context is fetched automatically (see [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) below)
@@ -54,7 +54,7 @@ If the user provided arguments after `/sdlc`, parse them:
 |-------|---------------|
 | `/sdlc 1059` | Issue number (bare integer) |
 | `/sdlc #1059` | Issue number (with hash) |
-| `/sdlc KORE-1234` | JIRA ticket (matches `<LETTERS>-<DIGITS>` pattern) |
+| `/sdlc KORE-1234` | JIRA ticket (matches `<LETTER><ALPHANUMERIC>-<DIGITS>` pattern) |
 | `/sdlc Add retry logic for API calls` | Free-text task description |
 | `/sdlc --repo jwbron/egg 1059` | Repo override + issue number |
 | `/sdlc --issue 1059` | Issue number (legacy flag, same as bare integer) |
@@ -80,7 +80,7 @@ The user will select an option or type in the auto-added "Other" field.
 
 Handle each response:
 
-- **Other (matches `<LETTERS>-<DIGITS>`)** → Treat as a JIRA ticket ID. Run [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) and proceed to Phase 1.5 (Pre-Refine).
+- **Other (matches `<LETTER><ALPHANUMERIC>-<DIGITS>`)** → Treat as a JIRA ticket ID. Run [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) and proceed to Phase 1.5 (Pre-Refine).
 - **Other (integer)** → Treat as an issue number. Fetch with `gh issue view <N> --repo <repo> --json title,body,comments,labels,assignees` and proceed to Phase 1.5 (Pre-Refine).
 - **Other (text)** → Treat as a free-text task description. Proceed to Phase 1.5 (Pre-Refine).
 - **Browse recent issues** → Run `gh issue list --repo <repo> --state open --limit 10 --json number,title` and present the results as a second `AskUserQuestion` with each issue as an option. Once the user selects an issue, fetch it with `gh issue view <N> --repo <repo> --json title,body,comments,labels,assignees` and use the title+body as the task description. Then proceed to Phase 1.5 (Pre-Refine).
@@ -788,7 +788,7 @@ When the `--short` flag is detected, run this lightweight flow instead of the fu
 
 ## Phase S1 — Seed
 
-Collect the **repository** and **task description**. Bare integers are treated as free-text descriptions, not issue lookups (use the Full Flow for GitHub issue-based workflows). However, **JIRA ticket IDs are supported** — any argument matching `<LETTERS>-<DIGITS>` triggers automatic JIRA context gathering.
+Collect the **repository** and **task description**. Bare integers are treated as free-text descriptions, not issue lookups (use the Full Flow for GitHub issue-based workflows). However, **JIRA ticket IDs are supported** — any argument matching `<LETTER><ALPHANUMERIC>-<DIGITS>` triggers automatic JIRA context gathering.
 
 ### Step 1: Auto-detect the repository (NEVER ask if detectable)
 
@@ -808,7 +808,7 @@ After stripping the `--short` flag, parse remaining arguments:
 |-------|---------------|
 | `/sdlc --short Add retry logic to the API client` | Free-text task description |
 | `/sdlc --short --repo jwbron/egg Fix flaky test` | Repo override + task description |
-| `/sdlc --short KORE-1234` | JIRA ticket (matches `<LETTERS>-<DIGITS>` pattern) |
+| `/sdlc --short KORE-1234` | JIRA ticket (matches `<LETTER><ALPHANUMERIC>-<DIGITS>` pattern) |
 | `/sdlc --short --repo jwbron/egg ENG-42` | Repo override + JIRA ticket |
 
 When a JIRA ticket ID is detected, run the [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) procedure and use the enriched description as the task description. Proceed directly to Phase S2.
@@ -819,7 +819,7 @@ When a free-text description is provided and the repo was auto-detected, proceed
 
 If no task description was provided, ask a **single** `AskUserQuestion`:
 
-- **Question**: "What task should the agent implement?"
+- **Question**: "What task should the agent implement? Enter a JIRA ticket (e.g. KORE-1234) or describe the task."
 - **Header**: "Task"
 - **Options**:
   - **"Help me scope the task"** — description: "Ask clarifying questions about requirements before submitting"
@@ -828,6 +828,7 @@ The user will type their description in the auto-added "Other" field, or select 
 
 Handle each response:
 
+- **Other (matches `<LETTER><ALPHANUMERIC>-<DIGITS>`)** → Treat as a JIRA ticket ID. Run [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) and proceed to Phase S2.
 - **Other (text)** → Treat as a free-text task description. Proceed to Phase S2.
 - **Help me scope the task** → Ask 1–2 follow-up questions about scope and acceptance criteria, then proceed to Phase S2.
 
