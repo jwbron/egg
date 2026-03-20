@@ -13,7 +13,7 @@ Related: issue #1059
 """
 
 import sys
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -80,7 +80,7 @@ def mock_docker_client():
         container_id="overseer123def456",
         container_name="egg-issue-100-overseer",
         status=ContainerStatus.RUNNING,
-        started_at=datetime.utcnow(),
+        started_at=datetime.now(UTC),
     )
 
     mock.stop_container.return_value = ContainerInfo(
@@ -110,8 +110,8 @@ def mock_gateway_client():
         container_id="overseer123def456",
         container_ip="172.32.0.60",
         mode="public",
-        created_at=datetime.utcnow(),
-        expires_at=datetime.utcnow() + timedelta(hours=24),
+        created_at=datetime.now(UTC),
+        expires_at=datetime.now(UTC) + timedelta(hours=24),
     )
 
     return mock
@@ -433,7 +433,7 @@ class TestPersistsAcrossPhases:
             container_id="agent-abc123",
             container_name="egg-issue-710-coder",
             status=ContainerStatus.RUNNING,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(UTC),
         )
         mock_docker_client.stop_container.return_value = ContainerInfo(
             container_id="agent-abc123",
@@ -703,7 +703,7 @@ class TestOverseerRespawn:
                 container_id=respawned_id,
                 container_name="egg-issue-1270-overseer",
                 status=ContainerStatus.RUNNING,
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             ),
             session_info=None,
             agent_role=AgentRole.OVERSEER,
@@ -960,7 +960,7 @@ class TestOverseerRespawn:
             container_id=original_id,
             container_name="egg-issue-1270-overseer",
             status=ContainerStatus.RUNNING,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(UTC),
         )
 
         new_id, new_count = _check_and_respawn_overseer(

@@ -81,7 +81,7 @@ class HealthResult:
             "reasoning": self.reasoning,
             "action": self.action.value,
             "details": self.details,
-            "timestamp": self.timestamp.replace(tzinfo=None).isoformat() + "Z",
+            "timestamp": self.timestamp.isoformat(),
         }
 
 

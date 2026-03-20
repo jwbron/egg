@@ -9,7 +9,7 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -684,7 +684,7 @@ def _mark_pipeline_records_terminated(
     Returns the updated pipeline so the caller can use it in the response.
     """
     pipeline = store.load_pipeline(pipeline_id)
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     changed = False
 
     for phase_exec in pipeline.phases.values():
@@ -4025,7 +4025,7 @@ def _run_concurrent_phase(
                             container_id=exec_info.container_id,
                             container_name=f"{pipeline_id}-{exec_info.role.value}",
                             status=ContainerStatus.RUNNING,
-                            started_at=datetime.utcnow(),
+                            started_at=datetime.now(UTC),
                             agent_role=exec_info.role,
                         )
                         phase_execution.containers.append(container_info)
@@ -4038,7 +4038,7 @@ def _run_concurrent_phase(
                             else StateAgentStatus.FAILED
                         ),
                         container_id=exec_info.container_id,
-                        started_at=datetime.utcnow(),
+                        started_at=datetime.now(UTC),
                     )
                     phase_execution.agents.append(agent_state)
                 store.save_pipeline(pip)
@@ -4123,7 +4123,7 @@ def _run_concurrent_phase(
 
                     for agent in pe.agents:
                         if agent.container_id == exec_info.container_id:
-                            agent.completed_at = datetime.utcnow()
+                            agent.completed_at = datetime.now(UTC)
                             if final_info.exit_code == 0:
                                 agent.status = StateAgentStatus.COMPLETE
                             else:
@@ -4160,7 +4160,7 @@ def _run_concurrent_phase(
                 for agent in pe.agents:
                     if agent.status in (StateAgentStatus.RUNNING, StateAgentStatus.FAILED):
                         agent.status = StateAgentStatus.COMPLETE
-                        agent.completed_at = datetime.utcnow()
+                        agent.completed_at = datetime.now(UTC)
                         if agent.container_id:
                             completed_container_ids.add(agent.container_id)
                 # Also mark containers as exited so the container monitor
@@ -4175,7 +4175,7 @@ def _run_concurrent_phase(
                         # Synthetic: container will be stopped next, but 0
                         # reflects successful consensus completion.
                         ci.exit_code = 0
-                        ci.exited_at = datetime.utcnow()
+                        ci.exited_at = datetime.now(UTC)
                 store.save_pipeline(pip)
         except Exception as track_err:
             logger.warning(
@@ -4345,7 +4345,7 @@ def _run_concurrent_phase(
                     container_name=f"{pipeline_id}-{exec_info.role.value}",
                     status=ContainerStatus.FAILED,
                     exit_code=-1,
-                    exited_at=datetime.utcnow(),
+                    exited_at=datetime.now(UTC),
                 )
 
             if info.status in (
@@ -4504,7 +4504,7 @@ def _run_concurrent_phase(
                                 container_name=f"{pipeline_id}-{exec_info.role.value}",
                                 status=ContainerStatus.FAILED,
                                 exit_code=-1,
-                                exited_at=datetime.utcnow(),
+                                exited_at=datetime.now(UTC),
                             )
                         _record_container_exit(exec_info, final_info)
 
@@ -4617,7 +4617,7 @@ def _spawn_and_wait(
                     container_id=spawned.container_info.container_id,
                     container_name=spawned.container_info.container_name,
                     status=ContainerStatus.RUNNING,
-                    started_at=datetime.utcnow(),
+                    started_at=datetime.now(UTC),
                     agent_role=agent_role,
                 )
                 phase_execution.containers.append(container_info)
@@ -4627,7 +4627,7 @@ def _spawn_and_wait(
                     role=agent_role,
                     status=AgentExecutionStatus.RUNNING,
                     container_id=spawned.container_info.container_id,
-                    started_at=datetime.utcnow(),
+                    started_at=datetime.now(UTC),
                 )
                 phase_execution.agents.append(agent_execution)
 
@@ -4656,7 +4656,7 @@ def _spawn_and_wait(
             container_name=spawned.container_info.container_name,
             status=ContainerStatus.FAILED,
             exit_code=-1,
-            exited_at=datetime.utcnow(),
+            exited_at=datetime.now(UTC),
         )
 
     container_logs = ""
@@ -4689,7 +4689,7 @@ def _spawn_and_wait(
                 # Update agent status
                 for agent in phase_execution.agents:
                     if agent.container_id == spawned.container_info.container_id:
-                        agent.completed_at = datetime.utcnow()
+                        agent.completed_at = datetime.now(UTC)
                         if final_info.exit_code == 0:
                             agent.status = AgentExecutionStatus.COMPLETE
                         else:
@@ -5689,7 +5689,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     pipeline = store.load_pipeline(pipeline_id)
                     phase_execution = pipeline.get_phase_execution(current_phase)
                     phase_execution.status = PipelineStatus.RUNNING
-                    phase_execution.started_at = datetime.utcnow()
+                    phase_execution.started_at = datetime.now(UTC)
                     phase_execution.phase_start_sha = phase_start_sha
                     pipeline.status = PipelineStatus.RUNNING
                     store.save_pipeline(pipeline)
@@ -5757,7 +5757,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
                     phase_execution = pipeline.get_phase_execution(current_phase)
-                    phase_execution.work_started_at = datetime.utcnow()
+                    phase_execution.work_started_at = datetime.now(UTC)
                     store.save_pipeline(pipeline)
 
                 # Ensure contract and statefiles exist before PR creation
@@ -5821,7 +5821,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
                         # Record when actual agent work begins (excludes sandbox setup
                         # and HITL waiting time from the phase duration).
-                        phase_execution.work_started_at = datetime.utcnow()
+                        phase_execution.work_started_at = datetime.now(UTC)
 
                         # Capture HEAD commit for delta reviews: reviewers in
                         # subsequent cycles can diff against this to see only
@@ -5899,10 +5899,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline = store.load_pipeline(pipeline_id)
                             phase_execution = pipeline.get_phase_execution(current_phase)
                             if phase_execution.cycle_timings:
-                                phase_execution.cycle_timings[-1].completed_at = datetime.utcnow()
+                                phase_execution.cycle_timings[-1].completed_at = datetime.now(UTC)
                             phase_execution.status = PipelineStatus.FAILED
                             phase_execution.error = str(e)
-                            phase_execution.completed_at = datetime.utcnow()
+                            phase_execution.completed_at = datetime.now(UTC)
                             pipeline.status = PipelineStatus.FAILED
                             pipeline.error = str(e)
                             store.save_pipeline(pipeline)
@@ -5925,10 +5925,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline = store.load_pipeline(pipeline_id)
                             phase_execution = pipeline.get_phase_execution(current_phase)
                             if phase_execution.cycle_timings:
-                                phase_execution.cycle_timings[-1].completed_at = datetime.utcnow()
+                                phase_execution.cycle_timings[-1].completed_at = datetime.now(UTC)
                             phase_execution.status = PipelineStatus.FAILED
                             phase_execution.error = error_msg
-                            phase_execution.completed_at = datetime.utcnow()
+                            phase_execution.completed_at = datetime.now(UTC)
                             pipeline.status = PipelineStatus.FAILED
                             pipeline.error = error_msg
                             store.save_pipeline(pipeline)
@@ -5997,7 +5997,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 pipeline = store.load_pipeline(pipeline_id)
                 phase_execution = pipeline.get_phase_execution(current_phase)
                 phase_execution.status = PipelineStatus.COMPLETE
-                phase_execution.completed_at = datetime.utcnow()
+                phase_execution.completed_at = datetime.now(UTC)
 
                 store.save_pipeline(pipeline)  # Persist phase completion before HITL gate
 
@@ -6371,7 +6371,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     phase_execution = pipeline.get_phase_execution(current_phase)
                     phase_execution.status = PipelineStatus.COMPLETE
                     if phase_execution.completed_at is None:
-                        phase_execution.completed_at = datetime.utcnow()
+                        phase_execution.completed_at = datetime.now(UTC)
                     store.save_pipeline(pipeline)
 
                 # Persist phase gate resolution to contract and draft so
@@ -6683,7 +6683,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
                     phase_execution.status = PipelineStatus.COMPLETE
                     if phase_execution.completed_at is None:
-                        phase_execution.completed_at = datetime.utcnow()
+                        phase_execution.completed_at = datetime.now(UTC)
 
                     # Persist phase gate resolution so next-phase agents see it.  #1295
                     if phase_gate_decisions:
@@ -6737,7 +6737,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         # thread (e.g. stuck in its finally block) detects the
                         # recreation and exits without double-cleaning up.
                         pipeline.status = PipelineStatus.COMPLETE
-                        pipeline.created_at = datetime.utcnow()
+                        pipeline.created_at = datetime.now(UTC)
                         store.save_pipeline(pipeline)
                         return make_success_response(
                             "Pipeline recovered and completed",
@@ -6784,7 +6784,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         phase_execution.hitl_feedback = revision_feedback
 
                 pipeline.error = None
-                pipeline.created_at = datetime.utcnow()
+                pipeline.created_at = datetime.now(UTC)
                 pipeline.status = PipelineStatus.RUNNING
                 store.save_pipeline(pipeline)
 
@@ -6854,7 +6854,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
                 # Bump created_at so the old _run_pipeline thread's finally block
                 # detects the restart and skips worktree cleanup.
-                pipeline.created_at = datetime.utcnow()
+                pipeline.created_at = datetime.now(UTC)
 
             # Mark pipeline as running
             pipeline.status = PipelineStatus.RUNNING

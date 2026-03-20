@@ -8,7 +8,7 @@ for sandbox containers spawned by the orchestrator.
 import os
 import re
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -171,7 +171,7 @@ class DockerClient:
         container_labels = {
             "egg.orchestrator": "true",
             "egg.container.name": name,
-            "egg.created_at": datetime.utcnow().isoformat(),
+            "egg.created_at": datetime.now(UTC).isoformat(),
         }
         if labels:
             container_labels.update(labels)
@@ -236,7 +236,7 @@ class DockerClient:
                 container_id=container.id,
                 container_name=container.name,
                 status=ContainerStatus.RUNNING,
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
 
         except NotFound as e:
@@ -283,7 +283,7 @@ class DockerClient:
                 container_name=container.name,
                 status=ContainerStatus.EXITED,
                 exit_code=exit_code,
-                exited_at=datetime.utcnow(),
+                exited_at=datetime.now(UTC),
             )
 
         except NotFound as e:
@@ -478,7 +478,7 @@ class DockerClient:
                 container_name=container.name,
                 status=ContainerStatus.EXITED,
                 exit_code=result.get("StatusCode"),
-                exited_at=datetime.utcnow(),
+                exited_at=datetime.now(UTC),
             )
 
         except NotFound as e:
@@ -499,7 +499,7 @@ class DockerClient:
             Number of containers removed
         """
         removed = 0
-        cutoff = datetime.utcnow()
+        cutoff = datetime.now(UTC)
 
         for container in self.list_containers(all=True):
             # Check if exited and old enough

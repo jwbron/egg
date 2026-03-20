@@ -1104,7 +1104,7 @@ class TestHealthResultSerialization:
         assert d["action"] == "alert"
         assert d["details"] == {"raw_response": "some text"}
         assert "timestamp" in d
-        assert d["timestamp"].endswith("Z")
+        assert d["timestamp"].endswith("+00:00")
 
     def test_to_dict_default_action(self):
         result = HealthResult(

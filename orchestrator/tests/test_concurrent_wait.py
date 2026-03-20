@@ -4,7 +4,7 @@ Covers the container wait lifecycle, pipeline state recording/updating, and
 the behavior when a subset of agents fail to spawn.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -56,7 +56,7 @@ def _make_execution(role: AgentRole, container_id: str, status=AgentExecutionSta
         role=role,
         status=status,
         container_id=container_id,
-        started_at=datetime.utcnow(),
+        started_at=datetime.now(UTC),
     )
 
 
@@ -114,7 +114,7 @@ class TestRunConcurrentPhaseWait:
                         container_name=f"issue-999-{e.role.value}",
                         status=ContainerStatus.EXITED,
                         exit_code=0,
-                        exited_at=datetime.utcnow(),
+                        exited_at=datetime.now(UTC),
                     )
 
         def _wait_side_effect(container_id, timeout=3600):
@@ -199,14 +199,14 @@ class TestRunConcurrentPhaseWait:
                 container_name="issue-999-coder",
                 status=ContainerStatus.EXITED,
                 exit_code=0,
-                exited_at=datetime.utcnow(),
+                exited_at=datetime.now(UTC),
             ),
             "tester-abc": ContainerInfo(
                 container_id="tester-abc",
                 container_name="issue-999-tester",
                 status=ContainerStatus.FAILED,
                 exit_code=1,
-                exited_at=datetime.utcnow(),
+                exited_at=datetime.now(UTC),
             ),
         }
 

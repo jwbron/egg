@@ -15,7 +15,7 @@ Related: issue #1059 — Phase 5 overseer issue filing
 import asyncio
 import subprocess
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -150,7 +150,7 @@ class TestOverseerIssueFilingIntegration:
             "stall_duration_seconds": 600,
             "last_progress_step": "Reading same file",
             "redirect_attempts": 2,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
         # Template should include all critical fields

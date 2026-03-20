@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -240,8 +240,8 @@ class DecisionQueue:
 
                     decision.status = DecisionStatus.RESOLVED
                     decision.resolution = resolution
-                    decision.resolved_at = datetime.utcnow()
-                    pipeline.updated_at = datetime.utcnow()
+                    decision.resolved_at = datetime.now(UTC)
+                    pipeline.updated_at = datetime.now(UTC)
 
                     self._save_pipeline(pipeline)
 
@@ -277,8 +277,8 @@ class DecisionQueue:
                         return decision
 
                     decision.status = DecisionStatus.CANCELLED
-                    decision.resolved_at = datetime.utcnow()
-                    pipeline.updated_at = datetime.utcnow()
+                    decision.resolved_at = datetime.now(UTC)
+                    pipeline.updated_at = datetime.now(UTC)
 
                     self._save_pipeline(pipeline)
 

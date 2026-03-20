@@ -1,7 +1,7 @@
 """Tests for startup_reconciliation.reconcile_stale_containers()."""
 
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -51,14 +51,14 @@ def _make_pipeline_with_running_agent(container_id: str = "abc123") -> Pipeline:
     )
     phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
     phase.status = PipelineStatus.RUNNING
-    phase.started_at = datetime.utcnow()
+    phase.started_at = datetime.now(UTC)
 
     phase.containers.append(
         ContainerInfo(
             container_id=container_id,
             container_name="egg-coder-issue-99",
             status=ContainerStatus.RUNNING,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(UTC),
         )
     )
     phase.agents.append(
@@ -66,7 +66,7 @@ def _make_pipeline_with_running_agent(container_id: str = "abc123") -> Pipeline:
             role=AgentRole.CODER,
             status=AgentExecutionStatus.RUNNING,
             container_id=container_id,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(UTC),
         )
     )
     return pipeline
@@ -251,7 +251,7 @@ class TestReconcileStaleContainers:
         )
         phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         phase.status = PipelineStatus.RUNNING
-        phase.started_at = datetime.utcnow()
+        phase.started_at = datetime.now(UTC)
 
         live_id = "live_abc"
         dead_id = "dead_xyz"
@@ -262,7 +262,7 @@ class TestReconcileStaleContainers:
                     container_id=cid,
                     container_name=cname,
                     status=ContainerStatus.RUNNING,
-                    started_at=datetime.utcnow(),
+                    started_at=datetime.now(UTC),
                 )
             )
             phase.agents.append(
@@ -270,7 +270,7 @@ class TestReconcileStaleContainers:
                     role=AgentRole.CODER,
                     status=AgentExecutionStatus.RUNNING,
                     container_id=cid,
-                    started_at=datetime.utcnow(),
+                    started_at=datetime.now(UTC),
                 )
             )
 
@@ -336,13 +336,13 @@ class TestReconcileStaleContainers:
         # Prior phase (refine) has a dead container — expected after phase transition
         refine_phase = pipeline.get_phase_execution(PipelinePhase.REFINE)
         refine_phase.status = PipelineStatus.COMPLETE
-        refine_phase.started_at = datetime.utcnow()
+        refine_phase.started_at = datetime.now(UTC)
         refine_phase.containers.append(
             ContainerInfo(
                 container_id="refine_dead_abc",
                 container_name="egg-coder-refine",
                 status=ContainerStatus.RUNNING,
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
         )
         refine_phase.agents.append(
@@ -350,20 +350,20 @@ class TestReconcileStaleContainers:
                 role=AgentRole.CODER,
                 status=AgentExecutionStatus.RUNNING,
                 container_id="refine_dead_abc",
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
         )
 
         # Current phase (plan) has a live container
         plan_phase = pipeline.get_phase_execution(PipelinePhase.PLAN)
         plan_phase.status = PipelineStatus.RUNNING
-        plan_phase.started_at = datetime.utcnow()
+        plan_phase.started_at = datetime.now(UTC)
         plan_phase.containers.append(
             ContainerInfo(
                 container_id="plan_live_xyz",
                 container_name="egg-coder-plan",
                 status=ContainerStatus.RUNNING,
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
         )
         plan_phase.agents.append(
@@ -371,7 +371,7 @@ class TestReconcileStaleContainers:
                 role=AgentRole.CODER,
                 status=AgentExecutionStatus.RUNNING,
                 container_id="plan_live_xyz",
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
         )
 
@@ -404,13 +404,13 @@ class TestReconcileStaleContainers:
         # Prior phase (refine) has a dead container — should be ignored
         refine_phase = pipeline.get_phase_execution(PipelinePhase.REFINE)
         refine_phase.status = PipelineStatus.COMPLETE
-        refine_phase.started_at = datetime.utcnow()
+        refine_phase.started_at = datetime.now(UTC)
         refine_phase.containers.append(
             ContainerInfo(
                 container_id="refine_dead_abc",
                 container_name="egg-coder-refine",
                 status=ContainerStatus.RUNNING,
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
         )
         refine_phase.agents.append(
@@ -418,20 +418,20 @@ class TestReconcileStaleContainers:
                 role=AgentRole.CODER,
                 status=AgentExecutionStatus.RUNNING,
                 container_id="refine_dead_abc",
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
         )
 
         # Current phase (plan) has a dead container — should trigger FAILED
         plan_phase = pipeline.get_phase_execution(PipelinePhase.PLAN)
         plan_phase.status = PipelineStatus.RUNNING
-        plan_phase.started_at = datetime.utcnow()
+        plan_phase.started_at = datetime.now(UTC)
         plan_phase.containers.append(
             ContainerInfo(
                 container_id="plan_dead_xyz",
                 container_name="egg-coder-plan",
                 status=ContainerStatus.RUNNING,
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
         )
         plan_phase.agents.append(
@@ -439,7 +439,7 @@ class TestReconcileStaleContainers:
                 role=AgentRole.CODER,
                 status=AgentExecutionStatus.RUNNING,
                 container_id="plan_dead_xyz",
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
         )
 
@@ -579,13 +579,13 @@ class TestStartupConsensusReconstruction:
 
         phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         phase.status = PipelineStatus.RUNNING
-        phase.started_at = datetime.utcnow()
+        phase.started_at = datetime.now(UTC)
         phase.containers.append(
             ContainerInfo(
                 container_id="live123",
                 container_name="egg-coder",
                 status=ContainerStatus.RUNNING,
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
         )
         phase.agents.append(
@@ -593,7 +593,7 @@ class TestStartupConsensusReconstruction:
                 role=AgentRole.CODER,
                 status=AgentExecutionStatus.RUNNING,
                 container_id="live123",
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
         )
 
@@ -633,13 +633,13 @@ class TestStartupConsensusReconstruction:
 
         phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         phase.status = PipelineStatus.RUNNING
-        phase.started_at = datetime.utcnow()
+        phase.started_at = datetime.now(UTC)
         phase.containers.append(
             ContainerInfo(
                 container_id="live123",
                 container_name="egg-coder",
                 status=ContainerStatus.RUNNING,
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
         )
         phase.agents.append(
@@ -647,7 +647,7 @@ class TestStartupConsensusReconstruction:
                 role=AgentRole.CODER,
                 status=AgentExecutionStatus.RUNNING,
                 container_id="live123",
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
         )
 

@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 from collections.abc import Generator
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from queue import Empty, Full, Queue
 from typing import Any
@@ -121,7 +121,7 @@ class UnifiedSSEManager:
         payload = {
             "event_type": event.event_type.value,
             "pipeline_id": event.pipeline_id,
-            "timestamp": event.timestamp.isoformat() + "Z",
+            "timestamp": event.timestamp.isoformat(),
             "data": dict(event.data),
             "is_terminal": is_terminal,
         }
@@ -320,7 +320,7 @@ def create_unified_sse_stream(
                 # end the unified stream — we keep watching all pipelines.
 
             except Empty:
-                yield format_sse_comment(f"heartbeat {datetime.utcnow().isoformat()}Z")
+                yield format_sse_comment(f"heartbeat {datetime.now(UTC).isoformat()}")
 
     finally:
         manager.remove_client(q)

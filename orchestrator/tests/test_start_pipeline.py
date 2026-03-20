@@ -4,7 +4,7 @@ import json
 import sys
 import threading
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -69,9 +69,9 @@ def _make_pipeline(status, phase=PipelinePhase.REFINE, phase_status=None):
     if phase_status is not None:
         execution = pipeline.get_phase_execution(phase)
         execution.status = phase_status
-        execution.started_at = datetime.utcnow()
+        execution.started_at = datetime.now(UTC)
         if phase_status in (PipelineStatus.FAILED, PipelineStatus.COMPLETE):
-            execution.completed_at = datetime.utcnow()
+            execution.completed_at = datetime.now(UTC)
         if phase_status == PipelineStatus.FAILED:
             execution.error = "Container exited with code 1"
             execution.review_cycles = 1
@@ -333,8 +333,8 @@ def _make_awaiting_pipeline(
     # Mark current phase as COMPLETE (as it would be when HITL gate fires)
     phase_exec = pipeline.get_phase_execution(phase)
     phase_exec.status = PipelineStatus.COMPLETE
-    phase_exec.started_at = datetime.utcnow()
-    phase_exec.completed_at = datetime.utcnow()
+    phase_exec.started_at = datetime.now(UTC)
+    phase_exec.completed_at = datetime.now(UTC)
     phase_exec.agents = [AgentExecution(role="coder", container_id="old-container")]
     phase_exec.artifacts = {"pr_url": "https://github.com/old/pr"}
 

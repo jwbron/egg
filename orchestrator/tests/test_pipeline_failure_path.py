@@ -8,7 +8,7 @@ Verifies that when a phase fails:
 
 import os
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -43,7 +43,7 @@ def _make_running_pipeline(branch="egg/issue-42"):
     pipeline.contract_synced = True  # Skip contract creation
     execution = pipeline.get_phase_execution(PipelinePhase.REFINE)
     execution.status = PipelineStatus.RUNNING
-    execution.started_at = datetime.utcnow()
+    execution.started_at = datetime.now(UTC)
     return pipeline
 
 
@@ -443,7 +443,7 @@ class TestSuccessPathPushesStatefiles:
         pipeline.contract_synced = True
         execution = pipeline.get_phase_execution(PipelinePhase.PR)
         execution.status = PipelineStatus.RUNNING
-        execution.started_at = datetime.utcnow()
+        execution.started_at = datetime.now(UTC)
 
         mock_store, mock_gateway = _setup_mocks(
             mock_report,
@@ -529,7 +529,7 @@ class TestSuccessPathPushesStatefiles:
         pipeline.contract_synced = False  # Triggers contract initialization
         execution = pipeline.get_phase_execution(PipelinePhase.PR)
         execution.status = PipelineStatus.RUNNING
-        execution.started_at = datetime.utcnow()
+        execution.started_at = datetime.now(UTC)
 
         mock_store, mock_gateway = _setup_mocks(
             mock_report,
@@ -614,7 +614,7 @@ class TestSuccessPathPushesStatefiles:
         pipeline.contract_synced = True
         execution = pipeline.get_phase_execution(PipelinePhase.PR)
         execution.status = PipelineStatus.RUNNING
-        execution.started_at = datetime.utcnow()
+        execution.started_at = datetime.now(UTC)
 
         mock_store, mock_gateway = _setup_mocks(
             mock_report,
@@ -925,7 +925,7 @@ class TestAgentWorktreeCleanup:
         pipeline.contract_synced = True
         execution = pipeline.get_phase_execution(PipelinePhase.PR)
         execution.status = PipelineStatus.RUNNING
-        execution.started_at = datetime.utcnow()
+        execution.started_at = datetime.now(UTC)
 
         mock_store, mock_gateway = _setup_mocks(
             mock_report,
@@ -1011,7 +1011,7 @@ class TestAgentWorktreeCleanup:
         pipeline.contract_synced = True
         execution = pipeline.get_phase_execution(PipelinePhase.PR)
         execution.status = PipelineStatus.RUNNING
-        execution.started_at = datetime.utcnow()
+        execution.started_at = datetime.now(UTC)
 
         mock_store, mock_gateway = _setup_mocks(
             mock_report,

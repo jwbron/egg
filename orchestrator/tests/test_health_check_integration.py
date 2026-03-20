@@ -361,7 +361,7 @@ class TestHealthResultSerialization:
         assert d["reasoning"] == "Agent missing container"
         assert d["action"] == "fail_pipeline"
         assert d["details"]["count"] == 1
-        assert d["timestamp"].endswith("Z")
+        assert d["timestamp"].endswith("+00:00")
 
     def test_to_dict_default_action(self):
         result = HealthResult(

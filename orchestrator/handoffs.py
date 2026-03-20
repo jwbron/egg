@@ -7,7 +7,7 @@ to dependent agents.
 
 import json
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -70,7 +70,7 @@ class HandoffData:
         """
         self.source_role = source_role
         self.data = data
-        self.timestamp = timestamp or datetime.utcnow()
+        self.timestamp = timestamp or datetime.now(UTC)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
@@ -118,7 +118,7 @@ class AgentOutput:
         self.handoff_data = handoff_data or {}
         self.logs = logs
         self.metrics = metrics or {}
-        self.timestamp = datetime.utcnow()
+        self.timestamp = datetime.now(UTC)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""

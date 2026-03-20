@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -63,7 +63,7 @@ class ContainerEvent:
     ):
         self.event_type = event_type
         self.container_info = container_info
-        self.timestamp = timestamp or datetime.utcnow()
+        self.timestamp = timestamp or datetime.now(UTC)
         self.data = data or {}
 
 
@@ -289,9 +289,9 @@ class ContainerMonitor:
                 for agent in phase_exec.agents:
                     if agent.status == AgentExecutionStatus.RUNNING:
                         agent.status = AgentExecutionStatus.COMPLETE
-                        agent.completed_at = datetime.utcnow()
+                        agent.completed_at = datetime.now(UTC)
                 phase_exec.status = PipelineStatus.COMPLETE
-                phase_exec.completed_at = datetime.utcnow()
+                phase_exec.completed_at = datetime.now(UTC)
 
                 store.save_pipeline(fresh_pipeline, expected_version=original_version)
                 logger.info(
@@ -756,7 +756,7 @@ def _reconcile_container_state(store: Any, container_info: ContainerInfo) -> boo
                         ci.exit_code = (
                             container_info.exit_code if container_info.exit_code is not None else -1
                         )
-                        ci.exited_at = container_info.exited_at or datetime.utcnow()
+                        ci.exited_at = container_info.exited_at or datetime.now(UTC)
                         changed = True
 
                 for agent in phase_execution.agents:
@@ -771,7 +771,7 @@ def _reconcile_container_state(store: Any, container_info: ContainerInfo) -> boo
                             container_id=container_info.container_id[:12],
                         )
                         agent.status = AgentExecutionStatus.FAILED
-                        agent.completed_at = datetime.utcnow()
+                        agent.completed_at = datetime.now(UTC)
                         agent.error = (
                             "Container exited unexpectedly during execution — "
                             "detected by runtime container monitor"

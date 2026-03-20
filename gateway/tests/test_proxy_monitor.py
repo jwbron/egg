@@ -2,7 +2,7 @@
 
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -67,7 +67,7 @@ class TestProxyStats:
         """record_blocked increments count and stores request."""
         stats = ProxyStats()
         req = BlockedRequest(
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             client_ip="10.0.0.1",
             destination="evil.com",
             method="GET",
@@ -84,7 +84,7 @@ class TestProxyStats:
         stats = ProxyStats()
         for _ in range(3):
             req = BlockedRequest(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 client_ip="10.0.0.1",
                 destination="evil.com",
                 method="GET",
@@ -99,7 +99,7 @@ class TestProxyStats:
         stats = ProxyStats(alert_threshold=5)
         for _ in range(4):
             req = BlockedRequest(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 client_ip="10.0.0.1",
                 destination="evil.com",
                 method="GET",
@@ -114,7 +114,7 @@ class TestProxyStats:
         stats = ProxyStats(alert_threshold=3, window_minutes=5)
         for _ in range(3):
             req = BlockedRequest(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 client_ip="10.0.0.1",
                 destination="evil.com",
                 method="GET",
@@ -127,7 +127,7 @@ class TestProxyStats:
     def test_check_anomaly_old_requests_ignored(self):
         """_check_anomaly ignores requests outside the time window."""
         stats = ProxyStats(alert_threshold=3, window_minutes=5)
-        old_time = datetime.utcnow() - timedelta(minutes=10)
+        old_time = datetime.now(UTC) - timedelta(minutes=10)
         for _ in range(5):
             req = BlockedRequest(
                 timestamp=old_time,
@@ -157,7 +157,7 @@ class TestProxyStats:
         stats = ProxyStats(alert_threshold=2, window_minutes=5)
         for _ in range(2):
             req = BlockedRequest(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 client_ip="10.0.0.1",
                 destination="evil.com",
                 method="GET",

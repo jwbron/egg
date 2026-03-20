@@ -191,7 +191,9 @@ class HITLDecision(BaseModel):
         description="Structured feedback questions with keys: id, question, answer",
     )
     status: DecisionStatus = Field(default=DecisionStatus.PENDING, description="Decision status")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="When created")
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), description="When created"
+    )
     resolved_at: datetime | None = Field(default=None, description="When resolved")
     resolution: str | None = Field(default=None, description="Human's response")
     phase: PipelinePhase | None = Field(
@@ -380,9 +382,11 @@ class Pipeline(BaseModel):
     )
     decisions: list[HITLDecision] = Field(default_factory=list, description="HITL decisions")
     created_at: datetime = Field(
-        default_factory=datetime.utcnow, description="When pipeline was created"
+        default_factory=lambda: datetime.now(UTC), description="When pipeline was created"
     )
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update time")
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), description="Last update time"
+    )
     contract_synced: bool = Field(default=True, description="Whether state is synced with contract")
     network_mode: str | None = Field(
         default=None,
@@ -435,7 +439,7 @@ class Pipeline(BaseModel):
             content_changed=content_changed,
         )
         self.decisions.append(decision)
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(UTC)
         return decision
 
     def resolve_decision(self, decision_id: str, resolution: str) -> HITLDecision | None:
@@ -444,8 +448,8 @@ class Pipeline(BaseModel):
             if decision.id == decision_id and decision.status == DecisionStatus.PENDING:
                 decision.status = DecisionStatus.RESOLVED
                 decision.resolution = resolution
-                decision.resolved_at = datetime.utcnow()
-                self.updated_at = datetime.utcnow()
+                decision.resolved_at = datetime.now(UTC)
+                self.updated_at = datetime.now(UTC)
                 return decision
         return None
 
@@ -455,7 +459,9 @@ class PipelineEvent(BaseModel):
 
     pipeline_id: str = Field(..., description="Pipeline ID")
     event_type: str = Field(..., description="Event type")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="When event occurred")
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(UTC), description="When event occurred"
+    )
     phase: PipelinePhase | None = Field(default=None, description="Phase if applicable")
     agent_role: AgentRole | None = Field(default=None, description="Agent if applicable")
     container_id: str | None = Field(default=None, description="Container if applicable")

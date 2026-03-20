@@ -11,7 +11,7 @@ Provides:
 import sys
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -133,7 +133,7 @@ class MetricsRegistry:
         self._gauges: dict[str, Gauge] = {}
         self._histograms: dict[str, Histogram] = {}
         self._lock = threading.RLock()
-        self._start_time = datetime.utcnow()
+        self._start_time = datetime.now(UTC)
 
     def counter(
         self,
@@ -215,7 +215,7 @@ class MetricsRegistry:
         """Get all metrics as a dictionary."""
         with self._lock:
             result: dict[str, Any] = {
-                "uptime_seconds": (datetime.utcnow() - self._start_time).total_seconds(),
+                "uptime_seconds": (datetime.now(UTC) - self._start_time).total_seconds(),
                 "counters": {},
                 "gauges": {},
                 "histograms": {},

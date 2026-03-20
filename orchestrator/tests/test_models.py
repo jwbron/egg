@@ -2,7 +2,7 @@
 Tests for orchestrator models.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from models import (
     AgentExecution,
@@ -36,7 +36,7 @@ class TestContainerInfo:
 
     def test_create_full(self):
         """Test creating ContainerInfo with all fields."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         info = ContainerInfo(
             container_id="abc123",
             container_name="egg-sandbox-coder",

@@ -2,7 +2,7 @@
 Tests for container spawner with gateway integration.
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -36,7 +36,7 @@ def mock_docker_client():
         container_id="abc123def456",
         container_name="egg-issue-123-coder",
         status=ContainerStatus.RUNNING,
-        started_at=datetime.utcnow(),
+        started_at=datetime.now(UTC),
     )
 
     # Default list_containers behavior
@@ -63,8 +63,8 @@ def mock_gateway_client():
         container_id="abc123def456",
         container_ip="172.32.0.50",
         mode="public",
-        created_at=datetime.utcnow(),
-        expires_at=datetime.utcnow() + timedelta(hours=24),
+        created_at=datetime.now(UTC),
+        expires_at=datetime.now(UTC) + timedelta(hours=24),
     )
 
     return mock

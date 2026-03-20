@@ -7,7 +7,7 @@ existing POST /pipelines/{id}/start endpoint.
 """
 
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Add shared directory to path for egg_logging
@@ -142,7 +142,7 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
                     )
                     container_info.status = ContainerStatus.FAILED
                     container_info.exit_code = -1
-                    container_info.exited_at = datetime.utcnow()
+                    container_info.exited_at = datetime.now(UTC)
                     changed = True
 
         for agent in phase_execution.agents:
@@ -156,7 +156,7 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
                         container_id=agent.container_id,
                     )
                     agent.status = AgentExecutionStatus.FAILED
-                    agent.completed_at = datetime.utcnow()
+                    agent.completed_at = datetime.now(UTC)
                     agent.error = (
                         "Container not found at orchestrator startup — "
                         "likely lost during a previous crash"
@@ -228,9 +228,9 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
                             for agent in phase_exec.agents:
                                 if agent.status == AgentExecutionStatus.RUNNING:
                                     agent.status = AgentExecutionStatus.COMPLETE
-                                    agent.completed_at = datetime.utcnow()
+                                    agent.completed_at = datetime.now(UTC)
                             phase_exec.status = PipelineStatus.COMPLETE
-                            phase_exec.completed_at = datetime.utcnow()
+                            phase_exec.completed_at = datetime.now(UTC)
                             store.save_pipeline(pipeline)
                 except Exception as eval_err:
                     logger.warning(

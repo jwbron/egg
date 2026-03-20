@@ -1,7 +1,7 @@
 """Tests for container_monitor runtime reconciliation handler."""
 
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -65,14 +65,14 @@ def _make_pipeline_with_running_agent(container_id: str = "abc123") -> Pipeline:
     )
     phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
     phase.status = PipelineStatus.RUNNING
-    phase.started_at = datetime.utcnow()
+    phase.started_at = datetime.now(UTC)
 
     phase.containers.append(
         ContainerInfo(
             container_id=container_id,
             container_name="egg-coder-issue-99",
             status=ContainerStatus.RUNNING,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(UTC),
         )
     )
     phase.agents.append(
@@ -80,7 +80,7 @@ def _make_pipeline_with_running_agent(container_id: str = "abc123") -> Pipeline:
             role=AgentRole.CODER,
             status=AgentExecutionStatus.RUNNING,
             container_id=container_id,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(UTC),
         )
     )
     return pipeline
@@ -100,7 +100,7 @@ def _make_container_info(container_id: str, exit_code: int = 1) -> ContainerInfo
         container_name=f"egg-container-{container_id[:8]}",
         status=ContainerStatus.EXITED,
         exit_code=exit_code,
-        exited_at=datetime.utcnow(),
+        exited_at=datetime.now(UTC),
     )
 
 
@@ -273,7 +273,7 @@ class TestReconcileContainerState:
 
         # Simulate consensus completion: agent is COMPLETE, container still RUNNING
         phase.agents[0].status = AgentExecutionStatus.COMPLETE
-        phase.agents[0].completed_at = datetime.utcnow()
+        phase.agents[0].completed_at = datetime.now(UTC)
 
         store = _make_store(pipeline)
         exited_info = _make_container_info(container_id, exit_code=137)  # SIGKILL
@@ -359,7 +359,7 @@ class TestContainerMonitorDetection:
             container_id=container_id,
             container_name="egg-test",
             status=ContainerStatus.RUNNING,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(UTC),
         )
         # Second call: container has exited
         exited_info = ContainerInfo(
@@ -367,7 +367,7 @@ class TestContainerMonitorDetection:
             container_name="egg-test",
             status=ContainerStatus.EXITED,
             exit_code=1,
-            exited_at=datetime.utcnow(),
+            exited_at=datetime.now(UTC),
         )
         mock_docker.list_containers.side_effect = [
             [running_info],
@@ -395,14 +395,14 @@ class TestContainerMonitorDetection:
             container_id=container_id,
             container_name="egg-test",
             status=ContainerStatus.RUNNING,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(UTC),
         )
         exited_info = ContainerInfo(
             container_id=container_id,
             container_name="egg-test",
             status=ContainerStatus.EXITED,
             exit_code=0,
-            exited_at=datetime.utcnow(),
+            exited_at=datetime.now(UTC),
         )
         mock_docker.list_containers.side_effect = [
             [running_info],
@@ -548,14 +548,14 @@ class TestPeriodicReconciliation:
         )
         phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         phase.status = PipelineStatus.RUNNING
-        phase.started_at = datetime.utcnow()
+        phase.started_at = datetime.now(UTC)
         # Agent has a container_id but no matching ContainerInfo in phase.containers
         phase.agents.append(
             AgentExecution(
                 role=AgentRole.CODER,
                 status=AgentExecutionStatus.RUNNING,
                 container_id=container_id,
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
             )
         )
         store = _make_store(pipeline)
@@ -601,7 +601,7 @@ class TestPeriodicReconciliation:
             container_name="egg-coder",
             status=ContainerStatus.EXITED,
             exit_code=0,
-            exited_at=datetime.utcnow(),
+            exited_at=datetime.now(UTC),
         )
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
@@ -633,7 +633,7 @@ class TestPeriodicReconciliation:
             container_name="egg-coder",
             status=ContainerStatus.EXITED,
             exit_code=1,
-            exited_at=datetime.utcnow(),
+            exited_at=datetime.now(UTC),
         )
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
