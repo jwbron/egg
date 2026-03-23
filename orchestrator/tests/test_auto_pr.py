@@ -440,7 +440,10 @@ class TestAutoCreatePrPassesBaseBranch:
         spawner = MagicMock()
         spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/3"
 
-        with patch("routes.pipelines._build_pr_body", return_value=("Title", "Body")) as mock_build:
+        with (
+            patch("routes.pipelines._build_pr_body", return_value=("Title", "Body")) as mock_build,
+            patch("routes.pipelines.get_default_branch") as mock_detect,
+        ):
             result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)
 
         assert result == "https://github.com/owner/repo/pull/3"
@@ -449,6 +452,8 @@ class TestAutoCreatePrPassesBaseBranch:
         assert call_kwargs[1]["base"] == "release/v2"
         # Verify _build_pr_body receives the explicit base branch as default_branch
         mock_build.assert_called_once_with(pipeline, Path("/tmp/repo"), default_branch="release/v2")
+        # Verify get_default_branch is NOT called when explicit base is provided
+        mock_detect.assert_not_called()
 
 
 class TestHandlePrCreationFailure:
