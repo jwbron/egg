@@ -136,7 +136,7 @@ The reasoning layer ensures agents don't just signal states — they make **stru
 | Role | Required attestation |
 |------|---------------------|
 | Coder | Commit SHAs, files changed, test pass/fail summary, one risk considered |
-| Tester | Tests written/run count, coverage delta, edge cases covered, one concern considered |
+| Tester | Tests written/run count, coverage delta, edge cases covered, one concern considered; `tests_execution_blocked: true` + reason if tests could not execute (e.g., private network mode blocks downloads) |
 | Documenter | Sections updated, links verified, one concern considered |
 
 **Reviewer evaluations (`CONSENSUS_ACK/NACK`):**
