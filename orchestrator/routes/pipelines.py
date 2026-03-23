@@ -103,6 +103,8 @@ except ImportError:
         get_state_store,
     )
 
+from egg_git.default_branch import get_default_branch
+
 if TYPE_CHECKING:
     from egg_container import MountSpec
 
@@ -565,6 +567,7 @@ def create_pipeline() -> tuple[Response, int]:
     issue_number = data.get("issue_number")
     repo = data.get("repo")
     branch = data.get("branch")
+    base_branch = data.get("base_branch")
     prompt = data.get("prompt")
     mode = data.get("mode", "issue")
     pr_number = data.get("pr_number")
@@ -636,6 +639,7 @@ def create_pipeline() -> tuple[Response, int]:
             issue_number=issue_number,
             repo=repo,
             branch=branch,
+            base_branch=base_branch,
             config=config,
             prompt=prompt,
             network_mode=network_mode,
@@ -2748,8 +2752,12 @@ def _auto_create_pr(
         )
         return None
 
-    base_branch = _detect_default_branch(worktree_repo_path)
-    title, body = _build_pr_body(pipeline, worktree_repo_path, default_branch=base_branch)
+    # Resolve base branch: explicit > auto-detected from repo
+    base = pipeline.base_branch
+    if not base:
+        base = get_default_branch(worktree_repo_path)
+
+    title, body = _build_pr_body(pipeline, worktree_repo_path, default_branch=base)
 
     try:
         pr_url = spawner.gateway.create_pr(
@@ -2758,7 +2766,7 @@ def _auto_create_pr(
             title=title,
             body=body,
             head=pipeline.branch,
-            base=base_branch,
+            base=base,
             issue_number=pipeline.issue_number,
             agent_role="orchestrator",
             mode=gateway_mode,

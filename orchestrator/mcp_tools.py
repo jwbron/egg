@@ -66,6 +66,10 @@ PIPELINE_TOOLS = [
                     "type": "string",
                     "description": "Repository to work on, in owner/name format (e.g. 'myorg/myrepo')",
                 },
+                "base_branch": {
+                    "type": "string",
+                    "description": "Base branch for PR creation (optional). Defaults to the repo's default branch if not specified.",
+                },
                 "config": {
                     "type": "object",
                     "description": 'Optional pipeline configuration overrides (e.g. {"start_phase": "implement", "hitl_gates": false})',
@@ -529,6 +533,8 @@ class PipelineToolHandler:
                 except json.JSONDecodeError as e:
                     return {"error": f"Invalid config JSON: {e}"}
             data["config"] = config
+        if args.get("base_branch"):
+            data["base_branch"] = args["base_branch"]
         if args.get("analysis"):
             data["analysis"] = args["analysis"]
         if args.get("plan"):

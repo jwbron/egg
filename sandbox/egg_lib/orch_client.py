@@ -141,6 +141,7 @@ class OrchClient:
         issue_number: int | None = None,
         repo: str | None = None,
         branch: str | None = None,
+        base_branch: str | None = None,
         prompt: str | None = None,
         config: dict[str, Any] | None = None,
         network_mode: str | None = None,
@@ -153,6 +154,8 @@ class OrchClient:
             body["repo"] = repo
         if branch:
             body["branch"] = branch
+        if base_branch:
+            body["base_branch"] = base_branch
         if prompt:
             body["prompt"] = prompt
         if config:

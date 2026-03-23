@@ -2254,7 +2254,7 @@ def gh_pr_create() -> tuple[Response, int] | Response:
     repo = data.get("repo")
     title = data.get("title")
     body = data.get("body", "")
-    base = data.get("base", "main")
+    base = data.get("base")  # None = gh uses repo's default branch
     head = data.get("head")
 
     if not repo:
@@ -2402,11 +2402,12 @@ def gh_pr_create() -> tuple[Response, int] | Response:
             title,
             "--body",
             body,
-            "--base",
-            base,
             "--head",
             head,
         ]
+
+        if base:
+            args.extend(["--base", base])
 
         if draft:
             args.append("--draft")

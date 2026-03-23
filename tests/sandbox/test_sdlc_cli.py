@@ -453,6 +453,7 @@ class TestRestartPipelineConcurrentConfig:
             issue_number=1,
             repo="owner/repo",
             branch="egg/issue-1",
+            base_branch=None,
             network_mode="public",
             config={"concurrent_execution": True},
         )
@@ -471,7 +472,29 @@ class TestRestartPipelineConcurrentConfig:
             issue_number=2,
             repo="owner/repo",
             branch="egg/issue-2",
+            base_branch=None,
             network_mode="private",
+            config=None,
+        )
+
+    def test_explicit_base_branch_passed(self):
+        """Verify _restart_pipeline forwards explicit base_branch to create_pipeline."""
+        client = MagicMock()
+        _restart_pipeline(
+            client,
+            "issue-3",
+            3,
+            "owner/repo",
+            "egg/issue-3",
+            network_mode="public",
+            base_branch="release/v2",
+        )
+        client.create_pipeline.assert_called_once_with(
+            issue_number=3,
+            repo="owner/repo",
+            branch="egg/issue-3",
+            base_branch="release/v2",
+            network_mode="public",
             config=None,
         )
 

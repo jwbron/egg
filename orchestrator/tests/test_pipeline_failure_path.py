@@ -406,6 +406,7 @@ class TestSuccessPathPushesStatefiles:
     """Verify push_worktree_branch is called after successful phase completion
     to push .egg-state/ files to the remote before the next phase begins."""
 
+    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch(_COMMON_PATCHES[7])
     @patch(_COMMON_PATCHES[6])
@@ -426,6 +427,7 @@ class TestSuccessPathPushesStatefiles:
         mock_read_draft,
         mock_report,
         mock_commit_statefiles,
+        mock_auto_create_pr,
     ):
         """When a phase succeeds, push_worktree_branch should be called to push
         statefiles to the remote so the next phase's agents don't see unpushed
@@ -494,6 +496,7 @@ class TestSuccessPathPushesStatefiles:
                 "mode": "public",
             }
 
+    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch(_COMMON_PATCHES[7])
     @patch(_COMMON_PATCHES[6])
@@ -514,6 +517,7 @@ class TestSuccessPathPushesStatefiles:
         mock_read_draft,
         mock_report,
         mock_commit_statefiles,
+        mock_auto_create_pr,
     ):
         """When contract_synced is False, push_worktree_branch should be called
         after contract initialization to push .egg-state/ files to the remote."""
@@ -580,6 +584,7 @@ class TestSuccessPathPushesStatefiles:
                 "mode": "public",
             }
 
+    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch(_COMMON_PATCHES[7])
     @patch(_COMMON_PATCHES[6])
@@ -600,6 +605,7 @@ class TestSuccessPathPushesStatefiles:
         mock_read_draft,
         mock_report,
         mock_commit_statefiles,
+        mock_auto_create_pr,
     ):
         """When pipeline.branch is not set, a fallback branch is generated and
         persisted, so push_worktree_branch is called with the generated name
@@ -891,6 +897,7 @@ class TestAgentWorktreeCleanup:
     them explicitly.  See #1019.
     """
 
+    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
     @patch(_COMMON_PATCHES[7])
     @patch(_COMMON_PATCHES[6])
     @patch(_COMMON_PATCHES[5])
@@ -909,6 +916,7 @@ class TestAgentWorktreeCleanup:
         mock_build_prompt,
         mock_read_draft,
         mock_report,
+        mock_auto_create_pr,
     ):
         """On pipeline completion, delete_worktrees is called for the pipeline
         container_id AND for every agent container (egg-{pipeline_id}-{role})."""
@@ -979,6 +987,7 @@ class TestAgentWorktreeCleanup:
                 f"'{expected}', got: {deleted_ids}"
             )
 
+    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
     @patch(_COMMON_PATCHES[7])
     @patch(_COMMON_PATCHES[6])
     @patch(_COMMON_PATCHES[5])
@@ -997,6 +1006,7 @@ class TestAgentWorktreeCleanup:
         mock_build_prompt,
         mock_read_draft,
         mock_report,
+        mock_auto_create_pr,
     ):
         """If pipeline-level delete_worktrees raises, per-agent cleanup still runs."""
         from models import AgentRole

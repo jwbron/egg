@@ -736,7 +736,7 @@ class GatewayClient:
         title: str,
         body: str,
         head: str,
-        base: str = "main",
+        base: str | None = None,
         issue_number: int | None = None,
         agent_role: str | None = None,
         mode: Literal["public", "private"] = "public",
@@ -753,7 +753,7 @@ class GatewayClient:
             title: PR title
             body: PR body/description
             head: Head branch name
-            base: Base branch name (default: "main")
+            base: Base branch name (default: None, gateway auto-detects)
             issue_number: Optional issue number for pipeline metadata
             agent_role: Optional agent role for pipeline metadata
 
@@ -786,10 +786,11 @@ class GatewayClient:
                 "repo": repo,
                 "title": title,
                 "body": body,
-                "base": base,
                 "head": head,
                 "draft": draft,
             }
+            if base:
+                pr_data["base"] = base
 
             result = self._make_request(
                 "/api/v1/gh/pr/create",
