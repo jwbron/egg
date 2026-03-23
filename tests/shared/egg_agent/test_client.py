@@ -355,7 +355,6 @@ class TestRunAgentAsync:
         adapter.info("msg", event_type="system", event_subtype="init", model="x")
         adapter.debug("msg", event_type="system", data={"key": "val"})
 
-
     @patch("claude_agent_sdk.query")
     def test_structured_logging_tool_use(self, mock_query):
         """Test that tool_use events are logged with structured fields."""
@@ -388,9 +387,7 @@ class TestRunAgentAsync:
 
             # Verify tool_use log
             tool_use_calls = [
-                c
-                for c in mock_logger.info.call_args_list
-                if c.args and c.args[0] == "Tool call"
+                c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "Tool call"
             ]
             assert len(tool_use_calls) == 1
             tu_kwargs = tool_use_calls[0].kwargs
@@ -401,9 +398,7 @@ class TestRunAgentAsync:
 
             # Verify tool_result log
             tool_result_calls = [
-                c
-                for c in mock_logger.info.call_args_list
-                if c.args and c.args[0] == "Tool result"
+                c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "Tool result"
             ]
             assert len(tool_result_calls) == 1
             tr_kwargs = tool_result_calls[0].kwargs
@@ -451,9 +446,7 @@ class TestRunAgentAsync:
             _run_async(run_agent_async("test prompt"))
 
             tool_result_calls = [
-                c
-                for c in mock_logger.info.call_args_list
-                if c.args and c.args[0] == "Tool result"
+                c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "Tool result"
             ]
             assert len(tool_result_calls) == 1
             tr_kwargs = tool_result_calls[0].kwargs
@@ -473,7 +466,11 @@ class TestRunAgentAsync:
             yield UserMessage(content=[ToolResultBlock(tool_use_id="t1", content="print('hi')")])
             yield AssistantMessage(
                 content=[
-                    ToolUseBlock(id="t2", name="Edit", input={"file_path": "/tmp/a.py", "old_string": "hi", "new_string": "hello"}),
+                    ToolUseBlock(
+                        id="t2",
+                        name="Edit",
+                        input={"file_path": "/tmp/a.py", "old_string": "hi", "new_string": "hello"},
+                    ),
                 ],
                 model="claude-opus-4-6-20250313",
             )
@@ -486,16 +483,14 @@ class TestRunAgentAsync:
             _run_async(run_agent_async("test prompt"))
 
             tool_use_calls = [
-                c for c in mock_logger.info.call_args_list
-                if c.args and c.args[0] == "Tool call"
+                c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "Tool call"
             ]
             assert len(tool_use_calls) == 2
             assert tool_use_calls[0].kwargs["tool_name"] == "Read"
             assert tool_use_calls[1].kwargs["tool_name"] == "Edit"
 
             tool_result_calls = [
-                c for c in mock_logger.info.call_args_list
-                if c.args and c.args[0] == "Tool result"
+                c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "Tool result"
             ]
             assert len(tool_result_calls) == 2
 
