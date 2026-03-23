@@ -143,6 +143,13 @@ class TestBabysitPipelineCreation:
 
         mock_store = MagicMock()
         mock_store.create_pipeline.side_effect = StateStoreError("Pipeline pr-42 already exists")
+        # load_pipeline is called for enrichment in the 409 response;
+        # its return value must be JSON-serializable.
+        existing = MagicMock()
+        existing.id = "pr-42"
+        existing.status.value = "running"
+        existing.current_phase.value = "implement"
+        mock_store.load_pipeline.return_value = existing
         mock_get_store.return_value = mock_store
         mock_get_repo_path.return_value = "/tmp/repo"
 
