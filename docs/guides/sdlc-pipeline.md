@@ -1076,7 +1076,7 @@ egg-orch pipeline create --issue 123
 
 **JIRA ticket-based pipelines**: Pass `jira_ticket` (e.g. `KORE-1234`) to the `submit_task` MCP tool, which translates it into `pipeline_id` and `branch` for the API. When using the REST API directly, pass `"pipeline_id": "KORE-1234"` and `"branch": "egg/KORE-1234"` explicitly (as shown above).
 
-**Qualifier support**: Both issue-driven and JIRA-driven pipelines accept an optional `qualifier` suffix to enable multiple pipelines per ticket or issue (e.g. `"qualifier": "backend"` produces pipeline ID `issue-123-backend` / branch `egg/issue-123-backend`). If the target branch already exists, the orchestrator returns HTTP 409 with a hint to use a qualifier.
+**Qualifier support**: The `submit_task` MCP tool accepts an optional `"qualifier"` suffix for both issue-driven and JIRA-driven pipelines (e.g. `"qualifier": "backend"` produces pipeline ID `issue-123-backend` / branch `egg/issue-123-backend`). When using the REST API directly, append the qualifier to `pipeline_id` and `branch` manually (e.g. `"pipeline_id": "KORE-1234-backend"`, `"branch": "egg/KORE-1234-backend"`). If the target branch already exists, the orchestrator returns HTTP 409 with a hint to use a qualifier.
 
 Pipeline ID formats:
 - `issue-{number}[-qualifier]` — GitHub issue-driven
