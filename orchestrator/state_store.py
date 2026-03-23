@@ -26,7 +26,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from models import Pipeline, PipelineMode, PipelineStatus
 from pydantic import ValidationError
@@ -549,7 +549,7 @@ class StateStore:
 
     # -- remote sync -------------------------------------------------------
 
-    def _detect_gateway_mode(self) -> str:
+    def _detect_gateway_mode(self) -> Literal["public", "private"]:
         """Auto-detect gateway session mode from repository visibility.
 
         Result is cached for the lifetime of this StateStore instance since

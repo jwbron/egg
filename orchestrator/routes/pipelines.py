@@ -11,7 +11,7 @@ import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from docker.errors import DockerException
 from flask import Blueprint, Response, jsonify, request, stream_with_context
@@ -838,7 +838,7 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
         )
 
 
-def _compute_gateway_mode(pipeline: "Pipeline") -> str:
+def _compute_gateway_mode(pipeline: "Pipeline") -> Literal["public", "private"]:
     """Compute gateway session mode from pipeline config and repo visibility.
 
     Uses the explicit ``network_mode`` if set, otherwise auto-detects from
@@ -5279,11 +5279,21 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # Map pipeline to gateway session mode.
         gateway_mode = _compute_gateway_mode(pipeline)
         if not pipeline.network_mode and pipeline.repo:
-            logger.info(
-                "Auto-detected network mode from repo visibility",
-                repo=pipeline.repo,
-                gateway_mode=gateway_mode,
-            )
+            # Re-query visibility for diagnostic logging so we can
+            # distinguish a successful detection from a fallback default.
+            vis = get_gateway_client().get_repo_visibility(pipeline.repo)
+            if vis is not None:
+                logger.info(
+                    "Auto-detected network mode from repo visibility",
+                    repo=pipeline.repo,
+                    visibility=vis,
+                    gateway_mode=gateway_mode,
+                )
+            else:
+                logger.warning(
+                    "Could not detect repo visibility, defaulting to public mode",
+                    repo=pipeline.repo,
+                )
 
         # Parse host repo map for volume mounts.  When the orchestrator
         # runs inside Docker, EGG_REPO_PATH is the *container* path but
