@@ -1070,7 +1070,7 @@ egg-orch pipeline create --issue 123
 
 **Short-flow pipelines** — skip refine/plan phases and start directly at implement by passing `start_phase: implement` in `config`, along with pre-generated `analysis` and `plan` content. The orchestrator writes these to draft files and parses the plan's `yaml-tasks` appendix to populate the contract:
 
-```bash
+````bash
 curl -X POST http://localhost:9849/api/v1/pipelines \
   -H "Content-Type: application/json" \
   -d '{
@@ -1081,7 +1081,7 @@ curl -X POST http://localhost:9849/api/v1/pipelines \
     "analysis": "# Analysis\n...",
     "plan": "# Plan\n...\n```yaml\n# yaml-tasks\n...\n```"
   }'
-```
+````
 
 The `analysis` and `plan` fields are also accepted by the `submit_task` MCP tool. Both are cleared from pipeline state after the first run once the draft files are pushed to the feature branch.
 
