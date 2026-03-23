@@ -7,6 +7,7 @@ via the MCP protocol.
 """
 
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -523,6 +524,18 @@ class PipelineToolHandler:
 
         data: dict[str, Any] = {}
         qualifier = args.get("qualifier")
+
+        # Validate qualifier: lowercase alphanumeric with hyphens only
+        if qualifier and not re.match(r"^[a-z0-9][a-z0-9-]*$", qualifier):
+            return {"error": f"Invalid qualifier '{qualifier}': must match [a-z0-9][a-z0-9-]*"}
+
+        # Validate JIRA ticket format if provided
+        if args.get("jira_ticket"):
+            ticket_raw = args["jira_ticket"].strip()
+            if not re.match(r"^[A-Za-z][A-Za-z0-9]+-[0-9]+$", ticket_raw):
+                return {
+                    "error": f"Invalid JIRA ticket format '{ticket_raw}': expected e.g. KORE-1234"
+                }
 
         if args.get("issue_number"):
             base_id = f"issue-{args['issue_number']}"

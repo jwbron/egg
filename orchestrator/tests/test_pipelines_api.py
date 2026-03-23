@@ -558,6 +558,8 @@ class TestCreatePipelineJiraAndQualifier:
         body = response.get_json()
         assert "already exists" in body["message"]
         assert "qualifier" in body["message"]
+        assert body["details"]["reason"] == "branch_exists"
+        assert body["details"]["branch"] == "egg/KORE-1234"
 
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
@@ -635,3 +637,70 @@ class TestCreatePipelineJiraAndQualifier:
         assert response.status_code == 400
         body = response.get_json()
         assert "branch" in body["message"].lower()
+
+
+class TestPipelineIdValidation:
+    """Tests that PIPELINE_ID_PATTERN accepts new JIRA and qualifier formats."""
+
+    def test_validate_jira_ticket_id(self):
+        """JIRA ticket IDs like KORE-1234 are accepted."""
+        from state_store import _validate_pipeline_id
+
+        _validate_pipeline_id("KORE-1234")
+
+    def test_validate_jira_ticket_with_qualifier(self):
+        """JIRA ticket IDs with qualifier like KORE-1234-backend are accepted."""
+        from state_store import _validate_pipeline_id
+
+        _validate_pipeline_id("KORE-1234-backend")
+
+    def test_validate_issue_with_qualifier(self):
+        """Issue IDs with qualifier like issue-42-frontend are accepted."""
+        from state_store import _validate_pipeline_id
+
+        _validate_pipeline_id("issue-42-frontend")
+
+    def test_validate_traditional_issue_id(self):
+        """Traditional issue-{number} IDs still work."""
+        from state_store import _validate_pipeline_id
+
+        _validate_pipeline_id("issue-42")
+
+    def test_validate_traditional_pipeline_id(self):
+        """Traditional pipeline-{hex} IDs still work."""
+        from state_store import _validate_pipeline_id
+
+        _validate_pipeline_id("pipeline-abcd1234")
+
+    def test_validate_traditional_local_id(self):
+        """Traditional local-{hex} IDs still work."""
+        from state_store import _validate_pipeline_id
+
+        _validate_pipeline_id("local-abcd1234")
+
+    def test_validate_pr_id(self):
+        """PR IDs still work."""
+        from state_store import _validate_pipeline_id
+
+        _validate_pipeline_id("pr-123")
+
+    def test_reject_path_traversal(self):
+        """Path traversal attempts are rejected."""
+        from state_store import InvalidPipelineIdError, _validate_pipeline_id
+
+        with pytest.raises(InvalidPipelineIdError):
+            _validate_pipeline_id("../../../etc")
+
+    def test_reject_empty_id(self):
+        """Empty pipeline IDs are rejected."""
+        from state_store import InvalidPipelineIdError, _validate_pipeline_id
+
+        with pytest.raises(InvalidPipelineIdError):
+            _validate_pipeline_id("")
+
+    def test_reject_invalid_format(self):
+        """Random strings are rejected."""
+        from state_store import InvalidPipelineIdError, _validate_pipeline_id
+
+        with pytest.raises(InvalidPipelineIdError):
+            _validate_pipeline_id("not-a-valid-id")

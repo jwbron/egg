@@ -12,6 +12,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+from uuid import uuid4
 
 from docker.errors import DockerException
 from flask import Blueprint, Response, jsonify, request, stream_with_context
@@ -603,7 +604,7 @@ def create_pipeline() -> tuple[Response, int]:
         try:
             gw = get_gateway_client()
             if gw.ls_remote_branch(
-                pipeline_id=pipeline_id or "branch-check",
+                pipeline_id=pipeline_id or f"branch-check-{uuid4().hex[:8]}",
                 repo_path=str(repo_path),
                 ref=f"refs/heads/{branch}",
             ):
@@ -616,6 +617,7 @@ def create_pipeline() -> tuple[Response, int]:
                 return make_error_response(
                     f"Branch '{branch}' already exists on remote.{hint}",
                     status_code=409,
+                    details={"reason": "branch_exists", "branch": branch},
                 )
         except Exception as e:
             # Non-fatal — if we can't reach the gateway, let creation proceed
