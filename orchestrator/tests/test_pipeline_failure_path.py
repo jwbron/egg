@@ -770,7 +770,7 @@ class TestNetworkModeAutoDetection:
         ):
             _run_pipeline("issue-42", Path("/repo"))
 
-        mock_get_gw.return_value.get_repo_visibility.assert_called_with("owner/repo")
+        mock_get_gw.return_value.get_repo_visibility.assert_called_once_with("owner/repo")
         mock_logger.info.assert_any_call(
             "Auto-detected network mode from repo visibility",
             repo="owner/repo",
@@ -825,7 +825,7 @@ class TestNetworkModeAutoDetection:
         ):
             _run_pipeline("issue-42", Path("/repo"))
 
-        mock_get_gw.return_value.get_repo_visibility.assert_called_with("owner/repo")
+        mock_get_gw.return_value.get_repo_visibility.assert_called_once_with("owner/repo")
         mock_logger.warning.assert_any_call(
             "Could not detect repo visibility, defaulting to public mode",
             repo="owner/repo",
