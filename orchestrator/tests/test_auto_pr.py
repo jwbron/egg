@@ -19,6 +19,7 @@ from routes.pipelines import (
     _build_pr_body,
     _compute_gateway_mode,
     _detect_default_branch,
+    _handle_pr_creation_failure,
 )
 
 
@@ -427,43 +428,32 @@ class TestAutoCreatePrPassesBaseBranch:
         assert call_kwargs[1]["base"] == "master"
 
 
-class TestPrCreationFailureMarksPipelineFailed:
-    """Test that _auto_create_pr returning None leads to correct pipeline state.
-
-    This exercises the failure path where PR creation fails and the pipeline
-    should be marked FAILED (the logic in _health_monitor_poll lines 5976-5991).
-    We test the model-level state transitions directly since _health_monitor_poll
-    is too deeply integrated for a focused unit test.
+class TestHandlePrCreationFailure:
+    """Tests for _handle_pr_creation_failure — the extracted helper that marks
+    the pipeline FAILED when PR creation returns no URL.
     """
 
-    def test_pipeline_marked_failed_when_pr_creation_returns_none(self):
-        """When _auto_create_pr returns None, pipeline state should be set to FAILED."""
-        from datetime import UTC, datetime
-
+    def test_marks_pipeline_and_phase_failed(self):
+        """_handle_pr_creation_failure sets pipeline and phase to FAILED."""
         pipeline = _make_pipeline()
-        spawner = MagicMock()
-        spawner.gateway.create_pr.side_effect = RuntimeError("Gateway error")
+        pipeline.status = PipelineStatus.RUNNING
 
-        with (
-            patch("routes.pipelines._build_pr_body", return_value=("Title", "Body")),
-            patch("routes.pipelines._detect_default_branch", return_value="main"),
-        ):
-            pr_url = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
 
-        assert pr_url is None
-
-        # Simulate the failure handling from _health_monitor_poll
-        current_phase = PipelinePhase.PR
-        phase_execution = pipeline.get_phase_execution(current_phase)
-        error_msg = "Auto PR creation failed: no PR URL returned"
-        phase_execution.status = PipelineStatus.FAILED
-        phase_execution.error = error_msg
-        phase_execution.completed_at = datetime.now(UTC)
-        pipeline.status = PipelineStatus.FAILED
-        pipeline.error = error_msg
+        with patch("routes.pipelines.get_pipeline_state_lock"):
+            _handle_pr_creation_failure(
+                pipeline_id=pipeline.id,
+                current_phase=PipelinePhase.PR,
+                store=store,
+            )
 
         assert pipeline.status == PipelineStatus.FAILED
-        assert pipeline.error == error_msg
+        assert pipeline.error == "Auto PR creation failed: no PR URL returned"
+
+        phase_execution = pipeline.get_phase_execution(PipelinePhase.PR)
         assert phase_execution.status == PipelineStatus.FAILED
-        assert phase_execution.error == error_msg
+        assert phase_execution.error == "Auto PR creation failed: no PR URL returned"
         assert phase_execution.completed_at is not None
+
+        store.save_pipeline.assert_called_once_with(pipeline)

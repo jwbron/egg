@@ -2585,6 +2585,29 @@ def _detect_default_branch(worktree_repo_path: Path) -> str:
     return "main"
 
 
+def _handle_pr_creation_failure(
+    pipeline_id: str,
+    current_phase: str,
+    store,
+) -> None:
+    """Mark a pipeline as FAILED after PR creation returns no URL.
+
+    Extracted from ``_health_monitor_poll`` so this state-transition logic can
+    be tested independently of the full polling loop.
+    """
+    error_msg = "Auto PR creation failed: no PR URL returned"
+    logger.error(error_msg, pipeline_id=pipeline_id)
+    with get_pipeline_state_lock(pipeline_id):
+        pipeline = store.load_pipeline(pipeline_id)
+        phase_execution = pipeline.get_phase_execution(current_phase)
+        phase_execution.status = PipelineStatus.FAILED
+        phase_execution.error = error_msg
+        phase_execution.completed_at = datetime.now(UTC)
+        pipeline.status = PipelineStatus.FAILED
+        pipeline.error = error_msg
+        store.save_pipeline(pipeline)
+
+
 def _build_pr_body(
     pipeline: Pipeline,
     worktree_repo_path: Path,
@@ -5978,20 +6001,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase_execution.artifacts = {"pr_url": pr_url}
                         store.save_pipeline(pipeline)
                 else:
-                    error_msg = "Auto PR creation failed: no PR URL returned"
-                    logger.error(
-                        error_msg,
-                        pipeline_id=pipeline_id,
-                    )
-                    with get_pipeline_state_lock(pipeline_id):
-                        pipeline = store.load_pipeline(pipeline_id)
-                        phase_execution = pipeline.get_phase_execution(current_phase)
-                        phase_execution.status = PipelineStatus.FAILED
-                        phase_execution.error = error_msg
-                        phase_execution.completed_at = datetime.now(UTC)
-                        pipeline.status = PipelineStatus.FAILED
-                        pipeline.error = error_msg
-                        store.save_pipeline(pipeline)
+                    _handle_pr_creation_failure(pipeline_id, current_phase, store)
                     phase_failed = True
 
                 # Fall through to phase completion below (skip inner review cycle)
