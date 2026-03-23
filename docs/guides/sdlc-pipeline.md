@@ -1068,6 +1068,23 @@ curl -X POST http://localhost:9849/api/v1/pipelines \
 egg-orch pipeline create --issue 123
 ```
 
+**Short-flow pipelines** — skip refine/plan phases and start directly at implement by passing `start_phase: implement` in `config`, along with pre-generated `analysis` and `plan` content. The orchestrator writes these to draft files and parses the plan's `yaml-tasks` appendix to populate the contract:
+
+```bash
+curl -X POST http://localhost:9849/api/v1/pipelines \
+  -H "Content-Type: application/json" \
+  -d '{
+    "issue_number": 123,
+    "repo": "owner/repo",
+    "branch": "egg/issue-123",
+    "config": {"start_phase": "implement", "hitl_gates": false},
+    "analysis": "# Analysis\n...",
+    "plan": "# Plan\n...\n```yaml\n# yaml-tasks\n...\n```"
+  }'
+```
+
+The `analysis` and `plan` fields are also accepted by the `submit_task` MCP tool. Both are cleared from pipeline state after the first run once the draft files are pushed to the feature branch.
+
 ### Contract CLI Commands
 
 ```bash
@@ -1135,7 +1152,7 @@ Or pass it in the pipeline config JSON (e.g. via the API):
 | `hitl_gates` | bool | `true` | Pause for human approval after refine and plan phases |
 | `concurrent_execution` | bool | `false` | Enable concurrent mode (opt-in) |
 | `concurrent_phases` | list[str] | `["refine", "plan", "implement"]` | Phases where BRC is active when `concurrent_execution` is `false` |
-| `start_phase` | str | `null` | Skip earlier phases and start execution from `"plan"` or `"implement"` |
+| `start_phase` | str | `null` | Skip earlier phases and start execution from `"plan"` or `"implement"`. When set to `"implement"`, pass top-level `analysis`/`plan` fields to seed the contract (see Short-flow pipelines above). |
 | `max_concurrent_agents` | int | `6` | Maximum agents running simultaneously |
 | `message_poll_hint_seconds` | int | `30` | Suggested polling interval for agents |
 | `consensus_timeout_minutes` | int | `30` | Timeout before HITL escalation |
