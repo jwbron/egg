@@ -14,7 +14,12 @@ sys.modules.setdefault("docker.errors", _docker_mock.errors)
 sys.modules.setdefault("docker.types", _docker_mock.types)
 
 from models import Pipeline, PipelinePhase, PipelineStatus
-from routes.pipelines import _auto_create_pr, _build_pr_body, _compute_gateway_mode
+from routes.pipelines import (
+    _auto_create_pr,
+    _build_pr_body,
+    _compute_gateway_mode,
+    _detect_default_branch,
+)
 
 
 def _make_pipeline(
@@ -204,6 +209,7 @@ class TestAutoCreatePr:
             title="Fix auth",
             body="Body text",
             head="egg/issue-42",
+            base="main",
             issue_number=42,
             agent_role="orchestrator",
             mode="public",
@@ -227,6 +233,7 @@ class TestAutoCreatePr:
             title="Fix auth",
             body="Body text",
             head="egg/issue-42",
+            base="main",
             issue_number=42,
             agent_role="orchestrator",
             mode="private",
@@ -317,3 +324,104 @@ class TestComputeGatewayMode:
             mode, vis = _compute_gateway_mode(pipeline)
         assert mode == "public"
         assert vis == "public"
+
+
+class TestDetectDefaultBranch:
+    """Tests for _detect_default_branch."""
+
+    def test_detects_via_symbolic_ref(self, tmp_path):
+        """Detects default branch from origin/HEAD symbolic ref."""
+
+        def fake_run(args, **kwargs):
+            result = MagicMock()
+            if "symbolic-ref" in args:
+                result.returncode = 0
+                result.stdout = "origin/master\n"
+            else:
+                result.returncode = 1
+                result.stdout = ""
+            return result
+
+        with patch("subprocess.run", side_effect=fake_run):
+            branch = _detect_default_branch(tmp_path)
+
+        assert branch == "master"
+
+    def test_detects_main_branch(self, tmp_path):
+        """Falls back to origin/main when symbolic-ref fails."""
+
+        def fake_run(args, **kwargs):
+            result = MagicMock()
+            if "symbolic-ref" in args:
+                result.returncode = 1
+                result.stdout = ""
+            elif "rev-parse" in args and "origin/main" in args:
+                result.returncode = 0
+                result.stdout = "abc123\n"
+            else:
+                result.returncode = 1
+                result.stdout = ""
+            return result
+
+        with patch("subprocess.run", side_effect=fake_run):
+            branch = _detect_default_branch(tmp_path)
+
+        assert branch == "main"
+
+    def test_detects_master_branch(self, tmp_path):
+        """Falls back to origin/master when origin/main doesn't exist."""
+
+        def fake_run(args, **kwargs):
+            result = MagicMock()
+            if "symbolic-ref" in args:
+                result.returncode = 1
+                result.stdout = ""
+            elif "rev-parse" in args and "origin/main" in args:
+                result.returncode = 1
+                result.stdout = ""
+            elif "rev-parse" in args and "origin/master" in args:
+                result.returncode = 0
+                result.stdout = "abc123\n"
+            else:
+                result.returncode = 1
+                result.stdout = ""
+            return result
+
+        with patch("subprocess.run", side_effect=fake_run):
+            branch = _detect_default_branch(tmp_path)
+
+        assert branch == "master"
+
+    def test_falls_back_to_main(self, tmp_path):
+        """Falls back to 'main' when nothing resolves."""
+
+        def fake_run(args, **kwargs):
+            result = MagicMock()
+            result.returncode = 1
+            result.stdout = ""
+            return result
+
+        with patch("subprocess.run", side_effect=fake_run):
+            branch = _detect_default_branch(tmp_path)
+
+        assert branch == "main"
+
+
+class TestAutoCreatePrPassesBaseBranch:
+    """Tests that _auto_create_pr passes the detected base branch."""
+
+    def test_passes_detected_base_branch(self):
+        """Verify base branch is passed to gateway.create_pr."""
+        pipeline = _make_pipeline()
+        spawner = MagicMock()
+        spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/1"
+
+        with (
+            patch("routes.pipelines._build_pr_body", return_value=("Title", "Body")),
+            patch("routes.pipelines._detect_default_branch", return_value="master"),
+        ):
+            result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)
+
+        assert result == "https://github.com/owner/repo/pull/1"
+        call_kwargs = spawner.gateway.create_pr.call_args
+        assert call_kwargs[1]["base"] == "master"
