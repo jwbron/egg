@@ -838,6 +838,21 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
         )
 
 
+def _compute_gateway_mode(pipeline: "Pipeline") -> str:
+    """Compute gateway session mode from pipeline config and repo visibility.
+
+    Uses the explicit ``network_mode`` if set, otherwise auto-detects from
+    repository visibility via the gateway.  Defaults to ``"public"``.
+    """
+    if pipeline.network_mode:
+        return pipeline.network_mode
+    if pipeline.repo:
+        vis = get_gateway_client().get_repo_visibility(pipeline.repo)
+        if vis in ("private", "internal"):
+            return "private"
+    return "public"
+
+
 def _cleanup_remote_branches(
     pipeline_id: str,
     pipeline: "Pipeline",
@@ -859,15 +874,7 @@ def _cleanup_remote_branches(
 
     gateway_client = get_gateway_client()
     repo_path_str = str(repo_path)
-
-    # Determine session mode for the gateway
-    if pipeline.network_mode:
-        mode = pipeline.network_mode
-    elif pipeline.repo:
-        vis = gateway_client.get_repo_visibility(pipeline.repo)
-        mode = "private" if vis in ("private", "internal") else "public"
-    else:
-        mode = "public"
+    mode = _compute_gateway_mode(pipeline)
 
     deleted = 0
     for branch in sorted(branches):
@@ -5270,24 +5277,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         transitions = PHASE_TRANSITIONS
 
         # Map pipeline to gateway session mode.
-        # If the pipeline has an explicit network_mode (e.g. "private"), use it;
-        # otherwise auto-detect from repo visibility via the gateway.
-        if pipeline.network_mode:
-            gateway_mode = pipeline.network_mode
-        elif pipeline.repo:
-            visibility = get_gateway_client().get_repo_visibility(pipeline.repo)
-            if visibility in ("private", "internal"):
-                gateway_mode = "private"
-            else:
-                gateway_mode = "public"
+        gateway_mode = _compute_gateway_mode(pipeline)
+        if not pipeline.network_mode and pipeline.repo:
             logger.info(
                 "Auto-detected network mode from repo visibility",
                 repo=pipeline.repo,
-                visibility=visibility,
                 gateway_mode=gateway_mode,
             )
-        else:
-            gateway_mode = "public"
 
         # Parse host repo map for volume mounts.  When the orchestrator
         # runs inside Docker, EGG_REPO_PATH is the *container* path but
@@ -6660,13 +6656,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
         repo_path = store.repo_path
 
         # Compute gateway mode for session operations in the recovery path
-        if pipeline.network_mode:
-            _gw_mode = pipeline.network_mode
-        elif pipeline.repo:
-            _vis = get_gateway_client().get_repo_visibility(pipeline.repo)
-            _gw_mode = "private" if _vis in ("private", "internal") else "public"
-        else:
-            _gw_mode = "public"
+        _gw_mode = _compute_gateway_mode(pipeline)
 
         if pipeline.status == PipelineStatus.RUNNING:
             return make_error_response(

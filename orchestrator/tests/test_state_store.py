@@ -1292,6 +1292,56 @@ class TestRemoteSync:
 
         assert result is False
 
+    @pytest.mark.parametrize(
+        "remote_url, expected_repo",
+        [
+            ("https://github.com/owner/repo.git", "owner/repo"),
+            ("https://github.com/owner/repo", "owner/repo"),
+            ("git@github.com:owner/repo.git", "owner/repo"),
+            ("git@github.com:owner/repo", "owner/repo"),
+            ("ssh://git@github.com/owner/repo.git", "owner/repo"),
+        ],
+    )
+    def test_detect_gateway_mode_parses_remote_urls(self, state_store, remote_url, expected_repo):
+        """_detect_gateway_mode correctly parses HTTPS and SSH remote URLs."""
+        # Clear any cached value
+        if hasattr(state_store, "_cached_gateway_mode"):
+            del state_store._cached_gateway_mode
+
+        mock_client = MagicMock()
+        mock_client.get_repo_visibility.return_value = "private"
+        git_result = MagicMock(returncode=0, stdout=remote_url)
+
+        with (
+            patch("gateway_client.get_gateway_client", return_value=mock_client),
+            patch.object(state_store, "_run_git", return_value=git_result),
+        ):
+            result = state_store._detect_gateway_mode()
+
+        assert result == "private"
+        mock_client.get_repo_visibility.assert_called_once_with(expected_repo)
+
+    def test_detect_gateway_mode_caches_result(self, state_store):
+        """_detect_gateway_mode caches the result for the instance lifetime."""
+        # Clear any cached value
+        if hasattr(state_store, "_cached_gateway_mode"):
+            del state_store._cached_gateway_mode
+
+        mock_client = MagicMock()
+        mock_client.get_repo_visibility.return_value = "public"
+        git_result = MagicMock(returncode=0, stdout="https://github.com/o/r.git")
+
+        with (
+            patch("gateway_client.get_gateway_client", return_value=mock_client),
+            patch.object(state_store, "_run_git", return_value=git_result),
+        ):
+            result1 = state_store._detect_gateway_mode()
+            result2 = state_store._detect_gateway_mode()
+
+        assert result1 == result2 == "public"
+        # Only called once — second call uses cache
+        mock_client.get_repo_visibility.assert_called_once()
+
     def test_sync_to_remote_async_respects_max_retries(self, state_store):
         """_sync_to_remote_async skips retry when max retry depth is reached."""
         import time

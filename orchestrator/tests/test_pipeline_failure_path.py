@@ -774,7 +774,6 @@ class TestNetworkModeAutoDetection:
         mock_logger.info.assert_any_call(
             "Auto-detected network mode from repo visibility",
             repo="owner/repo",
-            visibility="private",
             gateway_mode="private",
         )
 
@@ -829,7 +828,6 @@ class TestNetworkModeAutoDetection:
         mock_logger.info.assert_any_call(
             "Auto-detected network mode from repo visibility",
             repo="owner/repo",
-            visibility=None,
             gateway_mode="public",
         )
 

@@ -15,7 +15,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -598,7 +598,7 @@ class GatewayClient:
         pipeline_id: str,
         repo_path: str,
         branch: str,
-        mode: str = "public",
+        mode: Literal["public", "private"] = "public",
     ) -> bool:
         """Push a worktree branch to remote using a temporary session.
 
@@ -667,7 +667,7 @@ class GatewayClient:
         pipeline_id: str,
         repo_path: str,
         branch: str,
-        mode: str = "public",
+        mode: Literal["public", "private"] = "public",
     ) -> bool:
         """Delete a remote branch using a temporary session.
 
@@ -739,7 +739,7 @@ class GatewayClient:
         base: str = "main",
         issue_number: int | None = None,
         agent_role: str | None = None,
-        mode: str = "public",
+        mode: Literal["public", "private"] = "public",
         draft: bool = False,
     ) -> str | None:
         """Create a pull request via the gateway using a temporary session.
@@ -788,9 +788,8 @@ class GatewayClient:
                 "body": body,
                 "base": base,
                 "head": head,
+                "draft": draft,
             }
-            if draft:
-                pr_data["draft"] = True
 
             result = self._make_request(
                 "/api/v1/gh/pr/create",
@@ -824,7 +823,7 @@ class GatewayClient:
         self,
         pipeline_id: str,
         repo_path: str,
-        mode: str = "public",
+        mode: Literal["public", "private"] = "public",
     ) -> bool:
         """Fetch latest remote state into a worktree using a temporary session.
 
@@ -886,7 +885,7 @@ class GatewayClient:
         pipeline_id: str,
         repo_path: str,
         args: list[str] | None = None,
-        mode: str = "public",
+        mode: Literal["public", "private"] = "public",
     ) -> bool:
         """Fetch with custom args using a temporary session.
 
@@ -949,7 +948,7 @@ class GatewayClient:
         pipeline_id: str,
         repo_path: str,
         ref: str,
-        mode: str = "public",
+        mode: Literal["public", "private"] = "public",
     ) -> bool:
         """Check if a remote branch exists using ls-remote.
 

@@ -550,7 +550,15 @@ class StateStore:
     # -- remote sync -------------------------------------------------------
 
     def _detect_gateway_mode(self) -> str:
-        """Auto-detect gateway session mode from repository visibility."""
+        """Auto-detect gateway session mode from repository visibility.
+
+        Result is cached for the lifetime of this StateStore instance since
+        repo visibility does not change during a process run.
+        """
+        if hasattr(self, "_cached_gateway_mode"):
+            return self._cached_gateway_mode
+
+        mode = "public"
         try:
             from gateway_client import get_gateway_client
 
@@ -559,16 +567,21 @@ class StateStore:
             result = self._run_git("remote", "get-url", "origin", cwd=self.repo_path, check=False)
             if result.returncode == 0:
                 url = result.stdout.strip()
+                # Normalize SSH colon syntax: git@github.com:owner/repo → git@github.com/owner/repo
+                if ":" in url and not url.startswith(("http://", "https://", "ssh://", "git://")):
+                    url = url.replace(":", "/", 1)
                 # Parse "https://github.com/owner/repo.git" or "owner/repo"
                 parts = url.rstrip("/").removesuffix(".git").rsplit("/", 2)
                 if len(parts) >= 2:
                     repo = f"{parts[-2]}/{parts[-1]}"
                     vis = client.get_repo_visibility(repo)
                     if vis in ("private", "internal"):
-                        return "private"
+                        mode = "private"
         except Exception:
             pass
-        return "public"
+
+        self._cached_gateway_mode = mode
+        return mode
 
     def sync_to_remote(self) -> bool:
         """Push the state branch to remote (best-effort).
