@@ -205,48 +205,6 @@ To prevent flip-flopping that destroys signal value:
 - **Retraction** requires citing specific new information
 - **Lockout** after 3 flip-flops (`max_flip_flops`) per producer triggers orchestrator HITL escalation
 
-## Cost and Latency
-
-Consensus overhead for a sparse review graph (N=5 agents, 5 review edges in default configuration):
-
-| Item | Estimate |
-|------|----------|
-| Messages per consensus round | ~20-25 |
-| Added token cost per run (Sonnet) | ~$0.25-0.50 |
-| Added token cost per run (Opus) | ~$1.25-2.50 |
-| Added latency per consensus round | ~1-3 minutes |
-
-This is reasonable relative to total pipeline cost ($5-50+ per run). The sparse review graph keeps costs ~3-4x lower than full NxN.
-
-## Implementation Scope
-
-### Server-Side
-
-- Replace in-memory `MessageStore` with Redis Streams backend
-- Add long-polling support to message poll endpoint (`wait` parameter)
-- New consensus message types: `CONSENSUS_PROPOSE`, `CONSENSUS_ACK`, `CONSENSUS_NACK`, `CONSENSUS_WITHDRAW`, `CONSENSUS_CONFIRMED`
-- `PeerConsensusTracker` — observes consensus messages on the stream, tracks sparse approval matrix
-- Asymmetric review graph definition per phase (producers vs reviewers, adjacency, criticality)
-- Per-role attestation schema validation with configurable strictness
-- Scoped re-evaluation logic and Delphi-style proposal visibility
-- Consensus failure mode handlers
-
-### Agent CLI
-
-- `egg-orch message poll --wait <seconds>` — long-polling mode
-- `egg-orch consensus propose` — broadcast proposal with attestations
-- `egg-orch consensus ack <role>` — agree with a peer's proposal (must reference artifacts)
-- `egg-orch consensus nack <role>` — disagree with structured reason
-- `egg-orch consensus withdraw` — retract own proposal (must cite new information)
-- `egg-orch consensus status` — show approval matrix and agent states
-
-### Agent Prompts
-
-- Replace "signal READY and poll in a loop" with full BRC protocol instructions
-- Separate instructions for producer vs reviewer roles
-- Per-role attestation requirements
-- Anti-sycophancy: ACKs must cite specific artifacts; reviewers form independent judgments before seeing producer self-assessments
-
 ## Research Foundations
 
 The protocol design draws on research across three domains.

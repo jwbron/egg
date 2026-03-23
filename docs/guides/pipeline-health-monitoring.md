@@ -8,31 +8,31 @@ Pipeline health monitoring uses a **two-tier architecture** to detect and respon
 Agent containers emit structured progress events
   │
   ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Tier 1: Orchestrator (Deterministic)                        │
-│                                                             │
-│  Structured progress events → Tripwire rules → Auto-action  │
-│  • Heartbeat timeout      → Auto-nudge agent                │
-│  • Container exit         → HITL escalation                 │
-│  • Repeated errors (N×)   → Escalate to overseer            │
-│  • Message volume spike   → Auto-throttle                   │
-│  • Progress stall         → Nudge, then escalate            │
-│                                                             │
-│  Ambiguous cases ──────────────────────┐                    │
-└─────────────────────────────────────────┼────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│ Tier 1: Orchestrator (Deterministic)                          │
+│                                                               │
+│  Structured progress events → Tripwire rules → Auto-action    │
+│  • Heartbeat timeout      → Auto-nudge agent                  │
+│  • Container exit         → HITL escalation                   │
+│  • Repeated errors (N×)   → Escalate to overseer              │
+│  • Message volume spike   → Auto-throttle                     │
+│  • Progress stall         → Nudge, then escalate              │
+│                                                               │
+│  Ambiguous cases ──────────────────────┐                      │
+└────────────────────────────────────────┼──────────────────────┘
                                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Tier 2: Overseer Agent (LLM-Powered)                        │
-│                                                             │
-│  ┌──────────────────┐    ┌────────────────────────────┐     │
-│  │ Haiku Classifiers │──►│ Sonnet/Opus Decision-Maker │     │
-│  │                   │    │                            │     │
-│  │ • Stall vs. work  │    │ • Compose redirect msgs    │     │
+┌───────────────────────────────────────────────────────────────┐
+│ Tier 2: Overseer Agent (LLM-Powered)                          │
+│                                                               │
+│  ┌────────────────────┐    ┌────────────────────────────┐     │
+│  │ Haiku Classifiers  │───►│ Sonnet/Opus Decision-Maker │     │
+│  │                    │    │                            │     │
+│  │ • Stall vs. work   │    │ • Compose redirect msgs    │     │
 │  │ • Loop detection   │    │ • Decide escalation level  │     │
 │  │ • Error triage     │    │ • File diagnostic issues   │     │
 │  │ • Off-track check  │    │ • HITL escalation          │     │
-│  └──────────────────┘    └────────────────────────────┘     │
-└─────────────────────────────────────────────────────────────┘
+│  └────────────────────┘    └────────────────────────────┘     │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 ## Structured Progress API
