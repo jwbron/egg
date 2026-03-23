@@ -396,6 +396,43 @@ class TestAttestationSchemas:
         # Relaxed should not raise
         validate_attestation("coder", {}, AttestationStrictness.RELAXED, is_producer=True)
 
+    def test_tester_strict_rejects_zero_tests_run(self):
+        """Tester attestation in strict mode requires tests_run > 0 when not blocked."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        with pytest.raises(ValueError, match="tests_run > 0"):
+            validate_attestation(
+                "tester", {"tests_run": 0}, AttestationStrictness.STRICT, is_producer=True
+            )
+
+    def test_tester_strict_allows_blocked_with_reason(self):
+        """Tester attestation accepts tests_run=0 when execution is blocked with a reason."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        # Should not raise
+        validate_attestation(
+            "tester",
+            {
+                "tests_run": 0,
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": "Private network mode blocks go mod download",
+            },
+            AttestationStrictness.STRICT,
+            is_producer=True,
+        )
+
+    def test_tester_strict_rejects_blocked_without_reason(self):
+        """Tester attestation rejects tests_execution_blocked=True without a reason."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        with pytest.raises(ValueError, match="tests_execution_blocked_reason"):
+            validate_attestation(
+                "tester",
+                {"tests_run": 0, "tests_execution_blocked": True},
+                AttestationStrictness.STRICT,
+                is_producer=True,
+            )
+
 
 class TestScaledReEvaluation:
     """Test scoped re-evaluation at roster scale (6+ agents).
