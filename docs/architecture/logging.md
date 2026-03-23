@@ -134,7 +134,7 @@ The `egg_agent` client (`shared/egg_agent/client.py`) emits structured log event
 | `tool_result` | Tool returns a result | `tool_use_id`, `is_error`, `content` |
 | `assistant` | Agent emits a text block | `event_subtype: "text"`, `text` |
 
-Tool input and output content is truncated to 2000 characters in log events to avoid log bloat; a `... (N chars)` suffix is appended when truncation occurs.
+Tool input, output, and assistant text content is truncated to 2000 characters in log events to avoid log bloat; a `... (N chars)` suffix is appended when truncation occurs.
 
 ### Model Output Capture
 
