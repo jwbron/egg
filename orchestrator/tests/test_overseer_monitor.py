@@ -1379,3 +1379,100 @@ class TestRerunAnomalyMissingResolvedAt:
 
         _run(monitor._check_rerun_anomaly(decisions, phase_data))
         monitor._create_hitl_decision.assert_not_awaited()
+
+
+class TestPrPhaseOutcomeCheck:
+    """Tests for _check_pr_phase_outcome — detects pipeline completing without a PR."""
+
+    def test_alerts_when_pr_phase_has_no_pr_url(self) -> None:
+        """Should alert when pipeline completes with PR phase but no pr_url."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-pr-outcome-001",
+            config=_MockConfig(),
+        )
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+
+        pipeline_data = {
+            "status": "complete",
+            "current_phase": "pr",
+            "phases": {
+                "pr": {
+                    "status": "complete",
+                    "artifacts": {},
+                }
+            },
+        }
+
+        _run(monitor._check_pr_phase_outcome(pipeline_data))
+        monitor._create_hitl_decision.assert_awaited_once()
+        call_msg = monitor._create_hitl_decision.call_args[0][1]
+        assert "no pr_url in phase artifacts" in call_msg
+        monitor._send_slack_notification.assert_awaited_once()
+
+    def test_no_alert_when_pr_url_present(self) -> None:
+        """Should not alert when PR phase has a valid pr_url."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-pr-outcome-002",
+            config=_MockConfig(),
+        )
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+
+        pipeline_data = {
+            "status": "complete",
+            "current_phase": "pr",
+            "phases": {
+                "pr": {
+                    "status": "complete",
+                    "artifacts": {"pr_url": "https://github.com/owner/repo/pull/1"},
+                }
+            },
+        }
+
+        _run(monitor._check_pr_phase_outcome(pipeline_data))
+        monitor._create_hitl_decision.assert_not_awaited()
+        monitor._send_slack_notification.assert_not_awaited()
+
+    def test_no_alert_when_not_pr_phase(self) -> None:
+        """Should not alert when pipeline completed in a non-PR phase."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-pr-outcome-003",
+            config=_MockConfig(),
+        )
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+
+        pipeline_data = {
+            "status": "complete",
+            "current_phase": "implement",
+            "phases": {},
+        }
+
+        _run(monitor._check_pr_phase_outcome(pipeline_data))
+        monitor._create_hitl_decision.assert_not_awaited()
+        monitor._send_slack_notification.assert_not_awaited()
+
+    def test_alerts_when_artifacts_is_none(self) -> None:
+        """Should alert when PR phase artifacts is None."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-pr-outcome-004",
+            config=_MockConfig(),
+        )
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+
+        pipeline_data = {
+            "status": "complete",
+            "current_phase": "pr",
+            "phases": {
+                "pr": {
+                    "status": "complete",
+                    "artifacts": None,
+                }
+            },
+        }
+
+        _run(monitor._check_pr_phase_outcome(pipeline_data))
+        monitor._create_hitl_decision.assert_awaited_once()
+        monitor._send_slack_notification.assert_awaited_once()

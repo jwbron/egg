@@ -315,6 +315,10 @@ class OverseerMonitor:
 
             # 8. Check pipeline status for terminal state
             if status in ("complete", "failed", "cancelled"):
+                # Validate PR phase outcome before shutting down
+                if status == "complete":
+                    await self._check_pr_phase_outcome(pipeline_data)
+
                 self._log_oversight_event(
                     {
                         "event": "pipeline_terminal",
@@ -923,6 +927,43 @@ class OverseerMonitor:
             await self._send_slack_notification("orchestrator", message)
             self._hitl_resolution_alerted.add(did)
             self._hitl_resolution_pending.pop(did, None)
+
+    async def _check_pr_phase_outcome(self, pipeline_data: dict) -> None:
+        """Safety-net check: detect pipeline completing without a PR.
+
+        This is defense-in-depth for edge cases that escape the primary failure
+        handling in ``_auto_create_pr`` (which sets the pipeline to FAILED when
+        PR creation returns no URL).  If a pipeline somehow reaches ``complete``
+        status with ``current_phase=pr`` but no ``pr_url`` in phase artifacts,
+        this surfaces the issue via a HITL decision and Slack notification so
+        that stranded work on the branch is not silently lost.
+        """
+        current_phase = pipeline_data.get("current_phase", "")
+        if current_phase != "pr":
+            return
+
+        phases = pipeline_data.get("phases", {})
+        pr_phase = phases.get("pr", {})
+        artifacts = pr_phase.get("artifacts") or {}
+        pr_url = artifacts.get("pr_url")
+
+        if pr_url:
+            return
+
+        message = (
+            f"PR phase completed without creating a PR: no pr_url in phase artifacts. "
+            f"Work may be stranded on the branch. "
+            f"Pipeline: {self.pipeline_id}"
+        )
+        logger.error(
+            "PR phase completed without PR for pipeline %s",
+            self.pipeline_id,
+        )
+        self._log_oversight_event(
+            {"event": "pr_phase_no_pr", "current_phase": current_phase, "artifacts": artifacts}
+        )
+        await self._create_hitl_decision("orchestrator", message)
+        await self._send_slack_notification("orchestrator", message)
 
     async def _check_cross_phase_consistency(
         self,
