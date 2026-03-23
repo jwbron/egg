@@ -701,6 +701,7 @@ class StateStore:
         issue_number: int | None = None,
         repo: str | None = None,
         branch: str | None = None,
+        base_branch: str | None = None,
         config: dict[str, Any] | None = None,
         prompt: str | None = None,
         pipeline_id: str | None = None,
@@ -716,6 +717,7 @@ class StateStore:
             issue_number: GitHub issue number (optional)
             repo: Repository in owner/name format
             branch: Work branch name
+            base_branch: Base branch for PR creation (optional, auto-detected if not set)
             config: Optional pipeline configuration
             prompt: User prompt (for prompt-driven pipelines)
             pipeline_id: Explicit pipeline ID (auto-generated if not provided)
@@ -760,6 +762,7 @@ class StateStore:
                 "issue_number": issue_number,
                 "repo": repo,
                 "branch": branch,
+                "base_branch": base_branch,
                 "prompt": prompt,
                 "network_mode": network_mode,
                 # Contract is created separately — mark as unsynced until verified

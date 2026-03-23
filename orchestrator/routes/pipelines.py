@@ -565,6 +565,7 @@ def create_pipeline() -> tuple[Response, int]:
     issue_number = data.get("issue_number")
     repo = data.get("repo")
     branch = data.get("branch")
+    base_branch = data.get("base_branch")
     prompt = data.get("prompt")
     mode = data.get("mode", "issue")
     pr_number = data.get("pr_number")
@@ -636,6 +637,7 @@ def create_pipeline() -> tuple[Response, int]:
             issue_number=issue_number,
             repo=repo,
             branch=branch,
+            base_branch=base_branch,
             config=config,
             prompt=prompt,
             network_mode=network_mode,
@@ -2654,6 +2656,13 @@ def _auto_create_pr(
 
     title, body = _build_pr_body(pipeline, worktree_repo_path)
 
+    # Resolve base branch: explicit > auto-detected from repo > "main"
+    base = pipeline.base_branch
+    if not base:
+        from egg_git.default_branch import get_default_branch
+
+        base = get_default_branch(worktree_repo_path)
+
     try:
         pr_url = spawner.gateway.create_pr(
             pipeline_id=pipeline.id,
@@ -2661,6 +2670,7 @@ def _auto_create_pr(
             title=title,
             body=body,
             head=pipeline.branch,
+            base=base,
             issue_number=pipeline.issue_number,
             agent_role="orchestrator",
             mode=gateway_mode,

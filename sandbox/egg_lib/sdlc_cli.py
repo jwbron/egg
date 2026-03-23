@@ -350,6 +350,7 @@ def run_local_mode(
     prompt: str | None = None,
     repo: str | None = None,
     concurrent: bool = False,
+    base_branch: str | None = None,
 ) -> int:
     """Run egg-sdlc in local (prompt-driven) mode.
 
@@ -395,6 +396,7 @@ def run_local_mode(
         pipeline = client.create_pipeline(
             prompt=prompt,
             repo=repo,
+            base_branch=base_branch,
             network_mode=_detect_network_mode(),
             config=config,
         )
@@ -434,6 +436,7 @@ def _restart_pipeline(
     branch: str,
     network_mode: str | None = None,
     config: dict[str, object] | None = None,
+    base_branch: str | None = None,
 ) -> None:
     """Delete an existing pipeline and re-create it.
 
@@ -444,6 +447,7 @@ def _restart_pipeline(
         issue_number=issue_number,
         repo=repo,
         branch=branch,
+        base_branch=base_branch,
         network_mode=network_mode,
         config=config,
     )
@@ -456,6 +460,7 @@ def run_issue_mode(
     issue_number: int,
     repo: str | None = None,
     concurrent: bool = False,
+    base_branch: str | None = None,
 ) -> int:
     """Run egg-sdlc in issue mode."""
     if not repo:
@@ -484,6 +489,7 @@ def run_issue_mode(
             issue_number=issue_number,
             repo=repo,
             branch=branch,
+            base_branch=base_branch,
             network_mode=network_mode,
             config=config,
         )
@@ -510,6 +516,7 @@ def run_issue_mode(
                         branch,
                         network_mode=network_mode,
                         config=config,
+                        base_branch=base_branch,
                     )
                 elif status in ("running", "awaiting_human"):
                     print(f"  Pipeline status: {status}. Attaching to watch loop...")
@@ -539,6 +546,7 @@ def run_issue_mode(
                         branch,
                         network_mode=network_mode,
                         config=config,
+                        base_branch=base_branch,
                     )
             except OrchestratorError as e2:
                 _write(f"{RED}Failed to restart pipeline: {e2}{RESET}\n", file=sys.stderr)
@@ -606,6 +614,11 @@ def main() -> None:
         help="Task prompt for local mode (skips interactive input).",
     )
     parser.add_argument(
+        "--base",
+        metavar="BRANCH",
+        help="Base branch for PR creation (default: repo's default branch).",
+    )
+    parser.add_argument(
         "--concurrent",
         action="store_true",
         default=False,
@@ -656,10 +669,16 @@ def main() -> None:
                 f"{YELLOW}Warning: --prompt is ignored in issue mode.{RESET}\n",
                 file=sys.stderr,
             )
-        exit_code = run_issue_mode(client, issue_number, repo, concurrent=args.concurrent)
+        exit_code = run_issue_mode(
+            client, issue_number, repo, concurrent=args.concurrent, base_branch=args.base
+        )
     else:
         exit_code = run_local_mode(
-            client, prompt=args.prompt, repo=repo, concurrent=args.concurrent
+            client,
+            prompt=args.prompt,
+            repo=repo,
+            concurrent=args.concurrent,
+            base_branch=args.base,
         )
 
     sys.exit(exit_code)

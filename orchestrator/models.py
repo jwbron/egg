@@ -369,6 +369,10 @@ class Pipeline(BaseModel):
     issue_number: int | None = Field(default=None, ge=1, description="GitHub issue number")
     repo: str | None = Field(default=None, description="Repository in owner/name format")
     branch: str | None = Field(default=None, description="Work branch name")
+    base_branch: str | None = Field(
+        default=None,
+        description="Base branch for PR creation. When None, auto-detected from repo's default branch.",
+    )
     prompt: str | None = Field(default=None, description="User prompt for prompt-driven pipelines")
     status: PipelineStatus = Field(
         default=PipelineStatus.PENDING, description="Overall pipeline status"
