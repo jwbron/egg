@@ -201,8 +201,7 @@ class TestAutoCreatePr:
 
         with (
             patch("routes.pipelines._build_pr_body", return_value=("Fix auth", "Body text")),
-            patch("routes.pipelines._detect_default_branch", return_value="main"),
-            patch("egg_git.default_branch.get_default_branch", return_value="main"),
+            patch("routes.pipelines.get_default_branch", return_value="main"),
         ):
             result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)
 
@@ -228,8 +227,7 @@ class TestAutoCreatePr:
 
         with (
             patch("routes.pipelines._build_pr_body", return_value=("Fix auth", "Body text")),
-            patch("routes.pipelines._detect_default_branch", return_value="main"),
-            patch("egg_git.default_branch.get_default_branch", return_value="main"),
+            patch("routes.pipelines.get_default_branch", return_value="main"),
         ):
             result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner, gateway_mode="private")
 
@@ -275,8 +273,7 @@ class TestAutoCreatePr:
 
         with (
             patch("routes.pipelines._build_pr_body", return_value=("Title", "Body")),
-            patch("routes.pipelines._detect_default_branch", return_value="main"),
-            patch("egg_git.default_branch.get_default_branch", return_value="main"),
+            patch("routes.pipelines.get_default_branch", return_value="main"),
         ):
             result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)
 
@@ -421,21 +418,37 @@ class TestAutoCreatePrPassesBaseBranch:
     """Tests that _auto_create_pr passes the detected base branch."""
 
     def test_passes_detected_base_branch(self):
-        """Verify base branch is passed to gateway.create_pr."""
+        """Verify auto-detected base branch is passed to gateway.create_pr."""
         pipeline = _make_pipeline()
         spawner = MagicMock()
         spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/1"
 
         with (
             patch("routes.pipelines._build_pr_body", return_value=("Title", "Body")),
-            patch("routes.pipelines._detect_default_branch", return_value="master"),
-            patch("egg_git.default_branch.get_default_branch", return_value="master"),
+            patch("routes.pipelines.get_default_branch", return_value="master"),
         ):
             result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)
 
         assert result == "https://github.com/owner/repo/pull/1"
         call_kwargs = spawner.gateway.create_pr.call_args
         assert call_kwargs[1]["base"] == "master"
+
+    def test_passes_explicit_base_branch(self):
+        """Verify explicit pipeline.base_branch is used for both PR base and body."""
+        pipeline = _make_pipeline()
+        pipeline.base_branch = "release/v2"
+        spawner = MagicMock()
+        spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/3"
+
+        with patch("routes.pipelines._build_pr_body", return_value=("Title", "Body")) as mock_build:
+            result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)
+
+        assert result == "https://github.com/owner/repo/pull/3"
+        # Verify create_pr receives the explicit base branch
+        call_kwargs = spawner.gateway.create_pr.call_args
+        assert call_kwargs[1]["base"] == "release/v2"
+        # Verify _build_pr_body receives the explicit base branch as default_branch
+        mock_build.assert_called_once_with(pipeline, Path("/tmp/repo"), default_branch="release/v2")
 
 
 class TestHandlePrCreationFailure:

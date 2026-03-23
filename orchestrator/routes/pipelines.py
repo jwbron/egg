@@ -103,6 +103,8 @@ except ImportError:
         get_state_store,
     )
 
+from egg_git.default_branch import get_default_branch
+
 if TYPE_CHECKING:
     from egg_container import MountSpec
 
@@ -2750,15 +2752,12 @@ def _auto_create_pr(
         )
         return None
 
-    base_branch = _detect_default_branch(worktree_repo_path)
-    title, body = _build_pr_body(pipeline, worktree_repo_path, default_branch=base_branch)
-
-    # Resolve base branch: explicit > auto-detected from repo > "main"
+    # Resolve base branch: explicit > auto-detected from repo
     base = pipeline.base_branch
     if not base:
-        from egg_git.default_branch import get_default_branch
-
         base = get_default_branch(worktree_repo_path)
+
+    title, body = _build_pr_body(pipeline, worktree_repo_path, default_branch=base)
 
     try:
         pr_url = spawner.gateway.create_pr(
