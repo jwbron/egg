@@ -1060,14 +1060,29 @@ egg-sdlc -r egg -i 123
 The SDLC pipeline can also be triggered via the local orchestrator API:
 
 ```bash
-# Via orchestrator API
+# Via orchestrator API — GitHub issue-driven
 curl -X POST http://localhost:9849/api/v1/pipelines \
   -H "Content-Type: application/json" \
   -d '{"issue_number": 123, "repo": "owner/repo", "branch": "egg/issue-123"}'
 
+# Via orchestrator API — JIRA ticket-driven (pipeline ID and branch derived from ticket)
+curl -X POST http://localhost:9849/api/v1/pipelines \
+  -H "Content-Type: application/json" \
+  -d '{"jira_ticket": "KORE-1234", "repo": "owner/repo", "prompt": "Add auth middleware"}'
+
 # Via egg-orch CLI
 egg-orch pipeline create --issue 123
 ```
+
+**JIRA ticket-based pipelines**: Pass `jira_ticket` (e.g. `KORE-1234`) instead of `issue_number` to use the ticket as the pipeline ID and branch name (`egg/KORE-1234`). This is accepted by both the orchestrator API and the `submit_task` MCP tool.
+
+**Qualifier support**: Both issue-driven and JIRA-driven pipelines accept an optional `qualifier` suffix to enable multiple pipelines per ticket or issue (e.g. `qualifier: "backend"` produces pipeline ID `issue-123-backend` / branch `egg/issue-123-backend`). If the target branch already exists, the orchestrator returns HTTP 409 with a hint to use a qualifier.
+
+Pipeline ID formats:
+- `issue-{number}[-qualifier]` — GitHub issue-driven
+- `{TICKET}[-qualifier]` — JIRA ticket-driven (e.g. `KORE-1234`, `KORE-1234-backend`)
+- `pr-{number}` — babysit mode
+- `local-{8hex}` / `pipeline-{8hex}` — prompt-driven
 
 **Short-flow pipelines** — skip refine/plan phases and start directly at implement by passing `start_phase: implement` in `config`, along with pre-generated `analysis` and `plan` content. The orchestrator writes these to draft files and parses the plan's `yaml-tasks` appendix to populate the contract:
 
