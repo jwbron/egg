@@ -128,7 +128,7 @@ Pipelines can specify an explicit network mode that controls internet access for
 **How it works:**
 
 1. Network mode is stored in the pipeline model (`orchestrator/models.py:Pipeline.network_mode`)
-2. When spawning containers:
+2. The resolved mode is used for both spawned agent containers and the orchestrator's own gateway sessions (git push/fetch, branch deletion, PR creation):
    - If `network_mode` is explicitly set, the orchestrator uses that value
    - If not set, the orchestrator queries the gateway for the pipeline's repo visibility (`GatewayClient.get_repo_visibility()`): private/internal repos get `"private"` mode, public repos get `"public"` mode
    - If no repo is associated with the pipeline, defaults to `"public"`
@@ -140,7 +140,7 @@ The PR phase no longer spawns an agent. Instead, the orchestrator auto-creates t
 1. Extracts PR title/description from the contract's `pr` field (populated by the plan agent)
 2. Falls back to the issue title or pipeline ID if no PR metadata exists
 3. Appends git commit log, diff stats, and a **Pipeline Context** section (pipeline ID + issue number) to the PR body
-4. Creates the PR via the gateway using a temporary session with `phase="pr"` permissions
+4. Creates the PR via the gateway using a temporary session with `phase="pr"` permissions and the pipeline's resolved network mode; in `private` mode the PR is created as a draft
 5. Applies `egg` and `agent:orchestrator` labels to the newly created PR
 
 The gateway also injects an `<!-- egg-pipeline-context ... -->` HTML comment into the PR body containing machine-parseable pipeline metadata (`pipeline_id`, `agent_role`, `issue`). Labels are applied best-effort — failures are logged but non-fatal.
