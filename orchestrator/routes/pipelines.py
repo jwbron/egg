@@ -592,7 +592,7 @@ def create_pipeline() -> tuple[Response, int]:
     if not pipeline_id and mode == PipelineMode.BABYSIT:
         pipeline_id = f"pr-{pr_number}"
 
-    if (issue_number or pipeline_id) and not branch:
+    if (issue_number or pipeline_id) and not branch and mode != PipelineMode.BABYSIT:
         return make_error_response("Missing branch")
 
     repo_path = get_repo_path()
