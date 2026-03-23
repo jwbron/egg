@@ -1027,12 +1027,15 @@ The `egg-sdlc` CLI provides an interactive terminal interface for driving SDLC p
 egg-sdlc -r <repo_dir> -i <issue_number>
 egg-sdlc -r <repo_dir> <issue_number>        # Short form (positional issue)
 egg-sdlc --private -r <repo_dir> -i <issue_number>  # Private mode (network lockdown)
+egg-sdlc -r <repo_dir> -i <issue_number> --base develop  # Custom base branch for PR
 
 # Prompt-driven: interactive pipeline (no GitHub issue)
 egg-sdlc
 ```
 
 **Note:** Issue-driven pipelines require the `-r/--repo` flag specifying the repository directory name under `~/repos/` (e.g., `egg`). The flag also accepts full `owner/repo` format for direct specification. Repo autodetection was removed in favor of explicit specification.
+
+Use `--base <branch>` to target a non-default base branch for the auto-created PR (e.g., `--base develop`). When omitted, the PR targets the repo's default branch.
 
 **Features:**
 - Real-time DAG visualization (reuses `egg-pipeline-watch` SSE patterns)
