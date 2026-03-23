@@ -2522,9 +2522,98 @@ def _ensure_statefiles_on_branch(
         return False
 
 
+def _detect_default_branch(worktree_repo_path: Path) -> str:
+    """Detect the remote's default branch from a worktree.
+
+    Tries in order:
+    1. origin/HEAD symbolic ref (most reliable)
+    2. origin/main
+    3. origin/master
+    4. Fallback to "main"
+
+    Returns:
+        The branch name (e.g., "main" or "master"), without the "origin/" prefix.
+    """
+    # Try origin/HEAD symbolic ref
+    try:
+        result = subprocess.run(
+            ["git", "symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
+            capture_output=True,
+            text=True,
+            cwd=str(worktree_repo_path),
+            timeout=10,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            ref = result.stdout.strip()  # e.g. "origin/main"
+            return ref.removeprefix("origin/")
+    except Exception:
+        pass
+
+    # Try origin/main
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", "origin/main"],
+            capture_output=True,
+            text=True,
+            cwd=str(worktree_repo_path),
+            timeout=10,
+            check=False,
+        )
+        if result.returncode == 0:
+            return "main"
+    except Exception:
+        pass
+
+    # Try origin/master
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", "origin/master"],
+            capture_output=True,
+            text=True,
+            cwd=str(worktree_repo_path),
+            timeout=10,
+            check=False,
+        )
+        if result.returncode == 0:
+            return "master"
+    except Exception:
+        pass
+
+    logger.warning(
+        "Could not detect default branch, falling back to 'main'",
+        worktree_path=str(worktree_repo_path),
+    )
+    return "main"
+
+
+def _handle_pr_creation_failure(
+    pipeline_id: str,
+    current_phase: str,
+    store,
+) -> None:
+    """Mark a pipeline as FAILED after PR creation returns no URL.
+
+    Extracted from ``_health_monitor_poll`` so this state-transition logic can
+    be tested independently of the full polling loop.
+    """
+    error_msg = "Auto PR creation failed: no PR URL returned"
+    logger.error(error_msg, pipeline_id=pipeline_id)
+    with get_pipeline_state_lock(pipeline_id):
+        pipeline = store.load_pipeline(pipeline_id)
+        phase_execution = pipeline.get_phase_execution(current_phase)
+        phase_execution.status = PipelineStatus.FAILED
+        phase_execution.error = error_msg
+        phase_execution.completed_at = datetime.now(UTC)
+        pipeline.status = PipelineStatus.FAILED
+        pipeline.error = error_msg
+        store.save_pipeline(pipeline)
+
+
 def _build_pr_body(
     pipeline: Pipeline,
     worktree_repo_path: Path,
+    default_branch: str | None = None,
 ) -> tuple[str, str]:
     """Build a PR title and body from contract state and git log.
 
@@ -2534,6 +2623,8 @@ def _build_pr_body(
     Args:
         pipeline: The pipeline state
         worktree_repo_path: Path to the worktree repo directory
+        default_branch: Pre-detected default branch name. If None, will be
+            detected automatically.
 
     Returns:
         Tuple of (title, body)
@@ -2565,11 +2656,16 @@ def _build_pr_body(
     if not pr_title:
         pr_title = f"Implementation for pipeline {pipeline.id}"
 
+    # Detect default branch for git comparisons
+    if default_branch is None:
+        default_branch = _detect_default_branch(worktree_repo_path)
+    origin_ref = f"origin/{default_branch}"
+
     # Build commit log
     commit_log = ""
     try:
         result = subprocess.run(
-            ["git", "log", "--oneline", "origin/main..HEAD"],
+            ["git", "log", "--oneline", f"{origin_ref}..HEAD"],
             capture_output=True,
             text=True,
             cwd=str(worktree_repo_path),
@@ -2585,7 +2681,7 @@ def _build_pr_body(
     diff_stats = ""
     try:
         result = subprocess.run(
-            ["git", "diff", "--stat", "origin/main...HEAD"],
+            ["git", "diff", "--stat", f"{origin_ref}...HEAD"],
             capture_output=True,
             text=True,
             cwd=str(worktree_repo_path),
@@ -2654,7 +2750,8 @@ def _auto_create_pr(
         )
         return None
 
-    title, body = _build_pr_body(pipeline, worktree_repo_path)
+    base_branch = _detect_default_branch(worktree_repo_path)
+    title, body = _build_pr_body(pipeline, worktree_repo_path, default_branch=base_branch)
 
     # Resolve base branch: explicit > auto-detected from repo > "main"
     base = pipeline.base_branch
@@ -5913,10 +6010,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase_execution.artifacts = {"pr_url": pr_url}
                         store.save_pipeline(pipeline)
                 else:
-                    logger.warning(
-                        "Auto PR creation returned no URL (PR may still have been created)",
-                        pipeline_id=pipeline_id,
-                    )
+                    _handle_pr_creation_failure(pipeline_id, current_phase, store)
+                    phase_failed = True
 
                 # Fall through to phase completion below (skip inner review cycle)
 

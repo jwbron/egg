@@ -17,7 +17,7 @@ Thank you for your interest in contributing to egg!
    ```
 
    This:
-   - Creates a virtual environment with all dependencies (via uv)
+   - Installs `uv` if not present, then creates a virtual environment with all dependencies
    - Installs pre-commit hooks
 
 3. **Verify the setup**
@@ -34,7 +34,8 @@ The `Makefile` is the single entry point for all development tasks:
 
 | Command | What it does | Notes |
 |---------|--------------|-------|
-| `make setup` | Install dependencies and pre-commit hooks | Run once after cloning |
+| `make deps` | Install dependencies only (installs `uv` if needed) | Use when you don't need pre-commit hooks |
+| `make setup` | Install dependencies + pre-commit hooks | Run once after cloning |
 | `make lint` | Run all linters | Same checks as GitHub Actions |
 | `make test` | Run all tests | Same checks as GitHub Actions |
 | `make security` | Run security scan | Same checks as GitHub Actions |
