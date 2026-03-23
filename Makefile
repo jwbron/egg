@@ -69,7 +69,7 @@ help:
 # ============================================================================
 
 # Full development environment setup
-setup: venv
+setup: deps
 	@echo "==> Installing pre-commit hooks..."
 	@$(VENV_BIN)/pre-commit install || true
 	@echo ""
@@ -81,7 +81,7 @@ deps:
 		echo "==> Installing uv..."; \
 		curl -LsSf https://astral.sh/uv/install.sh | sh; \
 	fi
-	@$(MAKE) venv
+	@PATH="$$HOME/.local/bin:$$HOME/.cargo/bin:$$PATH" $(MAKE) venv
 
 # Ensure venv exists and has dev dependencies
 venv:
