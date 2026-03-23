@@ -7,7 +7,7 @@ from types import ModuleType
 from typing import Any
 from unittest.mock import patch
 
-from egg_agent.client import run_agent, run_agent_async
+from egg_agent.client import _MAX_TOOL_CONTENT_LOG_LEN, _truncate, run_agent, run_agent_async
 
 # ── Mock SDK types ──────────────────────────────────────────────────────────
 #
@@ -493,6 +493,113 @@ class TestRunAgentAsync:
                 c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "Tool result"
             ]
             assert len(tool_result_calls) == 2
+
+    def test_truncate_within_limit(self):
+        """Test that strings within the limit are returned unchanged."""
+        short = "hello world"
+        assert _truncate(short) == short
+
+    def test_truncate_exceeds_limit(self):
+        """Test that strings exceeding the limit are truncated with indicator."""
+        long_str = "x" * (_MAX_TOOL_CONTENT_LOG_LEN + 500)
+        result = _truncate(long_str)
+        assert len(result) > _MAX_TOOL_CONTENT_LOG_LEN  # includes indicator
+        assert result.startswith("x" * _MAX_TOOL_CONTENT_LOG_LEN)
+        assert result.endswith(f"... ({len(long_str)} chars)")
+
+    @patch("claude_agent_sdk.query")
+    def test_structured_logging_non_string_tool_result(self, mock_query):
+        """Test tool result logging with list content and None content."""
+
+        async def gen(**kwargs):
+            yield AssistantMessage(
+                content=[
+                    ToolUseBlock(id="t_list", name="Read", input={"path": "/tmp/a"}),
+                ],
+                model="claude-opus-4-6-20250313",
+            )
+            yield UserMessage(
+                content=[
+                    ToolResultBlock(
+                        tool_use_id="t_list",
+                        content=[{"type": "text", "text": "output"}],
+                    ),
+                ],
+            )
+            yield AssistantMessage(
+                content=[
+                    ToolUseBlock(id="t_none", name="Bash", input={"command": "true"}),
+                ],
+                model="claude-opus-4-6-20250313",
+            )
+            yield UserMessage(
+                content=[
+                    ToolResultBlock(tool_use_id="t_none", content=None),
+                ],
+            )
+            yield _make_result_msg()
+
+        mock_query.side_effect = gen
+
+        with patch("egg_agent.client.logger") as mock_logger:
+            _run_async(run_agent_async("test prompt"))
+
+            tool_result_calls = [
+                c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "Tool result"
+            ]
+            assert len(tool_result_calls) == 2
+
+            # List content should be JSON-serialized
+            list_kwargs = tool_result_calls[0].kwargs
+            assert list_kwargs["tool_use_id"] == "t_list"
+            assert '"type"' in list_kwargs["content"]
+            assert '"output"' in list_kwargs["content"]
+
+            # None content should be empty string
+            none_kwargs = tool_result_calls[1].kwargs
+            assert none_kwargs["tool_use_id"] == "t_none"
+            assert none_kwargs["content"] == ""
+
+    @patch("claude_agent_sdk.query")
+    def test_structured_logging_parallel_tool_calls(self, mock_query):
+        """Test logging of parallel tool calls (multiple ToolUseBlocks in one message)."""
+
+        async def gen(**kwargs):
+            yield AssistantMessage(
+                content=[
+                    ToolUseBlock(id="p1", name="Bash", input={"command": "ls"}),
+                    ToolUseBlock(id="p2", name="Read", input={"file_path": "/tmp/f"}),
+                ],
+                model="claude-opus-4-6-20250313",
+            )
+            yield UserMessage(
+                content=[
+                    ToolResultBlock(tool_use_id="p1", content="file1"),
+                    ToolResultBlock(tool_use_id="p2", content="contents"),
+                ],
+            )
+            yield _make_result_msg()
+
+        mock_query.side_effect = gen
+
+        with patch("egg_agent.client.logger") as mock_logger:
+            _run_async(run_agent_async("test prompt"))
+
+            tool_use_calls = [
+                c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "Tool call"
+            ]
+            assert len(tool_use_calls) == 2
+            assert tool_use_calls[0].kwargs["tool_name"] == "Bash"
+            assert tool_use_calls[0].kwargs["tool_use_id"] == "p1"
+            assert tool_use_calls[1].kwargs["tool_name"] == "Read"
+            assert tool_use_calls[1].kwargs["tool_use_id"] == "p2"
+
+            tool_result_calls = [
+                c for c in mock_logger.info.call_args_list if c.args and c.args[0] == "Tool result"
+            ]
+            assert len(tool_result_calls) == 2
+            assert tool_result_calls[0].kwargs["tool_use_id"] == "p1"
+            assert tool_result_calls[1].kwargs["tool_use_id"] == "p2"
 
 
 class TestRunAgentSync:
