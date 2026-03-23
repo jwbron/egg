@@ -3450,7 +3450,14 @@ def _build_reviewer_preparation(role_value: str, phase: str) -> str:
                 "(grep for relevant classes, read key files), "
                 "(d) noting existing test patterns and code conventions. "
                 "This background research will make your review faster "
-                "and more thorough once proposals arrive."
+                "and more thorough once proposals arrive. "
+                "When reviewing the tester's proposal, check whether tests were "
+                "actually executed (look for `tests_run` and `tests_execution_blocked` "
+                "in the attestation). If the tester reports `tests_execution_blocked: true`, "
+                "this is a blocking concern — NACK unless the limitation is clearly "
+                "documented and the tests are syntactically valid. "
+                "Also scrutinize low `tests_run` counts relative to change scope — "
+                "a multi-file change with only 1 test run warrants investigation."
             )
         elif role_value == "reviewer_contract":
             return (
@@ -3601,6 +3608,7 @@ def _build_agent_prompt(
     phase_obj=None,
     all_phases=None,
     concurrent: bool = False,
+    network_mode: str | None = None,
 ) -> str:
     """Build a role-specific prompt for multi-agent execution.
 
@@ -3634,6 +3642,8 @@ def _build_agent_prompt(
         concurrent: Whether agent runs in concurrent multi-agent mode.
             When True, adds consensus lifecycle preamble instructing the
             agent to stay alive, poll messages, and participate in consensus.
+        network_mode: Pipeline network mode ("public", "private", or None).
+            When "private", injects warnings about blocked package downloads.
 
     Returns:
         Complete prompt string for the agent
@@ -3805,6 +3815,33 @@ def _build_agent_prompt(
                 "",
             ]
         )
+
+        # Test execution verification — prevents proposing consensus with
+        # unverified tests (issue #1359).
+        test_verify_lines = [
+            "### Test Execution Verification (CRITICAL)\n",
+            "You MUST actually execute the test suite (`go test`, `pytest`, `jest`, etc.). "
+            "Passing gofmt, syntax checks, or linting alone does NOT count as tests run.\n",
+            "If tests cannot run (e.g., dependency downloads blocked in private network mode, "
+            "missing build tools), you MUST:",
+            "1. Set `tests_execution_blocked: true` and provide `tests_execution_blocked_reason` "
+            "in your attestation when proposing consensus",
+            '2. Include an explicit **"TESTS UNVERIFIED"** warning in your proposal summary',
+            '3. Do NOT claim your work is "complete" — state that tests are written but unverified',
+            "",
+        ]
+        if network_mode == "private":
+            test_verify_lines.extend(
+                [
+                    "**WARNING: Private network mode is active** — external package downloads "
+                    "(go mod download, npm install, pip install, etc.) may be blocked. "
+                    "If dependency installation fails, you cannot verify tests. "
+                    "Follow the instructions above to flag tests as unverified.",
+                    "",
+                ]
+            )
+        lines.extend(test_verify_lines)
+
     elif role_value == "documenter":
         lines.extend(
             [
@@ -4129,6 +4166,7 @@ def _run_concurrent_phase(
             repo_path=str(worktree_repo_path),
             concurrent=True,
             review_feedback=review_feedback,
+            network_mode=gateway_mode,
         )
         agent_prompts[role] = prompt
 

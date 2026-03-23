@@ -2400,3 +2400,70 @@ class TestProducerOrientation:
         preamble = _build_brc_preamble("coder", "implement")
         assert "**ORIENT**" in preamble
         assert "egg-contract show" in preamble
+
+
+class TestTesterTestVerificationPrompt:
+    """Tests for tester test execution verification instructions (issue #1359)."""
+
+    def test_tester_prompt_includes_test_verification_section(self):
+        """Tester prompt includes test execution verification instructions."""
+        result = _build_agent_prompt(
+            role_value="tester",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        assert "Test Execution Verification (CRITICAL)" in result
+        assert "tests_execution_blocked" in result
+        assert "TESTS UNVERIFIED" in result
+
+    def test_tester_prompt_private_mode_warning(self):
+        """Tester prompt in private mode includes network warning."""
+        result = _build_agent_prompt(
+            role_value="tester",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+            network_mode="private",
+        )
+        assert "Private network mode is active" in result
+        assert "go mod download" in result
+
+    def test_tester_prompt_public_mode_no_private_warning(self):
+        """Tester prompt in public mode does not include private mode warning."""
+        result = _build_agent_prompt(
+            role_value="tester",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+            network_mode="public",
+        )
+        assert "Test Execution Verification (CRITICAL)" in result
+        assert "Private network mode is active" not in result
+
+    def test_reviewer_code_preparation_mentions_unverified_tests(self):
+        """Code reviewer preparation includes tester attestation check."""
+        result = _build_reviewer_preparation("reviewer_code", "implement")
+        assert "tests_execution_blocked" in result
+        assert "NACK" in result
+
+    def test_non_tester_roles_exclude_test_verification_section(self):
+        """Coder, documenter, and reviewer prompts do not include test verification."""
+        for role in ("coder", "documenter", "reviewer_code"):
+            result = _build_agent_prompt(
+                role_value=role,
+                phase="implement",
+                pipeline_id="pid-1",
+                pipeline_mode="issue",
+                prompt="# Feature\n\nDetail.",
+                issue_number=1,
+            )
+            assert "Test Execution Verification (CRITICAL)" not in result, (
+                f"Test verification section leaked into {role} prompt"
+            )

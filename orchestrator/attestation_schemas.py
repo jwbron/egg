@@ -35,6 +35,13 @@ class TesterAttestation(BaseModel):
 
     tests_written: int = Field(default=0, description="Number of tests written")
     tests_run: int = Field(default=0, description="Number of tests run")
+    tests_execution_blocked: bool = Field(
+        default=False,
+        description="True if tests could not be executed (e.g., private network mode blocks module downloads)",
+    )
+    tests_execution_blocked_reason: str = Field(
+        default="", description="Why tests could not be executed"
+    )
     coverage_delta: str = Field(default="", description="Coverage change")
     edge_cases: list[str] = Field(default_factory=list, description="Edge cases covered")
     concern_considered: str = Field(default="", description="One concern considered")
@@ -199,7 +206,19 @@ def _validate_strict(role: str, instance: BaseModel, is_producer: bool) -> None:
                     "Coder attestation requires at least one changed file in strict mode"
                 )
         elif role == "tester" and isinstance(instance, TesterAttestation):
-            if instance.tests_run == 0:
+            if instance.tests_execution_blocked:
+                if not instance.tests_execution_blocked_reason:
+                    raise ValueError(
+                        "Tester attestation requires tests_execution_blocked_reason "
+                        "when tests_execution_blocked is true"
+                    )
+                if instance.tests_run > 0:
+                    raise ValueError(
+                        "Tester attestation has tests_execution_blocked=true but "
+                        "tests_run > 0 — these are mutually exclusive. If some tests "
+                        "ran, set tests_execution_blocked=false and report normally"
+                    )
+            elif instance.tests_run == 0:
                 raise ValueError("Tester attestation requires tests_run > 0 in strict mode")
         elif role == "documenter" and isinstance(instance, DocumenterAttestation):
             if not instance.sections_updated:
