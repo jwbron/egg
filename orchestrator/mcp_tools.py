@@ -70,6 +70,14 @@ PIPELINE_TOOLS = [
                     "type": "object",
                     "description": 'Optional pipeline configuration overrides (e.g. {"start_phase": "implement", "hitl_gates": false})',
                 },
+                "analysis": {
+                    "type": "string",
+                    "description": "Pre-generated analysis markdown (optional, used with start_phase: implement to seed the contract)",
+                },
+                "plan": {
+                    "type": "string",
+                    "description": "Pre-generated plan markdown with yaml-tasks appendix (optional, used with start_phase: implement to populate the contract with tasks)",
+                },
             },
             "required": ["description", "repo"],
         },
@@ -521,6 +529,10 @@ class PipelineToolHandler:
                 except json.JSONDecodeError as e:
                     return {"error": f"Invalid config JSON: {e}"}
             data["config"] = config
+        if args.get("analysis"):
+            data["analysis"] = args["analysis"]
+        if args.get("plan"):
+            data["plan"] = args["plan"]
 
         try:
             result = self._make_request("/api/v1/pipelines", method="POST", data=data)
