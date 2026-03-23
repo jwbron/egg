@@ -538,9 +538,7 @@ class TestCreatePipelineJiraAndQualifier:
 
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_repo_path")
-    def test_create_pipeline_rejects_existing_branch(
-        self, mock_repo_path, mock_gw_client, client
-    ):
+    def test_create_pipeline_rejects_existing_branch(self, mock_repo_path, mock_gw_client, client):
         """409 when the target branch already exists on the remote."""
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
         mock_gw = MagicMock()
