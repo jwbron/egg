@@ -128,11 +128,14 @@ Pipelines can specify an explicit network mode that controls internet access for
 **How it works:**
 
 1. Network mode is stored in the pipeline model (`orchestrator/models.py:Pipeline.network_mode`)
-2. The resolved mode is used for both spawned agent containers and the orchestrator's own gateway sessions (git push/fetch, branch deletion, PR creation):
+2. The resolved mode applies to:
+   - Spawned agent containers (network isolation)
+   - The orchestrator's own gateway sessions (git push/fetch, branch deletion, PR creation)
+3. Resolution logic:
    - If `network_mode` is explicitly set, the orchestrator uses that value
    - If not set, the orchestrator queries the gateway for the pipeline's repo visibility (`GatewayClient.get_repo_visibility()`): private/internal repos get `"private"` mode, public repos get `"public"` mode
    - If no repo is associated with the pipeline, defaults to `"public"`
-3. The gateway enforces network policy based on the session mode (see `gateway/README.md`)
+4. The gateway enforces network policy based on the session mode (see `gateway/README.md`)
 
 **Special case: PR phase**
 
