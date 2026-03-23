@@ -177,13 +177,15 @@ class TestMCPToolForwarding:
 
         handler._make_request = mock_request
 
-        handler._handle_submit_task({
-            "description": "Test task",
-            "repo": "owner/repo",
-            "config": {"start_phase": "implement"},
-            "analysis": SAMPLE_ANALYSIS,
-            "plan": SAMPLE_PLAN,
-        })
+        handler._handle_submit_task(
+            {
+                "description": "Test task",
+                "repo": "owner/repo",
+                "config": {"start_phase": "implement"},
+                "analysis": SAMPLE_ANALYSIS,
+                "plan": SAMPLE_PLAN,
+            }
+        )
 
         assert "analysis" in captured_data
         assert "plan" in captured_data
@@ -209,10 +211,12 @@ class TestMCPToolForwarding:
 
         handler._make_request = mock_request
 
-        handler._handle_submit_task({
-            "description": "Test task",
-            "repo": "owner/repo",
-        })
+        handler._handle_submit_task(
+            {
+                "description": "Test task",
+                "repo": "owner/repo",
+            }
+        )
 
         assert "analysis" not in captured_data
         assert "plan" not in captured_data
