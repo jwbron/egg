@@ -124,6 +124,18 @@ Wrappers intercept calls to critical commands and log invocation, stdout/stderr,
 
 CLI wrapper binaries are available in `shared/egg_logging/bin/` as drop-in replacements.
 
+### Agent SDK Structured Events
+
+The `egg_agent` client (`shared/egg_agent/client.py`) emits structured log events for every tool call and result during an agent run. These are emitted at INFO level with an `event_type` field:
+
+| `event_type` | When emitted | Key fields |
+|---|---|---|
+| `tool_use` | Agent invokes a tool | `tool_name`, `tool_use_id`, `input` |
+| `tool_result` | Tool returns a result | `tool_use_id`, `is_error`, `content` |
+| `assistant` | Agent emits a text block | `event_subtype: "text"`, `text` |
+
+Tool input and output content is truncated to 2000 characters in log events to avoid log bloat; a `... (N chars)` suffix is appended when truncation occurs.
+
 ### Model Output Capture
 
 Full Claude Code model output is captured for debugging, cost tracking, and quality analysis. Responses are stored in daily directories with a `index.jsonl` for fast searches:
