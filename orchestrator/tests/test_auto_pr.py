@@ -429,6 +429,7 @@ class TestAutoCreatePrPassesBaseBranch:
         with (
             patch("routes.pipelines._build_pr_body", return_value=("Title", "Body")),
             patch("routes.pipelines._detect_default_branch", return_value="master"),
+            patch("egg_git.default_branch.get_default_branch", return_value="master"),
         ):
             result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)
 
