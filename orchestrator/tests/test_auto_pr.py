@@ -14,7 +14,7 @@ sys.modules.setdefault("docker.errors", _docker_mock.errors)
 sys.modules.setdefault("docker.types", _docker_mock.types)
 
 from models import Pipeline, PipelinePhase, PipelineStatus
-from routes.pipelines import _auto_create_pr, _build_pr_body
+from routes.pipelines import _auto_create_pr, _build_pr_body, _compute_gateway_mode
 
 
 def _make_pipeline(
@@ -206,6 +206,31 @@ class TestAutoCreatePr:
             head="egg/issue-42",
             issue_number=42,
             agent_role="orchestrator",
+            mode="public",
+            draft=False,
+        )
+
+    def test_creates_draft_pr_in_private_mode(self):
+        """Test that _auto_create_pr creates a draft PR in private mode."""
+        pipeline = _make_pipeline()
+        spawner = MagicMock()
+        spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/2"
+
+        with patch("routes.pipelines._build_pr_body") as mock_build:
+            mock_build.return_value = ("Fix auth", "Body text")
+            result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner, gateway_mode="private")
+
+        assert result == "https://github.com/owner/repo/pull/2"
+        spawner.gateway.create_pr.assert_called_once_with(
+            pipeline_id="issue-42",
+            repo="owner/repo",
+            title="Fix auth",
+            body="Body text",
+            head="egg/issue-42",
+            issue_number=42,
+            agent_role="orchestrator",
+            mode="private",
+            draft=True,
         )
 
     def test_returns_none_when_no_repo(self):
@@ -239,3 +264,56 @@ class TestAutoCreatePr:
             result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)
 
         assert result is None
+
+
+class TestComputeGatewayMode:
+    """Tests for _compute_gateway_mode helper."""
+
+    def test_uses_explicit_network_mode(self):
+        """Returns pipeline.network_mode when set, visibility is None."""
+        pipeline = _make_pipeline()
+        pipeline.network_mode = "private"
+        mode, vis = _compute_gateway_mode(pipeline)
+        assert mode == "private"
+        assert vis is None
+
+    def test_auto_detects_private_repo(self):
+        """Auto-detects private mode from repo visibility."""
+        pipeline = _make_pipeline()
+        pipeline.network_mode = None
+        mock_client = MagicMock()
+        mock_client.get_repo_visibility.return_value = "private"
+        with patch("routes.pipelines.get_gateway_client", return_value=mock_client):
+            mode, vis = _compute_gateway_mode(pipeline)
+        assert mode == "private"
+        assert vis == "private"
+
+    def test_auto_detects_internal_repo(self):
+        """Treats internal repos as private."""
+        pipeline = _make_pipeline()
+        pipeline.network_mode = None
+        mock_client = MagicMock()
+        mock_client.get_repo_visibility.return_value = "internal"
+        with patch("routes.pipelines.get_gateway_client", return_value=mock_client):
+            mode, vis = _compute_gateway_mode(pipeline)
+        assert mode == "private"
+        assert vis == "internal"
+
+    def test_defaults_to_public(self):
+        """Defaults to public when no network_mode and no repo."""
+        pipeline = _make_pipeline(repo=None)
+        pipeline.network_mode = None
+        mode, vis = _compute_gateway_mode(pipeline)
+        assert mode == "public"
+        assert vis is None
+
+    def test_defaults_to_public_for_public_repo(self):
+        """Returns public for public repos."""
+        pipeline = _make_pipeline()
+        pipeline.network_mode = None
+        mock_client = MagicMock()
+        mock_client.get_repo_visibility.return_value = "public"
+        with patch("routes.pipelines.get_gateway_client", return_value=mock_client):
+            mode, vis = _compute_gateway_mode(pipeline)
+        assert mode == "public"
+        assert vis == "public"

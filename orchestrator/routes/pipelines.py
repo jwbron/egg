@@ -11,7 +11,7 @@ import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from docker.errors import DockerException
 from flask import Blueprint, Response, jsonify, request, stream_with_context
@@ -851,6 +851,29 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
         )
 
 
+def _compute_gateway_mode(
+    pipeline: "Pipeline",
+) -> tuple[Literal["public", "private"], str | None]:
+    """Compute gateway session mode from pipeline config and repo visibility.
+
+    Uses the explicit ``network_mode`` if set, otherwise auto-detects from
+    repository visibility via the gateway.  Defaults to ``"public"``.
+
+    Returns:
+        A ``(mode, visibility)`` tuple.  ``visibility`` is ``None`` when
+        ``network_mode`` is explicit, the pipeline has no repo, or the
+        gateway query failed.
+    """
+    if pipeline.network_mode:
+        return pipeline.network_mode, None
+    if pipeline.repo:
+        vis = get_gateway_client().get_repo_visibility(pipeline.repo)
+        if vis in ("private", "internal"):
+            return "private", vis
+        return "public", vis
+    return "public", None
+
+
 def _cleanup_remote_branches(
     pipeline_id: str,
     pipeline: "Pipeline",
@@ -872,10 +895,11 @@ def _cleanup_remote_branches(
 
     gateway_client = get_gateway_client()
     repo_path_str = str(repo_path)
+    mode, _vis = _compute_gateway_mode(pipeline)
 
     deleted = 0
     for branch in sorted(branches):
-        if gateway_client.delete_remote_branch(pipeline_id, repo_path_str, branch):
+        if gateway_client.delete_remote_branch(pipeline_id, repo_path_str, branch, mode=mode):
             deleted += 1
 
     if deleted:
@@ -2172,6 +2196,7 @@ def _sync_worktree_with_remote(
     pipeline_id: str,
     worktree_repo_path: Path,
     prior_phase_succeeded: bool = True,
+    gateway_mode: Literal["public", "private"] = "public",
 ) -> None:
     """Sync a worktree with its remote branch (best-effort).
 
@@ -2200,6 +2225,7 @@ def _sync_worktree_with_remote(
     fetch_ok = spawner.gateway.fetch_worktree_branch(
         pipeline_id=pipeline_id,
         repo_path=str(worktree_repo_path),
+        mode=gateway_mode,
     )
     if not fetch_ok:
         return
@@ -2268,6 +2294,7 @@ def _sync_worktree_with_remote(
                 pipeline_id=pipeline_id,
                 repo_path=str(worktree_repo_path),
                 branch=branch,
+                mode=gateway_mode,
             )
             if push_ok:
                 # Push succeeded — local and remote are now in sync.
@@ -2276,6 +2303,7 @@ def _sync_worktree_with_remote(
                 spawner.gateway.fetch_worktree_branch(
                     pipeline_id=pipeline_id,
                     repo_path=str(worktree_repo_path),
+                    mode=gateway_mode,
                 )
                 return  # Already in sync — no reset needed
             else:
@@ -2601,6 +2629,7 @@ def _auto_create_pr(
     pipeline: Pipeline,
     worktree_repo_path: Path,
     spawner: "ContainerSpawner",
+    gateway_mode: Literal["public", "private"] = "public",
 ) -> str | None:
     """Auto-create a PR for a pipeline without spawning an agent.
 
@@ -2611,6 +2640,7 @@ def _auto_create_pr(
         pipeline: The pipeline state
         worktree_repo_path: Path to the worktree repo directory
         spawner: Container spawner (used to access gateway client)
+        gateway_mode: Session mode for the gateway ("public" or "private")
 
     Returns:
         PR URL if creation succeeded, None otherwise
@@ -2633,6 +2663,8 @@ def _auto_create_pr(
             head=pipeline.branch,
             issue_number=pipeline.issue_number,
             agent_role="orchestrator",
+            mode=gateway_mode,
+            draft=(gateway_mode == "private"),
         )
         return pr_url
     except Exception as e:
@@ -5282,24 +5314,20 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         transitions = PHASE_TRANSITIONS
 
         # Map pipeline to gateway session mode.
-        # If the pipeline has an explicit network_mode (e.g. "private"), use it;
-        # otherwise auto-detect from repo visibility via the gateway.
-        if pipeline.network_mode:
-            gateway_mode = pipeline.network_mode
-        elif pipeline.repo:
-            visibility = get_gateway_client().get_repo_visibility(pipeline.repo)
-            if visibility in ("private", "internal"):
-                gateway_mode = "private"
+        gateway_mode, detected_visibility = _compute_gateway_mode(pipeline)
+        if not pipeline.network_mode and pipeline.repo:
+            if detected_visibility is not None:
+                logger.info(
+                    "Auto-detected network mode from repo visibility",
+                    repo=pipeline.repo,
+                    visibility=detected_visibility,
+                    gateway_mode=gateway_mode,
+                )
             else:
-                gateway_mode = "public"
-            logger.info(
-                "Auto-detected network mode from repo visibility",
-                repo=pipeline.repo,
-                visibility=visibility,
-                gateway_mode=gateway_mode,
-            )
-        else:
-            gateway_mode = "public"
+                logger.warning(
+                    "Could not detect repo visibility, defaulting to public mode",
+                    repo=pipeline.repo,
+                )
 
         # Parse host repo map for volume mounts.  When the orchestrator
         # runs inside Docker, EGG_REPO_PATH is the *container* path but
@@ -5434,6 +5462,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 pipeline_id,
                 worktree_repo_path,
                 prior_phase_succeeded=prior_phase_succeeded,
+                gateway_mode=gateway_mode,
             )
 
         # Resolve the certs named volume for gateway CA trust.
@@ -5542,6 +5571,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_id=pipeline_id,
                             repo_path=str(worktree_repo_path),
                             branch=pipeline.branch,
+                            mode=gateway_mode,
                         )
                     except Exception as push_err:
                         push_succeeded = False
@@ -5853,6 +5883,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_id=pipeline_id,
                             repo_path=str(worktree_repo_path),
                             branch=pipeline.branch,
+                            mode=gateway_mode,
                         )
                     except Exception as push_err:
                         logger.error(
@@ -5861,7 +5892,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             error=str(push_err),
                         )
 
-                pr_url = _auto_create_pr(pipeline, worktree_repo_path, spawner)
+                pr_url = _auto_create_pr(
+                    pipeline, worktree_repo_path, spawner, gateway_mode=gateway_mode
+                )
 
                 if pr_url:
                     with get_pipeline_state_lock(pipeline_id):
@@ -6059,6 +6092,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_id=pipeline_id,
                             repo_path=str(worktree_repo_path),
                             branch=pipeline.branch,
+                            mode=gateway_mode,
                         )
                     except Exception as push_err:
                         logger.warning(
@@ -6095,7 +6129,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # ensures _populate_contract_from_plan can read agent-produced
             # draft files that only exist on the remote.
             if pipeline.branch and worktree_repo_path != repo_path:
-                _sync_worktree_with_remote(spawner, pipeline_id, worktree_repo_path)
+                _sync_worktree_with_remote(
+                    spawner, pipeline_id, worktree_repo_path, gateway_mode=gateway_mode
+                )
 
             # After plan phase: populate contract with task structure.
             # NOTE: worktree_repo_path is used for both draft reads and
@@ -6144,6 +6180,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline_id=pipeline_id,
                         repo_path=str(worktree_repo_path),
                         branch=pipeline.branch,
+                        mode=gateway_mode,
                     )
                 except Exception as push_err:
                     logger.warning(
@@ -6480,6 +6517,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_id=pipeline_id,
                             repo_path=str(worktree_repo_path),
                             branch=pipeline.branch,
+                            mode=gateway_mode,
                         )
                     except Exception as push_err:
                         logger.warning(
@@ -6709,6 +6747,9 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
         # Use the store's repo_path so _run_pipeline operates on the correct directory
         repo_path = store.repo_path
 
+        # Compute gateway mode for session operations in the recovery path
+        _gw_mode, _gw_vis = _compute_gateway_mode(pipeline)
+
         if pipeline.status == PipelineStatus.RUNNING:
             return make_error_response(
                 f"Pipeline {pipeline_id} is already running",
@@ -6794,6 +6835,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                                     pipeline_id=pipeline_id,
                                     repo_path=str(repo_path),
                                     branch=pipeline.branch,
+                                    mode=_gw_mode,
                                 )
                             except Exception as push_err:
                                 logger.warning(

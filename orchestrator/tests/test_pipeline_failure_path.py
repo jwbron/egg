@@ -226,6 +226,7 @@ class TestFailurePathPushesWorktreeBranch:
             pipeline_id="issue-42",
             repo_path=str(worktree_dir),
             branch="egg/issue-42",
+            mode="public",
         )
 
     @patch(_COMMON_PATCHES[7])
@@ -281,6 +282,7 @@ class TestFailurePathPushesWorktreeBranch:
             pipeline_id="issue-42",
             repo_path=str(worktree_dir),
             branch="egg/issue-42/work",
+            mode="public",
         )
 
         # Verify the generated branch was persisted via save_pipeline
@@ -489,6 +491,7 @@ class TestSuccessPathPushesStatefiles:
                 "pipeline_id": "issue-42",
                 "repo_path": str(worktree_dir),
                 "branch": "egg/issue-42",
+                "mode": "public",
             }
 
     @patch("routes.pipelines._commit_statefiles_to_worktree")
@@ -574,6 +577,7 @@ class TestSuccessPathPushesStatefiles:
                 "pipeline_id": "issue-42",
                 "repo_path": str(worktree_dir),
                 "branch": "egg/issue-42",
+                "mode": "public",
             }
 
     @patch("routes.pipelines._commit_statefiles_to_worktree")
@@ -655,6 +659,7 @@ class TestSuccessPathPushesStatefiles:
                 "pipeline_id": "issue-42",
                 "repo_path": str(worktree_dir),
                 "branch": "egg/issue-42/work",
+                "mode": "public",
             },
         )
         assert push_calls[0] == expected_call
@@ -821,11 +826,9 @@ class TestNetworkModeAutoDetection:
             _run_pipeline("issue-42", Path("/repo"))
 
         mock_get_gw.return_value.get_repo_visibility.assert_called_once_with("owner/repo")
-        mock_logger.info.assert_any_call(
-            "Auto-detected network mode from repo visibility",
+        mock_logger.warning.assert_any_call(
+            "Could not detect repo visibility, defaulting to public mode",
             repo="owner/repo",
-            visibility=None,
-            gateway_mode="public",
         )
 
     @patch("routes.pipelines.get_gateway_client")
