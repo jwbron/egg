@@ -467,3 +467,173 @@ class TestTerminatedPipelineSyncsState:
         for agent in pipeline.phases["refine"].agents:
             assert agent.status == AgentExecutionStatus.FAILED
             assert agent.error == "Pipeline failed"  # not "Pipeline cancelled"
+
+
+class TestCreatePipelineJiraAndQualifier:
+    """Tests for JIRA-driven pipeline creation and qualifier support."""
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_create_pipeline_with_explicit_pipeline_id(
+        self, mock_repo_path, mock_get_store, mock_gw_client, client
+    ):
+        """Pipeline ID from request body is passed through to create_pipeline."""
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_store = MagicMock()
+        mock_pipeline = MagicMock()
+        mock_pipeline.id = "KORE-1234"
+        mock_pipeline.model_dump.return_value = {"id": "KORE-1234"}
+        mock_store.create_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+        mock_gw = MagicMock()
+        mock_gw.ls_remote_branch.return_value = False
+        mock_gw_client.return_value = mock_gw
+
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "pipeline_id": "KORE-1234",
+                "repo": "Khan/webapp",
+                "branch": "egg/KORE-1234",
+                "prompt": "Fix the login bug",
+            },
+        )
+        assert response.status_code == 200
+        call_kwargs = mock_store.create_pipeline.call_args[1]
+        assert call_kwargs["pipeline_id"] == "KORE-1234"
+        assert call_kwargs["branch"] == "egg/KORE-1234"
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_create_pipeline_with_qualifier_suffix(
+        self, mock_repo_path, mock_get_store, mock_gw_client, client
+    ):
+        """Pipeline ID with qualifier suffix works correctly."""
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_store = MagicMock()
+        mock_pipeline = MagicMock()
+        mock_pipeline.id = "KORE-1234-backend"
+        mock_pipeline.model_dump.return_value = {"id": "KORE-1234-backend"}
+        mock_store.create_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+        mock_gw = MagicMock()
+        mock_gw.ls_remote_branch.return_value = False
+        mock_gw_client.return_value = mock_gw
+
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "pipeline_id": "KORE-1234-backend",
+                "repo": "Khan/webapp",
+                "branch": "egg/KORE-1234-backend",
+                "prompt": "Fix the backend login bug",
+            },
+        )
+        assert response.status_code == 200
+        call_kwargs = mock_store.create_pipeline.call_args[1]
+        assert call_kwargs["pipeline_id"] == "KORE-1234-backend"
+        assert call_kwargs["branch"] == "egg/KORE-1234-backend"
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_repo_path")
+    def test_create_pipeline_rejects_existing_branch(
+        self, mock_repo_path, mock_gw_client, client
+    ):
+        """409 when the target branch already exists on the remote."""
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_gw = MagicMock()
+        mock_gw.ls_remote_branch.return_value = True
+        mock_gw_client.return_value = mock_gw
+
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "pipeline_id": "KORE-1234",
+                "repo": "Khan/webapp",
+                "branch": "egg/KORE-1234",
+                "prompt": "Fix the login bug",
+            },
+        )
+        assert response.status_code == 409
+        body = response.get_json()
+        assert "already exists" in body["message"]
+        assert "qualifier" in body["message"]
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_branch_check_failure_does_not_block_creation(
+        self, mock_repo_path, mock_get_store, mock_gw_client, client
+    ):
+        """If the gateway is unreachable for branch check, creation proceeds."""
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_store = MagicMock()
+        mock_pipeline = MagicMock()
+        mock_pipeline.id = "KORE-1234"
+        mock_pipeline.model_dump.return_value = {"id": "KORE-1234"}
+        mock_store.create_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+        mock_gw = MagicMock()
+        mock_gw.ls_remote_branch.side_effect = Exception("Gateway unreachable")
+        mock_gw_client.return_value = mock_gw
+
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "pipeline_id": "KORE-1234",
+                "repo": "Khan/webapp",
+                "branch": "egg/KORE-1234",
+                "prompt": "Fix the login bug",
+            },
+        )
+        assert response.status_code == 200
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_pipeline_id_with_issue_number_and_qualifier(
+        self, mock_repo_path, mock_get_store, mock_gw_client, client
+    ):
+        """Issue-driven pipeline with qualifier uses the right pipeline_id."""
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_store = MagicMock()
+        mock_pipeline = MagicMock()
+        mock_pipeline.id = "issue-42-frontend"
+        mock_pipeline.model_dump.return_value = {"id": "issue-42-frontend"}
+        mock_store.create_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+        mock_gw = MagicMock()
+        mock_gw.ls_remote_branch.return_value = False
+        mock_gw_client.return_value = mock_gw
+
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "pipeline_id": "issue-42-frontend",
+                "issue_number": 42,
+                "repo": "Khan/webapp",
+                "branch": "egg/issue-42-frontend",
+            },
+        )
+        assert response.status_code == 200
+        call_kwargs = mock_store.create_pipeline.call_args[1]
+        assert call_kwargs["pipeline_id"] == "issue-42-frontend"
+        assert call_kwargs["branch"] == "egg/issue-42-frontend"
+        assert call_kwargs["issue_number"] == 42
+
+    def test_pipeline_id_without_branch_returns_400(self, client):
+        """Explicit pipeline_id without branch should fail validation."""
+        with patch("routes.pipelines.get_repo_path", return_value=Path("/tmp/repo")):
+            response = client.post(
+                "/api/v1/pipelines",
+                json={
+                    "pipeline_id": "KORE-1234",
+                    "repo": "Khan/webapp",
+                    "prompt": "Fix the bug",
+                },
+            )
+        assert response.status_code == 400
+        body = response.get_json()
+        assert "branch" in body["message"].lower()

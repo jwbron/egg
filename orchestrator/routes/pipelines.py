@@ -586,16 +586,45 @@ def create_pipeline() -> tuple[Response, int]:
     if not repo:
         return make_error_response("Missing repo")
 
-    # Issue-driven pipelines require a branch; prompt-driven ones do not
-    if issue_number and not branch:
-        return make_error_response("Missing branch")
-
-    # Determine pipeline ID for babysit mode
-    pipeline_id = None
-    if mode == PipelineMode.BABYSIT:
+    # Issue-driven or explicitly-named pipelines require a branch;
+    # prompt-driven ones do not.
+    pipeline_id = data.get("pipeline_id")
+    if not pipeline_id and mode == PipelineMode.BABYSIT:
         pipeline_id = f"pr-{pr_number}"
 
+    if (issue_number or pipeline_id) and not branch:
+        return make_error_response("Missing branch")
+
     repo_path = get_repo_path()
+
+    # Check that the target branch does not already exist on the remote.
+    # This catches conflicts early (before spawning agents).
+    if branch:
+        try:
+            gw = get_gateway_client()
+            if gw.ls_remote_branch(
+                pipeline_id=pipeline_id or "branch-check",
+                repo_path=str(repo_path),
+                ref=f"refs/heads/{branch}",
+            ):
+                hint = ""
+                if pipeline_id:
+                    hint = (
+                        f" Use a qualifier to create a separate pipeline"
+                        f" (e.g. '{pipeline_id}-<qualifier>')."
+                    )
+                return make_error_response(
+                    f"Branch '{branch}' already exists on remote.{hint}",
+                    status_code=409,
+                )
+        except Exception as e:
+            # Non-fatal — if we can't reach the gateway, let creation proceed
+            # and fail later on push.
+            logger.warning(
+                "Branch existence check failed, proceeding anyway",
+                branch=branch,
+                error=str(e),
+            )
 
     # Validate config before creating the pipeline so invalid config
     # returns a 400 instead of bubbling up as a 500.

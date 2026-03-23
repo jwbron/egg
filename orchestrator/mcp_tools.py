@@ -78,6 +78,14 @@ PIPELINE_TOOLS = [
                     "type": "string",
                     "description": "Pre-generated plan markdown with yaml-tasks appendix (optional, used with start_phase: implement to populate the contract with tasks)",
                 },
+                "jira_ticket": {
+                    "type": "string",
+                    "description": "JIRA ticket ID (e.g. KORE-1234). Used as the pipeline ID and branch name.",
+                },
+                "qualifier": {
+                    "type": "string",
+                    "description": "Optional qualifier suffix for the pipeline/branch (e.g. 'backend'). Enables multiple pipelines per ticket/issue.",
+                },
             },
             "required": ["description", "repo"],
         },
@@ -514,9 +522,23 @@ class PipelineToolHandler:
         from urllib.error import HTTPError
 
         data: dict[str, Any] = {}
+        qualifier = args.get("qualifier")
+
         if args.get("issue_number"):
+            base_id = f"issue-{args['issue_number']}"
+            if qualifier:
+                base_id = f"{base_id}-{qualifier}"
             data["issue_number"] = args["issue_number"]
-            data["branch"] = args.get("branch") or f"egg/issue-{args['issue_number']}"
+            data["pipeline_id"] = base_id
+            data["branch"] = args.get("branch") or f"egg/{base_id}"
+        elif args.get("jira_ticket"):
+            ticket = args["jira_ticket"].upper()
+            base_id = ticket
+            if qualifier:
+                base_id = f"{base_id}-{qualifier}"
+            data["pipeline_id"] = base_id
+            data["branch"] = args.get("branch") or f"egg/{base_id}"
+            data["prompt"] = args["description"]
         else:
             data["prompt"] = args["description"]
         if args.get("repo"):
