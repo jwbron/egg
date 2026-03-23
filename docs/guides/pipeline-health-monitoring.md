@@ -231,7 +231,7 @@ If all agents have confirmed BRC consensus but the pipeline phase has not transi
 
 ### Additional Overseer Health Checks
 
-Each poll cycle the overseer evaluates four targeted health checks (the fourth triggers only on phase transitions). The first three are deterministic (no LLM cost):
+Each poll cycle the overseer evaluates five targeted health checks (the fourth triggers only on phase transitions; the fifth triggers only at pipeline completion). The first three are deterministic (no LLM cost):
 
 | Check | Detects | Action |
 |-------|---------|--------|
@@ -239,6 +239,7 @@ Each poll cycle the overseer evaluates four targeted health checks (the fourth t
 | **Status inconsistency** | Pipeline shows `failed` while all agents show `complete` — a possible transient state | HITL escalation + Slack notification (after one poll-cycle grace period) |
 | **HITL propagation failure** | A resolved phase-gate decision is not reflected in the SDLC contract after `overseer_hitl_propagation_timeout_seconds` | HITL escalation + Slack notification |
 | **Cross-phase consistency** | On a phase transition, the new phase's contract output may not honour prior resolved HITL decisions (uses the Haiku `decision_consistency` classifier; requires confidence > 0.7 to escalate) | HITL escalation + Slack notification (deduplicated per phase-transition pair) |
+| **PR phase no PR** | Pipeline reaches `complete` with `current_phase=pr` but no `pr_url` in phase artifacts — defense-in-depth for edge cases where primary PR creation failure handling was bypassed, so stranded branch work is not silently lost | HITL decision + Slack notification |
 
 ### Autonomous Issue Filing
 
