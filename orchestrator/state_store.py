@@ -549,6 +549,27 @@ class StateStore:
 
     # -- remote sync -------------------------------------------------------
 
+    def _detect_gateway_mode(self) -> str:
+        """Auto-detect gateway session mode from repository visibility."""
+        try:
+            from gateway_client import get_gateway_client
+
+            client = get_gateway_client()
+            # Extract owner/repo from git remote
+            result = self._run_git("remote", "get-url", "origin", cwd=self.repo_path, check=False)
+            if result.returncode == 0:
+                url = result.stdout.strip()
+                # Parse "https://github.com/owner/repo.git" or "owner/repo"
+                parts = url.rstrip("/").removesuffix(".git").rsplit("/", 2)
+                if len(parts) >= 2:
+                    repo = f"{parts[-2]}/{parts[-1]}"
+                    vis = client.get_repo_visibility(repo)
+                    if vis in ("private", "internal"):
+                        return "private"
+        except Exception:
+            pass
+        return "public"
+
     def sync_to_remote(self) -> bool:
         """Push the state branch to remote (best-effort).
 
@@ -565,6 +586,7 @@ class StateStore:
                 pipeline_id="state-sync",
                 repo_path=str(self.worktree),
                 branch=STATE_BRANCH,
+                mode=self._detect_gateway_mode(),
             )
         except Exception as e:
             logger.warning(
@@ -628,12 +650,14 @@ class StateStore:
             from gateway_client import get_gateway_client
 
             client = get_gateway_client()
+            mode = self._detect_gateway_mode()
 
             # Check if remote branch exists
             if not client.ls_remote_branch(
                 pipeline_id="state-restore",
                 repo_path=str(self.repo_path),
                 ref=f"refs/heads/{STATE_BRANCH}",
+                mode=mode,
             ):
                 logger.debug("No remote state branch found — will create fresh")
                 return False
@@ -643,6 +667,7 @@ class StateStore:
                 pipeline_id="state-restore",
                 repo_path=str(self.repo_path),
                 args=[f"+refs/heads/{STATE_BRANCH}:refs/heads/{STATE_BRANCH}"],
+                mode=mode,
             ):
                 logger.warning("Failed to fetch state branch from remote")
                 return False

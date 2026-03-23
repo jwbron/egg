@@ -598,6 +598,7 @@ class GatewayClient:
         pipeline_id: str,
         repo_path: str,
         branch: str,
+        mode: str = "public",
     ) -> bool:
         """Push a worktree branch to remote using a temporary session.
 
@@ -620,7 +621,7 @@ class GatewayClient:
             session = self.register_session(
                 container_id=temp_container_id,
                 container_ip=self.self_ip,
-                mode="public",
+                mode=mode,
                 pipeline_id=pipeline_id,
                 branch=branch,
             )
@@ -666,6 +667,7 @@ class GatewayClient:
         pipeline_id: str,
         repo_path: str,
         branch: str,
+        mode: str = "public",
     ) -> bool:
         """Delete a remote branch using a temporary session.
 
@@ -687,7 +689,7 @@ class GatewayClient:
             session = self.register_session(
                 container_id=temp_container_id,
                 container_ip=self.self_ip,
-                mode="public",
+                mode=mode,
                 pipeline_id=pipeline_id,
                 branch=branch,
             )
@@ -737,6 +739,8 @@ class GatewayClient:
         base: str = "main",
         issue_number: int | None = None,
         agent_role: str | None = None,
+        mode: str = "public",
+        draft: bool = False,
     ) -> str | None:
         """Create a pull request via the gateway using a temporary session.
 
@@ -769,7 +773,7 @@ class GatewayClient:
             session = self.register_session(
                 container_id=temp_container_id,
                 container_ip=self.self_ip,
-                mode="public",
+                mode=mode,
                 pipeline_id=pipeline_id,
                 phase="pr",
                 repos=[repo],
@@ -778,16 +782,20 @@ class GatewayClient:
             )
             session_token = session.session_token
 
+            pr_data: dict[str, Any] = {
+                "repo": repo,
+                "title": title,
+                "body": body,
+                "base": base,
+                "head": head,
+            }
+            if draft:
+                pr_data["draft"] = True
+
             result = self._make_request(
                 "/api/v1/gh/pr/create",
                 method="POST",
-                data={
-                    "repo": repo,
-                    "title": title,
-                    "body": body,
-                    "base": base,
-                    "head": head,
-                },
+                data=pr_data,
                 bearer_token=session_token,
             )
 
@@ -816,6 +824,7 @@ class GatewayClient:
         self,
         pipeline_id: str,
         repo_path: str,
+        mode: str = "public",
     ) -> bool:
         """Fetch latest remote state into a worktree using a temporary session.
 
@@ -837,7 +846,7 @@ class GatewayClient:
             session = self.register_session(
                 container_id=temp_container_id,
                 container_ip=self.self_ip,
-                mode="public",
+                mode=mode,
                 pipeline_id=pipeline_id,
             )
             session_token = session.session_token
@@ -877,6 +886,7 @@ class GatewayClient:
         pipeline_id: str,
         repo_path: str,
         args: list[str] | None = None,
+        mode: str = "public",
     ) -> bool:
         """Fetch with custom args using a temporary session.
 
@@ -896,7 +906,7 @@ class GatewayClient:
             session = self.register_session(
                 container_id=temp_container_id,
                 container_ip=self.self_ip,
-                mode="public",
+                mode=mode,
                 pipeline_id=pipeline_id,
             )
             session_token = session.session_token
@@ -939,6 +949,7 @@ class GatewayClient:
         pipeline_id: str,
         repo_path: str,
         ref: str,
+        mode: str = "public",
     ) -> bool:
         """Check if a remote branch exists using ls-remote.
 
@@ -956,7 +967,7 @@ class GatewayClient:
             session = self.register_session(
                 container_id=temp_container_id,
                 container_ip=self.self_ip,
-                mode="public",
+                mode=mode,
                 pipeline_id=pipeline_id,
             )
             session_token = session.session_token

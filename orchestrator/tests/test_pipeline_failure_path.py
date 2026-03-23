@@ -226,6 +226,7 @@ class TestFailurePathPushesWorktreeBranch:
             pipeline_id="issue-42",
             repo_path=str(worktree_dir),
             branch="egg/issue-42",
+            mode="public",
         )
 
     @patch(_COMMON_PATCHES[7])
@@ -281,6 +282,7 @@ class TestFailurePathPushesWorktreeBranch:
             pipeline_id="issue-42",
             repo_path=str(worktree_dir),
             branch="egg/issue-42/work",
+            mode="public",
         )
 
         # Verify the generated branch was persisted via save_pipeline
@@ -489,6 +491,7 @@ class TestSuccessPathPushesStatefiles:
                 "pipeline_id": "issue-42",
                 "repo_path": str(worktree_dir),
                 "branch": "egg/issue-42",
+                "mode": "public",
             }
 
     @patch("routes.pipelines._commit_statefiles_to_worktree")
@@ -574,6 +577,7 @@ class TestSuccessPathPushesStatefiles:
                 "pipeline_id": "issue-42",
                 "repo_path": str(worktree_dir),
                 "branch": "egg/issue-42",
+                "mode": "public",
             }
 
     @patch("routes.pipelines._commit_statefiles_to_worktree")
@@ -655,6 +659,7 @@ class TestSuccessPathPushesStatefiles:
                 "pipeline_id": "issue-42",
                 "repo_path": str(worktree_dir),
                 "branch": "egg/issue-42/work",
+                "mode": "public",
             },
         )
         assert push_calls[0] == expected_call

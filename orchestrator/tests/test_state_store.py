@@ -1158,6 +1158,7 @@ class TestRemoteSync:
             pipeline_id="state-sync",
             repo_path=str(state_store.worktree),
             branch="egg/pipeline-state",
+            mode="public",
         )
 
     def test_sync_to_remote_returns_false_on_failure(self, state_store):
@@ -1253,11 +1254,13 @@ class TestRemoteSync:
             pipeline_id="state-restore",
             repo_path=str(state_store.repo_path),
             ref="refs/heads/egg/pipeline-state",
+            mode="public",
         )
         mock_client.fetch_branch.assert_called_once_with(
             pipeline_id="state-restore",
             repo_path=str(state_store.repo_path),
             args=["+refs/heads/egg/pipeline-state:refs/heads/egg/pipeline-state"],
+            mode="public",
         )
 
     def test_restore_from_remote_skips_when_no_remote(self, state_store):

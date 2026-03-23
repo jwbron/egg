@@ -206,6 +206,31 @@ class TestAutoCreatePr:
             head="egg/issue-42",
             issue_number=42,
             agent_role="orchestrator",
+            mode="public",
+            draft=False,
+        )
+
+    def test_creates_draft_pr_in_private_mode(self):
+        """Test that _auto_create_pr creates a draft PR in private mode."""
+        pipeline = _make_pipeline()
+        spawner = MagicMock()
+        spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/2"
+
+        with patch("routes.pipelines._build_pr_body") as mock_build:
+            mock_build.return_value = ("Fix auth", "Body text")
+            result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner, gateway_mode="private")
+
+        assert result == "https://github.com/owner/repo/pull/2"
+        spawner.gateway.create_pr.assert_called_once_with(
+            pipeline_id="issue-42",
+            repo="owner/repo",
+            title="Fix auth",
+            body="Body text",
+            head="egg/issue-42",
+            issue_number=42,
+            agent_role="orchestrator",
+            mode="private",
+            draft=True,
         )
 
     def test_returns_none_when_no_repo(self):
