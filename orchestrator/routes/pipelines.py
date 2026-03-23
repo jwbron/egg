@@ -3824,8 +3824,8 @@ def _build_agent_prompt(
             "missing build tools), you MUST:",
             "1. Set `tests_execution_blocked: true` and provide `tests_execution_blocked_reason` "
             "in your attestation when proposing consensus",
-            "2. Include an explicit **\"TESTS UNVERIFIED\"** warning in your proposal summary",
-            "3. Do NOT claim your work is \"complete\" — state that tests are written but unverified",
+            '2. Include an explicit **"TESTS UNVERIFIED"** warning in your proposal summary',
+            '3. Do NOT claim your work is "complete" — state that tests are written but unverified',
             "",
         ]
         if network_mode == "private":
