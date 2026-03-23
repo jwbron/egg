@@ -433,6 +433,22 @@ class TestAttestationSchemas:
                 is_producer=True,
             )
 
+    def test_tester_strict_rejects_blocked_with_tests_run(self):
+        """Tester attestation rejects contradictory blocked=true + tests_run > 0."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            validate_attestation(
+                "tester",
+                {
+                    "tests_run": 5,
+                    "tests_execution_blocked": True,
+                    "tests_execution_blocked_reason": "partial network failure",
+                },
+                AttestationStrictness.STRICT,
+                is_producer=True,
+            )
+
 
 class TestScaledReEvaluation:
     """Test scoped re-evaluation at roster scale (6+ agents).

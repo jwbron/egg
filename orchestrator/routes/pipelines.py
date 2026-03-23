@@ -3455,7 +3455,9 @@ def _build_reviewer_preparation(role_value: str, phase: str) -> str:
                 "actually executed (look for `tests_run` and `tests_execution_blocked` "
                 "in the attestation). If the tester reports `tests_execution_blocked: true`, "
                 "this is a blocking concern — NACK unless the limitation is clearly "
-                "documented and the tests are syntactically valid."
+                "documented and the tests are syntactically valid. "
+                "Also scrutinize low `tests_run` counts relative to change scope — "
+                "a multi-file change with only 1 test run warrants investigation."
             )
         elif role_value == "reviewer_contract":
             return (

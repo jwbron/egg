@@ -2452,3 +2452,18 @@ class TestTesterTestVerificationPrompt:
         result = _build_reviewer_preparation("reviewer_code", "implement")
         assert "tests_execution_blocked" in result
         assert "NACK" in result
+
+    def test_non_tester_roles_exclude_test_verification_section(self):
+        """Coder, documenter, and reviewer prompts do not include test verification."""
+        for role in ("coder", "documenter", "reviewer_code"):
+            result = _build_agent_prompt(
+                role_value=role,
+                phase="implement",
+                pipeline_id="pid-1",
+                pipeline_mode="issue",
+                prompt="# Feature\n\nDetail.",
+                issue_number=1,
+            )
+            assert "Test Execution Verification (CRITICAL)" not in result, (
+                f"Test verification section leaked into {role} prompt"
+            )

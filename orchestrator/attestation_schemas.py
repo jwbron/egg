@@ -212,6 +212,12 @@ def _validate_strict(role: str, instance: BaseModel, is_producer: bool) -> None:
                         "Tester attestation requires tests_execution_blocked_reason "
                         "when tests_execution_blocked is true"
                     )
+                if instance.tests_run > 0:
+                    raise ValueError(
+                        "Tester attestation has tests_execution_blocked=true but "
+                        "tests_run > 0 — these are mutually exclusive. If some tests "
+                        "ran, set tests_execution_blocked=false and report normally"
+                    )
             elif instance.tests_run == 0:
                 raise ValueError("Tester attestation requires tests_run > 0 in strict mode")
         elif role == "documenter" and isinstance(instance, DocumenterAttestation):
