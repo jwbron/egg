@@ -404,10 +404,12 @@ class Pipeline(BaseModel):
     error: str | None = Field(default=None, description="Error if failed")
     analysis: str | None = Field(
         default=None,
+        max_length=200_000,
         description="Pre-generated analysis for short flow pipelines (written to drafts on first run)",
     )
     plan: str | None = Field(
         default=None,
+        max_length=200_000,
         description="Pre-generated plan with yaml-tasks appendix for short flow pipelines "
         "(written to drafts and parsed into contract on first run)",
     )

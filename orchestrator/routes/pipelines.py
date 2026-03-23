@@ -621,6 +621,15 @@ def create_pipeline() -> tuple[Response, int]:
                 details={"validation_errors": errors},
             )
 
+    # Validate analysis/plan size before creating the pipeline.
+    _MAX_DRAFT_LEN = 200_000
+    for field_name in ("analysis", "plan"):
+        value = data.get(field_name)
+        if value and len(value) > _MAX_DRAFT_LEN:
+            return make_error_response(
+                f"{field_name} exceeds maximum length ({len(value)} > {_MAX_DRAFT_LEN})"
+            )
+
     try:
         store = get_state_store(repo_path)
         pipeline = store.create_pipeline(
@@ -5499,13 +5508,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 path=plan_rel,
                             )
 
-                        # Populate the contract from the plan's yaml-tasks appendix
-                        _populate_contract_from_plan(
-                            worktree_repo_path,
-                            pipeline_id,
-                            pipeline_mode,
-                            pipeline.issue_number,
-                        )
+                            # Populate the contract from the plan's yaml-tasks appendix
+                            _populate_contract_from_plan(
+                                worktree_repo_path,
+                                pipeline_id,
+                                pipeline_mode,
+                                pipeline.issue_number,
+                            )
 
                 # Commit all .egg-state/ files so they're on the feature branch
                 issue_ref = (
@@ -5545,6 +5554,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
                     pipeline.contract_synced = push_succeeded
+                    # Clear analysis/plan from pipeline state now that they've
+                    # been written to draft files — avoids re-serializing
+                    # potentially large text blobs on every subsequent save.
+                    pipeline.analysis = None
+                    pipeline.plan = None
                     store.save_pipeline(pipeline, commit=False)
                 logger.info(
                     "Pipeline contract created in worktree",
