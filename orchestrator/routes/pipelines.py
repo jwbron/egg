@@ -2588,6 +2588,7 @@ def _detect_default_branch(worktree_repo_path: Path) -> str:
 def _build_pr_body(
     pipeline: Pipeline,
     worktree_repo_path: Path,
+    default_branch: str | None = None,
 ) -> tuple[str, str]:
     """Build a PR title and body from contract state and git log.
 
@@ -2597,6 +2598,8 @@ def _build_pr_body(
     Args:
         pipeline: The pipeline state
         worktree_repo_path: Path to the worktree repo directory
+        default_branch: Pre-detected default branch name. If None, will be
+            detected automatically.
 
     Returns:
         Tuple of (title, body)
@@ -2629,7 +2632,8 @@ def _build_pr_body(
         pr_title = f"Implementation for pipeline {pipeline.id}"
 
     # Detect default branch for git comparisons
-    default_branch = _detect_default_branch(worktree_repo_path)
+    if default_branch is None:
+        default_branch = _detect_default_branch(worktree_repo_path)
     origin_ref = f"origin/{default_branch}"
 
     # Build commit log
@@ -2721,8 +2725,8 @@ def _auto_create_pr(
         )
         return None
 
-    title, body = _build_pr_body(pipeline, worktree_repo_path)
     base_branch = _detect_default_branch(worktree_repo_path)
+    title, body = _build_pr_body(pipeline, worktree_repo_path, default_branch=base_branch)
 
     try:
         pr_url = spawner.gateway.create_pr(

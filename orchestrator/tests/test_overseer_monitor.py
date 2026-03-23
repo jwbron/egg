@@ -1407,7 +1407,7 @@ class TestPrPhaseOutcomeCheck:
         _run(monitor._check_pr_phase_outcome(pipeline_data))
         monitor._create_hitl_decision.assert_awaited_once()
         call_msg = monitor._create_hitl_decision.call_args[0][1]
-        assert "pr_url" in call_msg or "PR" in call_msg
+        assert "no pr_url in phase artifacts" in call_msg
         monitor._send_slack_notification.assert_awaited_once()
 
     def test_no_alert_when_pr_url_present(self) -> None:

@@ -929,11 +929,14 @@ class OverseerMonitor:
             self._hitl_resolution_pending.pop(did, None)
 
     async def _check_pr_phase_outcome(self, pipeline_data: dict) -> None:
-        """Detect pipeline completing without a PR when the PR phase was reached.
+        """Safety-net check: detect pipeline completing without a PR.
 
-        When a pipeline reaches terminal state (complete) with current_phase=pr
-        but no pr_url in phase artifacts, the PR creation silently failed.
-        Surface this to the host via a HITL decision and Slack notification.
+        This is defense-in-depth for edge cases that escape the primary failure
+        handling in ``_auto_create_pr`` (which sets the pipeline to FAILED when
+        PR creation returns no URL).  If a pipeline somehow reaches ``complete``
+        status with ``current_phase=pr`` but no ``pr_url`` in phase artifacts,
+        this surfaces the issue via a HITL decision and Slack notification so
+        that stranded work on the branch is not silently lost.
         """
         current_phase = pipeline_data.get("current_phase", "")
         if current_phase != "pr":
