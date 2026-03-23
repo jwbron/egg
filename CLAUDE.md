@@ -7,7 +7,7 @@ Start with **[docs/index.md](docs/index.md)** — it has task-specific lookup ta
 ```bash
 make help          # List all targets
 make deps          # Install all dependencies (installs uv + venv)
-make setup         # Install dependencies (requires uv)
+make setup         # Install dependencies + pre-commit hooks
 make lint          # Run all linters (Python, Shell, YAML, Dockerfile)
 make test          # Run full test suite
 make lint-fix      # Auto-fix lint issues
