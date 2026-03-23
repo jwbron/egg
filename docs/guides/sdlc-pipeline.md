@@ -1068,15 +1068,15 @@ curl -X POST http://localhost:9849/api/v1/pipelines \
 # Via orchestrator API — JIRA ticket-driven (pipeline ID and branch derived from ticket)
 curl -X POST http://localhost:9849/api/v1/pipelines \
   -H "Content-Type: application/json" \
-  -d '{"jira_ticket": "KORE-1234", "repo": "owner/repo", "prompt": "Add auth middleware"}'
+  -d '{"pipeline_id": "KORE-1234", "repo": "owner/repo", "branch": "egg/KORE-1234", "prompt": "Add auth middleware"}'
 
 # Via egg-orch CLI
 egg-orch pipeline create --issue 123
 ```
 
-**JIRA ticket-based pipelines**: Pass `jira_ticket` (e.g. `KORE-1234`) instead of `issue_number` to use the ticket as the pipeline ID and branch name (`egg/KORE-1234`). This is accepted by both the orchestrator API and the `submit_task` MCP tool.
+**JIRA ticket-based pipelines**: Pass `jira_ticket` (e.g. `KORE-1234`) to the `submit_task` MCP tool, which translates it into `pipeline_id` and `branch` for the API. When using the REST API directly, pass `"pipeline_id": "KORE-1234"` and `"branch": "egg/KORE-1234"` explicitly (as shown above).
 
-**Qualifier support**: Both issue-driven and JIRA-driven pipelines accept an optional `qualifier` suffix to enable multiple pipelines per ticket or issue (e.g. `qualifier: "backend"` produces pipeline ID `issue-123-backend` / branch `egg/issue-123-backend`). If the target branch already exists, the orchestrator returns HTTP 409 with a hint to use a qualifier.
+**Qualifier support**: Both issue-driven and JIRA-driven pipelines accept an optional `qualifier` suffix to enable multiple pipelines per ticket or issue (e.g. `"qualifier": "backend"` produces pipeline ID `issue-123-backend` / branch `egg/issue-123-backend`). If the target branch already exists, the orchestrator returns HTTP 409 with a hint to use a qualifier.
 
 Pipeline ID formats:
 - `issue-{number}[-qualifier]` — GitHub issue-driven
