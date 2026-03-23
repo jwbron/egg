@@ -132,9 +132,10 @@ Pipelines can specify an explicit network mode that controls internet access for
    - Spawned agent containers (network isolation)
    - The orchestrator's own gateway sessions (git push/fetch, branch deletion, PR creation)
 3. Resolution logic:
-   - If `network_mode` is explicitly set, the orchestrator uses that value
-   - If not set, the orchestrator queries the gateway for the pipeline's repo visibility (`GatewayClient.get_repo_visibility()`): private/internal repos get `"private"` mode, public repos get `"public"` mode
-   - If no repo is associated with the pipeline, defaults to `"public"`
+   - If `network_mode` is explicitly set, use it
+   - If not set but a repo is associated, query the gateway for repo visibility (`GatewayClient.get_repo_visibility()`)
+   - Map visibility: private/internal repos → `"private"` mode, public repos → `"public"` mode
+   - If no repo is associated, default to `"public"`
 4. The gateway enforces network policy based on the session mode (see `gateway/README.md`)
 
 **Special case: PR phase**
