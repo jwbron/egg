@@ -526,8 +526,10 @@ class PipelineToolHandler:
         qualifier = args.get("qualifier")
 
         # Validate qualifier: lowercase alphanumeric with hyphens only
-        if qualifier and not re.match(r"^[a-z0-9][a-z0-9-]*$", qualifier):
-            return {"error": f"Invalid qualifier '{qualifier}': must match [a-z0-9][a-z0-9-]*"}
+        if qualifier and not re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", qualifier):
+            return {
+                "error": f"Invalid qualifier '{qualifier}': must be lowercase alphanumeric segments separated by hyphens (e.g., 'backend', 'v2-hotfix')"
+            }
 
         # Validate JIRA ticket format if provided
         if args.get("jira_ticket"):

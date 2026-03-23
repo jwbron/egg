@@ -698,7 +698,7 @@ def create_pipeline() -> tuple[Response, int]:
             details: dict[str, Any] = {}
             try:
                 # Derive pipeline ID using the same logic as state_store
-                pid = f"issue-{issue_number}" if issue_number else None
+                pid = pipeline_id or (f"issue-{issue_number}" if issue_number else None)
                 if pid:
                     existing = store.load_pipeline(pid)
                     details = {

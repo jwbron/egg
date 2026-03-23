@@ -698,6 +698,13 @@ class TestPipelineIdValidation:
 
         _validate_pipeline_id("pr-123")
 
+    def test_reject_trailing_hyphen_qualifier(self):
+        """Qualifiers with trailing hyphens are rejected."""
+        from state_store import InvalidPipelineIdError, _validate_pipeline_id
+
+        with pytest.raises(InvalidPipelineIdError):
+            _validate_pipeline_id("KORE-1234-backend-")
+
     def test_reject_path_traversal(self):
         """Path traversal attempts are rejected."""
         from state_store import InvalidPipelineIdError, _validate_pipeline_id
