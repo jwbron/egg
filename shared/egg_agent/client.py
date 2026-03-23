@@ -8,12 +8,23 @@ sandbox containers where ``claude-agent-sdk`` is installed.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from egg_agent.result import AgentResult
+
+# Maximum length for tool input/output in log events to avoid bloating logs
+_MAX_TOOL_CONTENT_LOG_LEN = 2000
+
+
+def _truncate(value: str, max_len: int = _MAX_TOOL_CONTENT_LOG_LEN) -> str:
+    """Truncate a string for logging, appending an indicator if truncated."""
+    if len(value) <= max_len:
+        return value
+    return value[:max_len] + f"... ({len(value)} chars)"
 
 
 class _StdlibLoggerAdapter:
@@ -88,6 +99,9 @@ async def run_agent_async(
             ResultMessage,
             SystemMessage,
             TextBlock,
+            ToolResultBlock,
+            ToolUseBlock,
+            UserMessage,
             query,
         )
     except ImportError:
@@ -139,10 +153,52 @@ async def run_agent_async(
                     if not actual_model and message.model:
                         actual_model = message.model
                     for block in message.content:
-                        if isinstance(block, TextBlock) and block.text:
+                        if isinstance(block, ToolUseBlock):
+                            # Serialize tool input for logging (truncated)
+                            try:
+                                input_str = json.dumps(block.input, default=str)
+                            except (TypeError, ValueError):
+                                input_str = str(block.input)
+                            logger.info(
+                                "Tool call",
+                                event_type="tool_use",
+                                tool_name=block.name,
+                                tool_use_id=block.id,
+                                input=_truncate(input_str),
+                            )
+                        elif isinstance(block, TextBlock) and block.text:
+                            logger.info(
+                                "Assistant message",
+                                event_type="assistant",
+                                event_subtype="text",
+                                text=_truncate(block.text),
+                            )
                             stdout_parts.append(block.text)
                             if on_output:
                                 on_output(block.text)
+                elif isinstance(message, UserMessage):
+                    # Log tool results from user messages
+                    content = message.content
+                    if isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, ToolResultBlock):
+                                # Serialize tool result content for logging
+                                if isinstance(block.content, str):
+                                    result_str = block.content
+                                elif block.content is not None:
+                                    try:
+                                        result_str = json.dumps(block.content, default=str)
+                                    except (TypeError, ValueError):
+                                        result_str = str(block.content)
+                                else:
+                                    result_str = ""
+                                logger.info(
+                                    "Tool result",
+                                    event_type="tool_result",
+                                    tool_use_id=block.tool_use_id,
+                                    is_error=block.is_error or False,
+                                    content=_truncate(result_str),
+                                )
                 elif isinstance(message, SystemMessage):
                     logger.debug(
                         "SystemMessage received",
