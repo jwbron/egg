@@ -7,6 +7,7 @@ via the MCP protocol.
 """
 
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -81,6 +82,14 @@ PIPELINE_TOOLS = [
                 "plan": {
                     "type": "string",
                     "description": "Pre-generated plan markdown with yaml-tasks appendix (optional, used with start_phase: implement to populate the contract with tasks)",
+                },
+                "jira_ticket": {
+                    "type": "string",
+                    "description": "JIRA ticket ID (e.g. KORE-1234). Used as the pipeline ID and branch name.",
+                },
+                "qualifier": {
+                    "type": "string",
+                    "description": "Optional qualifier suffix for the pipeline/branch (e.g. 'backend'). Enables multiple pipelines per ticket/issue.",
                 },
             },
             "required": ["description", "repo"],
@@ -518,9 +527,37 @@ class PipelineToolHandler:
         from urllib.error import HTTPError
 
         data: dict[str, Any] = {}
+        qualifier = args.get("qualifier")
+
+        # Validate qualifier: lowercase alphanumeric with hyphens only
+        if qualifier and not re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", qualifier):
+            return {
+                "error": f"Invalid qualifier '{qualifier}': must be lowercase alphanumeric segments separated by hyphens (e.g., 'backend', 'v2-hotfix')"
+            }
+
+        # Validate JIRA ticket format if provided
+        if args.get("jira_ticket"):
+            ticket_raw = args["jira_ticket"].strip()
+            if not re.match(r"^[A-Za-z][A-Za-z0-9]+-[0-9]+$", ticket_raw):
+                return {
+                    "error": f"Invalid JIRA ticket format '{ticket_raw}': expected e.g. KORE-1234"
+                }
+
         if args.get("issue_number"):
+            base_id = f"issue-{args['issue_number']}"
+            if qualifier:
+                base_id = f"{base_id}-{qualifier}"
             data["issue_number"] = args["issue_number"]
-            data["branch"] = args.get("branch") or f"egg/issue-{args['issue_number']}"
+            data["pipeline_id"] = base_id
+            data["branch"] = args.get("branch") or f"egg/{base_id}"
+        elif args.get("jira_ticket"):
+            ticket = args["jira_ticket"].upper()
+            base_id = ticket
+            if qualifier:
+                base_id = f"{base_id}-{qualifier}"
+            data["pipeline_id"] = base_id
+            data["branch"] = args.get("branch") or f"egg/{base_id}"
+            data["prompt"] = args["description"]
         else:
             data["prompt"] = args["description"]
         if args.get("repo"):
@@ -551,6 +588,9 @@ class PipelineToolHandler:
                     error_info["error"] = body.get("message", error_info["error"])
                     details = body.get("details", {})
                     if details:
+                        reason = details.get("reason")
+                        if reason:
+                            error_info["reason"] = reason
                         error_info["existing_pipeline_id"] = details.get("existing_pipeline_id", "")
                         error_info["existing_status"] = details.get("existing_status", "")
                         error_info["existing_phase"] = details.get("existing_phase", "")

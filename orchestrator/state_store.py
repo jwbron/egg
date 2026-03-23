@@ -33,9 +33,20 @@ from pydantic import ValidationError
 
 logger = logging.getLogger("orchestrator.state_store")
 
-# Valid pipeline ID format: issue-{number}, local-{8 hex chars}, pipeline-{8 hex chars}, or pr-{number}
+# Valid pipeline ID formats:
+#   issue-{number}[-qualifier[-...]]  — GitHub issue-driven
+#   {LETTERS}-{digits}[-qualifier[-...]] — JIRA ticket-driven (e.g. KORE-1234, KORE-1234-v2-hotfix)
+#   local-{8 hex chars}         — local dev
+#   pipeline-{8 hex chars}      — auto-generated
+#   pr-{number}                 — babysit mode
 PIPELINE_ID_PATTERN = re.compile(
-    r"^(issue-[0-9]+|local-[0-9a-f]{8}|pipeline-[0-9a-f]{8}|pr-[0-9]+)$"
+    r"^("
+    r"issue-[0-9]+(-[a-z0-9]+)*"
+    r"|[A-Z][A-Z0-9]+-[0-9]+(-[a-z0-9]+)*"
+    r"|local-[0-9a-f]{8}"
+    r"|pipeline-[0-9a-f]{8}"
+    r"|pr-[0-9]+"
+    r")$"
 )
 
 # Dedicated branch for pipeline state (orphan, never merged into main).

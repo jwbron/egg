@@ -2,7 +2,7 @@
 name: sdlc
 description: "Run an egg SDLC pipeline: full lifecycle (default) or lightweight coder+reviewer with --short."
 disable-model-invocation: true
-argument-hint: "[--short <description>] [JIRA-1234 or issue# or description] [--repo owner/name]"
+argument-hint: "[--short] [--qualifier <name>] [JIRA-1234 or issue# or description] [--repo owner/name]"
 ---
 
 # SDLC Pipeline
@@ -59,6 +59,10 @@ If the user provided arguments after `/sdlc`, parse them:
 | `/sdlc --repo jwbron/egg 1059` | Repo override + issue number |
 | `/sdlc --issue 1059` | Issue number (legacy flag, same as bare integer) |
 | `/sdlc --repo jwbron/egg KORE-1234` | Repo override + JIRA ticket |
+| `/sdlc KORE-1234 --qualifier backend` | JIRA ticket + qualifier (pipeline: `KORE-1234-backend`, branch: `egg/KORE-1234-backend`) |
+| `/sdlc 1059 --qualifier frontend` | Issue number + qualifier (pipeline: `issue-1059-frontend`, branch: `egg/issue-1059-frontend`) |
+
+When `--qualifier <name>` is provided, it is appended to the pipeline ID and branch name. This allows multiple pipelines for the same ticket or issue. Store the qualifier value as `pipeline_qualifier` for use in Phase 2 (Submit).
 
 When an issue number is provided, fetch it immediately with `gh issue view <N> --repo <repo> --json title,body,comments,labels,assignees` and use the title+body as the task description. Proceed directly to Phase 1.5 (Pre-Refine) — no questions needed. Retain the full response (including comments, labels, and assignees) for use in Phase 1.5.
 
@@ -284,15 +288,31 @@ Arguments:
   description: <task description — enriched with JIRA/Confluence context if a JIRA ticket was provided>
   repo: <owner/name>
   issue_number: <number, if provided>
+  jira_ticket: <TICKET_ID, if source is a JIRA ticket>
+  qualifier: <qualifier, if --qualifier was provided>
 ```
 
 When a JIRA ticket was the source, the `description` field should contain the full enriched description built in [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) Step 3 (including the JIRA ticket details, comments, linked issues, and any Confluence context). This ensures the pipeline agents have full context without needing JIRA access themselves.
+
+The `jira_ticket` field drives pipeline naming: the pipeline ID and branch are derived from the ticket ID (e.g., `KORE-1234` → pipeline `KORE-1234`, branch `egg/KORE-1234`). When a `qualifier` is provided, it is appended (e.g., `KORE-1234-backend` / `egg/KORE-1234-backend`). The same qualifier logic applies to issue-driven pipelines (e.g., `issue-123-backend` / `egg/issue-123-backend`).
+
+### Branch conflict handling
+
+If `submit_task` returns a **409 error** indicating the branch already exists on the remote:
+
+1. Inform the user: "Branch `egg/<name>` already exists. A qualifier is needed to create a separate pipeline."
+2. Ask the user to provide a qualifier via `AskUserQuestion`:
+   - **Question**: "Branch `egg/<name>` already exists. Provide a qualifier to differentiate this pipeline (e.g. 'backend', 'v2', 'fix'):"
+   - **Header**: "Qualifier"
+   - **Options**: 2-3 contextual suggestions based on the task description + "Other" (always available)
+3. Retry `submit_task` with the qualifier appended.
 
 Store the returned `task_id`. Confirm submission to the user:
 
 > Task submitted successfully.
 > **Task ID**: `<task_id>`
 > **Source**: JIRA `<TICKET_ID>` (or GitHub Issue `#<N>`, or free-text)
+> **Pipeline**: `<pipeline_id>` | **Branch**: `<branch>`
 > **Description**: <description summary — first line of the enriched description>
 > **Repository**: <repo>
 
@@ -810,8 +830,9 @@ After stripping the `--short` flag, parse remaining arguments:
 | `/sdlc --short --repo jwbron/egg Fix flaky test` | Repo override + task description |
 | `/sdlc --short KORE-1234` | JIRA ticket (matches `<LETTER><ALPHANUMERIC>-<DIGITS>` pattern) |
 | `/sdlc --short --repo jwbron/egg ENG-42` | Repo override + JIRA ticket |
+| `/sdlc --short KORE-1234 --qualifier backend` | JIRA ticket + qualifier |
 
-When a JIRA ticket ID is detected, run the [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) procedure and use the enriched description as the task description. Proceed directly to Phase S2.
+When a JIRA ticket ID is detected, run the [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) procedure and use the enriched description as the task description. If `--qualifier` is provided, store it as `pipeline_qualifier`. Proceed directly to Phase S2.
 
 When a free-text description is provided and the repo was auto-detected, proceed directly to Phase S2.
 
@@ -1022,13 +1043,17 @@ Tool: submit_task
 Arguments:
   description: <original task description>
   repo: <owner/name>
+  jira_ticket: <TICKET_ID, if source is a JIRA ticket>
+  qualifier: <qualifier, if --qualifier was provided>
   config: {"start_phase": "implement", "hitl_gates": false, "overseer_enabled": true}
   analysis: <the analysis from Phase S2, if any>
   plan: |
     <the full plan document from Phase S3, including the yaml-tasks appendix>
 ```
 
-The `plan` field is parsed by the remote pipeline to populate the formal contract with tasks and acceptance criteria. The `analysis` field provides additional context for the agents. The `description` contains only the original task description.
+The `plan` field is parsed by the remote pipeline to populate the formal contract with tasks and acceptance criteria. The `analysis` field provides additional context for the agents. The `description` contains only the original task description. The `jira_ticket` and `qualifier` fields drive pipeline and branch naming (see Phase 2 for details).
+
+If `submit_task` returns a **409 error** indicating the branch already exists, follow the same [branch conflict handling](#branch-conflict-handling) procedure as the full flow: inform the user, ask for a qualifier, and retry.
 
 Store the returned `task_id`. Confirm submission to the user:
 
