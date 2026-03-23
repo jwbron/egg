@@ -623,17 +623,19 @@ class TestCreatePipelineJiraAndQualifier:
         assert call_kwargs["branch"] == "egg/issue-42-frontend"
         assert call_kwargs["issue_number"] == 42
 
-    def test_pipeline_id_without_branch_returns_400(self, client):
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_repo_path")
+    def test_pipeline_id_without_branch_returns_400(self, mock_repo_path, mock_gw_client, client):
         """Explicit pipeline_id without branch should fail validation."""
-        with patch("routes.pipelines.get_repo_path", return_value=Path("/tmp/repo")):
-            response = client.post(
-                "/api/v1/pipelines",
-                json={
-                    "pipeline_id": "KORE-1234",
-                    "repo": "Khan/webapp",
-                    "prompt": "Fix the bug",
-                },
-            )
+        mock_repo_path.return_value = Path("/tmp/repo")
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "pipeline_id": "KORE-1234",
+                "repo": "Khan/webapp",
+                "prompt": "Fix the bug",
+            },
+        )
         assert response.status_code == 400
         body = response.get_json()
         assert "branch" in body["message"].lower()
@@ -653,6 +655,18 @@ class TestPipelineIdValidation:
         from state_store import _validate_pipeline_id
 
         _validate_pipeline_id("KORE-1234-backend")
+
+    def test_validate_jira_ticket_with_hyphenated_qualifier(self):
+        """JIRA ticket IDs with multi-segment qualifier like KORE-1234-v2-hotfix are accepted."""
+        from state_store import _validate_pipeline_id
+
+        _validate_pipeline_id("KORE-1234-v2-hotfix")
+
+    def test_validate_issue_with_hyphenated_qualifier(self):
+        """Issue IDs with multi-segment qualifier like issue-42-v2-hotfix are accepted."""
+        from state_store import _validate_pipeline_id
+
+        _validate_pipeline_id("issue-42-v2-hotfix")
 
     def test_validate_issue_with_qualifier(self):
         """Issue IDs with qualifier like issue-42-frontend are accepted."""

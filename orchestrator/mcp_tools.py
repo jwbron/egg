@@ -580,6 +580,9 @@ class PipelineToolHandler:
                     error_info["error"] = body.get("message", error_info["error"])
                     details = body.get("details", {})
                     if details:
+                        reason = details.get("reason")
+                        if reason:
+                            error_info["reason"] = reason
                         error_info["existing_pipeline_id"] = details.get("existing_pipeline_id", "")
                         error_info["existing_status"] = details.get("existing_status", "")
                         error_info["existing_phase"] = details.get("existing_phase", "")
