@@ -6,12 +6,17 @@ Start with **[docs/index.md](docs/index.md)** — it has task-specific lookup ta
 
 ```bash
 make help          # List all targets
+make deps          # Install all dependencies (installs uv + venv)
 make setup         # Install dependencies (requires uv)
 make lint          # Run all linters (Python, Shell, YAML, Dockerfile)
 make test          # Run full test suite
 make lint-fix      # Auto-fix lint issues
 make security      # Run security scans (bandit, safety, trivy)
 ```
+
+## Python Environment
+
+If `.venv` is absent, run `make deps` to install all dependencies. This installs `uv` if needed and creates a `.venv` with all dev dependencies. Always use the `.venv` for project-specific Python usage such as tests and linting.
 
 ## Repo Layout
 

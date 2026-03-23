@@ -21,7 +21,7 @@ PYTHON := $(if $(wildcard $(VENV_BIN)/python),$(VENV_BIN)/python,python3)
 # PYTHONPATH — set per-target to avoid leaking into unrelated recipes
 
 .PHONY: help \
-        setup venv install-linters check-linters \
+        setup deps venv install-linters check-linters \
         lint lint-python lint-shell lint-yaml lint-docker lint-actions lint-custom \
         test security \
         test-integration test-e2e test-security \
@@ -35,6 +35,7 @@ help:
 	@echo ""
 	@echo "Setup:"
 	@echo "  make setup              - Full development environment setup"
+	@echo "  make deps               - Install all dependencies (installs uv + venv)"
 	@echo "  make venv               - Create venv with dev dependencies"
 	@echo "  make install-linters    - Install system linting tools"
 	@echo "  make check-linters      - Check if linting tools are installed"
@@ -68,11 +69,19 @@ help:
 # ============================================================================
 
 # Full development environment setup
-setup: venv
+setup: deps
 	@echo "==> Installing pre-commit hooks..."
 	@$(VENV_BIN)/pre-commit install || true
 	@echo ""
 	@echo "Setup complete! Run 'make help' to see available commands."
+
+# Install all dependencies (installs uv if needed, then syncs venv)
+deps:
+	@if ! command -v uv >/dev/null 2>&1; then \
+		echo "==> Installing uv..."; \
+		curl -LsSf https://astral.sh/uv/install.sh | sh; \
+	fi
+	@PATH="$$HOME/.local/bin:$$HOME/.cargo/bin:$$PATH" $(MAKE) venv
 
 # Ensure venv exists and has dev dependencies
 venv:
