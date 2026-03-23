@@ -625,7 +625,7 @@ def create_pipeline() -> tuple[Response, int]:
     _MAX_DRAFT_LEN = 200_000
     for field_name in ("analysis", "plan"):
         value = data.get(field_name)
-        if value and len(value) > _MAX_DRAFT_LEN:
+        if isinstance(value, str) and len(value) > _MAX_DRAFT_LEN:
             return make_error_response(
                 f"{field_name} exceeds maximum length ({len(value)} > {_MAX_DRAFT_LEN})"
             )
@@ -5554,11 +5554,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
                     pipeline.contract_synced = push_succeeded
-                    # Clear analysis/plan from pipeline state now that they've
-                    # been written to draft files — avoids re-serializing
-                    # potentially large text blobs on every subsequent save.
-                    pipeline.analysis = None
-                    pipeline.plan = None
+                    if push_succeeded:
+                        # Clear analysis/plan from pipeline state now that they've
+                        # been written to draft files and pushed — avoids re-serializing
+                        # potentially large text blobs on every subsequent save.
+                        pipeline.analysis = None
+                        pipeline.plan = None
                     store.save_pipeline(pipeline, commit=False)
                 logger.info(
                     "Pipeline contract created in worktree",
