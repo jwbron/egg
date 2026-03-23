@@ -199,8 +199,11 @@ class TestAutoCreatePr:
         spawner = MagicMock()
         spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/1"
 
-        with patch("routes.pipelines._build_pr_body") as mock_build:
-            mock_build.return_value = ("Fix auth", "Body text")
+        with (
+            patch("routes.pipelines._build_pr_body", return_value=("Fix auth", "Body text")),
+            patch("routes.pipelines._detect_default_branch", return_value="main"),
+            patch("egg_git.default_branch.get_default_branch", return_value="main"),
+        ):
             result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)
 
         assert result == "https://github.com/owner/repo/pull/1"
@@ -223,8 +226,11 @@ class TestAutoCreatePr:
         spawner = MagicMock()
         spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/2"
 
-        with patch("routes.pipelines._build_pr_body") as mock_build:
-            mock_build.return_value = ("Fix auth", "Body text")
+        with (
+            patch("routes.pipelines._build_pr_body", return_value=("Fix auth", "Body text")),
+            patch("routes.pipelines._detect_default_branch", return_value="main"),
+            patch("egg_git.default_branch.get_default_branch", return_value="main"),
+        ):
             result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner, gateway_mode="private")
 
         assert result == "https://github.com/owner/repo/pull/2"
@@ -267,8 +273,11 @@ class TestAutoCreatePr:
         spawner = MagicMock()
         spawner.gateway.create_pr.side_effect = Exception("Gateway unreachable")
 
-        with patch("routes.pipelines._build_pr_body") as mock_build:
-            mock_build.return_value = ("Title", "Body")
+        with (
+            patch("routes.pipelines._build_pr_body", return_value=("Title", "Body")),
+            patch("routes.pipelines._detect_default_branch", return_value="main"),
+            patch("egg_git.default_branch.get_default_branch", return_value="main"),
+        ):
             result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)
 
         assert result is None
