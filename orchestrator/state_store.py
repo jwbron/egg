@@ -669,6 +669,8 @@ class StateStore:
         network_mode: str | None = None,
         mode: PipelineMode | None = None,
         pr_number: int | None = None,
+        analysis: str | None = None,
+        plan: str | None = None,
     ) -> Pipeline:
         """Create a new pipeline.
 
@@ -682,6 +684,8 @@ class StateStore:
             network_mode: Network mode for spawned containers ("public", "private", or None)
             mode: Pipeline mode (ISSUE or BABYSIT). Defaults to ISSUE if not set.
             pr_number: PR number for babysit-mode pipelines (optional).
+            analysis: Pre-generated analysis markdown for short flow pipelines (optional).
+            plan: Pre-generated plan markdown with yaml-tasks appendix (optional).
 
         Returns:
             Created pipeline
@@ -722,6 +726,8 @@ class StateStore:
                 "network_mode": network_mode,
                 # Contract is created separately — mark as unsynced until verified
                 "contract_synced": False,
+                "analysis": analysis,
+                "plan": plan,
             }
             if mode is not None:
                 pipeline_kwargs["mode"] = mode

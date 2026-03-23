@@ -568,6 +568,8 @@ def create_pipeline() -> tuple[Response, int]:
     prompt = data.get("prompt")
     mode = data.get("mode", "issue")
     pr_number = data.get("pr_number")
+    analysis = data.get("analysis")
+    plan = data.get("plan")
 
     # Validate mode
     valid_modes = {m.value for m in PipelineMode}
@@ -631,6 +633,8 @@ def create_pipeline() -> tuple[Response, int]:
             pipeline_id=pipeline_id,
             mode=PipelineMode(mode) if mode != "issue" else None,
             pr_number=pr_number,
+            analysis=analysis,
+            plan=plan,
         )
 
         # Contract creation is deferred to _run_pipeline so it writes
@@ -4960,15 +4964,31 @@ def _populate_contract_from_plan(
             )
 
         contract_phases = result.to_contract_phases()
+        changed = False
+
         if contract_phases:
             contract.phases = contract_phases
+            changed = True
+
+        # Populate PR metadata from plan if available
+        if result.pr_title:
+            from egg_contracts.models import PRMetadata
+
+            contract.pr = PRMetadata(
+                title=result.pr_title,
+                description=result.pr_description or "",
+            )
+            changed = True
+
+        if changed:
             save_contract(contract, repo_path)
-            task_count = sum(len(p.tasks) for p in contract_phases)
+            task_count = sum(len(p.tasks) for p in contract.phases)
             logger.info(
                 "Contract populated from plan",
                 pipeline_id=pipeline_id,
-                phase_count=len(contract_phases),
+                phase_count=len(contract.phases),
                 task_count=task_count,
+                has_pr_metadata=contract.pr is not None,
             )
 
     except Exception as e:
@@ -5444,6 +5464,48 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         title=(pipeline.prompt or "")[:100],
                         repo_root=worktree_repo_path,
                     )
+
+                # Write pre-generated drafts for short-flow pipelines so the
+                # existing plan parser can populate the contract with tasks.
+                if pipeline.analysis or pipeline.plan:
+                    drafts_dir = worktree_repo_path / ".egg-state" / "drafts"
+                    drafts_dir.mkdir(parents=True, exist_ok=True)
+
+                    if pipeline.analysis:
+                        analysis_rel = _get_draft_path(
+                            "refine",
+                            issue_number=pipeline.issue_number,
+                            pipeline_id=pipeline_id,
+                        )
+                        if analysis_rel:
+                            (worktree_repo_path / analysis_rel).write_text(pipeline.analysis)
+                            logger.info(
+                                "Wrote pre-generated analysis draft",
+                                pipeline_id=pipeline_id,
+                                path=analysis_rel,
+                            )
+
+                    if pipeline.plan:
+                        plan_rel = _get_draft_path(
+                            "plan",
+                            issue_number=pipeline.issue_number,
+                            pipeline_id=pipeline_id,
+                        )
+                        if plan_rel:
+                            (worktree_repo_path / plan_rel).write_text(pipeline.plan)
+                            logger.info(
+                                "Wrote pre-generated plan draft",
+                                pipeline_id=pipeline_id,
+                                path=plan_rel,
+                            )
+
+                        # Populate the contract from the plan's yaml-tasks appendix
+                        _populate_contract_from_plan(
+                            worktree_repo_path,
+                            pipeline_id,
+                            pipeline_mode,
+                            pipeline.issue_number,
+                        )
 
                 # Commit all .egg-state/ files so they're on the feature branch
                 issue_ref = (

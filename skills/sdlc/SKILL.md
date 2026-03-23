@@ -872,7 +872,7 @@ If the user adjusts scope, incorporate their feedback and re-present. Then proce
 
 ## Phase S3 — Lightweight Plan & Contract
 
-Generate a concrete plan with tasks and acceptance criteria, then validate it as a Contract.
+Generate a concrete plan with tasks and acceptance criteria, validate it, and produce a plan document with a `yaml-tasks` appendix that the remote pipeline can parse into a formal contract.
 
 ### Step 1: Generate the plan
 
@@ -906,8 +906,9 @@ contract = Contract(
                     id="task-1",
                     description="<task description>",
                     status=TaskStatus.PENDING,
+                    acceptance_criteria="<acceptance criteria for this task>",
                 ),
-                # ... more tasks
+                # ... more tasks (use task-1-1, task-1-2 format for yaml-tasks compatibility)
             ],
         )
     ],
@@ -922,6 +923,53 @@ contract = Contract(
 ```
 
 Run the validation by constructing the object. If Pydantic validation fails, fix the errors and retry.
+
+### Step 2b: Generate the plan document with yaml-tasks appendix
+
+Generate a markdown plan document that includes a `yaml-tasks` structured appendix. This is the same format used by the plan agent in the normal flow — the remote pipeline parses it to populate the contract.
+
+````markdown
+# Plan: <short title>
+
+## Summary
+
+<2-3 sentences describing the approach>
+
+## Implementation
+
+### Phase 1: Implement
+
+<brief description of what this phase covers>
+
+**Tasks**:
+1. [TASK-1-1] <task description> — Acceptance: <criteria>
+2. [TASK-1-2] <task description> — Acceptance: <criteria>
+
+```yaml
+# yaml-tasks
+pr:
+  title: "<imperative summary, ≤70 chars>"
+  description: |
+    <2-3 sentence PR description>
+phases:
+  - id: 1
+    name: Implement
+    goal: "<what this phase achieves>"
+    tasks:
+      - id: TASK-1-1
+        description: "<task description>"
+        acceptance: "<acceptance criteria>"
+        files:
+          - <path/to/file>
+      - id: TASK-1-2
+        description: "<task description>"
+        acceptance: "<acceptance criteria>"
+        files:
+          - <path/to/file>
+```
+````
+
+The `yaml-tasks` appendix **must** be present — it is machine-parsed by the remote pipeline to create the formal contract. The prose section above it provides human-readable context.
 
 ### Step 3: Present to user
 
@@ -967,23 +1015,20 @@ Handle each response:
 
 ## Phase S4 — Submit
 
-Call the `submit_task` MCP tool with the gathered parameters and the lightweight config:
+Call the `submit_task` MCP tool with the gathered parameters, the lightweight config, and the pre-generated artifacts:
 
 ```
 Tool: submit_task
 Arguments:
-  description: |
-    <original task description>
-
-    ## Pre-generated Plan
-
-    <the plan from Phase S3, formatted as markdown — include tasks and acceptance criteria
-    so the remote agents have full context>
+  description: <original task description>
   repo: <owner/name>
   config: {"start_phase": "implement", "hitl_gates": false, "overseer_enabled": true}
+  analysis: <the analysis from Phase S2, if any>
+  plan: |
+    <the full plan document from Phase S3, including the yaml-tasks appendix>
 ```
 
-The description includes the generated plan context so the remote coder+reviewer agents can use it.
+The `plan` field is parsed by the remote pipeline to populate the formal contract with tasks and acceptance criteria. The `analysis` field provides additional context for the agents. The `description` contains only the original task description.
 
 Store the returned `task_id`. Confirm submission to the user:
 
@@ -1098,7 +1143,7 @@ Phase: <phase where failure occurred>
   If re-running:
   1. Call `cancel_task` with the failed `task_id` and `cleanup: true`
   2. If "Re-run with changes", ask the user for the updated description
-  3. Call `submit_task` with the description (original or updated) and same repo, plus the same `config`
+  3. Call `submit_task` with the description (original or updated) and same repo, plus the same `config`, `analysis`, and `plan`
   4. Resume from Phase S5 (Monitor) with the new `task_id`
 
   **Error handling**: If `cancel_task` or `submit_task` fails, inform the user and offer to retry the failed step.
@@ -1109,8 +1154,8 @@ Phase: <phase where failure occurred>
 - **Always serialize JSON payloads as strings** for `provide_input`
 - **Always pass `config`** with `{"start_phase": "implement", "hitl_gates": false, "overseer_enabled": true}` when calling `submit_task`
 - **Auto-approve phase gates** — this is a no-HITL flow; if a gate appears, approve it automatically and inform the user
-- **Validate the contract** — always construct and validate a `Contract` Pydantic model in Phase S3. The contract is informational — it's not persisted to `.egg-state/` since the remote pipeline will create its own
-- **Include plan context in submit** — the description sent to `submit_task` must include the generated plan so remote agents have it
+- **Validate the contract** — always construct and validate a `Contract` Pydantic model in Phase S3. The remote pipeline uses the `plan` field's `yaml-tasks` appendix to populate its own formal contract
+- **Pass plan via the `plan` field** — the plan document (with `yaml-tasks` appendix) must be passed as the `plan` argument to `submit_task`, not embedded in `description`. The `analysis` field carries the Phase S2 analysis. This ensures the remote pipeline creates a proper structured contract
 - **Stop polling on exit** — always exit the monitoring loop when the workflow ends
 - **Handle errors gracefully** — if an MCP tool call fails, inform the user and offer to retry
 - **Keep output concise** — don't flood the user with raw JSON; format status as a readable dashboard
