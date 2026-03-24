@@ -5172,8 +5172,8 @@ def _populate_contract_from_plan(
             logger.warning(
                 "Plan parse warning",
                 pipeline_id=pipeline_id,
-                message=warning.message,
-                context=warning.context,
+                warning_message=warning.message,
+                warning_context=warning.context,
             )
 
         contract_phases = result.to_contract_phases()
