@@ -1476,3 +1476,148 @@ class TestPrPhaseOutcomeCheck:
         _run(monitor._check_pr_phase_outcome(pipeline_data))
         monitor._create_hitl_decision.assert_awaited_once()
         monitor._send_slack_notification.assert_awaited_once()
+
+
+# ===================================================================
+# test_orchestrator_reachability (issue #1371)
+# ===================================================================
+
+
+class TestOrchestratorReachability:
+    """Tests for orchestrator unreachability detection."""
+
+    def _make_monitor(self):
+        monitor = OverseerMonitor(
+            pipeline_id="test-reach",
+            config=_MockConfig(),
+            classifier=_MockClassifier(),
+            decision_maker=_MockDecisionMaker(),
+        )
+        monitor._send_slack_notification = AsyncMock()
+        monitor._log_oversight_event = MagicMock()
+        return monitor
+
+    def test_reachable_resets_counter(self) -> None:
+        """Successful orchestrator response resets the failure counter."""
+        monitor = self._make_monitor()
+        monitor._consecutive_orch_failures = 2
+
+        _run(
+            monitor._check_orchestrator_reachability(
+                pipeline_data={"status": "running"},
+                phase_data={},
+            )
+        )
+
+        assert monitor._consecutive_orch_failures == 0
+
+    def test_unreachable_increments_counter(self) -> None:
+        """Empty responses from both queries increment the failure counter."""
+        monitor = self._make_monitor()
+
+        _run(
+            monitor._check_orchestrator_reachability(
+                pipeline_data={},
+                phase_data={},
+            )
+        )
+
+        assert monitor._consecutive_orch_failures == 1
+        monitor._send_slack_notification.assert_not_awaited()
+
+    def test_unreachable_escalates_at_threshold(self) -> None:
+        """After threshold consecutive failures, escalate via Slack."""
+        monitor = self._make_monitor()
+        monitor._consecutive_orch_failures = 2  # one below threshold
+
+        _run(
+            monitor._check_orchestrator_reachability(
+                pipeline_data={},
+                phase_data={},
+            )
+        )
+
+        assert monitor._consecutive_orch_failures == 3
+        monitor._send_slack_notification.assert_awaited_once()
+        call_args = monitor._send_slack_notification.call_args
+        assert call_args[0][0] == "orchestrator"
+        assert "unreachable" in call_args[0][1].lower()
+
+    def test_non_threshold_cycles_do_not_alert(self) -> None:
+        """Cycles that don't land on a threshold multiple don't trigger alerts."""
+        monitor = self._make_monitor()
+        monitor._consecutive_orch_failures = 2
+
+        # Cycle 3 hits threshold — alerts
+        _run(monitor._check_orchestrator_reachability({}, {}))
+        assert monitor._send_slack_notification.await_count == 1
+
+        # Cycle 4 (4 % 3 != 0) — no alert
+        _run(monitor._check_orchestrator_reachability({}, {}))
+        assert monitor._send_slack_notification.await_count == 1
+
+    def test_recovery_after_alert_re_enables_alerting(self) -> None:
+        """After recovery, a new outage can trigger a fresh alert."""
+        monitor = self._make_monitor()
+        monitor._consecutive_orch_failures = 2
+
+        # Hit threshold
+        _run(monitor._check_orchestrator_reachability({}, {}))
+
+        # Recover
+        _run(monitor._check_orchestrator_reachability({"status": "running"}, {}))
+        assert monitor._consecutive_orch_failures == 0
+
+        # New outage cycle
+        for _ in range(3):
+            _run(monitor._check_orchestrator_reachability({}, {}))
+        assert monitor._send_slack_notification.await_count == 2
+
+    def test_phase_data_alone_counts_as_reachable(self) -> None:
+        """If phase query succeeds but pipeline query fails, still reachable."""
+        monitor = self._make_monitor()
+        monitor._consecutive_orch_failures = 2
+
+        _run(
+            monitor._check_orchestrator_reachability(
+                pipeline_data={},
+                phase_data={"phase": "implement"},
+            )
+        )
+
+        assert monitor._consecutive_orch_failures == 0
+
+    def test_oversight_event_logged_on_unreachable(self) -> None:
+        """An oversight event is logged when the threshold is breached."""
+        monitor = self._make_monitor()
+        monitor._consecutive_orch_failures = 2
+
+        _run(monitor._check_orchestrator_reachability({}, {}))
+
+        logged_events = [call.args[0] for call in monitor._log_oversight_event.call_args_list]
+        assert any(e.get("event") == "orchestrator_unreachable" for e in logged_events)
+
+    def test_periodic_re_alerting(self) -> None:
+        """After initial alert, re-alert every threshold cycles."""
+        monitor = self._make_monitor()
+
+        # Drive through 2 * threshold (6) cycles of unreachability
+        for _ in range(6):
+            _run(monitor._check_orchestrator_reachability({}, {}))
+
+        # Should have alerted at cycle 3 and cycle 6
+        assert monitor._send_slack_notification.await_count == 2
+
+        # One more cycle (7) — no alert (7 % 3 != 0)
+        _run(monitor._check_orchestrator_reachability({}, {}))
+        assert monitor._send_slack_notification.await_count == 2
+
+    def test_oversight_event_logged_on_recovery(self) -> None:
+        """An oversight event is logged when the orchestrator recovers."""
+        monitor = self._make_monitor()
+        monitor._consecutive_orch_failures = 5
+
+        _run(monitor._check_orchestrator_reachability({"status": "running"}, {}))
+
+        logged_events = [call.args[0] for call in monitor._log_oversight_event.call_args_list]
+        assert any(e.get("event") == "orchestrator_recovered" for e in logged_events)
