@@ -166,11 +166,7 @@ class TestBuildPrBody:
         contract_dir.mkdir(parents=True)
         # Use a reasonably long PR description
         contract_file = contract_dir / "42.json"
-        contract_file.write_text(
-            json.dumps(
-                _make_contract_json(pr_description="A" * 10_000)
-            )
-        )
+        contract_file.write_text(json.dumps(_make_contract_json(pr_description="A" * 10_000)))
 
         title, body = _build_pr_body(pipeline, tmp_path)
 
