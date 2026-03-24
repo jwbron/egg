@@ -861,8 +861,8 @@ Analyze the task locally — no remote agents. Your goal is to understand the fu
 
 1. **Understand the problem context** — Before reading code, review the task description and any enriched context from Phase S1:
    - **User-facing symptom**: What is the observable problem? How does it manifest for users?
-   - **Source context**: If from a JIRA ticket, note key details from the description, reporter comments, and linked issues/PRs. If from a GitHub issue, note the reporter's description and relevant comment thread.
-   - **Workarounds**: Are there any known workarounds mentioned in the ticket or comments? These help scope the fix and inform urgency.
+   - **Source context**: If from a JIRA ticket, note key details from the description, reporter comments, and linked issues/PRs. If from a GitHub issue, note the reporter's description and relevant comment thread. Omit this section for free-text task descriptions where there is no external source to reference.
+   - **Workarounds**: For bug fixes, note any known workarounds mentioned in the ticket or comments — these help scope the fix and inform urgency. Omit this section for new features or tasks where workarounds don't apply.
 
 2. **Read relevant code files** — Based on the task description, identify and read the most relevant source files (up to 5–10 files). Use `Glob` and `Grep` to find them. Focus on files that will need modification and their immediate dependencies.
 
@@ -875,7 +875,7 @@ Analyze the task locally — no remote agents. Your goal is to understand the fu
 
 4. **Clarify ambiguity** — If the task is ambiguous or underspecified, ask the user 2–3 clarifying questions via `AskUserQuestion` (group into a single call). Skip this if the task is clear and well-scoped.
 
-5. **Present analysis** — Show the user a structured analysis that captures the full picture. Include all sections that are relevant — omit sections that don't apply (e.g., omit "Workarounds" for a new feature request):
+5. **Present analysis** — Show the user a structured analysis that captures the full picture. Include all sections that are relevant — omit sections that don't apply (e.g., omit "Workarounds" for a new feature request). Keep each section to 1–2 sentences and the total analysis under ~300 words:
 
 ```
 ### Task Analysis
@@ -884,7 +884,7 @@ Analyze the task locally — no remote agents. Your goal is to understand the fu
 
 **Source context**: <key details from the JIRA ticket, GitHub issue, or user description — reporter comments, linked PRs, related issues that inform the fix>
 
-**Workarounds**: <any known workarounds mentioned in the ticket/comments, or "None known">
+**Workarounds**: <any known workarounds mentioned in the ticket/comments>
 
 **System context**: <brief description of how the affected component works and its role in the broader system — helps agents understand what they're changing>
 
