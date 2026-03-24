@@ -2720,8 +2720,8 @@ def _auto_create_pr(
 ) -> str | None:
     """Auto-create a PR for a pipeline without spawning an agent.
 
-    Builds the PR title/body from contract state and git log, then
-    creates the PR via the gateway.
+    Builds the PR title/body from contract state, then creates the PR
+    via the gateway.
 
     Args:
         pipeline: The pipeline state
