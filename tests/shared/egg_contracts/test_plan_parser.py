@@ -1304,7 +1304,7 @@ class TestPRMetadataExtraction:
                 "title": "Add feature X",
                 "description": "This PR adds feature X to improve Y.",
                 "test_plan": "Run pytest to verify",
-                "manual_steps": "None",
+                "manual_steps": "Pre-merge: run migrations\nPost-merge: clear cache",
             },
             "phases": [
                 {
@@ -1320,7 +1320,7 @@ class TestPRMetadataExtraction:
         assert pr_title == "Add feature X"
         assert pr_description == "This PR adds feature X to improve Y."
         assert pr_test_plan == "Run pytest to verify"
-        assert pr_manual_steps == "None"
+        assert pr_manual_steps == "Pre-merge: run migrations\nPost-merge: clear cache"
         assert len(warnings) == 0
 
     def test_extract_pr_metadata_absent(self):
@@ -1438,6 +1438,9 @@ Key changes:
         assert pr_title == "Add feature X"
         assert "Key changes:" in pr_description
         assert "- Change 1" in pr_description
+        # Missing test_plan warning expected
+        assert len(warnings) == 1
+        assert "test_plan" in warnings[0].message
 
     def test_extract_pr_metadata_empty_description(self):
         """Test extracting PR metadata with empty description."""
@@ -1452,6 +1455,9 @@ Key changes:
         )
         assert pr_title == "Add feature X"
         assert pr_description == ""
+        # Missing test_plan warning expected
+        assert len(warnings) == 1
+        assert "test_plan" in warnings[0].message
 
     def test_extract_pr_metadata_title_over_70_chars_warns(self):
         """Test that PR titles over 70 characters generate a warning."""
@@ -1479,6 +1485,7 @@ Key changes:
             "pr": {
                 "title": title_70,
                 "description": "Description",
+                "test_plan": "Run pytest",
             },
             "phases": [],
         }
@@ -1486,6 +1493,7 @@ Key changes:
             extract_pr_metadata_from_yaml(yaml_data)
         )
         assert pr_title == title_70
+        assert len(warnings) == 0
 
 
 class TestParsePlanWithPRMetadata:
@@ -1505,6 +1513,12 @@ pr:
   description: |
     Implements exponential backoff retry for API requests.
     This improves reliability.
+  test_plan: |
+    - Automated: test_retry.py covers backoff timing
+    - Manual: verify retry behavior with flaky endpoint
+  manual_steps: |
+    Pre-merge: none
+    Post-merge: none
 phases:
   - id: 1
     name: Implementation
@@ -1519,6 +1533,9 @@ phases:
         assert result.success
         assert result.pr_title == "Add retry logic"
         assert "exponential backoff" in result.pr_description
+        assert "Automated" in result.pr_test_plan
+        # manual_steps with all-none values is normalized to empty
+        assert result.pr_manual_steps == ""
         assert len(result.phases) == 1
 
     def test_parse_plan_without_pr_metadata(self):

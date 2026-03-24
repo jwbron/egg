@@ -991,8 +991,8 @@ pr:
     - Automated: <which tests cover the changes>
     - Manual: <specific steps a reviewer should take to verify>
   manual_steps: |
-    Pre-merge: <any required steps before merging, or 'None'>
-    Post-merge: <any required steps after merging, or 'None'>
+    Pre-merge: <any required steps before merging>
+    Post-merge: <any required steps after merging>
 phases:
   - id: 1
     name: Implement

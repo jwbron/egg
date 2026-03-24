@@ -2709,6 +2709,7 @@ def _build_pr_body(
     # Manual steps section (only if there are steps)
     if pr_manual_steps:
         body_parts.append(f"## Manual Steps\n\n{pr_manual_steps}")
+
     # Add pipeline context section
     if pipeline.id or pipeline.issue_number:
         context_parts = ["## Pipeline Context\n"]
@@ -3002,8 +3003,8 @@ def _build_phase_prompt(
                 "    - Automated: describe which tests cover the changes",
                 "    - Manual: specific steps a reviewer should take to verify",
                 "  manual_steps: |",
-                "    Pre-merge: any required steps before merging (or 'None')",
-                "    Post-merge: any required steps after merging (or 'None')",
+                "    Pre-merge: any required steps before merging",
+                "    Post-merge: any required steps after merging",
                 "phases:",
                 "  - id: 1",
                 "    name: Phase Name",
@@ -3957,8 +3958,8 @@ def _build_agent_prompt(
                 "    - Automated: describe which tests cover the changes",
                 "    - Manual: specific steps a reviewer should take to verify",
                 "  manual_steps: |",
-                "    Pre-merge: any required steps before merging (or 'None')",
-                "    Post-merge: any required steps after merging (or 'None')",
+                "    Pre-merge: any required steps before merging",
+                "    Post-merge: any required steps after merging",
                 "phases:",
                 "  - id: 1",
                 "    name: Phase Name",

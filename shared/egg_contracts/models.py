@@ -183,7 +183,7 @@ class Decision(BaseModel):
 
 
 class PRMetadata(BaseModel):
-    """Planner-generated PR title and description."""
+    """Planner-generated PR metadata: title, description, test plan, and manual steps."""
 
     title: str = Field(..., min_length=1, description="PR title (recommended max 70 chars)")
     description: str = Field(default="", description="PR description/body")

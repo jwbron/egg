@@ -593,12 +593,34 @@ def parse_tasks_from_markdown(content: str) -> tuple[list[ParsedTask], list[Pars
 
 
 def _normalize_optional_string(value: Any) -> str:
-    """Normalize an optional YAML value to a stripped string."""
+    """Normalize an optional YAML value to a stripped string.
+
+    Treats the literal string 'None' (case-insensitive) as empty, since prompt
+    examples tell agents to write 'None' when there are no steps.
+    """
     if value is None:
         return ""
     if not isinstance(value, str):
-        return str(value).strip()
-    return value.strip()
+        value_str: str = str(value).strip()
+    else:
+        value_str = value.strip()
+    if value_str.lower() == "none":
+        return ""
+    # Handle multi-line fields where every line's value is 'None', e.g.:
+    #   Pre-merge: None
+    #   Post-merge: None
+    lines = value_str.splitlines()
+    if lines and all(_line_value_is_none(line) for line in lines if line.strip()):
+        return ""
+    return value_str
+
+
+def _line_value_is_none(line: str) -> bool:
+    """Check if a 'Label: Value' line has 'None' as its value."""
+    if ":" in line:
+        _, _, val = line.partition(":")
+        return val.strip().lower() == "none"
+    return line.strip().lower() == "none"
 
 
 def extract_pr_metadata_from_yaml(
