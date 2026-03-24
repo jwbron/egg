@@ -1081,3 +1081,105 @@ class TestAgentWorktreeCleanup:
                 f"Expected delete_worktrees called for agent container "
                 f"'{expected}' even after pipeline cleanup failure, got: {agent_ids}"
             )
+
+
+class TestBaseBranchPassedToCreateWorktrees:
+    """Verify pipeline.base_branch is forwarded to create_worktrees (issue #1375)."""
+
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_base_branch_forwarded_when_set(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+    ):
+        """When pipeline.base_branch is set, create_worktrees must receive it."""
+        from routes.pipelines import _run_pipeline
+
+        pipeline = _make_running_pipeline()
+        pipeline.base_branch = "release/v2"
+        mock_store, mock_gateway = _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        mock_gateway.create_worktrees.assert_called_once()
+        call_kwargs = mock_gateway.create_worktrees.call_args
+        assert call_kwargs.kwargs.get("base_branch") == "release/v2", (
+            f"Expected base_branch='release/v2' in create_worktrees call, "
+            f"got: {call_kwargs}"
+        )
+
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_base_branch_none_when_not_set(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+    ):
+        """When pipeline.base_branch is None, create_worktrees receives None."""
+        from routes.pipelines import _run_pipeline
+
+        pipeline = _make_running_pipeline()
+        assert pipeline.base_branch is None
+        mock_store, mock_gateway = _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        mock_gateway.create_worktrees.assert_called_once()
+        call_kwargs = mock_gateway.create_worktrees.call_args
+        assert call_kwargs.kwargs.get("base_branch") is None, (
+            f"Expected base_branch=None in create_worktrees call, "
+            f"got: {call_kwargs}"
+        )
