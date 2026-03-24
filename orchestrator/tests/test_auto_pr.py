@@ -73,9 +73,7 @@ class TestBuildPrBody:
         contract_file = contract_dir / "42.json"
         contract_file.write_text(json.dumps(_make_contract_json()))
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
-            title, body = _build_pr_body(pipeline, tmp_path)
+        title, body = _build_pr_body(pipeline, tmp_path)
 
         assert title == "Fix authentication bypass in login flow"
         assert "Fixes a bypass" in body
@@ -89,9 +87,7 @@ class TestBuildPrBody:
         contract_file = contract_dir / "42.json"
         contract_file.write_text(json.dumps(_make_contract_json(pr_title=None)))
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
-            title, body = _build_pr_body(pipeline, tmp_path)
+        title, body = _build_pr_body(pipeline, tmp_path)
 
         assert title == "Fix the auth bug"
 
@@ -99,59 +95,31 @@ class TestBuildPrBody:
         """Test fallback to pipeline ID when no contract exists."""
         pipeline = _make_pipeline()
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
-            title, body = _build_pr_body(pipeline, tmp_path)
+        title, body = _build_pr_body(pipeline, tmp_path)
 
         assert "issue-42" in title
 
-    def test_includes_commit_log(self, tmp_path):
-        """Test that commit log is included in body."""
+    def test_does_not_include_commit_log(self, tmp_path):
+        """Test that commit log is NOT included in body (GitHub shows it natively)."""
         pipeline = _make_pipeline()
 
-        def fake_run(args, **kwargs):
-            result = MagicMock()
-            if "log" in args:
-                result.returncode = 0
-                result.stdout = "abc1234 Fix auth bypass\ndef5678 Add tests"
-            else:
-                result.returncode = 1
-                result.stdout = ""
-            return result
+        title, body = _build_pr_body(pipeline, tmp_path)
 
-        with patch("subprocess.run", side_effect=fake_run):
-            title, body = _build_pr_body(pipeline, tmp_path)
+        assert "## Commits" not in body
 
-        assert "abc1234 Fix auth bypass" in body
-        assert "## Commits" in body
-
-    def test_includes_diff_stats(self, tmp_path):
-        """Test that diff stats are included in body."""
+    def test_does_not_include_diff_stats(self, tmp_path):
+        """Test that diff stats are NOT included in body (GitHub shows it natively)."""
         pipeline = _make_pipeline()
 
-        def fake_run(args, **kwargs):
-            result = MagicMock()
-            if "diff" in args:
-                result.returncode = 0
-                result.stdout = " src/auth.py | 10 ++++------\n 1 file changed"
-            else:
-                result.returncode = 1
-                result.stdout = ""
-            return result
+        title, body = _build_pr_body(pipeline, tmp_path)
 
-        with patch("subprocess.run", side_effect=fake_run):
-            title, body = _build_pr_body(pipeline, tmp_path)
-
-        assert "src/auth.py" in body
-        assert "## Changes" in body
+        assert "## Changes" not in body
 
     def test_includes_issue_reference_when_no_description(self, tmp_path):
         """Test that issue reference is added when no PR description."""
         pipeline = _make_pipeline()
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
-            title, body = _build_pr_body(pipeline, tmp_path)
+        title, body = _build_pr_body(pipeline, tmp_path)
 
         assert "Closes #42" in body
 
@@ -159,9 +127,7 @@ class TestBuildPrBody:
         """Test that body ends with attribution."""
         pipeline = _make_pipeline()
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
-            title, body = _build_pr_body(pipeline, tmp_path)
+        title, body = _build_pr_body(pipeline, tmp_path)
 
         assert "Authored-by: egg" in body
 
@@ -169,9 +135,7 @@ class TestBuildPrBody:
         """Test that pipeline context section is included in body."""
         pipeline = _make_pipeline()
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
-            title, body = _build_pr_body(pipeline, tmp_path)
+        title, body = _build_pr_body(pipeline, tmp_path)
 
         assert "## Pipeline Context" in body
         assert "Pipeline: `issue-42`" in body
@@ -181,13 +145,24 @@ class TestBuildPrBody:
         """Test that pipeline context appears before the authored-by line."""
         pipeline = _make_pipeline()
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
-            title, body = _build_pr_body(pipeline, tmp_path)
+        title, body = _build_pr_body(pipeline, tmp_path)
 
         context_pos = body.index("## Pipeline Context")
         authored_pos = body.index("Authored-by: egg")
         assert context_pos < authored_pos
+
+    def test_body_stays_well_under_github_limit(self, tmp_path):
+        """Test that body without git log/diff stays well under 65536 chars."""
+        pipeline = _make_pipeline()
+        contract_dir = tmp_path / ".egg-state" / "contracts"
+        contract_dir.mkdir(parents=True)
+        # Use a reasonably long PR description
+        contract_file = contract_dir / "42.json"
+        contract_file.write_text(json.dumps(_make_contract_json(pr_description="A" * 10_000)))
+
+        title, body = _build_pr_body(pipeline, tmp_path)
+
+        assert len(body) < 65_536
 
 
 class TestAutoCreatePr:
@@ -450,8 +425,8 @@ class TestAutoCreatePrPassesBaseBranch:
         # Verify create_pr receives the explicit base branch
         call_kwargs = spawner.gateway.create_pr.call_args
         assert call_kwargs[1]["base"] == "release/v2"
-        # Verify _build_pr_body receives the explicit base branch as default_branch
-        mock_build.assert_called_once_with(pipeline, Path("/tmp/repo"), default_branch="release/v2")
+        # Verify _build_pr_body is called (default_branch no longer passed)
+        mock_build.assert_called_once_with(pipeline, Path("/tmp/repo"))
         # Verify get_default_branch is NOT called when explicit base is provided
         mock_detect.assert_not_called()
 

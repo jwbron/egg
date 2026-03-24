@@ -2646,18 +2646,17 @@ def _handle_pr_creation_failure(
 def _build_pr_body(
     pipeline: Pipeline,
     worktree_repo_path: Path,
-    default_branch: str | None = None,
 ) -> tuple[str, str]:
-    """Build a PR title and body from contract state and git log.
+    """Build a PR title and body from contract state.
 
     Uses the planner-generated PR metadata from the contract when available,
-    falling back to the issue title and git log.
+    falling back to the issue title.  Commit logs and diff stats are omitted
+    because GitHub already displays them natively on the PR page, and including
+    them caused body-size blowups (see #1374).
 
     Args:
         pipeline: The pipeline state
         worktree_repo_path: Path to the worktree repo directory
-        default_branch: Pre-detected default branch name. If None, will be
-            detected automatically.
 
     Returns:
         Tuple of (title, body)
@@ -2689,43 +2688,6 @@ def _build_pr_body(
     if not pr_title:
         pr_title = f"Implementation for pipeline {pipeline.id}"
 
-    # Detect default branch for git comparisons
-    if default_branch is None:
-        default_branch = _detect_default_branch(worktree_repo_path)
-    origin_ref = f"origin/{default_branch}"
-
-    # Build commit log
-    commit_log = ""
-    try:
-        result = subprocess.run(
-            ["git", "log", "--oneline", f"{origin_ref}..HEAD"],
-            capture_output=True,
-            text=True,
-            cwd=str(worktree_repo_path),
-            timeout=10,
-            check=False,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            commit_log = result.stdout.strip()
-    except Exception:
-        pass
-
-    # Build diff stats
-    diff_stats = ""
-    try:
-        result = subprocess.run(
-            ["git", "diff", "--stat", f"{origin_ref}...HEAD"],
-            capture_output=True,
-            text=True,
-            cwd=str(worktree_repo_path),
-            timeout=10,
-            check=False,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            diff_stats = result.stdout.strip()
-    except Exception:
-        pass
-
     # Assemble body
     body_parts: list[str] = []
 
@@ -2733,12 +2695,6 @@ def _build_pr_body(
         body_parts.append(pr_description)
     elif pipeline.issue_number:
         body_parts.append(f"Closes #{pipeline.issue_number}")
-
-    if commit_log:
-        body_parts.append(f"## Commits\n\n```\n{commit_log}\n```")
-
-    if diff_stats:
-        body_parts.append(f"## Changes\n\n```\n{diff_stats}\n```")
 
     # Add pipeline context section
     if pipeline.id or pipeline.issue_number:
@@ -2764,8 +2720,8 @@ def _auto_create_pr(
 ) -> str | None:
     """Auto-create a PR for a pipeline without spawning an agent.
 
-    Builds the PR title/body from contract state and git log, then
-    creates the PR via the gateway.
+    Builds the PR title/body from contract state, then creates the PR
+    via the gateway.
 
     Args:
         pipeline: The pipeline state
@@ -2788,7 +2744,7 @@ def _auto_create_pr(
     if not base:
         base = get_default_branch(worktree_repo_path)
 
-    title, body = _build_pr_body(pipeline, worktree_repo_path, default_branch=base)
+    title, body = _build_pr_body(pipeline, worktree_repo_path)
 
     try:
         pr_url = spawner.gateway.create_pr(
