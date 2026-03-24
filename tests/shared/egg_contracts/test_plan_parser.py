@@ -1,10 +1,12 @@
 """Tests for egg_contracts.plan_parser module."""
 
+import pytest
 from egg_contracts.plan_parser import (
     ParsedPhase,
     ParsedTask,
     ParseResult,
     ParseWarning,
+    _normalize_optional_string,
     extract_pr_metadata_from_yaml,
     format_warnings_for_comment,
     parse_phases_from_markdown,
@@ -1294,6 +1296,44 @@ tasks:
         assert has_markdown
 
 
+class TestNormalizeOptionalString:
+    """Tests for _normalize_optional_string helper."""
+
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            # None and empty
+            (None, ""),
+            ("", ""),
+            ("   ", ""),
+            # Literal 'None' (case-insensitive)
+            ("None", ""),
+            ("none", ""),
+            ("NONE", ""),
+            ("  None  ", ""),
+            # Non-string values
+            (123, "123"),
+            (True, "True"),
+            # Normal strings pass through (stripped)
+            ("Run pytest", "Run pytest"),
+            ("  Run pytest  ", "Run pytest"),
+            # Multi-line: all lines 'None' → empty
+            ("Pre-merge: None\nPost-merge: None", ""),
+            ("Pre-merge: none\nPost-merge: NONE", ""),
+            # Multi-line: mixed values → preserved
+            ("Pre-merge: none\nPost-merge: deploy", "Pre-merge: none\nPost-merge: deploy"),
+            ("Pre-merge: run migrations\nPost-merge: None", "Pre-merge: run migrations\nPost-merge: None"),
+            # Single-line with colon and 'None' value
+            ("Pre-merge: None", ""),
+            # N/A and other strings pass through
+            ("N/A", "N/A"),
+            ("No steps needed", "No steps needed"),
+        ],
+    )
+    def test_normalize_optional_string(self, value, expected):
+        assert _normalize_optional_string(value) == expected
+
+
 class TestPRMetadataExtraction:
     """Tests for PR metadata extraction from YAML."""
 
@@ -1475,8 +1515,11 @@ Key changes:
         assert pr_title == long_title
         assert pr_description == "Description"
         # Warnings: length + missing test_plan
-        assert any("exceeds recommended length" in w.message for w in warnings)
-        assert any("75 chars" in w.message for w in warnings)
+        assert len(warnings) == 2
+        warning_messages = [w.message for w in warnings]
+        assert any("exceeds recommended length" in m for m in warning_messages)
+        assert any("75 chars" in m for m in warning_messages)
+        assert any("test_plan" in m for m in warning_messages)
 
     def test_extract_pr_metadata_title_exactly_70_chars_no_warning(self):
         """Test that PR titles at exactly 70 characters do not warn."""
