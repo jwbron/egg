@@ -2646,18 +2646,17 @@ def _handle_pr_creation_failure(
 def _build_pr_body(
     pipeline: Pipeline,
     worktree_repo_path: Path,
-    default_branch: str | None = None,
 ) -> tuple[str, str]:
-    """Build a PR title and body from contract state and git log.
+    """Build a PR title and body from contract state.
 
     Uses the planner-generated PR metadata from the contract when available,
-    falling back to the issue title and git log.
+    falling back to the issue title.  Commit logs and diff stats are omitted
+    because GitHub already displays them natively on the PR page, and including
+    them caused body-size blowups (see #1374).
 
     Args:
         pipeline: The pipeline state
         worktree_repo_path: Path to the worktree repo directory
-        default_branch: Pre-detected default branch name. If None, will be
-            detected automatically.
 
     Returns:
         Tuple of (title, body)
@@ -2693,43 +2692,6 @@ def _build_pr_body(
     if not pr_title:
         pr_title = f"Implementation for pipeline {pipeline.id}"
 
-    # Detect default branch for git comparisons
-    if default_branch is None:
-        default_branch = _detect_default_branch(worktree_repo_path)
-    origin_ref = f"origin/{default_branch}"
-
-    # Build commit log
-    commit_log = ""
-    try:
-        result = subprocess.run(
-            ["git", "log", "--oneline", f"{origin_ref}..HEAD"],
-            capture_output=True,
-            text=True,
-            cwd=str(worktree_repo_path),
-            timeout=10,
-            check=False,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            commit_log = result.stdout.strip()
-    except Exception:
-        pass
-
-    # Build diff stats
-    diff_stats = ""
-    try:
-        result = subprocess.run(
-            ["git", "diff", "--stat", f"{origin_ref}...HEAD"],
-            capture_output=True,
-            text=True,
-            cwd=str(worktree_repo_path),
-            timeout=10,
-            check=False,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            diff_stats = result.stdout.strip()
-    except Exception:
-        pass
-
     # Assemble body
     body_parts: list[str] = []
 
@@ -2749,13 +2711,6 @@ def _build_pr_body(
     # Manual steps section (only if there are steps)
     if pr_manual_steps:
         body_parts.append(f"## Manual Steps\n\n{pr_manual_steps}")
-
-    if commit_log:
-        body_parts.append(f"## Commits\n\n```\n{commit_log}\n```")
-
-    if diff_stats:
-        body_parts.append(f"## Changes\n\n```\n{diff_stats}\n```")
-
     # Add pipeline context section
     if pipeline.id or pipeline.issue_number:
         context_parts = ["## Pipeline Context\n"]
@@ -2780,8 +2735,8 @@ def _auto_create_pr(
 ) -> str | None:
     """Auto-create a PR for a pipeline without spawning an agent.
 
-    Builds the PR title/body from contract state and git log, then
-    creates the PR via the gateway.
+    Builds the PR title/body from contract state, then creates the PR
+    via the gateway.
 
     Args:
         pipeline: The pipeline state
@@ -2804,7 +2759,7 @@ def _auto_create_pr(
     if not base:
         base = get_default_branch(worktree_repo_path)
 
-    title, body = _build_pr_body(pipeline, worktree_repo_path, default_branch=base)
+    title, body = _build_pr_body(pipeline, worktree_repo_path)
 
     try:
         pr_url = spawner.gateway.create_pr(
@@ -5586,14 +5541,16 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             try:
                 # Request repos in owner/repo format if available, else bare names
                 wt_repos = pipeline_repos if pipeline_repos else list(host_repo_map.keys())
-                # Let the gateway resolve the remote default branch for each repo
-                # (e.g., origin/main or origin/master) instead of hardcoding a
-                # branch name.  See #860.
+                # When the pipeline specifies a base_branch, pass it through
+                # so the worktree is branched from that ref instead of the
+                # repo's default branch.  Otherwise let the gateway resolve
+                # the remote default branch per-repo (see #860).
                 wt_result = spawner.gateway.create_worktrees(
                     container_id=worktree_id,
                     repos=wt_repos,
                     uid=host_uid,
                     gid=host_gid,
+                    base_branch=pipeline.base_branch,
                 )
 
                 if wt_result.success and wt_result.worktrees:
