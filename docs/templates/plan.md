@@ -59,7 +59,7 @@
 
 The following YAML block is machine-readable and will be extracted into the contract.
 It must accurately reflect the tasks described above. The `pr:` section provides the
-title and description that will be used when creating the pull request.
+title, description, test plan, and manual steps that will be used when creating the pull request.
 
 ```yaml
 # yaml-tasks
