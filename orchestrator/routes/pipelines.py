@@ -2704,9 +2704,7 @@ def _build_pr_body(
     if pr_test_plan:
         body_parts.append(f"## Test Plan\n\n{pr_test_plan}")
     else:
-        body_parts.append(
-            "## Test Plan\n\n_No test plan provided by the planner._"
-        )
+        body_parts.append("## Test Plan\n\n_No test plan provided by the planner._")
 
     # Manual steps section (only if there are steps)
     if pr_manual_steps:
