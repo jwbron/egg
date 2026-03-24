@@ -1322,7 +1322,10 @@ class TestNormalizeOptionalString:
             ("Pre-merge: none\nPost-merge: NONE", ""),
             # Multi-line: mixed values → preserved
             ("Pre-merge: none\nPost-merge: deploy", "Pre-merge: none\nPost-merge: deploy"),
-            ("Pre-merge: run migrations\nPost-merge: None", "Pre-merge: run migrations\nPost-merge: None"),
+            (
+                "Pre-merge: run migrations\nPost-merge: None",
+                "Pre-merge: run migrations\nPost-merge: None",
+            ),
             # Single-line with colon and 'None' value
             ("Pre-merge: None", ""),
             # N/A and other strings pass through
