@@ -94,7 +94,7 @@ egg structures work into phases with mandatory human gates:
 ┌──────────┐      ┌──────────┐      ┌──────────────┐      ┌──────────┐
 │  REFINE  │─────▶│   PLAN   │─────▶│  IMPLEMENT   │─────▶│    PR    │
 └────┬─────┘      └────┬─────┘      └──────────────┘      └────┬─────┘
-     │                 │                                        │
+     │                 │                                       │
 Human gate        Human gate                              Human merge
 ```
 
@@ -106,13 +106,13 @@ Human gate        Human gate                              Human merge
 Within each phase, specialized agents run concurrently via BRC (enabled by default for refine, plan, and implement). Here's what a completed pipeline looks like:
 
 ```
-╔═════════════════════════════════════════════╗
-│ ✓ Refine                                    │
-│   complete                                  │
-│   ✓ refiner                                 │
-│   ✓ reviewer_refine  ✓ reviewer_agent_design│
-│   [11m25s]                                  │
-╚═════════════════════════════════════════════╝
+╔══════════════════════════════════════════════╗
+│ ✓ Refine                                     │
+│   complete                                   │
+│   ✓ refiner                                  │
+│   ✓ reviewer_refine  ✓ reviewer_agent_design │
+│   [11m25s]                                   │
+╚══════════════════════════════════════════════╝
     │
     ▼
 ╔═════════════════════════════════════════╗
