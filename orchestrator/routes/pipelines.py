@@ -5540,14 +5540,16 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             try:
                 # Request repos in owner/repo format if available, else bare names
                 wt_repos = pipeline_repos if pipeline_repos else list(host_repo_map.keys())
-                # Let the gateway resolve the remote default branch for each repo
-                # (e.g., origin/main or origin/master) instead of hardcoding a
-                # branch name.  See #860.
+                # When the pipeline specifies a base_branch, pass it through
+                # so the worktree is branched from that ref instead of the
+                # repo's default branch.  Otherwise let the gateway resolve
+                # the remote default branch per-repo (see #860).
                 wt_result = spawner.gateway.create_worktrees(
                     container_id=worktree_id,
                     repos=wt_repos,
                     uid=host_uid,
                     gid=host_gid,
+                    base_branch=pipeline.base_branch,
                 )
 
                 if wt_result.success and wt_result.worktrees:
