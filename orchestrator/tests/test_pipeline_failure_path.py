@@ -1131,8 +1131,7 @@ class TestBaseBranchPassedToCreateWorktrees:
         mock_gateway.create_worktrees.assert_called_once()
         call_kwargs = mock_gateway.create_worktrees.call_args
         assert call_kwargs.kwargs.get("base_branch") == "release/v2", (
-            f"Expected base_branch='release/v2' in create_worktrees call, "
-            f"got: {call_kwargs}"
+            f"Expected base_branch='release/v2' in create_worktrees call, got: {call_kwargs}"
         )
 
     @patch(_COMMON_PATCHES[7])
@@ -1180,6 +1179,5 @@ class TestBaseBranchPassedToCreateWorktrees:
         mock_gateway.create_worktrees.assert_called_once()
         call_kwargs = mock_gateway.create_worktrees.call_args
         assert call_kwargs.kwargs.get("base_branch") is None, (
-            f"Expected base_branch=None in create_worktrees call, "
-            f"got: {call_kwargs}"
+            f"Expected base_branch=None in create_worktrees call, got: {call_kwargs}"
         )
