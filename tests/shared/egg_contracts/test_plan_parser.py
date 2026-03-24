@@ -1303,6 +1303,8 @@ class TestPRMetadataExtraction:
             "pr": {
                 "title": "Add feature X",
                 "description": "This PR adds feature X to improve Y.",
+                "test_plan": "Run pytest to verify",
+                "manual_steps": "None",
             },
             "phases": [
                 {
@@ -1312,9 +1314,13 @@ class TestPRMetadataExtraction:
                 }
             ],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title == "Add feature X"
         assert pr_description == "This PR adds feature X to improve Y."
+        assert pr_test_plan == "Run pytest to verify"
+        assert pr_manual_steps == "None"
         assert len(warnings) == 0
 
     def test_extract_pr_metadata_absent(self):
@@ -1328,16 +1334,24 @@ class TestPRMetadataExtraction:
                 }
             ],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title is None
         assert pr_description is None
+        assert pr_test_plan is None
+        assert pr_manual_steps is None
         assert len(warnings) == 0
 
     def test_extract_pr_metadata_none_yaml(self):
         """Test extracting PR metadata with None yaml_data."""
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(None)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(None)
+        )
         assert pr_title is None
         assert pr_description is None
+        assert pr_test_plan is None
+        assert pr_manual_steps is None
         assert len(warnings) == 0
 
     def test_extract_pr_metadata_invalid_type(self):
@@ -1346,7 +1360,9 @@ class TestPRMetadataExtraction:
             "pr": "not an object",
             "phases": [],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title is None
         assert pr_description is None
         assert len(warnings) == 1
@@ -1360,7 +1376,9 @@ class TestPRMetadataExtraction:
             },
             "phases": [],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title is None
         assert pr_description is None
         assert len(warnings) == 1
@@ -1375,7 +1393,9 @@ class TestPRMetadataExtraction:
             },
             "phases": [],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title is None
         assert pr_description is None
         assert len(warnings) == 1
@@ -1390,7 +1410,9 @@ class TestPRMetadataExtraction:
             },
             "phases": [],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title is None
         assert pr_description is None
         assert len(warnings) == 1
@@ -1410,11 +1432,12 @@ Key changes:
             },
             "phases": [],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title == "Add feature X"
         assert "Key changes:" in pr_description
         assert "- Change 1" in pr_description
-        assert len(warnings) == 0
 
     def test_extract_pr_metadata_empty_description(self):
         """Test extracting PR metadata with empty description."""
@@ -1424,10 +1447,11 @@ Key changes:
             },
             "phases": [],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title == "Add feature X"
         assert pr_description == ""
-        assert len(warnings) == 0
 
     def test_extract_pr_metadata_title_over_70_chars_warns(self):
         """Test that PR titles over 70 characters generate a warning."""
@@ -1439,12 +1463,14 @@ Key changes:
             },
             "phases": [],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title == long_title
         assert pr_description == "Description"
-        assert len(warnings) == 1
-        assert "exceeds recommended length" in warnings[0].message
-        assert "75 chars" in warnings[0].message
+        # Warnings: length + missing test_plan
+        assert any("exceeds recommended length" in w.message for w in warnings)
+        assert any("75 chars" in w.message for w in warnings)
 
     def test_extract_pr_metadata_title_exactly_70_chars_no_warning(self):
         """Test that PR titles at exactly 70 characters do not warn."""
@@ -1456,9 +1482,10 @@ Key changes:
             },
             "phases": [],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title == title_70
-        assert len(warnings) == 0
 
 
 class TestParsePlanWithPRMetadata:

@@ -857,23 +857,38 @@ Handle each response:
 
 ## Phase S2 — Lightweight Refine
 
-Analyze the task locally — no remote agents. Your goal is to understand scope and surface ambiguity before planning.
+Analyze the task locally — no remote agents. Your goal is to understand the full context, scope, and any ambiguity before planning. Draw from **all available context** — including JIRA ticket details, comments, linked issues, and Confluence docs gathered in Phase S1 — not just the code.
 
-1. **Read relevant code files** — Based on the task description, identify and read the most relevant source files (up to 5–10 files). Use `Glob` and `Grep` to find them. Focus on files that will need modification and their immediate dependencies.
+1. **Understand the problem context** — Before reading code, review the task description and any enriched context from Phase S1:
+   - **User-facing symptom**: What is the observable problem? How does it manifest for users?
+   - **Source context**: If from a JIRA ticket, note key details from the description, reporter comments, and linked issues/PRs. If from a GitHub issue, note the reporter's description and relevant comment thread.
+   - **Workarounds**: Are there any known workarounds mentioned in the ticket or comments? These help scope the fix and inform urgency.
 
-2. **Analyze scope** — Determine:
+2. **Read relevant code files** — Based on the task description, identify and read the most relevant source files (up to 5–10 files). Use `Glob` and `Grep` to find them. Focus on files that will need modification and their immediate dependencies.
+
+3. **Analyze scope** — Determine:
+   - How the affected component fits into the broader system (its role, callers, dependencies)
    - Which files need to change
    - What the changes involve (new code, modifications, deletions)
+   - The technical root cause (if this is a bug fix)
    - Any risks or edge cases (breaking changes, test coverage gaps, dependencies)
 
-3. **Clarify ambiguity** — If the task is ambiguous or underspecified, ask the user 2–3 clarifying questions via `AskUserQuestion` (group into a single call). Skip this if the task is clear and well-scoped.
+4. **Clarify ambiguity** — If the task is ambiguous or underspecified, ask the user 2–3 clarifying questions via `AskUserQuestion` (group into a single call). Skip this if the task is clear and well-scoped.
 
-4. **Present analysis** — Show the user a brief analysis:
+5. **Present analysis** — Show the user a structured analysis that captures the full picture. Include all sections that are relevant — omit sections that don't apply (e.g., omit "Workarounds" for a new feature request):
 
 ```
 ### Task Analysis
 
-**Scope**: <1-2 sentence summary of what needs to change>
+**Problem statement**: <what the user experiences — the observable symptom, not the code-level bug>
+
+**Source context**: <key details from the JIRA ticket, GitHub issue, or user description — reporter comments, linked PRs, related issues that inform the fix>
+
+**Workarounds**: <any known workarounds mentioned in the ticket/comments, or "None known">
+
+**System context**: <brief description of how the affected component works and its role in the broader system — helps agents understand what they're changing>
+
+**Technical root cause**: <what's actually wrong in the code, or what needs to be built>
 
 **Files affected**:
 - `path/to/file1.py` — <what changes>
@@ -882,7 +897,7 @@ Analyze the task locally — no remote agents. Your goal is to understand scope 
 **Risks**: <any concerns, or "None identified">
 ```
 
-5. **Confirm** — Ask the user to confirm the analysis is correct before proceeding to planning. Use `AskUserQuestion`:
+6. **Confirm** — Ask the user to confirm the analysis is correct before proceeding to planning. Use `AskUserQuestion`:
    - **Question**: "Does this analysis look correct? Any adjustments before I create the plan?"
    - **Header**: "Confirm"
    - **Options**:
@@ -972,6 +987,12 @@ pr:
   title: "<imperative summary, ≤70 chars>"
   description: |
     <2-3 sentence PR description>
+  test_plan: |
+    - Automated: <which tests cover the changes>
+    - Manual: <specific steps a reviewer should take to verify>
+  manual_steps: |
+    Pre-merge: <any required steps before merging, or 'None'>
+    Post-merge: <any required steps after merging, or 'None'>
 phases:
   - id: 1
     name: Implement
