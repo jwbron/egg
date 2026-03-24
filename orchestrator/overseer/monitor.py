@@ -257,6 +257,7 @@ class OverseerMonitor:
             2. Query progress events
             3. Query health alerts
             4. Query pipeline status (single call for filtering + terminal check)
+            4-orch. Check orchestrator reachability
             4a. Query decisions for deterministic health checks
             4b. Run deterministic health checks (rerun anomaly, status
                 consistency, HITL resolution propagation)
@@ -797,11 +798,16 @@ class OverseerMonitor:
             self._orch_unreachable_threshold,
         )
 
-        if (
+        # Alert at threshold, then re-alert every threshold cycles
+        should_alert = (
             self._consecutive_orch_failures >= self._orch_unreachable_threshold
-            and not self._orch_unreachable_alerted
-        ):
+            and self._consecutive_orch_failures % self._orch_unreachable_threshold == 0
+        )
+
+        if should_alert and not self._orch_unreachable_alerted:
             self._orch_unreachable_alerted = True
+
+        if should_alert:
             message = (
                 f"Orchestrator has been unreachable for "
                 f"{self._consecutive_orch_failures} consecutive poll cycles "

@@ -1601,6 +1601,21 @@ class TestOrchestratorReachability:
         logged_events = [call.args[0] for call in monitor._log_oversight_event.call_args_list]
         assert any(e.get("event") == "orchestrator_unreachable" for e in logged_events)
 
+    def test_periodic_re_alerting(self) -> None:
+        """After initial alert, re-alert every threshold cycles."""
+        monitor = self._make_monitor()
+
+        # Drive through 2 * threshold (6) cycles of unreachability
+        for _ in range(6):
+            _run(monitor._check_orchestrator_reachability({}, {}))
+
+        # Should have alerted at cycle 3 and cycle 6
+        assert monitor._send_slack_notification.await_count == 2
+
+        # One more cycle (7) — no alert (7 % 3 != 0)
+        _run(monitor._check_orchestrator_reachability({}, {}))
+        assert monitor._send_slack_notification.await_count == 2
+
     def test_oversight_event_logged_on_recovery(self) -> None:
         """An oversight event is logged when the orchestrator recovers."""
         monitor = self._make_monitor()
