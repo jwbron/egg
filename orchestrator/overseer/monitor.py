@@ -98,6 +98,11 @@ class OverseerMonitor:
         self._hitl_resolution_verified: set[str] = set()
         self._hitl_resolution_alerted: set[str] = set()  # failures already alerted
 
+        # Orchestrator unreachability tracking
+        self._consecutive_orch_failures: int = 0
+        self._orch_unreachable_alerted: bool = False
+        self._orch_unreachable_threshold: int = 3  # escalate after N consecutive failures
+
         # Cross-phase consistency: track phase transitions and deduplication
         self._last_phase_name: str | None = None
         self._cross_phase_checked: set[tuple[str, str]] = set()
@@ -279,6 +284,9 @@ class OverseerMonitor:
             # 4. Query pipeline status (single call, used for filtering + terminal check)
             pipeline_data = await self._query_pipeline_data()
             status = pipeline_data.get("status", "running") if pipeline_data else "running"
+
+            # 4-orch. Check orchestrator reachability
+            await self._check_orchestrator_reachability(pipeline_data, current_phase)
 
             # 4a. Query decisions for health checks
             decisions = await self._query_decisions()
@@ -749,6 +757,67 @@ class OverseerMonitor:
                 "pipeline_status": pipeline_status_str,
             }
         )
+
+    # -----------------------------------------------------------------
+    # Orchestrator reachability (issue #1371)
+    # -----------------------------------------------------------------
+
+    async def _check_orchestrator_reachability(
+        self, pipeline_data: dict, phase_data: dict
+    ) -> None:
+        """Track consecutive orchestrator query failures and escalate.
+
+        When both pipeline status and phase queries return empty results,
+        the orchestrator is likely unreachable. After
+        ``_orch_unreachable_threshold`` consecutive failures, escalate via
+        Slack and log an oversight event.
+
+        Resets the counter on any successful response.
+        """
+        orch_reachable = bool(pipeline_data) or bool(phase_data)
+
+        if orch_reachable:
+            if self._consecutive_orch_failures > 0:
+                logger.info(
+                    "Orchestrator reachable again after %d consecutive failures",
+                    self._consecutive_orch_failures,
+                )
+                self._log_oversight_event(
+                    {
+                        "event": "orchestrator_recovered",
+                        "consecutive_failures": self._consecutive_orch_failures,
+                    }
+                )
+            self._consecutive_orch_failures = 0
+            self._orch_unreachable_alerted = False
+            return
+
+        self._consecutive_orch_failures += 1
+        logger.warning(
+            "Orchestrator unreachable (consecutive failures: %d/%d)",
+            self._consecutive_orch_failures,
+            self._orch_unreachable_threshold,
+        )
+
+        if (
+            self._consecutive_orch_failures >= self._orch_unreachable_threshold
+            and not self._orch_unreachable_alerted
+        ):
+            self._orch_unreachable_alerted = True
+            message = (
+                f"Orchestrator has been unreachable for "
+                f"{self._consecutive_orch_failures} consecutive poll cycles "
+                f"(~{self._consecutive_orch_failures * getattr(self.config, 'overseer_poll_interval_seconds', 30)}s). "
+                f"Pipeline {self.pipeline_id} may be orphaned. "
+                f"Check orchestrator container health and logs."
+            )
+            self._log_oversight_event(
+                {
+                    "event": "orchestrator_unreachable",
+                    "consecutive_failures": self._consecutive_orch_failures,
+                }
+            )
+            await self._send_slack_notification("orchestrator", message)
 
     # -----------------------------------------------------------------
     # Health checks (issue #1297)

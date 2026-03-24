@@ -16,13 +16,14 @@ COPY orchestrator/*.py ./
 COPY orchestrator/routes/ ./routes/
 COPY orchestrator/health_checks/ ./health_checks/
 
-# Copy shared modules (egg_logging, egg_config, egg_contracts, egg_container, egg_agent)
+# Copy shared modules (egg_logging, egg_config, egg_contracts, egg_container, egg_agent, egg_git)
 COPY shared/egg_logging/ ./egg_logging/
 COPY shared/egg_config/ ./egg_config/
 COPY shared/egg_contracts/ ./egg_contracts/
 COPY shared/egg_container/ ./egg_container/
 COPY shared/egg_agent/ ./egg_agent/
 COPY shared/egg_orchestrator/ ./egg_orchestrator/
+COPY shared/egg_git/ ./egg_git/
 
 # Copy shared prompt criteria files
 COPY shared/prompts/ ./prompts/
