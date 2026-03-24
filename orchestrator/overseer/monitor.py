@@ -100,7 +100,6 @@ class OverseerMonitor:
 
         # Orchestrator unreachability tracking
         self._consecutive_orch_failures: int = 0
-        self._orch_unreachable_alerted: bool = False
         self._orch_unreachable_threshold: int = 3  # escalate after N consecutive failures
 
         # Cross-phase consistency: track phase transitions and deduplication
@@ -788,7 +787,6 @@ class OverseerMonitor:
                     }
                 )
             self._consecutive_orch_failures = 0
-            self._orch_unreachable_alerted = False
             return
 
         self._consecutive_orch_failures += 1
@@ -803,9 +801,6 @@ class OverseerMonitor:
             self._consecutive_orch_failures >= self._orch_unreachable_threshold
             and self._consecutive_orch_failures % self._orch_unreachable_threshold == 0
         )
-
-        if should_alert and not self._orch_unreachable_alerted:
-            self._orch_unreachable_alerted = True
 
         if should_alert:
             message = (

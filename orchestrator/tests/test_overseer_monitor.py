@@ -1510,7 +1510,6 @@ class TestOrchestratorReachability:
         )
 
         assert monitor._consecutive_orch_failures == 0
-        assert not monitor._orch_unreachable_alerted
 
     def test_unreachable_increments_counter(self) -> None:
         """Empty responses from both queries increment the failure counter."""
@@ -1539,22 +1538,21 @@ class TestOrchestratorReachability:
         )
 
         assert monitor._consecutive_orch_failures == 3
-        assert monitor._orch_unreachable_alerted
         monitor._send_slack_notification.assert_awaited_once()
         call_args = monitor._send_slack_notification.call_args
         assert call_args[0][0] == "orchestrator"
         assert "unreachable" in call_args[0][1].lower()
 
-    def test_unreachable_only_alerts_once(self) -> None:
-        """After the first alert, subsequent failures don't re-alert."""
+    def test_non_threshold_cycles_do_not_alert(self) -> None:
+        """Cycles that don't land on a threshold multiple don't trigger alerts."""
         monitor = self._make_monitor()
         monitor._consecutive_orch_failures = 2
 
-        # First breach of threshold — alerts
+        # Cycle 3 hits threshold — alerts
         _run(monitor._check_orchestrator_reachability({}, {}))
         assert monitor._send_slack_notification.await_count == 1
 
-        # Second breach — no new alert
+        # Cycle 4 (4 % 3 != 0) — no alert
         _run(monitor._check_orchestrator_reachability({}, {}))
         assert monitor._send_slack_notification.await_count == 1
 
@@ -1565,11 +1563,9 @@ class TestOrchestratorReachability:
 
         # Hit threshold
         _run(monitor._check_orchestrator_reachability({}, {}))
-        assert monitor._orch_unreachable_alerted
 
         # Recover
         _run(monitor._check_orchestrator_reachability({"status": "running"}, {}))
-        assert not monitor._orch_unreachable_alerted
         assert monitor._consecutive_orch_failures == 0
 
         # New outage cycle
