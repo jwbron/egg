@@ -153,6 +153,8 @@ class ParseResult:
     raw_yaml: dict[str, Any] | None = None
     pr_title: str | None = None
     pr_description: str | None = None
+    pr_test_plan: str | None = None
+    pr_manual_steps: str | None = None
 
     def to_contract_phases(self) -> list[Phase]:
         """Convert all parsed phases to contract Phase models."""
@@ -590,11 +592,42 @@ def parse_tasks_from_markdown(content: str) -> tuple[list[ParsedTask], list[Pars
     return tasks, warnings
 
 
+def _normalize_optional_string(value: Any) -> str:
+    """Normalize an optional YAML value to a stripped string.
+
+    Treats the literal string 'None' (case-insensitive) as empty, since prompt
+    examples tell agents to write 'None' when there are no steps.
+    """
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        value_str: str = str(value).strip()
+    else:
+        value_str = value.strip()
+    if value_str.lower() == "none":
+        return ""
+    # Handle multi-line fields where every line's value is 'None', e.g.:
+    #   Pre-merge: None
+    #   Post-merge: None
+    lines = value_str.splitlines()
+    if lines and all(_line_value_is_none(line) for line in lines if line.strip()):
+        return ""
+    return value_str
+
+
+def _line_value_is_none(line: str) -> bool:
+    """Check if a 'Label: Value' line has 'None' as its value."""
+    if ":" in line:
+        _, _, val = line.partition(":")
+        return val.strip().lower() == "none"
+    return line.strip().lower() == "none"
+
+
 def extract_pr_metadata_from_yaml(
     yaml_data: dict[str, Any] | None,
-) -> tuple[str | None, str | None, list[ParseWarning]]:
+) -> tuple[str | None, str | None, str | None, str | None, list[ParseWarning]]:
     """
-    Extract PR metadata (title and description) from YAML data.
+    Extract PR metadata (title, description, test_plan, manual_steps) from YAML data.
 
     Expected format in yaml-tasks block:
     ```yaml
@@ -603,6 +636,12 @@ def extract_pr_metadata_from_yaml(
       title: "PR title here"
       description: |
         PR description here.
+      test_plan: |
+        - Automated: tests that cover the changes
+        - Manual: steps for reviewers to verify
+      manual_steps: |
+        Pre-merge: any steps before merging
+        Post-merge: any steps after merging
     phases:
       ...
     ```
@@ -611,16 +650,16 @@ def extract_pr_metadata_from_yaml(
         yaml_data: Parsed YAML data from code fence or frontmatter
 
     Returns:
-        Tuple of (pr_title, pr_description, warnings)
+        Tuple of (pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings)
     """
     warnings: list[ParseWarning] = []
 
     if yaml_data is None:
-        return None, None, warnings
+        return None, None, None, None, warnings
 
     pr_data = yaml_data.get("pr")
     if pr_data is None:
-        return None, None, warnings
+        return None, None, None, None, warnings
 
     if not isinstance(pr_data, dict):
         warnings.append(
@@ -630,7 +669,7 @@ def extract_pr_metadata_from_yaml(
                 context="PR metadata will be ignored",
             )
         )
-        return None, None, warnings
+        return None, None, None, None, warnings
 
     pr_title = pr_data.get("title")
     pr_description = pr_data.get("description", "")
@@ -643,7 +682,7 @@ def extract_pr_metadata_from_yaml(
                 context="PR metadata will be ignored",
             )
         )
-        return None, None, warnings
+        return None, None, None, None, warnings
 
     if not isinstance(pr_title, str):
         warnings.append(
@@ -653,7 +692,7 @@ def extract_pr_metadata_from_yaml(
                 context="PR metadata will be ignored",
             )
         )
-        return None, None, warnings
+        return None, None, None, None, warnings
 
     pr_title = pr_title.strip()
     if not pr_title:
@@ -664,14 +703,14 @@ def extract_pr_metadata_from_yaml(
                 context="PR metadata will be ignored",
             )
         )
-        return None, None, warnings
+        return None, None, None, None, warnings
 
     # Normalize description to string
-    if pr_description is None:
-        pr_description = ""
-    elif not isinstance(pr_description, str):
-        pr_description = str(pr_description)
-    pr_description = pr_description.strip()
+    pr_description = _normalize_optional_string(pr_description)
+
+    # Extract test_plan and manual_steps (optional fields)
+    pr_test_plan = _normalize_optional_string(pr_data.get("test_plan"))
+    pr_manual_steps = _normalize_optional_string(pr_data.get("manual_steps"))
 
     # Warn if title exceeds recommended length (70 chars for GitHub readability)
     if len(pr_title) > 70:
@@ -683,7 +722,17 @@ def extract_pr_metadata_from_yaml(
             )
         )
 
-    return pr_title, pr_description, warnings
+    # Warn if test_plan is missing (it's strongly recommended)
+    if not pr_test_plan:
+        warnings.append(
+            ParseWarning(
+                line_number=None,
+                message="'pr.test_plan' is missing — PRs should include a test plan",
+                context="Consider adding automated and manual verification steps",
+            )
+        )
+
+    return pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings
 
 
 def parse_phases_from_markdown(content: str) -> list[ParsedPhase]:
@@ -866,7 +915,9 @@ def parse_plan(content: str) -> ParseResult:
         )
 
     # Extract PR metadata from YAML data
-    pr_title, pr_description, pr_warnings = extract_pr_metadata_from_yaml(yaml_data)
+    pr_title, pr_description, pr_test_plan, pr_manual_steps, pr_warnings = (
+        extract_pr_metadata_from_yaml(yaml_data)
+    )
     warnings.extend(pr_warnings)
 
     return ParseResult(
@@ -876,6 +927,8 @@ def parse_plan(content: str) -> ParseResult:
         raw_yaml=yaml_data,
         pr_title=pr_title,
         pr_description=pr_description,
+        pr_test_plan=pr_test_plan,
+        pr_manual_steps=pr_manual_steps,
     )
 
 

@@ -183,10 +183,18 @@ class Decision(BaseModel):
 
 
 class PRMetadata(BaseModel):
-    """Planner-generated PR title and description."""
+    """Planner-generated PR metadata: title, description, test plan, and manual steps."""
 
     title: str = Field(..., min_length=1, description="PR title (recommended max 70 chars)")
     description: str = Field(default="", description="PR description/body")
+    test_plan: str = Field(
+        default="",
+        description="Test plan: automated tests and manual verification steps",
+    )
+    manual_steps: str = Field(
+        default="",
+        description="Manual pre/post-merge steps (migrations, config changes, etc.)",
+    )
 
 
 class CheckDefinition(BaseModel):

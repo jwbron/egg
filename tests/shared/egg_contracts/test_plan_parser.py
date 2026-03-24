@@ -1,10 +1,12 @@
 """Tests for egg_contracts.plan_parser module."""
 
+import pytest
 from egg_contracts.plan_parser import (
     ParsedPhase,
     ParsedTask,
     ParseResult,
     ParseWarning,
+    _normalize_optional_string,
     extract_pr_metadata_from_yaml,
     format_warnings_for_comment,
     parse_phases_from_markdown,
@@ -1294,6 +1296,47 @@ tasks:
         assert has_markdown
 
 
+class TestNormalizeOptionalString:
+    """Tests for _normalize_optional_string helper."""
+
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            # None and empty
+            (None, ""),
+            ("", ""),
+            ("   ", ""),
+            # Literal 'None' (case-insensitive)
+            ("None", ""),
+            ("none", ""),
+            ("NONE", ""),
+            ("  None  ", ""),
+            # Non-string values
+            (123, "123"),
+            (True, "True"),
+            # Normal strings pass through (stripped)
+            ("Run pytest", "Run pytest"),
+            ("  Run pytest  ", "Run pytest"),
+            # Multi-line: all lines 'None' → empty
+            ("Pre-merge: None\nPost-merge: None", ""),
+            ("Pre-merge: none\nPost-merge: NONE", ""),
+            # Multi-line: mixed values → preserved
+            ("Pre-merge: none\nPost-merge: deploy", "Pre-merge: none\nPost-merge: deploy"),
+            (
+                "Pre-merge: run migrations\nPost-merge: None",
+                "Pre-merge: run migrations\nPost-merge: None",
+            ),
+            # Single-line with colon and 'None' value
+            ("Pre-merge: None", ""),
+            # N/A and other strings pass through
+            ("N/A", "N/A"),
+            ("No steps needed", "No steps needed"),
+        ],
+    )
+    def test_normalize_optional_string(self, value, expected):
+        assert _normalize_optional_string(value) == expected
+
+
 class TestPRMetadataExtraction:
     """Tests for PR metadata extraction from YAML."""
 
@@ -1303,6 +1346,8 @@ class TestPRMetadataExtraction:
             "pr": {
                 "title": "Add feature X",
                 "description": "This PR adds feature X to improve Y.",
+                "test_plan": "Run pytest to verify",
+                "manual_steps": "Pre-merge: run migrations\nPost-merge: clear cache",
             },
             "phases": [
                 {
@@ -1312,9 +1357,13 @@ class TestPRMetadataExtraction:
                 }
             ],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title == "Add feature X"
         assert pr_description == "This PR adds feature X to improve Y."
+        assert pr_test_plan == "Run pytest to verify"
+        assert pr_manual_steps == "Pre-merge: run migrations\nPost-merge: clear cache"
         assert len(warnings) == 0
 
     def test_extract_pr_metadata_absent(self):
@@ -1328,16 +1377,24 @@ class TestPRMetadataExtraction:
                 }
             ],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title is None
         assert pr_description is None
+        assert pr_test_plan is None
+        assert pr_manual_steps is None
         assert len(warnings) == 0
 
     def test_extract_pr_metadata_none_yaml(self):
         """Test extracting PR metadata with None yaml_data."""
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(None)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(None)
+        )
         assert pr_title is None
         assert pr_description is None
+        assert pr_test_plan is None
+        assert pr_manual_steps is None
         assert len(warnings) == 0
 
     def test_extract_pr_metadata_invalid_type(self):
@@ -1346,7 +1403,9 @@ class TestPRMetadataExtraction:
             "pr": "not an object",
             "phases": [],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title is None
         assert pr_description is None
         assert len(warnings) == 1
@@ -1360,7 +1419,9 @@ class TestPRMetadataExtraction:
             },
             "phases": [],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title is None
         assert pr_description is None
         assert len(warnings) == 1
@@ -1375,7 +1436,9 @@ class TestPRMetadataExtraction:
             },
             "phases": [],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title is None
         assert pr_description is None
         assert len(warnings) == 1
@@ -1390,7 +1453,9 @@ class TestPRMetadataExtraction:
             },
             "phases": [],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title is None
         assert pr_description is None
         assert len(warnings) == 1
@@ -1410,11 +1475,15 @@ Key changes:
             },
             "phases": [],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title == "Add feature X"
         assert "Key changes:" in pr_description
         assert "- Change 1" in pr_description
-        assert len(warnings) == 0
+        # Missing test_plan warning expected
+        assert len(warnings) == 1
+        assert "test_plan" in warnings[0].message
 
     def test_extract_pr_metadata_empty_description(self):
         """Test extracting PR metadata with empty description."""
@@ -1424,10 +1493,14 @@ Key changes:
             },
             "phases": [],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title == "Add feature X"
         assert pr_description == ""
-        assert len(warnings) == 0
+        # Missing test_plan warning expected
+        assert len(warnings) == 1
+        assert "test_plan" in warnings[0].message
 
     def test_extract_pr_metadata_title_over_70_chars_warns(self):
         """Test that PR titles over 70 characters generate a warning."""
@@ -1439,12 +1512,17 @@ Key changes:
             },
             "phases": [],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title == long_title
         assert pr_description == "Description"
-        assert len(warnings) == 1
-        assert "exceeds recommended length" in warnings[0].message
-        assert "75 chars" in warnings[0].message
+        # Warnings: length + missing test_plan
+        assert len(warnings) == 2
+        warning_messages = [w.message for w in warnings]
+        assert any("exceeds recommended length" in m for m in warning_messages)
+        assert any("75 chars" in m for m in warning_messages)
+        assert any("test_plan" in m for m in warning_messages)
 
     def test_extract_pr_metadata_title_exactly_70_chars_no_warning(self):
         """Test that PR titles at exactly 70 characters do not warn."""
@@ -1453,10 +1531,13 @@ Key changes:
             "pr": {
                 "title": title_70,
                 "description": "Description",
+                "test_plan": "Run pytest",
             },
             "phases": [],
         }
-        pr_title, pr_description, warnings = extract_pr_metadata_from_yaml(yaml_data)
+        pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings = (
+            extract_pr_metadata_from_yaml(yaml_data)
+        )
         assert pr_title == title_70
         assert len(warnings) == 0
 
@@ -1478,6 +1559,12 @@ pr:
   description: |
     Implements exponential backoff retry for API requests.
     This improves reliability.
+  test_plan: |
+    - Automated: test_retry.py covers backoff timing
+    - Manual: verify retry behavior with flaky endpoint
+  manual_steps: |
+    Pre-merge: none
+    Post-merge: none
 phases:
   - id: 1
     name: Implementation
@@ -1492,6 +1579,9 @@ phases:
         assert result.success
         assert result.pr_title == "Add retry logic"
         assert "exponential backoff" in result.pr_description
+        assert "Automated" in result.pr_test_plan
+        # manual_steps with all-none values is normalized to empty
+        assert result.pr_manual_steps == ""
         assert len(result.phases) == 1
 
     def test_parse_plan_without_pr_metadata(self):

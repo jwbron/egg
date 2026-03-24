@@ -2664,6 +2664,8 @@ def _build_pr_body(
     identifier = _pipeline_identifier(pipeline.issue_number, pipeline.id)
     pr_title: str | None = None
     pr_description: str | None = None
+    pr_test_plan: str = ""
+    pr_manual_steps: str = ""
 
     # Try to load PR metadata from the contract (populated by the plan agent)
     try:
@@ -2673,6 +2675,8 @@ def _build_pr_body(
         if contract.pr:
             pr_title = contract.pr.title
             pr_description = contract.pr.description
+            pr_test_plan = contract.pr.test_plan
+            pr_manual_steps = contract.pr.manual_steps
 
         # Fall back to issue title if no PR title from contract
         if not pr_title and contract.issue:
@@ -2695,6 +2699,16 @@ def _build_pr_body(
         body_parts.append(pr_description)
     elif pipeline.issue_number:
         body_parts.append(f"Closes #{pipeline.issue_number}")
+
+    # Test plan section (always present — placeholder if missing)
+    if pr_test_plan:
+        body_parts.append(f"## Test Plan\n\n{pr_test_plan}")
+    else:
+        body_parts.append("## Test Plan\n\n_No test plan provided by the planner._")
+
+    # Manual steps section (only if there are steps)
+    if pr_manual_steps:
+        body_parts.append(f"## Manual Steps\n\n{pr_manual_steps}")
 
     # Add pipeline context section
     if pipeline.id or pipeline.issue_number:
@@ -2965,8 +2979,11 @@ def _build_phase_prompt(
                 "1. Review any prior analysis",
                 "2. Break down the work into phases with discrete tasks",
                 "3. Define clear acceptance criteria for each task",
-                "4. Identify test strategy",
-                "5. Consider rollback and risks",
+                "4. Identify test strategy — what automated tests cover the changes, "
+                "and what manual verification is needed",
+                "5. Identify any manual pre-merge or post-merge steps "
+                "(migrations, config changes, deployments)",
+                "6. Consider rollback and risks",
                 "",
                 "## Output Format",
                 "",
@@ -2982,6 +2999,12 @@ def _build_phase_prompt(
                 '  title: "Short imperative summary (≤70 chars)"',
                 "  description: |",
                 "    One-paragraph context and impact.",
+                "  test_plan: |",
+                "    - Automated: describe which tests cover the changes",
+                "    - Manual: specific steps a reviewer should take to verify",
+                "  manual_steps: |",
+                "    Pre-merge: any required steps before merging",
+                "    Post-merge: any required steps after merging",
                 "phases:",
                 "  - id: 1",
                 "    name: Phase Name",
@@ -2996,6 +3019,11 @@ def _build_phase_prompt(
                 "````",
                 "",
                 "Do NOT use a `pr_plan` key or propose multiple PRs.",
+                "",
+                "The `test_plan` field is **required** — describe both automated test "
+                "coverage and any manual verification steps. The `manual_steps` field "
+                "should list any pre-merge or post-merge actions required by the reviewer "
+                "or deployer; use an empty string if none.",
                 "",
                 f"Write your plan to `{plan_path}`.",
                 "Commit and push the draft when done.",
@@ -3906,7 +3934,10 @@ def _build_agent_prompt(
                 "2. Break down the work into phases with discrete, actionable tasks",
                 "3. Define clear acceptance criteria for each task",
                 "4. Define dependency ordering between tasks",
-                "5. Identify the test strategy",
+                "5. Identify the test strategy — what automated tests cover the changes, "
+                "and what manual verification is needed",
+                "6. Identify any manual pre-merge or post-merge steps "
+                "(migrations, config changes, deployments)",
                 "",
                 "## Output Format",
                 "",
@@ -3923,6 +3954,12 @@ def _build_agent_prompt(
                 '  title: "Short imperative summary (≤70 chars)"',
                 "  description: |",
                 "    One-paragraph context and impact.",
+                "  test_plan: |",
+                "    - Automated: describe which tests cover the changes",
+                "    - Manual: specific steps a reviewer should take to verify",
+                "  manual_steps: |",
+                "    Pre-merge: any required steps before merging",
+                "    Post-merge: any required steps after merging",
                 "phases:",
                 "  - id: 1",
                 "    name: Phase Name",
@@ -3937,6 +3974,11 @@ def _build_agent_prompt(
                 "````",
                 "",
                 "Do NOT use a `pr_plan` key or propose multiple PRs.",
+                "",
+                "The `test_plan` field is **required** — describe both automated test "
+                "coverage and any manual verification steps. The `manual_steps` field "
+                "should list any pre-merge or post-merge actions required by the reviewer "
+                "or deployer; use an empty string if none.",
                 "",
                 f"Write your plan to `{draft_path}`.",
                 "",
@@ -5131,8 +5173,8 @@ def _populate_contract_from_plan(
             logger.warning(
                 "Plan parse warning",
                 pipeline_id=pipeline_id,
-                message=warning.message,
-                context=warning.context,
+                warning_message=warning.message,
+                warning_context=warning.context,
             )
 
         contract_phases = result.to_contract_phases()
@@ -5149,6 +5191,8 @@ def _populate_contract_from_plan(
             contract.pr = PRMetadata(
                 title=result.pr_title,
                 description=result.pr_description or "",
+                test_plan=result.pr_test_plan or "",
+                manual_steps=result.pr_manual_steps or "",
             )
             changed = True
 
