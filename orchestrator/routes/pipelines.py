@@ -2646,9 +2646,6 @@ def _handle_pr_creation_failure(
 def _build_pr_body(
     pipeline: Pipeline,
     worktree_repo_path: Path,
-    default_branch: str | None = None,
-    *,
-    autonomous: bool = True,
 ) -> tuple[str, str]:
     """Build a PR title and body from contract state.
 
@@ -2660,9 +2657,6 @@ def _build_pr_body(
     Args:
         pipeline: The pipeline state
         worktree_repo_path: Path to the worktree repo directory
-        default_branch: Kept for API compatibility but no longer used.
-        autonomous: Whether this is an autonomous pipeline run. When True,
-            the ``Authored-by: egg`` signoff is appended.
 
     Returns:
         Tuple of (title, body)
@@ -2711,8 +2705,7 @@ def _build_pr_body(
             context_parts.append(f"Issue: #{pipeline.issue_number}")
         body_parts.append("\n".join(context_parts))
 
-    if autonomous:
-        body_parts.append("Authored-by: egg")
+    body_parts.append("Authored-by: egg")
 
     body = "\n\n".join(body_parts)
 
@@ -2751,7 +2744,7 @@ def _auto_create_pr(
     if not base:
         base = get_default_branch(worktree_repo_path)
 
-    title, body = _build_pr_body(pipeline, worktree_repo_path, default_branch=base)
+    title, body = _build_pr_body(pipeline, worktree_repo_path)
 
     try:
         pr_url = spawner.gateway.create_pr(

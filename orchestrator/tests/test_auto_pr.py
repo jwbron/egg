@@ -124,20 +124,12 @@ class TestBuildPrBody:
         assert "Closes #42" in body
 
     def test_body_ends_with_authored_by(self, tmp_path):
-        """Test that body ends with attribution in autonomous mode."""
+        """Test that body ends with attribution."""
         pipeline = _make_pipeline()
 
         title, body = _build_pr_body(pipeline, tmp_path)
 
         assert "Authored-by: egg" in body
-
-    def test_no_authored_by_in_user_mode(self, tmp_path):
-        """Test that authored-by is omitted when autonomous=False."""
-        pipeline = _make_pipeline()
-
-        title, body = _build_pr_body(pipeline, tmp_path, autonomous=False)
-
-        assert "Authored-by: egg" not in body
 
     def test_includes_pipeline_context_section(self, tmp_path):
         """Test that pipeline context section is included in body."""
@@ -433,8 +425,8 @@ class TestAutoCreatePrPassesBaseBranch:
         # Verify create_pr receives the explicit base branch
         call_kwargs = spawner.gateway.create_pr.call_args
         assert call_kwargs[1]["base"] == "release/v2"
-        # Verify _build_pr_body receives the explicit base branch as default_branch
-        mock_build.assert_called_once_with(pipeline, Path("/tmp/repo"), default_branch="release/v2")
+        # Verify _build_pr_body is called (default_branch no longer passed)
+        mock_build.assert_called_once_with(pipeline, Path("/tmp/repo"))
         # Verify get_default_branch is NOT called when explicit base is provided
         mock_detect.assert_not_called()
 
