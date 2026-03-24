@@ -762,9 +762,7 @@ class OverseerMonitor:
     # Orchestrator reachability (issue #1371)
     # -----------------------------------------------------------------
 
-    async def _check_orchestrator_reachability(
-        self, pipeline_data: dict, phase_data: dict
-    ) -> None:
+    async def _check_orchestrator_reachability(self, pipeline_data: dict, phase_data: dict) -> None:
         """Track consecutive orchestrator query failures and escalate.
 
         When both pipeline status and phase queries return empty results,

@@ -1502,10 +1502,12 @@ class TestOrchestratorReachability:
         monitor = self._make_monitor()
         monitor._consecutive_orch_failures = 2
 
-        _run(monitor._check_orchestrator_reachability(
-            pipeline_data={"status": "running"},
-            phase_data={},
-        ))
+        _run(
+            monitor._check_orchestrator_reachability(
+                pipeline_data={"status": "running"},
+                phase_data={},
+            )
+        )
 
         assert monitor._consecutive_orch_failures == 0
         assert not monitor._orch_unreachable_alerted
@@ -1514,10 +1516,12 @@ class TestOrchestratorReachability:
         """Empty responses from both queries increment the failure counter."""
         monitor = self._make_monitor()
 
-        _run(monitor._check_orchestrator_reachability(
-            pipeline_data={},
-            phase_data={},
-        ))
+        _run(
+            monitor._check_orchestrator_reachability(
+                pipeline_data={},
+                phase_data={},
+            )
+        )
 
         assert monitor._consecutive_orch_failures == 1
         monitor._send_slack_notification.assert_not_awaited()
@@ -1527,10 +1531,12 @@ class TestOrchestratorReachability:
         monitor = self._make_monitor()
         monitor._consecutive_orch_failures = 2  # one below threshold
 
-        _run(monitor._check_orchestrator_reachability(
-            pipeline_data={},
-            phase_data={},
-        ))
+        _run(
+            monitor._check_orchestrator_reachability(
+                pipeline_data={},
+                phase_data={},
+            )
+        )
 
         assert monitor._consecutive_orch_failures == 3
         assert monitor._orch_unreachable_alerted
@@ -1576,10 +1582,12 @@ class TestOrchestratorReachability:
         monitor = self._make_monitor()
         monitor._consecutive_orch_failures = 2
 
-        _run(monitor._check_orchestrator_reachability(
-            pipeline_data={},
-            phase_data={"phase": "implement"},
-        ))
+        _run(
+            monitor._check_orchestrator_reachability(
+                pipeline_data={},
+                phase_data={"phase": "implement"},
+            )
+        )
 
         assert monitor._consecutive_orch_failures == 0
 
@@ -1590,9 +1598,7 @@ class TestOrchestratorReachability:
 
         _run(monitor._check_orchestrator_reachability({}, {}))
 
-        logged_events = [
-            call.args[0] for call in monitor._log_oversight_event.call_args_list
-        ]
+        logged_events = [call.args[0] for call in monitor._log_oversight_event.call_args_list]
         assert any(e.get("event") == "orchestrator_unreachable" for e in logged_events)
 
     def test_oversight_event_logged_on_recovery(self) -> None:
@@ -1602,7 +1608,5 @@ class TestOrchestratorReachability:
 
         _run(monitor._check_orchestrator_reachability({"status": "running"}, {}))
 
-        logged_events = [
-            call.args[0] for call in monitor._log_oversight_event.call_args_list
-        ]
+        logged_events = [call.args[0] for call in monitor._log_oversight_event.call_args_list]
         assert any(e.get("event") == "orchestrator_recovered" for e in logged_events)
