@@ -120,9 +120,7 @@ class TestCommitStatefilesScoping:
             _commit_statefiles_to_worktree(tmp_path, "idempotent", pipeline_identifier=42)
 
         # Should have add + diff calls, but NOT a commit call
-        commit_calls = [
-            c for c in mock_run.call_args_list if "commit" in c[0][0]
-        ]
+        commit_calls = [c for c in mock_run.call_args_list if "commit" in c[0][0]]
         assert len(commit_calls) == 0
 
     def test_string_pipeline_identifier(self, tmp_path: Path):

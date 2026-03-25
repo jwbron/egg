@@ -6364,9 +6364,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 _commit_statefiles_to_worktree(
                     worktree_repo_path,
                     f"Persist statefiles after {current_phase.value} phase",
-                    pipeline_identifier=_pipeline_identifier(
-                        pipeline.issue_number, pipeline_id
-                    ),
+                    pipeline_identifier=_pipeline_identifier(pipeline.issue_number, pipeline_id),
                 )
             except subprocess.CalledProcessError as git_err:
                 logger.warning(
