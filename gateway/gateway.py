@@ -30,6 +30,7 @@ import os
 import re
 import secrets
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -519,11 +520,9 @@ def _check_squid_health() -> dict[str, Any]:
     # latter re-parses squid.conf and fails when run as non-root (can't read
     # the SSL private key), even though Squid itself is running fine.
     try:
-        import socket
-
         with socket.create_connection(("127.0.0.1", 3129), timeout=2):
             result["listening"] = True
-    except (OSError, TimeoutError):
+    except OSError:
         pass
 
     return result
