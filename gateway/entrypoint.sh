@@ -145,7 +145,7 @@ _squid_supervisor() {
             echo "WARNING: Squid process is not running (restart $restart_count/$max_restarts)"
 
             if [ $restart_count -gt $max_restarts ]; then
-                echo "ERROR: Squid exceeded max restarts ($max_restarts), giving up"
+                echo "ERROR: Squid exceeded max restarts ($max_restarts), giving up. Container will be marked unhealthy."
                 break
             fi
 
@@ -160,6 +160,7 @@ _squid_supervisor() {
             while [ $wait -lt 15 ]; do
                 if /usr/sbin/squid -k check 2>/dev/null; then
                     echo "Squid restarted successfully (attempt $restart_count)"
+                    restart_count=0
                     break
                 fi
                 sleep 1
