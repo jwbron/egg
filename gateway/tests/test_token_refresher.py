@@ -284,6 +284,47 @@ class TestTokenRefresher:
     @requires_network_mocking
     @patch("token_refresher.jwt.encode")
     @patch("token_refresher.requests.post")
+    def test_cached_token_returned_during_backoff(
+        self, mock_post, mock_jwt, mock_private_key, mock_github_response
+    ):
+        """During backoff, a previously cached token is still returned."""
+        mock_jwt.return_value = "mock_jwt_token"
+
+        # First call succeeds — populate the cache
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: mock_github_response,
+            raise_for_status=lambda: None,
+        )
+
+        refresher = TokenRefresher(
+            app_id="12345",
+            private_key=mock_private_key,
+            installation_id=67890,
+        )
+
+        token = refresher.get_token()
+        assert token == "ghs_test_token_12345"
+
+        # Force token to look expired so _needs_refresh() is True
+        refresher._expires_at = datetime.now(UTC) - timedelta(seconds=1)
+
+        # Next refresh fails — enters backoff
+        mock_post.side_effect = Exception("Network error")
+        token = refresher.get_token()
+        assert token == "ghs_test_token_12345"  # cached token returned
+        assert refresher.consecutive_failures == 1
+        assert refresher._next_retry_at is not None
+
+        # During backoff, cached token is still returned without hitting API
+        call_count = mock_post.call_count
+        token = refresher.get_token()
+        assert token == "ghs_test_token_12345"  # still the cached token
+        assert mock_post.call_count == call_count  # no new API call
+
+    @requires_network_mocking
+    @patch("token_refresher.jwt.encode")
+    @patch("token_refresher.requests.post")
     def test_backoff_recovery_after_max_failures(
         self, mock_post, mock_jwt, mock_private_key, mock_github_response
     ):

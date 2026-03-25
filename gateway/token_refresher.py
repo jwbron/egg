@@ -2,8 +2,9 @@
 Token Refresher - Manages GitHub App installation token refresh in-memory.
 
 Tokens are refreshed automatically when they're within 15 minutes of expiry.
-On failure, the last valid token is returned with a warning logged (up to 3
-consecutive failures). After 3 failures, the cached token is cleared (fail closed).
+On failure, the last valid token is returned with a warning logged. After max
+consecutive failures, the cached token is cleared but retries continue with
+exponential backoff (30s to 5min) to allow self-healing.
 
 This replaces the host-side github-token-refresher systemd service with an
 in-memory solution that runs within the gateway sidecar.
@@ -245,6 +246,7 @@ class TokenRefresher:
         """Reset the consecutive failure counter (for testing)."""
         with self._lock:
             self._consecutive_failures = 0
+            self._next_retry_at = None
 
 
 # Global token refresher instances (bot and reviewer)
