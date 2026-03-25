@@ -190,7 +190,7 @@ class TestTokenRefresher:
     @patch("token_refresher.jwt.encode")
     @patch("token_refresher.requests.post")
     def test_get_token_max_failures_clears_cache(self, mock_post, mock_jwt, mock_private_key):
-        """After max consecutive failures, cached token is cleared."""
+        """After max consecutive failures, cached token is cleared but retries continue."""
         mock_jwt.return_value = "mock_jwt_token"
         mock_post.side_effect = Exception("Network error")
 
@@ -201,20 +201,204 @@ class TestTokenRefresher:
             max_consecutive_failures=2,
         )
 
-        # First failure - no token
+        # First failure - no token, enters backoff
         token1 = refresher.get_token()
         assert token1 is None
         assert refresher.consecutive_failures == 1
+        assert refresher._next_retry_at is not None
 
-        # Second failure - still no token, reaches max
+        # During backoff, no retry attempt is made
+        call_count_after_first = mock_post.call_count
+        refresher.get_token()
+        assert mock_post.call_count == call_count_after_first  # no new call
+
+        # Expire the backoff to allow next attempt
+        refresher._next_retry_at = datetime.now(UTC) - timedelta(seconds=1)
+
+        # Second failure - reaches max
         token2 = refresher.get_token()
         assert token2 is None
         assert refresher.consecutive_failures == 2
 
-        # Third failure - continues to fail
-        token3 = refresher.get_token()
-        assert token3 is None
+    @requires_network_mocking
+    @patch("token_refresher.jwt.encode")
+    @patch("token_refresher.requests.post")
+    def test_backoff_skips_retry_during_cooldown(self, mock_post, mock_jwt, mock_private_key):
+        """During backoff cooldown, get_token() does not attempt refresh."""
+        mock_jwt.return_value = "mock_jwt_token"
+        mock_post.side_effect = Exception("Network error")
+
+        refresher = TokenRefresher(
+            app_id="12345",
+            private_key=mock_private_key,
+            installation_id=67890,
+        )
+
+        # Trigger first failure
+        refresher.get_token()
+        assert mock_post.call_count == 1
+
+        # Subsequent calls during backoff should NOT hit the API
+        for _ in range(5):
+            refresher.get_token()
+        assert mock_post.call_count == 1  # still just the original call
+
+    @requires_network_mocking
+    @patch("token_refresher.jwt.encode")
+    @patch("token_refresher.requests.post")
+    def test_backoff_recovery_after_cooldown(
+        self, mock_post, mock_jwt, mock_private_key, mock_github_response
+    ):
+        """After backoff expires, refresher retries and can recover."""
+        mock_jwt.return_value = "mock_jwt_token"
+        mock_post.side_effect = Exception("Network error")
+
+        refresher = TokenRefresher(
+            app_id="12345",
+            private_key=mock_private_key,
+            installation_id=67890,
+        )
+
+        # Trigger failure
+        token = refresher.get_token()
+        assert token is None
+        assert refresher.consecutive_failures == 1
+
+        # Expire the backoff
+        refresher._next_retry_at = datetime.now(UTC) - timedelta(seconds=1)
+
+        # Now fix the API
+        mock_post.side_effect = None
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: mock_github_response,
+            raise_for_status=lambda: None,
+        )
+
+        # Should recover
+        token = refresher.get_token()
+        assert token == "ghs_test_token_12345"
+        assert refresher.consecutive_failures == 0
+        assert refresher._next_retry_at is None
+
+    @requires_network_mocking
+    @patch("token_refresher.jwt.encode")
+    @patch("token_refresher.requests.post")
+    def test_cached_token_returned_during_backoff(
+        self, mock_post, mock_jwt, mock_private_key, mock_github_response
+    ):
+        """During backoff, a previously cached token is still returned."""
+        mock_jwt.return_value = "mock_jwt_token"
+
+        # First call succeeds — populate the cache
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: mock_github_response,
+            raise_for_status=lambda: None,
+        )
+
+        refresher = TokenRefresher(
+            app_id="12345",
+            private_key=mock_private_key,
+            installation_id=67890,
+        )
+
+        token = refresher.get_token()
+        assert token == "ghs_test_token_12345"
+
+        # Force token to look expired so _needs_refresh() is True
+        refresher._expires_at = datetime.now(UTC) - timedelta(seconds=1)
+
+        # Next refresh fails — enters backoff
+        mock_post.side_effect = Exception("Network error")
+        token = refresher.get_token()
+        assert token == "ghs_test_token_12345"  # cached token returned
+        assert refresher.consecutive_failures == 1
+        assert refresher._next_retry_at is not None
+
+        # During backoff, cached token is still returned without hitting API
+        call_count = mock_post.call_count
+        token = refresher.get_token()
+        assert token == "ghs_test_token_12345"  # still the cached token
+        assert mock_post.call_count == call_count  # no new API call
+
+    @requires_network_mocking
+    @patch("token_refresher.jwt.encode")
+    @patch("token_refresher.requests.post")
+    def test_backoff_recovery_after_max_failures(
+        self, mock_post, mock_jwt, mock_private_key, mock_github_response
+    ):
+        """Even after max failures, refresher can still recover when API comes back."""
+        mock_jwt.return_value = "mock_jwt_token"
+        mock_post.side_effect = Exception("Network error")
+
+        refresher = TokenRefresher(
+            app_id="12345",
+            private_key=mock_private_key,
+            installation_id=67890,
+            max_consecutive_failures=2,
+        )
+
+        # Exhaust max failures (expire backoff between each to allow retries)
+        refresher.get_token()
+        refresher._next_retry_at = datetime.now(UTC) - timedelta(seconds=1)
+        refresher.get_token()
+        refresher._next_retry_at = datetime.now(UTC) - timedelta(seconds=1)
+        refresher.get_token()
         assert refresher.consecutive_failures == 3
+        assert refresher._token is None
+
+        # Expire backoff and fix the API
+        refresher._next_retry_at = datetime.now(UTC) - timedelta(seconds=1)
+        mock_post.side_effect = None
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: mock_github_response,
+            raise_for_status=lambda: None,
+        )
+
+        # Should recover
+        token = refresher.get_token()
+        assert token == "ghs_test_token_12345"
+        assert refresher.consecutive_failures == 0
+
+    @requires_network_mocking
+    @patch("token_refresher.jwt.encode")
+    @patch("token_refresher.requests.post")
+    def test_backoff_increases_exponentially(self, mock_post, mock_jwt, mock_private_key):
+        """Backoff time increases with consecutive failures, capped at 300s."""
+        mock_jwt.return_value = "mock_jwt_token"
+        mock_post.side_effect = Exception("Network error")
+
+        refresher = TokenRefresher(
+            app_id="12345",
+            private_key=mock_private_key,
+            installation_id=67890,
+        )
+
+        # First failure: 30s backoff
+        refresher.get_token()
+        assert refresher._backoff_seconds() == 30
+
+        refresher._next_retry_at = datetime.now(UTC) - timedelta(seconds=1)
+        refresher.get_token()
+        assert refresher._backoff_seconds() == 60
+
+        refresher._next_retry_at = datetime.now(UTC) - timedelta(seconds=1)
+        refresher.get_token()
+        assert refresher._backoff_seconds() == 120
+
+        refresher._next_retry_at = datetime.now(UTC) - timedelta(seconds=1)
+        refresher.get_token()
+        assert refresher._backoff_seconds() == 240
+
+        refresher._next_retry_at = datetime.now(UTC) - timedelta(seconds=1)
+        refresher.get_token()
+        assert refresher._backoff_seconds() == 300  # capped
+
+        refresher._next_retry_at = datetime.now(UTC) - timedelta(seconds=1)
+        refresher.get_token()
+        assert refresher._backoff_seconds() == 300  # stays capped
 
     @requires_network_mocking
     @patch("token_refresher.jwt.encode")
