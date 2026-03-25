@@ -59,7 +59,7 @@
 
 The following YAML block is machine-readable and will be extracted into the contract.
 It must accurately reflect the tasks described above. The `pr:` section provides the
-title and description that will be used when creating the pull request.
+title, description, test plan, and manual steps that will be used when creating the pull request.
 
 ```yaml
 # yaml-tasks
@@ -68,6 +68,12 @@ pr:
   description: |
     [2-3 sentence description of the PR. Explain the problem being solved
     and the approach taken. Link to the issue for additional context.]
+  test_plan: |
+    - Automated: [which tests cover the changes]
+    - Manual: [specific steps a reviewer should take to verify]
+  manual_steps: |
+    Pre-merge: [any required steps before merging, e.g. migrations, config changes]
+    Post-merge: [any required steps after merging, e.g. deployments]
 phases:
   - id: 1
     name: [Phase Name]

@@ -787,7 +787,7 @@ Template sections:
 - [TASK-1-2] Add role validation — Acceptance: Unauthorized mutations rejected
 ```
 
-**PR Metadata**: The plan should include a `pr:` section in the YAML appendix with a title and description for the pull request that will be created. The pipeline uses this metadata when creating and finalizing the PR. If not provided, the PR title defaults to the issue title, and the PR description is built from commit messages.
+**PR Metadata**: The plan should include a `pr:` section in the YAML appendix with a title, description, test plan, and manual steps for the pull request. The `test_plan` field is required — describe both automated test coverage and manual verification steps. The `manual_steps` field lists any pre- or post-merge actions (migrations, config changes, deployments); use an empty string if none. The pipeline uses this metadata when creating and finalizing the PR. If not provided, the PR title defaults to the issue title, and the PR description is built from commit messages.
 
 ### Phase Completion Comments
 
