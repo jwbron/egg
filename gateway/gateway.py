@@ -30,6 +30,7 @@ import os
 import re
 import secrets
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -514,15 +515,14 @@ def _check_squid_health() -> dict[str, Any]:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
 
-    # Check if squid is accepting connections via its control channel
+    # Check if squid is actually accepting connections on port 3129.
+    # We use a direct TCP connect instead of 'squid -k check' because the
+    # latter re-parses squid.conf and fails when run as non-root (can't read
+    # the SSL private key), even though Squid itself is running fine.
     try:
-        proc = subprocess.run(
-            ["/usr/sbin/squid", "-k", "check"],
-            capture_output=True,
-            timeout=5,
-        )
-        result["listening"] = proc.returncode == 0
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+        with socket.create_connection(("127.0.0.1", 3129), timeout=2):
+            result["listening"] = True
+    except OSError:
         pass
 
     return result
