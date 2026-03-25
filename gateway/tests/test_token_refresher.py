@@ -1,7 +1,7 @@
 """Tests for the token refresher module."""
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from token_refresher import (
@@ -223,9 +223,7 @@ class TestTokenRefresher:
     @requires_network_mocking
     @patch("token_refresher.jwt.encode")
     @patch("token_refresher.requests.post")
-    def test_backoff_skips_retry_during_cooldown(
-        self, mock_post, mock_jwt, mock_private_key
-    ):
+    def test_backoff_skips_retry_during_cooldown(self, mock_post, mock_jwt, mock_private_key):
         """During backoff cooldown, get_token() does not attempt refresh."""
         mock_jwt.return_value = "mock_jwt_token"
         mock_post.side_effect = Exception("Network error")
@@ -326,9 +324,7 @@ class TestTokenRefresher:
     @requires_network_mocking
     @patch("token_refresher.jwt.encode")
     @patch("token_refresher.requests.post")
-    def test_backoff_increases_exponentially(
-        self, mock_post, mock_jwt, mock_private_key
-    ):
+    def test_backoff_increases_exponentially(self, mock_post, mock_jwt, mock_private_key):
         """Backoff time increases with consecutive failures, capped at 300s."""
         mock_jwt.return_value = "mock_jwt_token"
         mock_post.side_effect = Exception("Network error")
