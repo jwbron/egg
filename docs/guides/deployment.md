@@ -260,8 +260,18 @@ The gateway exposes a health endpoint:
 curl http://localhost:9848/api/v1/health
 
 # Expected response
-{"status": "healthy", "timestamp": "..."}
+{
+  "status": "healthy",
+  "github_token_valid": true,
+  "auth_configured": true,
+  "squid_proxy": {"running": true, "listening": true},
+  "active_sessions": 0,
+  "service": "gateway",
+  ...
+}
 ```
+
+The `status` field is `"healthy"` only when all three conditions are met: the GitHub token is valid, the launcher secret is configured, and the Squid proxy is listening on port 3129. A Squid crash returns `"degraded"` and causes Docker's health check to fail, triggering a container restart.
 
 The Docker Compose configuration includes automatic health checks with:
 - 10 second interval
