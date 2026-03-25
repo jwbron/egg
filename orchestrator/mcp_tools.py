@@ -597,7 +597,15 @@ class PipelineToolHandler:
                 except Exception:
                     pass
                 return error_info
-            raise
+            # For all other HTTP errors, include the API response body
+            # so the actual error message is visible to callers (#1396).
+            error_info = {"error": f"Pipeline creation failed (HTTP {e.code})"}
+            try:
+                resp_body = json.loads(e.read().decode())
+                error_info["error"] = resp_body.get("message", error_info["error"])
+            except Exception:
+                pass
+            return error_info
 
         pipeline_id = result.get("data", {}).get("pipeline", {}).get("id", "")
 

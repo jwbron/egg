@@ -783,3 +783,62 @@ class TestSubmitTaskConfigDeserialization:
         )
         assert "error" in result
         assert "Invalid config JSON" in result["error"]
+
+
+class TestSubmitTaskErrorPropagation:
+    """Test that submit_task propagates API error details (#1396)."""
+
+    @patch("urllib.request.build_opener")
+    def test_500_includes_api_error_message(self, mock_build_opener, handler):
+        """HTTP 500 from the API should return the response body message."""
+        import json
+        from urllib.error import HTTPError
+
+        error_body = json.dumps(
+            {"success": False, "message": "Failed to create pipeline: Git command failed: index.lock"}
+        ).encode()
+
+        mock_opener = MagicMock()
+        http_error = HTTPError(
+            url="http://localhost:9849/api/v1/pipelines",
+            code=500,
+            msg="INTERNAL SERVER ERROR",
+            hdrs={},
+            fp=MagicMock(),
+        )
+        http_error.read = MagicMock(return_value=error_body)
+        mock_opener.open.side_effect = http_error
+        mock_build_opener.return_value = mock_opener
+
+        result = handler.handle_tool_call(
+            "submit_task",
+            {"description": "Test task", "repo": "owner/repo", "jira_ticket": "KORE-1234"},
+        )
+
+        assert "error" in result
+        assert "Git command failed" in result["error"]
+
+    @patch("urllib.request.build_opener")
+    def test_500_with_unreadable_body_falls_back(self, mock_build_opener, handler):
+        """HTTP 500 with unreadable body should still return a structured error."""
+        from urllib.error import HTTPError
+
+        mock_opener = MagicMock()
+        http_error = HTTPError(
+            url="http://localhost:9849/api/v1/pipelines",
+            code=500,
+            msg="INTERNAL SERVER ERROR",
+            hdrs={},
+            fp=MagicMock(),
+        )
+        http_error.read = MagicMock(side_effect=Exception("read failed"))
+        mock_opener.open.side_effect = http_error
+        mock_build_opener.return_value = mock_opener
+
+        result = handler.handle_tool_call(
+            "submit_task",
+            {"description": "Test task", "repo": "owner/repo", "base_branch": "develop"},
+        )
+
+        assert "error" in result
+        assert "HTTP 500" in result["error"]

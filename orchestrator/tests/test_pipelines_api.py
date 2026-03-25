@@ -641,6 +641,59 @@ class TestCreatePipelineJiraAndQualifier:
         assert "branch" in body["message"].lower()
 
 
+class TestCreatePipelineErrorHandling:
+    """Tests that create_pipeline returns detailed errors for unexpected exceptions (#1396)."""
+
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_non_state_store_error_returns_500_with_detail(
+        self, mock_repo_path, mock_get_store, client
+    ):
+        """Non-StateStoreError exceptions should return 500 with the error type and message."""
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_store = MagicMock()
+        mock_store.create_pipeline.side_effect = ValueError("unexpected validation failure")
+        mock_get_store.return_value = mock_store
+
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "repo": "Khan/webapp",
+                "prompt": "Fix the bug",
+                "base_branch": "develop",
+            },
+        )
+        assert response.status_code == 500
+        body = response.get_json()
+        assert "ValueError" in body["message"]
+        assert "unexpected validation failure" in body["message"]
+
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_os_error_returns_500_with_detail(
+        self, mock_repo_path, mock_get_store, client
+    ):
+        """OSError during pipeline creation should return 500 with detail, not generic error."""
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_store = MagicMock()
+        mock_store.create_pipeline.side_effect = OSError("Permission denied")
+        mock_get_store.return_value = mock_store
+
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "pipeline_id": "KORE-1234",
+                "repo": "Khan/webapp",
+                "branch": "egg/KORE-1234",
+                "prompt": "Fix the bug",
+            },
+        )
+        assert response.status_code == 500
+        body = response.get_json()
+        assert "OSError" in body["message"]
+        assert "Permission denied" in body["message"]
+
+
 class TestPipelineIdValidation:
     """Tests that PIPELINE_ID_PATTERN accepts new JIRA and qualifier formats."""
 

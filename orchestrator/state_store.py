@@ -216,10 +216,17 @@ class StateStore:
         wt = self._worktree_dir
 
         if wt.exists() and (wt / ".git").exists():
-            # Quick validity check
-            result = self._run_git("rev-parse", "--is-inside-work-tree", cwd=wt, check=False)
-            if result.returncode == 0:
-                return wt
+            # Quick validity check with one retry for transient git
+            # contention (e.g., concurrent _commit_statefiles_to_worktree
+            # holding a lock on the shared .git directory).  See #1396.
+            for _attempt in range(2):
+                result = self._run_git(
+                    "rev-parse", "--is-inside-work-tree", cwd=wt, check=False
+                )
+                if result.returncode == 0:
+                    return wt
+                if _attempt == 0:
+                    time.sleep(0.1)
             # Stale/broken — remove and recreate
             shutil.rmtree(wt, ignore_errors=True)
             self._remove_stale_admin_dir()
