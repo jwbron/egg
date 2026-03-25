@@ -77,9 +77,9 @@ class TestCommitStatefilesScoping:
 
         # The add call should contain paths with '42' but NOT '99'
         add_paths = add_call[add_call.index("--") + 1 :]
-        add_paths_str = " ".join(add_paths)
-        assert "42" in add_paths_str
-        assert "99" not in add_paths_str
+        add_filenames = [Path(p).name for p in add_paths]
+        assert any("42" in name for name in add_filenames)
+        assert not any("99" in name for name in add_filenames)
 
     def test_scoped_does_not_substring_match(self, tmp_path: Path):
         """Pipeline 4 must NOT match files for pipeline 42 (prefix-anchored)."""
@@ -108,11 +108,11 @@ class TestCommitStatefilesScoping:
 
         assert add_call is not None, "Expected a git add call"
         add_paths = add_call[add_call.index("--") + 1 :]
-        add_paths_str = " ".join(add_paths)
+        add_filenames = [Path(p).name for p in add_paths]
         # Should match pipeline 4 files only
-        assert "/4." in add_paths_str or "/4-" in add_paths_str
-        assert "42" not in add_paths_str
-        assert "142" not in add_paths_str
+        assert any(name.startswith("4.") or name.startswith("4-") for name in add_filenames)
+        assert not any(name.startswith("42") for name in add_filenames)
+        assert not any(name.startswith("142") for name in add_filenames)
 
     def test_scoped_no_matching_files_is_noop(self, tmp_path: Path):
         """When no files match the identifier, nothing is committed."""
