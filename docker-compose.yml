@@ -82,7 +82,10 @@ services:
       # Shared certs (gateway writes CA cert for sandbox SSL trust)
       - certs:/shared/certs
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:9848/api/v1/health"]
+      # Check both the Python gateway (port 9848) AND verify Squid proxy is
+      # healthy via the response body. Previously only checked port 9848,
+      # masking Squid crashes. See: https://github.com/jwbron/egg/issues/1387
+      test: ["CMD-SHELL", "curl -sf http://localhost:9848/api/v1/health | python3 -c \"import sys,json; sys.exit(0 if json.load(sys.stdin).get('status')=='healthy' else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 12
