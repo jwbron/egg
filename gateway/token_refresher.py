@@ -101,7 +101,8 @@ class TokenRefresher:
 
         Returns seconds to wait: 30, 60, 120, 240, 300 (capped at 5 min).
         """
-        return float(min(30 * (2 ** (self._consecutive_failures - 1)), 300))
+        failures = max(self._consecutive_failures, 1)
+        return float(min(30 * (2 ** (failures - 1)), 300))
 
     def _in_backoff(self) -> bool:
         """Check if we're in a backoff cooldown period."""
