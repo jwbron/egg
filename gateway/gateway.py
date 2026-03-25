@@ -494,6 +494,40 @@ def _check_orchestrator_connectivity() -> dict[str, Any]:
         }
 
 
+def _check_squid_health() -> dict[str, Any]:
+    """Check if Squid proxy is running and listening on port 3129.
+
+    Returns a dict with squid health info:
+        running: bool - True if the squid process is alive
+        listening: bool - True if port 3129 is accepting connections
+    """
+    result: dict[str, Any] = {"running": False, "listening": False}
+
+    # Check if squid process is running (not zombie)
+    try:
+        proc = subprocess.run(
+            ["pgrep", "-x", "squid"],
+            capture_output=True,
+            timeout=5,
+        )
+        result["running"] = proc.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    # Check if squid is accepting connections via its control channel
+    try:
+        proc = subprocess.run(
+            ["/usr/sbin/squid", "-k", "check"],
+            capture_output=True,
+            timeout=5,
+        )
+        result["listening"] = proc.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    return result
+
+
 @app.route("/api/v1/health", methods=["GET"])
 def health_check() -> Response:
     """Health check endpoint (no auth required)."""
@@ -514,14 +548,24 @@ def health_check() -> Response:
     # Check orchestrator connectivity (if configured)
     orchestrator_status = _check_orchestrator_connectivity()
 
+    # Check Squid proxy health
+    squid_status = _check_squid_health()
+
     # Gateway always runs with locked Squid.
     # Per-container mode is enforced at container start via network selection.
     # - Private containers: isolated network + proxy (locked to api.anthropic.com)
     # - Public containers: external network + direct internet (no proxy)
+    #
+    # Status is "degraded" if Squid is down - private containers will be unable
+    # to reach the internet. Previously invisible because health check only
+    # verified the Python gateway (port 9848), not Squid (port 3129).
+    # See: https://github.com/jwbron/egg/issues/1387
+    is_healthy = token_valid and launcher_secret_configured and squid_status["listening"]
     response_data: dict[str, Any] = {
-        "status": "healthy" if (token_valid and launcher_secret_configured) else "degraded",
+        "status": "healthy" if is_healthy else "degraded",
         "github_token_valid": token_valid,
         "auth_configured": launcher_secret_configured,
+        "squid_proxy": squid_status,
         "active_sessions": active_sessions,
         "service": "gateway",
         "client_ip": request.remote_addr,

@@ -126,6 +126,68 @@ if [ $elapsed -ge $max_wait ]; then
 fi
 
 # =============================================================================
+# Start Squid Supervisor (Background)
+# =============================================================================
+# Monitor Squid and restart it if it crashes. Without this, a Squid crash
+# (e.g., during reconfigure) leaves port 3129 dead while Docker health checks
+# still pass because they only check the Python gateway on port 9848.
+# See: https://github.com/jwbron/egg/issues/1387
+
+_squid_supervisor() {
+    local restart_count=0
+    local max_restarts=10
+    local backoff=2
+
+    while true; do
+        sleep 5
+        if ! /usr/sbin/squid -k check 2>/dev/null; then
+            restart_count=$((restart_count + 1))
+            echo "WARNING: Squid process is not running (restart $restart_count/$max_restarts)"
+
+            if [ $restart_count -gt $max_restarts ]; then
+                echo "ERROR: Squid exceeded max restarts ($max_restarts), giving up"
+                break
+            fi
+
+            # Clean up any leftover pid file
+            rm -f /var/run/squid.pid
+
+            echo "Restarting Squid..."
+            /usr/sbin/squid -f "$SQUID_CONF" 2>&1 || true
+
+            # Wait for Squid to come back up
+            local wait=0
+            while [ $wait -lt 15 ]; do
+                if /usr/sbin/squid -k check 2>/dev/null; then
+                    echo "Squid restarted successfully (attempt $restart_count)"
+                    break
+                fi
+                sleep 1
+                wait=$((wait + 1))
+            done
+
+            if [ $wait -ge 15 ]; then
+                echo "WARNING: Squid failed to restart, will retry in ${backoff}s"
+                sleep $backoff
+                backoff=$((backoff * 2))
+                # Cap backoff at 60 seconds
+                [ $backoff -gt 60 ] && backoff=60
+            else
+                # Reset backoff on successful restart
+                backoff=2
+            fi
+        else
+            # Squid is healthy — reset restart counter
+            restart_count=0
+            backoff=2
+        fi
+    done
+}
+
+_squid_supervisor &
+SQUID_SUPERVISOR_PID=$!
+
+# =============================================================================
 # Run Configuration Validation
 # =============================================================================
 

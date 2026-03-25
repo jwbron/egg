@@ -11,6 +11,10 @@ RUN apt-get update && apt-get install -y \
     gosu \
     # procps provides pgrep/pkill for process management and health checks
     procps \
+    # tini: minimal init system — reaps zombie processes and forwards signals.
+    # Without tini, the Python gateway (PID 1) doesn't reap children, causing
+    # zombie accumulation from Squid child processes and git/ssh subprocesses.
+    tini \
     && \
     curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
     dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
@@ -21,18 +25,20 @@ RUN apt-get update && apt-get install -y \
 
 # Create directories for SSL bump certificates and Squid operation
 # Note: CA certificate is generated at runtime by entrypoint.sh (daily rotation)
-# DH parameters are generated at build time (slow, one-time operation)
 # Note: /var/lib/squid must exist with proper permissions for security_file_certgen
 RUN mkdir -p /etc/squid/certs /etc/squid/ssl /var/log/squid /var/spool/squid /var/lib/squid && \
     chown -R proxy:proxy /etc/squid/certs /etc/squid/ssl /var/log/squid /var/spool/squid /var/lib/squid
 
 # Copy certificate generation scripts
 COPY gateway/scripts/generate-ca-cert.sh /usr/local/bin/
-COPY gateway/scripts/generate-dhparam.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/generate-*.sh
+RUN chmod +x /usr/local/bin/generate-ca-cert.sh
 
-# Generate DH parameters at build time (slow operation, ~30 seconds)
-RUN /usr/local/bin/generate-dhparam.sh
+# Note: DH parameter file generation removed. Squid's tls-dh directive now
+# uses only the named curve (prime256v1) for ECDH key exchange. The previous
+# dhparam.pem file caused OpenSSL error 0x1e08010c during Squid reconfigure
+# when it tried to decode DH parameters as EC parameters. Modern TLS uses
+# ECDH (not finite-field DH), so the named curve alone is sufficient.
+# See: https://github.com/jwbron/egg/issues/1387
 
 # Initialize SSL certificate database for dynamically generated certificates
 # Required for generate-host-certificates=on in squid.conf
@@ -88,4 +94,7 @@ EXPOSE 9848 3129
 COPY gateway/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-ENTRYPOINT ["/entrypoint.sh"]
+# Use tini as PID 1 to reap zombie processes (git, ssh, squid children).
+# Without this, the Python gateway doesn't call wait() on terminated children,
+# leading to zombie process accumulation (50+ observed in production).
+ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]

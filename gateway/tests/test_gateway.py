@@ -101,7 +101,12 @@ class TestHealthCheck:
 
     def test_health_check_returns_status(self, client):
         """Health check returns status info without auth."""
-        with patch.object(gateway, "get_github_client") as mock_gh:
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(
+                gateway, "_check_squid_health", return_value={"running": True, "listening": True}
+            ),
+        ):
             mock_gh.return_value.is_token_valid.return_value = True
 
             response = client.get("/api/v1/health")
@@ -113,7 +118,12 @@ class TestHealthCheck:
 
     def test_health_check_no_auth_required(self, client):
         """Health check does not require authentication."""
-        with patch.object(gateway, "get_github_client") as mock_gh:
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(
+                gateway, "_check_squid_health", return_value={"running": True, "listening": True}
+            ),
+        ):
             mock_gh.return_value.is_token_valid.return_value = True
 
             response = client.get("/api/v1/health")
@@ -126,6 +136,9 @@ class TestHealthCheck:
         with (
             patch.object(gateway, "get_github_client") as mock_gh,
             patch.object(gateway, "get_launcher_secret", return_value="test-secret"),
+            patch.object(
+                gateway, "_check_squid_health", return_value={"running": True, "listening": True}
+            ),
         ):
             mock_gh.return_value.is_token_valid.return_value = False
 
@@ -135,12 +148,72 @@ class TestHealthCheck:
             assert data["status"] == "degraded"
             assert data["github_token_valid"] is False
 
+    def test_health_check_includes_squid_status(self, client):
+        """Health check includes Squid proxy status."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(
+                gateway, "_check_squid_health", return_value={"running": True, "listening": True}
+            ),
+        ):
+            mock_gh.return_value.is_token_valid.return_value = True
+
+            response = client.get("/api/v1/health")
+
+            data = json.loads(response.data)
+            assert "squid_proxy" in data
+            assert data["squid_proxy"]["running"] is True
+            assert data["squid_proxy"]["listening"] is True
+
+    def test_health_check_degraded_when_squid_down(self, client):
+        """Health check shows degraded when Squid proxy is not running."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_launcher_secret", return_value="test-secret"),
+            patch.object(
+                gateway,
+                "_check_squid_health",
+                return_value={"running": False, "listening": False},
+            ),
+        ):
+            mock_gh.return_value.is_token_valid.return_value = True
+
+            response = client.get("/api/v1/health")
+
+            data = json.loads(response.data)
+            assert data["status"] == "degraded"
+            assert data["squid_proxy"]["running"] is False
+            assert data["squid_proxy"]["listening"] is False
+
+    def test_health_check_degraded_when_squid_zombie(self, client):
+        """Health check shows degraded when Squid process exists but isn't listening."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_launcher_secret", return_value="test-secret"),
+            patch.object(
+                gateway,
+                "_check_squid_health",
+                return_value={"running": True, "listening": False},
+            ),
+        ):
+            mock_gh.return_value.is_token_valid.return_value = True
+
+            response = client.get("/api/v1/health")
+
+            data = json.loads(response.data)
+            assert data["status"] == "degraded"
+            assert data["squid_proxy"]["running"] is True
+            assert data["squid_proxy"]["listening"] is False
+
     def test_health_check_excludes_orchestrator_when_not_configured(self, client):
         """Health check excludes orchestrator status when not configured."""
         with (
             patch.object(gateway, "get_github_client") as mock_gh,
             patch.object(
                 gateway, "_check_orchestrator_connectivity", return_value={"configured": False}
+            ),
+            patch.object(
+                gateway, "_check_squid_health", return_value={"running": True, "listening": True}
             ),
         ):
             mock_gh.return_value.is_token_valid.return_value = True
@@ -168,6 +241,9 @@ class TestHealthCheck:
                     "status": "healthy",
                 },
             ),
+            patch.object(
+                gateway, "_check_squid_health", return_value={"running": True, "listening": True}
+            ),
         ):
             mock_gh.return_value.is_token_valid.return_value = True
 
@@ -193,6 +269,9 @@ class TestHealthCheck:
                     "reachable": False,
                     "error": "Connection refused",
                 },
+            ),
+            patch.object(
+                gateway, "_check_squid_health", return_value={"running": True, "listening": True}
             ),
         ):
             mock_gh.return_value.is_token_valid.return_value = True
