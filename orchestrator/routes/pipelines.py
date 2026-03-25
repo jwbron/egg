@@ -2467,8 +2467,7 @@ def _commit_statefiles_to_worktree(
         matched = [
             f
             for f in (
-                glob.glob(pattern_dot, recursive=True)
-                + glob.glob(pattern_dash, recursive=True)
+                glob.glob(pattern_dot, recursive=True) + glob.glob(pattern_dash, recursive=True)
             )
             if Path(f).is_file()
         ]
