@@ -5563,7 +5563,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         )
                         break  # Success — exit retry loop
                     except GatewayError as gw_err:
-                        if wt_attempt == wt_max_attempts:
+                        is_transient = gw_err.status_code is None or gw_err.status_code >= 500
+                        if not is_transient or wt_attempt == wt_max_attempts:
                             raise RuntimeError(
                                 f"Failed to create worktrees for pipeline {pipeline_id} "
                                 f"after {wt_max_attempts} attempts: {gw_err}"
@@ -6924,7 +6925,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # containers may persist.  This is a no-op when no containers exist.
         # See #1386.
         try:
-            _spawner = get_container_spawner()
             removed = _spawner.cleanup_pipeline(pipeline_id, force=True)
             if removed > 0:
                 logger.info(
