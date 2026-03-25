@@ -49,6 +49,7 @@ try:
     from ..container_spawner import ContainerSpawnError, get_container_spawner
     from ..decision_queue import get_decision_queue
     from ..docker_client import ContainerNotFoundError, ContainerOperationError, DockerClientError
+    from ..gateway_client import GatewayError
     from ..models import (
         AgentExecutionStatus,
         AgentRole,
@@ -80,6 +81,7 @@ except ImportError:
         ContainerOperationError,
         DockerClientError,
     )
+    from gateway_client import GatewayError  # type: ignore
     from models import (  # type: ignore
         AgentExecutionStatus,
         AgentRole,
@@ -5544,15 +5546,40 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # so the worktree is branched from that ref instead of the
                 # repo's default branch.  Otherwise let the gateway resolve
                 # the remote default branch per-repo (see #860).
-                wt_result = spawner.gateway.create_worktrees(
-                    container_id=worktree_id,
-                    repos=wt_repos,
-                    uid=host_uid,
-                    gid=host_gid,
-                    base_branch=pipeline.base_branch,
-                )
+                # Retry worktree creation on transient gateway errors
+                # (e.g., 500s from concurrent pipeline starts contending
+                # on per-repo locks).  See #1386.
+                wt_max_attempts = 3
+                wt_backoff = 2.0
+                wt_result = None
+                for wt_attempt in range(1, wt_max_attempts + 1):
+                    try:
+                        wt_result = spawner.gateway.create_worktrees(
+                            container_id=worktree_id,
+                            repos=wt_repos,
+                            uid=host_uid,
+                            gid=host_gid,
+                            base_branch=pipeline.base_branch,
+                        )
+                        break  # Success — exit retry loop
+                    except GatewayError as gw_err:
+                        is_transient = gw_err.status_code is None or gw_err.status_code >= 500
+                        if not is_transient or wt_attempt == wt_max_attempts:
+                            raise RuntimeError(
+                                f"Failed to create worktrees for pipeline {pipeline_id} "
+                                f"after {wt_max_attempts} attempts: {gw_err}"
+                            ) from gw_err
+                        logger.warning(
+                            "Worktree creation failed, retrying",
+                            pipeline_id=pipeline_id,
+                            attempt=wt_attempt,
+                            max_attempts=wt_max_attempts,
+                            error=str(gw_err),
+                        )
+                        time.sleep(wt_backoff)
+                        wt_backoff *= 2
 
-                if wt_result.success and wt_result.worktrees:
+                if wt_result and wt_result.success and wt_result.worktrees:
                     # Gateway returns worktrees keyed by repo name only (e.g., "egg"),
                     # stripping the owner prefix from "owner/repo" format. This matches
                     # the container mount target at /home/egg/repos/<name>.
@@ -6891,6 +6918,25 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 "Failed to clean up worktrees",
                 pipeline_id=pipeline_id,
                 error=str(wt_err),
+            )
+
+        # Safety-net: clean up any orphaned containers for this pipeline.
+        # If the pipeline failed during startup or cleanup timed out, Docker
+        # containers may persist.  This is a no-op when no containers exist.
+        # See #1386.
+        try:
+            removed = _spawner.cleanup_pipeline(pipeline_id, force=True)
+            if removed > 0:
+                logger.info(
+                    "Safety-net cleanup removed orphaned containers",
+                    pipeline_id=pipeline_id,
+                    containers_removed=removed,
+                )
+        except Exception as cleanup_err:
+            logger.warning(
+                "Safety-net container cleanup failed",
+                pipeline_id=pipeline_id,
+                error=str(cleanup_err),
             )
 
 

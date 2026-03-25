@@ -25,6 +25,7 @@ sys.modules.setdefault("docker", MagicMock())
 sys.modules.setdefault("docker.errors", MagicMock())
 sys.modules.setdefault("docker.types", MagicMock())
 
+from gateway_client import GatewayError
 from models import Pipeline, PipelinePhase, PipelineStatus
 
 
@@ -1181,3 +1182,230 @@ class TestBaseBranchPassedToCreateWorktrees:
         assert call_kwargs.kwargs.get("base_branch") is None, (
             f"Expected base_branch=None in create_worktrees call, got: {call_kwargs}"
         )
+
+
+class TestWorktreeCreationRetry:
+    """Verify worktree creation is retried on transient GatewayError (#1386)."""
+
+    @patch("routes.pipelines.time.sleep")
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_retry_succeeds_on_second_attempt(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_sleep,
+    ):
+        """When create_worktrees fails once then succeeds, pipeline should continue."""
+        from routes.pipelines import _run_pipeline
+
+        pipeline = _make_running_pipeline()
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_get_store.return_value = mock_store
+
+        # First call raises GatewayError, second succeeds
+        mock_gateway = MagicMock()
+        mock_gateway.create_worktrees.side_effect = [
+            GatewayError("Gateway request timed out"),
+            MagicMock(success=True, worktrees={"repo": "/tmp/wt/repo"}, errors=[]),
+        ]
+        mock_spawner = MagicMock()
+        mock_spawner.gateway = mock_gateway
+        mock_get_spawner.return_value = mock_spawner
+
+        mock_spawn_wait.return_value = (1, "error log")
+        mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_state_lock.return_value.__exit__ = MagicMock(return_value=False)
+        mock_build_prompt.return_value = "test prompt"
+        mock_read_draft.return_value = None
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        # create_worktrees should have been called twice (retry)
+        assert mock_gateway.create_worktrees.call_count == 2
+        # Sleep should have been called once between attempts
+        mock_sleep.assert_called_once_with(2.0)
+        # Pipeline should have progressed past worktree creation to agent spawning
+        mock_spawner = mock_get_spawner.return_value
+        mock_spawner.spawn_overseer_container.assert_called()
+
+    @patch("routes.pipelines.time.sleep")
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_retry_exhausted_marks_pipeline_failed(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_sleep,
+    ):
+        """When all retry attempts fail, pipeline should be marked FAILED."""
+        from routes.pipelines import _run_pipeline
+
+        pipeline = _make_running_pipeline()
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_get_store.return_value = mock_store
+
+        # All attempts fail with GatewayError
+        mock_gateway = MagicMock()
+        mock_gateway.create_worktrees.side_effect = GatewayError("Gateway request timed out")
+        mock_spawner = MagicMock()
+        mock_spawner.gateway = mock_gateway
+        mock_get_spawner.return_value = mock_spawner
+
+        mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_state_lock.return_value.__exit__ = MagicMock(return_value=False)
+        mock_build_prompt.return_value = "test prompt"
+        mock_read_draft.return_value = None
+
+        with patch.dict(
+            os.environ,
+            {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'},
+            clear=False,
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        # Pipeline should be FAILED after exhausting retries
+        assert pipeline.status == PipelineStatus.FAILED
+        # All 3 attempts should have been made
+        assert mock_gateway.create_worktrees.call_count == 3
+        # Agents should not have been spawned
+        mock_spawn_wait.assert_not_called()
+
+    @patch("routes.pipelines.time.sleep")
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_non_transient_error_fails_immediately(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_sleep,
+    ):
+        """4xx errors should not be retried — fail immediately."""
+        from routes.pipelines import _run_pipeline
+
+        pipeline = _make_running_pipeline()
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_get_store.return_value = mock_store
+
+        # Fail with a 400 client error — should not be retried
+        mock_gateway = MagicMock()
+        mock_gateway.create_worktrees.side_effect = GatewayError("Bad request", status_code=400)
+        mock_spawner = MagicMock()
+        mock_spawner.gateway = mock_gateway
+        mock_get_spawner.return_value = mock_spawner
+
+        mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_state_lock.return_value.__exit__ = MagicMock(return_value=False)
+        mock_build_prompt.return_value = "test prompt"
+        mock_read_draft.return_value = None
+
+        with patch.dict(
+            os.environ,
+            {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'},
+            clear=False,
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        # Should have been called exactly once — no retries for 4xx
+        assert mock_gateway.create_worktrees.call_count == 1
+        # No sleep between attempts since it failed immediately
+        mock_sleep.assert_not_called()
+        # Pipeline should be FAILED
+        assert pipeline.status == PipelineStatus.FAILED
+        # Agents should not have been spawned
+        mock_spawn_wait.assert_not_called()
+
+
+class TestSafetyNetContainerCleanup:
+    """Verify orphaned containers are cleaned up in finally block (#1386)."""
+
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_cleanup_called_in_finally(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+    ):
+        """Safety-net cleanup should call cleanup_pipeline in the finally block."""
+        from routes.pipelines import _run_pipeline
+
+        pipeline = _make_running_pipeline()
+        mock_store, mock_gateway = _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        # cleanup_pipeline should have been called as safety net
+        mock_spawner = mock_get_spawner.return_value
+        mock_spawner.cleanup_pipeline.assert_called_with("issue-42", force=True)

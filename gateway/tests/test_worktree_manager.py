@@ -791,6 +791,43 @@ class TestRunGitWorktreeAddRetry:
         assert mock_run.call_count == 1
         mock_sleep.assert_not_called()
 
+    def test_retry_exhausts_all_attempts(self, tmp_path):
+        """All 5 retry attempts should be tried before giving up."""
+        import subprocess
+
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path / "repos",
+        )
+        main_repo = tmp_path / "repos" / "test-repo"
+        main_repo.mkdir(parents=True)
+        (main_repo / ".git").mkdir()
+
+        fail_result = subprocess.CompletedProcess(
+            args=["git", "worktree", "add"],
+            returncode=128,
+            stdout="",
+            stderr="fatal: Unable to create '.git/index.lock': File exists.",
+        )
+
+        with (
+            patch("worktree_manager.subprocess.run", return_value=fail_result) as mock_run,
+            patch("worktree_manager.time.sleep") as mock_sleep,
+        ):
+            result = manager._run_git_worktree_add(
+                args=["git", "worktree", "add", "/tmp/wt"],
+                cwd=main_repo,
+                main_repo=main_repo,
+            )
+
+        assert result.returncode == 128
+        # 5 attempts total (initial + 4 retries)
+        assert mock_run.call_count == 5
+        # 4 sleeps between attempts with exponential backoff from 0.5s
+        assert mock_sleep.call_count == 4
+        sleep_args = [call.args[0] for call in mock_sleep.call_args_list]
+        assert sleep_args == [0.5, 1.0, 2.0, 4.0]
+
     def test_retry_cleans_partial_worktree(self, tmp_path):
         """Partial worktree directory should be cleaned up between retries."""
         import subprocess

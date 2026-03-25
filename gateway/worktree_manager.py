@@ -421,11 +421,11 @@ class WorktreeManager:
         hitting the lock error, preventing the next attempt from
         failing with "already exists".
 
-        Attempts up to 3 times with exponential backoff (0.1 s, 0.2 s,
-        0.4 s).
+        Attempts up to 5 times with exponential backoff (0.5 s, 1.0 s,
+        2.0 s, 4.0 s).
         """
-        max_attempts = 3
-        backoff = 0.1
+        max_attempts = 5
+        backoff = 0.5
 
         for attempt in range(1, max_attempts + 1):
             result = subprocess.run(
