@@ -1243,11 +1243,9 @@ class TestWorktreeCreationRetry:
         assert mock_gateway.create_worktrees.call_count == 2
         # Sleep should have been called once between attempts
         mock_sleep.assert_called_once_with(2.0)
-        # Pipeline should have continued past worktree creation (not failed at retry stage)
-        assert (
-            pipeline.status != PipelineStatus.FAILED
-            or "worktree" not in str(pipeline.error).lower()
-        )
+        # Pipeline should have progressed past worktree creation to agent spawning
+        mock_spawner = mock_get_spawner.return_value
+        mock_spawner.spawn_overseer_container.assert_called()
 
     @patch("routes.pipelines.time.sleep")
     @patch(_COMMON_PATCHES[7])
@@ -1302,6 +1300,64 @@ class TestWorktreeCreationRetry:
         assert pipeline.status == PipelineStatus.FAILED
         # All 3 attempts should have been made
         assert mock_gateway.create_worktrees.call_count == 3
+        # Agents should not have been spawned
+        mock_spawn_wait.assert_not_called()
+
+    @patch("routes.pipelines.time.sleep")
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_non_transient_error_fails_immediately(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_sleep,
+    ):
+        """4xx errors should not be retried — fail immediately."""
+        from routes.pipelines import _run_pipeline
+
+        pipeline = _make_running_pipeline()
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_get_store.return_value = mock_store
+
+        # Fail with a 400 client error — should not be retried
+        mock_gateway = MagicMock()
+        mock_gateway.create_worktrees.side_effect = GatewayError("Bad request", status_code=400)
+        mock_spawner = MagicMock()
+        mock_spawner.gateway = mock_gateway
+        mock_get_spawner.return_value = mock_spawner
+
+        mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_state_lock.return_value.__exit__ = MagicMock(return_value=False)
+        mock_build_prompt.return_value = "test prompt"
+        mock_read_draft.return_value = None
+
+        with patch.dict(
+            os.environ,
+            {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'},
+            clear=False,
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        # Should have been called exactly once — no retries for 4xx
+        assert mock_gateway.create_worktrees.call_count == 1
+        # No sleep between attempts since it failed immediately
+        mock_sleep.assert_not_called()
+        # Pipeline should be FAILED
+        assert pipeline.status == PipelineStatus.FAILED
         # Agents should not have been spawned
         mock_spawn_wait.assert_not_called()
 
