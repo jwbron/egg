@@ -424,8 +424,8 @@ class WorktreeManager:
         Attempts up to 3 times with exponential backoff (0.1 s, 0.2 s,
         0.4 s).
         """
-        max_attempts = 3
-        backoff = 0.1
+        max_attempts = 5
+        backoff = 0.5
 
         for attempt in range(1, max_attempts + 1):
             result = subprocess.run(

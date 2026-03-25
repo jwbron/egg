@@ -162,6 +162,7 @@ class GatewayClient:
         data: dict[str, Any] | None = None,
         use_launcher_auth: bool = False,
         bearer_token: str | None = None,
+        timeout: int | None = None,
     ) -> dict[str, Any]:
         """Make an HTTP request to the gateway.
 
@@ -171,6 +172,7 @@ class GatewayClient:
             data: Request body data
             use_launcher_auth: Use launcher secret for auth
             bearer_token: Explicit bearer token (takes precedence over launcher auth)
+            timeout: Per-request timeout in seconds (overrides client default)
 
         Returns:
             Response JSON data
@@ -187,10 +189,11 @@ class GatewayClient:
             headers["Authorization"] = f"Bearer {self.launcher_secret}"
 
         body = json.dumps(data).encode() if data else None
+        effective_timeout = timeout if timeout is not None else self.timeout
 
         try:
             request = Request(url, data=body, headers=headers, method=method)
-            with urlopen(request, timeout=self.timeout) as response:
+            with urlopen(request, timeout=effective_timeout) as response:
                 result: dict[str, Any] = json.loads(response.read().decode())
                 return result
         except HTTPError as e:
@@ -498,6 +501,7 @@ class GatewayClient:
         uid: int | None = None,
         gid: int | None = None,
         base_branch: str | None = None,
+        timeout: int = 120,
     ) -> WorktreeResult:
         """Create isolated worktrees for a container.
 
@@ -512,6 +516,9 @@ class GatewayClient:
             gid: Group ID for worktree ownership
             base_branch: Branch to base worktrees on. When None, the gateway
                 resolves the remote default branch per-repo (e.g., origin/main).
+            timeout: Request timeout in seconds. Defaults to 120s because
+                concurrent pipeline starts may queue behind per-repo locks
+                in the gateway.
 
         Returns:
             WorktreeResult with host paths for each repo
@@ -536,6 +543,7 @@ class GatewayClient:
                 method="POST",
                 data=request_data,
                 use_launcher_auth=True,
+                timeout=timeout,
             )
 
             data = result.get("data", {})
