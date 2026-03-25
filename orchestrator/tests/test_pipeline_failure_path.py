@@ -1244,7 +1244,10 @@ class TestWorktreeCreationRetry:
         # Sleep should have been called once between attempts
         mock_sleep.assert_called_once_with(2.0)
         # Pipeline should have continued past worktree creation (not failed at retry stage)
-        assert pipeline.status != PipelineStatus.FAILED or "worktree" not in str(pipeline.error).lower()
+        assert (
+            pipeline.status != PipelineStatus.FAILED
+            or "worktree" not in str(pipeline.error).lower()
+        )
 
     @patch("routes.pipelines.time.sleep")
     @patch(_COMMON_PATCHES[7])
