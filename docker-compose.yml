@@ -181,6 +181,9 @@ networks:
       config:
         - subnet: 172.32.0.0/24
           gateway: 172.32.0.1
+          # Dynamic containers (sandboxes) get IPs from .128-.254, keeping
+          # .2-.127 safe for static assignments (gateway=.2, orchestrator=.3).
+          ip_range: 172.32.0.128/25
   egg-external:
     name: ${COMPOSE_PROJECT_NAME:-egg}-external
     driver: bridge
@@ -188,3 +191,6 @@ networks:
       config:
         - subnet: 172.33.0.0/24
           gateway: 172.33.0.1
+          # Dynamic containers (sandboxes) get IPs from .128-.254, keeping
+          # .2-.127 safe for static assignments (gateway=.2, orchestrator=.3).
+          ip_range: 172.33.0.128/25
