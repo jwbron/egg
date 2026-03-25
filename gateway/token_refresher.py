@@ -100,6 +100,7 @@ class TokenRefresher:
         """Calculate exponential backoff based on consecutive failures.
 
         Returns seconds to wait: 30, 60, 120, 240, 300 (capped at 5 min).
+        Assumes a minimum of 1 failure to stay within the documented range.
         """
         failures = max(self._consecutive_failures, 1)
         return float(min(30 * (2 ** (failures - 1)), 300))
