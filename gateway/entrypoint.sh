@@ -185,7 +185,6 @@ _squid_supervisor() {
 }
 
 _squid_supervisor &
-SQUID_SUPERVISOR_PID=$!
 
 # =============================================================================
 # Run Configuration Validation
