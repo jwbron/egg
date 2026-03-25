@@ -93,43 +93,72 @@ class TokenRefresher:
         self._generated_at: datetime | None = None
         self._lock = threading.Lock()
         self._consecutive_failures = 0
+        self._next_retry_at: datetime | None = None
+
+    def _backoff_seconds(self) -> float:
+        """Calculate exponential backoff based on consecutive failures.
+
+        Returns seconds to wait: 30, 60, 120, 240, 300 (capped at 5 min).
+        """
+        return min(30 * (2 ** (self._consecutive_failures - 1)), 300)
+
+    def _in_backoff(self) -> bool:
+        """Check if we're in a backoff cooldown period."""
+        if self._next_retry_at is None:
+            return False
+        return datetime.now(UTC) < self._next_retry_at
 
     def _ensure_valid_token(self) -> None:
         """
         Ensure we have a valid token, refreshing if needed.
 
+        Uses exponential backoff on failures to avoid hammering the API.
+        After max consecutive failures, continues retrying with backoff
+        rather than permanently giving up.
+
         Must be called while holding self._lock.
         """
-        if self._needs_refresh():
-            try:
-                self._refresh()
-                self._consecutive_failures = 0
-            except Exception as e:
-                self._consecutive_failures += 1
-                logger.error(
-                    "Token refresh failed",
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    consecutive_failures=self._consecutive_failures,
-                    has_cached_token=self._token is not None,
-                )
+        if not self._needs_refresh():
+            return
 
-                # If we have a cached token, use it with warning
-                if self._token and self._consecutive_failures < self._max_failures:
-                    logger.warning(
-                        "Using cached token after refresh failure",
-                        expires_at=self._expires_at.isoformat() if self._expires_at else None,
-                        consecutive_failures=self._consecutive_failures,
-                    )
-                elif self._consecutive_failures >= self._max_failures:
-                    logger.error(
-                        "Max refresh failures reached, clearing cached token",
-                        max_failures=self._max_failures,
-                        consecutive_failures=self._consecutive_failures,
-                    )
-                    self._token = None
-                    self._expires_at = None
-                    self._generated_at = None
+        # Skip refresh attempt if we're in a backoff cooldown
+        if self._in_backoff():
+            return
+
+        try:
+            self._refresh()
+            self._consecutive_failures = 0
+            self._next_retry_at = None
+        except Exception as e:
+            self._consecutive_failures += 1
+            backoff = self._backoff_seconds()
+            self._next_retry_at = datetime.now(UTC) + timedelta(seconds=backoff)
+
+            logger.error(
+                "Token refresh failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                consecutive_failures=self._consecutive_failures,
+                has_cached_token=self._token is not None,
+                retry_after_seconds=backoff,
+            )
+
+            if self._token and self._consecutive_failures < self._max_failures:
+                logger.warning(
+                    "Using cached token after refresh failure",
+                    expires_at=self._expires_at.isoformat() if self._expires_at else None,
+                    consecutive_failures=self._consecutive_failures,
+                )
+            elif self._consecutive_failures >= self._max_failures:
+                logger.warning(
+                    "Max refresh failures reached, will keep retrying with backoff",
+                    max_failures=self._max_failures,
+                    consecutive_failures=self._consecutive_failures,
+                    retry_after_seconds=backoff,
+                )
+                self._token = None
+                self._expires_at = None
+                self._generated_at = None
 
     def get_token(self) -> str | None:
         """
