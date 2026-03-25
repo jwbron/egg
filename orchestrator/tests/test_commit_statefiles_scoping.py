@@ -81,6 +81,39 @@ class TestCommitStatefilesScoping:
         assert "42" in add_paths_str
         assert "99" not in add_paths_str
 
+    def test_scoped_does_not_substring_match(self, tmp_path: Path):
+        """Pipeline 4 must NOT match files for pipeline 42 (prefix-anchored)."""
+        for subdir in ("contracts", "drafts"):
+            d = tmp_path / ".egg-state" / subdir
+            d.mkdir(parents=True, exist_ok=True)
+
+        # Files for pipeline 4 (should match)
+        (tmp_path / ".egg-state" / "contracts" / "4.json").write_text("{}")
+        (tmp_path / ".egg-state" / "drafts" / "4-plan.md").write_text("plan")
+        # Files for pipeline 42 (should NOT match)
+        (tmp_path / ".egg-state" / "contracts" / "42.json").write_text("{}")
+        (tmp_path / ".egg-state" / "drafts" / "42-plan.md").write_text("other")
+        # Files for pipeline 142 (should NOT match)
+        (tmp_path / ".egg-state" / "contracts" / "142.json").write_text("{}")
+
+        with patch("subprocess.run", side_effect=_make_run_side_effect()) as mock_run:
+            _commit_statefiles_to_worktree(tmp_path, "scoped commit", pipeline_identifier=4)
+
+        add_call = None
+        for c in mock_run.call_args_list:
+            cmd = c[0][0]
+            if "add" in cmd and "--" in cmd:
+                add_call = cmd
+                break
+
+        assert add_call is not None, "Expected a git add call"
+        add_paths = add_call[add_call.index("--") + 1 :]
+        add_paths_str = " ".join(add_paths)
+        # Should match pipeline 4 files only
+        assert "/4." in add_paths_str or "/4-" in add_paths_str
+        assert "42" not in add_paths_str
+        assert "142" not in add_paths_str
+
     def test_scoped_no_matching_files_is_noop(self, tmp_path: Path):
         """When no files match the identifier, nothing is committed."""
         d = tmp_path / ".egg-state" / "contracts"

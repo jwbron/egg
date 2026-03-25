@@ -2,6 +2,7 @@
 Pipeline CRUD endpoints for egg-orchestrator.
 """
 
+import glob
 import json
 import os
 import re
@@ -2438,9 +2439,10 @@ def _commit_statefiles_to_worktree(
 ) -> None:
     """Stage and commit ``.egg-state/`` files in *worktree_path*.
 
-    When *pipeline_identifier* is provided, only files whose names contain
-    the identifier are staged.  This prevents concurrent pipelines from
-    leaking each other's state files into unrelated PRs (see #1390).
+    When *pipeline_identifier* is provided, only files whose names start
+    with the identifier (followed by ``.`` or ``-``) are staged.  This
+    prevents concurrent pipelines from leaking each other's state files
+    into unrelated PRs (see #1390).
 
     Falls back to staging the entire ``.egg-state/`` directory when
     *pipeline_identifier* is ``None`` (backwards-compatibility).
@@ -2449,8 +2451,6 @@ def _commit_statefiles_to_worktree(
     Raises ``subprocess.CalledProcessError`` on git failure;
     call sites catch and log rather than aborting the pipeline.
     """
-    import glob as _glob
-
     state_dir = worktree_path / ".egg-state"
     if not state_dir.exists():
         return  # Nothing to commit yet
@@ -2458,11 +2458,20 @@ def _commit_statefiles_to_worktree(
     git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_path)]
 
     if pipeline_identifier is not None:
-        # Scope to files belonging to this pipeline only (#1390)
-        pattern = str(state_dir / "**" / f"*{pipeline_identifier}*")
-        matched = _glob.glob(pattern, recursive=True)
-        # Filter to regular files only (skip directories)
-        matched = [f for f in matched if Path(f).is_file()]
+        # Scope to files belonging to this pipeline only (#1390).
+        # Use prefix-anchored patterns with delimiter boundaries to avoid
+        # substring false positives (e.g. pipeline 4 matching pipeline 42).
+        pid = str(pipeline_identifier)
+        pattern_dot = str(state_dir / "**" / f"{pid}.*")
+        pattern_dash = str(state_dir / "**" / f"{pid}-*")
+        matched = [
+            f
+            for f in (
+                glob.glob(pattern_dot, recursive=True)
+                + glob.glob(pattern_dash, recursive=True)
+            )
+            if Path(f).is_file()
+        ]
         if not matched:
             return  # No state files for this pipeline yet
 
