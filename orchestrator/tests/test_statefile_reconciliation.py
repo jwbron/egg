@@ -71,6 +71,7 @@ class TestEnsureStatefilesOnBranch:
         mock_commit.assert_called_once_with(
             tmp_path,
             "Restore missing contract for 42",
+            pipeline_identifier=42,
         )
 
     def test_recreates_contract_when_missing_pipeline_id(self, tmp_path: Path):
@@ -89,7 +90,11 @@ class TestEnsureStatefilesOnBranch:
             title="test prompt",
             repo_root=tmp_path,
         )
-        mock_commit.assert_called_once()
+        mock_commit.assert_called_once_with(
+            tmp_path,
+            "Restore missing contract for pipe-abc",
+            pipeline_identifier="pipe-abc",
+        )
 
     def test_canonical_path_guard_prevents_recreation(self, tmp_path: Path):
         """When hardcoded path is missing but canonical path exists, skip recreation."""
