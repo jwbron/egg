@@ -2,6 +2,7 @@
 Pipeline CRUD endpoints for egg-orchestrator.
 """
 
+import glob
 import json
 import os
 import re
@@ -2436,18 +2437,21 @@ def _sync_worktree_with_remote(
 def _commit_statefiles_to_worktree(
     worktree_path: Path,
     message: str,
+    pipeline_identifier: int | str | None = None,
 ) -> None:
-    """Stage and commit all ``.egg-state/`` files in *worktree_path*.
+    """Stage and commit ``.egg-state/`` files in *worktree_path*.
 
-    The old GitHub Actions workflow ran ``git add .egg-state/`` at every
-    phase boundary to capture contracts, drafts, reviews, and check
-    results.  The local orchestrator must do the same so these state
-    files are deterministically present on the feature branch regardless
-    of whether the agent happened to commit them.
+    When *pipeline_identifier* is provided, only files whose names start
+    with the identifier (followed by ``.`` or ``-``) are staged.  This
+    prevents concurrent pipelines from leaking each other's state files
+    into unrelated PRs (see #1390).
+
+    Falls back to staging the entire ``.egg-state/`` directory when
+    *pipeline_identifier* is ``None`` (backwards-compatibility).
 
     The commit is idempotent (skips when nothing is staged).
     Raises ``subprocess.CalledProcessError`` on git failure;
-    both call sites catch and log rather than aborting the pipeline.
+    call sites catch and log rather than aborting the pipeline.
     """
     state_dir = worktree_path / ".egg-state"
     if not state_dir.exists():
@@ -2455,13 +2459,39 @@ def _commit_statefiles_to_worktree(
 
     git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_path)]
 
-    subprocess.run(
-        [*git_base, "add", ".egg-state/"],
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=30,
-    )
+    if pipeline_identifier is not None:
+        # Scope to files belonging to this pipeline only (#1390).
+        # Use prefix-anchored patterns with delimiter boundaries to avoid
+        # substring false positives (e.g. pipeline 4 matching pipeline 42).
+        pid = str(pipeline_identifier)
+        pattern_dot = str(state_dir / "**" / f"{pid}.*")
+        pattern_dash = str(state_dir / "**" / f"{pid}-*")
+        matched = [
+            f
+            for f in (
+                glob.glob(pattern_dot, recursive=True) + glob.glob(pattern_dash, recursive=True)
+            )
+            if Path(f).is_file()
+        ]
+        if not matched:
+            return  # No state files for this pipeline yet
+
+        rel_paths = [str(Path(f).relative_to(worktree_path)) for f in matched]
+        subprocess.run(
+            [*git_base, "add", "--"] + rel_paths,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+    else:
+        subprocess.run(
+            [*git_base, "add", ".egg-state/"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
 
     # Only commit if there are staged changes (idempotent on re-runs)
     result = subprocess.run(
@@ -2542,6 +2572,7 @@ def _ensure_statefiles_on_branch(
         _commit_statefiles_to_worktree(
             worktree_repo_path,
             f"Restore missing contract for {identifier}",
+            pipeline_identifier=identifier,
         )
         logger.info(
             "Contract file restored successfully",
@@ -5759,6 +5790,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     _commit_statefiles_to_worktree(
                         worktree_repo_path,
                         f"Initialize SDLC contract for {issue_ref}",
+                        pipeline_identifier=_pipeline_identifier(
+                            pipeline.issue_number, pipeline_id
+                        ),
                     )
                 except subprocess.CalledProcessError as git_err:
                     logger.warning(
@@ -6365,6 +6399,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 _commit_statefiles_to_worktree(
                     worktree_repo_path,
                     f"Persist statefiles after {current_phase.value} phase",
+                    pipeline_identifier=_pipeline_identifier(pipeline.issue_number, pipeline_id),
                 )
             except subprocess.CalledProcessError as git_err:
                 logger.warning(
@@ -6705,6 +6740,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     _commit_statefiles_to_worktree(
                         worktree_repo_path,
                         f"Persist HITL resolution after {current_phase.value} phase gate",
+                        pipeline_identifier=_pipeline_identifier(
+                            pipeline.issue_number, pipeline_id
+                        ),
                     )
                 except subprocess.CalledProcessError as git_err:
                     logger.warning(
@@ -7040,6 +7078,9 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                             _commit_statefiles_to_worktree(
                                 repo_path,
                                 f"Persist HITL resolution after {pipeline.current_phase.value} phase gate",
+                                pipeline_identifier=_pipeline_identifier(
+                                    pipeline.issue_number, pipeline_id
+                                ),
                             )
                         except subprocess.CalledProcessError as git_err:
                             logger.warning(
