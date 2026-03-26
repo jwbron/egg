@@ -290,6 +290,51 @@ class TestReconcileContainerState:
         # Agent should still be COMPLETE (not overwritten to FAILED)
         assert phase.agents[0].status == AgentExecutionStatus.COMPLETE
 
+    def test_sigterm_143_skips_reconciliation_when_phase_complete(self):
+        """SIGTERM (exit 143) during a completed phase is benign (issue #1405).
+
+        When the orchestrator kills agent containers during a phase transition,
+        containers exit with code 143. If the phase has already completed
+        successfully, the reconciler should NOT mark the pipeline as FAILED.
+        """
+        container_id = "sigterm_phase_done_xyz"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        # Phase has completed successfully before containers were killed
+        phase.status = PipelineStatus.COMPLETE
+
+        store = _make_store(pipeline)
+        exited_info = _make_container_info(container_id, exit_code=143)
+
+        result = _reconcile_container_state(store, exited_info)
+
+        # SIGTERM during completed phase should not mark as FAILED
+        assert result is False
+        assert pipeline.status == PipelineStatus.RUNNING  # Unchanged
+        agent = phase.agents[0]
+        assert agent.status == AgentExecutionStatus.RUNNING  # Unchanged
+
+    def test_sigterm_143_reconciles_when_phase_still_running(self):
+        """SIGTERM (exit 143) during a still-running phase IS a failure.
+
+        If the phase is still RUNNING when a container exits with 143, this
+        is an unexpected termination and should be treated as a real failure.
+        """
+        container_id = "sigterm_running_phase_xyz"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        # Phase is still RUNNING
+        assert phase.status == PipelineStatus.RUNNING
+
+        store = _make_store(pipeline)
+        exited_info = _make_container_info(container_id, exit_code=143)
+
+        result = _reconcile_container_state(store, exited_info)
+
+        # SIGTERM during running phase IS a failure
+        assert result is True
+        assert pipeline.status == PipelineStatus.FAILED
+
 
 # ---------------------------------------------------------------------------
 # Tests: create_pipeline_reconciliation_handler
@@ -418,6 +463,80 @@ class TestContainerMonitorDetection:
 
         event_types = [e.event_type for e in events_received]
         assert ContainerEvent.STOPPED in event_types
+
+    def test_monitor_emits_failed_for_sigterm_143(self):
+        """Monitor emits FAILED for exit code 143 (SIGTERM) in _check_container.
+
+        Exit code 143 during active phases must still trigger FAILED events so
+        the reconciliation handler can evaluate phase state.  Phase-aware
+        SIGTERM handling happens in the reconciliation loop and
+        _reconcile_container_state, NOT in the event emission path (issue #1405).
+        """
+        mock_docker = MagicMock()
+        container_id = "test_container_sigterm"
+
+        running_info = ContainerInfo(
+            container_id=container_id,
+            container_name="egg-coder-sigterm",
+            status=ContainerStatus.RUNNING,
+            started_at=datetime.now(UTC),
+        )
+        exited_info = ContainerInfo(
+            container_id=container_id,
+            container_name="egg-coder-sigterm",
+            status=ContainerStatus.EXITED,
+            exit_code=143,
+            exited_at=datetime.now(UTC),
+        )
+        mock_docker.list_containers.side_effect = [
+            [running_info],
+            [exited_info],
+        ]
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        events_received: list[ContainerEvent] = []
+        monitor.add_handler(lambda e: events_received.append(e))
+
+        monitor._check_all_containers()  # STARTED
+        monitor._check_all_containers()  # FAILED (exit 143 — phase-unaware path)
+
+        event_types = [e.event_type for e in events_received]
+        assert ContainerEvent.STARTED in event_types
+        assert ContainerEvent.FAILED in event_types
+
+    def test_monitor_emits_failed_for_non_143_nonzero(self):
+        """Exit code 137 (SIGKILL) or other non-zero codes still emit FAILED."""
+        mock_docker = MagicMock()
+        container_id = "test_container_sigkill"
+
+        running_info = ContainerInfo(
+            container_id=container_id,
+            container_name="egg-coder-sigkill",
+            status=ContainerStatus.RUNNING,
+            started_at=datetime.now(UTC),
+        )
+        exited_info = ContainerInfo(
+            container_id=container_id,
+            container_name="egg-coder-sigkill",
+            status=ContainerStatus.EXITED,
+            exit_code=137,
+            exited_at=datetime.now(UTC),
+        )
+        mock_docker.list_containers.side_effect = [
+            [running_info],
+            [exited_info],
+        ]
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        events_received: list[ContainerEvent] = []
+        monitor.add_handler(lambda e: events_received.append(e))
+
+        monitor._check_all_containers()
+        monitor._check_all_containers()
+
+        event_types = [e.event_type for e in events_received]
+        assert ContainerEvent.FAILED in event_types
+        assert event_types.count(ContainerEvent.STOPPED) == 0
 
 
 # ---------------------------------------------------------------------------

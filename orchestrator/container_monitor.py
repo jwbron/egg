@@ -555,6 +555,26 @@ class ContainerMonitor:
                                         self._clean_exit_skipped.add(agent.container_id)
                                     continue
 
+                                # SIGTERM (exit 143) during a completed phase
+                                # transition is expected — the orchestrator
+                                # kills containers when phases complete.
+                                # Defense-in-depth: also guarded inside
+                                # _reconcile_container_state (issue #1405).
+                                if actual_exit_code == 143 and (
+                                    phase_execution.status != PipelineStatus.RUNNING
+                                ):
+                                    if agent.container_id not in self._clean_exit_skipped:
+                                        logger.info(
+                                            "Container received SIGTERM during phase "
+                                            "transition (exit 143), skipping FAILED "
+                                            "reconciliation",
+                                            pipeline_id=pipeline_id,
+                                            container_id=agent.container_id,
+                                            agent_role=str(agent.role),
+                                        )
+                                        self._clean_exit_skipped.add(agent.container_id)
+                                    continue
+
                                 # Find the matching ContainerInfo to pass to _reconcile
                                 matching_ci = None
                                 for ci in phase_execution.containers:
@@ -747,6 +767,22 @@ def _reconcile_container_state(store: Any, container_info: ContainerInfo) -> boo
                                 container_id=ci.container_id[:12],
                             )
                             continue
+                        # SIGTERM (exit 143) on a container whose phase has
+                        # already completed is expected — the orchestrator
+                        # kills containers during phase transitions.  Only
+                        # treat 143 as benign when the phase is no longer
+                        # RUNNING (i.e. successfully transitioned).
+                        if (
+                            container_info.exit_code == 143
+                            and phase_execution.status != PipelineStatus.RUNNING
+                        ):
+                            logger.info(
+                                "Runtime reconciliation: SIGTERM (143) during "
+                                "completed phase, skipping FAILED reconciliation",
+                                pipeline_id=pipeline_id,
+                                container_id=container_info.container_id[:12],
+                            )
+                            continue
                         logger.warning(
                             "Runtime reconciliation: container exited, marking FAILED",
                             pipeline_id=pipeline_id,
@@ -764,6 +800,13 @@ def _reconcile_container_state(store: Any, container_info: ContainerInfo) -> boo
                         agent.status == AgentExecutionStatus.RUNNING
                         and agent.container_id == container_info.container_id
                     ):
+                        # Skip SIGTERM (exit 143) on completed phases — same
+                        # guard as the container loop above (issue #1405).
+                        if (
+                            container_info.exit_code == 143
+                            and phase_execution.status != PipelineStatus.RUNNING
+                        ):
+                            continue
                         logger.warning(
                             "Runtime reconciliation: agent container exited, marking FAILED",
                             pipeline_id=pipeline_id,

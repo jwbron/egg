@@ -168,7 +168,14 @@ class PeerConsensusTracker:
         # Detect reviewers who confirmed on a stale version and need re-review.
         # This prevents deadlocks where a confirmed reviewer never sees a new
         # proposal version after the producer withdraws and re-proposes.
-        stale_confirmed_reviewers = self._un_confirm_stale_reviewers(agent_role, version)
+        stale_reviewers = self._un_confirm_stale_reviewers(agent_role, version)
+
+        # Invalidate pre-proposal ACKs (version 0).  When a reviewer ACKs a
+        # producer that hasn't proposed yet, the ACK is recorded at version 0.
+        # After the producer proposes (version >= 1), these version-0 ACKs can
+        # never satisfy is_fully_acked() and would create a permanent deadlock.
+        pre_proposal_stale = self._invalidate_pre_proposal_acks(agent_role, version)
+        stale_reviewers.extend(pre_proposal_stale)
 
         emit_event(
             EventType.CONSENSUS_PROPOSE_RECEIVED,
@@ -177,7 +184,7 @@ class PeerConsensusTracker:
                 "role": agent_role,
                 "version": version,
                 "artifacts": proposal.artifacts,
-                "stale_confirmed_reviewers": stale_confirmed_reviewers,
+                "stale_reviewers": stale_reviewers,
             },
         )
 
@@ -185,7 +192,7 @@ class PeerConsensusTracker:
             "version": version,
             "status": "proposed",
             "reviewers": self.graph.reviewers_for(agent_role),
-            "stale_confirmed_reviewers": stale_confirmed_reviewers,
+            "stale_reviewers": stale_reviewers,
         }
 
     def handle_ack(
@@ -390,6 +397,40 @@ class PeerConsensusTracker:
                         raise ValueError(
                             f"Reviewer {agent_role} cannot confirm: hasn't reviewed {producer}"
                         )
+
+                # Version-match guard: reject confirmation when any ACK is
+                # stale (recorded against an older proposal version).  This
+                # prevents a deadlock where a reviewer ACKed before the
+                # producer proposed (version 0) or before a re-proposal.
+                stale_acks: list[dict[str, Any]] = []
+                for producer in producers:
+                    entry = self.matrix.get_entry(agent_role, producer)
+                    current_version = self.matrix.get_proposal_version(producer)
+                    if (
+                        entry is not None
+                        and entry.state == ApprovalState.ACKED
+                        and current_version > 0
+                        and entry.version != current_version
+                    ):
+                        stale_acks.append(
+                            {
+                                "producer": producer,
+                                "ack_version": entry.version,
+                                "current_version": current_version,
+                            }
+                        )
+                if stale_acks:
+                    stale_producers = [s["producer"] for s in stale_acks]
+                    return {
+                        "status": "pending_acks",
+                        "message": (
+                            f"Reviewer {agent_role} cannot confirm: ACK version mismatch. "
+                            f"Re-ACK the following producers at their current proposal "
+                            f"version: {stale_producers}"
+                        ),
+                        "stale_acks": stale_acks,
+                    }
+
                 self._reviewer_phases[agent_role] = ConsensusPhase.CONFIRMED
 
             # For dual-role agents (tester), both must be CONFIRMED
@@ -805,6 +846,43 @@ class PeerConsensusTracker:
                 )
 
         return stale_reviewers
+
+    def _invalidate_pre_proposal_acks(
+        self,
+        producer_role: str,
+        new_version: int,
+    ) -> list[str]:
+        """Invalidate ACKs recorded before the producer's first proposal.
+
+        When a reviewer ACKs a producer that hasn't proposed yet, the ACK is
+        recorded at version 0.  After the producer proposes (version >= 1),
+        these version-0 ACKs can never match and would block consensus
+        permanently.
+
+        Only processes non-confirmed reviewers — confirmed stale reviewers
+        are already handled by ``_un_confirm_stale_reviewers``.
+
+        ``new_version`` is included for log context only — the invalidation
+        logic always targets version-0 ACKs regardless of the new version.
+
+        Returns list of reviewer roles whose ACKs were invalidated.
+        """
+        invalidated: list[str] = []
+        for reviewer in self.graph.reviewers_for(producer_role):
+            if reviewer in self._confirmed:
+                continue  # Already handled by _un_confirm_stale_reviewers
+            entry = self.matrix.get_entry(reviewer, producer_role)
+            if entry is not None and entry.state == ApprovalState.ACKED and entry.version == 0:
+                self.matrix.invalidate_ack(reviewer, producer_role)
+                invalidated.append(reviewer)
+                logger.info(
+                    "Invalidated pre-proposal ACK (version 0)",
+                    reviewer=reviewer,
+                    producer=producer_role,
+                    new_version=new_version,
+                    pipeline_id=self.pipeline_id,
+                )
+        return invalidated
 
     def _check_consensus(self) -> bool:
         """Check if all agents have confirmed. Emit event if so."""

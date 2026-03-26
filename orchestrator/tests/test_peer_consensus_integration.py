@@ -884,7 +884,7 @@ class TestWithdrawReProposalDeadlock:
 
         # reviewer_refine confirmed on v2, now stale on v3 — un-confirmed here
         assert "reviewer_refine" not in t._confirmed
-        assert "reviewer_refine" in result["stale_confirmed_reviewers"]
+        assert "reviewer_refine" in result["stale_reviewers"]
 
         # Now both reviewers can re-review and the cycle completes
         t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
@@ -900,7 +900,7 @@ class TestWithdrawReProposalDeadlock:
         assert result["consensus_reached"] is True
 
     def test_re_propose_after_withdraw_notifies_stale_reviewers(self, refine_tracker):
-        """Verify stale_confirmed_reviewers is returned for notification."""
+        """Verify stale_reviewers is returned for notification."""
         t = refine_tracker
 
         # Quick setup: propose, both ACK and confirm, then withdraw and re-propose
@@ -915,7 +915,7 @@ class TestWithdrawReProposalDeadlock:
         result = t.handle_propose("refiner", {"summary": "v3", "artifacts": ["design.md"]})
 
         # Both reviewers should be in the stale list
-        stale = result["stale_confirmed_reviewers"]
+        stale = result["stale_reviewers"]
         assert "reviewer_agent_design" in stale
         assert "reviewer_refine" in stale
 
@@ -923,7 +923,7 @@ class TestWithdrawReProposalDeadlock:
         """First proposal should never have stale confirmed reviewers."""
         t = refine_tracker
         result = t.handle_propose("refiner", {"summary": "v1", "artifacts": ["design.md"]})
-        assert result["stale_confirmed_reviewers"] == []
+        assert result["stale_reviewers"] == []
 
     def test_re_propose_via_changed_artifacts_also_unconfirms(self, refine_tracker):
         """handle_re_propose (with changed_artifacts) should also
@@ -951,7 +951,7 @@ class TestWithdrawReProposalDeadlock:
         # reviewer_agent_design confirmed on v1, but v2 changed design.md
         # which overlaps their ACK — so they get both invalidated AND un-confirmed
         assert "reviewer_agent_design" not in t._confirmed
-        assert "reviewer_agent_design" in result.get("stale_confirmed_reviewers", [])
+        assert "reviewer_agent_design" in result.get("stale_reviewers", [])
 
     def test_producer_confirm_fails_without_re_review(self, refine_tracker):
         """Without re-review, producer cannot confirm after withdrawal."""
@@ -1011,7 +1011,7 @@ class TestWithdrawReProposalDeadlock:
         assert "reviewer_refine" not in t._confirmed, (
             "Reviewer with stale NACK should have been un-confirmed"
         )
-        assert "reviewer_refine" in result["stale_confirmed_reviewers"]
+        assert "reviewer_refine" in result["stale_reviewers"]
         assert "reviewer_agent_design" not in t._confirmed
 
         # Both re-review, ACK, and confirm — no deadlock
@@ -1724,6 +1724,191 @@ class TestStallDemotion:
 
         # Now coder should be fully acked (tester is advisory)
         assert dual_tracker.matrix.is_fully_acked("coder")
+
+
+class TestPreProposalACKDeadlock:
+    """Test fix for issue #1405: BRC consensus deadlock when a reviewer
+    ACKs a producer before the producer has proposed.
+
+    The stale version-0 ACK never matches the actual proposal version,
+    preventing the producer from reaching is_fully_acked() and creating
+    a permanent deadlock.
+    """
+
+    @pytest.fixture
+    def deadlock_graph(self):
+        """2-reviewer graph for the deadlock scenario."""
+        return ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+
+    @pytest.fixture
+    def deadlock_tracker(self, deadlock_graph):
+        t = PeerConsensusTracker("issue-1405", deadlock_graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("reviewer_code")
+        t.register_agent("reviewer_contract")
+        return t
+
+    def test_pre_proposal_ack_then_confirm_deadlock_prevented(self, deadlock_tracker):
+        """(a) Reviewer ACKs before proposal, then tries to confirm — deadlock prevented.
+
+        Without the fix, the reviewer's version-0 ACK would remain and
+        the producer could never reach is_fully_acked().  With the fix,
+        the version-0 ACK is invalidated when the producer proposes, and
+        the reviewer's confirmation is rejected with version-match guard.
+        """
+        t = deadlock_tracker
+
+        # reviewer_code ACKs coder BEFORE coder proposes (version 0 ACK)
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+
+        # Verify ACK is at version 0
+        entry = t.matrix.get_entry("reviewer_code", "coder")
+        assert entry is not None
+        assert entry.state == ApprovalState.ACKED
+        assert entry.version == 0
+
+        # Coder proposes (version 1) — should invalidate the version-0 ACK
+        result = t.handle_propose(
+            "coder",
+            {"summary": "Implemented auth", "artifacts": ["src/auth.py"]},
+        )
+        assert result["version"] == 1
+        assert "reviewer_code" in result["stale_reviewers"]
+
+        # The pre-proposal ACK should now be PENDING (invalidated)
+        entry = t.matrix.get_entry("reviewer_code", "coder")
+        assert entry.state == ApprovalState.PENDING
+
+        # reviewer_code tries to confirm — should be rejected because
+        # their ACK was invalidated to PENDING (has_reviewed returns False)
+        with pytest.raises(ValueError, match="hasn't reviewed"):
+            t.handle_confirmed("reviewer_code")
+
+        # After re-ACKing at the correct version, confirmation succeeds
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_ack("reviewer_contract", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_confirmed("coder")
+        t.handle_confirmed("reviewer_code")
+        result = t.handle_confirmed("reviewer_contract")
+        assert result["consensus_reached"] is True
+
+    def test_pre_proposal_ack_invalidated_on_propose(self, deadlock_tracker):
+        """(b) Reviewer ACKs before proposal, producer proposes, stale ACK invalidated
+        and re-review notification sent."""
+        t = deadlock_tracker
+
+        # Both reviewers ACK coder before coder proposes
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_ack("reviewer_contract", "coder", {"artifact_references": ["src/auth.py"]})
+
+        # Both ACKs should be at version 0
+        assert t.matrix.get_entry("reviewer_code", "coder").version == 0
+        assert t.matrix.get_entry("reviewer_contract", "coder").version == 0
+
+        # Coder proposes — both version-0 ACKs should be invalidated
+        result = t.handle_propose(
+            "coder",
+            {"summary": "Implementation", "artifacts": ["src/auth.py"]},
+        )
+        stale = result["stale_reviewers"]
+        assert "reviewer_code" in stale
+        assert "reviewer_contract" in stale
+
+        # Both ACKs should be PENDING now
+        assert t.matrix.get_entry("reviewer_code", "coder").state == ApprovalState.PENDING
+        assert t.matrix.get_entry("reviewer_contract", "coder").state == ApprovalState.PENDING
+
+        # Coder is NOT fully ACKed
+        assert not t.matrix.is_fully_acked("coder")
+
+    def test_withdraw_and_re_propose_still_works(self, deadlock_tracker):
+        """(c) Existing withdraw-and-re-propose flow still works correctly
+        after the pre-proposal ACK fix."""
+        t = deadlock_tracker
+
+        # Normal flow: coder proposes, both ACK
+        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/auth.py"]})
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_ack("reviewer_contract", "coder", {"artifact_references": ["src/auth.py"]})
+        assert t.matrix.is_fully_acked("coder")
+
+        # Both confirm
+        t.handle_confirmed("reviewer_code")
+        t.handle_confirmed("reviewer_contract")
+
+        # Coder withdraws and re-proposes
+        t.handle_withdraw("coder", "Need to update approach")
+        result = t.handle_propose("coder", {"summary": "v2", "artifacts": ["src/auth.py"]})
+
+        # Confirmed reviewers should be un-confirmed and listed as stale
+        assert "reviewer_code" in result["stale_reviewers"]
+        assert "reviewer_contract" in result["stale_reviewers"]
+        assert "reviewer_code" not in t._confirmed
+        assert "reviewer_contract" not in t._confirmed
+
+        # Reviewers re-ACK and all confirm — consensus reached
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_ack("reviewer_contract", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_confirmed("coder")
+        t.handle_confirmed("reviewer_code")
+        result = t.handle_confirmed("reviewer_contract")
+        assert result["consensus_reached"] is True
+
+    def test_reviewer_cannot_confirm_after_repropose_invalidates_ack(self, deadlock_tracker):
+        """Reviewer cannot confirm after re-propose invalidates their ACK (has_reviewed guard)."""
+        t = deadlock_tracker
+
+        # Coder proposes v1, reviewer_code ACKs v1
+        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/auth.py"]})
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+
+        # Coder gets NACKed and re-proposes v2
+        t.handle_nack(
+            "reviewer_contract",
+            "coder",
+            {"artifact_references": ["src/auth.py"], "reason": "bug"},
+        )
+        t.handle_re_propose(
+            "coder",
+            {"summary": "v2", "artifacts": ["src/auth.py"]},
+            changed_artifacts=["src/auth.py"],
+        )
+
+        # reviewer_code's ACK was invalidated (overlapping artifact)
+        # Their ACK is now PENDING, not at current version
+        # reviewer_code tries to confirm — should be rejected
+        # Note: has_reviewed is True (entry exists) but version is stale
+        # Actually invalidated means PENDING, so has_reviewed returns False
+        # because has_reviewed checks for ACK or NACK state.
+        # So this should raise ValueError, not return pending_acks
+        with pytest.raises(ValueError, match="hasn't reviewed"):
+            t.handle_confirmed("reviewer_code")
+
+    def test_confirmed_reviewer_with_pre_proposal_ack_unconfirmed(self, deadlock_tracker):
+        """A reviewer who ACKed at version 0 and confirmed should be un-confirmed
+        when the producer proposes."""
+        t = deadlock_tracker
+
+        # reviewer_code ACKs before coder proposes (version 0)
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+
+        # reviewer_code confirms (has_reviewed returns True for the ACK entry)
+        t.handle_confirmed("reviewer_code")
+        assert "reviewer_code" in t._confirmed
+
+        # Coder proposes — the confirmed reviewer with stale version-0 ACK
+        # should be un-confirmed via _un_confirm_stale_reviewers
+        result = t.handle_propose(
+            "coder",
+            {"summary": "Implementation", "artifacts": ["src/auth.py"]},
+        )
+        assert "reviewer_code" in result["stale_reviewers"]
+        assert "reviewer_code" not in t._confirmed
 
 
 class TestReconstructTrackerConfirmedReplay:

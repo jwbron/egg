@@ -188,6 +188,18 @@ The phase times out with some agents confirmed and others stuck (e.g., 4/6 confi
 
 Role criticality is configurable per phase in the review adjacency definition.
 
+### Pre-Proposal ACK Race Condition (Resolved)
+
+When agents work at different speeds, a faster reviewer (e.g., tester) may send `CONSENSUS_ACK` before the slower producer (e.g., coder) has submitted its `CONSENSUS_PROPOSE`. The ACK is recorded at proposal version 0. When the producer later proposes (version 1), the version-0 ACK cannot satisfy `is_fully_acked()`, creating a permanent deadlock — the producer cannot confirm because it has "pending reviewers," but the reviewer has already confirmed and is idle.
+
+**Resolution:** The protocol now handles this at two points:
+
+1. **Propose-time invalidation**: When a producer proposes, `_invalidate_pre_proposal_acks()` detects any version-0 ACKs from non-confirmed reviewers and resets them to `PENDING`. Affected reviewers receive a `CONSENSUS_RE_REVIEW` notification to re-review.
+
+2. **Confirm-time version guard**: When a reviewer attempts `CONSENSUS_CONFIRMED`, a version-match check verifies that all of the reviewer's ACKs match the current proposal versions. Stale ACKs return `pending_acks` (exit code 2) with instructions to re-ACK the listed producers.
+
+These two layers — proactive invalidation at propose time and defensive validation at confirm time — ensure that out-of-order ACKs never create unrecoverable deadlocks, regardless of agent timing.
+
 ### Agent Crash Mid-Protocol
 
 An agent crashes after proposing but before the review phase completes.
