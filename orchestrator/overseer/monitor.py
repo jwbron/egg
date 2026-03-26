@@ -457,14 +457,14 @@ class OverseerMonitor:
                 "action": action,
                 "agent_role": agent_role,
                 "message": message[:500],
-                "priority": decision.get("priority", "unknown"),
+                "priority": decision.get("priority", "medium"),
             }
         )
 
         # Broadcast all non-trivial actions so the /sdlc monitoring session
         # (and any other listener) can surface overseer findings.
         await self._broadcast_alert(
-            anomaly_type=action,
+            anomaly_type=f"action:{action}",
             agent_role=agent_role,
             message=message,
             priority=decision.get("priority", "medium"),

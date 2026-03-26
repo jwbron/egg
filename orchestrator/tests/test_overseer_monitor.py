@@ -1705,7 +1705,7 @@ class TestExecuteActionBroadcasts:
         decision = {"action": "nudge", "message": "Check progress", "priority": "low"}
         _run(monitor._execute_action(decision, "coder"))
         monitor._broadcast_alert.assert_awaited_once_with(
-            anomaly_type="nudge",
+            anomaly_type="action:nudge",
             agent_role="coder",
             message="Check progress",
             priority="low",
@@ -1718,7 +1718,7 @@ class TestExecuteActionBroadcasts:
         decision = {"action": "hitl", "message": "Need human help", "priority": "high"}
         _run(monitor._execute_action(decision, "tester"))
         monitor._broadcast_alert.assert_awaited_once_with(
-            anomaly_type="hitl",
+            anomaly_type="action:hitl",
             agent_role="tester",
             message="Need human help",
             priority="high",
@@ -1732,6 +1732,38 @@ class TestExecuteActionBroadcasts:
         _run(monitor._execute_action(decision, "orchestrator"))
         monitor._broadcast_alert.assert_awaited_once()
         monitor._send_slack_notification.assert_awaited_once()
+
+    def test_redirect_broadcasts(self) -> None:
+        """Redirect action broadcasts an alert."""
+        monitor = self._make_monitor()
+        decision = {"action": "redirect", "message": "Try different approach", "priority": "medium"}
+        _run(monitor._execute_action(decision, "coder"))
+        monitor._broadcast_alert.assert_awaited_once_with(
+            anomaly_type="action:redirect",
+            agent_role="coder",
+            message="Try different approach",
+            priority="medium",
+        )
+        monitor._send_message.assert_awaited_once()
+
+    @pytest.mark.parametrize("has_file_diagnostic", [True])
+    def test_issue_broadcasts(self, has_file_diagnostic) -> None:
+        """Issue action broadcasts an alert."""
+        monitor = self._make_monitor()
+        decision = {"action": "issue", "message": "Persistent failure", "priority": "high"}
+        with pytest.MonkeyPatch.context() as mp:
+            mock_filer = AsyncMock()
+            mp.setattr(
+                "overseer.monitor.file_diagnostic_issue",
+                mock_filer,
+            )
+            _run(monitor._execute_action(decision, "tester"))
+        monitor._broadcast_alert.assert_awaited_once_with(
+            anomaly_type="action:issue",
+            agent_role="tester",
+            message="Persistent failure",
+            priority="high",
+        )
 
 
 # ===================================================================
@@ -1808,3 +1840,113 @@ class TestHealthChecksBroadcast:
         monitor._broadcast_alert.assert_awaited_once()
         call_args = monitor._broadcast_alert.call_args
         assert call_args.args[0] == "status_inconsistency"  # anomaly_type
+
+    def test_rerun_anomaly_broadcasts(self) -> None:
+        """Rerun anomaly broadcasts an alert when detected."""
+        monitor = self._make_monitor()
+        import datetime as _dt
+
+        now = _dt.datetime.now(_dt.UTC)
+        resolved_at = (now - _dt.timedelta(seconds=120)).isoformat()
+        started_at = (now - _dt.timedelta(seconds=30)).isoformat()
+        completed_at = (now - _dt.timedelta(seconds=5)).isoformat()
+
+        decisions = [
+            {
+                "id": "d-rerun-1",
+                "decision_type": "phase_gate",
+                "resolution": "request_changes",
+                "content_changed": False,
+                "resolved_at": resolved_at,
+            }
+        ]
+        phase_data = {
+            "phase_execution": {
+                "cycle_timings": [
+                    {"started_at": started_at, "completed_at": completed_at},
+                ],
+            },
+        }
+
+        _run(monitor._check_rerun_anomaly(decisions, phase_data))
+        monitor._broadcast_alert.assert_awaited_once()
+        call_args = monitor._broadcast_alert.call_args
+        assert call_args.args[0] == "rerun_anomaly"
+        assert call_args.args[3] == "high"
+
+    def test_hitl_propagation_failure_broadcasts(self) -> None:
+        """HITL propagation failure broadcasts an alert after timeout."""
+        monitor = self._make_monitor()
+        monitor._query_contract_data = AsyncMock(return_value={"decisions": []})
+
+        decisions = [
+            {
+                "id": "d-hitl-prop-1",
+                "decision_type": "phase_gate",
+                "status": "resolved",
+            }
+        ]
+
+        # First call: registers the pending decision
+        _run(monitor._check_hitl_resolution_propagation(decisions))
+        assert monitor._broadcast_alert.await_count == 0
+
+        # Simulate timeout expiry
+        monitor._hitl_resolution_pending["d-hitl-prop-1"] = time.time() - 400
+
+        _run(monitor._check_hitl_resolution_propagation(decisions))
+        monitor._broadcast_alert.assert_awaited_once()
+        call_args = monitor._broadcast_alert.call_args
+        assert call_args.args[0] == "hitl_propagation_failure"
+        assert call_args.args[3] == "high"
+
+    def test_pr_phase_no_pr_broadcasts(self) -> None:
+        """PR phase without PR broadcasts a critical alert."""
+        monitor = self._make_monitor()
+        pipeline_data = {
+            "current_phase": "pr",
+            "phases": {
+                "pr": {"artifacts": {}},
+            },
+        }
+
+        _run(monitor._check_pr_phase_outcome(pipeline_data))
+        monitor._broadcast_alert.assert_awaited_once()
+        call_args = monitor._broadcast_alert.call_args
+        assert call_args.args[0] == "pr_phase_no_pr"
+        assert call_args.args[3] == "critical"
+
+    def test_cross_phase_inconsistency_broadcasts(self) -> None:
+        """Cross-phase inconsistency broadcasts an alert."""
+        from unittest.mock import AsyncMock as _AM
+
+        classifier = _MockClassifier()
+        classifier.check_decision_consistency = _AM(
+            return_value={
+                "consistent": False,
+                "concerns": ["Ignored prior feedback"],
+                "confidence": 0.9,
+            }
+        )
+
+        monitor = OverseerMonitor(
+            pipeline_id="test-hc-cross-001",
+            config=_MockConfig(),
+            classifier=classifier,
+        )
+        monitor._broadcast_alert = AsyncMock()
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+        monitor._log_oversight_event = MagicMock()
+        monitor._query_contract_data = AsyncMock(return_value={"tasks": [{"id": "t1"}]})
+        monitor._last_phase_name = "plan"
+
+        decisions = [
+            {"id": "d-cross-1", "status": "resolved", "phase": "plan", "resolution": "approve"}
+        ]
+
+        _run(monitor._check_cross_phase_consistency({"current_phase": "implement"}, decisions))
+        monitor._broadcast_alert.assert_awaited_once()
+        call_args = monitor._broadcast_alert.call_args
+        assert call_args.args[0] == "cross_phase_inconsistency"
+        assert call_args.args[3] == "high"
