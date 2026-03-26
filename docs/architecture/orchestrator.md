@@ -384,7 +384,7 @@ All components communicate over Docker networks with controlled access:
 Fixed IPs:
 - Gateway: `172.32.0.2` (isolated), `172.33.0.2` (external)
 - Orchestrator: `172.32.0.3` (isolated), `172.33.0.3` (external)
-- Sandboxes: Dynamic allocation in `172.32.0.0/24`
+- Sandboxes: Dynamic allocation in `172.32.0.128/25` (.128–.254), keeping .2–.127 reserved for static assignments
 
 ### API Endpoints
 
