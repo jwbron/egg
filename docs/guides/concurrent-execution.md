@@ -207,6 +207,18 @@ Each agent tracks two state machines (producer and reviewer) independently:
 4. **Re-propose**: If a NACK is received, the producer addresses the feedback and re-proposes (with `changed_artifacts` to scope re-evaluation). Flip-flop cycles are capped at `max_flip_flops` (default: 3). If any reviewer had already confirmed on a prior proposal version, they automatically receive a `CONSENSUS_RE_REVIEW` message and are un-confirmed so they re-enter the review loop — preventing a deadlock where a stale-confirmed reviewer can never see the new proposal.
 
 > **Note — `pending_acks` (exit code 2):** After a re-proposal, previously-confirmed reviewers are un-confirmed and must re-ACK. If the producer calls `confirmed` before those re-ACKs arrive, the command returns exit code **2** (`pending_acks`) — this is transient, not an error. The producer should poll for messages and retry `confirmed` until it exits 0.
+>
+> **Note — Reviewer `pending_acks`:** Reviewers can also receive exit code 2 from `confirmed` when they have stale ACKs (e.g., an ACK recorded before the producer proposed). The reviewer must re-ACK the listed producers at their current proposal version before confirming.
+
+### Pre-Proposal ACK Protection
+
+When agents work at different speeds, a faster reviewer may ACK a producer before the producer has submitted its proposal. The BRC protocol handles this automatically:
+
+1. **On propose**: When a producer submits `CONSENSUS_PROPOSE`, any pre-existing version-0 ACKs (recorded before the first proposal) are invalidated. Affected reviewers appear in the `stale_confirmed_reviewers` list in the proposal response and receive a `CONSENSUS_RE_REVIEW` notification to re-review.
+
+2. **On confirm**: A version-match guard prevents reviewers from confirming with stale ACKs. If a reviewer's ACK version does not match the producer's current proposal version, `CONSENSUS_CONFIRMED` returns `pending_acks` (exit code 2) with a message listing which producers need re-ACKing.
+
+These protections prevent a deadlock that previously occurred when a reviewer's stale version-0 ACK could never satisfy `is_fully_acked()`, permanently blocking the producer from confirming.
 
 Use `egg-orch consensus` commands to participate in the BRC protocol:
 
@@ -296,6 +308,15 @@ When an agent crashes, `PeerConsensusTracker.handle_agent_crash()` assesses impa
 - Otherwise, the agent is removed from consensus tracking and treated as a single-agent failure (see failure recovery below).
 
 **Stall demotion for dual-role agents**: If a dual-role agent (e.g., `tester`) misses heartbeats for 5+ minutes without crashing, the orchestrator automatically demotes its reviewer edges from CRITICAL to ADVISORY via `PeerConsensusTracker.handle_stall_demotion()`. This allows producers that the stalled agent was assigned to review to reach `is_fully_acked()` and call `confirmed` without waiting for that agent's ACK. The demotion is permanent for the current phase and emits a `CONSENSUS_FAILURE` event with type `stall_demotion`. Unlike a crash (which triggers a HITL decision), stall demotion is fully automatic.
+
+### SIGTERM Handling During Phase Transitions
+
+When a phase completes and the orchestrator stops agent containers, agents receive SIGTERM and exit with code 143. The container monitor distinguishes these expected exits from genuine failures:
+
+- **Exit code 143 during a completed/transitioning phase**: Treated as a clean stop (`STOPPED` event), not a failure. No HITL escalation is triggered.
+- **Exit code 143 during an actively running phase**: Also treated as a clean stop, since the orchestrator may be killing containers as part of consensus completion.
+
+This prevents noisy `[ERROR] Agent failed` log entries and false HITL escalations that previously occurred on every successful phase transition.
 
 ## Failure Recovery
 
