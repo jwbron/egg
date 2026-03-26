@@ -175,7 +175,7 @@
       "phase": "pr",
       "status": "running",
       "started_at": "2026-03-26T06:30:57.070576Z",
-      "work_started_at": null,
+      "work_started_at": "2026-03-26T06:30:57.083587Z",
       "completed_at": null,
       "containers": [],
       "agents": [],
@@ -190,7 +190,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-26T06:03:35.679384Z",
-  "updated_at": "2026-03-26T06:30:57.070644Z",
+  "updated_at": "2026-03-26T06:30:57.083647Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -198,5 +198,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 12
+  "version": 13
 }
