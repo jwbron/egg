@@ -88,8 +88,8 @@ COPY gateway/config_validator.py ./config_validator.py
 RUN pip install --no-cache-dir flask waitress pyyaml requests PyJWT cryptography httpx pre-commit pydantic
 
 ENV PYTHONPATH="/app"
-# Expose both gateway API port and Squid proxy port
-EXPOSE 9848 3129
+# Expose gateway API port, Squid proxy port, and dedicated health check port
+EXPOSE 9848 3129 9851
 
 COPY gateway/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

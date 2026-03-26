@@ -12,6 +12,7 @@ Tests cover:
 
 import json
 import os
+import socket
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -283,6 +284,116 @@ class TestHealthCheck:
             assert data["orchestrator"]["configured"] is True
             assert data["orchestrator"]["reachable"] is False
             assert "error" in data["orchestrator"]
+
+
+class TestHealthCheckServer:
+    """Tests for the dedicated health check server function."""
+
+    @staticmethod
+    def _start_health_server():
+        """Start a health server on a random port and return (port, thread)."""
+        import threading
+        from http.server import HTTPServer
+
+        # Find a free port
+        server = HTTPServer(("127.0.0.1", 0), None)
+        port = server.server_address[1]
+        server.server_close()
+
+        health_thread = threading.Thread(
+            target=gateway._run_health_server,
+            args=("127.0.0.1", port),
+            daemon=True,
+        )
+        health_thread.start()
+
+        import time
+
+        time.sleep(0.3)
+        return port
+
+    def test_health_server_returns_healthy(self):
+        """Dedicated health server returns healthy status."""
+        mock_gh_client = MagicMock()
+        mock_gh_client.is_token_valid.return_value = True
+
+        # Patch at the gateway module level so the health handler picks up mocks.
+        # We need to patch socket.create_connection only for the squid check
+        # (port 3129), not for the test's own HTTP connection.
+        original_create_connection = socket.create_connection
+
+        def selective_mock(address, *args, **kwargs):
+            if address == ("127.0.0.1", 3129):
+                return MagicMock()
+            return original_create_connection(address, *args, **kwargs)
+
+        with (
+            patch.object(gateway, "get_github_client", return_value=mock_gh_client),
+            patch.object(gateway, "get_launcher_secret", return_value="test-secret"),
+            patch.object(gateway.socket, "create_connection", side_effect=selective_mock),
+        ):
+            port = self._start_health_server()
+
+            import urllib.request
+
+            resp = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/v1/health")
+            data = json.loads(resp.read().decode())
+
+            assert data["status"] == "healthy"
+            assert data["service"] == "gateway"
+            assert data["github_token_valid"] is True
+            assert data["auth_configured"] is True
+
+    def test_health_server_returns_degraded_when_token_invalid(self):
+        """Dedicated health server returns degraded when GitHub token is invalid."""
+        mock_gh_client = MagicMock()
+        mock_gh_client.is_token_valid.return_value = False
+
+        original_create_connection = socket.create_connection
+
+        def selective_mock(address, *args, **kwargs):
+            if address == ("127.0.0.1", 3129):
+                return MagicMock()
+            return original_create_connection(address, *args, **kwargs)
+
+        with (
+            patch.object(gateway, "get_github_client", return_value=mock_gh_client),
+            patch.object(gateway, "get_launcher_secret", return_value="test-secret"),
+            patch.object(gateway.socket, "create_connection", side_effect=selective_mock),
+        ):
+            port = self._start_health_server()
+
+            import urllib.request
+
+            resp = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/v1/health")
+            data = json.loads(resp.read().decode())
+
+            assert data["status"] == "degraded"
+            assert data["github_token_valid"] is False
+
+    def test_health_server_returns_404_for_unknown_paths(self):
+        """Dedicated health server returns 404 for non-health paths."""
+        port = self._start_health_server()
+
+        import urllib.error
+        import urllib.request
+
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/api/v1/unknown")
+
+        assert exc_info.value.code == 404
+
+
+class TestGatewayConfiguration:
+    """Tests for gateway configuration constants."""
+
+    def test_default_threads(self):
+        """Default thread count is 32 when env var is unset."""
+        assert gateway.DEFAULT_THREADS == 32
+
+    def test_health_check_port_default(self):
+        """Default health check port is 9851 when env var is unset."""
+        assert gateway.HEALTH_CHECK_PORT == 9851
 
 
 class TestAuthentication:
