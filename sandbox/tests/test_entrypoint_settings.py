@@ -70,6 +70,14 @@ class TestDisallowedToolsPrivateMode:
         settings = _read_settings(mock_config)
         assert "disallowedTools" not in settings
 
+    @patch.dict(os.environ, {"EGG_PRIVATE_MODE": "0"})
+    @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
+    def test_public_mode_0_no_disallowed_tools(self, _which, mock_config, mock_logger):
+        """EGG_PRIVATE_MODE=0 is set by sandbox_template.py for public mode."""
+        setup_claude(mock_config, mock_logger)
+        settings = _read_settings(mock_config)
+        assert "disallowedTools" not in settings
+
     @patch.dict(os.environ, {"EGG_PRIVATE_MODE": ""}, clear=False)
     @patch("entrypoint.shutil.which", return_value="/usr/bin/claude")
     def test_unset_env_no_disallowed_tools(self, _which, mock_config, mock_logger):
