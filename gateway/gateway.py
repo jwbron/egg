@@ -5022,9 +5022,12 @@ def _run_health_server(host: str, port: int) -> None:
                 self.end_headers()
                 return
 
-            # Minimal health check — avoids expensive operations that could
-            # block. The full health endpoint on the main port still does
-            # orchestrator/squid checks for detailed diagnostics.
+            # Lightweight health check for Docker liveness probes.
+            # Note: is_token_valid() can block during token refresh (up to 30s
+            # synchronous HTTP call to GitHub). ThreadingHTTPServer ensures a
+            # slow refresh doesn't block concurrent health check requests.
+            # The full health endpoint on the main port still does
+            # orchestrator/squid process checks for detailed diagnostics.
             try:
                 github = get_github_client()
                 token_valid = github.is_token_valid()
