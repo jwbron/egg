@@ -798,10 +798,10 @@ def handle_consensus_propose_signal(
             )
         )
 
-        # Notify stale confirmed reviewers that they need to re-review.
-        # This prevents deadlocks when a producer withdraws and re-proposes
-        # after some reviewers have already confirmed on a prior version.
-        for stale_reviewer in result.get("stale_confirmed_reviewers", []):
+        # Notify stale reviewers that they need to re-review.  Includes
+        # both reviewers who confirmed on a prior version and reviewers
+        # whose pre-proposal ACKs (version 0) were invalidated.
+        for stale_reviewer in result.get("stale_reviewers", []):
             store.add_message(
                 Message(
                     pipeline_id=pipeline_id,

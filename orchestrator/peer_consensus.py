@@ -168,14 +168,14 @@ class PeerConsensusTracker:
         # Detect reviewers who confirmed on a stale version and need re-review.
         # This prevents deadlocks where a confirmed reviewer never sees a new
         # proposal version after the producer withdraws and re-proposes.
-        stale_confirmed_reviewers = self._un_confirm_stale_reviewers(agent_role, version)
+        stale_reviewers = self._un_confirm_stale_reviewers(agent_role, version)
 
         # Invalidate pre-proposal ACKs (version 0).  When a reviewer ACKs a
         # producer that hasn't proposed yet, the ACK is recorded at version 0.
         # After the producer proposes (version >= 1), these version-0 ACKs can
         # never satisfy is_fully_acked() and would create a permanent deadlock.
         pre_proposal_stale = self._invalidate_pre_proposal_acks(agent_role, version)
-        stale_confirmed_reviewers.extend(pre_proposal_stale)
+        stale_reviewers.extend(pre_proposal_stale)
 
         emit_event(
             EventType.CONSENSUS_PROPOSE_RECEIVED,
@@ -184,7 +184,7 @@ class PeerConsensusTracker:
                 "role": agent_role,
                 "version": version,
                 "artifacts": proposal.artifacts,
-                "stale_confirmed_reviewers": stale_confirmed_reviewers,
+                "stale_reviewers": stale_reviewers,
             },
         )
 
@@ -192,7 +192,7 @@ class PeerConsensusTracker:
             "version": version,
             "status": "proposed",
             "reviewers": self.graph.reviewers_for(agent_role),
-            "stale_confirmed_reviewers": stale_confirmed_reviewers,
+            "stale_reviewers": stale_reviewers,
         }
 
     def handle_ack(
@@ -861,6 +861,9 @@ class PeerConsensusTracker:
 
         Only processes non-confirmed reviewers — confirmed stale reviewers
         are already handled by ``_un_confirm_stale_reviewers``.
+
+        ``new_version`` is included for log context only — the invalidation
+        logic always targets version-0 ACKs regardless of the new version.
 
         Returns list of reviewer roles whose ACKs were invalidated.
         """

@@ -884,7 +884,7 @@ class TestWithdrawReProposalDeadlock:
 
         # reviewer_refine confirmed on v2, now stale on v3 — un-confirmed here
         assert "reviewer_refine" not in t._confirmed
-        assert "reviewer_refine" in result["stale_confirmed_reviewers"]
+        assert "reviewer_refine" in result["stale_reviewers"]
 
         # Now both reviewers can re-review and the cycle completes
         t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
@@ -900,7 +900,7 @@ class TestWithdrawReProposalDeadlock:
         assert result["consensus_reached"] is True
 
     def test_re_propose_after_withdraw_notifies_stale_reviewers(self, refine_tracker):
-        """Verify stale_confirmed_reviewers is returned for notification."""
+        """Verify stale_reviewers is returned for notification."""
         t = refine_tracker
 
         # Quick setup: propose, both ACK and confirm, then withdraw and re-propose
@@ -915,7 +915,7 @@ class TestWithdrawReProposalDeadlock:
         result = t.handle_propose("refiner", {"summary": "v3", "artifacts": ["design.md"]})
 
         # Both reviewers should be in the stale list
-        stale = result["stale_confirmed_reviewers"]
+        stale = result["stale_reviewers"]
         assert "reviewer_agent_design" in stale
         assert "reviewer_refine" in stale
 
@@ -923,7 +923,7 @@ class TestWithdrawReProposalDeadlock:
         """First proposal should never have stale confirmed reviewers."""
         t = refine_tracker
         result = t.handle_propose("refiner", {"summary": "v1", "artifacts": ["design.md"]})
-        assert result["stale_confirmed_reviewers"] == []
+        assert result["stale_reviewers"] == []
 
     def test_re_propose_via_changed_artifacts_also_unconfirms(self, refine_tracker):
         """handle_re_propose (with changed_artifacts) should also
@@ -951,7 +951,7 @@ class TestWithdrawReProposalDeadlock:
         # reviewer_agent_design confirmed on v1, but v2 changed design.md
         # which overlaps their ACK — so they get both invalidated AND un-confirmed
         assert "reviewer_agent_design" not in t._confirmed
-        assert "reviewer_agent_design" in result.get("stale_confirmed_reviewers", [])
+        assert "reviewer_agent_design" in result.get("stale_reviewers", [])
 
     def test_producer_confirm_fails_without_re_review(self, refine_tracker):
         """Without re-review, producer cannot confirm after withdrawal."""
@@ -1011,7 +1011,7 @@ class TestWithdrawReProposalDeadlock:
         assert "reviewer_refine" not in t._confirmed, (
             "Reviewer with stale NACK should have been un-confirmed"
         )
-        assert "reviewer_refine" in result["stale_confirmed_reviewers"]
+        assert "reviewer_refine" in result["stale_reviewers"]
         assert "reviewer_agent_design" not in t._confirmed
 
         # Both re-review, ACK, and confirm — no deadlock
@@ -1778,7 +1778,7 @@ class TestPreProposalACKDeadlock:
             {"summary": "Implemented auth", "artifacts": ["src/auth.py"]},
         )
         assert result["version"] == 1
-        assert "reviewer_code" in result["stale_confirmed_reviewers"]
+        assert "reviewer_code" in result["stale_reviewers"]
 
         # The pre-proposal ACK should now be PENDING (invalidated)
         entry = t.matrix.get_entry("reviewer_code", "coder")
@@ -1815,7 +1815,7 @@ class TestPreProposalACKDeadlock:
             "coder",
             {"summary": "Implementation", "artifacts": ["src/auth.py"]},
         )
-        stale = result["stale_confirmed_reviewers"]
+        stale = result["stale_reviewers"]
         assert "reviewer_code" in stale
         assert "reviewer_contract" in stale
 
@@ -1846,8 +1846,8 @@ class TestPreProposalACKDeadlock:
         result = t.handle_propose("coder", {"summary": "v2", "artifacts": ["src/auth.py"]})
 
         # Confirmed reviewers should be un-confirmed and listed as stale
-        assert "reviewer_code" in result["stale_confirmed_reviewers"]
-        assert "reviewer_contract" in result["stale_confirmed_reviewers"]
+        assert "reviewer_code" in result["stale_reviewers"]
+        assert "reviewer_contract" in result["stale_reviewers"]
         assert "reviewer_code" not in t._confirmed
         assert "reviewer_contract" not in t._confirmed
 
@@ -1859,8 +1859,8 @@ class TestPreProposalACKDeadlock:
         result = t.handle_confirmed("reviewer_contract")
         assert result["consensus_reached"] is True
 
-    def test_reviewer_version_match_guard_on_confirm(self, deadlock_tracker):
-        """Version-match guard rejects reviewer confirmation when ACK is stale."""
+    def test_reviewer_cannot_confirm_after_repropose_invalidates_ack(self, deadlock_tracker):
+        """Reviewer cannot confirm after re-propose invalidates their ACK (has_reviewed guard)."""
         t = deadlock_tracker
 
         # Coder proposes v1, reviewer_code ACKs v1
@@ -1907,7 +1907,7 @@ class TestPreProposalACKDeadlock:
             "coder",
             {"summary": "Implementation", "artifacts": ["src/auth.py"]},
         )
-        assert "reviewer_code" in result["stale_confirmed_reviewers"]
+        assert "reviewer_code" in result["stale_reviewers"]
         assert "reviewer_code" not in t._confirmed
 
 

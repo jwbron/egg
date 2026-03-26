@@ -111,7 +111,7 @@ class TestInvalidatePreProposalAcks:
         # Pre-proposal ACK should be invalidated
         entry = simple_tracker.matrix.get_entry("reviewer_a", "producer")
         assert entry.state == ApprovalState.PENDING
-        assert "reviewer_a" in result["stale_confirmed_reviewers"]
+        assert "reviewer_a" in result["stale_reviewers"]
 
     def test_non_pre_proposal_ack_not_invalidated(self, simple_tracker):
         """ACKs at version >= 1 are NOT invalidated by _invalidate_pre_proposal_acks."""
@@ -123,10 +123,15 @@ class TestInvalidatePreProposalAcks:
         assert entry.state == ApprovalState.ACKED
         assert entry.version == 1
 
-        # Second proposal should not invalidate reviewer_a's v1 ACK
-        # (that's handled by _un_confirm_stale_reviewers for confirmed reviewers)
-        # reviewer_a is not confirmed, so _invalidate_pre_proposal_acks checks v==0 only
-        # The v1 ACK will still be stale after v2 proposal, but via different mechanism
+        # Second proposal should not invalidate reviewer_a's v1 ACK via
+        # _invalidate_pre_proposal_acks (which only targets v==0).
+        # reviewer_a is not confirmed, so _un_confirm_stale_reviewers also
+        # skips them — the v1 ACK remains intact.
+        simple_tracker.handle_withdraw("producer", "revising")
+        simple_tracker.handle_propose("producer", _minimal_proposal("v2"))
+        entry = simple_tracker.matrix.get_entry("reviewer_a", "producer")
+        assert entry.state == ApprovalState.ACKED
+        assert entry.version == 1
 
     def test_confirmed_reviewer_skipped_by_invalidation(self, simple_tracker):
         """Confirmed reviewers are skipped — _un_confirm_stale_reviewers handles them."""
@@ -142,7 +147,7 @@ class TestInvalidatePreProposalAcks:
         # reviewer_a should be handled by _un_confirm_stale_reviewers, not
         # _invalidate_pre_proposal_acks (which skips confirmed reviewers)
         # Either way, the stale reviewer should appear in the result
-        assert "reviewer_a" in result["stale_confirmed_reviewers"]
+        assert "reviewer_a" in result["stale_reviewers"]
 
     def test_multiple_reviewers_some_pre_proposal(self, simple_tracker):
         """Only reviewers with v0 ACKs are invalidated, others untouched."""
@@ -270,7 +275,7 @@ class TestPreProposalDeadlockScenario:
         result = tracker.handle_propose("coder", _minimal_proposal("Implemented feature"))
         assert result["version"] == 1
         # tester's stale ACK should appear in stale list
-        assert "tester" in result["stale_confirmed_reviewers"]
+        assert "tester" in result["stale_reviewers"]
 
         # Step 3: Verify tester's ACK was invalidated
         entry = tracker.matrix.get_entry("tester", "coder")

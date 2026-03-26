@@ -558,6 +558,8 @@ class ContainerMonitor:
                                 # SIGTERM (exit 143) during a completed phase
                                 # transition is expected — the orchestrator
                                 # kills containers when phases complete.
+                                # Defense-in-depth: also guarded inside
+                                # _reconcile_container_state (issue #1405).
                                 if actual_exit_code == 143 and (
                                     phase_execution.status != PipelineStatus.RUNNING
                                 ):

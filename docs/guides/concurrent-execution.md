@@ -214,7 +214,7 @@ Each agent tracks two state machines (producer and reviewer) independently:
 
 When agents work at different speeds, a faster reviewer may ACK a producer before the producer has submitted its proposal. The BRC protocol handles this automatically:
 
-1. **On propose**: When a producer submits `CONSENSUS_PROPOSE`, any pre-existing version-0 ACKs (recorded before the first proposal) are invalidated. Affected reviewers appear in the `stale_confirmed_reviewers` list in the proposal response and receive a `CONSENSUS_RE_REVIEW` notification to re-review.
+1. **On propose**: When a producer submits `CONSENSUS_PROPOSE`, any pre-existing version-0 ACKs (recorded before the first proposal) are invalidated. Affected reviewers appear in the `stale_reviewers` list in the proposal response and receive a `CONSENSUS_RE_REVIEW` notification to re-review.
 
 2. **On confirm**: A version-match guard prevents reviewers from confirming with stale ACKs. If a reviewer's ACK version does not match the producer's current proposal version, `CONSENSUS_CONFIRMED` returns `pending_acks` (exit code 2) with a message listing which producers need re-ACKing.
 
