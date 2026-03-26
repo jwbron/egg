@@ -789,6 +789,10 @@ def restore_prebuilt_deps(
     for repo_dir in prebuilt_base.iterdir():
         if not repo_dir.is_dir():
             continue
+        # __egg_system_dirs__ contains system-level installs (e.g. /usr/local/go)
+        # already restored by the Dockerfile; skip it here.
+        if repo_dir.name == "__egg_system_dirs__":
+            continue
         # repo_dir is like /opt/prebuilt-deps/Khan--webapp
         # Convert back to repo name to find mount point
         # Try each mounted repo to find a match
