@@ -419,12 +419,13 @@ class TestContainerMonitorDetection:
         event_types = [e.event_type for e in events_received]
         assert ContainerEvent.STOPPED in event_types
 
-    def test_monitor_emits_stopped_for_sigterm_143(self):
-        """Monitor emits STOPPED (not FAILED) for exit code 143 (SIGTERM).
+    def test_monitor_emits_failed_for_sigterm_143(self):
+        """Monitor emits FAILED for exit code 143 (SIGTERM) in _check_container.
 
-        Exit code 143 occurs during normal phase transitions when the
-        orchestrator kills agent containers. This should be treated as a
-        clean stop, not a failure (issue #1405).
+        Exit code 143 during active phases must still trigger FAILED events so
+        the reconciliation handler can evaluate phase state.  Phase-aware
+        SIGTERM handling happens in the reconciliation loop and
+        _reconcile_container_state, NOT in the event emission path (issue #1405).
         """
         mock_docker = MagicMock()
         container_id = "test_container_sigterm"
@@ -452,12 +453,11 @@ class TestContainerMonitorDetection:
         monitor.add_handler(lambda e: events_received.append(e))
 
         monitor._check_all_containers()  # STARTED
-        monitor._check_all_containers()  # STOPPED (exit 143)
+        monitor._check_all_containers()  # FAILED (exit 143 — phase-unaware path)
 
         event_types = [e.event_type for e in events_received]
         assert ContainerEvent.STARTED in event_types
-        assert ContainerEvent.STOPPED in event_types
-        assert ContainerEvent.FAILED not in event_types
+        assert ContainerEvent.FAILED in event_types
 
     def test_monitor_emits_failed_for_non_143_nonzero(self):
         """Exit code 137 (SIGKILL) or other non-zero codes still emit FAILED."""

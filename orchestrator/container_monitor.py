@@ -382,16 +382,6 @@ class ContainerMonitor:
             elif new_status == ContainerStatus.EXITED:
                 if container.exit_code == 0:
                     self._emit_event(ContainerEvent(ContainerEvent.STOPPED, container))
-                elif container.exit_code == 143:
-                    # SIGTERM (exit 143) — expected during phase transitions
-                    # when the orchestrator stops agent containers.  Emit as
-                    # STOPPED (not FAILED) so reconciliation handlers don't
-                    # mark the pipeline as failed.
-                    logger.info(
-                        "Container exited with SIGTERM (143), treating as clean stop",
-                        container_id=container.container_id[:12],
-                    )
-                    self._emit_event(ContainerEvent(ContainerEvent.STOPPED, container))
                 else:
                     self._emit_event(
                         ContainerEvent(
@@ -773,6 +763,22 @@ def _reconcile_container_state(store: Any, container_info: ContainerInfo) -> boo
                                 "Runtime reconciliation: skipping container whose agent is COMPLETE",
                                 pipeline_id=pipeline_id,
                                 container_id=ci.container_id[:12],
+                            )
+                            continue
+                        # SIGTERM (exit 143) on a container whose phase has
+                        # already completed is expected — the orchestrator
+                        # kills containers during phase transitions.  Only
+                        # treat 143 as benign when the phase is no longer
+                        # RUNNING (i.e. successfully transitioned).
+                        if (
+                            container_info.exit_code == 143
+                            and phase_execution.status != PipelineStatus.RUNNING
+                        ):
+                            logger.info(
+                                "Runtime reconciliation: SIGTERM (143) during "
+                                "completed phase, skipping FAILED reconciliation",
+                                pipeline_id=pipeline_id,
+                                container_id=container_info.container_id[:12],
                             )
                             continue
                         logger.warning(
