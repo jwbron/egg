@@ -7,7 +7,7 @@ Gather the following information and present it in a clean, readable format:
    git -C ~/repos/egg log --oneline --since="7 days ago" --all
    ```
 
-2. **Context source usage**: Check which Confluence spaces and JIRA projects exist:
+2. **Context source usage**: Check which Confluence spaces and JIRA projects are cached locally (may not be mounted):
    ```bash
    ls ~/context-sync/confluence/ ~/context-sync/jira/ 2>/dev/null
    ```
