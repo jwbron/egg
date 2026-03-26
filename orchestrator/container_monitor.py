@@ -798,6 +798,13 @@ def _reconcile_container_state(store: Any, container_info: ContainerInfo) -> boo
                         agent.status == AgentExecutionStatus.RUNNING
                         and agent.container_id == container_info.container_id
                     ):
+                        # Skip SIGTERM (exit 143) on completed phases — same
+                        # guard as the container loop above (issue #1405).
+                        if (
+                            container_info.exit_code == 143
+                            and phase_execution.status != PipelineStatus.RUNNING
+                        ):
+                            continue
                         logger.warning(
                             "Runtime reconciliation: agent container exited, marking FAILED",
                             pipeline_id=pipeline_id,
