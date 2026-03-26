@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from models import Pipeline, PipelineMode, PipelineStatus
+from models import Pipeline, PipelineMode, PipelinePhase, PipelineStatus
 from pydantic import ValidationError
 
 logger = logging.getLogger("orchestrator.state_store")
@@ -806,6 +806,12 @@ class StateStore:
                     except json.JSONDecodeError as e:
                         raise StateStoreError(f"Invalid config JSON: {e}") from e
                 pipeline.config = PipelineConfig.model_validate(config)
+
+            # Honor start_phase: set current_phase at creation time so
+            # get_status never returns a stale phase before _run_pipeline
+            # gets to update it.
+            if pipeline.config.start_phase:
+                pipeline.current_phase = PipelinePhase(pipeline.config.start_phase)
 
             commit_msg = f"Create pipeline {pipeline_id}"
             self.save_pipeline(pipeline, message=commit_msg)
