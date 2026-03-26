@@ -8,6 +8,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -40,8 +41,9 @@ def mock_logger():
     return MagicMock()
 
 
-def _read_settings(config) -> dict:
-    return json.loads((config.claude_dir / "settings.json").read_text())
+def _read_settings(config: Any) -> dict[str, Any]:
+    result: dict[str, Any] = json.loads((config.claude_dir / "settings.json").read_text())
+    return result
 
 
 class TestDisallowedToolsPrivateMode:
