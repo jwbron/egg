@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -113,6 +114,13 @@ async def run_agent_async(
             error="claude-agent-sdk is not installed. Only available inside sandbox containers.",
         )
 
+    # In private mode, block web tools at the SDK level so they never reach
+    # the API.  settings.json may also contain disallowedTools (set by the
+    # entrypoint), but passing them here as a CLI flag is more reliable and
+    # eliminates the gateway log noise from stripping them on every request.
+    private_mode = os.environ.get("EGG_PRIVATE_MODE", "").lower() in ("true", "1")
+    disallowed: list[str] = ["WebFetch", "WebSearch"] if private_mode else []
+
     options = ClaudeAgentOptions(
         permission_mode="bypassPermissions",
         model=model,
@@ -122,6 +130,7 @@ async def run_agent_async(
         # picks up sandbox rules (BRC protocol, egg-orch CLI, git safety, etc.).
         # Without this the SDK ignores all filesystem-based configuration.
         setting_sources=["project", "user"],
+        disallowed_tools=disallowed,
     )
     if max_turns is not None:
         options.max_turns = max_turns
@@ -142,6 +151,7 @@ async def run_agent_async(
         max_turns=max_turns,
         timeout=timeout,
         setting_sources=["project", "user"],
+        disallowed_tools=disallowed,
         sdk="claude_agent_sdk",
     )
 
