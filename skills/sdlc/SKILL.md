@@ -330,14 +330,21 @@ Agents: <running count> running, <completed count> completed
 Recent: <latest message subject from recent_messages>
 ```
 
-3. **Check consensus health** — see [Consensus Monitoring](#consensus-monitoring) below. Use `concurrent.consensus` if present; otherwise fall back to message-based tracking (see [Consensus Fallback](#consensus-fallback-when-concurrentconsensus-is-missing)).
+   If any `recent_messages` entry has `type: "OVERSEER_ALERT"`, append an alert line:
+```
+Overseer: <subject> — <body summary, first 120 chars>
+```
 
-4. Check for state transitions:
+3. **Check for overseer alerts** — see [Overseer Alert Detection](#overseer-alert-detection) below.
+
+4. **Check consensus health** — see [Consensus Monitoring](#consensus-monitoring) below. Use `concurrent.consensus` if present; otherwise fall back to message-based tracking (see [Consensus Fallback](#consensus-fallback-when-concurrentconsensus-is-missing)).
+
+5. Check for state transitions:
    - If `pending_decisions` is non-empty → move to Phase 4 (HITL)
    - If `status` is `complete` → exit the loop, move to Phase 5
    - If `status` is `failed` → apply the **failed status grace period** (see below) before exiting
 
-5. **Track elapsed time** — Record the wall-clock time when the current phase started. Use this for [Long-Running Phase Detection](#long-running-phase-detection).
+6. **Track elapsed time** — Record the wall-clock time when the current phase started. Use this for [Long-Running Phase Detection](#long-running-phase-detection).
 
 **Important: Run polling sleeps in the foreground (blocking).** Do not use background sleeps or `run_in_background` for the 60-second poll interval. Background sleeps provide no benefit since the next action (polling) depends on the sleep completing, and they cause notification spam if the user interrupts.
 
@@ -360,6 +367,36 @@ After BRC consensus completes in a phase, the orchestrator may spawn a **post-co
 ```
 Note: Post-consensus review triggered — new review cycle started.
 ```
+
+### Overseer Alert Detection
+
+When the pipeline has an overseer agent enabled, it broadcasts `OVERSEER_ALERT` messages to the message bus whenever it detects an anomaly. These appear in `recent_messages` with `type: "OVERSEER_ALERT"` and `from_role: "overseer"`.
+
+On each poll cycle, scan `recent_messages` for entries with `type: "OVERSEER_ALERT"`. When found:
+
+1. Display the alert prominently:
+
+```
+### Overseer Alert
+
+**<subject>**
+<body — full text>
+```
+
+2. Use `AskUserQuestion` to let the user decide next steps:
+   - **Question**: "The overseer detected an anomaly: '<subject>'. How would you like to proceed?"
+   - **Header**: "Alert"
+   - **Options**:
+     - **"Check agent logs"** — description: "View recent logs for the affected agent"
+     - **"Acknowledge"** — description: "Note the alert and continue monitoring"
+     - **"Cancel pipeline"** — description: "Stop the pipeline if the issue is critical"
+
+Handle each response:
+- **Check agent logs** → Extract the agent role from the alert subject (format: `<anomaly_type>: <agent_role> [<priority>]`). Call the `get_container_logs` MCP tool with `task_id` and `agent_role`. Show the output and let the user decide next steps.
+- **Acknowledge** → Resume monitoring. Track acknowledged alerts to avoid re-prompting for the same alert.
+- **Cancel pipeline** → Confirm with the user, then call `cancel_task` with `task_id` and `cleanup: true`.
+
+**Deduplication** — Maintain a set of seen alert message `id` values (UUIDs from the `Message` model) across poll cycles. Only prompt the user for alerts not previously seen or acknowledged. Do not use subject strings for deduplication — distinct alerts may share the same anomaly type, role, and priority.
 
 ### Consensus Monitoring
 
