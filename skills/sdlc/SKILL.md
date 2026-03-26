@@ -866,16 +866,16 @@ Analyze the task locally — no remote agents. Your goal is to understand the fu
 
 2. **Read relevant code files** — Based on the task description, identify and read the most relevant source files (up to 5–10 files). Use `Glob` and `Grep` to find them. Focus on files that will need modification and their immediate dependencies.
 
-3. **Analyze scope** — Determine:
-   - How the affected component fits into the broader system (its role, callers, dependencies)
-   - Which files need to change
-   - What the changes involve (new code, modifications, deletions)
-   - The technical root cause (if this is a bug fix)
-   - Any risks or edge cases (breaking changes, test coverage gaps, dependencies)
+3. **Analyze scope** — Go deep enough that the plan writes itself. Determine:
+   - How the affected component fits into the broader system (its role, callers, dependencies) — trace the call chain, not just the immediate file
+   - Which files need to change and what specifically changes in each
+   - The technical root cause (if this is a bug fix) — identify the exact code path that produces the incorrect behavior, not just the symptom
+   - Edge cases and interactions — what existing behavior could break, what callers/consumers depend on the current behavior
+   - Test coverage — are there existing tests for the affected code? Will they need updating?
 
 4. **Clarify ambiguity** — If the task is ambiguous or underspecified, ask the user 2–3 clarifying questions via `AskUserQuestion` (group into a single call). Skip this if the task is clear and well-scoped.
 
-5. **Present analysis** — Show the user a structured analysis that captures the full picture. Include all sections that are relevant — omit sections that don't apply (e.g., omit "Workarounds" for a new feature request):
+5. **Present analysis** — Show the user a structured analysis that captures the full picture. The analysis should be thorough enough that someone unfamiliar with the code could understand the problem and the shape of the fix. Include all sections that are relevant — omit sections that don't apply (e.g., omit "Workarounds" for a new feature request):
 
 ```
 ### Task Analysis
@@ -886,15 +886,16 @@ Analyze the task locally — no remote agents. Your goal is to understand the fu
 
 **Workarounds**: <any known workarounds mentioned in the ticket/comments, or "None known">
 
-**System context**: <brief description of how the affected component works and its role in the broader system — helps agents understand what they're changing>
+**System context**: <how the affected component works — its role, key call paths, and how it interacts with the rest of the system. Name the relevant functions/classes and describe the flow, not just "it handles X">
 
-**Technical root cause**: <what's actually wrong in the code, or what needs to be built>
+**Technical root cause**: <trace the exact code path that produces the bug or the gap that needs filling. Reference specific functions, conditions, and data flow. For bug fixes: what input/state triggers the issue, what the code does wrong, and why>
 
 **Files affected**:
-- `path/to/file1.py` — <what changes>
-- `path/to/file2.ts` — <what changes>
+- `path/to/file1.py` — <what changes and why>
+- `path/to/file2.ts` — <what changes and why>
+- `path/to/test_file.py` — <new or updated tests>
 
-**Risks**: <any concerns, or "None identified">
+**Risks / edge cases**: <what existing behavior must be preserved, what callers depend on the current interface, any non-obvious interactions — or "None identified" with brief reasoning>
 ```
 
 6. **Confirm** — Ask the user to confirm the analysis is correct before proceeding to planning. Use `AskUserQuestion`:
@@ -912,12 +913,27 @@ Generate a concrete plan with tasks and acceptance criteria, validate it, and pr
 
 ### Step 1: Generate the plan
 
-Create a single-phase plan with 1–5 concrete tasks. Each task should be:
-- Specific and actionable (e.g., "Add `retry_with_backoff()` to `api_client.py`", not "Implement retry logic")
+Create a single-phase plan with 1–5 concrete tasks. The plan should give a coder enough context to implement without re-analyzing the problem from scratch.
+
+**Plan-level context** (goes in the Summary section of the plan document):
+- **Approach**: What strategy are we taking? If there were meaningful alternatives, briefly note why this one was chosen — skip this for straightforward fixes where the approach is obvious
+- **Root cause** (for bug fixes): What's actually wrong and why does the current code behave incorrectly?
+- **Risks / edge cases**: What could break, what existing behavior must be preserved, non-obvious interactions — "None identified" if genuinely none
+
+**Per-task detail** — each task should include:
+- **What to change**: Name the specific file(s), function(s), or class(es) being modified or created
+- **How it changes**: A 1–3 sentence description of the implementation approach — specific enough that a coder knows what code to write (e.g., name the fields to add, the conditions to check, the error to raise)
+- **Why** (if non-obvious): Brief rationale connecting the change to the root cause or goal
+
+Each task should be:
+- Specific and actionable — calibrate detail to complexity:
+  - Simple: "In `gateway/auth.py:validate_token()`, add expiry check before the signature verification — tokens with `exp` in the past currently pass validation"
+  - Complex: "In `orchestrator/consensus.py:handle_propose()`, add a version-match guard that rejects ACKs whose `proposal_version` is older than the current proposal. When an outdated ACK is found, remove it from `pending_acks` and send a `RE_ACK_REQUIRED` message to the affected reviewer — pre-proposal ACKs currently cause a deadlock because `check_consensus()` counts them as valid even though they reference a stale proposal"
+  - Not: "Fix ACK race condition"
 - Scoped to a single logical change
 - Ordered by dependency (tasks that depend on others come later)
 
-Also generate 1–3 acceptance criteria that describe how to verify the work is complete.
+Also generate 1–3 acceptance criteria that describe how to verify the work is complete. Each criterion should be testable — describe the observable behavior, not the implementation.
 
 ### Step 2: Build and validate a Contract
 
@@ -969,7 +985,9 @@ Generate a markdown plan document that includes a `yaml-tasks` structured append
 
 ## Summary
 
-<2-3 sentences describing the approach>
+<1 paragraph: What is the approach and why this strategy? For bug fixes, what is the root cause?>
+
+**Risks / edge cases**: <What could break, what existing behavior must be preserved, non-obvious interactions — "None identified" if genuinely none.>
 
 ## Implementation
 
@@ -978,8 +996,8 @@ Generate a markdown plan document that includes a `yaml-tasks` structured append
 <brief description of what this phase covers>
 
 **Tasks**:
-1. [TASK-1-1] <task description> — Acceptance: <criteria>
-2. [TASK-1-2] <task description> — Acceptance: <criteria>
+1. **[TASK-1-1]** In `path/to/file.py:function_name()`, <what to change, how, and why>. Acceptance: <criteria>
+2. **[TASK-1-2]** In `path/to/other.py`, <what to change and how>. Acceptance: <criteria>
 
 ```yaml
 # yaml-tasks
@@ -999,13 +1017,13 @@ phases:
     goal: "<what this phase achieves>"
     tasks:
       - id: TASK-1-1
-        description: "<task description>"
-        acceptance: "<acceptance criteria>"
+        description: "In `path/to/file.py:function_name()`, <what to change and how> — <brief rationale>"
+        acceptance: "<testable acceptance criteria>"
         files:
           - <path/to/file>
       - id: TASK-1-2
-        description: "<task description>"
-        acceptance: "<acceptance criteria>"
+        description: "In `path/to/other.py`, <what to change and how>"
+        acceptance: "<testable acceptance criteria>"
         files:
           - <path/to/file>
 ```
@@ -1015,29 +1033,30 @@ The `yaml-tasks` appendix **must** be present — it is machine-parsed by the re
 
 ### Step 3: Present to user
 
-Display the plan and contract summary:
+Display the full plan document (the prose section from Step 2b, excluding the yaml-tasks code block) followed by a contract summary:
 
 ```
 ### Plan
 
+**Summary**: <approach paragraph from the plan document>
+
+**Risks / edge cases**: <from the plan document>
+
 **Phase**: Implement (single phase)
 
 **Tasks**:
-1. `task-1`: <description>
-2. `task-2`: <description>
-3. `task-3`: <description>
+1. `TASK-1-1`: In `path/to/file.py:function()`, <what changes, how, and why>
+2. `TASK-1-2`: In `path/to/other.py`, <what changes and how>
+3. `TASK-1-3`: Add tests in `path/to/test_file.py` for <scenario>
 
 **Acceptance Criteria**:
-- `ac-1`: <description>
-- `ac-2`: <description>
+- `ac-1`: <testable observable behavior>
+- `ac-2`: <testable observable behavior>
 
 ---
 
 **Contract Summary**
-Tasks: <N>
-Acceptance Criteria: <N>
-Phase: implement (single phase)
-Validation: Passed
+Tasks: <N> | Acceptance Criteria: <N> | Phase: implement (single phase) | Validation: Passed
 ```
 
 ### Step 4: Ask for approval
