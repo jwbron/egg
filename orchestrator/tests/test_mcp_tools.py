@@ -6,7 +6,9 @@ Tests cover the 10 new tools added for comprehensive platform interface:
 - list_checkpoints, search_checkpoints, get_contract (gateway-backed)
 """
 
+import json
 from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError
 
 import pytest
 from egg_config.constants import TEST_GATEWAY_PORT
@@ -791,9 +793,6 @@ class TestSubmitTaskErrorPropagation:
     @patch("urllib.request.build_opener")
     def test_500_includes_api_error_message(self, mock_build_opener, handler):
         """HTTP 500 from the API should return the response body message."""
-        import json
-        from urllib.error import HTTPError
-
         error_body = json.dumps(
             {
                 "success": False,
@@ -824,8 +823,6 @@ class TestSubmitTaskErrorPropagation:
     @patch("urllib.request.build_opener")
     def test_500_with_unreadable_body_falls_back(self, mock_build_opener, handler):
         """HTTP 500 with unreadable body should still return a structured error."""
-        from urllib.error import HTTPError
-
         mock_opener = MagicMock()
         http_error = HTTPError(
             url="http://localhost:9849/api/v1/pipelines",
