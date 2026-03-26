@@ -918,7 +918,7 @@ Create a single-phase plan with 1–5 concrete tasks. The plan should give a cod
 **Plan-level context** (goes in the Summary section of the plan document):
 - **Approach**: What strategy are we taking? If there were meaningful alternatives, briefly note why this one was chosen — skip this for straightforward fixes where the approach is obvious
 - **Root cause** (for bug fixes): What's actually wrong and why does the current code behave incorrectly?
-- **Risks / edge cases**: What could break, what existing behavior must be preserved, and any non-obvious interactions to watch for — "None identified" is fine when genuinely true
+- **Risks / edge cases**: What could break, what existing behavior must be preserved, non-obvious interactions — "None identified" if genuinely none
 
 **Per-task detail** — each task should include:
 - **What to change**: Name the specific file(s), function(s), or class(es) being modified or created
@@ -926,7 +926,10 @@ Create a single-phase plan with 1–5 concrete tasks. The plan should give a cod
 - **Why** (if non-obvious): Brief rationale connecting the change to the root cause or goal
 
 Each task should be:
-- Specific and actionable (e.g., "In `orchestrator/consensus.py:handle_propose()`, add a version-match guard that rejects ACKs whose `proposal_version` is older than the current proposal. When an outdated ACK is found, remove it from `pending_acks` and send a `RE_ACK_REQUIRED` message to the affected reviewer — pre-proposal ACKs currently cause a deadlock because `check_consensus()` counts them as valid even though they reference a stale proposal", not "Fix ACK race condition")
+- Specific and actionable — calibrate detail to complexity:
+  - Simple: "In `gateway/auth.py:validate_token()`, add expiry check before the signature verification — tokens with `exp` in the past currently pass validation"
+  - Complex: "In `orchestrator/consensus.py:handle_propose()`, add a version-match guard that rejects ACKs whose `proposal_version` is older than the current proposal. When an outdated ACK is found, remove it from `pending_acks` and send a `RE_ACK_REQUIRED` message to the affected reviewer — pre-proposal ACKs currently cause a deadlock because `check_consensus()` counts them as valid even though they reference a stale proposal"
+  - Not: "Fix ACK race condition"
 - Scoped to a single logical change
 - Ordered by dependency (tasks that depend on others come later)
 
@@ -984,7 +987,7 @@ Generate a markdown plan document that includes a `yaml-tasks` structured append
 
 <1 paragraph: What is the approach and why this strategy? For bug fixes, what is the root cause?>
 
-**Risks / edge cases**: <What could break, what existing behavior must be preserved, non-obvious interactions. "None identified" if genuinely none.>
+**Risks / edge cases**: <What could break, what existing behavior must be preserved, non-obvious interactions — "None identified" if genuinely none.>
 
 ## Implementation
 
@@ -1042,9 +1045,9 @@ Display the full plan document (the prose section from Step 2b, excluding the ya
 **Phase**: Implement (single phase)
 
 **Tasks**:
-1. `task-1`: In `path/to/file.py:function()`, <what changes, how, and why>
-2. `task-2`: In `path/to/other.py`, <what changes and how>
-3. `task-3`: Add tests in `path/to/test_file.py` for <scenario>
+1. `TASK-1-1`: In `path/to/file.py:function()`, <what changes, how, and why>
+2. `TASK-1-2`: In `path/to/other.py`, <what changes and how>
+3. `TASK-1-3`: Add tests in `path/to/test_file.py` for <scenario>
 
 **Acceptance Criteria**:
 - `ac-1`: <testable observable behavior>
