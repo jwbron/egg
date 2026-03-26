@@ -91,6 +91,7 @@ except ImportError:
         max_turns: int | None = None
         system_prompt: str | None = None
         setting_sources: list[str] | None = None
+        disallowed_tools: list[str] = field(default_factory=list)
 
     # Install mock module so client.py's lazy import finds it
     _mock_sdk = ModuleType("claude_agent_sdk")
