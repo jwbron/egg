@@ -820,6 +820,27 @@ class TestRestorePrebuiltDeps:
         assert (repos_dir / "webapp" / "test.txt").exists()
         assert (repos_dir / "webapp" / "test.txt").read_text() == "hello"
 
+    def test_skips_egg_system_dirs(self, temp_dir, capsys):
+        """__egg_system_dirs__ is not a repo and should be silently skipped."""
+        prebuilt = temp_dir / "prebuilt-deps"
+        (prebuilt / "__egg_system_dirs__" / "usr" / "local" / "go" / "bin").mkdir(parents=True)
+        (prebuilt / "__egg_system_dirs__" / "usr" / "local" / "go" / "bin" / "go").write_text(
+            "binary"
+        )
+
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir(parents=True)
+
+        config = MagicMock()
+        config.repos_dir = repos_dir
+        logger = entrypoint.Logger(quiet=False)
+
+        entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=prebuilt)
+
+        captured = capsys.readouterr()
+        assert "No mounted repo found" not in captured.out
+        assert "__egg_system_dirs__" not in captured.out
+
     def test_warns_on_unmatched_repo(self, temp_dir, capsys):
         """Warns when no mounted repo matches the prebuilt dir name."""
         prebuilt = temp_dir / "prebuilt-deps"
