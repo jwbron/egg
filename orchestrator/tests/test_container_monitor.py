@@ -290,6 +290,51 @@ class TestReconcileContainerState:
         # Agent should still be COMPLETE (not overwritten to FAILED)
         assert phase.agents[0].status == AgentExecutionStatus.COMPLETE
 
+    def test_sigterm_143_skips_reconciliation_when_phase_complete(self):
+        """SIGTERM (exit 143) during a completed phase is benign (issue #1405).
+
+        When the orchestrator kills agent containers during a phase transition,
+        containers exit with code 143. If the phase has already completed
+        successfully, the reconciler should NOT mark the pipeline as FAILED.
+        """
+        container_id = "sigterm_phase_done_xyz"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        # Phase has completed successfully before containers were killed
+        phase.status = PipelineStatus.COMPLETE
+
+        store = _make_store(pipeline)
+        exited_info = _make_container_info(container_id, exit_code=143)
+
+        result = _reconcile_container_state(store, exited_info)
+
+        # SIGTERM during completed phase should not mark as FAILED
+        assert result is False
+        assert pipeline.status == PipelineStatus.RUNNING  # Unchanged
+        agent = phase.agents[0]
+        assert agent.status == AgentExecutionStatus.RUNNING  # Unchanged
+
+    def test_sigterm_143_reconciles_when_phase_still_running(self):
+        """SIGTERM (exit 143) during a still-running phase IS a failure.
+
+        If the phase is still RUNNING when a container exits with 143, this
+        is an unexpected termination and should be treated as a real failure.
+        """
+        container_id = "sigterm_running_phase_xyz"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        # Phase is still RUNNING
+        assert phase.status == PipelineStatus.RUNNING
+
+        store = _make_store(pipeline)
+        exited_info = _make_container_info(container_id, exit_code=143)
+
+        result = _reconcile_container_state(store, exited_info)
+
+        # SIGTERM during running phase IS a failure
+        assert result is True
+        assert pipeline.status == PipelineStatus.FAILED
+
 
 # ---------------------------------------------------------------------------
 # Tests: create_pipeline_reconciliation_handler
