@@ -387,16 +387,13 @@ class TestHealthCheckServer:
 class TestGatewayConfiguration:
     """Tests for gateway configuration constants."""
 
-    def test_default_threads(self, monkeypatch):
-        """Default thread count is 32."""
-        monkeypatch.delenv("GATEWAY_THREADS", raising=False)
-        # The constant is set at import time, so test the env var behavior
-        assert gateway.DEFAULT_THREADS == 32 or os.environ.get("GATEWAY_THREADS")
+    def test_default_threads(self):
+        """Default thread count is 32 when env var is unset."""
+        assert gateway.DEFAULT_THREADS == 32
 
-    def test_health_check_port_default(self, monkeypatch):
-        """Default health check port is 9851."""
-        monkeypatch.delenv("GATEWAY_HEALTH_PORT", raising=False)
-        assert gateway.HEALTH_CHECK_PORT == 9851 or os.environ.get("GATEWAY_HEALTH_PORT")
+    def test_health_check_port_default(self):
+        """Default health check port is 9851 when env var is unset."""
+        assert gateway.HEALTH_CHECK_PORT == 9851
 
 
 class TestAuthentication:

@@ -5013,7 +5013,7 @@ def _run_health_server(host: str, port: int) -> None:
     ensuring health checks are never blocked by long-running API requests
     (e.g., synchronous git operations holding Waitress threads).
     """
-    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     class HealthHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
@@ -5066,7 +5066,7 @@ def _run_health_server(host: str, port: int) -> None:
             # Suppress default stderr logging for health checks
             pass
 
-    server = HTTPServer((host, port), HealthHandler)
+    server = ThreadingHTTPServer((host, port), HealthHandler)
     server.serve_forever()
 
 
