@@ -253,10 +253,13 @@ You can also specify tags directly in a docker-compose.yml override.
 
 ## Health Checks
 
-The gateway exposes a health endpoint:
+The gateway exposes health endpoints on two ports:
+
+- **Port 9851** — dedicated lightweight health check server. Docker Compose uses this port for liveness probes so health checks are never blocked by long-running git operations on the main thread pool.
+- **Port 9848** — full health endpoint with additional detail (active sessions, orchestrator process checks). Use this for manual diagnostics.
 
 ```bash
-# Check gateway health
+# Check gateway health (manual diagnostics)
 curl http://localhost:9848/api/v1/health
 
 # Expected response
@@ -273,7 +276,7 @@ curl http://localhost:9848/api/v1/health
 
 The `status` field is `"healthy"` only when all three conditions are met: the GitHub token is valid, the launcher secret is configured, and the Squid proxy is listening on port 3129. A Squid crash returns `"degraded"` and causes Docker's health check to fail, triggering a container restart.
 
-The Docker Compose configuration includes automatic health checks with:
+The Docker Compose configuration includes automatic health checks (on port 9851) with:
 - 10 second interval
 - 5 second timeout
 - 12 retries
@@ -295,7 +298,7 @@ This clears cached images and rebuilds the sandbox with Claude Code installed.
 ### Gateway fails to start
 
 1. Check Docker is running: `docker info`
-2. Check port availability: `lsof -i :9848`
+2. Check port availability: `lsof -i :9848 && lsof -i :9851`
 3. Check logs: `bin/egg-deploy logs`
 
 ### Sandbox cannot reach gateway
