@@ -35,10 +35,27 @@
     "overseer_hitl_propagation_timeout_seconds": 300,
     "start_phase": "implement"
   },
-  "phases": {},
+  "phases": {
+    "implement": {
+      "phase": "implement",
+      "status": "running",
+      "started_at": "2026-03-26T06:04:00.249104Z",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": "8cb51b69bf11f9b15fffe1bd64378e865bfc0dca"
+    }
+  },
   "decisions": [],
   "created_at": "2026-03-26T06:03:35.679384Z",
-  "updated_at": "2026-03-26T06:04:00.236427Z",
+  "updated_at": "2026-03-26T06:04:00.249164Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -46,5 +63,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 5
+  "version": 6
 }
