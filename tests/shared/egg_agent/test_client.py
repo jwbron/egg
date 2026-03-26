@@ -1,6 +1,7 @@
 """Tests for egg_agent.client module."""
 
 import asyncio
+import os
 import sys
 from dataclasses import dataclass, field
 from types import ModuleType
@@ -601,6 +602,50 @@ class TestRunAgentAsync:
             assert len(tool_result_calls) == 2
             assert tool_result_calls[0].kwargs["tool_use_id"] == "p1"
             assert tool_result_calls[1].kwargs["tool_use_id"] == "p2"
+
+    @patch.dict(os.environ, {"EGG_PRIVATE_MODE": "true"})
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_private_mode_true_disallows_web_tools(self, mock_query):
+        """EGG_PRIVATE_MODE=true should pass disallowed_tools for web access."""
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        call_kwargs = mock_query.call_args.kwargs
+        opts = call_kwargs["options"]
+        assert opts.disallowed_tools == ["WebFetch", "WebSearch"]
+
+    @patch.dict(os.environ, {"EGG_PRIVATE_MODE": "1"})
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_private_mode_1_disallows_web_tools(self, mock_query):
+        """EGG_PRIVATE_MODE=1 should also block web tools."""
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        call_kwargs = mock_query.call_args.kwargs
+        opts = call_kwargs["options"]
+        assert opts.disallowed_tools == ["WebFetch", "WebSearch"]
+
+    @patch.dict(os.environ, {"EGG_PRIVATE_MODE": "false"})
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_public_mode_no_disallowed_tools(self, mock_query):
+        """EGG_PRIVATE_MODE=false should not block any tools."""
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        call_kwargs = mock_query.call_args.kwargs
+        opts = call_kwargs["options"]
+        assert opts.disallowed_tools == []
+
+    @patch.dict(os.environ, {}, clear=False)
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_private_mode_unset_no_disallowed_tools(self, mock_query):
+        """When EGG_PRIVATE_MODE is not set, no tools should be blocked."""
+        # Ensure the env var is truly absent
+        env = os.environ.copy()
+        env.pop("EGG_PRIVATE_MODE", None)
+        with patch.dict(os.environ, env, clear=True):
+            result = _run_async(run_agent_async("test prompt"))
+            assert result.success is True
+            call_kwargs = mock_query.call_args.kwargs
+            opts = call_kwargs["options"]
+            assert opts.disallowed_tools == []
 
 
 class TestRunAgentSync:
