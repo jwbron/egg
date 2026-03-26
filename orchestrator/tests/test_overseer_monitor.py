@@ -1746,8 +1746,7 @@ class TestExecuteActionBroadcasts:
         )
         monitor._send_message.assert_awaited_once()
 
-    @pytest.mark.parametrize("has_file_diagnostic", [True])
-    def test_issue_broadcasts(self, has_file_diagnostic) -> None:
+    def test_issue_broadcasts(self) -> None:
         """Issue action broadcasts an alert."""
         monitor = self._make_monitor()
         decision = {"action": "issue", "message": "Persistent failure", "priority": "high"}

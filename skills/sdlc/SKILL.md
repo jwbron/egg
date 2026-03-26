@@ -396,7 +396,7 @@ Handle each response:
 - **Acknowledge** → Resume monitoring. Track acknowledged alerts to avoid re-prompting for the same alert.
 - **Cancel pipeline** → Confirm with the user, then call `cancel_task` with `task_id` and `cleanup: true`.
 
-**Deduplication** — Maintain a set of seen alert message IDs (or subject strings) across poll cycles. Only prompt the user for alerts not previously seen or acknowledged.
+**Deduplication** — Maintain a set of seen alert message `id` values (UUIDs from the `Message` model) across poll cycles. Only prompt the user for alerts not previously seen or acknowledged. Do not use subject strings for deduplication — distinct alerts may share the same anomaly type, role, and priority.
 
 ### Consensus Monitoring
 
