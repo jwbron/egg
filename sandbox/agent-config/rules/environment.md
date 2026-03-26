@@ -32,7 +32,7 @@ If push fails: check `git remote -v` is HTTPS, check `curl http://egg-gateway:98
 |------|---------|
 | `~/repos/` | Code workspace (RW) — NOT a git repo itself |
 | `~/repos/<repo>/.egg-state/` | SDLC pipeline state (may be readonly in implement phase) |
-| `~/context-sync/` | Confluence/JIRA (RO) |
+| `~/context-sync/` | Confluence/JIRA cache (RO, may not be mounted) |
 | `~/sharing/` | Persistent data, notifications, context |
 
 **Pipeline readonly directories:** During the implement phase, `.egg-state/drafts/`, `.egg-state/contracts/`, `.egg-state/pipelines/`, and `.egg-state/reviews/` are mounted readonly. Check for `.egg-readonly` marker files to understand restrictions. Attempting to write to these directories will produce an EROFS (read-only filesystem) error.
