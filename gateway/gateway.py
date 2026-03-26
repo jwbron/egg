@@ -5046,13 +5046,15 @@ def _run_health_server(host: str, port: int) -> None:
                 pass
 
             is_healthy = token_valid and launcher_ok and squid_listening
-            body = json.dumps({
-                "status": "healthy" if is_healthy else "degraded",
-                "github_token_valid": token_valid,
-                "auth_configured": launcher_ok,
-                "squid_proxy": {"listening": squid_listening},
-                "service": "gateway",
-            }).encode()
+            body = json.dumps(
+                {
+                    "status": "healthy" if is_healthy else "degraded",
+                    "github_token_valid": token_valid,
+                    "auth_configured": launcher_ok,
+                    "squid_proxy": {"listening": squid_listening},
+                    "service": "gateway",
+                }
+            ).encode()
 
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
