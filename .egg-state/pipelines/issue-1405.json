@@ -182,7 +182,9 @@
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [],
-      "artifacts": {},
+      "artifacts": {
+        "pr_url": "https://github.com/jwbron/egg/pull/1412"
+      },
       "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "4aa4e82f8ead146b49385ef8240c53e5e29550e9"
@@ -190,7 +192,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-26T06:03:35.679384Z",
-  "updated_at": "2026-03-26T06:30:57.083647Z",
+  "updated_at": "2026-03-26T06:31:35.590908Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -198,5 +200,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 13
+  "version": 14
 }
