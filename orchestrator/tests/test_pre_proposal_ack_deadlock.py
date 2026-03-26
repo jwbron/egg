@@ -388,7 +388,8 @@ class TestEdgeCases:
 
         # Now reviewer NACKs v1
         result = simple_tracker.handle_nack(
-            "reviewer_a", "producer",
+            "reviewer_a",
+            "producer",
             {"artifact_references": ["file.py"], "reason": "Bug found"},
         )
         assert result["status"] == "nacked"
@@ -433,7 +434,8 @@ class TestEdgeCases:
 
         # NACK from reviewer_a at v1
         simple_tracker.handle_nack(
-            "reviewer_a", "producer",
+            "reviewer_a",
+            "producer",
             {"artifact_references": ["file.py"], "reason": "Needs fix"},
         )
 
