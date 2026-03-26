@@ -226,6 +226,11 @@ class StateStore:
                 if _attempt == 0:
                     time.sleep(0.1)
             # Stale/broken — remove and recreate
+            logger.warning(
+                "Worktree validation failed after retry, recreating",
+                worktree=str(wt),
+                returncode=result.returncode,
+            )
             shutil.rmtree(wt, ignore_errors=True)
             self._remove_stale_admin_dir()
 

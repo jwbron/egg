@@ -728,8 +728,9 @@ def create_pipeline() -> tuple[Response, int]:
             error_type=type(e).__name__,
             exc_info=True,
         )
+        msg = f"{type(e).__name__}: {e}"
         return make_error_response(
-            f"Failed to create pipeline: {type(e).__name__}: {e}",
+            f"Failed to create pipeline: {msg[:500]}",
             status_code=500,
         )
 
