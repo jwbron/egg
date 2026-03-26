@@ -3815,9 +3815,11 @@ def _build_agent_prompt(
                 "- Uncovered code paths and branches",
                 "- Integration gaps between components",
                 "",
-                "### Lint, Type-Check, and Auto-Fix",
+                "### Configured Checks (MANDATORY)",
                 "",
-                "After writing tests, run all project checks and fix auto-fixable issues:",
+                "You MUST run **ALL** configured checks below and fix any failures "
+                "before proposing consensus. Skipping checks (e.g., running tests but "
+                "not lint) is a common failure mode — do not skip any.",
                 "",
             ]
         )
@@ -3827,7 +3829,7 @@ def _build_agent_prompt(
             lines.extend(
                 [
                     "The following check commands are configured for this repository. "
-                    "Run them **in order** instead of auto-discovering commands:",
+                    "Run **every one** of them **in order**:",
                     "",
                 ]
             )
@@ -3838,7 +3840,10 @@ def _build_agent_prompt(
             lines.extend(
                 [
                     "",
-                    "After running these checks:",
+                    "If ANY check fails, fix the issue (e.g., run `make lint-fix` or "
+                    "`make fix` for formatting) and re-run until all checks pass.",
+                    "",
+                    "After running all checks:",
                 ]
             )
         else:
@@ -3850,7 +3855,7 @@ def _build_agent_prompt(
                     "2. **Run linters**: Execute linters (ruff, eslint, golangci-lint, etc.)",
                     "3. **Run type checkers**: Execute type checkers (mypy, pyright, tsc, etc.)",
                     "",
-                    "After running checks:",
+                    "After running all checks:",
                 ]
             )
 
@@ -3912,6 +3917,22 @@ def _build_agent_prompt(
                 ]
             )
         lines.extend(test_verify_lines)
+
+        # Check execution verification — prevents proposing consensus without
+        # running all configured checks (issue #1414).
+        check_verify_lines = [
+            "### Check Execution Verification (CRITICAL)\n",
+            "You MUST run **every** configured check command before proposing consensus. "
+            "Running tests alone is NOT sufficient — lint, type-check, and security "
+            "checks must also pass. If you skip a check that later fails in CI, "
+            "the PR will be blocked.\n",
+            "Before proposing, verify:",
+            "- [ ] All configured check commands have been executed",
+            "- [ ] All checks pass (or failures have been auto-fixed and re-verified)",
+            "- [ ] Any auto-fix commits have been pushed",
+            "",
+        ]
+        lines.extend(check_verify_lines)
 
     elif role_value == "documenter":
         lines.extend(

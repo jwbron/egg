@@ -1538,6 +1538,9 @@ class TestTesterRepoChecksInjection:
         assert "`npm test`" in result
         # Auto-discovery instructions should NOT be present
         assert "Discover commands" not in result
+        # Mandatory language must be present
+        assert "MANDATORY" in result
+        assert "Run **every one**" in result
 
     def test_tester_prompt_without_checks_uses_autodiscovery(self):
         """When repo has no configured checks, auto-discovery instructions are used."""
@@ -1620,6 +1623,40 @@ class TestTesterRepoChecksInjection:
             )
         assert "Discover commands" in result
         assert "configured for this repository" not in result
+
+    def test_tester_prompt_has_check_execution_verification(self):
+        """Tester prompt includes check execution verification section."""
+        checks = [
+            {"name": "lint", "command": "make lint"},
+            {"name": "test", "command": "make test"},
+        ]
+        with patch("routes.pipelines.get_repo_checks", return_value=checks):
+            result = _build_agent_prompt(
+                role_value="tester",
+                phase="implement",
+                pipeline_id="pid-1",
+                pipeline_mode="issue",
+                prompt="# Feature",
+                issue_number=1,
+                repo="org/repo",
+            )
+        assert "Check Execution Verification (CRITICAL)" in result
+        assert "run **every** configured check command" in result
+        assert "Running tests alone is NOT sufficient" in result
+
+    def test_tester_prompt_check_verification_present_without_checks(self):
+        """Check execution verification appears even with auto-discovery."""
+        with patch("routes.pipelines.get_repo_checks", return_value=[]):
+            result = _build_agent_prompt(
+                role_value="tester",
+                phase="implement",
+                pipeline_id="pid-1",
+                pipeline_mode="issue",
+                prompt="# Feature",
+                issue_number=1,
+                repo="org/repo",
+            )
+        assert "Check Execution Verification (CRITICAL)" in result
 
 
 class TestReadTesterGapsNamespacedEdgeCases:
