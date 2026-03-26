@@ -99,6 +99,25 @@ class TestPipelineCreation:
         )
         assert pipeline.config.max_review_cycles == 5
 
+    def test_create_pipeline_with_start_phase_sets_current_phase(self, state_store):
+        """Test that start_phase sets current_phase at creation time."""
+        pipeline = state_store.create_pipeline(
+            issue_number=496,
+            repo="owner/repo",
+            branch="egg/issue-496",
+            config={"start_phase": "implement"},
+        )
+        assert pipeline.current_phase == PipelinePhase.IMPLEMENT
+
+    def test_create_pipeline_without_start_phase_defaults_to_refine(self, state_store):
+        """Test that omitting start_phase keeps default REFINE phase."""
+        pipeline = state_store.create_pipeline(
+            issue_number=497,
+            repo="owner/repo",
+            branch="egg/issue-497",
+        )
+        assert pipeline.current_phase == PipelinePhase.REFINE
+
     def test_create_duplicate_pipeline_fails(self, state_store):
         """Test creating duplicate running pipeline raises error."""
         state_store.create_pipeline(

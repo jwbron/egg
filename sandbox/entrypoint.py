@@ -789,6 +789,10 @@ def restore_prebuilt_deps(
     for repo_dir in prebuilt_base.iterdir():
         if not repo_dir.is_dir():
             continue
+        # __egg_system_dirs__ contains system-level installs (e.g. /usr/local/go)
+        # already restored by the Dockerfile; skip it here.
+        if repo_dir.name == "__egg_system_dirs__":
+            continue
         # repo_dir is like /opt/prebuilt-deps/Khan--webapp
         # Convert back to repo name to find mount point
         # Try each mounted repo to find a match
@@ -1012,6 +1016,13 @@ def setup_claude(config: Config, logger: Logger) -> None:
         "showResumeCommand": False,
         "memory": {"enabled": False},
     }
+
+    # In private mode, disallow web tools at the agent config level so they are
+    # never sent to the API.  The gateway still strips them as defense-in-depth.
+    private_mode_env = os.environ.get("EGG_PRIVATE_MODE", "").lower()
+    if private_mode_env in ("true", "1"):
+        settings["disallowedTools"] = ["WebFetch", "WebSearch"]
+        logger.info("Private mode: disallowed WebFetch/WebSearch in agent settings")
 
     settings_file = config.claude_dir / "settings.json"
     settings_file.write_text(json.dumps(settings, indent=2))
