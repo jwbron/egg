@@ -382,6 +382,16 @@ class ContainerMonitor:
             elif new_status == ContainerStatus.EXITED:
                 if container.exit_code == 0:
                     self._emit_event(ContainerEvent(ContainerEvent.STOPPED, container))
+                elif container.exit_code == 143:
+                    # SIGTERM (exit 143) — expected during phase transitions
+                    # when the orchestrator stops agent containers.  Emit as
+                    # STOPPED (not FAILED) so reconciliation handlers don't
+                    # mark the pipeline as failed.
+                    logger.info(
+                        "Container exited with SIGTERM (143), treating as clean stop",
+                        container_id=container.container_id[:12],
+                    )
+                    self._emit_event(ContainerEvent(ContainerEvent.STOPPED, container))
                 else:
                     self._emit_event(
                         ContainerEvent(
@@ -548,6 +558,24 @@ class ContainerMonitor:
                                         logger.info(
                                             "Container exited cleanly (code 0), "
                                             "skipping FAILED reconciliation",
+                                            pipeline_id=pipeline_id,
+                                            container_id=agent.container_id,
+                                            agent_role=str(agent.role),
+                                        )
+                                        self._clean_exit_skipped.add(agent.container_id)
+                                    continue
+
+                                # SIGTERM (exit 143) during a completed phase
+                                # transition is expected — the orchestrator
+                                # kills containers when phases complete.
+                                if actual_exit_code == 143 and (
+                                    phase_execution.status != PipelineStatus.RUNNING
+                                ):
+                                    if agent.container_id not in self._clean_exit_skipped:
+                                        logger.info(
+                                            "Container received SIGTERM during phase "
+                                            "transition (exit 143), skipping FAILED "
+                                            "reconciliation",
                                             pipeline_id=pipeline_id,
                                             container_id=agent.container_id,
                                             agent_role=str(agent.role),
