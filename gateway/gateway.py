@@ -33,6 +33,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import traceback
 from collections.abc import Callable
@@ -296,6 +297,8 @@ def handle_unhandled_exception(e: Exception) -> tuple[Response, int]:
 # Configuration
 DEFAULT_HOST = os.environ.get("GATEWAY_HOST", "0.0.0.0")  # Listen on all interfaces by default
 DEFAULT_PORT = 9848
+DEFAULT_THREADS = int(os.environ.get("GATEWAY_THREADS", "32"))
+HEALTH_CHECK_PORT = int(os.environ.get("GATEWAY_HEALTH_PORT", "9851"))
 
 # Host home directory for path translation
 # The gateway container uses /home/egg internally, but needs to return
@@ -5003,6 +5006,73 @@ def proxy_count_tokens() -> tuple[Response, int] | Response:
         ), 502
 
 
+def _run_health_server(host: str, port: int) -> None:
+    """Run a dedicated lightweight HTTP server for health checks.
+
+    This server runs on a separate port from the main Waitress thread pool,
+    ensuring health checks are never blocked by long-running API requests
+    (e.g., synchronous git operations holding Waitress threads).
+    """
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class HealthHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path != "/api/v1/health":
+                self.send_response(404)
+                self.end_headers()
+                return
+
+            # Lightweight health check for Docker liveness probes.
+            # Note: is_token_valid() can block during token refresh (up to 30s
+            # synchronous HTTP call to GitHub). ThreadingHTTPServer ensures a
+            # slow refresh doesn't block concurrent health check requests.
+            # The full health endpoint on the main port still does
+            # orchestrator/squid process checks for detailed diagnostics.
+            try:
+                github = get_github_client()
+                token_valid = github.is_token_valid()
+            except Exception:
+                token_valid = False
+
+            try:
+                get_launcher_secret()
+                launcher_ok = True
+            except Exception:
+                launcher_ok = False
+
+            # Quick squid port check
+            squid_listening = False
+            try:
+                with socket.create_connection(("127.0.0.1", 3129), timeout=2):
+                    squid_listening = True
+            except OSError:
+                pass
+
+            is_healthy = token_valid and launcher_ok and squid_listening
+            body = json.dumps(
+                {
+                    "status": "healthy" if is_healthy else "degraded",
+                    "github_token_valid": token_valid,
+                    "auth_configured": launcher_ok,
+                    "squid_proxy": {"listening": squid_listening},
+                    "service": "gateway",
+                }
+            ).encode()
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:
+            # Suppress default stderr logging for health checks
+            pass
+
+    server = ThreadingHTTPServer((host, port), HealthHandler)
+    server.serve_forever()
+
+
 def main() -> None:
     """Run the gateway server."""
     # Safety check: refuse to run as root to prevent permission issues
@@ -5043,6 +5113,18 @@ def main() -> None:
         "--debug",
         action="store_true",
         help="Enable debug mode",
+    )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=DEFAULT_THREADS,
+        help=f"Waitress thread pool size (default: {DEFAULT_THREADS})",
+    )
+    parser.add_argument(
+        "--health-port",
+        type=int,
+        default=HEALTH_CHECK_PORT,
+        help=f"Dedicated health check port (default: {HEALTH_CHECK_PORT})",
     )
 
     args = parser.parse_args()
@@ -5133,16 +5215,28 @@ def main() -> None:
     except Exception as e:
         logger.warning("Could not query Docker containers", error=str(e))
 
-    # Clean up orphaned worktrees from crashed containers
-    try:
-        orphans_removed = startup_cleanup(
-            active_containers=active_container_ids,
-            session_manager=get_session_manager(),
-        )
-        if orphans_removed > 0:
-            logger.info(f"Startup cleanup removed {orphans_removed} orphaned worktree(s)")
-    except Exception as e:
-        logger.warning("Startup worktree cleanup failed", error=str(e))
+    # Clean up orphaned worktrees in a background thread so it doesn't block
+    # the Waitress thread pool at startup. Worktree cleanup involves synchronous
+    # git operations that can hold threads for seconds each, and with many
+    # orphaned sessions this was exhausting the thread pool before the gateway
+    # could serve any requests. See: https://github.com/jwbron/egg/issues/1400
+    def _background_worktree_cleanup() -> None:
+        try:
+            orphans_removed = startup_cleanup(
+                active_containers=active_container_ids,
+                session_manager=get_session_manager(),
+            )
+            if orphans_removed > 0:
+                logger.info(f"Startup cleanup removed {orphans_removed} orphaned worktree(s)")
+        except Exception as e:
+            logger.warning("Startup worktree cleanup failed", error=str(e))
+
+    cleanup_thread = threading.Thread(
+        target=_background_worktree_cleanup,
+        name="startup-worktree-cleanup",
+        daemon=True,
+    )
+    cleanup_thread.start()
 
     # Ensure launcher secret is configured - fail startup if not
     try:
@@ -5179,15 +5273,31 @@ def main() -> None:
         host=args.host,
         port=args.port,
         debug=args.debug,
+        threads=args.threads,
+        health_port=args.health_port,
     )
     logger.info("Session authentication required for all container operations")
+
+    # Start dedicated health check server on a separate port so Docker/orchestrator
+    # health checks are never blocked by long-running git operations on the main
+    # Waitress thread pool. See: https://github.com/jwbron/egg/issues/1400
+    health_thread = threading.Thread(
+        target=_run_health_server,
+        args=(args.host, args.health_port),
+        name="health-check-server",
+        daemon=True,
+    )
+    health_thread.start()
+    logger.info("Dedicated health check server started", port=args.health_port)
 
     # Run with production server in production, debug server in debug mode
     if args.debug:
         app.run(host=args.host, port=args.port, debug=True)
     else:
-        # Use waitress for production
-        serve(app, host=args.host, port=args.port, threads=8)
+        # Use waitress for production with configurable thread pool.
+        # Increased from 8 (previous default) to 32 to handle concurrent load
+        # from multiple SDLC pipelines. See: https://github.com/jwbron/egg/issues/1400
+        serve(app, host=args.host, port=args.port, threads=args.threads)
 
 
 if __name__ == "__main__":

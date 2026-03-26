@@ -91,10 +91,14 @@ With `ANTHROPIC_BASE_URL` routing, `api.anthropic.com` is **not** in the Squid a
 
 ## Tool Filtering (Private Mode)
 
-In private mode, WebSearch and WebFetch are filtered at the gateway level.
+In private mode, WebSearch and WebFetch are blocked at two independent layers.
 
 WebSearch and WebFetch bypass container network controls because they're processed by Anthropic's infrastructure. A compromised agent could encode sensitive data in search queries, creating a data exfiltration vector.
 
+**Layer 1 — Agent settings (`settings.json`):**
+The sandbox entrypoint sets `disallowedTools: ["WebFetch", "WebSearch"]` in Claude Code's `settings.json` when `EGG_PRIVATE_MODE=true`. This prevents the tools from ever being sent to the API in the first place.
+
+**Layer 2 — Gateway filtering (defense-in-depth):**
 The gateway's `_filter_blocked_tools()` function:
 1. Checks session mode (private vs public)
 2. Parses request JSON to find tool definitions
@@ -113,7 +117,7 @@ Gateway enforcement cannot be bypassed because:
 | Zero credential exposure | Credentials only in gateway, never in container |
 | Infrastructure enforcement | Cannot bypass via instructions, config changes, or container escape |
 | Single audit point | All API auth logged through gateway |
-| Tool restriction | WebSearch/WebFetch blocked in private mode at gateway |
+| Tool restriction | WebSearch/WebFetch blocked in private mode: agent settings + gateway |
 | Consistent model | Same security as git credential isolation |
 
 ### Authentication Types
@@ -132,7 +136,7 @@ OAuth takes precedence if both are configured. OAuth tokens may expire; the user
 | `gateway/gateway.py` | Anthropic proxy endpoints, credential injection, tool filtering |
 | `gateway/anthropic_credentials.py` | Credential loading from secrets.env |
 | `gateway/allowed_domains.txt` | Domain allowlist (api.anthropic.com intentionally absent) |
-| `sandbox/entrypoint.py` | Set ANTHROPIC_BASE_URL, remove creds from env |
+| `sandbox/entrypoint.py` | Set ANTHROPIC_BASE_URL, remove creds from env, set disallowedTools in private mode |
 | `config/secrets.template.env` | Template for Anthropic credentials |
 
 ## Related Documentation

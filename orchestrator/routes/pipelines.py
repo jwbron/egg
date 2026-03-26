@@ -5978,20 +5978,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 error=str(hm_err),
             )
 
-        # Honor start_phase config — skip earlier phases
-        if pipeline.config.start_phase:
-            target_phase = PipelinePhase(pipeline.config.start_phase)
-            if target_phase != pipeline.current_phase:
-                with get_pipeline_state_lock(pipeline_id):
-                    pipeline = store.load_pipeline(pipeline_id)
-                    pipeline.current_phase = target_phase
-                    store.save_pipeline(pipeline)
-                logger.info(
-                    "Skipping to start_phase",
-                    pipeline_id=pipeline_id,
-                    start_phase=target_phase.value,
-                )
-
         while True:
             try:
                 pipeline = store.load_pipeline(pipeline_id)

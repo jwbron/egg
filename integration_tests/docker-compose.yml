@@ -47,7 +47,7 @@ services:
       - worktrees:/home/egg/.egg-worktrees
       - state:/home/egg/.egg-state
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:9848/api/v1/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:9851/api/v1/health"]
       interval: 5s
       timeout: 3s
       retries: 20
