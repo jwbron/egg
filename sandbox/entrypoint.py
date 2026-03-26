@@ -1013,6 +1013,13 @@ def setup_claude(config: Config, logger: Logger) -> None:
         "memory": {"enabled": False},
     }
 
+    # In private mode, disallow web tools at the agent config level so they are
+    # never sent to the API.  The gateway still strips them as defense-in-depth.
+    private_mode_env = os.environ.get("EGG_PRIVATE_MODE", "").lower()
+    if private_mode_env in ("true", "1"):
+        settings["disallowedTools"] = ["WebFetch", "WebSearch"]
+        logger.info("Private mode: disallowed WebFetch/WebSearch in agent settings")
+
     settings_file = config.claude_dir / "settings.json"
     settings_file.write_text(json.dumps(settings, indent=2))
     os.chown(settings_file, config.runtime_uid, config.runtime_gid)
