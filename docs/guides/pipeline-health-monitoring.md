@@ -233,7 +233,7 @@ If all agents have confirmed BRC consensus but the pipeline phase has not transi
 
 Each poll cycle the overseer evaluates six targeted health checks (the fourth triggers only on phase transitions; the fifth triggers only at pipeline completion). Only the fourth (cross-phase consistency) uses an LLM classifier; the rest are deterministic (no LLM cost):
 
-All checks broadcast an `OVERSEER_ALERT` message to the `all` target on the message bus, allowing the `/sdlc` monitoring session and other listeners to surface findings via `egg-orch message recent`.
+> **Note:** All checks also broadcast an `OVERSEER_ALERT` message to the `all` target on the message bus, allowing the `/sdlc` monitoring session and other listeners to surface findings via `egg-orch message recent`.
 
 | Check | Detects | Action |
 |-------|---------|--------|
@@ -242,7 +242,7 @@ All checks broadcast an `OVERSEER_ALERT` message to the `all` target on the mess
 | **HITL propagation failure** | A resolved phase-gate decision is not reflected in the SDLC contract after `overseer_hitl_propagation_timeout_seconds` | HITL escalation + Slack notification + message bus broadcast |
 | **Cross-phase consistency** | On a phase transition, the new phase's contract output may not honour prior resolved HITL decisions (uses the Haiku `decision_consistency` classifier; requires confidence > 0.7 to escalate) | HITL escalation + Slack notification + message bus broadcast (deduplicated per phase-transition pair) |
 | **PR phase no PR** | Pipeline reaches `complete` with `current_phase=pr` but no `pr_url` in phase artifacts — defense-in-depth for edge cases where primary PR creation failure handling was bypassed, so stranded branch work is not silently lost | HITL decision + Slack notification + message bus broadcast |
-| **Orchestrator unreachability** | Both pipeline status and phase queries return empty for 3 consecutive poll cycles — likely orchestrator container crash or network partition | Slack notification + message bus broadcast (re-alerts every 3 cycles until recovered; oversight event also logged on recovery) |
+| **Orchestrator unreachability** | Both pipeline status and phase queries return empty for 3 consecutive poll cycles — likely orchestrator container crash or network partition | Slack notification + oversight event + message bus broadcast (re-alerts every 3 cycles until recovered; oversight event also logged on recovery) |
 
 ### Autonomous Issue Filing
 
