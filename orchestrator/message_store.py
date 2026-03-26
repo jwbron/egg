@@ -31,6 +31,8 @@ class MessageType:
     CONSENSUS_WITHDRAW = "CONSENSUS_WITHDRAW"
     CONSENSUS_CONFIRMED = "CONSENSUS_CONFIRMED"
     CONSENSUS_RE_REVIEW = "CONSENSUS_RE_REVIEW"
+    # Overseer anomaly broadcasts (issue #1413)
+    OVERSEER_ALERT = "OVERSEER_ALERT"
 
 
 class Message(BaseModel):

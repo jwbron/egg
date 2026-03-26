@@ -461,6 +461,15 @@ class OverseerMonitor:
             }
         )
 
+        # Broadcast all non-trivial actions so the /sdlc monitoring session
+        # (and any other listener) can surface overseer findings.
+        await self._broadcast_alert(
+            anomaly_type=action,
+            agent_role=agent_role,
+            message=message,
+            priority=decision.get("priority", "medium"),
+        )
+
         if action in ("nudge", "redirect"):
             await self._send_message(agent_role, message)
             self.self_monitor.record_message_sent()
@@ -742,6 +751,9 @@ class OverseerMonitor:
             f"Pipeline: {self.pipeline_id}"
         )
 
+        # Broadcast alert so /sdlc monitoring session can surface it
+        await self._broadcast_alert("post_consensus_stall", "orchestrator", message, "high")
+
         # Create HITL decision for human attention
         await self._create_hitl_decision("orchestrator", message)
 
@@ -816,6 +828,9 @@ class OverseerMonitor:
                     "consecutive_failures": self._consecutive_orch_failures,
                 }
             )
+            await self._broadcast_alert(
+                "orchestrator_unreachable", "orchestrator", message, "critical"
+            )
             await self._send_slack_notification("orchestrator", message)
 
     # -----------------------------------------------------------------
@@ -883,6 +898,7 @@ class OverseerMonitor:
                 self._log_oversight_event(
                     {"event": "rerun_anomaly", "decision_id": did, "work_seconds": work_duration}
                 )
+                await self._broadcast_alert("rerun_anomaly", "overseer", message, "high")
                 await self._create_hitl_decision("overseer", message)
                 await self._send_slack_notification("overseer", message)
                 self._rerun_anomaly_reported.add(did)
@@ -931,6 +947,7 @@ class OverseerMonitor:
         self._log_oversight_event(
             {"event": "status_inconsistency", "pipeline_status": status, "agents": agents}
         )
+        await self._broadcast_alert("status_inconsistency", "orchestrator", message, "high")
         await self._create_hitl_decision("orchestrator", message)
         await self._send_slack_notification("orchestrator", message)
         self._status_inconsistency_reported = True
@@ -991,6 +1008,7 @@ class OverseerMonitor:
                     "elapsed_seconds": elapsed,
                 }
             )
+            await self._broadcast_alert("hitl_propagation_failure", "orchestrator", message, "high")
             await self._create_hitl_decision("orchestrator", message)
             await self._send_slack_notification("orchestrator", message)
             self._hitl_resolution_alerted.add(did)
@@ -1030,6 +1048,7 @@ class OverseerMonitor:
         self._log_oversight_event(
             {"event": "pr_phase_no_pr", "current_phase": current_phase, "artifacts": artifacts}
         )
+        await self._broadcast_alert("pr_phase_no_pr", "orchestrator", message, "critical")
         await self._create_hitl_decision("orchestrator", message)
         await self._send_slack_notification("orchestrator", message)
 
@@ -1106,8 +1125,42 @@ class OverseerMonitor:
                     "confidence": result.get("confidence"),
                 }
             )
+            await self._broadcast_alert("cross_phase_inconsistency", "overseer", message, "high")
             await self._create_hitl_decision("overseer", message)
             await self._send_slack_notification("overseer", message)
+
+    async def _broadcast_alert(
+        self, anomaly_type: str, agent_role: str, message: str, priority: str = "medium"
+    ) -> None:
+        """Broadcast an anomaly alert to all agents and the operator.
+
+        Sends an ``OVERSEER_ALERT`` message to the ``all`` target so that
+        any listener (including the ``/sdlc`` monitoring session) can pick
+        it up via ``recent_messages``.
+
+        Args:
+            anomaly_type: Short label for the anomaly (e.g. "post_consensus_stall").
+            agent_role: The agent (or component) the anomaly relates to.
+            message: Human-readable description of the anomaly.
+            priority: Alert priority (low/medium/high/critical).
+        """
+        subject = f"{anomaly_type}: {agent_role} [{priority}]"
+        try:
+            await self._run_cli(
+                "egg-orch",
+                "message",
+                "send",
+                "--to",
+                "all",
+                "--type",
+                "OVERSEER_ALERT",
+                "--subject",
+                subject,
+                "--body",
+                message,
+            )
+        except Exception:
+            logger.debug("Failed to broadcast alert for %s", agent_role, exc_info=True)
 
     async def _send_message(self, agent_role: str, message: str) -> None:
         """Send a message to an agent via the orchestrator."""

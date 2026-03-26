@@ -1621,3 +1621,190 @@ class TestOrchestratorReachability:
 
         logged_events = [call.args[0] for call in monitor._log_oversight_event.call_args_list]
         assert any(e.get("event") == "orchestrator_recovered" for e in logged_events)
+
+
+# ===================================================================
+# test_broadcast_alert (issue #1413)
+# ===================================================================
+
+
+class TestBroadcastAlert:
+    """Verify _broadcast_alert sends OVERSEER_ALERT messages."""
+
+    def test_broadcast_alert_sends_correct_cli_command(self) -> None:
+        """_broadcast_alert sends a message with type OVERSEER_ALERT to 'all'."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-broadcast-001",
+            config=_MockConfig(),
+        )
+        monitor._run_cli = AsyncMock(return_value=(0, "", ""))
+
+        _run(
+            monitor._broadcast_alert(
+                anomaly_type="stall",
+                agent_role="coder",
+                message="Agent appears stuck",
+                priority="high",
+            )
+        )
+
+        monitor._run_cli.assert_awaited_once()
+        args = monitor._run_cli.call_args.args
+        assert "egg-orch" in args
+        assert "message" in args
+        assert "send" in args
+        assert "--to" in args
+        idx_to = args.index("--to")
+        assert args[idx_to + 1] == "all"
+        idx_type = args.index("--type")
+        assert args[idx_type + 1] == "OVERSEER_ALERT"
+        idx_subject = args.index("--subject")
+        assert "stall" in args[idx_subject + 1]
+        assert "coder" in args[idx_subject + 1]
+        assert "high" in args[idx_subject + 1]
+        idx_body = args.index("--body")
+        assert args[idx_body + 1] == "Agent appears stuck"
+
+    def test_broadcast_alert_failure_does_not_raise(self) -> None:
+        """_broadcast_alert gracefully handles CLI failures."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-broadcast-002",
+            config=_MockConfig(),
+        )
+        monitor._run_cli = AsyncMock(side_effect=OSError("CLI not found"))
+
+        # Should not raise
+        _run(monitor._broadcast_alert(anomaly_type="test", agent_role="coder", message="test"))
+
+
+# ===================================================================
+# test_execute_action_broadcasts (issue #1413)
+# ===================================================================
+
+
+class TestExecuteActionBroadcasts:
+    """Verify _execute_action broadcasts an OVERSEER_ALERT for every action."""
+
+    @staticmethod
+    def _make_monitor():
+        monitor = OverseerMonitor(
+            pipeline_id="test-exec-001",
+            config=_MockConfig(),
+        )
+        monitor._run_cli = AsyncMock(return_value=(0, "", ""))
+        monitor._broadcast_alert = AsyncMock()
+        monitor._send_message = AsyncMock()
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+        monitor._log_oversight_event = MagicMock()
+        return monitor
+
+    def test_nudge_broadcasts(self) -> None:
+        """Nudge action broadcasts an alert."""
+        monitor = self._make_monitor()
+        decision = {"action": "nudge", "message": "Check progress", "priority": "low"}
+        _run(monitor._execute_action(decision, "coder"))
+        monitor._broadcast_alert.assert_awaited_once_with(
+            anomaly_type="nudge",
+            agent_role="coder",
+            message="Check progress",
+            priority="low",
+        )
+        monitor._send_message.assert_awaited_once()
+
+    def test_hitl_broadcasts(self) -> None:
+        """HITL action broadcasts an alert."""
+        monitor = self._make_monitor()
+        decision = {"action": "hitl", "message": "Need human help", "priority": "high"}
+        _run(monitor._execute_action(decision, "tester"))
+        monitor._broadcast_alert.assert_awaited_once_with(
+            anomaly_type="hitl",
+            agent_role="tester",
+            message="Need human help",
+            priority="high",
+        )
+        monitor._create_hitl_decision.assert_awaited_once()
+
+    def test_slack_broadcasts(self) -> None:
+        """Slack action broadcasts an alert."""
+        monitor = self._make_monitor()
+        decision = {"action": "slack", "message": "Urgent issue", "priority": "critical"}
+        _run(monitor._execute_action(decision, "orchestrator"))
+        monitor._broadcast_alert.assert_awaited_once()
+        monitor._send_slack_notification.assert_awaited_once()
+
+
+# ===================================================================
+# test_health_checks_broadcast (issue #1413)
+# ===================================================================
+
+
+class TestHealthChecksBroadcast:
+    """Verify deterministic health checks broadcast OVERSEER_ALERT messages."""
+
+    @staticmethod
+    def _make_monitor():
+        monitor = OverseerMonitor(
+            pipeline_id="test-hc-001",
+            config=_MockConfig(),
+        )
+        monitor._run_cli = AsyncMock(return_value=(0, "", ""))
+        monitor._broadcast_alert = AsyncMock()
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+        monitor._log_oversight_event = MagicMock()
+        return monitor
+
+    def test_post_consensus_stall_broadcasts(self) -> None:
+        """Post-consensus stall broadcasts an alert when grace period expires."""
+        monitor = self._make_monitor()
+        consensus = {"is_complete": True}
+
+        # First call: sets first-seen timestamp
+        _run(monitor._check_post_consensus_stall(consensus, "running"))
+        assert monitor._broadcast_alert.await_count == 0
+
+        # Simulate grace period expiry
+        monitor._post_consensus_stall_first_seen = time.time() - 200
+
+        _run(monitor._check_post_consensus_stall(consensus, "running"))
+        monitor._broadcast_alert.assert_awaited_once()
+        call_args = monitor._broadcast_alert.call_args
+        assert call_args.args[0] == "post_consensus_stall"  # anomaly_type
+        assert call_args.args[3] == "high"  # priority
+
+    def test_orchestrator_unreachable_broadcasts(self) -> None:
+        """Orchestrator unreachability broadcasts an alert at threshold."""
+        monitor = self._make_monitor()
+        monitor._consecutive_orch_failures = 2  # one below threshold
+
+        _run(monitor._check_orchestrator_reachability({}, {}))
+        monitor._broadcast_alert.assert_awaited_once()
+        call_args = monitor._broadcast_alert.call_args
+        assert call_args.args[0] == "orchestrator_unreachable"  # anomaly_type
+        assert call_args.args[3] == "critical"  # priority
+
+    def test_status_inconsistency_broadcasts(self) -> None:
+        """Status inconsistency broadcasts an alert after grace period."""
+        monitor = self._make_monitor()
+        pipeline_data = {
+            "status": "failed",
+            "concurrent": {
+                "agents": [
+                    {"role": "coder", "status": "complete"},
+                    {"role": "tester", "status": "complete"},
+                ],
+            },
+        }
+
+        # First call: sets first-seen timestamp
+        _run(monitor._check_status_consistency(pipeline_data))
+        assert monitor._broadcast_alert.await_count == 0
+
+        # Simulate grace period expiry
+        monitor._status_inconsistency_first_seen = time.time() - 100
+
+        _run(monitor._check_status_consistency(pipeline_data))
+        monitor._broadcast_alert.assert_awaited_once()
+        call_args = monitor._broadcast_alert.call_args
+        assert call_args.args[0] == "status_inconsistency"  # anomaly_type

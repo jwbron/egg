@@ -87,6 +87,16 @@ When an anomaly is confirmed, apply corrective actions in escalating order:
 
 5. **Slack notification**: Send a Slack notification for urgent issues that need immediate human attention.
 
+**IMPORTANT: Broadcast every anomaly.** Every corrective action you take must also be broadcast to the message bus so the human operator (via the `/sdlc` monitoring session) has visibility. The Python `OverseerMonitor` handles this automatically via `_broadcast_alert`, but if you are executing corrective actions directly via CLI, always send an additional broadcast:
+
+```bash
+egg-orch message send --to all --type OVERSEER_ALERT \
+  --subject "<anomaly_type>: <agent_role> [<priority>]" \
+  --body "<description of what was detected and what action was taken>"
+```
+
+Without this broadcast, anomalies are only visible in container logs and the human operator has no way to know what you found.
+
 ## Diagnostic Issue Format
 
 When filing a GitHub issue for a persistent problem, use this structure:
