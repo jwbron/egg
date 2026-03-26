@@ -795,7 +795,10 @@ class TestSubmitTaskErrorPropagation:
         from urllib.error import HTTPError
 
         error_body = json.dumps(
-            {"success": False, "message": "Failed to create pipeline: Git command failed: index.lock"}
+            {
+                "success": False,
+                "message": "Failed to create pipeline: Git command failed: index.lock",
+            }
         ).encode()
 
         mock_opener = MagicMock()

@@ -670,9 +670,7 @@ class TestCreatePipelineErrorHandling:
 
     @patch("routes.pipelines.get_state_store")
     @patch("routes.pipelines.get_repo_path")
-    def test_os_error_returns_500_with_detail(
-        self, mock_repo_path, mock_get_store, client
-    ):
+    def test_os_error_returns_500_with_detail(self, mock_repo_path, mock_get_store, client):
         """OSError during pipeline creation should return 500 with detail, not generic error."""
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
         mock_store = MagicMock()

@@ -220,9 +220,7 @@ class StateStore:
             # contention (e.g., concurrent _commit_statefiles_to_worktree
             # holding a lock on the shared .git directory).  See #1396.
             for _attempt in range(2):
-                result = self._run_git(
-                    "rev-parse", "--is-inside-work-tree", cwd=wt, check=False
-                )
+                result = self._run_git("rev-parse", "--is-inside-work-tree", cwd=wt, check=False)
                 if result.returncode == 0:
                     return wt
                 if _attempt == 0:
