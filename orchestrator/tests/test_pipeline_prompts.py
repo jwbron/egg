@@ -1641,7 +1641,7 @@ class TestTesterRepoChecksInjection:
                 repo="org/repo",
             )
         assert "Check Execution Verification (CRITICAL)" in result
-        assert "every" in result.split("Check Execution Verification")[1]
+        assert "run **every** configured check command" in result
         assert "Running tests alone is NOT sufficient" in result
 
     def test_tester_prompt_check_verification_present_without_checks(self):
