@@ -580,24 +580,32 @@ class PipelineToolHandler:
         try:
             result = self._make_request("/api/v1/pipelines", method="POST", data=data)
         except HTTPError as e:
+            # Read the response body once upfront to avoid stream-exhaustion
+            # issues if multiple branches need to inspect it.
+            try:
+                raw_body = e.read()
+                resp_body = json.loads(raw_body.decode())
+            except Exception:
+                resp_body = {}
+
             if e.code == 409:
                 # Parse enriched 409 body with existing pipeline details
                 error_info: dict[str, Any] = {"error": "Pipeline already exists"}
-                try:
-                    body = json.loads(e.read().decode())
-                    error_info["error"] = body.get("message", error_info["error"])
-                    details = body.get("details", {})
-                    if details:
-                        reason = details.get("reason")
-                        if reason:
-                            error_info["reason"] = reason
-                        error_info["existing_pipeline_id"] = details.get("existing_pipeline_id", "")
-                        error_info["existing_status"] = details.get("existing_status", "")
-                        error_info["existing_phase"] = details.get("existing_phase", "")
-                except Exception:
-                    pass
+                error_info["error"] = resp_body.get("message", error_info["error"])
+                details = resp_body.get("details", {})
+                if details:
+                    reason = details.get("reason")
+                    if reason:
+                        error_info["reason"] = reason
+                    error_info["existing_pipeline_id"] = details.get("existing_pipeline_id", "")
+                    error_info["existing_status"] = details.get("existing_status", "")
+                    error_info["existing_phase"] = details.get("existing_phase", "")
                 return error_info
-            raise
+            # For all other HTTP errors, include the API response body
+            # so the actual error message is visible to callers (#1396).
+            error_info = {"error": f"Pipeline creation failed (HTTP {e.code})"}
+            error_info["error"] = resp_body.get("message", error_info["error"])
+            return error_info
 
         pipeline_id = result.get("data", {}).get("pipeline", {}).get("id", "")
 

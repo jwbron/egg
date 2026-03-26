@@ -718,6 +718,21 @@ def create_pipeline() -> tuple[Response, int]:
             return make_error_response(str(e), status_code=409, details=details)
         logger.error("Failed to create pipeline", error=str(e))
         return make_error_response(f"Failed to create pipeline: {e}", status_code=500)
+    except Exception as e:
+        # Catch non-StateStoreError exceptions (e.g., ValidationError,
+        # OSError) that would otherwise produce a generic 500 from the
+        # Flask error handler with no detail (#1396).
+        logger.error(
+            "Unexpected error creating pipeline",
+            error=str(e),
+            error_type=type(e).__name__,
+            exc_info=True,
+        )
+        msg = f"{type(e).__name__}: {e}"
+        return make_error_response(
+            f"Failed to create pipeline: {msg[:500]}",
+            status_code=500,
+        )
 
 
 def _mark_pipeline_records_terminated(
