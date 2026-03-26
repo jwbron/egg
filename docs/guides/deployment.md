@@ -298,7 +298,7 @@ This clears cached images and rebuilds the sandbox with Claude Code installed.
 ### Gateway fails to start
 
 1. Check Docker is running: `docker info`
-2. Check port availability: `lsof -i :9848 && lsof -i :9851`
+2. Check port availability: `lsof -i :9848; lsof -i :9851`
 3. Check logs: `bin/egg-deploy logs`
 
 ### Sandbox cannot reach gateway
