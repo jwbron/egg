@@ -419,6 +419,80 @@ class TestContainerMonitorDetection:
         event_types = [e.event_type for e in events_received]
         assert ContainerEvent.STOPPED in event_types
 
+    def test_monitor_emits_stopped_for_sigterm_143(self):
+        """Monitor emits STOPPED (not FAILED) for exit code 143 (SIGTERM).
+
+        Exit code 143 occurs during normal phase transitions when the
+        orchestrator kills agent containers. This should be treated as a
+        clean stop, not a failure (issue #1405).
+        """
+        mock_docker = MagicMock()
+        container_id = "test_container_sigterm"
+
+        running_info = ContainerInfo(
+            container_id=container_id,
+            container_name="egg-coder-sigterm",
+            status=ContainerStatus.RUNNING,
+            started_at=datetime.now(UTC),
+        )
+        exited_info = ContainerInfo(
+            container_id=container_id,
+            container_name="egg-coder-sigterm",
+            status=ContainerStatus.EXITED,
+            exit_code=143,
+            exited_at=datetime.now(UTC),
+        )
+        mock_docker.list_containers.side_effect = [
+            [running_info],
+            [exited_info],
+        ]
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        events_received: list[ContainerEvent] = []
+        monitor.add_handler(lambda e: events_received.append(e))
+
+        monitor._check_all_containers()  # STARTED
+        monitor._check_all_containers()  # STOPPED (exit 143)
+
+        event_types = [e.event_type for e in events_received]
+        assert ContainerEvent.STARTED in event_types
+        assert ContainerEvent.STOPPED in event_types
+        assert ContainerEvent.FAILED not in event_types
+
+    def test_monitor_emits_failed_for_non_143_nonzero(self):
+        """Exit code 137 (SIGKILL) or other non-zero codes still emit FAILED."""
+        mock_docker = MagicMock()
+        container_id = "test_container_sigkill"
+
+        running_info = ContainerInfo(
+            container_id=container_id,
+            container_name="egg-coder-sigkill",
+            status=ContainerStatus.RUNNING,
+            started_at=datetime.now(UTC),
+        )
+        exited_info = ContainerInfo(
+            container_id=container_id,
+            container_name="egg-coder-sigkill",
+            status=ContainerStatus.EXITED,
+            exit_code=137,
+            exited_at=datetime.now(UTC),
+        )
+        mock_docker.list_containers.side_effect = [
+            [running_info],
+            [exited_info],
+        ]
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+        events_received: list[ContainerEvent] = []
+        monitor.add_handler(lambda e: events_received.append(e))
+
+        monitor._check_all_containers()
+        monitor._check_all_containers()
+
+        event_types = [e.event_type for e in events_received]
+        assert ContainerEvent.FAILED in event_types
+        assert event_types.count(ContainerEvent.STOPPED) == 0
+
 
 # ---------------------------------------------------------------------------
 # Tests: Periodic reconciliation
