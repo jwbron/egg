@@ -311,12 +311,12 @@ When an agent crashes, `PeerConsensusTracker.handle_agent_crash()` assesses impa
 
 ### SIGTERM Handling During Phase Transitions
 
-When a phase completes and the orchestrator stops agent containers, agents receive SIGTERM and exit with code 143. The container monitor distinguishes these expected exits from genuine failures:
+When a phase completes and the orchestrator stops agent containers, agents receive SIGTERM and exit with code 143. The container monitor's reconciliation loop distinguishes these expected exits from genuine failures:
 
-- **Exit code 143 during a completed/transitioning phase**: Treated as a clean stop (`STOPPED` event), not a failure. No HITL escalation is triggered.
-- **Exit code 143 during an actively running phase**: Also treated as a clean stop, since the orchestrator may be killing containers as part of consensus completion.
+- **Exit code 143 when phase status is no longer `RUNNING`** (i.e., the phase has already transitioned): Skipped during reconciliation — no `FAILED` status is set, no HITL escalation is triggered.
+- **Exit code 143 during an actively `RUNNING` phase**: Treated as a genuine failure and reconciled normally, since the phase has not yet completed.
 
-This prevents noisy `[ERROR] Agent failed` log entries and false HITL escalations that previously occurred on every successful phase transition.
+This scoping ensures that the container polling loop (`_check_container`) still emits a `FAILED` event for exit code 143 — preserving the signal for the agent-loop guard that checks exit codes — while the reconciliation layer suppresses the false failure when phase context confirms the exit was expected. This prevents noisy `[ERROR] Agent failed` log entries and false HITL escalations on successful phase transitions.
 
 ## Failure Recovery
 
