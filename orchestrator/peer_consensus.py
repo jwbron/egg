@@ -364,6 +364,7 @@ class PeerConsensusTracker:
 
             # Transition back to WORKING
             self._producer_phases[agent_role] = ConsensusPhase.WORKING
+            self._confirmed.discard(agent_role)  # Clear stale confirmed status (#1411)
 
             emit_event(
                 EventType.CONSENSUS_WITHDRAW_RECEIVED,

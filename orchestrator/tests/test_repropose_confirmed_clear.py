@@ -94,6 +94,20 @@ class TestReProposeClearsConfirmed:
         )
         assert "producer" not in tracker._confirmed
 
+    def test_confirmed_cleared_immediately_on_withdraw(self, tracker):
+        """Confirmed status must be cleared by withdraw itself, not deferred to re-propose."""
+        # v1: propose -> ACK -> confirm
+        _propose(tracker)
+        _ack(tracker, "reviewer_a")
+        _ack(tracker, "reviewer_b")
+        result = tracker.handle_confirmed("producer")
+        assert result["status"] == "confirmed"
+        assert "producer" in tracker._confirmed
+
+        # Withdraw — confirmed must be cleared immediately, before any re-propose
+        tracker.handle_withdraw("producer", "reworking")
+        assert "producer" not in tracker._confirmed
+
     def test_consensus_not_reached_after_repropose(self, tracker):
         """After re-propose, consensus must not be reached until full re-review."""
         # v1: full consensus
