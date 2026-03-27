@@ -647,6 +647,26 @@ class TestRunAgentAsync:
             opts = call_kwargs["options"]
             assert opts.disallowed_tools == []
 
+    @patch.dict(os.environ, {"EGG_PRIVATE_MODE": "0"})
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_private_mode_0_no_disallowed_tools(self, mock_query):
+        """EGG_PRIVATE_MODE=0 is set by sandbox_template.py for public mode."""
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        call_kwargs = mock_query.call_args.kwargs
+        opts = call_kwargs["options"]
+        assert opts.disallowed_tools == []
+
+    @patch.dict(os.environ, {"EGG_PRIVATE_MODE": ""}, clear=False)
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_private_mode_empty_string_no_disallowed_tools(self, mock_query):
+        """Empty string EGG_PRIVATE_MODE should not block any tools."""
+        result = _run_async(run_agent_async("test prompt"))
+        assert result.success is True
+        call_kwargs = mock_query.call_args.kwargs
+        opts = call_kwargs["options"]
+        assert opts.disallowed_tools == []
+
 
 class TestRunAgentSync:
     """Tests for run_agent synchronous wrapper."""
