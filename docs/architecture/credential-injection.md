@@ -91,14 +91,17 @@ With `ANTHROPIC_BASE_URL` routing, `api.anthropic.com` is **not** in the Squid a
 
 ## Tool Filtering (Private Mode)
 
-In private mode, WebSearch and WebFetch are blocked at two independent layers.
+In private mode, WebSearch and WebFetch are blocked at three independent layers.
 
 WebSearch and WebFetch bypass container network controls because they're processed by Anthropic's infrastructure. A compromised agent could encode sensitive data in search queries, creating a data exfiltration vector.
 
 **Layer 1 — Agent settings (`settings.json`):**
-The sandbox entrypoint sets `disallowedTools: ["WebFetch", "WebSearch"]` in Claude Code's `settings.json` when `EGG_PRIVATE_MODE=true`. This prevents the tools from ever being sent to the API in the first place.
+The sandbox entrypoint sets `disallowedTools: ["WebFetch", "WebSearch"]` in Claude Code's `settings.json` when `EGG_PRIVATE_MODE=true`. This prevents the tools from ever being sent to the API in the first place for interactive Claude Code sessions.
 
-**Layer 2 — Gateway filtering (defense-in-depth):**
+**Layer 2 — SDK options (headless agents):**
+`egg_agent.client` checks `EGG_PRIVATE_MODE` at runtime and passes `disallowed_tools=["WebFetch", "WebSearch"]` in `ClaudeAgentOptions` when running headless agents via the Claude Agent SDK. This is more reliable than `settings.json` for SDK-based agents, since `settings.json` is a Claude Code concept that doesn't apply to SDK usage. It also eliminates gateway log noise from stripping tools on every request.
+
+**Layer 3 — Gateway filtering (defense-in-depth):**
 The gateway's `_filter_blocked_tools()` function:
 1. Checks session mode (private vs public)
 2. Parses request JSON to find tool definitions
@@ -117,7 +120,7 @@ Gateway enforcement cannot be bypassed because:
 | Zero credential exposure | Credentials only in gateway, never in container |
 | Infrastructure enforcement | Cannot bypass via instructions, config changes, or container escape |
 | Single audit point | All API auth logged through gateway |
-| Tool restriction | WebSearch/WebFetch blocked in private mode: agent settings + gateway |
+| Tool restriction | WebSearch/WebFetch blocked in private mode: agent settings + SDK options + gateway |
 | Consistent model | Same security as git credential isolation |
 
 ### Authentication Types
@@ -137,6 +140,7 @@ OAuth takes precedence if both are configured. OAuth tokens may expire; the user
 | `gateway/anthropic_credentials.py` | Credential loading from secrets.env |
 | `gateway/allowed_domains.txt` | Domain allowlist (api.anthropic.com intentionally absent) |
 | `sandbox/entrypoint.py` | Set ANTHROPIC_BASE_URL, remove creds from env, set disallowedTools in private mode |
+| `shared/egg_agent/client.py` | Pass `disallowed_tools` via SDK options for headless agents in private mode |
 | `config/secrets.template.env` | Template for Anthropic credentials |
 
 ## Related Documentation
