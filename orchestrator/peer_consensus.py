@@ -162,6 +162,7 @@ class PeerConsensusTracker:
 
         # Transition to PROPOSED
         self._producer_phases[agent_role] = ConsensusPhase.PROPOSED
+        self._confirmed.discard(agent_role)  # Clear stale confirmed status (#1411)
         self._proposal_timestamps[agent_role] = datetime.now(UTC)
         self._proposal_artifacts[agent_role] = list(proposal.artifacts)
 
