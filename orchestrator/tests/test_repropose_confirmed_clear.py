@@ -40,9 +40,7 @@ def tracker(simple_graph):
 
 
 def _propose(tracker, role="producer", version=1):
-    return tracker.handle_propose(
-        role, {"summary": f"v{version}", "artifacts": ["a.py"]}
-    )
+    return tracker.handle_propose(role, {"summary": f"v{version}", "artifacts": ["a.py"]})
 
 
 def _ack(tracker, reviewer, producer="producer"):
