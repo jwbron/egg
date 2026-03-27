@@ -109,7 +109,7 @@ sandbox/
 ├── responses/               # Human -> Agent (responses)
 └── context/                 # Persistent knowledge across rebuilds
 
-~/context-sync/              # Read-only context (mounted from host)
+~/context-sync/              # Read-only context cache (may not be mounted)
 ├── confluence/             # Confluence documentation
 └── jira/                   # JIRA tickets
 ```

@@ -98,60 +98,54 @@ When a JIRA ticket ID is detected (e.g., `KORE-1234`), gather context from JIRA 
 
 ### Step 1: Fetch the JIRA ticket
 
-Check for local context-sync files first, then fall back to the API:
+Fetch the ticket via the JIRA REST API:
 
-1. **Local files** — Check `~/context-sync/jira/` for a cached ticket file (e.g., `KORE-1234.json` or `KORE-1234.md`). If found, read it and use the content.
+```bash
+curl -s -u "$JIRA_USERNAME:$JIRA_API_TOKEN" \
+  "$JIRA_BASE_URL/rest/api/3/issue/<TICKET_ID>?expand=renderedFields" \
+  2>/dev/null
+```
 
-2. **JIRA API** — If no local file exists, fetch via the JIRA REST API:
-   ```bash
-   curl -s -u "$JIRA_USERNAME:$JIRA_API_TOKEN" \
-     "$JIRA_BASE_URL/rest/api/3/issue/<TICKET_ID>?expand=renderedFields" \
-     2>/dev/null
-   ```
-   Extract from the response:
-   - `fields.summary` — ticket title
-   - `fields.description` (or `renderedFields.description`) — full description
-   - `fields.status.name` — current status
-   - `fields.priority.name` — priority
-   - `fields.labels` — labels
-   - `fields.components` — components
-   - `fields.assignee.displayName` — assignee
-   - `fields.comment.comments` — comments (last 10)
-   - `fields.issuelinks` — linked issues (blockers, relates-to, etc.)
-   - `fields.subtasks` — subtasks if any
-   - `fields.parent` — parent epic/story if this is a subtask
+Extract from the response:
+- `fields.summary` — ticket title
+- `fields.description` (or `renderedFields.description`) — full description
+- `fields.status.name` — current status
+- `fields.priority.name` — priority
+- `fields.labels` — labels
+- `fields.components` — components
+- `fields.assignee.displayName` — assignee
+- `fields.comment.comments` — comments (last 10)
+- `fields.issuelinks` — linked issues (blockers, relates-to, etc.)
+- `fields.subtasks` — subtasks if any
+- `fields.parent` — parent epic/story if this is a subtask
 
-3. **Fallback** — If both local files and API fail (e.g., no credentials configured, private mode), inform the user:
-   ```
-   Could not fetch JIRA ticket <TICKET_ID>. JIRA credentials may not be configured.
-   Proceeding with the ticket ID as the task description.
-   ```
-   Use the raw ticket ID as the task description and continue — do not block the pipeline.
+**Fallback** — If the API fails (e.g., no credentials configured, private mode), inform the user:
+```
+Could not fetch JIRA ticket <TICKET_ID>. JIRA credentials may not be configured.
+Proceeding with the ticket ID as the task description.
+```
+Use the raw ticket ID as the task description and continue — do not block the pipeline.
 
 ### Step 2: Search for related Confluence documentation
 
 Use the JIRA ticket's project key, summary, and labels to find relevant Confluence docs:
 
-1. **Local files** — Search `~/context-sync/confluence/` for files matching the project key or ticket keywords:
-   ```bash
-   find ~/context-sync/confluence/ -name "*.md" -o -name "*.json" | head -20
-   ```
-   Then grep for the project key (e.g., `KORE`) and key terms from the ticket summary.
+Search via the Confluence REST API:
 
-2. **Confluence API** — If local files are insufficient, search via the Confluence REST API:
-   ```bash
-   curl -s -u "$CONFLUENCE_USERNAME:$CONFLUENCE_API_TOKEN" \
-     "$CONFLUENCE_BASE_URL/rest/api/content/search?cql=text~\"<TICKET_ID>\" OR text~\"<key terms from summary>\"&limit=5" \
-     2>/dev/null
-   ```
-   For each matching page, fetch its body:
-   ```bash
-   curl -s -u "$CONFLUENCE_USERNAME:$CONFLUENCE_API_TOKEN" \
-     "$CONFLUENCE_BASE_URL/rest/api/content/<page_id>?expand=body.storage" \
-     2>/dev/null
-   ```
+```bash
+curl -s -u "$CONFLUENCE_USERNAME:$CONFLUENCE_API_TOKEN" \
+  "$CONFLUENCE_BASE_URL/rest/api/content/search?cql=text~\"<TICKET_ID>\" OR text~\"<key terms from summary>\"&limit=5" \
+  2>/dev/null
+```
 
-3. **Fallback** — If Confluence is unavailable, skip silently. Confluence context is supplementary, not required.
+For each matching page, fetch its body:
+```bash
+curl -s -u "$CONFLUENCE_USERNAME:$CONFLUENCE_API_TOKEN" \
+  "$CONFLUENCE_BASE_URL/rest/api/content/<page_id>?expand=body.storage" \
+  2>/dev/null
+```
+
+**Fallback** — If Confluence is unavailable, skip silently. Confluence context is supplementary, not required.
 
 ### Step 3: Build enriched task description
 
