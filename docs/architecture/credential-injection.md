@@ -99,7 +99,7 @@ WebSearch and WebFetch bypass container network controls because they're process
 The sandbox entrypoint sets `disallowedTools: ["WebFetch", "WebSearch"]` in Claude Code's `settings.json` when `EGG_PRIVATE_MODE=true`. This prevents the tools from ever being sent to the API in the first place for interactive Claude Code sessions.
 
 **Layer 2 — SDK options (headless agents):**
-`egg_agent.client` checks `EGG_PRIVATE_MODE` at runtime and passes `disallowed_tools=["WebFetch", "WebSearch"]` in `ClaudeAgentOptions` when running headless agents via the Claude Agent SDK. This is more reliable than `settings.json` for SDK-based agents and eliminates gateway log noise from stripping tools on every request.
+`egg_agent.client` checks `EGG_PRIVATE_MODE` at runtime and passes `disallowed_tools=["WebFetch", "WebSearch"]` in `ClaudeAgentOptions` when running headless agents via the Claude Agent SDK. This is more reliable than `settings.json` for SDK-based agents, since `settings.json` is a Claude Code concept that doesn't apply to SDK usage. It also eliminates gateway log noise from stripping tools on every request.
 
 **Layer 3 — Gateway filtering (defense-in-depth):**
 The gateway's `_filter_blocked_tools()` function:
