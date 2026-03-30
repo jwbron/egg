@@ -730,10 +730,22 @@ class TestSetupWorktrees:
 class TestRestorePrebuiltDeps:
     """Tests for the restore_prebuilt_deps function."""
 
+    @pytest.fixture(autouse=True)
+    def _patch_chown(self):
+        """Patch chown_recursive since tests run as non-root."""
+        with patch("entrypoint.chown_recursive") as self.mock_chown:
+            yield
+
+    def _make_config(self, repos_dir):
+        config = MagicMock()
+        config.repos_dir = repos_dir
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+        return config
+
     def test_noop_when_no_prebuilt_dir(self, temp_dir, capsys):
         """Does nothing if prebuilt dir doesn't exist."""
-        config = MagicMock()
-        config.repos_dir = temp_dir / "repos"
+        config = self._make_config(temp_dir / "repos")
         logger = entrypoint.Logger(quiet=False)
 
         entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=temp_dir / "nonexistent")
@@ -743,8 +755,7 @@ class TestRestorePrebuiltDeps:
 
     def test_noop_when_repos_dir_missing(self, temp_dir, capsys):
         """Does nothing if repos_dir doesn't exist."""
-        config = MagicMock()
-        config.repos_dir = temp_dir / "nonexistent-repos"
+        config = self._make_config(temp_dir / "nonexistent-repos")
         logger = entrypoint.Logger(quiet=False)
         prebuilt = temp_dir / "prebuilt-deps"
         prebuilt.mkdir()
@@ -767,8 +778,7 @@ class TestRestorePrebuiltDeps:
         webapp = repos_dir / "webapp"
         (webapp / "services" / "perseus").mkdir(parents=True)
 
-        config = MagicMock()
-        config.repos_dir = repos_dir
+        config = self._make_config(repos_dir)
         logger = entrypoint.Logger(quiet=False)
 
         entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=temp_dir / "prebuilt-deps")
@@ -793,8 +803,7 @@ class TestRestorePrebuiltDeps:
         webapp_nm.mkdir(parents=True)
         (webapp_nm / "pkg.json").write_text("existing")
 
-        config = MagicMock()
-        config.repos_dir = repos_dir
+        config = self._make_config(repos_dir)
         logger = entrypoint.Logger(quiet=True)
 
         entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=temp_dir / "prebuilt-deps")
@@ -811,8 +820,7 @@ class TestRestorePrebuiltDeps:
         repos_dir = temp_dir / "repos"
         (repos_dir / "webapp").mkdir(parents=True)
 
-        config = MagicMock()
-        config.repos_dir = repos_dir
+        config = self._make_config(repos_dir)
         logger = entrypoint.Logger(quiet=False)
 
         entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=prebuilt)
@@ -831,8 +839,7 @@ class TestRestorePrebuiltDeps:
         repos_dir = temp_dir / "repos"
         repos_dir.mkdir(parents=True)
 
-        config = MagicMock()
-        config.repos_dir = repos_dir
+        config = self._make_config(repos_dir)
         logger = entrypoint.Logger(quiet=False)
 
         entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=prebuilt)
@@ -850,8 +857,7 @@ class TestRestorePrebuiltDeps:
         repos_dir = temp_dir / "repos"
         repos_dir.mkdir(parents=True)
 
-        config = MagicMock()
-        config.repos_dir = repos_dir
+        config = self._make_config(repos_dir)
         logger = entrypoint.Logger(quiet=False)
 
         entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=prebuilt)
@@ -870,8 +876,7 @@ class TestRestorePrebuiltDeps:
         repos_dir = temp_dir / "repos"
         (repos_dir / "webapp").mkdir(parents=True)
 
-        config = MagicMock()
-        config.repos_dir = repos_dir
+        config = self._make_config(repos_dir)
         logger = entrypoint.Logger(quiet=True)
 
         entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=temp_dir / "prebuilt-deps")
@@ -892,8 +897,7 @@ class TestRestorePrebuiltDeps:
         repos_dir = temp_dir / "repos"
         (repos_dir / "webapp").mkdir(parents=True)
 
-        config = MagicMock()
-        config.repos_dir = repos_dir
+        config = self._make_config(repos_dir)
         logger = entrypoint.Logger(quiet=True)
 
         # First restore
@@ -903,6 +907,31 @@ class TestRestorePrebuiltDeps:
 
         assert (repos_dir / "webapp" / "node_modules" / "pkg.js").read_text() == "original"
         assert (repos_dir / "webapp" / "node_modules" / "link.js").is_symlink()
+
+    def test_chowns_restored_dirs(self, temp_dir):
+        """Restored directories are chowned to the runtime user."""
+        prebuilt = temp_dir / "prebuilt-deps" / "Khan--webapp"
+        (prebuilt / "node_modules" / "pkg").mkdir(parents=True)
+        (prebuilt / "node_modules" / "pkg" / "index.js").write_text("x")
+        (prebuilt / ".venv" / "bin").mkdir(parents=True)
+        (prebuilt / ".venv" / "bin" / "python3").write_text("x")
+
+        repos_dir = temp_dir / "repos"
+        (repos_dir / "webapp").mkdir(parents=True)
+
+        config = self._make_config(repos_dir)
+        logger = entrypoint.Logger(quiet=True)
+
+        entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=temp_dir / "prebuilt-deps")
+
+        # chown_recursive should be called for each top-level prebuilt subdir
+        chown_paths = {call.args[0] for call in self.mock_chown.call_args_list}
+        assert repos_dir / "webapp" / "node_modules" in chown_paths
+        assert repos_dir / "webapp" / ".venv" in chown_paths
+        # All calls should use the runtime uid/gid
+        for call in self.mock_chown.call_args_list:
+            assert call.args[1] == 1000
+            assert call.args[2] == 1000
 
 
 class TestSetupAgentRules:

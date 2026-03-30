@@ -846,6 +846,16 @@ def restore_prebuilt_deps(
         except shutil.Error as e:
             logger.warn(f"  Some files could not be restored for {repo_dir_name}: {e}")
 
+        # Fix ownership of restored files. The copytree runs as root so
+        # restored files are root-owned, but the container agent runs as
+        # the runtime user.  Only chown the top-level subdirectories that
+        # came from the prebuilt snapshot (e.g. .venv, node_modules) to
+        # avoid an expensive recursive chown of the entire repo.
+        for prebuilt_subdir in repo_dir.iterdir():
+            restored_path = target_repo / prebuilt_subdir.name
+            if restored_path.exists():
+                chown_recursive(restored_path, config.runtime_uid, config.runtime_gid)
+
         restored += 1
         logger.info(f"  Restored prebuilt deps for {repo_dir_name} -> {target_repo}")
 
