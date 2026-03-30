@@ -852,9 +852,14 @@ def restore_prebuilt_deps(
         # came from the prebuilt snapshot (e.g. .venv, node_modules) to
         # avoid an expensive recursive chown of the entire repo.
         for prebuilt_subdir in repo_dir.iterdir():
+            if not prebuilt_subdir.is_dir():
+                continue
             restored_path = target_repo / prebuilt_subdir.name
             if restored_path.exists():
-                chown_recursive(restored_path, config.runtime_uid, config.runtime_gid)
+                try:
+                    chown_recursive(restored_path, config.runtime_uid, config.runtime_gid)
+                except subprocess.CalledProcessError as e:
+                    logger.warn(f"  Failed to chown {restored_path}: {e.stderr}")
 
         restored += 1
         logger.info(f"  Restored prebuilt deps for {repo_dir_name} -> {target_repo}")

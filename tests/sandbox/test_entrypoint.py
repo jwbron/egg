@@ -732,7 +732,12 @@ class TestRestorePrebuiltDeps:
 
     @pytest.fixture(autouse=True)
     def _patch_chown(self):
-        """Patch chown_recursive since tests run as non-root."""
+        """Patch chown_recursive since tests run as non-root.
+
+        This also prevents chown from being called in tests where restored
+        paths exist (e.g. test_restores_deps_into_repo), keeping those tests
+        focused on copy behavior rather than ownership.
+        """
         with patch("entrypoint.chown_recursive") as self.mock_chown:
             yield
 
@@ -925,6 +930,7 @@ class TestRestorePrebuiltDeps:
         entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=temp_dir / "prebuilt-deps")
 
         # chown_recursive should be called for each top-level prebuilt subdir
+        assert self.mock_chown.call_count == 2
         chown_paths = {call.args[0] for call in self.mock_chown.call_args_list}
         assert repos_dir / "webapp" / "node_modules" in chown_paths
         assert repos_dir / "webapp" / ".venv" in chown_paths
@@ -932,6 +938,47 @@ class TestRestorePrebuiltDeps:
         for call in self.mock_chown.call_args_list:
             assert call.args[1] == 1000
             assert call.args[2] == 1000
+
+    def test_chown_failure_does_not_crash(self, temp_dir, capsys):
+        """A chown failure logs a warning but does not crash the entrypoint."""
+        prebuilt = temp_dir / "prebuilt-deps" / "Khan--webapp"
+        (prebuilt / ".venv" / "bin").mkdir(parents=True)
+        (prebuilt / ".venv" / "bin" / "python3").write_text("x")
+
+        repos_dir = temp_dir / "repos"
+        (repos_dir / "webapp").mkdir(parents=True)
+
+        self.mock_chown.side_effect = subprocess.CalledProcessError(
+            1, "chown", stderr="Permission denied"
+        )
+        config = self._make_config(repos_dir)
+        logger = entrypoint.Logger(quiet=False)
+
+        # Should not raise
+        entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=temp_dir / "prebuilt-deps")
+
+        captured = capsys.readouterr()
+        assert "Failed to chown" in captured.out
+
+    def test_skips_non_directory_entries(self, temp_dir):
+        """Top-level files in the prebuilt snapshot are not chowned."""
+        prebuilt = temp_dir / "prebuilt-deps" / "Khan--webapp"
+        (prebuilt / ".venv" / "bin").mkdir(parents=True)
+        (prebuilt / ".venv" / "bin" / "python3").write_text("x")
+        # Add a top-level file in the prebuilt snapshot
+        (prebuilt / "manifest.json").write_text("{}")
+
+        repos_dir = temp_dir / "repos"
+        (repos_dir / "webapp").mkdir(parents=True)
+
+        config = self._make_config(repos_dir)
+        logger = entrypoint.Logger(quiet=True)
+
+        entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=temp_dir / "prebuilt-deps")
+
+        # Only the directory (.venv) should be chowned, not manifest.json
+        assert self.mock_chown.call_count == 1
+        assert self.mock_chown.call_args_list[0].args[0] == repos_dir / "webapp" / ".venv"
 
 
 class TestSetupAgentRules:
