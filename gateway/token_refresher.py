@@ -391,6 +391,16 @@ def initialize_token_refresher(
         return None
 
 
+def is_token_refresher_permanently_failed() -> bool:
+    """Return True if token refresher initialization failed permanently.
+
+    A permanent failure means credentials are missing or the key file doesn't
+    exist — retrying won't help.  Transient failures (DNS, network) leave
+    ``_refresher_initialization_attempted`` unset so the caller can retry.
+    """
+    return _refresher_initialization_attempted and _token_refresher is None
+
+
 def get_token_refresher() -> TokenRefresher | None:
     """
     Get the global token refresher instance (for bot/main app).

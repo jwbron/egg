@@ -5135,7 +5135,10 @@ def main() -> None:
     # initialization never succeeds.
     token_init_timeout = int(os.environ.get("EGG_TOKEN_INIT_TIMEOUT", "120"))
     try:
-        from token_refresher import initialize_token_refresher
+        from token_refresher import (
+            initialize_token_refresher,
+            is_token_refresher_permanently_failed,
+        )
 
         refresher = None
         start_time = time.time()
@@ -5145,6 +5148,14 @@ def main() -> None:
             refresher = initialize_token_refresher()
             if refresher:
                 logger.info("Token refresher initialized (in-memory token refresh enabled)")
+                break
+
+            # Permanent failures (missing credentials/key file) won't resolve
+            # on retry — exit immediately instead of waiting for the timeout.
+            if is_token_refresher_permanently_failed():
+                logger.warning(
+                    "Token refresher not configured - GitHub operations will fail"
+                )
                 break
 
             elapsed = time.time() - start_time
