@@ -2,7 +2,7 @@
 
 Validates the EGG_AGENT_RESTRICTIONS_ENFORCE flag controlling whether
 agent-role file restriction violations block pushes (enforce mode)
-or only log warnings (warn-only mode, default).
+or only log warnings (warn-only mode). Enforce mode is the default.
 """
 
 import json
