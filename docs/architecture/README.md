@@ -33,7 +33,7 @@ See the [main README](../../README.md) for the architecture diagram.
 - File-level access restrictions (role-based blocking of sensitive files like contract files)
 - Filesystem-level readonly mounts (phase-protected `.egg-state/` directories mounted readonly)
 - Commit-time validation (staged files checked against phase restrictions before commit)
-- Agent role-based file access (Coder, Tester, Documenter have distinct write permissions; default warn-only, configurable to enforce via `EGG_AGENT_RESTRICTIONS_ENFORCE`)
+- Agent role-based file access (Coder, Tester, Documenter have distinct write permissions; enforced by default, set `EGG_AGENT_RESTRICTIONS_ENFORCE=false` for warn-only mode)
 - Anchor file write-scoping (agents can only write their own `.egg-state/agent-anchors/{agent-id}.json`, enforced via `AGENT_ANCHOR_ID`)
 - Role-based contract mutations (implementer, reviewer, human roles with field-level permissions)
 - No merge capability (gateway has no merge endpoint)

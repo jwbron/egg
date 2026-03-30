@@ -204,13 +204,15 @@ CODER_PATTERNS = AgentFilePattern(
         "**/*.md",
         # Contracts (API only)
         ".egg-state/contracts/",
-        # Test files (Tester handles) - more specific patterns
+        # Test files (Tester handles)
         "tests/",
         "test/",
         "**/tests/",
         "**/test/",
         "**/*_test.py",
         "**/test_*.py",
+        "**/*_test.go",
+        "**/test_*.go",
         "**/*.test.ts",
         "**/*.test.tsx",
         "**/*.test.js",
@@ -219,12 +221,14 @@ CODER_PATTERNS = AgentFilePattern(
         "**/*.spec.tsx",
         "**/*.spec.js",
         "**/*.spec.jsx",
+        # Pytest infrastructure (Tester handles)
+        "**/conftest.py",
     ],
 )
 
 TESTER_PATTERNS = AgentFilePattern(
     role=AgentRole.TESTER,
-    description="Tester agent: test files and source code (for lint/type-check auto-fixes)",
+    description="Tester agent: test files and pytest infrastructure only",
     allowed_patterns=[
         # Test directories
         "tests/",
@@ -244,22 +248,8 @@ TESTER_PATTERNS = AgentFilePattern(
         "**/*.spec.tsx",
         "**/*.spec.js",
         "**/*.spec.jsx",
-        # Source code (for lint/type-check auto-fixes)
-        "**/*.py",
-        "**/*.ts",
-        "**/*.tsx",
-        "**/*.js",
-        "**/*.jsx",
-        "**/*.go",
-        "**/*.java",
-        "**/*.rb",
-        "**/*.rs",
-        "**/*.sh",
-        # Configuration (for auto-fix updates)
-        "**/*.yml",
-        "**/*.yaml",
-        "**/*.json",
-        "**/*.toml",
+        # Pytest infrastructure
+        "**/conftest.py",
         # Handoff output
         ".egg-state/agent-outputs/",
     ],

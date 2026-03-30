@@ -3797,6 +3797,12 @@ def _build_agent_prompt(
 
         lines.extend(
             [
+                "**ROLE BOUNDARY: You are the TESTER, not the CODER.** "
+                "Do NOT implement application logic, create source files, write configuration, "
+                "or set up project infrastructure. Your job is to write tests for the CODER's "
+                "implementation, run checks, and report gaps. If the coder hasn't committed yet, "
+                "wait — do not implement the solution yourself.",
+                "",
                 "Validate the changes and find gaps in the CODER agent's implementation. "
                 "You are responsible for both **testing** and **lint/type-check validation**.",
                 "",
@@ -3861,16 +3867,18 @@ def _build_agent_prompt(
 
         lines.extend(
             [
-                "- **Auto-fix**: Fix auto-fixable issues (formatting, import order, simple type errors)",
+                "- **Auto-fix test files only**: Fix auto-fixable issues in test files you wrote "
+                "(formatting, import order, simple type errors)",
                 "- **Repeat**: Re-run checks to verify fixes. Repeat up to 3 times.",
-                "- **Commit fixes**: Commit all auto-fixes together with a descriptive message",
+                "- **Commit test fixes**: Commit all test-file fixes together with a descriptive message",
                 "",
-                "Auto-fixable (commit fixes directly):",
-                "- Lint errors (formatting, import order, code style)",
-                "- Type errors with clear fixes",
-                "- Simple test failures with obvious fixes",
+                "Auto-fixable (in test files only — commit fixes directly):",
+                "- Lint errors in test files (formatting, import order, code style)",
+                "- Type errors in test files with clear fixes",
                 "",
-                "Report only (explain what's needed):",
+                "Report only (do NOT modify source code — NACK the coder and explain what's needed):",
+                "- Lint or type errors in source code — tell the coder to fix these",
+                "- Test failures caused by bugs in the coder's implementation — tell the coder to fix",
                 "- Complex logic errors requiring design decisions",
                 "- Security issues requiring architectural changes",
                 "",
