@@ -14,6 +14,7 @@ from token_refresher import (
     initialize_reviewer_token_refresher,
     initialize_token_refresher,
     is_reviewer_token_available,
+    is_token_refresher_permanently_failed,
     reset_token_refresher,
 )
 
@@ -541,6 +542,88 @@ GITHUB_APP_INSTALLATION_ID=67890
             installation_id=99999,
         )
         assert refresher is not None
+
+
+class TestTokenRefresherPermanentVsTransient:
+    """Tests for permanent vs transient failure distinction in initialize_token_refresher."""
+
+    def test_missing_credentials_sets_permanent_failure(self, tmp_path):
+        """Missing credentials is a permanent failure — is_token_refresher_permanently_failed returns True."""
+        refresher = initialize_token_refresher(config_dir=tmp_path)
+        assert refresher is None
+        assert is_token_refresher_permanently_failed() is True
+
+    def test_missing_credentials_short_circuits_retry(self, tmp_path):
+        """After permanent failure, second call short-circuits (returns cached None)."""
+        initialize_token_refresher(config_dir=tmp_path)
+        assert is_token_refresher_permanently_failed() is True
+
+        # Second call should return None immediately without re-checking
+        result = initialize_token_refresher(config_dir=tmp_path)
+        assert result is None
+
+    @requires_network_mocking
+    @patch("token_refresher.jwt.encode")
+    @patch("token_refresher.requests.post")
+    def test_network_failure_allows_retry(self, mock_post, mock_jwt, tmp_path, mock_private_key):
+        """Network failure (get_token returns None) is transient — allows retry."""
+        mock_jwt.return_value = "mock_jwt_token"
+        # Simulate network failure: post succeeds but returns error status
+        mock_post.return_value = MagicMock(
+            status_code=401,
+            json=lambda: {"message": "Bad credentials"},
+            raise_for_status=MagicMock(side_effect=Exception("401 Unauthorized")),
+        )
+
+        key_path = tmp_path / "github-app.pem"
+        key_path.write_text(mock_private_key)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "GITHUB_APP_ID": "12345",
+                "GITHUB_INSTALLATION_ID": "67890",
+                "GITHUB_PRIVATE_KEY_PATH": str(key_path),
+            },
+        ):
+            refresher = initialize_token_refresher(config_dir=tmp_path)
+            assert refresher is None
+            # Transient failure — should NOT be marked as permanent
+            assert is_token_refresher_permanently_failed() is False
+
+    def test_missing_key_file_sets_permanent_failure(self, tmp_path):
+        """Missing private key file is a permanent failure."""
+        # Create secrets.env but no PEM file
+        (tmp_path / "secrets.env").write_text(
+            "GITHUB_APP_ID=12345\nGITHUB_APP_INSTALLATION_ID=67890\n"
+        )
+
+        refresher = initialize_token_refresher(config_dir=tmp_path)
+        assert refresher is None
+        assert is_token_refresher_permanently_failed() is True
+
+    def test_permission_error_sets_permanent_failure(self, tmp_path, mock_private_key):
+        """PermissionError reading key file is a permanent failure."""
+        key_path = tmp_path / "github-app.pem"
+        key_path.write_text(mock_private_key)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "GITHUB_APP_ID": "12345",
+                "GITHUB_INSTALLATION_ID": "67890",
+                "GITHUB_PRIVATE_KEY_PATH": str(key_path),
+            },
+        ):
+            # Patch only the PEM file's read_text to raise PermissionError
+            with patch.object(
+                type(key_path),
+                "read_text",
+                side_effect=PermissionError("Permission denied"),
+            ):
+                refresher = initialize_token_refresher(config_dir=tmp_path)
+                assert refresher is None
+                assert is_token_refresher_permanently_failed() is True
 
 
 class TestGetBotToken:

@@ -539,7 +539,9 @@ def _diagnose_orchestrator_failure() -> None:
     elif container_state != "running":
         lines.append(f"Orchestrator container in unexpected state: {container_state}")
 
-    if gateway_status and gateway_status != "healthy":
+    if gateway_status == "unreachable":
+        lines.append("Gateway health endpoint is unreachable")
+    elif gateway_status and gateway_status != "healthy":
         lines.append(f"Gateway health status: {gateway_status}")
         if not gateway_details.get("github_token_valid", True):
             lines.append(
@@ -548,8 +550,6 @@ def _diagnose_orchestrator_failure() -> None:
         squid = gateway_details.get("squid_proxy", {})
         if not squid.get("running", True) or not squid.get("listening", True):
             lines.append("Squid proxy is not running")
-    elif gateway_status == "unreachable":
-        lines.append("Gateway health endpoint is unreachable")
 
     if lines:
         warn("Orchestrator diagnosis:")
@@ -776,7 +776,7 @@ def ensure_compose_services(build: bool = True) -> bool:
                 success("Orchestrator is healthy")
             else:
                 warn("Orchestrator not healthy — continuing without it")
-            _diagnose_orchestrator_failure()
+                _diagnose_orchestrator_failure()
             return True
         return False
 
@@ -797,6 +797,7 @@ def ensure_compose_services(build: bool = True) -> bool:
         success("Orchestrator is healthy")
     else:
         warn("Orchestrator not healthy — continuing without it")
+        _diagnose_orchestrator_failure()
 
     # Store compose source hash so the next invocation can skip rebuild
     _store_compose_hash(repo_root, current_source_hash)

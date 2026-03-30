@@ -5179,6 +5179,13 @@ def main() -> None:
     except ImportError:
         logger.error("Token refresher module not available - GitHub operations will fail")
         sys.exit(1)
+    except Exception as e:
+        logger.error(
+            "Token refresher initialization failed unexpectedly",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        sys.exit(1)
 
     # Initialize reviewer token refresher (optional — for posting reviews with
     # approve/request-changes using a separate GitHub App identity).

@@ -381,6 +381,14 @@ def initialize_token_refresher(
             logger.error("Token refresher failed to get initial token (will allow retry)")
             return None
 
+    except (PermissionError, UnicodeDecodeError, IsADirectoryError, ValueError) as e:
+        logger.error(
+            "Token refresher initialization failed permanently",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        _refresher_initialization_attempted = True
+        return None
     except Exception as e:
         # Transient failure — allow retry
         logger.error(
@@ -548,6 +556,14 @@ def initialize_reviewer_token_refresher(
             logger.error("Reviewer token refresher failed to get initial token (will allow retry)")
             return None
 
+    except (PermissionError, UnicodeDecodeError, IsADirectoryError, ValueError) as e:
+        logger.error(
+            "Reviewer token refresher initialization failed permanently",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        _reviewer_refresher_initialization_attempted = True
+        return None
     except Exception as e:
         # Transient failure — allow retry
         logger.error(
