@@ -5153,9 +5153,7 @@ def main() -> None:
             # Permanent failures (missing credentials/key file) won't resolve
             # on retry — exit immediately instead of waiting for the timeout.
             if is_token_refresher_permanently_failed():
-                logger.warning(
-                    "Token refresher not configured - GitHub operations will fail"
-                )
+                logger.warning("Token refresher not configured - GitHub operations will fail")
                 break
 
             elapsed = time.time() - start_time
