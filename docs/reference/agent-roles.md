@@ -146,7 +146,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 **File access**:
 - Allowed writes: `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns (`**/*_test.py`, `**/test_*.py`, `**/*.test.ts`, etc.), `**/conftest.py`, `.egg-state/agent-outputs/`
-- Blocked: All source code files (`**/*.py`, `**/*.ts`, etc.), all configuration files (`**/*.yml`, `**/*.json`, `**/*.toml`), `docs/`, `**/README.md`, `**/*.md`, `.egg-state/contracts/`
+- Blocked: `docs/`, `**/README.md`, `**/*.md`, `.egg-state/contracts/` (source code and config files are excluded by absence from the allowed list — blocked patterns cannot be used for these because they share extensions with test files)
 
 **Outputs**:
 - Test file commits on the worktree branch

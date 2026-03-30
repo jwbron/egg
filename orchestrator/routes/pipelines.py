@@ -3846,8 +3846,8 @@ def _build_agent_prompt(
             lines.extend(
                 [
                     "",
-                    "If ANY check fails, fix the issue (e.g., run `make lint-fix` or "
-                    "`make fix` for formatting) and re-run until all checks pass.",
+                    "If ANY check fails in test files you wrote, fix the issue and re-run. "
+                    "If failures are in source code, do NOT fix them — report them to the coder.",
                     "",
                     "After running all checks:",
                 ]

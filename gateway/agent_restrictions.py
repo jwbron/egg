@@ -9,7 +9,7 @@ from modifying files outside their responsibility.
 Security model:
 - Architect/Task Planner/Risk Analyst: Can write drafts and agent-outputs only, blocked from source code, docs, contracts, reviews
 - Coder: Can write source code, blocked from docs and contracts
-- Tester: Can write test files and source files (for lint/type-check auto-fixes)
+- Tester: Can write test files and conftest.py only
 - Documenter: Can write docs and markdown only
 - Refiner: Can write drafts and agent-outputs only, blocked from source code and contracts
 - Reviewers: Can write reviews and agent-outputs only
