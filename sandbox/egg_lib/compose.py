@@ -502,7 +502,7 @@ def _diagnose_orchestrator_failure() -> None:
                 "inspect",
                 "--format",
                 "{{.State.Status}}",
-                f"{ctx.compose_project_name}-orchestrator",
+                f"{os.environ.get('COMPOSE_PROJECT_NAME', 'egg')}-orchestrator",
             ],
             capture_output=True,
             text=True,
