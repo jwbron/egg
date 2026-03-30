@@ -154,6 +154,44 @@ class TestAgentRestrictionsWarnOnly:
                 response = _do_push(client)
                 assert response.status_code == 200
 
+    def test_warn_mode_accepts_0_value(self, client):
+        """EGG_AGENT_RESTRICTIONS_ENFORCE=0 works as warn-only."""
+        session = _make_coder_session()
+        patches = _push_context(session, agent_blocked=True)
+
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "0"}):
+                response = _do_push(client)
+                assert response.status_code == 200
+
+    def test_warn_mode_accepts_no_value(self, client):
+        """EGG_AGENT_RESTRICTIONS_ENFORCE=no works as warn-only."""
+        session = _make_coder_session()
+        patches = _push_context(session, agent_blocked=True)
+
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "no"}):
+                response = _do_push(client)
+                assert response.status_code == 200
+
     def test_enforce_mode_is_default(self, client):
         """Without the env var set, enforce mode is used (blocks violations)."""
         session = _make_coder_session()
