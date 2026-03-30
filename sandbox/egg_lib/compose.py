@@ -483,6 +483,81 @@ def _wait_for_health(url: str, label: str, timeout: int = 60) -> bool:
     return False
 
 
+def _diagnose_orchestrator_failure() -> None:
+    """Print diagnostic info when the orchestrator health check fails.
+
+    Checks gateway health status and orchestrator container state to surface
+    the root cause instead of just reporting a timeout.
+    """
+    import urllib.error
+    import urllib.request
+
+    ctx = get_context()
+
+    # Check orchestrator container state
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "inspect",
+                "--format",
+                "{{.State.Status}}",
+                f"{ctx.compose_project_name}-orchestrator",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        container_state = result.stdout.strip() if result.returncode == 0 else "not found"
+    except Exception:
+        container_state = "unknown"
+
+    # Check gateway health endpoint for details
+    gateway_status = None
+    gateway_details = {}
+    gateway_url = f"http://localhost:{ctx.gateway_port}/api/v1/health"
+    try:
+        with urllib.request.urlopen(gateway_url, timeout=3) as resp:
+            gateway_details = json.loads(resp.read())
+            gateway_status = gateway_details.get("status", "unknown")
+    except Exception:
+        gateway_status = "unreachable"
+
+    # Build diagnostic message
+    lines = []
+    if container_state == "created":
+        lines.append("Orchestrator container was never started (stuck in 'created' state)")
+        lines.append(
+            "This usually means the gateway never became healthy "
+            "(orchestrator depends_on gateway health)"
+        )
+    elif container_state == "not found":
+        lines.append("Orchestrator container not found")
+    elif container_state == "exited":
+        lines.append("Orchestrator container exited unexpectedly")
+        lines.append("Run: docker logs $(docker ps -aq --filter name=orchestrator) | tail -20")
+    elif container_state != "running":
+        lines.append(f"Orchestrator container in unexpected state: {container_state}")
+
+    if gateway_status and gateway_status != "healthy":
+        lines.append(f"Gateway health status: {gateway_status}")
+        if not gateway_details.get("github_token_valid", True):
+            lines.append(
+                "GitHub token is invalid — check network connectivity and GitHub App credentials"
+            )
+        squid = gateway_details.get("squid_proxy", {})
+        if not squid.get("running", True) or not squid.get("listening", True):
+            lines.append("Squid proxy is not running")
+    elif gateway_status == "unreachable":
+        lines.append("Gateway health endpoint is unreachable")
+
+    if lines:
+        warn("Orchestrator diagnosis:")
+        for line in lines:
+            warn(f"  {line}")
+    warn("Run 'docker compose logs gateway' and 'docker compose logs orchestrator' for details")
+
+
 def _services_healthy() -> bool:
     """Return True if the gateway is already running and healthy."""
     import urllib.error
@@ -681,6 +756,7 @@ def ensure_compose_services(build: bool = True) -> bool:
             success("Orchestrator is healthy")
         else:
             warn("Orchestrator not healthy — continuing without it")
+            _diagnose_orchestrator_failure()
         return True
 
     # Only clean up stale resources on a cold start (gateway not running)
@@ -700,6 +776,7 @@ def ensure_compose_services(build: bool = True) -> bool:
                 success("Orchestrator is healthy")
             else:
                 warn("Orchestrator not healthy — continuing without it")
+            _diagnose_orchestrator_failure()
             return True
         return False
 

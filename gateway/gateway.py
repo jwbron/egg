@@ -5129,22 +5129,51 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Initialize token refresher for in-memory token management
+    # Initialize token refresher for in-memory token management.
+    # Retry with backoff on transient failures (e.g. DNS not available at startup).
+    # Without a GitHub token the gateway can't serve its purpose, so exit if
+    # initialization never succeeds.
+    token_init_timeout = int(os.environ.get("EGG_TOKEN_INIT_TIMEOUT", "120"))
     try:
         from token_refresher import initialize_token_refresher
 
-        refresher = initialize_token_refresher()
-        if refresher:
-            logger.info("Token refresher initialized (in-memory token refresh enabled)")
-        else:
-            logger.warning("Token refresher not configured - GitHub operations will fail")
+        refresher = None
+        start_time = time.time()
+        attempt = 0
+        while True:
+            attempt += 1
+            refresher = initialize_token_refresher()
+            if refresher:
+                logger.info("Token refresher initialized (in-memory token refresh enabled)")
+                break
+
+            elapsed = time.time() - start_time
+            if elapsed >= token_init_timeout:
+                logger.error(
+                    "Token refresher failed to initialize after timeout — exiting",
+                    timeout_seconds=token_init_timeout,
+                    attempts=attempt,
+                )
+                sys.exit(1)
+
+            backoff = min(5 * (2 ** (attempt - 1)), 30)
+            remaining = token_init_timeout - elapsed
+            wait = min(backoff, remaining)
+            logger.warning(
+                "Token refresher not ready, retrying",
+                attempt=attempt,
+                retry_in_seconds=wait,
+                elapsed_seconds=round(elapsed, 1),
+                timeout_seconds=token_init_timeout,
+            )
+            time.sleep(wait)
     except ImportError:
         logger.error("Token refresher module not available - GitHub operations will fail")
-    except Exception as e:
-        logger.error("Token refresher initialization failed", error=str(e))
+        sys.exit(1)
 
     # Initialize reviewer token refresher (optional — for posting reviews with
-    # approve/request-changes using a separate GitHub App identity)
+    # approve/request-changes using a separate GitHub App identity).
+    # Reviewer is optional so we don't retry or block startup.
     try:
         from token_refresher import initialize_reviewer_token_refresher
 

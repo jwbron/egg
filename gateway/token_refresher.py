@@ -297,10 +297,9 @@ def initialize_token_refresher(
     """
     global _token_refresher, _refresher_initialization_attempted
 
-    # Only attempt initialization once
+    # Skip if already initialized successfully or failed permanently
     if _refresher_initialization_attempted:
         return _token_refresher
-    _refresher_initialization_attempted = True
 
     config_dir = config_dir or DEFAULT_CONFIG_DIR
 
@@ -336,7 +335,7 @@ def initialize_token_refresher(
         else:
             resolved_private_key_path = config_dir / "github-app.pem"
 
-    # Validate all required config is present
+    # Validate all required config is present — permanent failure, no retry
     if not all([resolved_app_id, resolved_installation_id, resolved_private_key_path]):
         logger.error(
             "Token refresher not configured (missing credentials)",
@@ -344,6 +343,7 @@ def initialize_token_refresher(
             has_installation_id=bool(resolved_installation_id),
             has_private_key_path=bool(resolved_private_key_path),
         )
+        _refresher_initialization_attempted = True
         return None
 
     if not resolved_private_key_path.exists():
@@ -351,6 +351,7 @@ def initialize_token_refresher(
             "Private key file not found",
             private_key_path=str(resolved_private_key_path),
         )
+        _refresher_initialization_attempted = True
         return None
 
     try:
@@ -371,15 +372,19 @@ def initialize_token_refresher(
                 app_id=resolved_app_id,
                 installation_id=resolved_installation_id,
             )
+            _refresher_initialization_attempted = True
             _token_refresher = refresher
             return refresher
         else:
-            logger.error("Token refresher failed to get initial token")
+            # Transient failure (e.g. DNS) — do NOT set _refresher_initialization_attempted
+            # so the caller can retry
+            logger.error("Token refresher failed to get initial token (will allow retry)")
             return None
 
     except Exception as e:
+        # Transient failure — allow retry
         logger.error(
-            "Failed to initialize token refresher",
+            "Failed to initialize token refresher (will allow retry)",
             error=str(e),
             error_type=type(e).__name__,
         )
@@ -446,10 +451,9 @@ def initialize_reviewer_token_refresher(
     """
     global _reviewer_token_refresher, _reviewer_refresher_initialization_attempted
 
-    # Only attempt initialization once
+    # Skip if already initialized successfully or failed permanently
     if _reviewer_refresher_initialization_attempted:
         return _reviewer_token_refresher
-    _reviewer_refresher_initialization_attempted = True
 
     config_dir = config_dir or DEFAULT_CONFIG_DIR
 
@@ -492,7 +496,7 @@ def initialize_reviewer_token_refresher(
                     error=str(e),
                 )
 
-    # Validate all required config is present
+    # Validate all required config is present — permanent failure, no retry
     if not all([resolved_app_id, resolved_installation_id, resolved_private_key]):
         # Reviewer is optional - just log debug and return None
         logger.debug(
@@ -501,6 +505,7 @@ def initialize_reviewer_token_refresher(
             has_installation_id=bool(resolved_installation_id),
             has_private_key=bool(resolved_private_key),
         )
+        _reviewer_refresher_initialization_attempted = True
         return None
 
     try:
@@ -525,15 +530,18 @@ def initialize_reviewer_token_refresher(
                 app_id=resolved_app_id,
                 installation_id=resolved_installation_id,
             )
+            _reviewer_refresher_initialization_attempted = True
             _reviewer_token_refresher = refresher
             return refresher
         else:
-            logger.error("Reviewer token refresher failed to get initial token")
+            # Transient failure — allow retry
+            logger.error("Reviewer token refresher failed to get initial token (will allow retry)")
             return None
 
     except Exception as e:
+        # Transient failure — allow retry
         logger.error(
-            "Failed to initialize reviewer token refresher",
+            "Failed to initialize reviewer token refresher (will allow retry)",
             error=str(e),
             error_type=type(e).__name__,
         )
