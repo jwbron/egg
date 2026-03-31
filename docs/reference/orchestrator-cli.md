@@ -41,6 +41,7 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch progress emit --step <text> --state <working\|blocked\|complete> [--detail <text>] [--blocker <text>]` | Emit structured progress event |
 | `egg-orch progress query [--agent <role>] [--since <timestamp>] [--limit <n>]` | Query structured progress events |
 | `egg-orch health alerts [--pipeline <id>]` | List active deterministic health alerts |
+| `egg-orch health resolve --agent-id <id> --alert-type <type>` | Resolve (remove) health alerts for an agent |
 | `egg-orch anchor init --task <text>` | Create initial anchor for current agent |
 | `egg-orch anchor update [--status <s>] [--progress <json>] [--decision <json>] [--key-context <text>] [--error <text>] [--file <path>]` | Update agent anchor (atomic, all-or-nothing) |
 | `egg-orch anchor show [--agent <id>] [--team]` | Show own anchor, another agent's, or team anchor |
@@ -97,6 +98,9 @@ egg-orch progress query --agent coder
 ```bash
 egg-orch health alerts
 egg-orch health alerts --pipeline issue-123
+
+# Resolve (remove) alerts after an issue is addressed
+egg-orch health resolve --agent-id coder --alert-type heartbeat_timeout
 ```
 
 **Manage agent anchors (post-compaction recovery):**
