@@ -16,6 +16,7 @@ Run `egg-orch --help` for full usage. All commands support `--json`. Full refere
 | `egg-orch progress emit --step <text> --state <working\|blocked\|complete>` | Emit structured progress event |
 | `egg-orch progress query [--agent <role>]` | Query structured progress events |
 | `egg-orch health alerts` | List active deterministic health alerts |
+| `egg-orch health resolve --agent-id <id> --alert-type <type>` | Resolve (remove) health alerts for an agent |
 | `egg-orch anchor init --task <text>` | Create initial anchor for current agent |
 | `egg-orch anchor update [--status <s>] [--progress <json>]` | Update agent anchor (atomic) |
 | `egg-orch anchor show [--agent <id>] [--team]` | Show own, another agent's, or team anchor |

@@ -98,7 +98,7 @@ The orchestrator processes structured progress events with deterministic rules. 
 
 | Tripwire | Condition | Auto-Action |
 |----------|-----------|-------------|
-| **Heartbeat timeout** | No heartbeat or progress within threshold | Nudge the agent; after `_MAX_HEARTBEAT_NUDGES` (2) unanswered nudges, escalate to overseer/HITL |
+| **Heartbeat timeout** | No heartbeat or progress within threshold | Nudge the agent; after 2 unanswered nudges, escalate to overseer/HITL |
 | **Container exit** | Agent container dies unexpectedly | Immediate HITL escalation |
 | **Repeated errors** | Same error N times consecutively | Escalate to overseer (or HITL if no overseer) |
 | **Message volume spike** | Agent sending > N messages/minute | Auto-throttle |
@@ -223,7 +223,7 @@ The overseer follows a progressive escalation ladder:
 | Step | Action | When |
 |------|--------|------|
 | 1 | **Auto-nudge** | Orchestrator detects heartbeat/progress timeout; nudge sent via message bus (`NUDGE` message type) |
-| 1b | **Escalate to overseer/HITL** | After 2 unanswered heartbeat nudges or a second progress stall (orchestrator-level escalation) |
+| 1b | **Escalate to overseer/HITL** | After 2 unanswered heartbeat nudges, or a progress stall that persists after an initial nudge (orchestrator-level escalation) |
 | 2 | **Redirect message** | Overseer sends actionable guidance to the agent |
 | 3 | **HITL escalation** | Agent still stuck after max redirects |
 | 4 | **File GitHub issue** | Structured diagnostic report for persistent problems |
