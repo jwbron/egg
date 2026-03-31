@@ -1023,7 +1023,7 @@ The `yaml-tasks` appendix **must** be present — it is machine-parsed by the re
 
 ### Step 3: Present to user
 
-Display the full plan document (the prose section from Step 2b, excluding the yaml-tasks code block) followed by a contract summary:
+Display the full plan document (the prose section from Step 2, excluding the yaml-tasks code block) followed by a contract summary:
 
 ```
 ### Plan
@@ -1209,7 +1209,7 @@ Phase: <phase where failure occurred>
 - **Always serialize JSON payloads as strings** for `provide_input`
 - **Always pass `config`** with `{"start_phase": "implement", "hitl_gates": false, "overseer_enabled": true}` when calling `submit_task`
 - **Auto-approve phase gates** — this is a no-HITL flow; if a gate appears, approve it automatically and inform the user
-- **Validate the contract** — always construct and validate a `Contract` Pydantic model in Phase S3. The remote pipeline uses the `plan` field's `yaml-tasks` appendix to populate its own formal contract
+- **Include yaml-tasks appendix** — the remote pipeline parses the `yaml-tasks` appendix from the plan to populate its own formal contract; local Pydantic validation is not needed
 - **Pass plan via the `plan` field** — the plan document (with `yaml-tasks` appendix) must be passed as the `plan` argument to `submit_task`, not embedded in `description`. The `analysis` field carries the Phase S2 analysis. This ensures the remote pipeline creates a proper structured contract
 - **Stop polling on exit** — always exit the monitoring loop when the workflow ends
 - **Handle errors gracefully** — if an MCP tool call fails, inform the user and offer to retry
