@@ -301,6 +301,7 @@ All agent roles are defined in a single canonical location: `shared/egg_contract
 - **`get_roles_by_category(category)`** — Query all roles in a given category
 - **`get_roles_for_phase(phase)`** — Get roles assigned to a pipeline phase
 - **`detect_write_overlaps(roles)`** — Find file access conflicts between parallel roles
+- **`get_file_patterns(role_value)`** — Return `{"allowed": [...], "blocked": [...]}` write patterns for a role, or `None` if not defined
 
 Other modules (`orchestrator/models.py`, `shared/egg_orchestrator/types.py`) import `AgentRole` from this canonical source rather than defining their own copies.
 
