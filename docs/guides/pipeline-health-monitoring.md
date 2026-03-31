@@ -102,7 +102,7 @@ The orchestrator processes structured progress events with deterministic rules. 
 | **Container exit** | Agent container dies unexpectedly | Immediate HITL escalation |
 | **Repeated errors** | Same error N times consecutively | Escalate to overseer (or HITL if no overseer) |
 | **Message volume spike** | Agent sending > N messages/minute | Auto-throttle |
-| **Progress stall** | No structured progress update within threshold | Nudge, then escalate to overseer |
+| **Progress stall** | No structured progress update within threshold | Nudge up to 2 times (deduplicated per threshold window), then escalate to overseer/HITL |
 
 ### Viewing and Resolving Alerts
 
@@ -223,7 +223,7 @@ The overseer follows a progressive escalation ladder:
 | Step | Action | When |
 |------|--------|------|
 | 1 | **Auto-nudge** | Orchestrator detects heartbeat/progress timeout; nudge sent via message bus (`NUDGE` message type) |
-| 1b | **Escalate to overseer/HITL** | After 2 unanswered heartbeat nudges, or a progress stall that persists after an initial nudge (orchestrator-level escalation) |
+| 1b | **Escalate to overseer/HITL** | After 2 unanswered heartbeat nudges, or after 2 unanswered progress nudges (orchestrator-level escalation) |
 | 2 | **Redirect message** | Overseer sends actionable guidance to the agent |
 | 3 | **HITL escalation** | Agent still stuck after max redirects |
 | 4 | **File GitHub issue** | Structured diagnostic report for persistent problems |
