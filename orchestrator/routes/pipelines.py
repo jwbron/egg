@@ -6043,12 +6043,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
                     pipeline.contract_synced = push_succeeded
-                    if push_succeeded:
-                        # Clear analysis/plan from pipeline state now that they've
-                        # been written to draft files and pushed — avoids re-serializing
-                        # potentially large text blobs on every subsequent save.
-                        pipeline.analysis = None
-                        pipeline.plan = None
                     store.save_pipeline(pipeline, commit=False)
                 logger.info(
                     "Pipeline contract created in worktree",
