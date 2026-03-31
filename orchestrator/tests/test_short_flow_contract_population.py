@@ -183,6 +183,8 @@ class TestEnsureStatefilesRestoresPRMetadata:
         pipeline.repo = "owner/repo"
         pipeline.prompt = "Test task"
         pipeline.mode = "local"
+        pipeline.plan = None
+        pipeline.analysis = None
 
         with patch("routes.pipelines._commit_statefiles_to_worktree"):
             result = _ensure_statefiles_on_branch(tmp_path, pipeline)
@@ -212,6 +214,8 @@ class TestEnsureStatefilesRestoresPRMetadata:
         pipeline.repo = "owner/repo"
         pipeline.prompt = "Test task"
         pipeline.mode = "local"
+        pipeline.plan = None
+        pipeline.analysis = None
 
         with patch("routes.pipelines._commit_statefiles_to_worktree"):
             result = _ensure_statefiles_on_branch(tmp_path, pipeline)
@@ -250,6 +254,8 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
         pipeline.prompt = "Test task"
         pipeline.mode = "local"
         pipeline.branch = "egg/pipeline-short-remote"
+        pipeline.plan = None
+        pipeline.analysis = None
 
         def fake_subprocess_run(cmd, **kwargs):
             result = MagicMock()
@@ -299,6 +305,8 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
         pipeline.prompt = "Test task"
         pipeline.mode = "local"
         pipeline.branch = None  # No branch
+        pipeline.plan = None
+        pipeline.analysis = None
 
         with patch("routes.pipelines._commit_statefiles_to_worktree"):
             result = _ensure_statefiles_on_branch(tmp_path, pipeline)
@@ -322,6 +330,8 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
         pipeline.prompt = "Test task"
         pipeline.mode = "local"
         pipeline.branch = "egg/pipeline-git-fail"
+        pipeline.plan = None
+        pipeline.analysis = None
 
         def failing_subprocess_run(cmd, **kwargs):
             result = MagicMock()
@@ -356,6 +366,8 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
         pipeline.prompt = "Test task"
         pipeline.mode = "local"
         pipeline.branch = "egg/pipeline-issue-remote"
+        pipeline.plan = None
+        pipeline.analysis = None
 
         def fake_subprocess_run(cmd, **kwargs):
             result = MagicMock()
