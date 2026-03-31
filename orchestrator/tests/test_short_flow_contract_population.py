@@ -224,6 +224,173 @@ class TestEnsureStatefilesRestoresPRMetadata:
         assert "exponential backoff" in body
 
 
+class TestEnsureStatefilesRestoresDraftFromRemote:
+    """_ensure_statefiles_on_branch restores plan draft from remote branch.
+
+    When both the contract and plan draft are missing from the worktree
+    (e.g., after agent activity during implement phase), the restoration
+    path should fetch the plan draft from the remote branch before
+    re-populating the contract.
+
+    See: https://github.com/jwbron/egg/issues/1454
+    """
+
+    def test_restores_plan_draft_from_remote(self, tmp_path: Path):
+        """Plan draft is fetched from origin/{branch} when missing locally."""
+        from routes.pipelines import _build_pr_body, _ensure_statefiles_on_branch
+
+        pipeline_id = "pipeline-short-remote"
+
+        # Do NOT write plan draft locally — it was lost from the worktree.
+        # Simulate git show returning the plan from remote.
+        pipeline = MagicMock()
+        pipeline.id = pipeline_id
+        pipeline.issue_number = None
+        pipeline.repo = "owner/repo"
+        pipeline.prompt = "Test task"
+        pipeline.mode = "local"
+        pipeline.branch = "egg/pipeline-short-remote"
+
+        def fake_subprocess_run(cmd, **kwargs):
+            result = MagicMock()
+            if "show" in cmd:
+                # Check the git show ref argument (e.g. "origin/branch:path")
+                ref_arg = next((a for a in cmd if a.startswith("origin/")), "")
+                if "-plan.md" in ref_arg:
+                    result.returncode = 0
+                    result.stdout = SAMPLE_PLAN
+                else:
+                    result.returncode = 1
+                    result.stdout = ""
+                return result
+            # Default: success (for git fetch, git add, commit, etc.)
+            result.returncode = 0
+            result.stdout = ""
+            return result
+
+        with (
+            patch("routes.pipelines._commit_statefiles_to_worktree"),
+            patch("routes.pipelines.subprocess.run", side_effect=fake_subprocess_run),
+        ):
+            result = _ensure_statefiles_on_branch(tmp_path, pipeline)
+
+        assert result is True
+
+        # Verify plan draft was written to disk
+        plan_path = tmp_path / ".egg-state" / "drafts" / f"{pipeline_id}-plan.md"
+        assert plan_path.exists()
+        assert plan_path.read_text() == SAMPLE_PLAN
+
+        # Verify contract has PR metadata from the restored plan
+        title, body = _build_pr_body(pipeline, tmp_path)
+        assert title == "Add retry logic to API client"
+        assert "exponential backoff" in body
+
+    def test_no_branch_skips_remote_restoration(self, tmp_path: Path):
+        """When pipeline has no branch, draft restoration from remote is skipped."""
+        from routes.pipelines import _ensure_statefiles_on_branch
+
+        pipeline_id = "pipeline-no-branch"
+
+        pipeline = MagicMock()
+        pipeline.id = pipeline_id
+        pipeline.issue_number = None
+        pipeline.repo = "owner/repo"
+        pipeline.prompt = "Test task"
+        pipeline.mode = "local"
+        pipeline.branch = None  # No branch
+
+        with patch("routes.pipelines._commit_statefiles_to_worktree"):
+            result = _ensure_statefiles_on_branch(tmp_path, pipeline)
+
+        assert result is True
+
+        # Plan draft should NOT exist (no remote to fetch from)
+        plan_path = tmp_path / ".egg-state" / "drafts" / f"{pipeline_id}-plan.md"
+        assert not plan_path.exists()
+
+    def test_git_show_failure_is_non_fatal(self, tmp_path: Path):
+        """When git show fails, restoration continues without the draft."""
+        from routes.pipelines import _ensure_statefiles_on_branch
+
+        pipeline_id = "pipeline-git-fail"
+
+        pipeline = MagicMock()
+        pipeline.id = pipeline_id
+        pipeline.issue_number = None
+        pipeline.repo = "owner/repo"
+        pipeline.prompt = "Test task"
+        pipeline.mode = "local"
+        pipeline.branch = "egg/pipeline-git-fail"
+
+        def failing_subprocess_run(cmd, **kwargs):
+            result = MagicMock()
+            if "show" in cmd:
+                result.returncode = 128  # git error
+                result.stdout = ""
+                return result
+            result.returncode = 0
+            result.stdout = ""
+            return result
+
+        with (
+            patch("routes.pipelines._commit_statefiles_to_worktree"),
+            patch("routes.pipelines.subprocess.run", side_effect=failing_subprocess_run),
+        ):
+            result = _ensure_statefiles_on_branch(tmp_path, pipeline)
+
+        # Should still succeed (contract created, just no plan metadata)
+        assert result is True
+
+    def test_restores_plan_draft_with_issue_number(self, tmp_path: Path):
+        """Plan draft is restored using issue_number-based path when set."""
+        from routes.pipelines import _build_pr_body, _ensure_statefiles_on_branch
+
+        pipeline_id = "pipeline-issue-remote"
+        issue_number = 42
+
+        pipeline = MagicMock()
+        pipeline.id = pipeline_id
+        pipeline.issue_number = issue_number
+        pipeline.repo = "owner/repo"
+        pipeline.prompt = "Test task"
+        pipeline.mode = "local"
+        pipeline.branch = "egg/pipeline-issue-remote"
+
+        def fake_subprocess_run(cmd, **kwargs):
+            result = MagicMock()
+            if "show" in cmd:
+                ref_arg = next((a for a in cmd if a.startswith("origin/")), "")
+                if "-plan.md" in ref_arg:
+                    result.returncode = 0
+                    result.stdout = SAMPLE_PLAN
+                else:
+                    result.returncode = 1
+                    result.stdout = ""
+                return result
+            result.returncode = 0
+            result.stdout = ""
+            return result
+
+        with (
+            patch("routes.pipelines._commit_statefiles_to_worktree"),
+            patch("routes.pipelines.subprocess.run", side_effect=fake_subprocess_run),
+        ):
+            result = _ensure_statefiles_on_branch(tmp_path, pipeline)
+
+        assert result is True
+
+        # Verify plan draft was written using issue_number as prefix
+        plan_path = tmp_path / ".egg-state" / "drafts" / f"{issue_number}-plan.md"
+        assert plan_path.exists()
+        assert plan_path.read_text() == SAMPLE_PLAN
+
+        # Verify contract has PR metadata from the restored plan
+        title, body = _build_pr_body(pipeline, tmp_path)
+        assert title == "Add retry logic to API client"
+        assert "exponential backoff" in body
+
+
 class TestMCPToolForwarding:
     """submit_task MCP tool forwards analysis and plan fields."""
 
