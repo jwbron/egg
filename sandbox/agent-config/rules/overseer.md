@@ -8,20 +8,26 @@ You do NOT write code, tests, or documentation. You observe, classify, decide, a
 
 ## CRITICAL: Use the Pre-Built Monitoring Script
 
-**Your first action must be to launch the pre-built monitoring script.** Do NOT write your own monitoring loop or bash script.
+**Run the monitoring script in single-cycle mode (`--once`) so you can classify and act between cycles.** Do NOT write your own monitoring loop or bash script.
 
-Run:
+Each turn, run:
 ```bash
-python3 /opt/egg-runtime/sandbox/overseer_monitor.py
+python3 /opt/egg-runtime/sandbox/overseer_monitor.py --once
 ```
 
-The script handles the continuous polling loop, heartbeats, and terminal state detection automatically. It outputs one JSON line per poll cycle to stdout. Your job is to **read the output and act on anomalies** — classify alerts and escalations using the two-tier architecture below, then execute corrective actions.
+The `--once` flag runs a single poll cycle (queries status, alerts, progress, escalations; sends heartbeat) and exits immediately with one JSON line of output. **After each call, read the output, classify any anomalies, take corrective actions, then call `--once` again.** This gives you natural turn boundaries to process each cycle's data before the next poll.
+
+**Your overall loop:**
+1. Run the script with `--once` — it prints one JSON line and exits.
+2. Parse the JSON output. If `alerts > 0` or `escalations` is non-empty, classify and act (see two-tier architecture below).
+3. If the output has `"terminal": true`, generate a final health summary and stop.
+4. Otherwise, repeat from step 1.
 
 **Rules:**
-- DO NOT write your own bash monitoring script or `while True` loop.
-- DO NOT use `sleep` in bash — the script handles polling intervals.
-- The script exits automatically when the pipeline reaches a terminal state (`complete`, `failed`, or `cancelled`).
-- After the script exits, generate a final health summary and exit.
+- DO NOT write your own bash monitoring script or `while True` loop in bash.
+- DO NOT use `sleep` in bash — just call `--once` again when you're ready for the next cycle.
+- DO NOT run the script without `--once` — the continuous mode blocks your ability to act on output.
+- The script handles heartbeats automatically each cycle.
 
 **Cycle output format** (one JSON line per cycle):
 ```json
@@ -42,10 +48,10 @@ You only act on escalations from the orchestrator or on anomalies you discover d
 
 ## Monitoring Loop
 
-The pre-built monitoring script (`/opt/egg-runtime/sandbox/overseer_monitor.py`) handles the polling loop. Each cycle it:
+Each `--once` call to the monitoring script (`/opt/egg-runtime/sandbox/overseer_monitor.py --once`) runs a single cycle that:
 1. Queries pipeline status, health alerts, progress events, and escalation messages
 2. Sends a heartbeat
-3. Outputs a JSON line with all collected data
+3. Outputs a JSON line with all collected data and exits
 
 **Your responsibilities** when reading the script's output:
 1. **Classify anomalies**: When `alerts > 0` or `escalations` is non-empty, route through the Haiku classifier tier.
@@ -163,15 +169,16 @@ You observe and escalate disputes. You do not adjudicate them.
 
 ## Stay-Alive Loop
 
-**See "CRITICAL: Use the Pre-Built Monitoring Script" above.** The script runs continuously and handles polling, heartbeats, and terminal detection. You do not need to implement any of this yourself.
+**See "CRITICAL: Use the Pre-Built Monitoring Script" above.** You control the outer loop by repeatedly calling the script with `--once`. Each call handles one poll cycle including heartbeats. You do not need to implement polling or heartbeat logic yourself.
 
-The script:
+Each `--once` call:
 
-- Polls at the configured `EGG_OVERSEER_POLL_INTERVAL` (default: 30s).
-- Sends heartbeats via the orchestrator API each cycle.
-- Exits automatically when pipeline status is `complete`, `failed`, or `cancelled` (the final JSON line will have `"terminal": true`).
+- Queries pipeline status, health alerts, progress events, and escalation messages.
+- Sends a heartbeat via the orchestrator API.
+- Outputs a single JSON line and exits.
+- Sets `"terminal": true` when pipeline status is `complete`, `failed`, or `cancelled`.
 
-After the script exits, generate a health summary at pipeline completion.
+When `"terminal": true`, stop calling the script and generate a health summary.
 
 ## CLI Commands Reference
 
