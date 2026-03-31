@@ -703,10 +703,74 @@ class TestExecuteFilteredPush:
         # original commit (restored to the working tree) and then unstaged.
         checkout_calls = [c for c in calls if "checkout" in c and "deadbeef1234" in c]
         assert len(checkout_calls) >= 1
+        # Blocked files must be unstaged via `git reset HEAD` so they appear
+        # as working-tree changes and aren't included in the next commit.
+        # There are two reset HEAD calls: one before commit (to unstage
+        # blocked files from the index) and one after push (to unstage
+        # the restored blocked files from checkout).
+        unstage_calls = [
+            c for c in calls if "reset" in c and "HEAD" in c and "tests/test_foo.py" in c
+        ]
+        assert len(unstage_calls) >= 1, f"Expected unstage call(s), got: {unstage_calls}"
+        # Verify the post-push unstage happens after the checkout restoration
+        last_checkout_idx = max(
+            i for i, c in enumerate(calls) if "checkout" in c and "deadbeef1234" in c
+        )
+        post_push_unstage = [
+            i
+            for i, c in enumerate(calls)
+            if "reset" in c and "HEAD" in c and "tests/test_foo.py" in c and i > last_checkout_idx
+        ]
+        assert len(post_push_unstage) == 1, (
+            "Expected exactly one unstage after checkout restoration"
+        )
         # Should NOT do a hard reset to original HEAD (which would diverge
         # local and remote branches)
         reset_hard_calls = [c for c in calls if "reset" in c and "--hard" in c]
         assert len(reset_hard_calls) == 0
+
+    def test_push_success_removes_blocked_deleted_files(self, tmp_path):
+        """After successful push, blocked file deletions are restored by removing the file."""
+        # Create a file that exists in the filtered commit (not deleted) but
+        # was deleted in the original commit.  The checkout from original_head
+        # will fail because the file doesn't exist there, so _execute_filtered_push
+        # should remove it from the working tree.
+        blocked_file = "docs/blocked.md"
+        blocked_path = tmp_path / blocked_file
+        blocked_path.parent.mkdir(parents=True, exist_ok=True)
+        blocked_path.write_text("content")
+
+        calls = []
+
+        def side_effect(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get("args", [])
+            cmd_str = " ".join(str(c) for c in cmd) if isinstance(cmd, (list, tuple)) else str(cmd)
+            calls.append(cmd_str)
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = "deadbeef1234\n" if "rev-parse" in cmd_str else ""
+            result.stderr = ""
+            # Simulate checkout failure for the blocked file (it was deleted
+            # in the original commit, so git checkout original -- file fails).
+            if "checkout" in cmd_str and blocked_file in cmd_str:
+                result.returncode = 1
+                result.stderr = "error: pathspec 'docs/blocked.md' did not match"
+            return result
+
+        with patch("subprocess.run", side_effect=side_effect):
+            success, _, _ = gateway._execute_filtered_push(
+                exec_path=str(tmp_path),
+                blocked_files=[blocked_file],
+                cmd=["git", "push", "origin", "egg-feature"],
+                branch="egg-feature",
+                old_ref_sha="abc123",
+                env={},
+                original_msg="msg",
+            )
+
+        assert success is True
+        # The file should have been removed from the working tree
+        assert not blocked_path.exists(), "Blocked deleted file should be removed from worktree"
 
 
 class TestAutoFilterPushFailureHandling:

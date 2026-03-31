@@ -643,7 +643,8 @@ def _execute_filtered_push(
     On success, the local branch is left on the filtered commit (matching the
     remote) so subsequent pushes remain fast-forward. Blocked file changes
     from the original commit are restored to the working tree as unstaged
-    modifications.
+    modifications. For blocked file deletions, the file is removed from the
+    working tree so the deletion appears as a pending change.
 
     On failure, the original HEAD is restored via ``git reset --hard``.
 
@@ -786,9 +787,8 @@ def _execute_filtered_push(
             # Restore blocked file content from the original commit.
             # For files that were added, this puts them back in the
             # working tree. For modifications, this restores the
-            # original version. Deleted files are handled by checkout
-            # failing (the file didn't exist), which is fine.
-            subprocess.run(
+            # original version.
+            checkout_result = subprocess.run(
                 git_cmd("checkout", original_head, "--", blocked_file),
                 cwd=exec_path,
                 capture_output=True,
@@ -796,6 +796,14 @@ def _execute_filtered_push(
                 timeout=10,
                 check=False,
             )
+            if checkout_result.returncode != 0:
+                # Checkout failed — the file likely didn't exist in the
+                # original commit, meaning the agent deleted it.  Remove
+                # it from the working tree so the deletion shows up as a
+                # pending change (matching the agent's original intent).
+                blocked_path = os.path.join(exec_path, blocked_file)
+                if os.path.exists(blocked_path):
+                    os.remove(blocked_path)
         # Unstage any restored blocked files so they appear as
         # working-tree changes, not staged changes.
         subprocess.run(
@@ -1116,7 +1124,7 @@ def git_push() -> tuple[Response, int] | Response:
                     )
                     return make_success(
                         "Push completed: all files were outside agent role scope, "
-                        "nothing to push. Blocked files remain as uncommitted changes.",
+                        "nothing to push. Blocked files remain committed locally.",
                         {
                             "repo": repo,
                             "branch": branch,
