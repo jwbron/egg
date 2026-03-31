@@ -98,13 +98,13 @@ The orchestrator processes structured progress events with deterministic rules. 
 
 | Tripwire | Condition | Auto-Action |
 |----------|-----------|-------------|
-| **Heartbeat timeout** | No heartbeat or progress within threshold | Auto-nudge the agent |
+| **Heartbeat timeout** | No heartbeat or progress within threshold | Nudge the agent; after 2 unanswered nudges, escalate to overseer/HITL |
 | **Container exit** | Agent container dies unexpectedly | Immediate HITL escalation |
 | **Repeated errors** | Same error N times consecutively | Escalate to overseer (or HITL if no overseer) |
 | **Message volume spike** | Agent sending > N messages/minute | Auto-throttle |
 | **Progress stall** | No structured progress update within threshold | Nudge, then escalate to overseer |
 
-### Viewing Active Alerts
+### Viewing and Resolving Alerts
 
 ```bash
 # List active deterministic alerts for the current pipeline
@@ -112,12 +112,17 @@ egg-orch health alerts
 
 # List alerts for a specific pipeline
 egg-orch health alerts --pipeline issue-123
+
+# Resolve (remove) alerts after an issue is addressed
+egg-orch health resolve --agent-id coder --alert-type heartbeat_timeout
 ```
 
-**API endpoint:**
+**API endpoints:**
 
 ```
-GET /api/v1/pipelines/{id}/health/alerts
+GET  /api/v1/pipelines/{id}/health/alerts
+POST /api/v1/pipelines/{id}/health/alerts/resolve
+     Body: {"agent_id": "<role>", "alert_type": "<type>"}
 ```
 
 ### Configuration
@@ -217,7 +222,8 @@ The overseer follows a progressive escalation ladder:
 
 | Step | Action | When |
 |------|--------|------|
-| 1 | **Auto-nudge** | Orchestrator detects heartbeat/progress timeout |
+| 1 | **Auto-nudge** | Orchestrator detects heartbeat/progress timeout; nudge sent via message bus (`NUDGE` message type) |
+| 1b | **Escalate to overseer/HITL** | After 2 unanswered heartbeat nudges, or a progress stall that persists after an initial nudge (orchestrator-level escalation) |
 | 2 | **Redirect message** | Overseer sends actionable guidance to the agent |
 | 3 | **HITL escalation** | Agent still stuck after max redirects |
 | 4 | **File GitHub issue** | Structured diagnostic report for persistent problems |
@@ -298,6 +304,8 @@ Issues are auto-labeled with `overseer-alert` and the error category (e.g., `sta
 - `gh pr merge` and `gh pr create`
 - `egg-orch phase advance` / `egg-orch phase complete`
 - Direct agent restart (must go through HITL)
+
+When the overseer creates a HITL decision (format: `"Agent <role> issue: <message>"`) and the human resolves it with **"Restart agent"**, the orchestrator automatically stops the stalled container and emits a `CONTAINER_STOPPED` event so the pipeline loop can respawn a replacement.
 
 ### Self-Monitoring
 

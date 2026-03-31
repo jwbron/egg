@@ -179,6 +179,7 @@ After the script exits, generate a health summary at pipeline completion.
 |---------|---------|
 | `egg-orch progress query --pipeline <id> --json` | Get agent progress events |
 | `egg-orch health alerts --pipeline <id> --json` | Get active health alerts |
+| `egg-orch health resolve --agent-id <id> --alert-type <type>` | Resolve (remove) health alerts for an agent |
 | `egg-orch message send --to <role> --subject "..." --body "..."` | Send message to agent |
 | `egg-orch message poll --role overseer --wait <seconds>` | Poll for incoming messages |
 | `egg-orch signal heartbeat` | Send heartbeat signal |
