@@ -62,6 +62,11 @@ class AgentState:
     progress_nudge_count: int = 0
     heartbeat_nudge_count: int = 0
     last_heartbeat_nudge_time: float | None = None
+    heartbeat_escalated: bool = False
+    progress_escalated: bool = False
+
+
+_MAX_HEARTBEAT_NUDGES = 2
 
 
 class HealthMonitor:
@@ -166,6 +171,7 @@ class HealthMonitor:
                 # Reset heartbeat nudge state on heartbeat receipt
                 agent.heartbeat_nudge_count = 0
                 agent.last_heartbeat_nudge_time = None
+                agent.heartbeat_escalated = False
             else:
                 agent.last_progress = now
                 agent.last_heartbeat = now
@@ -174,6 +180,8 @@ class HealthMonitor:
                 agent.progress_nudge_count = 0
                 agent.heartbeat_nudge_count = 0
                 agent.last_heartbeat_nudge_time = None
+                agent.heartbeat_escalated = False
+                agent.progress_escalated = False
 
     def _on_error(self, event: Event) -> None:
         """Handle ERROR event — track repeated identical errors."""
@@ -295,7 +303,6 @@ class HealthMonitor:
         Returns:
             List of action dicts for agents that have timed out.
         """
-        _MAX_HEARTBEAT_NUDGES = 2
         actions: list[dict[str, Any]] = []
         threshold = self._config.orchestrator_heartbeat_timeout_seconds
         now = time.time()
@@ -308,16 +315,20 @@ class HealthMonitor:
                     self._last_heartbeat.get(agent.agent_id, agent.last_heartbeat),
                     agent.heartbeat_nudge_count,
                     agent.last_heartbeat_nudge_time,
+                    agent.heartbeat_escalated,
                 )
                 for agent in self._agents.values()
             ]
 
-        for agent_id, last_hb, hb_nudge_count, last_nudge_time in snapshot:
+        for agent_id, last_hb, hb_nudge_count, last_nudge_time, already_escalated in snapshot:
             elapsed = now - last_hb
             if elapsed <= threshold:
                 continue
 
             if hb_nudge_count >= _MAX_HEARTBEAT_NUDGES:
+                if already_escalated:
+                    continue  # already escalated — don't re-escalate
+
                 # Escalate — nudges haven't helped
                 action = {
                     "action": "escalate",
@@ -338,6 +349,9 @@ class HealthMonitor:
                 }
 
                 with self._lock:
+                    agent_state = self._agents.get(agent_id)
+                    if agent_state:
+                        agent_state.heartbeat_escalated = True
                     self._active_alerts.append(
                         {
                             "id": str(uuid.uuid4()),
@@ -406,11 +420,16 @@ class HealthMonitor:
         with self._lock:
             # Snapshot all state inside the lock to avoid TOCTOU races
             snapshot = [
-                (agent.agent_id, agent.last_progress, agent.progress_nudge_count)
+                (
+                    agent.agent_id,
+                    agent.last_progress,
+                    agent.progress_nudge_count,
+                    agent.progress_escalated,
+                )
                 for agent in self._agents.values()
             ]
 
-        for agent_id, last_progress, nudge_count in snapshot:
+        for agent_id, last_progress, nudge_count, already_escalated in snapshot:
             elapsed = now - last_progress
             if elapsed > threshold:
                 if nudge_count == 0:
@@ -437,6 +456,8 @@ class HealthMonitor:
                                 "timestamp": datetime.now(UTC).isoformat(),
                             }
                         )
+                elif already_escalated:
+                    continue  # already escalated — don't re-escalate
                 else:
                     # Second stall — escalate
                     action = {
@@ -455,6 +476,9 @@ class HealthMonitor:
                     }
 
                     with self._lock:
+                        agent_state = self._agents.get(agent_id)
+                        if agent_state:
+                            agent_state.progress_escalated = True
                         self._active_alerts.append(
                             {
                                 "id": str(uuid.uuid4()),

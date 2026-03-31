@@ -752,10 +752,17 @@ class TestNudgeCallbacks:
             mock_time.time.return_value = base + 183
             actions = monitor.check_heartbeats()
 
+            # 4th check at t=244 — should NOT re-escalate
+            mock_time.time.return_value = base + 244
+            actions2 = monitor.check_heartbeats()
+
         assert len(nudges) == 2
         assert len(escalations) == 1
         escalate_actions = [a for a in actions if a.get("action") == "escalate"]
         assert len(escalate_actions) == 1
+        # No second escalation
+        escalate_actions2 = [a for a in actions2 if a.get("action") == "escalate"]
+        assert len(escalate_actions2) == 0
 
 
 # ---------------------------------------------------------------------------

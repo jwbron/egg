@@ -5,6 +5,7 @@ Provides REST endpoints for queuing, polling, and resolving
 human-in-the-loop decisions.
 """
 
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -29,8 +30,6 @@ except ImportError:
     def get_logger(name: str, **kwargs) -> logging.Logger:  # type: ignore[misc]
         return logging.getLogger(name)
 
-
-import re
 
 from decision_queue import (
     DecisionAlreadyResolvedError,
