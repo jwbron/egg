@@ -683,6 +683,7 @@ def _execute_filtered_push(
             return False, "", f"Could not determine merge-base: {mb_result.stderr}"
         reset_target = mb_result.stdout.strip()
     else:
+        assert old_ref_sha is not None  # is_new_branch is False, so old_ref_sha is set
         reset_target = old_ref_sha
 
     try:
@@ -1338,6 +1339,8 @@ def git_push() -> tuple[Response, int] | Response:
             )
 
             if filter_success:
+                assert session_role is not None  # set before agent_filter_blocked_files
+                assert changed_files is not None  # set before agent_filter_blocked_files
                 allowed_files, _ = filter_agent_files(session_role, changed_files)
                 audit_log(
                     "push_auto_filtered_success",

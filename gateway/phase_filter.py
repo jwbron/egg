@@ -1037,7 +1037,7 @@ def filter_agent_files(
     try:
         from .agent_restrictions import filter_allowed_files
     except ImportError:
-        from agent_restrictions import filter_allowed_files  # type: ignore[no-redef, import-untyped]  # noqa: I001
+        from agent_restrictions import filter_allowed_files  # type: ignore[no-redef]  # noqa: I001
 
     return filter_allowed_files(agent_role, files)
 
