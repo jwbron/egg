@@ -5999,7 +5999,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Push contract statefiles to remote so agents see them.
                 # This MUST succeed before agents start — otherwise agents'
                 # diffs will include .egg-state/ files they can't push (#1431).
-                push_succeeded = True
+                push_succeeded = False
                 # For prompt-driven pipelines, pipeline.branch is None at this
                 # point — the branch name is only persisted later when the
                 # agent container is spawned (line ~6279).  Derive it here so
@@ -6019,6 +6019,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 branch=push_branch,
                             )
                 if worktree_repo_path != repo_path:
+                    push_succeeded = False
                     push_err_msg = ""
                     for attempt in range(2):
                         try:
@@ -6057,6 +6058,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             )
                             store.save_pipeline(pipeline)
                         return
+                else:
+                    logger.warning(
+                        "Skipped contract init push — worktree path equals repo path",
+                        pipeline_id=pipeline_id,
+                        worktree_repo_path=str(worktree_repo_path),
+                        repo_path=str(repo_path),
+                    )
 
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
