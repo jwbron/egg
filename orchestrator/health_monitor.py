@@ -284,6 +284,7 @@ class HealthMonitor:
         now = time.time()
 
         with self._lock:
+            # Snapshot all state inside the lock to avoid TOCTOU races
             snapshot = [
                 (
                     agent.agent_id,
@@ -357,6 +358,7 @@ class HealthMonitor:
         now = time.time()
 
         with self._lock:
+            # Snapshot all state inside the lock to avoid TOCTOU races
             snapshot = [
                 (
                     agent.agent_id,
