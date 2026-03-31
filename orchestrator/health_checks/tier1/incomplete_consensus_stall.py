@@ -73,9 +73,11 @@ class IncompleteConsensusStallCheck:
     ):
         self._grace_seconds = grace_seconds
         self._stall_tick_threshold = stall_tick_threshold
-        # Track consecutive ticks with the same blocking set
-        self._prev_blocking: frozenset[str] | None = None
-        self._consecutive_ticks: int = 0
+        # Track consecutive ticks with the same blocking set, keyed by pipeline ID.
+        # Health checks are singletons invoked across all pipelines, so flat
+        # instance variables would corrupt across pipelines.
+        self._prev_blocking: dict[str, frozenset[str]] = {}
+        self._consecutive_ticks: dict[str, int] = {}
 
     def run(self, context: PipelineHealthContext) -> HealthResult:
         """Check for stuck incomplete consensus."""
@@ -107,32 +109,35 @@ class IncompleteConsensusStallCheck:
                 )
 
         # Evaluate consensus state
-        blocking_agents = self._get_blocking_agents(pipeline.id, pipeline)
+        pipeline_id = pipeline.id
+        blocking_agents = self._get_blocking_agents(pipeline_id, pipeline)
         if blocking_agents is None:
             # Could not determine consensus state
             return self._healthy("Could not determine consensus state; check skipped.")
 
         if not blocking_agents:
             # No blocking agents — consensus is complete (or nearly so)
-            self._reset_tracking()
+            self._reset_tracking(pipeline_id)
             return self._healthy("No blocking agents; consensus progressing normally.")
 
         # Track consecutive ticks with the same blocking set
         current_blocking = frozenset(blocking_agents)
-        if current_blocking != self._prev_blocking:
+        prev = self._prev_blocking.get(pipeline_id)
+        if current_blocking != prev:
             # Blocking set changed — reset counter
-            self._prev_blocking = current_blocking
-            self._consecutive_ticks = 1
+            self._prev_blocking[pipeline_id] = current_blocking
+            self._consecutive_ticks[pipeline_id] = 1
             return self._healthy(
                 f"Blocking agents changed to {sorted(blocking_agents)}; resetting stall counter."
             )
 
-        self._consecutive_ticks += 1
+        self._consecutive_ticks[pipeline_id] = self._consecutive_ticks.get(pipeline_id, 0) + 1
+        ticks = self._consecutive_ticks[pipeline_id]
 
-        if self._consecutive_ticks < self._stall_tick_threshold:
+        if ticks < self._stall_tick_threshold:
             return self._healthy(
                 f"Blocking agents {sorted(blocking_agents)} unchanged for "
-                f"{self._consecutive_ticks}/{self._stall_tick_threshold} ticks; "
+                f"{ticks}/{self._stall_tick_threshold} ticks; "
                 f"not yet stalled."
             )
 
@@ -143,16 +148,16 @@ class IncompleteConsensusStallCheck:
             tier=self.tier,
             reasoning=(
                 f"BRC consensus incomplete: {sorted(blocking_agents)} have not "
-                f"confirmed for {self._consecutive_ticks} consecutive ticks. "
+                f"confirmed for {ticks} consecutive ticks. "
                 f"These agents may be stuck in a heartbeat loop after a re-review cycle."
             ),
             action=HealthAction.ALERT,
             details={
                 "recovery_action": "escalate_to_overseer",
-                "pipeline_id": pipeline.id,
+                "pipeline_id": pipeline_id,
                 "phase": current_phase.value,
                 "blocking_agents": sorted(blocking_agents),
-                "consecutive_ticks": self._consecutive_ticks,
+                "consecutive_ticks": ticks,
             },
         )
 
@@ -208,9 +213,9 @@ class IncompleteConsensusStallCheck:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _reset_tracking(self) -> None:
-        self._prev_blocking = None
-        self._consecutive_ticks = 0
+    def _reset_tracking(self, pipeline_id: str) -> None:
+        self._prev_blocking.pop(pipeline_id, None)
+        self._consecutive_ticks.pop(pipeline_id, None)
 
     def _healthy(self, reasoning: str) -> HealthResult:
         return HealthResult(

@@ -807,18 +807,12 @@ class OverseerMonitor:
 
         # If consensus is complete or empty, reset and skip
         if not consensus or consensus.get("is_complete"):
-            self._incomplete_consensus_first_seen = None
-            self._incomplete_consensus_blocking = None
-            self._incomplete_consensus_nudged = False
-            self._incomplete_consensus_hitl_created = False
+            self._reset_incomplete_consensus_tracking()
             return
 
         blocking_agents = consensus.get("blocking_agents", [])
         if not blocking_agents:
-            self._incomplete_consensus_first_seen = None
-            self._incomplete_consensus_blocking = None
-            self._incomplete_consensus_nudged = False
-            self._incomplete_consensus_hitl_created = False
+            self._reset_incomplete_consensus_tracking()
             return
 
         current_blocking = frozenset(blocking_agents)
@@ -826,10 +820,9 @@ class OverseerMonitor:
 
         # If blocking set changed, reset tracking
         if current_blocking != self._incomplete_consensus_blocking:
+            self._reset_incomplete_consensus_tracking()
             self._incomplete_consensus_blocking = current_blocking
             self._incomplete_consensus_first_seen = now
-            self._incomplete_consensus_nudged = False
-            self._incomplete_consensus_hitl_created = False
             return
 
         if self._incomplete_consensus_first_seen is None:
@@ -906,6 +899,13 @@ class OverseerMonitor:
                     "elapsed_seconds": round(elapsed),
                 }
             )
+
+    def _reset_incomplete_consensus_tracking(self) -> None:
+        """Reset all incomplete-consensus stall tracking state."""
+        self._incomplete_consensus_first_seen = None
+        self._incomplete_consensus_blocking = None
+        self._incomplete_consensus_nudged = False
+        self._incomplete_consensus_hitl_created = False
 
     # -----------------------------------------------------------------
     # Orchestrator reachability (issue #1371)
