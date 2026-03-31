@@ -23,6 +23,7 @@ from overseer_monitor import (
     query_pipeline_status,
     query_progress,
     run_monitor,
+    run_once,
     send_heartbeat,
     send_message,
 )
@@ -213,6 +214,73 @@ class TestTerminalStates:
         assert "failed" in TERMINAL_STATES
         assert "cancelled" in TERMINAL_STATES
         assert "running" not in TERMINAL_STATES
+
+
+class TestRunOnce:
+    """Test the single-cycle --once mode."""
+
+    @patch("overseer_monitor.send_heartbeat", return_value=True)
+    @patch("overseer_monitor.poll_messages", return_value=[])
+    @patch("overseer_monitor.query_progress", return_value=[{"step": "coding"}])
+    @patch("overseer_monitor.query_health_alerts", return_value=[{"severity": "warning"}])
+    @patch("overseer_monitor.query_pipeline_status")
+    def test_run_once_returns_report(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys
+    ):
+        mock_status.return_value = {
+            "status": "running",
+            "phase": {"name": "implement"},
+            "concurrent": {"consensus": {}},
+        }
+        report = run_once(PIPELINE_ID, base_url=BASE_URL)
+
+        assert report["cycle"] == 1
+        assert report["status"] == "running"
+        assert report["phase"] == "implement"
+        assert report["alerts"] == 1
+        assert report["progress_events"] == 1
+        assert report["terminal"] is False
+        assert report["heartbeat_ok"] is True
+
+        # Also emitted to stdout
+        output = capsys.readouterr().out.strip()
+        assert json.loads(output) == report
+
+    @patch("overseer_monitor.send_heartbeat", return_value=True)
+    @patch("overseer_monitor.poll_messages", return_value=[])
+    @patch("overseer_monitor.query_progress", return_value=[])
+    @patch("overseer_monitor.query_health_alerts", return_value=[])
+    @patch("overseer_monitor.query_pipeline_status")
+    def test_run_once_terminal_state(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys
+    ):
+        mock_status.return_value = {
+            "status": "complete",
+            "phase": {"name": "pr"},
+            "concurrent": {},
+        }
+        report = run_once(PIPELINE_ID, base_url=BASE_URL)
+
+        assert report["terminal"] is True
+        assert report["status"] == "complete"
+
+    @patch("overseer_monitor.send_heartbeat", return_value=True)
+    @patch("overseer_monitor.poll_messages", return_value=[])
+    @patch("overseer_monitor.query_progress", return_value=[])
+    @patch("overseer_monitor.query_health_alerts", return_value=[])
+    @patch("overseer_monitor.query_pipeline_status")
+    def test_run_once_failed_state(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys
+    ):
+        mock_status.return_value = {
+            "status": "failed",
+            "phase": {},
+            "concurrent": {},
+        }
+        report = run_once(PIPELINE_ID, base_url=BASE_URL)
+
+        assert report["terminal"] is True
+        assert report["status"] == "failed"
 
 
 class TestSignalHandling:

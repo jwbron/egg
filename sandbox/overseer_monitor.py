@@ -20,6 +20,7 @@ Environment:
 
 from __future__ import annotations
 
+import argparse
 import datetime
 import json
 import os
@@ -129,6 +130,57 @@ def emit_cycle_report(report: dict[str, Any]) -> None:
     print(json.dumps(report, default=str), flush=True)
 
 
+def run_once(
+    pipeline_id: str,
+    role: str = "overseer",
+    base_url: str | None = None,
+) -> dict[str, Any]:
+    """Run a single poll cycle and return the report.
+
+    This is the ``--once`` mode entry point.  It queries all data sources,
+    sends a heartbeat, and returns the cycle report dict (also emitted to
+    stdout as a JSON line).
+
+    Returns:
+        The cycle report dictionary.
+    """
+    if base_url is None:
+        base_url = get_orchestrator_url()
+
+    cycle_start = time.monotonic()
+
+    pipeline_data = query_pipeline_status(base_url, pipeline_id)
+    status = pipeline_data.get("status", "unknown")
+    phase_info = pipeline_data.get("phase", {})
+    phase_name = (
+        phase_info.get("name", "unknown") if isinstance(phase_info, dict) else "unknown"
+    )
+    consensus = pipeline_data.get("concurrent", {}).get("consensus", {})
+
+    alerts = query_health_alerts(base_url, pipeline_id)
+    progress = query_progress(base_url, pipeline_id)
+    escalations = poll_messages(base_url, pipeline_id, role, wait=3)
+    heartbeat_ok = send_heartbeat(base_url, pipeline_id, role)
+
+    report: dict[str, Any] = {
+        "cycle": 1,
+        "ts": _now_iso(),
+        "status": status,
+        "phase": phase_name,
+        "alerts": len(alerts),
+        "alerts_detail": alerts,
+        "progress_events": len(progress),
+        "escalations": escalations,
+        "consensus": consensus,
+        "heartbeat_ok": heartbeat_ok,
+        "cycle_duration_s": round(time.monotonic() - cycle_start, 2),
+        "terminal": status in TERMINAL_STATES,
+    }
+
+    emit_cycle_report(report)
+    return report
+
+
 def run_monitor(
     pipeline_id: str,
     role: str = "overseer",
@@ -226,14 +278,26 @@ def run_monitor(
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Overseer monitoring script")
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run a single poll cycle and exit (exit code 0=running/complete, 1=failed/cancelled)",
+    )
+    args = parser.parse_args()
+
     pipeline_id = get_pipeline_id_from_env()
     if not pipeline_id:
         print("Error: EGG_PIPELINE_ID is required", file=sys.stderr)
         sys.exit(1)
 
     role = os.environ.get("EGG_AGENT_ROLE", "overseer")
-    poll_interval = int(os.environ.get("EGG_OVERSEER_POLL_INTERVAL", "30"))
 
+    if args.once:
+        report = run_once(pipeline_id, role=role)
+        sys.exit(0 if report.get("status") != "failed" and report.get("status") != "cancelled" else 1)
+
+    poll_interval = int(os.environ.get("EGG_OVERSEER_POLL_INTERVAL", "30"))
     exit_code = run_monitor(pipeline_id, role=role, poll_interval=poll_interval)
     sys.exit(exit_code)
 
