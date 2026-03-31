@@ -2493,7 +2493,7 @@ def _commit_statefiles_to_worktree(
 
         rel_paths = [str(Path(f).relative_to(worktree_path)) for f in matched]
         subprocess.run(
-            [*git_base, "add", "--force", "--"] + rel_paths,
+            [*git_base, "add", "--"] + rel_paths,
             capture_output=True,
             text=True,
             check=True,
@@ -2501,7 +2501,7 @@ def _commit_statefiles_to_worktree(
         )
     else:
         subprocess.run(
-            [*git_base, "add", "--force", ".egg-state/"],
+            [*git_base, "add", ".egg-state/"],
             capture_output=True,
             text=True,
             check=True,
@@ -6000,14 +6000,32 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # This MUST succeed before agents start — otherwise agents'
                 # diffs will include .egg-state/ files they can't push (#1431).
                 push_succeeded = True
-                if pipeline.branch and worktree_repo_path != repo_path:
+                # For prompt-driven pipelines, pipeline.branch is None at this
+                # point — the branch name is only persisted later when the
+                # agent container is spawned (line ~6279).  Derive it here so
+                # the push actually happens.  The worktree was already created
+                # on this branch by the gateway.
+                push_branch = pipeline.branch or f"egg/{pipeline_id}/work"
+                if not pipeline.branch:
+                    pipeline.branch = push_branch
+                    with get_pipeline_state_lock(pipeline_id):
+                        p = store.load_pipeline(pipeline_id)
+                        if not p.branch:
+                            p.branch = push_branch
+                            store.save_pipeline(p)
+                            logger.info(
+                                "Recorded generated branch on pipeline (pre-push)",
+                                pipeline_id=pipeline_id,
+                                branch=push_branch,
+                            )
+                if worktree_repo_path != repo_path:
                     push_err_msg = ""
                     for attempt in range(2):
                         try:
                             push_succeeded = spawner.gateway.push_worktree_branch(
                                 pipeline_id=pipeline_id,
                                 repo_path=str(worktree_repo_path),
-                                branch=pipeline.branch,
+                                branch=push_branch,
                                 mode=gateway_mode,
                             )
                             if push_succeeded:
