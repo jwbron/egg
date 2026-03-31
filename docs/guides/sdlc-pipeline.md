@@ -709,7 +709,9 @@ The orchestrator pushes worktree state (including `.egg-state/` files) to the re
 2. **After phase completion** — Pushes statefiles (drafts, reviews, check results, contract updates) so the next phase's agents don't have unpushed `.egg-state/` files in their diff
 3. **On pipeline failure** — Best-effort failsafe push to preserve in-progress work
 
-All pushes use `GatewayClient.push_worktree_branch()`, which registers a temporary session token, pushes the branch, and cleans up the session. Failures are logged as warnings and don't block pipeline progress.
+All pushes use `GatewayClient.push_worktree_branch()`, which registers a temporary session token, pushes the branch, and cleans up the session.
+
+**Contract init push (point 1) is required**: If it fails after one retry, the pipeline is marked `FAILED` and aborted. Agents must not start before the contract is on the remote — otherwise their diffs would include `.egg-state/` files outside their allowed file boundaries. Post-phase and failure-safeguard pushes (points 2–3) log warnings but do not block pipeline progress.
 
 **Implementation**: See `orchestrator/routes/pipelines.py:_run_pipeline()` and `orchestrator/gateway_client.py:push_worktree_branch()` for the push logic.
 
