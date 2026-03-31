@@ -975,10 +975,9 @@ class TestGetChangedFilesInPush:
             assert "security" in error.lower()
             assert files == []
 
-
     def test_fetches_remote_branch_before_diff(self):
         """Should fetch the remote branch before diffing to pick up orchestrator pushes (#1431)."""
-        from unittest.mock import MagicMock, call, patch
+        from unittest.mock import MagicMock, patch
 
         with patch("subprocess.run") as mock_run:
             mock_result = MagicMock()
