@@ -5324,7 +5324,7 @@ def _synthesize_plan_draft(
         return
 
     draft_path.parent.mkdir(parents=True, exist_ok=True)
-    draft_path.write_text(draft_content)
+    draft_path.write_text(draft_content, encoding="utf-8")
     logger.info(
         "Synthesized plan draft from agent outputs",
         pipeline_id=pipeline_id,
@@ -5935,7 +5935,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_id=pipeline_id,
                         )
                         if analysis_rel:
-                            (worktree_repo_path / analysis_rel).write_text(pipeline.analysis)
+                            (worktree_repo_path / analysis_rel).write_text(pipeline.analysis, encoding="utf-8")
                             logger.info(
                                 "Wrote pre-generated analysis draft",
                                 pipeline_id=pipeline_id,
@@ -5949,7 +5949,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_id=pipeline_id,
                         )
                         if plan_rel:
-                            (worktree_repo_path / plan_rel).write_text(pipeline.plan)
+                            (worktree_repo_path / plan_rel).write_text(pipeline.plan, encoding="utf-8")
                             logger.info(
                                 "Wrote pre-generated plan draft",
                                 pipeline_id=pipeline_id,
