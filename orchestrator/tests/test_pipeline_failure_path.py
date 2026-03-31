@@ -680,6 +680,182 @@ class TestSuccessPathPushesStatefiles:
         assert branch_saved, "Expected save_pipeline to persist the generated branch"
 
 
+class TestContractPushHardGate:
+    """Verify that contract init push failure aborts the pipeline (#1431)."""
+
+    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
+    @patch("routes.pipelines._commit_statefiles_to_worktree")
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_pipeline_fails_when_contract_push_fails_after_retry(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_commit_statefiles,
+        mock_auto_create_pr,
+    ):
+        """When push_worktree_branch fails twice (initial + retry), the pipeline
+        should be marked FAILED and no agents should be spawned."""
+        from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
+
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        pipeline.contract_synced = False  # Triggers contract initialization
+
+        execution = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        execution.status = PipelineStatus.RUNNING
+        execution.started_at = datetime.now(UTC)
+
+        mock_store, mock_gateway = _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        # Make push fail both times (initial + retry)
+        mock_gateway.push_worktree_branch.return_value = False
+
+        worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
+        mock_gateway.create_worktrees.return_value = MagicMock(
+            success=True,
+            worktrees={"repo": str(worktree_dir)},
+            errors=[],
+        )
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("egg_contracts.loader.create_contract"),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        # Pipeline should be marked as FAILED
+        save_calls = mock_store.save_pipeline.call_args_list
+        final_statuses = [
+            call.args[0].status
+            for call in save_calls
+            if call.args and hasattr(call.args[0], "status")
+        ]
+        assert PipelineStatus.FAILED in final_statuses, (
+            "Pipeline should be marked FAILED when contract push fails after retry"
+        )
+
+        # push_worktree_branch should be called twice (initial + retry)
+        push_calls = mock_gateway.push_worktree_branch.call_args_list
+        assert len(push_calls) == 2, (
+            f"Expected 2 push attempts (initial + retry), got {len(push_calls)}"
+        )
+
+        # No agents should be spawned after push failure
+        mock_spawn_wait.assert_not_called()
+
+    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
+    @patch("routes.pipelines._commit_statefiles_to_worktree")
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_pipeline_continues_when_contract_push_succeeds_on_retry(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_commit_statefiles,
+        mock_auto_create_pr,
+    ):
+        """When push fails first but succeeds on retry, the pipeline should continue."""
+        from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
+
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        pipeline.contract_synced = False  # Triggers contract initialization
+
+        execution = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        execution.status = PipelineStatus.RUNNING
+        execution.started_at = datetime.now(UTC)
+
+        mock_store, mock_gateway = _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        # Fail first, succeed on retry
+        mock_gateway.push_worktree_branch.side_effect = [False, True]
+        mock_spawn_wait.return_value = (0, "success")
+
+        worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
+        mock_gateway.create_worktrees.return_value = MagicMock(
+            success=True,
+            worktrees={"repo": str(worktree_dir)},
+            errors=[],
+        )
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("egg_contracts.loader.create_contract"),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        # Pipeline should NOT be marked as FAILED (retry succeeded)
+        save_calls = mock_store.save_pipeline.call_args_list
+        # Check that contract_synced was set to True
+        synced_values = [
+            call.args[0].contract_synced
+            for call in save_calls
+            if call.args and hasattr(call.args[0], "contract_synced")
+        ]
+        assert True in synced_values, "contract_synced should be True after successful retry"
+
+
 class TestNetworkModeAutoDetection:
     """Verify the three-way network mode branch in _run_pipeline:
     explicit mode / auto-detect from repo visibility / default public."""

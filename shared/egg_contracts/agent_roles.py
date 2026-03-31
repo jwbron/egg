@@ -861,6 +861,25 @@ def get_all_roles() -> list[AgentRoleDefinition]:
     return list(AGENT_ROLES.values())
 
 
+def get_file_patterns(role_value: str) -> dict[str, list[str]] | None:
+    """Return file write patterns for an agent role, or None if not defined.
+
+    Returns:
+        ``{"allowed": [...], "blocked": [...]}`` or ``None`` if the role is
+        unknown or has no file access patterns.
+    """
+    try:
+        role_def = get_role_definition(role_value)
+    except (ValueError, KeyError):
+        return None
+    if not role_def or not role_def.file_access:
+        return None
+    fa = role_def.file_access
+    if not fa.allowed_write and not fa.blocked_write:
+        return None
+    return {"allowed": fa.allowed_write, "blocked": fa.blocked_write}
+
+
 def get_roles_by_category(category: AgentCategory) -> list[AgentRole]:
     """Get all roles belonging to a given category.
 

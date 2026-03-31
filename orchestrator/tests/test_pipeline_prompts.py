@@ -20,6 +20,7 @@ from routes.pipelines import (
     _build_agent_prompt,
     _build_agent_roster,
     _build_brc_preamble,
+    _build_file_boundary_section,
     _build_phase_prompt,
     _build_producer_orientation,
     _build_review_prompt,
@@ -2504,3 +2505,64 @@ class TestTesterTestVerificationPrompt:
             assert "Test Execution Verification (CRITICAL)" not in result, (
                 f"Test verification section leaked into {role} prompt"
             )
+
+
+class TestFileBoundarySection:
+    """Tests for _build_file_boundary_section helper (#1431)."""
+
+    def test_coder_has_allowed_and_blocked(self):
+        section = _build_file_boundary_section("coder")
+        assert "File Boundaries" in section
+        assert "CODER" in section
+        assert "Allowed" in section
+        assert "Blocked" in section
+
+    def test_tester_has_test_patterns(self):
+        section = _build_file_boundary_section("tester")
+        assert "TESTER" in section
+        assert "tests/" in section or "test/" in section
+
+    def test_documenter_has_doc_patterns(self):
+        section = _build_file_boundary_section("documenter")
+        assert "DOCUMENTER" in section
+        assert "*.md" in section
+
+    def test_unknown_role_returns_empty(self):
+        section = _build_file_boundary_section("nonexistent_role")
+        assert section == ""
+
+    def test_coder_prompt_includes_file_boundaries(self):
+        """The coder agent prompt includes file boundary info."""
+        result = _build_agent_prompt(
+            role_value="coder",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        assert "File Boundaries" in result
+
+    def test_tester_prompt_includes_file_boundaries(self):
+        """The tester agent prompt includes file boundary info."""
+        result = _build_agent_prompt(
+            role_value="tester",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        assert "File Boundaries" in result
+
+    def test_documenter_prompt_includes_file_boundaries(self):
+        """The documenter agent prompt includes file boundary info."""
+        result = _build_agent_prompt(
+            role_value="documenter",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        assert "File Boundaries" in result
