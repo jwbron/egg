@@ -844,3 +844,75 @@ class TestListDecisionsFiltering:
         assert len(data["data"]["decisions"]) == 1
         assert data["data"]["decisions"][0]["status"] == "pending"
         mock_queue.get_pending_decisions.assert_called_once()
+
+
+class TestHandleRestartAgent:
+    """Tests for _handle_restart_agent helper."""
+
+    @patch("routes.decisions.emit_event")
+    @patch("docker_client.get_docker_client")
+    def test_happy_path_stops_container_and_emits_event(self, mock_get_docker, mock_emit):
+        """Container found, stopped, and CONTAINER_STOPPED event emitted."""
+        from events import EventType
+        from routes.decisions import _handle_restart_agent
+
+        mock_container = MagicMock()
+        mock_container.container_id = "abc123def456"
+        mock_client = MagicMock()
+        mock_client.list_containers.return_value = [mock_container]
+        mock_get_docker.return_value = mock_client
+
+        _handle_restart_agent("pipeline-1", "Agent coder issue: heartbeat stall")
+
+        mock_client.list_containers.assert_called_once_with(
+            all=False,
+            labels={"egg.pipeline.id": "pipeline-1", "egg.agent.role": "coder"},
+        )
+        mock_client.stop_container.assert_called_once_with("abc123def456", timeout=10)
+        mock_emit.assert_called_once_with(
+            EventType.CONTAINER_STOPPED,
+            pipeline_id="pipeline-1",
+            data={
+                "container_id": "abc123def456",
+                "agent_role": "coder",
+                "reason": "hitl_restart",
+            },
+        )
+
+    @patch("docker_client.get_docker_client")
+    def test_no_containers_found(self, mock_get_docker):
+        """No running containers for agent — logs warning, no stop called."""
+        from routes.decisions import _handle_restart_agent
+
+        mock_client = MagicMock()
+        mock_client.list_containers.return_value = []
+        mock_get_docker.return_value = mock_client
+
+        _handle_restart_agent("pipeline-1", "Agent reviewer issue: progress stall")
+
+        mock_client.stop_container.assert_not_called()
+
+    @patch("routes.decisions.emit_event")
+    @patch("docker_client.get_docker_client")
+    def test_docker_stop_failure(self, mock_get_docker, mock_emit):
+        """Docker stop raises exception — handled gracefully, no crash."""
+        from routes.decisions import _handle_restart_agent
+
+        mock_container = MagicMock()
+        mock_container.container_id = "abc123def456"
+        mock_client = MagicMock()
+        mock_client.list_containers.return_value = [mock_container]
+        mock_client.stop_container.side_effect = RuntimeError("Docker daemon error")
+        mock_get_docker.return_value = mock_client
+
+        # Should not raise
+        _handle_restart_agent("pipeline-1", "Agent coder issue: heartbeat stall")
+
+        mock_emit.assert_not_called()
+
+    def test_regex_parse_failure(self):
+        """Question text doesn't match expected pattern — early return."""
+        from routes.decisions import _handle_restart_agent
+
+        # Should not raise or attempt any docker operations
+        _handle_restart_agent("pipeline-1", "Some unrelated question text")

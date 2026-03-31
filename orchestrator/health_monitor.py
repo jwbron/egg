@@ -62,11 +62,13 @@ class AgentState:
     progress_nudge_count: int = 0
     heartbeat_nudge_count: int = 0
     last_heartbeat_nudge_time: float | None = None
+    last_progress_nudge_time: float | None = None
     heartbeat_escalated: bool = False
     progress_escalated: bool = False
 
 
 _MAX_HEARTBEAT_NUDGES = 2
+_MAX_PROGRESS_NUDGES = 2
 
 
 class HealthMonitor:
@@ -407,8 +409,10 @@ class HealthMonitor:
     def check_progress(self) -> list[dict[str, Any]]:
         """Evaluate progress stall rule.
 
-        First stall triggers a nudge. If the agent doesn't resume
-        progress after nudge, escalate to overseer or HITL.
+        First timeout triggers a nudge. Subsequent timeouts are
+        deduplicated (one nudge per threshold window). After
+        ``_MAX_PROGRESS_NUDGES`` unanswered nudges the agent is
+        escalated to the overseer / HITL.
 
         Returns:
             List of action dicts.
@@ -424,78 +428,91 @@ class HealthMonitor:
                     agent.agent_id,
                     agent.last_progress,
                     agent.progress_nudge_count,
+                    agent.last_progress_nudge_time,
                     agent.progress_escalated,
                 )
                 for agent in self._agents.values()
             ]
 
-        for agent_id, last_progress, nudge_count, already_escalated in snapshot:
+        for agent_id, last_progress, nudge_count, last_nudge_time, already_escalated in snapshot:
             elapsed = now - last_progress
-            if elapsed > threshold:
-                if nudge_count == 0:
-                    # First stall — nudge
-                    action = {
-                        "action": "nudge",
-                        "agent_id": agent_id,
-                        "reason": f"No progress for {int(elapsed)}s",
-                    }
-                    actions.append(action)
-                    self._fire_nudge(action)
-                    with self._lock:
-                        agent_state = self._agents.get(agent_id)
-                        if agent_state:
-                            agent_state.progress_nudge_count += 1
-                        self._active_alerts.append(
-                            {
-                                "id": str(uuid.uuid4()),
-                                "pipeline_id": self._pipeline_id,
-                                "agent_id": agent_id,
-                                "alert_type": "progress_stall",
-                                "message": action["reason"],
-                                "severity": "warning",
-                                "timestamp": datetime.now(UTC).isoformat(),
-                            }
-                        )
-                elif already_escalated:
+            if elapsed <= threshold:
+                continue
+
+            if nudge_count >= _MAX_PROGRESS_NUDGES:
+                if already_escalated:
                     continue  # already escalated — don't re-escalate
-                else:
-                    # Second stall — escalate
-                    action = {
-                        "action": "escalate",
-                        "agent_id": agent_id,
-                        "reason": f"Progress stall unresolved after nudge ({int(elapsed)}s)",
-                    }
-                    actions.append(action)
 
-                    escalation_type = "overseer" if self._config.overseer_enabled else "hitl"
-                    escalation = {
-                        "type": escalation_type,
-                        "agent_id": agent_id,
-                        "reason": action["reason"],
-                        "timestamp": datetime.now(UTC).isoformat(),
-                    }
+                # Escalate — nudges haven't helped
+                action = {
+                    "action": "escalate",
+                    "agent_id": agent_id,
+                    "reason": (
+                        f"Progress stall unresolved after {nudge_count} nudges ({int(elapsed)}s)"
+                    ),
+                }
+                actions.append(action)
 
-                    with self._lock:
-                        agent_state = self._agents.get(agent_id)
-                        if agent_state:
-                            agent_state.progress_escalated = True
-                        self._active_alerts.append(
-                            {
-                                "id": str(uuid.uuid4()),
-                                "pipeline_id": self._pipeline_id,
-                                "agent_id": agent_id,
-                                "alert_type": "progress_stall_escalated",
-                                "message": action["reason"],
-                                "severity": "critical",
-                                "timestamp": datetime.now(UTC).isoformat(),
-                            }
-                        )
+                escalation_type = "overseer" if self._config.overseer_enabled else "hitl"
+                escalation = {
+                    "type": escalation_type,
+                    "agent_id": agent_id,
+                    "reason": action["reason"],
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
 
-                    for cb in self._escalation_callbacks:
-                        try:
-                            cb(escalation)
-                        except Exception as e:
-                            logger.error("Escalation callback error", error=str(e))
+                with self._lock:
+                    agent_state = self._agents.get(agent_id)
+                    if agent_state:
+                        agent_state.progress_escalated = True
+                    self._active_alerts.append(
+                        {
+                            "id": str(uuid.uuid4()),
+                            "pipeline_id": self._pipeline_id,
+                            "agent_id": agent_id,
+                            "alert_type": "progress_stall_escalated",
+                            "message": action["reason"],
+                            "severity": "critical",
+                            "timestamp": datetime.now(UTC).isoformat(),
+                        }
+                    )
+
+                for cb in self._escalation_callbacks:
+                    try:
+                        cb(escalation)
+                    except Exception as e:
+                        logger.error("Escalation callback error", error=str(e))
+
+            elif last_nudge_time is not None and (now - last_nudge_time) < threshold:
+                # Already nudged recently — skip to avoid flooding
+                continue
+
+            else:
+                # Send nudge
+                action = {
+                    "action": "nudge",
+                    "agent_id": agent_id,
+                    "reason": f"No progress for {int(elapsed)}s (threshold: {threshold}s)",
+                    "elapsed_seconds": int(elapsed),
+                }
+                actions.append(action)
+                self._fire_nudge(action)
+                with self._lock:
+                    agent_state = self._agents.get(agent_id)
+                    if agent_state:
+                        agent_state.progress_nudge_count += 1
+                        agent_state.last_progress_nudge_time = now
+                    self._active_alerts.append(
+                        {
+                            "id": str(uuid.uuid4()),
+                            "pipeline_id": self._pipeline_id,
+                            "agent_id": agent_id,
+                            "alert_type": "progress_stall",
+                            "message": action["reason"],
+                            "severity": "warning",
+                            "timestamp": datetime.now(UTC).isoformat(),
+                        }
+                    )
 
         return actions
 
