@@ -93,8 +93,8 @@ def _make_event_bus() -> EventBus:
 class TestHITLEscalationAfterMaxRedirects:
     """Verify HITL decision is created after redirect attempts are exhausted."""
 
-    def test_stall_nudge_then_escalate_to_overseer(self):
-        """First stall triggers nudge, persistent stall escalates to overseer."""
+    def test_stall_escalates_immediately_to_overseer(self):
+        """First stall triggers immediate escalation to overseer (#1447)."""
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
@@ -116,27 +116,23 @@ class TestHITLEscalationAfterMaxRedirects:
             data={"agent_id": AGENT_ID, "type": "progress"},
         )
 
-        # First stall -> nudge (not escalation yet)
+        # First stall -> immediate escalation (no nudge step)
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 61
             actions = monitor.check_progress()
 
-        nudge_actions = [a for a in actions if a.get("action") == "nudge"]
-        assert len(nudge_actions) >= 1, "First stall should generate nudge"
-        assert len(escalations) == 0, "First stall should not escalate"
+        escalate_actions = [a for a in actions if a.get("action") == "escalate"]
+        assert len(escalate_actions) == 1, "First stall should escalate immediately"
+        assert len(escalations) == 1
+        assert escalations[0]["type"] == "overseer"
 
-        # Second stall (no progress after nudge) -> second nudge
+        # Second cycle -> no re-escalation (already escalated)
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 122
-            monitor.check_progress()
+            actions2 = monitor.check_progress()
 
-        # Third stall (nudge count now >= _MAX_PROGRESS_NUDGES) -> escalation
-        with patch("health_monitor.time") as mock_time:
-            mock_time.time.return_value = time.time() + 183
-            monitor.check_progress()
-
-        assert len(escalations) >= 1, "Persistent stall should escalate"
-        assert escalations[0]["type"] == "overseer"
+        assert len(actions2) == 0, "Should not re-escalate"
+        assert len(escalations) == 1
 
     def test_overseer_disabled_escalates_directly_to_hitl(self):
         """With overseer disabled, escalation goes directly to HITL."""
@@ -161,22 +157,12 @@ class TestHITLEscalationAfterMaxRedirects:
             data={"agent_id": AGENT_ID, "type": "progress"},
         )
 
-        # First stall -> nudge
+        # First stall -> immediate HITL escalation
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 61
             monitor.check_progress()
 
-        # Second stall -> second nudge
-        with patch("health_monitor.time") as mock_time:
-            mock_time.time.return_value = time.time() + 122
-            monitor.check_progress()
-
-        # Third stall -> direct HITL escalation (nudge count >= _MAX_PROGRESS_NUDGES)
-        with patch("health_monitor.time") as mock_time:
-            mock_time.time.return_value = time.time() + 183
-            monitor.check_progress()
-
-        assert len(escalations) >= 1
+        assert len(escalations) == 1
         assert escalations[0]["type"] == "hitl"
 
 

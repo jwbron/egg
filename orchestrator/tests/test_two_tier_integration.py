@@ -4,16 +4,14 @@ End-to-end integration test for the two-tier pipeline health monitoring flow.
 Simulates the full chain:
 1. Agent emits progress events
 2. Orchestrator detects stall (no new progress within threshold)
-3. Auto-nudge sent to agent
-4. Stall persists after nudge
-5. Escalation to overseer tier
-6. Haiku classifier classifies anomaly as "stuck"
-7. Sonnet decision maker decides "redirect"
-8. Redirect message composed and sent
+3. Immediate escalation to overseer tier (Tier 1 no longer nudges — #1447)
+4. Haiku classifier classifies anomaly as "stuck"
+5. Sonnet decision maker decides "redirect" (or nudge)
+6. Redirect/nudge message composed and sent by overseer
 
 All LLM calls, containers, and message sending are mocked.
 
-Related: issue #1059 - Phase 5 two-tier integration
+Related: issue #1059 - Phase 5 two-tier integration, #1447 - remove Tier 1 nudging
 """
 
 import asyncio
@@ -183,26 +181,23 @@ class TestFullEscalationChain:
         store.add_event(initial_event)
         _emit_progress(bus, agent_id=AGENT_ID_CODER)
 
-        # Step 2: Time passes beyond heartbeat threshold -> stall detected -> nudge
+        # Step 2: Time passes beyond heartbeat threshold -> stall detected -> immediate escalation
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 61
             actions = monitor.check_progress()
 
-        nudge_actions = [a for a in actions if a.get("action") == "nudge"]
-        assert len(nudge_actions) >= 1, "Should have generated a nudge action"
-        assert nudge_actions[0]["agent_id"] == AGENT_ID_CODER
+        escalate_actions = [a for a in actions if a.get("action") == "escalate"]
+        assert len(escalate_actions) >= 1, "Should have generated an escalate action"
+        assert escalate_actions[0]["agent_id"] == AGENT_ID_CODER
 
-        # Step 3: Stall persists (no new progress) -> second nudge
+        # Step 3: Stall persists but already escalated -> no re-escalation
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 122
-            monitor.check_progress()
+            actions2 = monitor.check_progress()
 
-        # Step 4: Stall still persists (nudge count >= _MAX_PROGRESS_NUDGES) -> escalation
-        with patch("health_monitor.time") as mock_time:
-            mock_time.time.return_value = time.time() + 183
-            monitor.check_progress()
+        assert len(actions2) == 0, "Should not re-escalate on subsequent cycle"
 
-        assert len(escalations) >= 1, "Should have escalated after persistent stall"
+        assert len(escalations) == 1, "Should have escalated once on first detection"
         assert escalations[0]["type"] == "overseer"
         assert escalations[0]["agent_id"] == AGENT_ID_CODER
 
@@ -327,10 +322,10 @@ class TestFullEscalationChain:
     reason="health_monitor not yet implemented",
 )
 class TestDeterministicResolution:
-    """Scenario 2: Stall detected, nudge works, no overseer needed."""
+    """Scenario 2: Stall detected, escalation sent, agent recovers."""
 
-    def test_nudge_resolves_stall_no_escalation(self):
-        """If agent resumes after nudge, no escalation occurs."""
+    def test_escalation_resolves_no_re_escalation(self):
+        """If agent resumes after escalation, no second escalation occurs."""
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = HealthMonitor(
@@ -342,18 +337,17 @@ class TestDeterministicResolution:
         escalations = []
         monitor.on_escalation(lambda e: escalations.append(e))
 
-        # Initial progress
         _emit_progress(bus, agent_id=AGENT_ID_CODER)
 
-        # Stall -> nudge
+        # Stall -> immediate escalation
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 61
             actions = monitor.check_progress()
 
-        nudge_actions = [a for a in actions if a.get("action") == "nudge"]
-        assert len(nudge_actions) >= 1, "Should have sent a nudge"
+        assert len(actions) == 1
+        assert actions[0]["action"] == "escalate"
 
-        # Agent resumes progress (resets progress_nudge_count)
+        # Agent resumes progress (resets progress_escalated flag)
         _emit_progress(bus, agent_id=AGENT_ID_CODER)
 
         # Check again within threshold - agent is active
@@ -361,12 +355,11 @@ class TestDeterministicResolution:
             mock_time.time.return_value = time.time() + 30
             actions = monitor.check_progress()
 
-        escalation_actions = [a for a in actions if a.get("action") == "escalate"]
-        assert len(escalation_actions) == 0
-        assert len(escalations) == 0, "No escalation when stall resolves after nudge"
+        assert len(actions) == 0
+        assert len(escalations) == 1, "Only one escalation total"
 
-    def test_nudge_resolves_stall_heartbeat_variant(self):
-        """If agent sends heartbeat after nudge, no escalation occurs."""
+    def test_escalation_resolves_heartbeat_variant(self):
+        """If agent sends heartbeat after escalation, no re-escalation occurs."""
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = HealthMonitor(
@@ -378,31 +371,29 @@ class TestDeterministicResolution:
         escalations = []
         monitor.on_escalation(lambda e: escalations.append(e))
 
-        # Initial heartbeat
         _emit_heartbeat(bus, agent_id=AGENT_ID_CODER)
 
-        # Stall -> nudge
+        # Stall -> immediate escalation
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 61
             actions = monitor.check_heartbeats()
 
-        nudge_actions = [a for a in actions if a.get("action") == "nudge"]
-        assert len(nudge_actions) >= 1
+        assert len(actions) == 1
+        assert actions[0]["action"] == "escalate"
 
         # Agent resumes with heartbeat
         _emit_heartbeat(bus, agent_id=AGENT_ID_CODER)
 
-        # Check again - should not escalate
+        # Check again - should not re-escalate
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 30
             actions = monitor.check_heartbeats()
 
-        nudge_actions = [a for a in actions if a.get("action") == "nudge"]
-        assert len(nudge_actions) == 0
-        assert len(escalations) == 0
+        assert len(actions) == 0
+        assert len(escalations) == 1
 
-    def test_multiple_nudges_followed_by_resolution(self):
-        """Progress events after a nudge reset the stall counter."""
+    def test_recovery_then_second_stall_re_escalates(self):
+        """Progress events after escalation reset the flag; second stall re-escalates."""
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = HealthMonitor(
@@ -414,29 +405,25 @@ class TestDeterministicResolution:
         escalations = []
         monitor.on_escalation(lambda e: escalations.append(e))
 
-        # Initial progress
         _emit_progress(bus, agent_id=AGENT_ID_CODER)
 
-        # First stall -> nudge
+        # First stall -> escalation
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 61
             actions = monitor.check_progress()
-        assert any(a.get("action") == "nudge" for a in actions)
+        assert actions[0]["action"] == "escalate"
 
         # Agent resumes
         _emit_progress(bus, agent_id=AGENT_ID_CODER)
 
-        # Second stall -> should nudge again (not escalate) because progress was received
+        # Second stall -> fresh escalation (flag was reset by progress)
         with patch("health_monitor.time") as mock_time:
-            mock_time.time.return_value = time.time() + 122
+            mock_time.time.return_value = time.time() + 61
             actions = monitor.check_progress()
 
-        # Since progress reset the counter, this should be another nudge, not escalation
-        nudge_actions = [a for a in actions if a.get("action") == "nudge"]
-        escalate_actions = [a for a in actions if a.get("action") == "escalate"]
-        # After resumed progress, the nudge counter resets, so we get nudge again
-        assert len(nudge_actions) >= 1 or len(escalate_actions) == 0
-        assert len(escalations) == 0, "Should not escalate if progress was observed"
+        assert len(actions) == 1
+        assert actions[0]["action"] == "escalate"
+        assert len(escalations) == 2, "Second stall should produce fresh escalation"
 
 
 # ---------------------------------------------------------------------------
@@ -452,7 +439,7 @@ class TestMultipleAgentsStalling:
     """Scenario 3: Two agents stall at different times, each gets independent handling."""
 
     def test_two_agents_stall_at_different_times(self):
-        """Two agents stall independently; each receives its own nudge."""
+        """Two agents stall independently; each receives its own escalation."""
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = HealthMonitor(
@@ -477,12 +464,12 @@ class TestMultipleAgentsStalling:
 
             actions = monitor.check_progress()
 
-        nudged = {a["agent_id"] for a in actions if a.get("action") == "nudge"}
-        assert AGENT_ID_CODER in nudged, "Coder should have been nudged"
-        assert AGENT_ID_TESTER not in nudged, "Tester should NOT have been nudged"
+        escalated = {a["agent_id"] for a in actions if a.get("action") == "escalate"}
+        assert AGENT_ID_CODER in escalated, "Coder should have been escalated"
+        assert AGENT_ID_TESTER not in escalated, "Tester should NOT have been escalated"
 
-    def test_both_agents_stall_get_independent_nudges(self):
-        """When both agents stall, each gets an independent nudge."""
+    def test_both_agents_stall_get_independent_escalations(self):
+        """When both agents stall, each gets an independent escalation."""
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = HealthMonitor(
@@ -500,12 +487,12 @@ class TestMultipleAgentsStalling:
             mock_time.time.return_value = time.time() + 61
             actions = monitor.check_progress()
 
-        nudged_ids = {a["agent_id"] for a in actions if a.get("action") == "nudge"}
-        assert AGENT_ID_CODER in nudged_ids, "Coder should be nudged"
-        assert AGENT_ID_TESTER in nudged_ids, "Tester should be nudged"
+        escalated_ids = {a["agent_id"] for a in actions if a.get("action") == "escalate"}
+        assert AGENT_ID_CODER in escalated_ids, "Coder should be escalated"
+        assert AGENT_ID_TESTER in escalated_ids, "Tester should be escalated"
 
-    def test_one_agent_resolves_other_escalates(self):
-        """One agent resolves after nudge, the other escalates."""
+    def test_one_agent_resolves_other_stays_escalated(self):
+        """One agent recovers after escalation; the other remains escalated (no re-escalation)."""
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
@@ -524,31 +511,26 @@ class TestMultipleAgentsStalling:
         _emit_progress(bus, agent_id=AGENT_ID_CODER)
         _emit_progress(bus, agent_id=AGENT_ID_TESTER)
 
-        # First check: both stall -> both get nudged
+        # Both stall -> both escalated immediately
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 61
             monitor.check_progress()
 
-        # Coder resumes progress (resets nudge count)
+        assert len(escalations) == 2
+
+        # Coder resumes progress (resets escalated flag)
         _emit_progress(bus, agent_id=AGENT_ID_CODER)
 
-        # Second check: coder OK, tester still stalled -> tester gets second nudge
+        # Check shortly after coder recovery — coder is within threshold, tester already escalated
         with patch("health_monitor.time") as mock_time:
-            mock_time.time.return_value = time.time() + 122
-            monitor.check_progress()
+            mock_time.time.return_value = time.time() + 30
+            actions = monitor.check_progress()
 
-        # Third check: tester nudge count >= _MAX_PROGRESS_NUDGES -> tester escalates
-        with patch("health_monitor.time") as mock_time:
-            mock_time.time.return_value = time.time() + 183
-            monitor.check_progress()
-
-        # Tester should have been escalated
-        escalated_agents = {e["agent_id"] for e in escalations}
-        assert AGENT_ID_TESTER in escalated_agents, "Tester should have escalated"
-
-        # Check coder was NOT escalated (coder resumed progress)
-        coder_escalations = [e for e in escalations if e["agent_id"] == AGENT_ID_CODER]
-        assert len(coder_escalations) == 0, "Coder should not have escalated"
+        assert len(actions) == 0, (
+            "No new escalations — tester already escalated, coder within threshold"
+        )
+        tester_escalations = [e for e in escalations if e["agent_id"] == AGENT_ID_TESTER]
+        assert len(tester_escalations) == 1
 
     def test_independent_escalation_types(self):
         """Each agent's escalation is independent and carries correct metadata."""
@@ -570,22 +552,12 @@ class TestMultipleAgentsStalling:
         _emit_progress(bus, agent_id=AGENT_ID_CODER)
         _emit_progress(bus, agent_id=AGENT_ID_TESTER)
 
-        # First stall -> nudge for both
+        # Both stall -> both escalated immediately
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 61
             monitor.check_progress()
 
-        # Second stall -> second nudge for both
-        with patch("health_monitor.time") as mock_time:
-            mock_time.time.return_value = time.time() + 122
-            monitor.check_progress()
-
-        # Third stall -> escalation for both (nudge count >= _MAX_PROGRESS_NUDGES)
-        with patch("health_monitor.time") as mock_time:
-            mock_time.time.return_value = time.time() + 183
-            monitor.check_progress()
-
-        assert len(escalations) >= 2, "Both agents should have escalated"
+        assert len(escalations) == 2, "Both agents should have escalated"
         escalated_agents = {e["agent_id"] for e in escalations}
         assert AGENT_ID_CODER in escalated_agents
         assert AGENT_ID_TESTER in escalated_agents
