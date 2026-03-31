@@ -25,6 +25,7 @@ def _make_pipeline(
     issue_number: int | None = 42,
     repo: str = "owner/repo",
     prompt: str = "test prompt",
+    mode: str | None = None,
 ) -> MagicMock:
     """Create a mock Pipeline object."""
     pipeline = MagicMock()
@@ -32,6 +33,7 @@ def _make_pipeline(
     pipeline.issue_number = issue_number
     pipeline.repo = repo
     pipeline.prompt = prompt
+    pipeline.mode = mode
     return pipeline
 
 
