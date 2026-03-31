@@ -15,7 +15,7 @@ Environment:
     EGG_PIPELINE_ID          Required — pipeline to monitor.
     EGG_AGENT_ROLE           Agent role (default: "overseer").
     EGG_ORCHESTRATOR_URL     Orchestrator base URL.
-    EGG_OVERSEER_POLL_INTERVAL  Poll interval in seconds (default: 15).
+    EGG_OVERSEER_POLL_INTERVAL  Poll interval in seconds (default: 30).
 """
 
 from __future__ import annotations
@@ -30,7 +30,6 @@ from typing import Any
 from urllib.parse import urlencode
 
 from egg_lib.orch_cli import (
-    ApiError,
     api_request,
     get_orchestrator_url,
     get_pipeline_id_from_env,
@@ -47,7 +46,7 @@ def _orch_get(base_url: str, endpoint: str, timeout: int = 10) -> dict[str, Any]
     """GET request to the orchestrator, returning {} on failure."""
     try:
         return api_request(base_url, endpoint, timeout=timeout)
-    except (ApiError, Exception):
+    except Exception:
         return {}
 
 
@@ -57,7 +56,7 @@ def _orch_post(
     """POST request to the orchestrator, returning {} on failure."""
     try:
         return api_request(base_url, endpoint, method="POST", data=data, timeout=timeout)
-    except (ApiError, Exception):
+    except Exception:
         return {}
 
 
@@ -109,7 +108,11 @@ def send_message(
     body: str,
     message_type: str = "OVERSEER_ALERT",
 ) -> bool:
-    """Send an inter-agent message."""
+    """Send an inter-agent message.
+
+    Not called by run_monitor() directly — provided as a library utility
+    for the overseer agent to import when it needs to send alerts.
+    """
     data = {
         "from_role": from_role,
         "to_role": to_role,
@@ -129,7 +132,7 @@ def emit_cycle_report(report: dict[str, Any]) -> None:
 def run_monitor(
     pipeline_id: str,
     role: str = "overseer",
-    poll_interval: int = 15,
+    poll_interval: int = 30,
     base_url: str | None = None,
 ) -> int:
     """Run the monitoring loop until terminal state or SIGTERM.
@@ -198,8 +201,8 @@ def run_monitor(
         }
 
         # 6. Terminal state check
-        if status in TERMINAL_STATES:
-            report["terminal"] = True
+        report["terminal"] = status in TERMINAL_STATES
+        if report["terminal"]:
             emit_cycle_report(report)
             return 0 if status == "complete" else 1
 
@@ -208,7 +211,7 @@ def run_monitor(
         # Sleep with early exit on shutdown
         sleep_end = time.monotonic() + poll_interval
         while time.monotonic() < sleep_end and not shutdown_requested:
-            time.sleep(min(1.0, sleep_end - time.monotonic()))
+            time.sleep(max(0, min(1.0, sleep_end - time.monotonic())))
 
     # SIGTERM path — emit shutdown report
     emit_cycle_report(
@@ -229,7 +232,7 @@ def main() -> None:
         sys.exit(1)
 
     role = os.environ.get("EGG_AGENT_ROLE", "overseer")
-    poll_interval = int(os.environ.get("EGG_OVERSEER_POLL_INTERVAL", "15"))
+    poll_interval = int(os.environ.get("EGG_OVERSEER_POLL_INTERVAL", "30"))
 
     exit_code = run_monitor(pipeline_id, role=role, poll_interval=poll_interval)
     sys.exit(exit_code)
