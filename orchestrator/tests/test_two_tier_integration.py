@@ -526,7 +526,9 @@ class TestMultipleAgentsStalling:
             mock_time.time.return_value = time.time() + 30
             actions = monitor.check_progress()
 
-        assert len(actions) == 0, "No new escalations — tester already escalated, coder within threshold"
+        assert len(actions) == 0, (
+            "No new escalations — tester already escalated, coder within threshold"
+        )
         tester_escalations = [e for e in escalations if e["agent_id"] == AGENT_ID_TESTER]
         assert len(tester_escalations) == 1
 
