@@ -125,9 +125,14 @@ class TestHITLEscalationAfterMaxRedirects:
         assert len(nudge_actions) >= 1, "First stall should generate nudge"
         assert len(escalations) == 0, "First stall should not escalate"
 
-        # Second stall (no progress after nudge) -> escalation to overseer
+        # Second stall (no progress after nudge) -> second nudge
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 122
+            monitor.check_progress()
+
+        # Third stall (nudge count now >= _MAX_PROGRESS_NUDGES) -> escalation
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 183
             monitor.check_progress()
 
         assert len(escalations) >= 1, "Persistent stall should escalate"
@@ -161,9 +166,14 @@ class TestHITLEscalationAfterMaxRedirects:
             mock_time.time.return_value = time.time() + 61
             monitor.check_progress()
 
-        # Second stall -> direct HITL escalation
+        # Second stall -> second nudge
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 122
+            monitor.check_progress()
+
+        # Third stall -> direct HITL escalation (nudge count >= _MAX_PROGRESS_NUDGES)
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 183
             monitor.check_progress()
 
         assert len(escalations) >= 1
