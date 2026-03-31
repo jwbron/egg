@@ -771,6 +771,9 @@ class TestContractPushHardGate:
             f"Expected 2 push attempts (initial + retry), got {len(push_calls)}"
         )
 
+        # No agents should be spawned after push failure
+        mock_spawn_wait.assert_not_called()
+
     @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch(_COMMON_PATCHES[7])
