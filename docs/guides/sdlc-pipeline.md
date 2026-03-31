@@ -289,7 +289,7 @@ The implement phase uses concurrent BRC execution, where specialized agents run 
 | Role | Responsibilities | Can Write |
 |------|-----------------|-----------|
 | **Coder** | Implement code changes based on plan tasks | Source code files (`**/*.py`, `**/*.ts`, etc.) |
-| **Tester** | Find gaps in implementation, write tests, run linters and auto-fixers | Test files (`tests/`, `**/*_test.py`, `**/*.test.ts`, etc.) and source files (for lint fixes) |
+| **Tester** | Find gaps in implementation, write tests, run linters and report issues | Test files (`tests/`, `**/*_test.py`, `**/*.test.ts`, etc.) and pytest infrastructure (`**/conftest.py`) |
 | **Documenter** | Update documentation for the changes | Documentation files (`docs/`, `**/*.md`) |
 | **Reviewer (Code)** | Review code for security, correctness, robustness | Review verdicts only |
 | **Reviewer (Contract)** | Verify task completion and acceptance criteria | Review verdicts only |
@@ -560,7 +560,7 @@ Agents are organized into five categories (execution, analysis, review, utility,
 | Role | Category | Purpose | File Access |
 |------|----------|---------|-------------|
 | **Coder** | Execution | Implements code changes | `src/`, `lib/`, `shared/` |
-| **Tester** | Execution | Finds gaps, writes tests, runs linters and auto-fixers | `tests/`, `test_*.py`, `*.test.ts`, source files (for lint fixes) |
+| **Tester** | Execution | Finds gaps, writes tests, runs linters and reports issues to coder | `tests/`, `test_*.py`, `*.test.ts`, `**/conftest.py` |
 | **Documenter** | Execution | Updates documentation | `docs/`, `*.md`, `README*` |
 | **Autofixer** | Utility | Auto-fixes lint/format/type-check issues | Source and config files (no docs or contracts) |
 | **Conflict Resolver** | Utility | Resolves merge and inter-agent conflicts | Source, test, doc, and config files (no `.egg-state/`) |
@@ -980,7 +980,7 @@ This parallel execution reduces cycle time by running independent checks concurr
 The tester handles lint, type-checks, and test execution alongside writing tests. After the coder completes, the tester:
 
 1. **Runs all checks** — Discovers and executes test/lint commands (or uses configured commands)
-2. **Fixes issues inline** — Attempts auto-fixable repairs without leaving the session
+2. **Fixes test files inline** — Attempts auto-fixable repairs in test files only; source code issues are reported to the coder
 3. **Repeats up to 3 times** — Re-runs checks after each fix attempt until all pass or attempts are exhausted
 
 **Flow:**
