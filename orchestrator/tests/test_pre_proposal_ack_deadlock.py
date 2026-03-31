@@ -77,6 +77,7 @@ def _minimal_proposal(summary="test", artifacts=None):
     return {
         "summary": summary,
         "artifacts": artifacts or ["file.py"],
+        "commit_sha": "abc123",
     }
 
 

@@ -131,6 +131,18 @@ def _capture_and_cleanup_session(
                 except ImportError:
                     pass
 
+            # Detect consensus-confirmed marker written by the orchestrator
+            # after BRC confirmation (#1473).  If present, auto-commit will
+            # preserve work locally but skip pushing to avoid unreviewed code.
+            consensus_confirmed = False
+            marker_path = (
+                Path(session.last_repo_path)
+                / ".egg-state"
+                / "agent-outputs"
+                / "consensus-confirmed"
+            )
+            consensus_confirmed = marker_path.exists()
+
             auto_commit_sha = auto_commit_worktree(
                 worktree_path=session.last_repo_path,
                 container_id=session.container_id,
@@ -139,6 +151,7 @@ def _capture_and_cleanup_session(
                 phase=session.phase,
                 session_token=session.session_token,
                 gateway_url=gateway_url,
+                consensus_confirmed=consensus_confirmed,
             )
             if auto_commit_sha:
                 session.auto_commit_sha = auto_commit_sha

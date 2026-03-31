@@ -132,6 +132,7 @@ def auto_commit_worktree(
     phase: str | None = None,
     session_token: str | None = None,
     gateway_url: str | None = None,
+    consensus_confirmed: bool = False,
 ) -> str | None:
     """Create a WIP commit for any uncommitted changes in a worktree.
 
@@ -149,6 +150,8 @@ def auto_commit_worktree(
         phase: SDLC phase for file restriction filtering.
         session_token: Gateway session token for pushing.
         gateway_url: Gateway base URL (e.g., ``http://egg-gateway:<port>``).
+        consensus_confirmed: If True, commit locally but skip push to
+            avoid introducing unreviewed code after BRC confirmation (#1473).
 
     Returns:
         Commit SHA string if a commit was made, None otherwise.
@@ -309,6 +312,19 @@ def auto_commit_worktree(
             allowed_files=allowed_files,
             blocked_files=blocked_files,
         )
+
+        # Skip push if consensus was already confirmed — any uncommitted
+        # work at this point was never BRC-reviewed (#1473).
+        if consensus_confirmed:
+            logger.warning(
+                "Auto-commit after consensus confirmation — skipping push "
+                "to avoid unreviewed code in PR",
+                event_type="post_agent_auto_commit_post_consensus",
+                commit_sha=sha,
+                container_id=container_id,
+                pipeline_id=pipeline_id,
+            )
+            return sha
 
         # Push via gateway if session credentials are available.
         if session_token and gateway_url:

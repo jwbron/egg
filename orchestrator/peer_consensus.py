@@ -94,6 +94,8 @@ class PeerConsensusTracker:
         self._flip_flop_counts: dict[str, int] = {}
         # Track proposal artifacts per producer (for scoped re-evaluation)
         self._proposal_artifacts: dict[str, list[str]] = {}
+        # Track proposal commit SHAs per producer (#1473)
+        self._proposal_commit_shas: dict[str, str] = {}
         # Whether handle_timeout() has already processed the timeout
         self._timeout_handled: bool = False
 
@@ -165,6 +167,7 @@ class PeerConsensusTracker:
         self._confirmed.discard(agent_role)  # Clear stale confirmed status (#1411)
         self._proposal_timestamps[agent_role] = datetime.now(UTC)
         self._proposal_artifacts[agent_role] = list(proposal.artifacts)
+        self._proposal_commit_shas[agent_role] = proposal.commit_sha
 
         # Detect reviewers who confirmed on a stale version and need re-review.
         # This prevents deadlocks where a confirmed reviewer never sees a new
@@ -185,6 +188,7 @@ class PeerConsensusTracker:
                 "role": agent_role,
                 "version": version,
                 "artifacts": proposal.artifacts,
+                "commit_sha": proposal.commit_sha,
                 "stale_reviewers": stale_reviewers,
             },
         )
@@ -192,6 +196,7 @@ class PeerConsensusTracker:
         return {
             "version": version,
             "status": "proposed",
+            "commit_sha": proposal.commit_sha,
             "reviewers": self.graph.reviewers_for(agent_role),
             "stale_reviewers": stale_reviewers,
         }
@@ -700,6 +705,10 @@ class PeerConsensusTracker:
                 "advisory_blockers": [e.to_dict() for e in advisory_blockers],
             }
 
+    def get_proposal_commit_sha(self, role: str) -> str:
+        """Return the commit SHA from a producer's last proposal (#1473)."""
+        return self._proposal_commit_shas.get(role, "")
+
     def evaluate(self) -> dict[str, Any]:
         """Evaluate current consensus state.
 
@@ -1017,6 +1026,10 @@ def reconstruct_tracker_from_messages(
                 if not payload:
                     # Minimal payload for reconstruction
                     payload = {"summary": msg.body or "reconstructed", "artifacts": []}
+                # Ensure commit_sha is present for reconstruction (#1473).
+                # Historical messages may pre-date this requirement.
+                if not payload.get("commit_sha"):
+                    payload["commit_sha"] = payload.get("commit_sha", "") or "reconstructed"
                 tracker.handle_propose(msg.from_role, payload)
 
             elif msg.message_type == "CONSENSUS_ACK":

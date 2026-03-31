@@ -837,6 +837,39 @@ def handle_consensus_propose_signal(
     if not tracker:
         return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
 
+    # Verify commit SHA exists on the expected branch before accepting
+    # the proposal (#1473).  Reuses _verify_commit_on_branch() from the
+    # completion handler — graceful degradation on network errors (None).
+    commit_sha = payload.get("commit_sha", "")
+    if commit_sha:
+        try:
+            store_mod = get_state_store(repo_path)
+            pipeline = store_mod.load_pipeline(pipeline_id)
+            if pipeline.branch:
+                worktree_path = resolve_worktree_path(pipeline_id, repo_path)
+                branch_verified = _verify_commit_on_branch(
+                    commit_sha, pipeline.branch, worktree_path, pipeline_id,
+                )
+                if branch_verified is False:
+                    return make_error_response(
+                        f"Proposal rejected: commit {commit_sha} not found on "
+                        f"expected branch {pipeline.branch}. Push your work before "
+                        f"proposing consensus.",
+                        status_code=409,
+                        details={
+                            "commit_sha": commit_sha,
+                            "expected_branch": pipeline.branch,
+                            "pipeline_id": pipeline_id,
+                        },
+                    )
+        except Exception as e:
+            logger.warning(
+                "Could not verify commit on branch (non-blocking)",
+                pipeline_id=pipeline_id,
+                commit_sha=commit_sha,
+                error=str(e),
+            )
+
     try:
         # Validate tester proposals cover all configured repo checks (#1459).
         # Must run BEFORE handle_propose to avoid mutating tracker state on
@@ -863,7 +896,11 @@ def handle_consensus_propose_signal(
                 message_type=MessageType.CONSENSUS_PROPOSE,
                 subject=f"Proposal from {agent_role}",
                 body=payload.get("summary", ""),
-                metadata={"payload": payload, "version": result.get("version")},
+                metadata={
+                    "payload": payload,
+                    "version": result.get("version"),
+                    "commit_sha": commit_sha,
+                },
             )
         )
 
@@ -1079,6 +1116,25 @@ def handle_consensus_withdraw_signal(
         return make_error_response(str(e), 400 if isinstance(e, ValueError) else 500)
 
 
+def _write_consensus_confirmed_marker(
+    pipeline_id: str, agent_role: str, repo_path: Path
+) -> None:
+    """Write a marker file so auto-commit skips push after BRC confirmation (#1473)."""
+    try:
+        worktree_path = resolve_worktree_path(pipeline_id, repo_path)
+        marker_dir = worktree_path / ".egg-state" / "agent-outputs"
+        marker_dir.mkdir(parents=True, exist_ok=True)
+        marker_file = marker_dir / "consensus-confirmed"
+        marker_file.write_text(f"{agent_role}\n", encoding="utf-8")
+    except Exception as e:
+        logger.warning(
+            "Failed to write consensus-confirmed marker (non-blocking)",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            error=str(e),
+        )
+
+
 def handle_consensus_confirmed_signal(
     pipeline_id: str,
     data: dict[str, Any],
@@ -1162,6 +1218,7 @@ def handle_consensus_confirmed_signal(
                             metadata={"consensus_reached": True, "fallback": "message_bus"},
                         )
                     )
+                    _write_consensus_confirmed_marker(pipeline_id, agent_role, repo_path)
                     return make_success_response(
                         f"Confirmation recorded for {agent_role} (message-bus fallback)",
                         data={
@@ -1205,6 +1262,10 @@ def handle_consensus_confirmed_signal(
                 metadata={"consensus_reached": result.get("consensus_reached", False)},
             )
         )
+
+        # Write consensus-confirmed marker so auto-commit can detect that
+        # BRC review is complete and skip pushing unreviewed WIP (#1473).
+        _write_consensus_confirmed_marker(pipeline_id, agent_role, repo_path)
 
         return make_success_response(
             f"Confirmation recorded for {agent_role}",

@@ -117,6 +117,10 @@ class ProposalPayload(BaseModel):
         default_factory=list, description="Artifact references (file paths, commit SHAs)"
     )
     risk_considered: str = Field(default="", description="One risk considered and why acceptable")
+    commit_sha: str = Field(
+        default="",
+        description="Commit SHA pushed to the remote branch before proposing (#1473)",
+    )
 
     @model_validator(mode="after")
     def validate_artifacts_non_empty(self) -> "ProposalPayload":
@@ -124,6 +128,16 @@ class ProposalPayload(BaseModel):
         if not self.artifacts:
             raise ValueError(
                 "Proposal must reference at least one artifact (file path, commit SHA, etc.)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_commit_sha_present(self) -> "ProposalPayload":
+        """Require commit_sha so reviewers can verify pushed code (#1473)."""
+        if not self.commit_sha:
+            raise ValueError(
+                "Proposal must include commit_sha referencing a pushed commit. "
+                "Commit and push your work before proposing consensus."
             )
         return self
 

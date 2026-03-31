@@ -563,3 +563,48 @@ class TestAutoCommitSymlinkFiltering:
         add_cmd = mock_run.call_args_list[1][0][0]
         assert "app.py" in add_cmd
         assert "lib.py" in add_cmd
+
+
+class TestAutoCommitConsensusConfirmed:
+    """Tests for consensus_confirmed push gating (#1473)."""
+
+    @patch("post_agent_commit._push_via_gateway", return_value=True)
+    @patch("post_agent_commit.subprocess.run")
+    def test_skips_push_when_consensus_confirmed(self, mock_run, mock_push, tmp_path):
+        """When consensus_confirmed=True, commit is created but push is skipped."""
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="sha_wip\n", stderr=""),
+        ]
+        result = auto_commit_worktree(
+            str(tmp_path),
+            container_id="c1",
+            session_token="tok-123",
+            gateway_url="http://localhost:9848",
+            consensus_confirmed=True,
+        )
+        assert result == "sha_wip"
+        mock_push.assert_not_called()
+
+    @patch("post_agent_commit._push_via_gateway", return_value=True)
+    @patch("post_agent_commit.subprocess.run")
+    def test_pushes_when_consensus_not_confirmed(self, mock_run, mock_push, tmp_path):
+        """When consensus_confirmed=False (default), push proceeds normally."""
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="sha_normal\n", stderr=""),
+            MagicMock(returncode=0, stdout="egg/branch\n", stderr=""),
+        ]
+        result = auto_commit_worktree(
+            str(tmp_path),
+            container_id="c1",
+            session_token="tok-123",
+            gateway_url="http://localhost:9848",
+            consensus_confirmed=False,
+        )
+        assert result == "sha_normal"
+        mock_push.assert_called_once()
