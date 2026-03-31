@@ -58,7 +58,6 @@ class AgentState:
     last_progress: float = field(default_factory=time.time)
     error_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     message_timestamps: list[float] = field(default_factory=list)
-    nudge_count: int = 0
     progress_nudge_count: int = 0
     heartbeat_nudge_count: int = 0
     last_heartbeat_nudge_time: float | None = None
@@ -181,6 +180,7 @@ class HealthMonitor:
                 # Reset nudge counts on new progress
                 agent.progress_nudge_count = 0
                 agent.heartbeat_nudge_count = 0
+                agent.last_progress_nudge_time = None
                 agent.last_heartbeat_nudge_time = None
                 agent.heartbeat_escalated = False
                 agent.progress_escalated = False
