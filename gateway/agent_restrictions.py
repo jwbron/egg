@@ -268,6 +268,9 @@ TESTER_PATTERNS = AgentFilePattern(
         "**/conftest.py",
         # Config files needed for test environment setup
         ".python-version",
+        # Dependency files (test dependency management)
+        "**/*.lock",
+        "**/requirements*.txt",
         # Handoff output
         ".egg-state/agent-outputs/",
     ],

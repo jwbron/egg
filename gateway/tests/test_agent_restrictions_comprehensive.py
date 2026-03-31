@@ -159,6 +159,20 @@ class TestTesterFilePatterns:
     def test_tester_blocked_from_markdown(self, pattern):
         assert pattern.can_write("README.md") is False
 
+    def test_tester_can_write_lock_files(self, pattern):
+        """Tester can write lock files for test dependency management."""
+        assert pattern.can_write("uv.lock") is True
+        assert pattern.can_write("poetry.lock") is True
+        assert pattern.can_write("yarn.lock") is True
+        assert pattern.can_write("subdir/yarn.lock") is True
+
+    def test_tester_can_write_requirements_files(self, pattern):
+        """Tester can write requirements files for test dependency management."""
+        assert pattern.can_write("requirements.txt") is True
+        assert pattern.can_write("requirements-test.txt") is True
+        assert pattern.can_write("requirements-dev.txt") is True
+        assert pattern.can_write("subdir/requirements.txt") is True
+
 
 # ---------------------------------------------------------------------------
 # Documenter file patterns
