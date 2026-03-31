@@ -152,9 +152,7 @@ def run_once(
     pipeline_data = query_pipeline_status(base_url, pipeline_id)
     status = pipeline_data.get("status", "unknown")
     phase_info = pipeline_data.get("phase", {})
-    phase_name = (
-        phase_info.get("name", "unknown") if isinstance(phase_info, dict) else "unknown"
-    )
+    phase_name = phase_info.get("name", "unknown") if isinstance(phase_info, dict) else "unknown"
     consensus = pipeline_data.get("concurrent", {}).get("consensus", {})
 
     alerts = query_health_alerts(base_url, pipeline_id)
@@ -295,7 +293,9 @@ def main() -> None:
 
     if args.once:
         report = run_once(pipeline_id, role=role)
-        sys.exit(0 if report.get("status") != "failed" and report.get("status") != "cancelled" else 1)
+        sys.exit(
+            0 if report.get("status") != "failed" and report.get("status") != "cancelled" else 1
+        )
 
     poll_interval = int(os.environ.get("EGG_OVERSEER_POLL_INTERVAL", "30"))
     exit_code = run_monitor(pipeline_id, role=role, poll_interval=poll_interval)
