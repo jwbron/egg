@@ -1372,11 +1372,11 @@ Pipeline health monitoring uses a **two-tier architecture** to detect and remedi
 
 The orchestrator runs five deterministic tripwire checks against live telemetry:
 
-- **Heartbeat timeout**: No heartbeat/progress within `orchestrator_heartbeat_timeout_seconds` (default 120s) triggers an auto-nudge message to the agent.
+- **Heartbeat timeout**: No heartbeat/progress within `orchestrator_heartbeat_timeout_seconds` (default 120s) triggers escalation to the overseer (or HITL if overseer disabled).
 - **Container exit**: Unexpected container death triggers immediate HITL escalation.
 - **Repeated errors**: Identical error repeated `orchestrator_error_repeat_threshold` times (default 3) escalates.
 - **Message volume spike**: Messages exceeding `orchestrator_message_rate_limit` per minute (default 20) triggers auto-throttle.
-- **Progress stall**: No structured progress events within the threshold triggers a nudge, then escalation if unresolved.
+- **Progress stall**: No structured progress events within the threshold triggers escalation to the overseer/HITL.
 
 Agents emit structured progress via `egg-orch progress emit --step <text> --state <working|blocked|complete>`. Query progress with `egg-orch progress query`.
 
@@ -1389,7 +1389,7 @@ When Tier 1 escalates an anomaly (and `overseer_enabled` is true in PipelineConf
 
 ### Escalation Ladder
 
-auto-nudge → redirect → HITL → issue → Slack. Each step is tried before escalating further. `overseer_max_redirects_before_escalation` (default 2) controls how many redirect attempts before HITL.
+Tier 1 (orchestrator) escalates directly to the overseer/HITL on heartbeat/progress timeout. The overseer's corrective action ladder is: nudge/redirect → HITL → issue → Slack. Each step is tried before escalating further. `overseer_max_redirects_before_escalation` (default 2) controls how many redirect attempts before HITL.
 
 ### Troubleshooting
 

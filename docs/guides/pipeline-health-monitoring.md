@@ -132,7 +132,7 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | Field | Default | Description |
 |-------|---------|-------------|
 | `overseer_enabled` | `true` | Auto-spawn overseer on all pipelines |
-| `orchestrator_heartbeat_timeout_seconds` | `120` | Auto-nudge after this many seconds without heartbeat |
+| `orchestrator_heartbeat_timeout_seconds` | `120` | Escalate to overseer/HITL after this many seconds without heartbeat |
 | `orchestrator_error_repeat_threshold` | `3` | Escalate after N identical consecutive errors |
 | `orchestrator_message_rate_limit` | `20` | Auto-throttle above this many messages per minute |
 | `overseer_poll_interval_seconds` | `30` | How often the overseer checks health |
@@ -200,7 +200,7 @@ All LLM calls use `shared/egg_agent/` (`run_agent_async`) — no direct API call
 ```
 Orchestrator detects anomaly via structured logs (deterministic)
   → Clear-cut (heartbeat timeout, container exit, error repeat)
-    → Orchestrator handles directly (auto-nudge or HITL)
+    → Orchestrator escalates directly to overseer/HITL
   → Ambiguous
     → Escalate to overseer
 
@@ -218,13 +218,12 @@ Overseer receives escalation (or detects anomaly in own polling)
 
 ### Corrective Action Ladder
 
-The overseer follows a progressive escalation ladder:
+The system follows a progressive escalation ladder:
 
 | Step | Action | When |
 |------|--------|------|
-| 1 | **Auto-nudge** | Orchestrator detects heartbeat/progress timeout; nudge sent via message bus (`NUDGE` message type) |
-| 1b | **Escalate to overseer/HITL** | After 2 unanswered heartbeat nudges, or after 2 unanswered progress nudges (orchestrator-level escalation) |
-| 2 | **Redirect message** | Overseer sends actionable guidance to the agent |
+| 1 | **Escalate to overseer/HITL** | Orchestrator detects heartbeat/progress timeout; immediately escalates to overseer (or HITL if overseer disabled) |
+| 2 | **Nudge / Redirect message** | Overseer classifies the alert and sends a nudge or actionable guidance to the agent |
 | 3 | **HITL escalation** | Agent still stuck after max redirects |
 | 4 | **File GitHub issue** | Structured diagnostic report for persistent problems |
 | 5 | **Slack notification** | Human escalation for urgent issues |
