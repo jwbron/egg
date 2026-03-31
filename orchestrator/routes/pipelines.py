@@ -4049,6 +4049,13 @@ def _build_agent_prompt(
             "- [ ] All checks pass (or failures have been auto-fixed and re-verified)",
             "- [ ] Any auto-fix commits have been pushed",
             "",
+            "### Attestation: `checks_run` (REQUIRED)\n",
+            "When proposing consensus, your attestation MUST include a `checks_run` "
+            "list containing the **name** of every configured check you executed. "
+            "For example, if the repo has `lint` and `test` checks, your attestation "
+            'must include `"checks_run": ["lint", "test"]`. The server will '
+            "reject your proposal if any configured check name is missing from this list.",
+            "",
         ]
         lines.extend(check_verify_lines)
 

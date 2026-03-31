@@ -48,6 +48,10 @@ class TesterAttestation(BaseModel):
     lint_results: str = Field(default="", description="Lint results summary")
     type_results: str = Field(default="", description="Type check results")
     auto_fixes: list[str] = Field(default_factory=list, description="Auto-fixes applied")
+    checks_run: list[str] = Field(
+        default_factory=list,
+        description="Names of configured checks that were executed (e.g. ['lint', 'test'])",
+    )
 
 
 class DocumenterAttestation(BaseModel):
@@ -220,6 +224,16 @@ def _validate_strict(role: str, instance: BaseModel, is_producer: bool) -> None:
                     )
             elif instance.tests_run == 0:
                 raise ValueError("Tester attestation requires tests_run > 0 in strict mode")
+            # Require checks_run to be populated when tests actually ran —
+            # the tester must report which configured checks were executed
+            # (issue #1459).  Skip when tests_execution_blocked since the
+            # tester may not have been able to run any checks.
+            if not instance.tests_execution_blocked and not instance.checks_run:
+                raise ValueError(
+                    "Tester attestation requires checks_run to list the checks executed "
+                    "(e.g. ['lint', 'test']). Running tests alone is not sufficient — "
+                    "all configured checks must be reported in the attestation."
+                )
         elif role == "documenter" and isinstance(instance, DocumenterAttestation):
             if not instance.sections_updated:
                 raise ValueError(

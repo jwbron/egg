@@ -293,7 +293,13 @@ class TestPreProposalDeadlockScenario:
 
         # Step 7: Coder can confirm
         # First, tester and other producers need to do their work
-        tracker.handle_propose("tester", _minimal_proposal("Tests written"))
+        tracker.handle_propose(
+            "tester",
+            {
+                **_minimal_proposal("Tests written"),
+                "attestation": {"tests_run": 5, "checks_run": ["test"]},
+            },
+        )
         tracker.handle_ack("reviewer_code", "tester", _minimal_ack())
 
         # All reviewers confirm
@@ -357,7 +363,10 @@ class TestPreProposalDeadlockScenario:
         tracker.handle_propose("coder", _minimal_proposal("Feature"))
 
         # Tester proposes their own tests (producer role)
-        tracker.handle_propose("tester", _minimal_proposal("Tests"))
+        tracker.handle_propose(
+            "tester",
+            {**_minimal_proposal("Tests"), "attestation": {"tests_run": 3, "checks_run": ["test"]}},
+        )
 
         # All legitimate ACKs happen now
         tracker.handle_ack("reviewer_code", "coder", _minimal_ack())
