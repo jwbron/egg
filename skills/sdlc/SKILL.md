@@ -940,7 +940,7 @@ If the user adjusts scope, incorporate their feedback and re-present. Then proce
 
 ## Phase S3 — Lightweight Plan & Contract
 
-Generate a concrete plan with tasks and acceptance criteria, validate it, and produce a plan document with a `yaml-tasks` appendix that the remote pipeline can parse into a formal contract.
+Generate a concrete plan with tasks and acceptance criteria, and produce a plan document with a `yaml-tasks` appendix that the remote pipeline can parse into a formal contract.
 
 ### Step 1: Generate the plan
 
