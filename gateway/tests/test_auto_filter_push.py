@@ -772,6 +772,44 @@ class TestExecuteFilteredPush:
         # The file should have been removed from the working tree
         assert not blocked_path.exists(), "Blocked deleted file should be removed from worktree"
 
+    def test_push_success_preserves_file_on_unexpected_checkout_failure(self, tmp_path):
+        """When checkout fails for a reason other than 'did not match', the file is preserved."""
+        blocked_file = "docs/blocked.md"
+        blocked_path = tmp_path / blocked_file
+        blocked_path.parent.mkdir(parents=True, exist_ok=True)
+        blocked_path.write_text("content")
+
+        calls = []
+
+        def side_effect(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get("args", [])
+            cmd_str = " ".join(str(c) for c in cmd) if isinstance(cmd, (list, tuple)) else str(cmd)
+            calls.append(cmd_str)
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = "deadbeef1234\n" if "rev-parse" in cmd_str else ""
+            result.stderr = ""
+            # Simulate an unexpected checkout failure (e.g., corrupt object)
+            if "checkout" in cmd_str and blocked_file in cmd_str:
+                result.returncode = 1
+                result.stderr = "error: unable to read tree object"
+            return result
+
+        with patch("subprocess.run", side_effect=side_effect):
+            success, _, _ = gateway._execute_filtered_push(
+                exec_path=str(tmp_path),
+                blocked_files=[blocked_file],
+                cmd=["git", "push", "origin", "egg-feature"],
+                branch="egg-feature",
+                old_ref_sha="abc123",
+                env={},
+                original_msg="msg",
+            )
+
+        assert success is True
+        # The file should NOT be removed — the checkout failure wasn't a "did not match"
+        assert blocked_path.exists(), "File should be preserved on unexpected checkout failure"
+
 
 class TestAutoFilterPushFailureHandling:
     """Test that filtered push failures return appropriate errors."""

@@ -797,13 +797,15 @@ def _execute_filtered_push(
                 check=False,
             )
             if checkout_result.returncode != 0:
-                # Checkout failed — the file likely didn't exist in the
-                # original commit, meaning the agent deleted it.  Remove
-                # it from the working tree so the deletion shows up as a
-                # pending change (matching the agent's original intent).
-                blocked_path = os.path.join(exec_path, blocked_file)
-                if os.path.exists(blocked_path):
-                    os.remove(blocked_path)
+                # Checkout failed — check if it's because the file didn't
+                # exist in the original commit (i.e. the agent deleted it).
+                # Only remove the working-tree copy in that case; other
+                # checkout failures (corrupt object, permission error) should
+                # not silently delete files.
+                if "did not match" in checkout_result.stderr:
+                    blocked_path = os.path.join(exec_path, blocked_file)
+                    if os.path.exists(blocked_path):
+                        os.remove(blocked_path)
         # Unstage any restored blocked files so they appear as
         # working-tree changes, not staged changes.
         subprocess.run(
