@@ -2595,6 +2595,17 @@ def _ensure_statefiles_on_branch(
                 "-C",
                 str(worktree_repo_path),
             ]
+            # Ensure remote-tracking ref is fresh before reading from it.
+            try:
+                subprocess.run(
+                    [*git_base, "fetch", "origin", pipeline.branch],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+            except Exception:
+                pass  # Best-effort; git show may still work with cached ref
             for draft_phase in ("plan", "refine"):
                 draft_rel = _get_draft_path(
                     draft_phase,
@@ -2616,14 +2627,14 @@ def _ensure_statefiles_on_branch(
                     )
                     if result.returncode == 0 and result.stdout:
                         draft_path.parent.mkdir(parents=True, exist_ok=True)
-                        draft_path.write_text(result.stdout)
+                        draft_path.write_text(result.stdout, encoding="utf-8")
                         logger.info(
                             "Restored draft from remote branch",
                             pipeline_id=pipeline.id,
                             draft_path=draft_rel,
                         )
                 except Exception as e:
-                    logger.debug(
+                    logger.warning(
                         "Could not restore draft from remote",
                         pipeline_id=pipeline.id,
                         draft_path=draft_rel,

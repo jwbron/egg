@@ -253,17 +253,17 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
 
         def fake_subprocess_run(cmd, **kwargs):
             result = MagicMock()
-            # Match the git show command for the plan draft
-            if "show" in cmd and "-plan.md" in str(cmd):
-                result.returncode = 0
-                result.stdout = SAMPLE_PLAN
+            if "show" in cmd:
+                # Check the git show ref argument (e.g. "origin/branch:path")
+                ref_arg = next((a for a in cmd if a.startswith("origin/")), "")
+                if "-plan.md" in ref_arg:
+                    result.returncode = 0
+                    result.stdout = SAMPLE_PLAN
+                else:
+                    result.returncode = 1
+                    result.stdout = ""
                 return result
-            # Match the git show command for the analysis draft
-            if "show" in cmd and "-analysis.md" in str(cmd):
-                result.returncode = 1
-                result.stdout = ""
-                return result
-            # Default: success (for git add, commit, etc.)
+            # Default: success (for git fetch, git add, commit, etc.)
             result.returncode = 0
             result.stdout = ""
             return result
@@ -341,6 +341,54 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
 
         # Should still succeed (contract created, just no plan metadata)
         assert result is True
+
+    def test_restores_plan_draft_with_issue_number(self, tmp_path: Path):
+        """Plan draft is restored using issue_number-based path when set."""
+        from routes.pipelines import _build_pr_body, _ensure_statefiles_on_branch
+
+        pipeline_id = "pipeline-issue-remote"
+        issue_number = 42
+
+        pipeline = MagicMock()
+        pipeline.id = pipeline_id
+        pipeline.issue_number = issue_number
+        pipeline.repo = "owner/repo"
+        pipeline.prompt = "Test task"
+        pipeline.mode = "local"
+        pipeline.branch = "egg/pipeline-issue-remote"
+
+        def fake_subprocess_run(cmd, **kwargs):
+            result = MagicMock()
+            if "show" in cmd:
+                ref_arg = next((a for a in cmd if a.startswith("origin/")), "")
+                if "-plan.md" in ref_arg:
+                    result.returncode = 0
+                    result.stdout = SAMPLE_PLAN
+                else:
+                    result.returncode = 1
+                    result.stdout = ""
+                return result
+            result.returncode = 0
+            result.stdout = ""
+            return result
+
+        with (
+            patch("routes.pipelines._commit_statefiles_to_worktree"),
+            patch("routes.pipelines.subprocess.run", side_effect=fake_subprocess_run),
+        ):
+            result = _ensure_statefiles_on_branch(tmp_path, pipeline)
+
+        assert result is True
+
+        # Verify plan draft was written using issue_number as prefix
+        plan_path = tmp_path / ".egg-state" / "drafts" / f"{issue_number}-plan.md"
+        assert plan_path.exists()
+        assert plan_path.read_text() == SAMPLE_PLAN
+
+        # Verify contract has PR metadata from the restored plan
+        title, body = _build_pr_body(pipeline, tmp_path)
+        assert title == "Add retry logic to API client"
+        assert "exponential backoff" in body
 
 
 class TestMCPToolForwarding:
