@@ -25,6 +25,7 @@ def _make_pipeline(
     issue_number: int | None = 42,
     repo: str = "owner/repo",
     prompt: str = "test prompt",
+    mode: str | None = None,
 ) -> MagicMock:
     """Create a mock Pipeline object."""
     pipeline = MagicMock()
@@ -32,6 +33,7 @@ def _make_pipeline(
     pipeline.issue_number = issue_number
     pipeline.repo = repo
     pipeline.prompt = prompt
+    pipeline.mode = mode
     return pipeline
 
 
@@ -57,6 +59,7 @@ class TestEnsureStatefilesOnBranch:
 
         with (
             patch("egg_contracts.loader.create_contract") as mock_create,
+            patch("routes.pipelines._populate_contract_from_plan") as mock_populate,
             patch("routes.pipelines._commit_statefiles_to_worktree") as mock_commit,
         ):
             result = _ensure_statefiles_on_branch(tmp_path, pipeline)
@@ -67,6 +70,12 @@ class TestEnsureStatefilesOnBranch:
             title="Issue #42",
             url="https://github.com/owner/repo/issues/42",
             repo_root=tmp_path,
+        )
+        mock_populate.assert_called_once_with(
+            tmp_path,
+            pipeline.id,
+            pipeline.mode or "local",
+            42,
         )
         mock_commit.assert_called_once_with(
             tmp_path,
@@ -80,6 +89,7 @@ class TestEnsureStatefilesOnBranch:
 
         with (
             patch("egg_contracts.loader.create_contract") as mock_create,
+            patch("routes.pipelines._populate_contract_from_plan") as mock_populate,
             patch("routes.pipelines._commit_statefiles_to_worktree") as mock_commit,
         ):
             result = _ensure_statefiles_on_branch(tmp_path, pipeline)
@@ -89,6 +99,12 @@ class TestEnsureStatefilesOnBranch:
             pipeline_id="pipe-abc",
             title="test prompt",
             repo_root=tmp_path,
+        )
+        mock_populate.assert_called_once_with(
+            tmp_path,
+            "pipe-abc",
+            pipeline.mode or "local",
+            None,
         )
         mock_commit.assert_called_once_with(
             tmp_path,

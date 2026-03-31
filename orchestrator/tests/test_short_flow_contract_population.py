@@ -155,6 +155,75 @@ class TestPopulateContractFromPlan:
         assert len(contract.phases) == 0  # Still empty
 
 
+class TestEnsureStatefilesRestoresPRMetadata:
+    """_ensure_statefiles_on_branch re-populates PR metadata from plan draft.
+
+    When a contract file goes missing (e.g., push failure during init) and
+    is recreated by the safety net, the planner-generated PR metadata must
+    be restored from the plan draft still on disk.
+
+    See: https://github.com/jwbron/egg/issues/1432
+    """
+
+    def test_restored_contract_has_pr_metadata(self, tmp_path: Path):
+        """After _ensure_statefiles_on_branch, _build_pr_body uses plan PR metadata."""
+        from routes.pipelines import _build_pr_body, _ensure_statefiles_on_branch
+
+        pipeline_id = "pipeline-short-restore"
+
+        # Write the plan draft (as if it was committed to git during init)
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        (drafts_dir / f"{pipeline_id}-plan.md").write_text(SAMPLE_PLAN)
+
+        # Do NOT create the contract file — simulate it being missing
+        pipeline = MagicMock()
+        pipeline.id = pipeline_id
+        pipeline.issue_number = None
+        pipeline.repo = "owner/repo"
+        pipeline.prompt = "Test task"
+        pipeline.mode = "local"
+
+        with patch("routes.pipelines._commit_statefiles_to_worktree"):
+            result = _ensure_statefiles_on_branch(tmp_path, pipeline)
+
+        assert result is True
+
+        # Now verify _build_pr_body picks up the PR metadata
+        title, body = _build_pr_body(pipeline, tmp_path)
+
+        assert title == "Add retry logic to API client"
+        assert "exponential backoff" in body
+
+    def test_restored_contract_with_issue_number_has_pr_metadata(self, tmp_path: Path):
+        """Same as above but with issue_number-based contract identifier."""
+        from routes.pipelines import _build_pr_body, _ensure_statefiles_on_branch
+
+        issue_number = 99
+
+        # Write the plan draft using issue_number-based name
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        (drafts_dir / f"{issue_number}-plan.md").write_text(SAMPLE_PLAN)
+
+        pipeline = MagicMock()
+        pipeline.id = "pipeline-issue-99"
+        pipeline.issue_number = issue_number
+        pipeline.repo = "owner/repo"
+        pipeline.prompt = "Test task"
+        pipeline.mode = "local"
+
+        with patch("routes.pipelines._commit_statefiles_to_worktree"):
+            result = _ensure_statefiles_on_branch(tmp_path, pipeline)
+
+        assert result is True
+
+        title, body = _build_pr_body(pipeline, tmp_path)
+
+        assert title == "Add retry logic to API client"
+        assert "exponential backoff" in body
+
+
 class TestMCPToolForwarding:
     """submit_task MCP tool forwards analysis and plan fields."""
 
