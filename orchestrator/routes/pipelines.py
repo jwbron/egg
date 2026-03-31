@@ -2535,8 +2535,7 @@ def _ensure_statefiles_on_branch(
     """Verify the contract file exists in the worktree and re-create if missing.
 
     This is a safety net for short-flow pipelines where the initial contract
-    push may have failed silently (``contract_synced`` set True despite push
-    failure) or where subsequent pushes diverged.
+    push may have failed or where subsequent pushes diverged.
 
     Returns True if the contract exists (or was successfully restored),
     False if restoration failed.
@@ -6019,7 +6018,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 branch=push_branch,
                             )
                 if worktree_repo_path != repo_path:
-                    push_succeeded = False
                     push_err_msg = ""
                     for attempt in range(2):
                         try:
