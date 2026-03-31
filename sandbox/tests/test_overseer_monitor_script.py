@@ -36,9 +36,7 @@ class TestQueryFunctions:
 
     @patch("overseer_monitor.api_request")
     def test_query_pipeline_status_success(self, mock_req):
-        mock_req.return_value = {
-            "data": {"status": "running", "phase": {"name": "implement"}}
-        }
+        mock_req.return_value = {"data": {"status": "running", "phase": {"name": "implement"}}}
         result = query_pipeline_status(BASE_URL, PIPELINE_ID)
         assert result["status"] == "running"
 
@@ -82,9 +80,7 @@ class TestQueryFunctions:
     @patch("overseer_monitor.api_request")
     def test_send_message_success(self, mock_req):
         mock_req.return_value = {"success": True}
-        assert send_message(
-            BASE_URL, PIPELINE_ID, "overseer", "coder", "test", "body"
-        ) is True
+        assert send_message(BASE_URL, PIPELINE_ID, "overseer", "coder", "test", "body") is True
 
 
 class TestRunMonitor:
@@ -95,7 +91,9 @@ class TestRunMonitor:
     @patch("overseer_monitor.query_progress", return_value=[])
     @patch("overseer_monitor.query_health_alerts", return_value=[])
     @patch("overseer_monitor.query_pipeline_status")
-    def test_exits_on_complete(self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys):
+    def test_exits_on_complete(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys
+    ):
         mock_status.return_value = {
             "status": "complete",
             "phase": {"name": "pr"},
@@ -115,7 +113,9 @@ class TestRunMonitor:
     @patch("overseer_monitor.query_progress", return_value=[])
     @patch("overseer_monitor.query_health_alerts", return_value=[])
     @patch("overseer_monitor.query_pipeline_status")
-    def test_exits_on_failed(self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys):
+    def test_exits_on_failed(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys
+    ):
         mock_status.return_value = {"status": "failed", "phase": {}, "concurrent": {}}
         code = run_monitor(PIPELINE_ID, base_url=BASE_URL, poll_interval=1)
         assert code == 1
@@ -129,7 +129,9 @@ class TestRunMonitor:
     @patch("overseer_monitor.query_progress", return_value=[])
     @patch("overseer_monitor.query_health_alerts", return_value=[])
     @patch("overseer_monitor.query_pipeline_status")
-    def test_exits_on_cancelled(self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys):
+    def test_exits_on_cancelled(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys
+    ):
         mock_status.return_value = {"status": "cancelled", "phase": {}, "concurrent": {}}
         code = run_monitor(PIPELINE_ID, base_url=BASE_URL, poll_interval=1)
         assert code == 1
@@ -139,7 +141,9 @@ class TestRunMonitor:
     @patch("overseer_monitor.query_progress", return_value=[{"step": "coding"}])
     @patch("overseer_monitor.query_health_alerts")
     @patch("overseer_monitor.query_pipeline_status")
-    def test_reports_alerts(self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys):
+    def test_reports_alerts(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys
+    ):
         """After one running cycle, the next cycle returns complete."""
         call_count = 0
 
@@ -173,7 +177,9 @@ class TestRunMonitor:
     @patch("overseer_monitor.query_progress", return_value=[])
     @patch("overseer_monitor.query_health_alerts", return_value=[])
     @patch("overseer_monitor.query_pipeline_status")
-    def test_includes_consensus(self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys):
+    def test_includes_consensus(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys
+    ):
         mock_status.return_value = {
             "status": "complete",
             "phase": {"name": "implement"},
@@ -189,7 +195,9 @@ class TestRunMonitor:
     @patch("overseer_monitor.query_progress", return_value=[])
     @patch("overseer_monitor.query_health_alerts", return_value=[])
     @patch("overseer_monitor.query_pipeline_status")
-    def test_heartbeat_failure_reported(self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys):
+    def test_heartbeat_failure_reported(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys
+    ):
         mock_status.return_value = {"status": "complete", "phase": {}, "concurrent": {}}
         run_monitor(PIPELINE_ID, base_url=BASE_URL, poll_interval=1)
 
@@ -215,7 +223,9 @@ class TestSignalHandling:
     @patch("overseer_monitor.query_progress", return_value=[])
     @patch("overseer_monitor.query_health_alerts", return_value=[])
     @patch("overseer_monitor.query_pipeline_status")
-    def test_sigterm_causes_shutdown(self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys):
+    def test_sigterm_causes_shutdown(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys
+    ):
         mock_status.return_value = {"status": "running", "phase": {}, "concurrent": {}}
 
         def send_sigterm():

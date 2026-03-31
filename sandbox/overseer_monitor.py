@@ -165,7 +165,9 @@ def run_monitor(
         pipeline_data = query_pipeline_status(base_url, pipeline_id)
         status = pipeline_data.get("status", "unknown")
         phase_info = pipeline_data.get("phase", {})
-        phase_name = phase_info.get("name", "unknown") if isinstance(phase_info, dict) else "unknown"
+        phase_name = (
+            phase_info.get("name", "unknown") if isinstance(phase_info, dict) else "unknown"
+        )
         consensus = pipeline_data.get("concurrent", {}).get("consensus", {})
 
         # 2. Health alerts
@@ -209,12 +211,14 @@ def run_monitor(
             time.sleep(min(1.0, sleep_end - time.monotonic()))
 
     # SIGTERM path — emit shutdown report
-    emit_cycle_report({
-        "cycle": cycle,
-        "ts": _now_iso(),
-        "shutdown": True,
-        "reason": "signal",
-    })
+    emit_cycle_report(
+        {
+            "cycle": cycle,
+            "ts": _now_iso(),
+            "shutdown": True,
+            "reason": "signal",
+        }
+    )
     return 0
 
 
