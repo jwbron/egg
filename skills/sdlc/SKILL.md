@@ -940,7 +940,7 @@ If the user adjusts scope, incorporate their feedback and re-present. Then proce
 
 ## Phase S3 — Lightweight Plan & Contract
 
-Generate a concrete plan with tasks and acceptance criteria, validate it, and produce a plan document with a `yaml-tasks` appendix that the remote pipeline can parse into a formal contract.
+Generate a concrete plan with tasks and acceptance criteria, and produce a plan document with a `yaml-tasks` appendix that the remote pipeline can parse into a formal contract.
 
 ### Step 1: Generate the plan
 
@@ -966,48 +966,7 @@ Each task should be:
 
 Also generate 1–3 acceptance criteria that describe how to verify the work is complete. Each criterion should be testable — describe the observable behavior, not the implementation.
 
-### Step 2: Build and validate a Contract
-
-Construct a `Contract` object using the Pydantic model from `egg_contracts.models`. The contract should have:
-
-```python
-from egg_contracts.models import (
-    Contract, Phase, Task, AcceptanceCriterion,
-    PhaseStatus, TaskStatus, PipelinePhase,
-)
-
-contract = Contract(
-    pipeline_id="short-<timestamp>",
-    current_phase=PipelinePhase.IMPLEMENT,
-    phases=[
-        Phase(
-            id="phase-1",
-            name="Implement",
-            status=PhaseStatus.PENDING,
-            tasks=[
-                Task(
-                    id="task-1",
-                    description="<task description>",
-                    status=TaskStatus.PENDING,
-                    acceptance_criteria="<acceptance criteria for this task>",
-                ),
-                # ... more tasks (use task-1-1, task-1-2 format for yaml-tasks compatibility)
-            ],
-        )
-    ],
-    acceptance_criteria=[
-        AcceptanceCriterion(
-            id="ac-1",
-            description="<criterion>",
-        ),
-        # ... more criteria
-    ],
-)
-```
-
-Run the validation by constructing the object. If Pydantic validation fails, fix the errors and retry.
-
-### Step 2b: Generate the plan document with yaml-tasks appendix
+### Step 2: Generate the plan document with yaml-tasks appendix
 
 Generate a markdown plan document that includes a `yaml-tasks` structured appendix. This is the same format used by the plan agent in the normal flow — the remote pipeline parses it to populate the contract.
 
@@ -1027,8 +986,8 @@ Generate a markdown plan document that includes a `yaml-tasks` structured append
 <brief description of what this phase covers>
 
 **Tasks**:
-1. **[TASK-1-1]** In `path/to/file.py:function_name()`, <what to change, how, and why>. Acceptance: <criteria>
-2. **[TASK-1-2]** In `path/to/other.py`, <what to change and how>. Acceptance: <criteria>
+1. **[task-1-1]** In `path/to/file.py:function_name()`, <what to change, how, and why>. Acceptance: <criteria>
+2. **[task-1-2]** In `path/to/other.py`, <what to change and how>. Acceptance: <criteria>
 
 ```yaml
 # yaml-tasks
@@ -1047,12 +1006,12 @@ phases:
     name: Implement
     goal: "<what this phase achieves>"
     tasks:
-      - id: TASK-1-1
+      - id: task-1-1
         description: "In `path/to/file.py:function_name()`, <what to change and how> — <brief rationale>"
         acceptance: "<testable acceptance criteria>"
         files:
           - <path/to/file>
-      - id: TASK-1-2
+      - id: task-1-2
         description: "In `path/to/other.py`, <what to change and how>"
         acceptance: "<testable acceptance criteria>"
         files:
@@ -1064,7 +1023,7 @@ The `yaml-tasks` appendix **must** be present — it is machine-parsed by the re
 
 ### Step 3: Present to user
 
-Display the full plan document (the prose section from Step 2b, excluding the yaml-tasks code block) followed by a contract summary:
+Display the full plan document (the prose section from Step 2, excluding the yaml-tasks code block) followed by a contract summary:
 
 ```
 ### Plan
@@ -1076,9 +1035,9 @@ Display the full plan document (the prose section from Step 2b, excluding the ya
 **Phase**: Implement (single phase)
 
 **Tasks**:
-1. `TASK-1-1`: In `path/to/file.py:function()`, <what changes, how, and why>
-2. `TASK-1-2`: In `path/to/other.py`, <what changes and how>
-3. `TASK-1-3`: Add tests in `path/to/test_file.py` for <scenario>
+1. `task-1-1`: In `path/to/file.py:function()`, <what changes, how, and why>
+2. `task-1-2`: In `path/to/other.py`, <what changes and how>
+3. `task-1-3`: Add tests in `path/to/test_file.py` for <scenario>
 
 **Acceptance Criteria**:
 - `ac-1`: <testable observable behavior>
@@ -1087,7 +1046,7 @@ Display the full plan document (the prose section from Step 2b, excluding the ya
 ---
 
 **Contract Summary**
-Tasks: <N> | Acceptance Criteria: <N> | Phase: implement (single phase) | Validation: Passed
+Tasks: <N> | Acceptance Criteria: <N> | Phase: implement (single phase)
 ```
 
 ### Step 4: Ask for approval
@@ -1102,7 +1061,7 @@ Use `AskUserQuestion`:
 
 Handle each response:
 - **Approve** → Proceed to Phase S4
-- **Request changes** → Ask what to change, update the plan/contract, re-validate, and re-present
+- **Request changes** → Ask what to change, update the plan, and re-present
 - **Cancel** → Stop the workflow entirely
 
 ## Phase S4 — Submit
@@ -1250,7 +1209,7 @@ Phase: <phase where failure occurred>
 - **Always serialize JSON payloads as strings** for `provide_input`
 - **Always pass `config`** with `{"start_phase": "implement", "hitl_gates": false, "overseer_enabled": true}` when calling `submit_task`
 - **Auto-approve phase gates** — this is a no-HITL flow; if a gate appears, approve it automatically and inform the user
-- **Validate the contract** — always construct and validate a `Contract` Pydantic model in Phase S3. The remote pipeline uses the `plan` field's `yaml-tasks` appendix to populate its own formal contract
+- **Include yaml-tasks appendix** — the remote pipeline parses the `yaml-tasks` appendix from the plan to populate its own formal contract; local Pydantic validation is not needed
 - **Pass plan via the `plan` field** — the plan document (with `yaml-tasks` appendix) must be passed as the `plan` argument to `submit_task`, not embedded in `description`. The `analysis` field carries the Phase S2 analysis. This ensures the remote pipeline creates a proper structured contract
 - **Stop polling on exit** — always exit the monitoring loop when the workflow ends
 - **Handle errors gracefully** — if an MCP tool call fails, inform the user and offer to retry
