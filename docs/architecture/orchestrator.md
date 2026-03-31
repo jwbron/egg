@@ -92,7 +92,7 @@ See `orchestrator/health_checks/README.md` for the full framework reference, inc
 
 Building on the health check framework, a two-tier pipeline health monitoring system provides continuous, real-time failure detection and corrective action:
 
-**Orchestrator tier (deterministic):** Processes structured agent progress events with configurable tripwire rules. Handles clear-cut failures instantly — heartbeat timeouts trigger auto-nudges, container exits trigger HITL escalation, repeated identical errors escalate to the overseer, and message volume spikes trigger auto-throttling. No LLM involvement. See `orchestrator/health_monitor.py`.
+**Orchestrator tier (deterministic):** Processes structured agent progress events with configurable tripwire rules. Handles clear-cut failures instantly — heartbeat timeouts trigger escalation to the overseer/HITL, container exits trigger HITL escalation, repeated identical errors escalate to the overseer, and message volume spikes trigger auto-throttling. No LLM involvement. Nudge messages are only sent by the Tier 2 overseer after classifying the alert. See `orchestrator/health_monitor.py`.
 
 Agents emit structured progress via `POST /api/v1/pipelines/{id}/progress` (CLI: `egg-orch progress emit`). Events include step name, state (working/blocked/complete), detail text, and optional blocker description. The orchestrator stores events in-memory with configurable retention and evaluates them against tripwire thresholds from `PipelineConfig`.
 
