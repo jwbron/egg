@@ -5913,13 +5913,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         except Exception as push_err:
                             push_succeeded = False
                             push_err_msg = str(push_err)
-                            if attempt == 0:
-                                logger.warning(
-                                    "Contract init push failed, retrying",
-                                    pipeline_id=pipeline_id,
-                                    error=push_err_msg,
-                                )
                         if attempt == 0 and not push_succeeded:
+                            logger.warning(
+                                "Contract init push failed, retrying",
+                                pipeline_id=pipeline_id,
+                                error=push_err_msg,
+                            )
                             time.sleep(2)
 
                     if not push_succeeded:
