@@ -785,7 +785,8 @@ class TestAlertResolution:
 
         alerts_after = monitor.get_active_alerts()
         matching = [
-            a for a in alerts_after
+            a
+            for a in alerts_after
             if a["agent_id"] == AGENT_ID and a["alert_type"] == "heartbeat_timeout"
         ]
         assert len(matching) == 0

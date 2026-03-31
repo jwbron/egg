@@ -1511,8 +1511,12 @@ def create_parser() -> argparse.ArgumentParser:
     # health resolve
     health_resolve_parser = health_sub.add_parser("resolve", help="Resolve health alerts")
     health_resolve_parser.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
-    health_resolve_parser.add_argument("--agent-id", required=True, dest="agent_id", help="Agent ID")
-    health_resolve_parser.add_argument("--alert-type", required=True, dest="alert_type", help="Alert type")
+    health_resolve_parser.add_argument(
+        "--agent-id", required=True, dest="agent_id", help="Agent ID"
+    )
+    health_resolve_parser.add_argument(
+        "--alert-type", required=True, dest="alert_type", help="Alert type"
+    )
     _add_json_flag(health_resolve_parser)
     health_resolve_parser.set_defaults(func=cmd_health_resolve)
 
