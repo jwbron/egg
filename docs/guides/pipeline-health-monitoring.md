@@ -218,7 +218,7 @@ Overseer receives escalation (or detects anomaly in own polling)
 
 ### Corrective Action Ladder
 
-The overseer follows a progressive escalation ladder:
+The system follows a progressive escalation ladder:
 
 | Step | Action | When |
 |------|--------|------|
