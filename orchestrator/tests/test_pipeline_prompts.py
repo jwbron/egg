@@ -5,6 +5,7 @@ Tests for pipeline prompt builder functions.
 import json
 import sys
 import tempfile
+import types
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -1658,6 +1659,188 @@ class TestTesterRepoChecksInjection:
                 repo="org/repo",
             )
         assert "Check Execution Verification (CRITICAL)" in result
+
+    def test_tester_prompt_includes_checks_run_attestation_instruction(self):
+        """Tester prompt tells agent to populate checks_run in attestation (#1459)."""
+        checks = [
+            {"name": "lint", "command": "make lint"},
+            {"name": "test", "command": "make test"},
+        ]
+        with patch("routes.pipelines.get_repo_checks", return_value=checks):
+            result = _build_agent_prompt(
+                role_value="tester",
+                phase="implement",
+                pipeline_id="pid-1",
+                pipeline_mode="issue",
+                prompt="# Feature",
+                issue_number=1,
+                repo="org/repo",
+            )
+        assert "checks_run" in result
+        assert "attestation" in result.lower()
+
+
+class TestTesterCheckCoverageValidation:
+    """Tests for _validate_tester_check_coverage in signals.py (#1459)."""
+
+    @staticmethod
+    def _setup_pipeline_mock(repo: str = "org/repo"):
+        """Create mock pipeline_state module and return (mock_store, mock_pipeline)."""
+        mock_pipeline = MagicMock()
+        mock_pipeline.config.repo = repo
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = mock_pipeline
+
+        # Create a mock module so ``from pipeline_state import ...`` works
+        mock_mod = types.ModuleType("pipeline_state")
+        mock_mod.get_pipeline_state_store = MagicMock(return_value=mock_store)
+        return mock_mod, mock_store
+
+    def test_rejects_missing_checks(self):
+        """Proposal missing a configured check is rejected."""
+        from routes.signals import _validate_tester_check_coverage
+
+        mock_mod, _ = self._setup_pipeline_mock()
+        configured = [
+            {"name": "lint", "command": "make lint"},
+            {"name": "test", "command": "make test"},
+        ]
+
+        with (
+            patch.dict("sys.modules", {"pipeline_state": mock_mod}),
+            patch("config.repo_config.get_repo_checks", return_value=configured),
+        ):
+            payload = {
+                "attestation": {"checks_run": ["test"]},  # missing "lint"
+            }
+            with pytest.raises(ValueError, match="lint"):
+                _validate_tester_check_coverage("pid-1", payload)
+
+    def test_accepts_all_checks_present(self):
+        """Proposal with all configured checks passes."""
+        from routes.signals import _validate_tester_check_coverage
+
+        mock_mod, _ = self._setup_pipeline_mock()
+        configured = [
+            {"name": "lint", "command": "make lint"},
+            {"name": "test", "command": "make test"},
+        ]
+
+        with (
+            patch.dict("sys.modules", {"pipeline_state": mock_mod}),
+            patch("config.repo_config.get_repo_checks", return_value=configured),
+        ):
+            payload = {
+                "attestation": {"checks_run": ["lint", "test"]},
+            }
+            # Should not raise
+            _validate_tester_check_coverage("pid-1", payload)
+
+    def test_case_insensitive_matching(self):
+        """Check name matching is case-insensitive."""
+        from routes.signals import _validate_tester_check_coverage
+
+        mock_mod, _ = self._setup_pipeline_mock()
+        configured = [{"name": "Lint", "command": "make lint"}]
+
+        with (
+            patch.dict("sys.modules", {"pipeline_state": mock_mod}),
+            patch("config.repo_config.get_repo_checks", return_value=configured),
+        ):
+            payload = {
+                "attestation": {"checks_run": ["lint"]},
+            }
+            # Should not raise — "Lint" matches "lint"
+            _validate_tester_check_coverage("pid-1", payload)
+
+    def test_no_configured_checks_skips_validation(self):
+        """When no checks configured, validation is skipped."""
+        from routes.signals import _validate_tester_check_coverage
+
+        mock_mod, _ = self._setup_pipeline_mock()
+
+        with (
+            patch.dict("sys.modules", {"pipeline_state": mock_mod}),
+            patch("config.repo_config.get_repo_checks", return_value=[]),
+        ):
+            payload = {
+                "attestation": {"checks_run": ["test"]},
+            }
+            # Should not raise
+            _validate_tester_check_coverage("pid-1", payload)
+
+    def test_pipeline_lookup_failure_skips_validation(self):
+        """When pipeline state cannot be loaded, validation is skipped gracefully."""
+        from routes.signals import _validate_tester_check_coverage
+
+        # Create a mock module where get_pipeline_state_store raises
+        mock_mod = types.ModuleType("pipeline_state")
+        mock_mod.get_pipeline_state_store = MagicMock(side_effect=Exception("no state store"))
+
+        with patch.dict("sys.modules", {"pipeline_state": mock_mod}):
+            payload = {
+                "attestation": {"checks_run": ["test"]},
+            }
+            # Should not raise — graceful degradation
+            _validate_tester_check_coverage("pid-1", payload)
+
+    def test_tests_execution_blocked_skips_validation(self):
+        """When tests_execution_blocked is set, signal validation is skipped (#1459)."""
+        from routes.signals import _validate_tester_check_coverage
+
+        mock_mod, _ = self._setup_pipeline_mock()
+        configured = [
+            {"name": "lint", "command": "make lint"},
+            {"name": "test", "command": "make test"},
+        ]
+
+        with (
+            patch.dict("sys.modules", {"pipeline_state": mock_mod}),
+            patch("config.repo_config.get_repo_checks", return_value=configured),
+        ):
+            payload = {
+                "attestation": {
+                    "tests_execution_blocked": True,
+                    "checks_run": ["test"],  # partial — would normally fail
+                },
+            }
+            # Should not raise — blocked tester is exempt
+            _validate_tester_check_coverage("pid-1", payload)
+
+    def test_rejected_proposal_does_not_mutate_tracker(self):
+        """Integration: rejected tester proposal must not leave tracker in mutated state (#1459)."""
+        from flask import Flask
+        from routes.signals import handle_consensus_propose_signal
+
+        mock_mod, _ = self._setup_pipeline_mock()
+        configured = [
+            {"name": "lint", "command": "make lint"},
+            {"name": "test", "command": "make test"},
+        ]
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose = MagicMock(return_value={"version": 1})
+
+        app = Flask(__name__)
+        with (
+            app.app_context(),
+            patch.dict("sys.modules", {"pipeline_state": mock_mod}),
+            patch("config.repo_config.get_repo_checks", return_value=configured),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+        ):
+            data = {
+                "agent_role": "tester",
+                "payload": {
+                    "summary": "tests v1",
+                    "artifacts": ["tests/test_a.py"],
+                    "attestation": {"checks_run": ["test"]},  # missing "lint"
+                },
+            }
+            response, status_code = handle_consensus_propose_signal("pid-1", data, Path("/tmp"))
+            # Should be rejected
+            assert status_code == 400
+            # Tracker.handle_propose must NOT have been called
+            mock_tracker.handle_propose.assert_not_called()
 
 
 class TestReadTesterGapsNamespacedEdgeCases:

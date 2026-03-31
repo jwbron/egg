@@ -751,6 +751,69 @@ def handle_readiness_signal(
         )
 
 
+def _validate_tester_check_coverage(pipeline_id: str, payload: dict[str, Any]) -> None:
+    """Validate that tester proposals cover all configured repo checks.
+
+    Compares the ``checks_run`` list in the tester's attestation against the
+    checks configured in ``repositories.yaml``.  Raises ``ValueError`` if any
+    configured check is missing, which prevents the proposal from being
+    recorded (issue #1459).
+    """
+    attestation = payload.get("attestation", {})
+
+    # Skip validation when tests were blocked — mirrors attestation-level
+    # behaviour in attestation_schemas.py (issue #1459).
+    if attestation.get("tests_execution_blocked"):
+        return
+
+    checks_run = {name.lower() for name in attestation.get("checks_run", [])}
+    if not checks_run:
+        # Empty checks_run is already caught by strict attestation validation,
+        # but guard here for completeness.
+        return
+
+    # Load configured checks for the pipeline's repo.
+    try:
+        from pipeline_state import get_pipeline_state_store
+
+        store = get_pipeline_state_store()
+        pip = store.load_pipeline(pipeline_id)
+        repo = getattr(pip.config, "repo", None)
+    except Exception:
+        # If we can't determine the repo, skip coverage validation
+        # (strict attestation validation still enforces checks_run non-empty).
+        return
+
+    if not repo:
+        return
+
+    try:
+        from config.repo_config import get_repo_checks
+    except ImportError:
+        try:
+            from repo_config import get_repo_checks  # type: ignore[no-redef]
+        except ImportError:
+            return
+
+    try:
+        configured_checks = get_repo_checks(repo)
+    except Exception:
+        return
+
+    if not configured_checks:
+        return
+
+    configured_names = {check["name"].lower() for check in configured_checks}
+    missing = configured_names - checks_run
+    if missing:
+        missing_list = ", ".join(sorted(missing))
+        raise ValueError(
+            f"Tester proposal is missing configured checks: {missing_list}. "
+            f"All checks from repositories.yaml must be executed before proposing "
+            f"consensus. Re-run the missing checks and re-propose."
+        )
+
+
 def handle_consensus_propose_signal(
     pipeline_id: str,
     data: dict[str, Any],
@@ -775,6 +838,12 @@ def handle_consensus_propose_signal(
         return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
 
     try:
+        # Validate tester proposals cover all configured repo checks (#1459).
+        # Must run BEFORE handle_propose to avoid mutating tracker state on
+        # rejected proposals.
+        if agent_role == "tester":
+            _validate_tester_check_coverage(pipeline_id, payload)
+
         # Check if this is a re-proposal
         changed_artifacts = data.get("changed_artifacts")
         if changed_artifacts:
