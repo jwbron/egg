@@ -329,9 +329,7 @@ class HealthMonitor:
                 }
                 actions.append(action)
 
-                escalation_type = (
-                    "overseer" if self._config.overseer_enabled else "hitl"
-                )
+                escalation_type = "overseer" if self._config.overseer_enabled else "hitl"
                 escalation = {
                     "type": escalation_type,
                     "agent_id": agent_id,
