@@ -30,6 +30,8 @@ except ImportError:
         return logging.getLogger(name)
 
 
+import re
+
 from decision_queue import (
     DecisionAlreadyResolvedError,
     DecisionNotFoundError,
@@ -69,6 +71,82 @@ def make_success_response(
 
 
 from routes import get_state_store_for_pipeline  # noqa: E402 — shared helper
+
+
+def _handle_restart_agent(pipeline_id: str, question: str) -> None:
+    """Stop and respawn a stalled agent container.
+
+    Parses the agent role from the HITL decision question
+    (format: ``"Agent <role> issue: ..."``) and uses the Docker client
+    to stop the old container.  A ``CONTAINER_STOPPED`` event is emitted
+    so the pipeline orchestration loop can decide whether to respawn.
+
+    Args:
+        pipeline_id: Pipeline ID.
+        question: The decision question text containing the agent role.
+    """
+    match = re.match(r"Agent\s+(\S+)\s+issue:", question)
+    if not match:
+        logger.warning(
+            "Could not parse agent role from restart decision",
+            pipeline_id=pipeline_id,
+            question=question[:120],
+        )
+        return
+
+    agent_role = match.group(1)
+    logger.info(
+        "Restarting agent via HITL decision",
+        pipeline_id=pipeline_id,
+        agent_role=agent_role,
+    )
+
+    try:
+        from docker_client import get_docker_client
+
+        docker_client = get_docker_client()
+        containers = docker_client.list_containers(
+            all=False,
+            labels={"egg.pipeline.id": pipeline_id, "egg.agent.role": agent_role},
+        )
+        if not containers:
+            logger.warning(
+                "No running container found for agent",
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+            )
+            return
+
+        container = containers[0]
+        docker_client.stop_container(container.container_id, timeout=10)
+        logger.info(
+            "Stopped stalled agent container for restart",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            container_id=container.container_id[:12],
+        )
+
+        # Emit event so health monitor / pipeline loop can track the stop
+        try:
+            emit_event(
+                EventType.CONTAINER_STOPPED,
+                pipeline_id=pipeline_id,
+                data={
+                    "container_id": container.container_id,
+                    "agent_role": agent_role,
+                    "reason": "hitl_restart",
+                },
+            )
+        except Exception:
+            logger.debug("Failed to emit CONTAINER_STOPPED event", exc_info=True)
+
+    except Exception:
+        logger.warning(
+            "Failed to restart agent container",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            exc_info=True,
+        )
 
 
 @decisions_bp.route("/<pipeline_id>/decisions", methods=["GET"])
@@ -375,6 +453,14 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
                 decision_id=decision_id,
                 exc_info=True,
             )
+
+        # Handle "Restart agent" resolution (#1428).
+        # The overseer creates decisions with question format:
+        #   "Agent <role> issue: <message>"
+        # When the human resolves with "Restart agent", stop the old
+        # container and respawn a replacement.
+        if decision.resolution == "Restart agent":
+            _handle_restart_agent(pipeline_id, decision.question)
 
         # Handle "Continue without" resolution for failed reviewer decisions.
         # The concurrent executor stores "failed_role:<role>" in the decision

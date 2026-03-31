@@ -1449,6 +1449,31 @@ def cmd_health_alerts(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_health_resolve(args: argparse.Namespace) -> int:
+    """Resolve (remove) health alerts for a specific agent and alert type."""
+    pid = require_pipeline_id(args)
+    agent_id = args.agent_id
+    alert_type = args.alert_type
+
+    result = orch_request(
+        f"/api/v1/pipelines/{pid}/health/alerts/resolve",
+        method="POST",
+        data={"agent_id": agent_id, "alert_type": alert_type},
+    )
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("resolved"):
+        print(f"Resolved {alert_type} alerts for {agent_id}.")
+    else:
+        print(f"Failed to resolve alerts: {result.get('error', 'unknown')}")
+        return 1
+
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
@@ -1482,6 +1507,14 @@ def create_parser() -> argparse.ArgumentParser:
     health_alerts_parser.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     _add_json_flag(health_alerts_parser)
     health_alerts_parser.set_defaults(func=cmd_health_alerts)
+
+    # health resolve
+    health_resolve_parser = health_sub.add_parser("resolve", help="Resolve health alerts")
+    health_resolve_parser.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    health_resolve_parser.add_argument("--agent-id", required=True, dest="agent_id", help="Agent ID")
+    health_resolve_parser.add_argument("--alert-type", required=True, dest="alert_type", help="Alert type")
+    _add_json_flag(health_resolve_parser)
+    health_resolve_parser.set_defaults(func=cmd_health_resolve)
 
     # Default: if no subcommand, run health check
     _add_json_flag(health_parser)

@@ -11,7 +11,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from flask import Blueprint, Response, current_app, jsonify
+from flask import Blueprint, Response, current_app, jsonify, request
 
 # Add paths for imports
 _parent_path = Path(__file__).parent.parent
@@ -231,3 +231,37 @@ def pipeline_health_alerts(pipeline_id: str) -> tuple[Response, int]:
             "timestamp": datetime.now(UTC).isoformat(),
         }
     ), 200
+
+
+@health_bp.route("/pipelines/<pipeline_id>/health/alerts/resolve", methods=["POST"])
+def resolve_pipeline_health_alerts(pipeline_id: str) -> tuple[Response, int]:
+    """
+    Resolve (remove) health alerts matching an agent and alert type.
+
+    Request body:
+        {
+            "agent_id": "reviewer_code",
+            "alert_type": "heartbeat_timeout"
+        }
+
+    Response:
+        {"success": true, "resolved": true}
+    """
+    try:
+        from health_monitor import get_health_monitor
+    except ImportError:
+        return jsonify({"success": False, "error": "Health monitor not available"}), 503
+
+    monitor = get_health_monitor()
+    if monitor is None:
+        return jsonify({"success": False, "error": "Health monitor not initialized"}), 503
+
+    data = request.get_json() or {}
+    agent_id = data.get("agent_id")
+    alert_type = data.get("alert_type")
+
+    if not agent_id or not alert_type:
+        return jsonify({"success": False, "error": "Missing agent_id or alert_type"}), 400
+
+    monitor.resolve_alerts(agent_id, alert_type)
+    return jsonify({"success": True, "resolved": True}), 200

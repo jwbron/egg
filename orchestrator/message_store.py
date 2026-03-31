@@ -33,6 +33,8 @@ class MessageType:
     CONSENSUS_RE_REVIEW = "CONSENSUS_RE_REVIEW"
     # Overseer anomaly broadcasts (issue #1413)
     OVERSEER_ALERT = "OVERSEER_ALERT"
+    # Tier 1 health monitor nudge messages (issue #1428)
+    NUDGE = "NUDGE"
 
 
 class Message(BaseModel):
