@@ -316,6 +316,11 @@ class OverseerMonitor:
                     {"alert": alert, "pipeline_id": self.pipeline_id},
                 )
                 await self._execute_action(decision, agent_role)
+                # Resolve the alert so it doesn't accumulate (#1428)
+                await self._resolve_alert(
+                    agent_id=alert.get("agent_id", agent_role),
+                    alert_type=alert.get("alert_type", "unknown"),
+                )
 
             # Process escalation messages (with consensus context)
             for escalation in escalations:
@@ -1178,6 +1183,21 @@ class OverseerMonitor:
             )
         except Exception:
             logger.debug("Failed to send message to %s", agent_role, exc_info=True)
+
+    async def _resolve_alert(self, agent_id: str, alert_type: str) -> None:
+        """Resolve a health alert so it does not accumulate."""
+        try:
+            await self._run_cli(
+                "egg-orch",
+                "health",
+                "resolve",
+                "--agent-id",
+                agent_id,
+                "--alert-type",
+                alert_type,
+            )
+        except Exception:
+            logger.debug("Failed to resolve alert %s for %s", alert_type, agent_id, exc_info=True)
 
     async def _create_hitl_decision(self, agent_role: str, message: str) -> None:
         """Create a HITL decision for an agent issue."""

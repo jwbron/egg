@@ -626,3 +626,174 @@ class TestMultiAgentTracking:
         throttled_agents = {t["agent_id"] for t in throttle_actions}
         assert AGENT_ID in throttled_agents
         assert AGENT_ID_2 not in throttled_agents
+
+
+# ---------------------------------------------------------------------------
+# Tests: Nudge callbacks (#1428)
+# ---------------------------------------------------------------------------
+
+
+class TestNudgeCallbacks:
+    """Verify nudge callbacks fire for heartbeat and progress stalls."""
+
+    def test_heartbeat_timeout_fires_nudge_callback(self):
+        """Nudge callback fires on heartbeat timeout."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        nudges: list[dict] = []
+        monitor.on_nudge(lambda n: nudges.append(n))
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 61
+            monitor.check_heartbeats()
+
+        assert len(nudges) == 1
+        assert nudges[0]["agent_id"] == AGENT_ID
+        assert nudges[0]["action"] == "nudge"
+
+    def test_progress_stall_fires_nudge_callback(self):
+        """Nudge callback fires on first progress stall."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        nudges: list[dict] = []
+        monitor.on_nudge(lambda n: nudges.append(n))
+
+        _emit_progress(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 61
+            monitor.check_progress()
+
+        assert len(nudges) == 1
+        assert nudges[0]["agent_id"] == AGENT_ID
+
+    def test_heartbeat_nudge_deduplication(self):
+        """Heartbeat nudge is not repeated within threshold window."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        nudges: list[dict] = []
+        monitor.on_nudge(lambda n: nudges.append(n))
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        base = time.time()
+        with patch("health_monitor.time") as mock_time:
+            # First check at t=61 — should nudge
+            mock_time.time.return_value = base + 61
+            monitor.check_heartbeats()
+
+            # Second check at t=90 (within threshold of 60 from nudge time) — should skip
+            mock_time.time.return_value = base + 90
+            monitor.check_heartbeats()
+
+        assert len(nudges) == 1  # only one nudge, not two
+
+    def test_heartbeat_nudge_resets_on_heartbeat(self):
+        """After heartbeat, nudge state resets so next stall gets fresh nudge."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        nudges: list[dict] = []
+        monitor.on_nudge(lambda n: nudges.append(n))
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        base = time.time()
+        with patch("health_monitor.time") as mock_time:
+            # First stall at t=61
+            mock_time.time.return_value = base + 61
+            monitor.check_heartbeats()
+            assert len(nudges) == 1
+
+        # Agent recovers with a heartbeat
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            # Second stall at t=200
+            mock_time.time.return_value = time.time() + 61
+            monitor.check_heartbeats()
+
+        assert len(nudges) == 2  # fresh nudge after recovery
+
+    def test_heartbeat_escalates_after_max_nudges(self):
+        """After 2 unanswered nudges, heartbeat stall escalates."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        nudges: list[dict] = []
+        monitor.on_nudge(lambda n: nudges.append(n))
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        base = time.time()
+        with patch("health_monitor.time") as mock_time:
+            # Nudge 1 at t=61
+            mock_time.time.return_value = base + 61
+            monitor.check_heartbeats()
+
+            # Nudge 2 at t=122 (past dedup window)
+            mock_time.time.return_value = base + 122
+            monitor.check_heartbeats()
+
+            # Escalation at t=183
+            mock_time.time.return_value = base + 183
+            actions = monitor.check_heartbeats()
+
+            # 4th check at t=244 — should NOT re-escalate
+            mock_time.time.return_value = base + 244
+            actions2 = monitor.check_heartbeats()
+
+        assert len(nudges) == 2
+        assert len(escalations) == 1
+        escalate_actions = [a for a in actions if a.get("action") == "escalate"]
+        assert len(escalate_actions) == 1
+        # No second escalation
+        escalate_actions2 = [a for a in actions2 if a.get("action") == "escalate"]
+        assert len(escalate_actions2) == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: Alert resolution (#1428)
+# ---------------------------------------------------------------------------
+
+
+class TestAlertResolution:
+    """Verify alerts can be resolved and don't accumulate."""
+
+    def test_resolve_alerts_clears_matching(self):
+        """resolve_alerts removes alerts matching agent_id and alert_type."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 61
+            monitor.check_heartbeats()
+
+        alerts = monitor.get_active_alerts()
+        assert len(alerts) >= 1
+
+        monitor.resolve_alerts(AGENT_ID, "heartbeat_timeout")
+
+        alerts_after = monitor.get_active_alerts()
+        matching = [
+            a
+            for a in alerts_after
+            if a["agent_id"] == AGENT_ID and a["alert_type"] == "heartbeat_timeout"
+        ]
+        assert len(matching) == 0
