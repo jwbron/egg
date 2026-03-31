@@ -996,7 +996,10 @@ class PipelineToolHandler:
         """
         from urllib.parse import urlparse
 
-        from orchestrator.gateway_client import GatewayClient
+        try:
+            from orchestrator.gateway_client import GatewayClient
+        except ImportError:
+            from gateway_client import GatewayClient
 
         parsed = urlparse(self.gateway_url)
         host = parsed.hostname or "egg-gateway"
