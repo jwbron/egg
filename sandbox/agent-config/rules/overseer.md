@@ -167,7 +167,7 @@ You observe and escalate disputes. You do not adjudicate them.
 
 The script:
 
-- Polls at the configured `EGG_OVERSEER_POLL_INTERVAL` (default: 15s).
+- Polls at the configured `EGG_OVERSEER_POLL_INTERVAL` (default: 30s).
 - Sends heartbeats via the orchestrator API each cycle.
 - Exits automatically when pipeline status is `complete`, `failed`, or `cancelled` (the final JSON line will have `"terminal": true`).
 
