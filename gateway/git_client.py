@@ -1323,6 +1323,21 @@ def get_changed_files_in_push(
     """
     import subprocess
 
+    # Fetch the target branch so we have the latest remote ref.
+    # The orchestrator may have pushed contract init from a different worktree,
+    # so the agent's local repo may not know about origin/<branch> yet (#1431).
+    try:
+        subprocess.run(
+            git_cmd("fetch", remote, branch),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except Exception:
+        pass  # Best-effort; primary diff path will fall through to fallback if needed
+
     # Get the merge base between local and remote
     # This shows what commits are being pushed (local commits not on remote)
     # Using two-dot (..) syntax to get the actual diff, not three-dot (...)

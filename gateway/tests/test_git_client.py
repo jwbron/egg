@@ -976,6 +976,81 @@ class TestGetChangedFilesInPush:
             assert files == []
 
 
+    def test_fetches_remote_branch_before_diff(self):
+        """Should fetch the remote branch before diffing to pick up orchestrator pushes (#1431)."""
+        from unittest.mock import MagicMock, call, patch
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "file.py\n"
+            mock_run.return_value = mock_result
+
+            get_changed_files_in_push("/fake/repo", "origin", "egg/pipeline-abc/work")
+
+            # The first subprocess.run call should be a fetch
+            assert mock_run.call_count >= 2
+            fetch_call = mock_run.call_args_list[0]
+            fetch_cmd = fetch_call[0][0]
+            assert "fetch" in fetch_cmd
+            assert "origin" in fetch_cmd
+            assert "egg/pipeline-abc/work" in fetch_cmd
+
+    def test_fetch_failure_falls_through_to_diff(self):
+        """If fetch fails (branch doesn't exist on remote yet), diff should still be attempted."""
+        from unittest.mock import MagicMock, patch
+
+        call_count = 0
+
+        with patch("subprocess.run") as mock_run:
+
+            def side_effect(cmd, **kwargs):
+                nonlocal call_count
+                call_count += 1
+                result = MagicMock()
+                cmd_str = " ".join(cmd)
+
+                # Fetch fails (branch not on remote)
+                if "fetch" in cmd:
+                    result.returncode = 128
+                    result.stderr = "fatal: couldn't find remote ref"
+                    return result
+
+                # Diff also fails (branch not in local refs)
+                if "diff" in cmd and "origin/" in cmd_str:
+                    result.returncode = 128
+                    result.stderr = "fatal: bad revision"
+                    return result
+
+                # Fallback: merge-base with main
+                if "merge-base" in cmd and "origin/main" in cmd_str:
+                    result.returncode = 0
+                    result.stdout = "abc123\n"
+                    return result
+
+                if "rev-list" in cmd:
+                    result.returncode = 0
+                    result.stdout = "sha1\n"
+                    return result
+
+                if "diff-tree" in cmd:
+                    result.returncode = 0
+                    result.stdout = "src/app.py\n"
+                    return result
+
+                result.returncode = 128
+                return result
+
+            mock_run.side_effect = side_effect
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            assert error is None
+            assert files == ["src/app.py"]
+            # Fetch was attempted + subsequent calls
+            assert call_count >= 3
+
+
 class TestIsBranchSwitchingCheckout:
     """Tests for is_branch_switching_checkout()."""
 

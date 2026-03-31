@@ -194,6 +194,22 @@ CODER_PATTERNS = AgentFilePattern(
         "**/*.yaml",
         "**/*.json",
         "**/*.toml",
+        # Build/config files (extensionless or uncommon extensions)
+        "Makefile",
+        "**/Makefile",
+        "Dockerfile",
+        "**/Dockerfile",
+        "Procfile",
+        ".python-version",
+        ".node-version",
+        ".nvmrc",
+        ".gitignore",
+        ".gitattributes",
+        ".editorconfig",
+        # Lock files (dependency management)
+        "**/*.lock",
+        # Requirements files
+        "**/requirements*.txt",
         # Handoff output
         ".egg-state/agent-outputs/",
     ],
@@ -250,6 +266,8 @@ TESTER_PATTERNS = AgentFilePattern(
         "**/*.spec.jsx",
         # Pytest infrastructure
         "**/conftest.py",
+        # Config files needed for test environment setup
+        ".python-version",
         # Handoff output
         ".egg-state/agent-outputs/",
     ],
@@ -501,6 +519,18 @@ AUTOFIXER_PATTERNS = AgentFilePattern(
         "**/*.yaml",
         "**/*.json",
         "**/*.toml",
+        # Build/config files (extensionless)
+        "Makefile",
+        "**/Makefile",
+        "Dockerfile",
+        "**/Dockerfile",
+        ".python-version",
+        ".node-version",
+        ".gitignore",
+        ".editorconfig",
+        # Lock files
+        "**/*.lock",
+        "**/requirements*.txt",
         # Handoff output
         ".egg-state/agent-outputs/",
     ],
@@ -555,6 +585,19 @@ CONFLICT_RESOLVER_PATTERNS = AgentFilePattern(
         "**/*.yaml",
         "**/*.json",
         "**/*.toml",
+        # Build/config files (extensionless)
+        "Makefile",
+        "**/Makefile",
+        "Dockerfile",
+        "**/Dockerfile",
+        ".python-version",
+        ".node-version",
+        ".gitignore",
+        ".gitattributes",
+        ".editorconfig",
+        # Lock files
+        "**/*.lock",
+        "**/requirements*.txt",
         # Handoff output
         ".egg-state/agent-outputs/",
     ],

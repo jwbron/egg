@@ -217,6 +217,42 @@ class TestCoderRole:
     def test_can_write_agent_outputs(self, pattern):
         assert pattern.can_write(".egg-state/agent-outputs/coder-out.json") is True
 
+    def test_can_write_python_version(self, pattern):
+        """Coder can write .python-version (common project config)."""
+        assert pattern.can_write(".python-version") is True
+
+    def test_can_write_uv_lock(self, pattern):
+        """Coder can write uv.lock (dependency lock file)."""
+        assert pattern.can_write("uv.lock") is True
+
+    def test_can_write_makefile(self, pattern):
+        """Coder can write Makefile."""
+        assert pattern.can_write("Makefile") is True
+
+    def test_can_write_dockerfile(self, pattern):
+        """Coder can write Dockerfile."""
+        assert pattern.can_write("Dockerfile") is True
+
+    def test_can_write_gitignore(self, pattern):
+        """Coder can write .gitignore."""
+        assert pattern.can_write(".gitignore") is True
+
+    def test_can_write_requirements_txt(self, pattern):
+        """Coder can write requirements.txt."""
+        assert pattern.can_write("requirements.txt") is True
+
+    def test_can_write_nested_requirements(self, pattern):
+        """Coder can write nested requirements files."""
+        assert pattern.can_write("deploy/requirements-prod.txt") is True
+
+    def test_can_write_poetry_lock(self, pattern):
+        """Coder can write poetry.lock."""
+        assert pattern.can_write("poetry.lock") is True
+
+    def test_cannot_write_test_dir_still_blocked(self, pattern):
+        """Regression: Coder still cannot write test directory files."""
+        assert pattern.can_write("tests/test_foo.py") is False
+
 
 class TestTesterRole:
     """Verify tester agent can/cannot write expected files."""
@@ -275,6 +311,10 @@ class TestTesterRole:
 
     def test_can_write_agent_outputs(self, pattern):
         assert pattern.can_write(".egg-state/agent-outputs/tester-out.json") is True
+
+    def test_can_write_python_version(self, pattern):
+        """Tester can write .python-version (needed for test environment setup)."""
+        assert pattern.can_write(".python-version") is True
 
 
 class TestDocumenterRole:
