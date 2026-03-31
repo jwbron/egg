@@ -42,8 +42,120 @@
       "started_at": "2026-03-31T21:13:27.711795Z",
       "work_started_at": "2026-03-31T21:13:27.724206Z",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "b0e6cd474a3dc4a22f2a3000209b7951e057609e5b5ff961c8990da634b9fe8a",
+          "container_name": "issue-1470-coder",
+          "status": "running",
+          "started_at": "2026-03-31T21:13:28.519538Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "coder",
+          "session_token": null
+        },
+        {
+          "container_id": "08c9d9073f498dd67be3adae207cebb8322557e9008fa141df669e44c23d6634",
+          "container_name": "issue-1470-tester",
+          "status": "running",
+          "started_at": "2026-03-31T21:13:28.519555Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "tester",
+          "session_token": null
+        },
+        {
+          "container_id": "6dcd1da52908f50713e9d7e92967b0755e9abeec468f1b5967b8c05dbab75a2c",
+          "container_name": "issue-1470-reviewer_contract",
+          "status": "running",
+          "started_at": "2026-03-31T21:13:28.519560Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_contract",
+          "session_token": null
+        },
+        {
+          "container_id": "5770a068241326bf75602fa2c7d9bb3c8661ae0cf2d2fa00795bbfa08c244401",
+          "container_name": "issue-1470-documenter",
+          "status": "running",
+          "started_at": "2026-03-31T21:13:28.519564Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "documenter",
+          "session_token": null
+        },
+        {
+          "container_id": "f2ba065d54fffe5b63b30900a90aad61ee7c18ad3eab37898a3753404d4d2e78",
+          "container_name": "issue-1470-reviewer_code",
+          "status": "running",
+          "started_at": "2026-03-31T21:13:28.519567Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_code",
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "coder",
+          "status": "running",
+          "container_id": "b0e6cd474a3dc4a22f2a3000209b7951e057609e5b5ff961c8990da634b9fe8a",
+          "started_at": "2026-03-31T21:13:28.519549Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "tester",
+          "status": "running",
+          "container_id": "08c9d9073f498dd67be3adae207cebb8322557e9008fa141df669e44c23d6634",
+          "started_at": "2026-03-31T21:13:28.519557Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_contract",
+          "status": "running",
+          "container_id": "6dcd1da52908f50713e9d7e92967b0755e9abeec468f1b5967b8c05dbab75a2c",
+          "started_at": "2026-03-31T21:13:28.519561Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "documenter",
+          "status": "running",
+          "container_id": "5770a068241326bf75602fa2c7d9bb3c8661ae0cf2d2fa00795bbfa08c244401",
+          "started_at": "2026-03-31T21:13:28.519565Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_code",
+          "status": "running",
+          "container_id": "f2ba065d54fffe5b63b30900a90aad61ee7c18ad3eab37898a3753404d4d2e78",
+          "started_at": "2026-03-31T21:13:28.519569Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -62,7 +174,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-31T21:13:03.016227Z",
-  "updated_at": "2026-03-31T21:13:27.725772Z",
+  "updated_at": "2026-03-31T21:13:28.519638Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -70,5 +182,5 @@
   "error": null,
   "analysis": "### Task Analysis\n\n**Problem statement**: When agents push commits containing files outside their role's allowed set, the gateway rejects the entire push with a 403 error. This forces agents into recovery loops (splitting commits, cherry-picking) that waste tokens and often fail. Worst case: a documenter can't push at all because the branch contains a coder's commits with test files in the diff.\n\n**Source context**: Issue #1470, observed in pipeline `pipeline-d9ac3268` on `jwbron/testing`. Coder committed `src/challenges/inmemory_db.py` + `tests/test_inmemory_db.py` in one commit — push denied because coder can't modify test files. Documenter then couldn't push either because the coder's changes are in the diff from main.\n\n**System context**: The gateway's `git_push()` handler (`gateway/gateway.py:626`) validates pushes through a multi-stage pipeline. At line 890, `check_agent_restrictions()` calls into `agent_restrictions.py:validate_agent_push()` which checks each changed file against role-specific `AgentFilePattern` rules (allowed/blocked glob patterns). If ANY file is disallowed, the entire push returns 403. The `changed_files` list comes from `git_client.py:get_changed_files_in_push()` which diffs local HEAD against the remote branch — meaning it captures ALL local changes since divergence, including other agents' commits.\n\n**Technical root cause**: The enforcement in `gateway.py:892-920` is binary — if `agent_result.allowed` is False, the entire push is blocked. There's no partial-push path. The `post_agent_commit.py:auto_commit_worktree()` function already implements a file-filtering pattern (stage only allowed files, restore blocked files via `git checkout`), but this precedent hasn't been applied to the push handler.\n\n**Files affected**:\n- `gateway/gateway.py` — Replace the block-entire-push logic (lines 886-930) with auto-filter logic\n- `gateway/agent_restrictions.py` — Add a `filter_allowed_files()` helper\n- `gateway/tests/test_agent_restrictions_enforce.py` — Update tests for new behavior\n- New test file for the auto-filter behavior\n\n**Risks / edge cases**:\n- Multi-commit pushes: The filter squashes into a single filtered commit. Acceptable since filtering is an error-recovery path.\n- All files blocked: Return a soft response (no files to push) rather than an error.\n- Git state corruption on push failure: Must restore original HEAD via try/finally.\n- Warn-only mode (`EGG_AGENT_RESTRICTIONS_ENFORCE=false`): Remains unchanged.",
   "plan": "# Plan: Auto-filter disallowed files on gateway push\n\n## Summary\n\nInstead of blocking entire pushes when an agent's commit includes files outside their role's scope, the gateway will auto-filter: rewrite the push to include only allowed files, push the filtered commit, and return a success response with details about excluded files. This uses the same soft-reset + selective-staging pattern already proven in `post_agent_commit.py`, applied to the push handler. Blocked files remain as uncommitted changes in the agent's worktree so another agent with the correct role can push them later.\n\n**Risks / edge cases**: Multi-commit pushes are squashed into a single filtered commit — acceptable since filtering is an error-recovery path and the alternative (full rejection) is worse. If all files are blocked, the gateway returns a soft \"nothing to push\" response rather than an error. Git state must be restored via try/finally if the push fails after commit rewriting. New-branch pushes (no remote tip) require falling back to `git merge-base HEAD origin/main` as the reset point.\n\n## Implementation\n\n### Phase 1: Implement\n\nAdd auto-filtering to the gateway push handler so that disallowed files are excluded from the push rather than causing a full rejection.\n\n**Tasks**:\n1. **[task-1-1]** In `gateway/agent_restrictions.py`, add `filter_allowed_files(role, files)` that partitions files into `(allowed, blocked)` using existing `get_agent_pattern(role).can_write()`. Acceptance: function returns correct partition for coder role with mixed source+test files.\n2. **[task-1-2]** In `gateway/gateway.py`, add `_execute_filtered_push()` that saves original HEAD, soft-resets to remote tip, unstages blocked files, commits with original message + `[auto-filtered]` suffix, pushes, and restores on failure. Acceptance: filtered push creates a commit with only allowed files; original HEAD is restored on push failure.\n3. **[task-1-3]** In `gateway/gateway.py:886-930`, replace block-entire-push with auto-filter: compute allowed/blocked via `filter_allowed_files()`, call `_execute_filtered_push()` if allowed files exist, return 200 with `filtered: true` and excluded file list. Return soft 200 if all files excluded. Acceptance: mixed push returns 200 with excluded_files; all-blocked push returns 200 with nothing-to-push message.\n4. **[task-1-4]** Add tests in `gateway/tests/test_agent_restrictions_filter.py` for: mixed push succeeds with correct files; all-blocked returns soft response; push failure restores HEAD; new-branch filtering; warn-only mode unchanged. Acceptance: all new tests pass.\n5. **[task-1-5]** Update `gateway/tests/test_agent_restrictions_enforce.py` — tests that assert 403 for mixed pushes should assert 200 with `filtered: true`. Fully-allowed push tests unchanged. Acceptance: existing test suite passes with updated assertions.\n\n```yaml\n# yaml-tasks\npr:\n  title: \"Auto-filter disallowed files on gateway push instead of blocking\"\n  description: |\n    When agents push commits containing files outside their role's allowed set,\n    the gateway now auto-filters: it rewrites the push to include only allowed\n    files and returns a success response with details about excluded files.\n    Blocked files remain as uncommitted changes in the agent's worktree.\n  test_plan: |\n    - Automated: test_agent_restrictions_filter.py covers mixed push, all-blocked, push failure rollback, new-branch, warn-only\n    - Automated: test_agent_restrictions_enforce.py updated assertions for filtered behavior\n    - Manual: Submit a pipeline where a coder commits both source and test files; verify push succeeds with only source files on remote\n  manual_steps: |\n    Pre-merge: Run full gateway test suite (`pytest gateway/tests/`)\n    Post-merge: Monitor agent push logs for auto-filter events in next pipeline run\nphases:\n  - id: 1\n    name: Implement\n    goal: \"Add auto-filtering to gateway push handler so disallowed files are excluded rather than causing full rejection\"\n    tasks:\n      - id: task-1-1\n        description: \"In `gateway/agent_restrictions.py`, add `filter_allowed_files(role: str, files: list[str]) -> tuple[list[str], list[str]]` that partitions files into (allowed, blocked) using existing `get_agent_pattern(role).can_write()` logic — avoids duplicating pattern-matching in the gateway\"\n        acceptance: \"Function returns correct (allowed, blocked) partition for coder role with mixed source+test files\"\n        files:\n          - gateway/agent_restrictions.py\n      - id: task-1-2\n        description: \"In `gateway/gateway.py`, add `_execute_filtered_push(exec_path, blocked_files, cmd, branch, old_ref_sha, env, original_msg)` that: saves original_head via `git rev-parse HEAD`, soft-resets to remote tip (or `git merge-base HEAD origin/main` for new branches), unstages blocked files via `git reset HEAD -- <files>`, commits with original message + `[auto-filtered]` suffix, runs the push subprocess, and restores via `git reset --hard <original_head>` on failure in a try/finally\"\n        acceptance: \"Filtered push creates a commit with only allowed files; original HEAD is restored on push failure\"\n        files:\n          - gateway/gateway.py\n      - id: task-1-3\n        description: \"In `gateway/gateway.py:886-930`, replace the block-entire-push enforcement with auto-filter logic: when `agent_result.allowed` is False and enforce mode is on, compute `(allowed_files, blocked_files)` via `filter_allowed_files()`, call `_execute_filtered_push()` if allowed_files is non-empty, return 200 with `filtered: true` and excluded file list. If allowed_files is empty, return 200 with nothing-to-push message. Audit-log the filtering event. Warn-only mode unchanged.\"\n        acceptance: \"Mixed push returns 200 with excluded_files list; all-blocked push returns 200 with nothing-to-push message; audit log records filtering\"\n        files:\n          - gateway/gateway.py\n      - id: task-1-4\n        description: \"Add `gateway/tests/test_agent_restrictions_filter.py` with tests: mixed push (some allowed, some blocked) succeeds with correct files pushed; all-blocked push returns soft 200; push failure after rewrite restores original HEAD; new-branch push filtering works; warn-only mode is unchanged (no filtering)\"\n        acceptance: \"All new tests pass with `pytest gateway/tests/test_agent_restrictions_filter.py`\"\n        files:\n          - gateway/tests/test_agent_restrictions_filter.py\n      - id: task-1-5\n        description: \"Update `gateway/tests/test_agent_restrictions_enforce.py` — existing tests that assert 403 for mixed-file pushes should now assert 200 with `filtered: true` in response. Tests for fully-allowed pushes and warn-only mode remain unchanged.\"\n        acceptance: \"Existing test suite passes with updated assertions: `pytest gateway/tests/test_agent_restrictions_enforce.py`\"\n        files:\n          - gateway/tests/test_agent_restrictions_enforce.py\n```",
-  "version": 6
+  "version": 7
 }
