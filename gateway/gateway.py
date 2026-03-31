@@ -105,6 +105,7 @@ try:
         check_anchor_write_permission,
         check_file_restrictions,
         check_phase_file_restrictions,
+        filter_agent_files,
         filter_operation,
     )
     from .policy import (
@@ -176,6 +177,7 @@ except ImportError:
         check_anchor_write_permission,
         check_file_restrictions,
         check_phase_file_restrictions,
+        filter_agent_files,
         filter_operation,
     )
     from policy import (  # type: ignore[no-redef, import-untyped]
@@ -623,6 +625,153 @@ def config_reload() -> Response:
     return jsonify({"status": "ok", "message": "Configuration reloaded"})
 
 
+def _execute_filtered_push(
+    exec_path: str,
+    blocked_files: list[str],
+    cmd: list[str],
+    branch: str,
+    old_ref_sha: str | None,
+    env: dict[str, str],
+    original_msg: str,
+) -> tuple[bool, str, str]:
+    """Rewrite the current commit to exclude blocked files, then push.
+
+    Saves the original HEAD, soft-resets to the remote tip (or merge-base
+    for new branches), unstages blocked files, creates a new commit with
+    only allowed files and an ``[auto-filtered]`` suffix, and pushes.
+
+    On any failure the original HEAD is restored via ``git reset --hard``.
+
+    Args:
+        exec_path: Path to the git working directory.
+        blocked_files: Files to exclude from the push.
+        cmd: The full push command (including git binary and args).
+        branch: Target branch name.
+        old_ref_sha: SHA of the remote tip before push (``"0"*40`` for new branches).
+        env: Environment dict for subprocess (must include credential helper).
+        original_msg: The original commit message.
+
+    Returns:
+        Tuple of ``(success, stdout, stderr)``.
+    """
+    # Save original HEAD so we can restore on failure
+    head_result = subprocess.run(
+        git_cmd("rev-parse", "HEAD"),
+        cwd=exec_path,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if head_result.returncode != 0:
+        return False, "", f"Could not determine HEAD: {head_result.stderr}"
+    original_head = head_result.stdout.strip()
+
+    # Determine reset target: remote tip or merge-base for new branches
+    is_new_branch = old_ref_sha is None or old_ref_sha == "0" * 40
+    if is_new_branch:
+        # New branch: find merge-base with origin/main
+        mb_result = subprocess.run(
+            git_cmd("merge-base", "HEAD", "origin/main"),
+            cwd=exec_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if mb_result.returncode != 0:
+            return False, "", f"Could not determine merge-base: {mb_result.stderr}"
+        reset_target = mb_result.stdout.strip()
+    else:
+        reset_target = old_ref_sha
+
+    try:
+        # Soft-reset to the remote tip — all changes become staged
+        reset_result = subprocess.run(
+            git_cmd("reset", "--soft", reset_target),
+            cwd=exec_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if reset_result.returncode != 0:
+            # Restore and bail
+            subprocess.run(
+                git_cmd("reset", "--hard", original_head),
+                cwd=exec_path, capture_output=True, text=True, timeout=10, check=False,
+            )
+            return False, "", f"Soft reset failed: {reset_result.stderr}"
+
+        # Unstage blocked files (they remain as uncommitted changes)
+        unstage_result = subprocess.run(
+            git_cmd("reset", "HEAD", "--", *blocked_files),
+            cwd=exec_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if unstage_result.returncode != 0:
+            logger.warning(
+                "Unstage of blocked files had warnings",
+                stderr=unstage_result.stderr,
+            )
+
+        # Create filtered commit with original message + suffix
+        filtered_msg = f"{original_msg} [auto-filtered]"
+        commit_result = subprocess.run(
+            git_cmd("commit", "-m", filtered_msg, "--allow-empty"),
+            cwd=exec_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if commit_result.returncode != 0:
+            # Nothing staged after filtering (all files were blocked)
+            subprocess.run(
+                git_cmd("reset", "--hard", original_head),
+                cwd=exec_path, capture_output=True, text=True, timeout=10, check=False,
+            )
+            return False, "", f"Filtered commit failed: {commit_result.stderr}"
+
+        # Execute the push
+        push_result = subprocess.run(
+            cmd,
+            cwd=exec_path,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=env,
+            check=False,
+        )
+
+        if push_result.returncode != 0:
+            # Push failed — restore original HEAD
+            subprocess.run(
+                git_cmd("reset", "--hard", original_head),
+                cwd=exec_path, capture_output=True, text=True, timeout=10, check=False,
+            )
+            return False, push_result.stdout, push_result.stderr
+
+        # Push succeeded — restore original HEAD so blocked files remain
+        # as uncommitted changes in the worktree
+        subprocess.run(
+            git_cmd("reset", "--hard", original_head),
+            cwd=exec_path, capture_output=True, text=True, timeout=10, check=False,
+        )
+        return True, push_result.stdout, push_result.stderr
+
+    except Exception:
+        # Restore original HEAD on any unexpected error
+        subprocess.run(
+            git_cmd("reset", "--hard", original_head),
+            cwd=exec_path, capture_output=True, text=True, timeout=10, check=False,
+        )
+        raise
+
+
 @app.route("/api/v1/git/push", methods=["POST"])
 @require_session_auth
 def git_push() -> tuple[Response, int] | Response:
@@ -885,8 +1034,9 @@ def git_push() -> tuple[Response, int] | Response:
 
     # Agent-role file restrictions.
     # Checks agent_restrictions rules (coder vs tester vs documenter file scopes).
-    # Default: enforce (blocks pushes that violate agent-role boundaries).
+    # Default: enforce with auto-filter (rewrites push to exclude disallowed files).
     # Set EGG_AGENT_RESTRICTIONS_ENFORCE=false to use warn-only mode.
+    agent_filter_blocked_files: list[str] | None = None
     if session_role and changed_files and not is_infrastructure_push:
         agent_result = check_agent_restrictions(session_role, changed_files)
         if not agent_result.allowed:
@@ -897,25 +1047,49 @@ def git_push() -> tuple[Response, int] | Response:
             )
 
             if enforce:
+                # Auto-filter: partition files into allowed/blocked
+                allowed_files, blocked_files = filter_agent_files(session_role, changed_files)
+
+                if not allowed_files:
+                    # All files are blocked — return soft success (nothing to push)
+                    audit_log(
+                        "push_auto_filtered_all_blocked",
+                        "git_push",
+                        success=True,
+                        details={
+                            "repo": repo,
+                            "branch": branch,
+                            "role": session_role,
+                            "blocked_files": blocked_files,
+                            "restriction_message": agent_result.message,
+                        },
+                    )
+                    return make_success(
+                        "Push completed: all files were outside agent role scope, "
+                        "nothing to push. Blocked files remain as uncommitted changes.",
+                        {
+                            "repo": repo,
+                            "branch": branch,
+                            "filtered": True,
+                            "excluded_files": blocked_files,
+                            "pushed_files": [],
+                            "nothing_to_push": True,
+                        },
+                    )
+
+                # Some files allowed, some blocked — flag for filtered push later
+                agent_filter_blocked_files = blocked_files
                 audit_log(
-                    "push_denied_agent_role_restriction",
+                    "push_auto_filtering",
                     "git_push",
-                    success=False,
+                    success=True,
                     details={
                         "repo": repo,
                         "branch": branch,
                         "role": session_role,
-                        "blocked_files": agent_result.blocked_files,
+                        "allowed_files": allowed_files,
+                        "blocked_files": blocked_files,
                         "restriction_message": agent_result.message,
-                    },
-                )
-                return make_error(
-                    f"Push denied: agent role '{session_role}' cannot modify "
-                    f"these files. {agent_result.message}",
-                    status_code=403,
-                    details={
-                        "role": session_role,
-                        "blocked_files": agent_result.blocked_files,
                     },
                 )
             else:
@@ -1113,6 +1287,74 @@ def git_push() -> tuple[Response, int] | Response:
     credential_helper_path = None
     try:
         credential_helper_path, env = create_credential_helper(token_str, os.environ.copy())
+
+        # If auto-filtering is needed, use the filtered push path
+        if agent_filter_blocked_files:
+            # Get original commit message for the filtered commit
+            msg_result = subprocess.run(
+                git_cmd("log", "-1", "--format=%B"),
+                cwd=exec_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            original_msg = msg_result.stdout.strip() if msg_result.returncode == 0 else "auto-filtered push"
+
+            filter_success, filter_stdout, filter_stderr = _execute_filtered_push(
+                exec_path=exec_path,
+                blocked_files=agent_filter_blocked_files,
+                cmd=cmd,
+                branch=branch,
+                old_ref_sha=old_ref_sha,
+                env=env,
+                original_msg=original_msg,
+            )
+
+            if filter_success:
+                allowed_files, _ = filter_agent_files(session_role, changed_files)
+                audit_log(
+                    "push_auto_filtered_success",
+                    "git_push",
+                    success=True,
+                    details={
+                        "repo": repo,
+                        "branch": branch,
+                        "role": session_role,
+                        "pushed_files": allowed_files,
+                        "excluded_files": agent_filter_blocked_files,
+                    },
+                )
+                return make_success(
+                    "Push successful (auto-filtered: some files excluded by agent role restrictions)",
+                    {
+                        "repo": repo,
+                        "branch": branch,
+                        "stdout": filter_stdout,
+                        "stderr": filter_stderr,
+                        "auth_mode": auth_mode,
+                        "filtered": True,
+                        "excluded_files": agent_filter_blocked_files,
+                        "pushed_files": allowed_files,
+                    },
+                )
+            else:
+                audit_log(
+                    "push_auto_filtered_failed",
+                    "git_push",
+                    success=False,
+                    details={
+                        "repo": repo,
+                        "branch": branch,
+                        "role": session_role,
+                        "stderr": filter_stderr,
+                    },
+                )
+                return make_error(
+                    f"Filtered push failed: {filter_stderr}",
+                    status_code=500,
+                    details={"stdout": filter_stdout, "stderr": filter_stderr},
+                )
 
         result = subprocess.run(
             cmd,

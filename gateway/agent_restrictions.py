@@ -743,6 +743,38 @@ class AgentRestrictionResult:
         )
 
 
+def filter_allowed_files(
+    role: str,
+    files: list[str],
+) -> tuple[list[str], list[str]]:
+    """Partition files into (allowed, blocked) for an agent role.
+
+    Uses the existing AgentFilePattern.can_write() logic so that
+    pattern-matching is not duplicated in the gateway.
+
+    Args:
+        role: The agent role identifier (e.g., "coder", "tester")
+        files: List of file paths being modified
+
+    Returns:
+        Tuple of (allowed_files, blocked_files).  If the role is unknown,
+        all files are treated as allowed (backwards-compatible).
+    """
+    pattern = get_agent_pattern(role)
+    if pattern is None:
+        # Unknown role — allow everything for backwards compatibility
+        return list(files), []
+
+    allowed: list[str] = []
+    blocked: list[str] = []
+    for file_path in files:
+        if pattern.can_write(file_path):
+            allowed.append(file_path)
+        else:
+            blocked.append(file_path)
+    return allowed, blocked
+
+
 def validate_agent_push(
     role: str,
     files: list[str],

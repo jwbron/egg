@@ -1019,6 +1019,29 @@ def check_agent_restrictions(
         )
 
 
+def filter_agent_files(
+    agent_role: str,
+    files: list[str],
+) -> tuple[list[str], list[str]]:
+    """Partition files into (allowed, blocked) for an agent role (convenience function).
+
+    Delegates to agent_restrictions.filter_allowed_files().
+
+    Args:
+        agent_role: The agent role (e.g., "coder", "tester")
+        files: List of file paths being modified
+
+    Returns:
+        Tuple of (allowed_files, blocked_files)
+    """
+    try:
+        from .agent_restrictions import filter_allowed_files
+    except ImportError:
+        from agent_restrictions import filter_allowed_files  # type: ignore[no-redef, import-untyped]  # noqa: I001
+
+    return filter_allowed_files(agent_role, files)
+
+
 def check_anchor_write_permission(
     file_path: str,
     agent_anchor_id: str | None,
