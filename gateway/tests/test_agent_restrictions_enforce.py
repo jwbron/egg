@@ -1,8 +1,12 @@
 """Tests for agent-role restriction enforcement behavior.
 
 Validates the EGG_AGENT_RESTRICTIONS_ENFORCE flag controlling whether
-agent-role file restriction violations block pushes (enforce mode)
+agent-role file restriction violations auto-filter pushes (enforce mode)
 or only log warnings (warn-only mode). Enforce mode is the default.
+
+In enforce mode, pushes with disallowed files are auto-filtered: allowed
+files are pushed in a rewritten commit, blocked files remain uncommitted.
+If all files are blocked, a soft 200 "nothing to push" response is returned.
 """
 
 import json
@@ -74,6 +78,16 @@ def _push_context(mock_session, agent_blocked=True):
             result.stdout = "egg-feature\n"
         elif "push" in cmd:
             result.stdout = "Everything up-to-date\n"
+        elif "log" in cmd and "--format=%B" in cmd:
+            result.stdout = "Original commit message\n"
+        elif "ls-remote" in cmd:
+            result.stdout = "abc1234\trefs/heads/egg-feature\n"
+        elif "rev-parse" in cmd and "HEAD" in cmd:
+            result.stdout = "deadbeef1234567890\n"
+        elif "reset" in cmd:
+            result.stdout = ""
+        elif "commit" in cmd:
+            result.stdout = "[egg-feature abc1235] test commit\n"
         else:
             result.stdout = ""
         return result
@@ -87,6 +101,13 @@ def _push_context(mock_session, agent_blocked=True):
         )
     else:
         agent_result = FileRestrictionResult.allow("All files allowed for role")
+
+    # When agent_blocked, all files are blocked (only test files in changed set).
+    # This triggers the "all blocked → nothing to push" soft 200 path.
+    if agent_blocked:
+        filter_result = ([], ["tests/test_foo.py"])
+    else:
+        filter_result = (["tests/test_foo.py"], [])
 
     return (
         patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
@@ -113,6 +134,7 @@ def _push_context(mock_session, agent_blocked=True):
             gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
         ),
         patch.object(gateway, "check_agent_restrictions", return_value=agent_result),
+        patch.object(gateway, "filter_agent_files", return_value=filter_result),
     )
 
 
@@ -149,6 +171,7 @@ class TestAgentRestrictionsWarnOnly:
             patches[5],
             patches[6],
             patches[7],
+            patches[8],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "false"}):
                 response = _do_push(client)
@@ -168,6 +191,7 @@ class TestAgentRestrictionsWarnOnly:
             patches[5],
             patches[6],
             patches[7],
+            patches[8],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "0"}):
                 response = _do_push(client)
@@ -187,13 +211,14 @@ class TestAgentRestrictionsWarnOnly:
             patches[5],
             patches[6],
             patches[7],
+            patches[8],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "no"}):
                 response = _do_push(client)
                 assert response.status_code == 200
 
     def test_enforce_mode_is_default(self, client):
-        """Without the env var set, enforce mode is used (blocks violations)."""
+        """Without the env var set, enforce mode auto-filters (returns 200 with filtered)."""
         session = _make_coder_session()
         patches = _push_context(session, agent_blocked=True)
 
@@ -206,19 +231,24 @@ class TestAgentRestrictionsWarnOnly:
             patches[5],
             patches[6],
             patches[7],
+            patches[8],
         ):
-            # Remove the env var entirely — default should enforce
+            # Remove the env var entirely — default should enforce (auto-filter)
             with patch.dict(os.environ, {}, clear=False):
                 os.environ.pop("EGG_AGENT_RESTRICTIONS_ENFORCE", None)
                 response = _do_push(client)
-                assert response.status_code == 403
+                # Auto-filter returns 200 with filtered=true (all files blocked → nothing to push)
+                assert response.status_code == 200
+                data = json.loads(response.data)
+                assert data["data"]["filtered"] is True
+                assert data["data"]["nothing_to_push"] is True
 
 
 class TestAgentRestrictionsEnforceMode:
-    """Enforce mode: violations block pushes."""
+    """Enforce mode: violations auto-filter pushes."""
 
-    def test_enforce_mode_blocks_push(self, client):
-        """With EGG_AGENT_RESTRICTIONS_ENFORCE=true, violations return 403."""
+    def test_enforce_mode_auto_filters_push(self, client):
+        """With EGG_AGENT_RESTRICTIONS_ENFORCE=true, violations auto-filter (200 with filtered)."""
         session = _make_coder_session()
         patches = _push_context(session, agent_blocked=True)
 
@@ -231,12 +261,15 @@ class TestAgentRestrictionsEnforceMode:
             patches[5],
             patches[6],
             patches[7],
+            patches[8],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
-                assert response.status_code == 403
+                # All files blocked → soft 200 "nothing to push"
+                assert response.status_code == 200
                 data = json.loads(response.data)
-                assert "coder" in data["message"]
+                assert data["data"]["filtered"] is True
+                assert data["data"]["nothing_to_push"] is True
 
     def test_enforce_mode_allows_clean_push(self, client):
         """Enforce mode allows push when agent restrictions pass."""
@@ -252,13 +285,14 @@ class TestAgentRestrictionsEnforceMode:
             patches[5],
             patches[6],
             patches[7],
+            patches[8],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
                 assert response.status_code == 200
 
     def test_enforce_accepts_yes_value(self, client):
-        """EGG_AGENT_RESTRICTIONS_ENFORCE=yes works as enforce."""
+        """EGG_AGENT_RESTRICTIONS_ENFORCE=yes works as enforce (auto-filter)."""
         session = _make_coder_session()
         patches = _push_context(session, agent_blocked=True)
 
@@ -271,13 +305,16 @@ class TestAgentRestrictionsEnforceMode:
             patches[5],
             patches[6],
             patches[7],
+            patches[8],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "yes"}):
                 response = _do_push(client)
-                assert response.status_code == 403
+                assert response.status_code == 200
+                data = json.loads(response.data)
+                assert data["data"]["filtered"] is True
 
     def test_enforce_accepts_1_value(self, client):
-        """EGG_AGENT_RESTRICTIONS_ENFORCE=1 works as enforce."""
+        """EGG_AGENT_RESTRICTIONS_ENFORCE=1 works as enforce (auto-filter)."""
         session = _make_coder_session()
         patches = _push_context(session, agent_blocked=True)
 
@@ -290,10 +327,13 @@ class TestAgentRestrictionsEnforceMode:
             patches[5],
             patches[6],
             patches[7],
+            patches[8],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "1"}):
                 response = _do_push(client)
-                assert response.status_code == 403
+                assert response.status_code == 200
+                data = json.loads(response.data)
+                assert data["data"]["filtered"] is True
 
 
 class TestAgentRestrictionsUnknownRole:
@@ -314,6 +354,7 @@ class TestAgentRestrictionsUnknownRole:
             patches[5],
             patches[6],
             patches[7],
+            patches[8],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -338,6 +379,7 @@ class TestAgentRestrictionsNoRole:
             patches[5],
             patches[6],
             patches[7],
+            patches[8],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
