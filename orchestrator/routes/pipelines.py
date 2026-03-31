@@ -2584,6 +2584,17 @@ def _ensure_statefiles_on_branch(
                 repo_root=worktree_repo_path,
             )
 
+        # Re-populate tasks and PR metadata from plan draft if available.
+        # Without this, recreated contracts lose the planner-generated PR
+        # title/description and fall back to the generic pipeline ID title.
+        # See: https://github.com/jwbron/egg/issues/1432
+        _populate_contract_from_plan(
+            worktree_repo_path,
+            pipeline.id,
+            pipeline.mode or "local",
+            pipeline.issue_number,
+        )
+
         _commit_statefiles_to_worktree(
             worktree_repo_path,
             f"Restore missing contract for {identifier}",
