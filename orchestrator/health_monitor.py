@@ -2,14 +2,16 @@
 Deterministic tripwire processor for pipeline health monitoring.
 
 Implements five rules:
-1. Heartbeat timeout - auto-nudge when no heartbeat within threshold
+1. Heartbeat timeout - escalate to overseer/HITL when no heartbeat within threshold
 2. Container exit - immediate HITL escalation
 3. Repeated identical errors - escalate after threshold
 4. Message volume spike - auto-throttle above rate limit
-5. Progress stall - nudge, then escalate if unresolved
+5. Progress stall - escalate to overseer/HITL on stall detection
 
 The HealthMonitor subscribes to EventBus events and maintains per-agent
 state. It does NOT use LLM classifiers — those belong to the overseer.
+Nudge messages are only sent by the Tier 2 overseer after classifying
+the alert; Tier 1 raises alerts and escalates but never nudges directly.
 """
 
 import sys
@@ -46,7 +48,6 @@ logger = get_logger("orchestrator.health_monitor")
 # Type alias for callbacks
 EscalationCallback = Callable[[dict[str, Any]], None]
 ThrottleCallback = Callable[[dict[str, Any]], None]
-NudgeCallback = Callable[[dict[str, Any]], None]
 
 
 @dataclass
@@ -58,16 +59,8 @@ class AgentState:
     last_progress: float = field(default_factory=time.time)
     error_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     message_timestamps: list[float] = field(default_factory=list)
-    progress_nudge_count: int = 0
-    heartbeat_nudge_count: int = 0
-    last_heartbeat_nudge_time: float | None = None
-    last_progress_nudge_time: float | None = None
     heartbeat_escalated: bool = False
     progress_escalated: bool = False
-
-
-_MAX_HEARTBEAT_NUDGES = 2
-_MAX_PROGRESS_NUDGES = 2
 
 
 class HealthMonitor:
@@ -99,7 +92,6 @@ class HealthMonitor:
         # Callbacks
         self._escalation_callbacks: list[EscalationCallback] = []
         self._throttle_callbacks: list[ThrottleCallback] = []
-        self._nudge_callbacks: list[NudgeCallback] = []
 
         # Active alerts (bounded to prevent unbounded growth)
         self._active_alerts: deque[dict[str, Any]] = deque(maxlen=200)
@@ -124,18 +116,6 @@ class HealthMonitor:
     def on_throttle(self, callback: ThrottleCallback) -> None:
         """Register a callback for throttle events."""
         self._throttle_callbacks.append(callback)
-
-    def on_nudge(self, callback: NudgeCallback) -> None:
-        """Register a callback for nudge events."""
-        self._nudge_callbacks.append(callback)
-
-    def _fire_nudge(self, nudge_data: dict[str, Any]) -> None:
-        """Invoke all registered nudge callbacks."""
-        for cb in self._nudge_callbacks:
-            try:
-                cb(nudge_data)
-            except Exception as e:
-                logger.error("Nudge callback error", error=str(e))
 
     # -----------------------------------------------------------------
     # Event handlers
@@ -169,19 +149,13 @@ class HealthMonitor:
             if event_type == "heartbeat":
                 agent.last_heartbeat = now
                 self._last_heartbeat[agent_id] = now
-                # Reset heartbeat nudge state on heartbeat receipt
-                agent.heartbeat_nudge_count = 0
-                agent.last_heartbeat_nudge_time = None
+                # Reset escalation state so future stalls are detected
                 agent.heartbeat_escalated = False
             else:
                 agent.last_progress = now
                 agent.last_heartbeat = now
                 self._last_heartbeat[agent_id] = now
-                # Reset nudge counts on new progress
-                agent.progress_nudge_count = 0
-                agent.heartbeat_nudge_count = 0
-                agent.last_progress_nudge_time = None
-                agent.last_heartbeat_nudge_time = None
+                # Reset escalation state on new progress
                 agent.heartbeat_escalated = False
                 agent.progress_escalated = False
 
@@ -297,10 +271,10 @@ class HealthMonitor:
     def check_heartbeats(self) -> list[dict[str, Any]]:
         """Evaluate heartbeat timeout rule.
 
-        First timeout triggers a nudge. Subsequent timeouts are
-        deduplicated (one nudge per threshold window). After
-        ``_MAX_HEARTBEAT_NUDGES`` unanswered nudges the agent is
-        escalated to the overseer / HITL.
+        When no heartbeat is received within the threshold, immediately
+        escalate to the overseer (or HITL if overseer is disabled).
+        The ``heartbeat_escalated`` flag prevents duplicate escalations
+        on subsequent poll cycles.
 
         Returns:
             List of action dicts for agents that have timed out.
@@ -310,109 +284,70 @@ class HealthMonitor:
         now = time.time()
 
         with self._lock:
-            # Snapshot all state inside the lock to avoid TOCTOU races
             snapshot = [
                 (
                     agent.agent_id,
                     self._last_heartbeat.get(agent.agent_id, agent.last_heartbeat),
-                    agent.heartbeat_nudge_count,
-                    agent.last_heartbeat_nudge_time,
                     agent.heartbeat_escalated,
                 )
                 for agent in self._agents.values()
             ]
 
-        for agent_id, last_hb, hb_nudge_count, last_nudge_time, already_escalated in snapshot:
+        for agent_id, last_hb, already_escalated in snapshot:
             elapsed = now - last_hb
             if elapsed <= threshold:
                 continue
 
-            if hb_nudge_count >= _MAX_HEARTBEAT_NUDGES:
-                if already_escalated:
-                    continue  # already escalated — don't re-escalate
+            if already_escalated:
+                continue  # already escalated — don't re-escalate
 
-                # Escalate — nudges haven't helped
-                action = {
-                    "action": "escalate",
-                    "agent_id": agent_id,
-                    "reason": (
-                        f"Heartbeat stall unresolved after {hb_nudge_count} "
-                        f"nudges ({int(elapsed)}s)"
-                    ),
-                }
-                actions.append(action)
+            action = {
+                "action": "escalate",
+                "agent_id": agent_id,
+                "reason": f"No heartbeat for {int(elapsed)}s (threshold: {threshold}s)",
+                "elapsed_seconds": int(elapsed),
+            }
+            actions.append(action)
 
-                escalation_type = "overseer" if self._config.overseer_enabled else "hitl"
-                escalation = {
-                    "type": escalation_type,
-                    "agent_id": agent_id,
-                    "reason": action["reason"],
-                    "timestamp": datetime.now(UTC).isoformat(),
-                }
+            escalation_type = "overseer" if self._config.overseer_enabled else "hitl"
+            escalation = {
+                "type": escalation_type,
+                "agent_id": agent_id,
+                "reason": action["reason"],
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
 
-                with self._lock:
-                    agent_state = self._agents.get(agent_id)
-                    if agent_state:
-                        agent_state.heartbeat_escalated = True
-                    self._active_alerts.append(
-                        {
-                            "id": str(uuid.uuid4()),
-                            "pipeline_id": self._pipeline_id,
-                            "agent_id": agent_id,
-                            "alert_type": "heartbeat_timeout_escalated",
-                            "message": action["reason"],
-                            "severity": "critical",
-                            "timestamp": datetime.now(UTC).isoformat(),
-                        }
-                    )
+            with self._lock:
+                agent_state = self._agents.get(agent_id)
+                if agent_state:
+                    agent_state.heartbeat_escalated = True
+                self._active_alerts.append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "pipeline_id": self._pipeline_id,
+                        "agent_id": agent_id,
+                        "alert_type": "heartbeat_timeout",
+                        "message": action["reason"],
+                        "severity": "warning",
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                )
 
-                for cb in self._escalation_callbacks:
-                    try:
-                        cb(escalation)
-                    except Exception as e:
-                        logger.error("Escalation callback error", error=str(e))
-
-            elif last_nudge_time is not None and (now - last_nudge_time) < threshold:
-                # Already nudged recently — skip to avoid flooding
-                continue
-
-            else:
-                # Send nudge
-                action = {
-                    "action": "nudge",
-                    "agent_id": agent_id,
-                    "reason": f"No heartbeat for {int(elapsed)}s (threshold: {threshold}s)",
-                    "elapsed_seconds": int(elapsed),
-                }
-                actions.append(action)
-                self._fire_nudge(action)
-
-                with self._lock:
-                    agent_state = self._agents.get(agent_id)
-                    if agent_state:
-                        agent_state.heartbeat_nudge_count += 1
-                        agent_state.last_heartbeat_nudge_time = now
-                    self._active_alerts.append(
-                        {
-                            "id": str(uuid.uuid4()),
-                            "pipeline_id": self._pipeline_id,
-                            "agent_id": agent_id,
-                            "alert_type": "heartbeat_timeout",
-                            "message": action["reason"],
-                            "severity": "warning",
-                            "timestamp": datetime.now(UTC).isoformat(),
-                        }
-                    )
+            for cb in self._escalation_callbacks:
+                try:
+                    cb(escalation)
+                except Exception as e:
+                    logger.error("Escalation callback error", error=str(e))
 
         return actions
 
     def check_progress(self) -> list[dict[str, Any]]:
         """Evaluate progress stall rule.
 
-        First timeout triggers a nudge. Subsequent timeouts are
-        deduplicated (one nudge per threshold window). After
-        ``_MAX_PROGRESS_NUDGES`` unanswered nudges the agent is
-        escalated to the overseer / HITL.
+        When no progress is received within the threshold, immediately
+        escalate to the overseer (or HITL if overseer is disabled).
+        The ``progress_escalated`` flag prevents duplicate escalations
+        on subsequent poll cycles.
 
         Returns:
             List of action dicts.
@@ -422,97 +357,60 @@ class HealthMonitor:
         now = time.time()
 
         with self._lock:
-            # Snapshot all state inside the lock to avoid TOCTOU races
             snapshot = [
                 (
                     agent.agent_id,
                     agent.last_progress,
-                    agent.progress_nudge_count,
-                    agent.last_progress_nudge_time,
                     agent.progress_escalated,
                 )
                 for agent in self._agents.values()
             ]
 
-        for agent_id, last_progress, nudge_count, last_nudge_time, already_escalated in snapshot:
+        for agent_id, last_progress, already_escalated in snapshot:
             elapsed = now - last_progress
             if elapsed <= threshold:
                 continue
 
-            if nudge_count >= _MAX_PROGRESS_NUDGES:
-                if already_escalated:
-                    continue  # already escalated — don't re-escalate
+            if already_escalated:
+                continue  # already escalated — don't re-escalate
 
-                # Escalate — nudges haven't helped
-                action = {
-                    "action": "escalate",
-                    "agent_id": agent_id,
-                    "reason": (
-                        f"Progress stall unresolved after {nudge_count} nudges ({int(elapsed)}s)"
-                    ),
-                }
-                actions.append(action)
+            action = {
+                "action": "escalate",
+                "agent_id": agent_id,
+                "reason": f"No progress for {int(elapsed)}s (threshold: {threshold}s)",
+                "elapsed_seconds": int(elapsed),
+            }
+            actions.append(action)
 
-                escalation_type = "overseer" if self._config.overseer_enabled else "hitl"
-                escalation = {
-                    "type": escalation_type,
-                    "agent_id": agent_id,
-                    "reason": action["reason"],
-                    "timestamp": datetime.now(UTC).isoformat(),
-                }
+            escalation_type = "overseer" if self._config.overseer_enabled else "hitl"
+            escalation = {
+                "type": escalation_type,
+                "agent_id": agent_id,
+                "reason": action["reason"],
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
 
-                with self._lock:
-                    agent_state = self._agents.get(agent_id)
-                    if agent_state:
-                        agent_state.progress_escalated = True
-                    self._active_alerts.append(
-                        {
-                            "id": str(uuid.uuid4()),
-                            "pipeline_id": self._pipeline_id,
-                            "agent_id": agent_id,
-                            "alert_type": "progress_stall_escalated",
-                            "message": action["reason"],
-                            "severity": "critical",
-                            "timestamp": datetime.now(UTC).isoformat(),
-                        }
-                    )
+            with self._lock:
+                agent_state = self._agents.get(agent_id)
+                if agent_state:
+                    agent_state.progress_escalated = True
+                self._active_alerts.append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "pipeline_id": self._pipeline_id,
+                        "agent_id": agent_id,
+                        "alert_type": "progress_stall",
+                        "message": action["reason"],
+                        "severity": "warning",
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                )
 
-                for cb in self._escalation_callbacks:
-                    try:
-                        cb(escalation)
-                    except Exception as e:
-                        logger.error("Escalation callback error", error=str(e))
-
-            elif last_nudge_time is not None and (now - last_nudge_time) < threshold:
-                # Already nudged recently — skip to avoid flooding
-                continue
-
-            else:
-                # Send nudge
-                action = {
-                    "action": "nudge",
-                    "agent_id": agent_id,
-                    "reason": f"No progress for {int(elapsed)}s (threshold: {threshold}s)",
-                    "elapsed_seconds": int(elapsed),
-                }
-                actions.append(action)
-                self._fire_nudge(action)
-                with self._lock:
-                    agent_state = self._agents.get(agent_id)
-                    if agent_state:
-                        agent_state.progress_nudge_count += 1
-                        agent_state.last_progress_nudge_time = now
-                    self._active_alerts.append(
-                        {
-                            "id": str(uuid.uuid4()),
-                            "pipeline_id": self._pipeline_id,
-                            "agent_id": agent_id,
-                            "alert_type": "progress_stall",
-                            "message": action["reason"],
-                            "severity": "warning",
-                            "timestamp": datetime.now(UTC).isoformat(),
-                        }
-                    )
+            for cb in self._escalation_callbacks:
+                try:
+                    cb(escalation)
+                except Exception as e:
+                    logger.error("Escalation callback error", error=str(e))
 
         return actions
 

@@ -12,11 +12,11 @@ Agent containers emit structured progress events
 │ Tier 1: Orchestrator (Deterministic)                          │
 │                                                               │
 │  Structured progress events → Tripwire rules → Auto-action    │
-│  • Heartbeat timeout      → Auto-nudge agent                  │
+│  • Heartbeat timeout      → Escalate to overseer/HITL         │
 │  • Container exit         → HITL escalation                   │
 │  • Repeated errors (N×)   → Escalate to overseer              │
 │  • Message volume spike   → Auto-throttle                     │
-│  • Progress stall         → Nudge, then escalate              │
+│  • Progress stall         → Escalate to overseer/HITL         │
 │                                                               │
 │  Ambiguous cases ──────────────────────┐                      │
 └────────────────────────────────────────┼──────────────────────┘
@@ -98,11 +98,11 @@ The orchestrator processes structured progress events with deterministic rules. 
 
 | Tripwire | Condition | Auto-Action |
 |----------|-----------|-------------|
-| **Heartbeat timeout** | No heartbeat or progress within threshold | Nudge the agent; after 2 unanswered nudges, escalate to overseer/HITL |
+| **Heartbeat timeout** | No heartbeat or progress within threshold | Escalate to overseer/HITL (overseer decides whether to nudge) |
 | **Container exit** | Agent container dies unexpectedly | Immediate HITL escalation |
 | **Repeated errors** | Same error N times consecutively | Escalate to overseer (or HITL if no overseer) |
 | **Message volume spike** | Agent sending > N messages/minute | Auto-throttle |
-| **Progress stall** | No structured progress update within threshold | Nudge up to 2 times (deduplicated per threshold window), then escalate to overseer/HITL |
+| **Progress stall** | No structured progress update within threshold | Escalate to overseer/HITL (overseer decides whether to nudge) |
 
 ### Viewing and Resolving Alerts
 

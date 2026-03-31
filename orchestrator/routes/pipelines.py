@@ -6042,43 +6042,14 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             overseer_respawn_count = 0
             max_overseer_respawns = pipeline.config.overseer_max_respawns
 
-            def _send_nudge_message(action: dict, pip_id: str) -> None:
-                """Deliver a Tier 1 nudge as a message on the bus."""
-                try:
-                    from message_store import Message, MessageType, get_message_store
-
-                    msg_store = get_message_store()
-                    msg_store.add_message(
-                        Message(
-                            pipeline_id=pip_id,
-                            from_role="orchestrator",
-                            to_role=action["agent_id"],
-                            message_type=MessageType.NUDGE,
-                            subject="Health monitor: stall detected",
-                            body=action.get("reason", "Agent appears stalled"),
-                        )
-                    )
-                    logger.info(
-                        "Sent nudge message to %s: %s",
-                        action["agent_id"],
-                        action.get("reason", ""),
-                        pipeline_id=pip_id,
-                    )
-                except Exception as msg_err:
-                    logger.debug(
-                        "Failed to send nudge message",
-                        pipeline_id=pip_id,
-                        error=str(msg_err),
-                    )
-
             def _health_monitor_poll(monitor, stop_event: threading.Event, interval: float = 30.0):
                 nonlocal overseer_container_id, overseer_respawn_count
                 while not stop_event.is_set():
                     try:
-                        actions = monitor.check_tripwires()
-                        for action in actions:
-                            if action.get("action") == "nudge":
-                                _send_nudge_message(action, pipeline_id)
+                        # Tier 1 no longer sends nudges directly — it raises
+                        # alerts and fires escalation callbacks internally.
+                        # The overseer (Tier 2) decides whether to nudge.
+                        monitor.check_tripwires()
                     except Exception as poll_err:
                         logger.debug(
                             "Health monitor poll error",

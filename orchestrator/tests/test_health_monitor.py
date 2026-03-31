@@ -2,13 +2,13 @@
 Tests for the deterministic health monitor (tripwire processor).
 
 Covers the five tripwire rules enforced by HealthMonitor:
-1. Heartbeat timeout - auto-nudge when no heartbeat within threshold
+1. Heartbeat timeout - escalate to overseer/HITL when no heartbeat within threshold
 2. Container exit - immediate HITL escalation
 3. Repeated identical errors - escalate after threshold
 4. Message volume spike - auto-throttle above rate limit
-5. Progress stall - nudge, then escalate if unresolved
+5. Progress stall - escalate to overseer/HITL on stall detection
 
-Related: issue #1059
+Related: issue #1059, #1447
 """
 
 import sys
@@ -161,28 +161,23 @@ def _emit_progress(
 
 
 class TestHeartbeatTimeout:
-    """Tripwire #1: heartbeat/progress timeout detection."""
+    """Tripwire #1: heartbeat timeout triggers immediate escalation."""
 
-    def test_heartbeat_timeout_triggers_nudge(self):
-        """When no heartbeat within threshold, monitor sends auto-nudge."""
+    def test_heartbeat_timeout_triggers_escalation(self):
+        """When no heartbeat within threshold, monitor escalates immediately."""
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
 
-        # Register agent so monitor tracks it
         _emit_heartbeat(bus, agent_id=AGENT_ID)
 
-        # Advance time past the threshold
         with patch("health_monitor.time") as mock_time:
-            # First heartbeat was at t=0, now we're at t=61
             mock_time.time.return_value = time.time() + 61
             actions = monitor.check_heartbeats()
 
-        # Verify a nudge action was generated
-        assert len(actions) >= 1
-        nudge_actions = [a for a in actions if a.get("action") == "nudge"]
-        assert len(nudge_actions) == 1
-        assert nudge_actions[0]["agent_id"] == AGENT_ID
+        assert len(actions) == 1
+        assert actions[0]["action"] == "escalate"
+        assert actions[0]["agent_id"] == AGENT_ID
 
     def test_heartbeat_within_threshold_no_alert(self):
         """Agent sends heartbeat just within threshold - no alert."""
@@ -190,17 +185,13 @@ class TestHeartbeatTimeout:
         config = _make_config(orchestrator_heartbeat_timeout_seconds=120)
         monitor = _make_monitor(bus, config)
 
-        # Register agent
         _emit_heartbeat(bus, agent_id=AGENT_ID)
 
-        # Check at t=119 (within threshold)
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 119
             actions = monitor.check_heartbeats()
 
-        # No nudge should be triggered
-        nudge_actions = [a for a in actions if a.get("action") == "nudge"]
-        assert len(nudge_actions) == 0
+        assert len(actions) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -342,110 +333,51 @@ class TestMessageVolumeSpike:
 
 
 class TestProgressStall:
-    """Tripwire #5: no structured progress triggers nudge, then escalation."""
+    """Tripwire #5: no structured progress triggers immediate escalation."""
 
-    def test_progress_stall_triggers_nudge(self):
-        """No progress within threshold triggers a nudge first."""
+    def test_progress_stall_triggers_escalation(self):
+        """No progress within threshold triggers immediate escalation."""
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
 
-        # Register agent with initial progress
         _emit_progress(bus, agent_id=AGENT_ID)
 
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 61
             actions = monitor.check_progress()
 
-        nudge_actions = [a for a in actions if a.get("action") == "nudge"]
-        assert len(nudge_actions) >= 1
-        assert nudge_actions[0]["agent_id"] == AGENT_ID
+        assert len(actions) == 1
+        assert actions[0]["action"] == "escalate"
+        assert actions[0]["agent_id"] == AGENT_ID
 
-    def test_progress_stall_resolved_by_nudge_no_escalation(self):
-        """After nudge, if agent resumes progress, no escalation occurs."""
+    def test_progress_stall_resolved_no_second_escalation(self):
+        """After escalation + agent recovery, no second escalation occurs."""
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
 
-        escalations = []
-        monitor.on_escalation(lambda e: escalations.append(e))
-
-        # Initial progress
         _emit_progress(bus, agent_id=AGENT_ID)
 
-        # Stall detected -> nudge
+        # First stall -> escalation
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 61
-            monitor.check_progress()
+            actions = monitor.check_progress()
+
+        assert len(actions) == 1
 
         # Agent resumes progress
         _emit_progress(bus, agent_id=AGENT_ID)
 
-        # Check again - agent is active, should not escalate
+        # Check again - agent is active, no escalation
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 30
             actions = monitor.check_progress()
 
-        # No escalation should have occurred since progress resumed
-        escalation_actions = [a for a in actions if a.get("action") == "escalate"]
-        assert len(escalation_actions) == 0
+        assert len(actions) == 0
 
-    def test_progress_stall_unresolved_escalates(self):
-        """If nudges don't resolve stall, escalate to overseer after max nudges."""
-        bus = _make_event_bus()
-        config = _make_config(
-            orchestrator_heartbeat_timeout_seconds=60,
-            overseer_enabled=True,
-        )
-        monitor = _make_monitor(bus, config)
-
-        escalations = []
-        monitor.on_escalation(lambda e: escalations.append(e))
-
-        # Initial progress
-        _emit_progress(bus, agent_id=AGENT_ID)
-
-        base = time.time()
-        with patch("health_monitor.time") as mock_time:
-            # First stall -> nudge 1
-            mock_time.time.return_value = base + 61
-            monitor.check_progress()
-
-            # Second stall (past dedup window) -> nudge 2
-            mock_time.time.return_value = base + 122
-            monitor.check_progress()
-
-            # Third stall -> escalation (nudge_count >= 2)
-            mock_time.time.return_value = base + 183
-            monitor.check_progress()
-
-        assert len(escalations) >= 1
-
-    def test_progress_nudge_deduplication(self):
-        """Progress nudge is not repeated within threshold window."""
-        bus = _make_event_bus()
-        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
-        monitor = _make_monitor(bus, config)
-
-        nudges: list[dict] = []
-        monitor.on_nudge(lambda n: nudges.append(n))
-
-        _emit_progress(bus, agent_id=AGENT_ID)
-
-        base = time.time()
-        with patch("health_monitor.time") as mock_time:
-            # First check at t=61 — should nudge
-            mock_time.time.return_value = base + 61
-            monitor.check_progress()
-
-            # Second check at t=90 (within threshold of 60 from nudge time) — should skip
-            mock_time.time.return_value = base + 90
-            monitor.check_progress()
-
-        assert len(nudges) == 1  # only one nudge, not two
-
-    def test_progress_escalates_after_max_nudges(self):
-        """After 2 unanswered nudges, progress stall escalates."""
+    def test_progress_escalation_deduplication(self):
+        """Escalation is not repeated on subsequent poll cycles."""
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
@@ -453,36 +385,54 @@ class TestProgressStall:
         escalations: list[dict] = []
         monitor.on_escalation(lambda e: escalations.append(e))
 
-        nudges: list[dict] = []
-        monitor.on_nudge(lambda n: nudges.append(n))
-
         _emit_progress(bus, agent_id=AGENT_ID)
 
         base = time.time()
         with patch("health_monitor.time") as mock_time:
-            # Nudge 1 at t=61
+            # First check at t=61 — should escalate
             mock_time.time.return_value = base + 61
-            monitor.check_progress()
+            actions1 = monitor.check_progress()
 
-            # Nudge 2 at t=122 (past dedup window)
-            mock_time.time.return_value = base + 122
-            monitor.check_progress()
-
-            # Escalation at t=183
-            mock_time.time.return_value = base + 183
-            actions = monitor.check_progress()
-
-            # 4th check at t=244 — should NOT re-escalate
-            mock_time.time.return_value = base + 244
+            # Second check at t=90 — should NOT re-escalate
+            mock_time.time.return_value = base + 90
             actions2 = monitor.check_progress()
 
-        assert len(nudges) == 2
+            # Third check at t=200 — still should NOT re-escalate
+            mock_time.time.return_value = base + 200
+            actions3 = monitor.check_progress()
+
+        assert len(actions1) == 1
+        assert len(actions2) == 0
+        assert len(actions3) == 0
         assert len(escalations) == 1
-        escalate_actions = [a for a in actions if a.get("action") == "escalate"]
-        assert len(escalate_actions) == 1
-        # No second escalation
-        escalate_actions2 = [a for a in actions2 if a.get("action") == "escalate"]
-        assert len(escalate_actions2) == 0
+
+    def test_progress_re_escalates_after_recovery(self):
+        """After recovery, a second stall triggers a fresh escalation."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        _emit_progress(bus, agent_id=AGENT_ID)
+
+        # First stall -> escalation
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 61
+            monitor.check_progress()
+
+        assert len(escalations) == 1
+
+        # Agent recovers
+        _emit_progress(bus, agent_id=AGENT_ID)
+
+        # Second stall -> fresh escalation
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 61
+            monitor.check_progress()
+
+        assert len(escalations) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -662,15 +612,14 @@ class TestMultiAgentTracking:
             mock_time.time.return_value = now
 
             # Simulate agent 2 heartbeat at t=55 (within window)
-            # We need to update the tracker directly since time is mocked
             if hasattr(monitor, "_last_heartbeat"):
                 monitor._last_heartbeat[AGENT_ID_2] = now - 10
 
             actions = monitor.check_heartbeats()
 
-        nudged_agents = {a["agent_id"] for a in actions if a.get("action") == "nudge"}
-        assert AGENT_ID in nudged_agents
-        assert AGENT_ID_2 not in nudged_agents
+        escalated_agents = {a["agent_id"] for a in actions if a.get("action") == "escalate"}
+        assert AGENT_ID in escalated_agents
+        assert AGENT_ID_2 not in escalated_agents
 
     def test_message_rate_per_agent(self):
         """Message rate limit is tracked per agent."""
@@ -696,103 +645,15 @@ class TestMultiAgentTracking:
 
 
 # ---------------------------------------------------------------------------
-# Tests: Nudge callbacks (#1428)
+# Tests: Escalation on stall (#1447 — replaces nudge callbacks from #1428)
 # ---------------------------------------------------------------------------
 
 
-class TestNudgeCallbacks:
-    """Verify nudge callbacks fire for heartbeat and progress stalls."""
+class TestEscalationOnStall:
+    """Verify stall detection escalates immediately without nudging."""
 
-    def test_heartbeat_timeout_fires_nudge_callback(self):
-        """Nudge callback fires on heartbeat timeout."""
-        bus = _make_event_bus()
-        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
-        monitor = _make_monitor(bus, config)
-
-        nudges: list[dict] = []
-        monitor.on_nudge(lambda n: nudges.append(n))
-
-        _emit_heartbeat(bus, agent_id=AGENT_ID)
-
-        with patch("health_monitor.time") as mock_time:
-            mock_time.time.return_value = time.time() + 61
-            monitor.check_heartbeats()
-
-        assert len(nudges) == 1
-        assert nudges[0]["agent_id"] == AGENT_ID
-        assert nudges[0]["action"] == "nudge"
-
-    def test_progress_stall_fires_nudge_callback(self):
-        """Nudge callback fires on first progress stall."""
-        bus = _make_event_bus()
-        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
-        monitor = _make_monitor(bus, config)
-
-        nudges: list[dict] = []
-        monitor.on_nudge(lambda n: nudges.append(n))
-
-        _emit_progress(bus, agent_id=AGENT_ID)
-
-        with patch("health_monitor.time") as mock_time:
-            mock_time.time.return_value = time.time() + 61
-            monitor.check_progress()
-
-        assert len(nudges) == 1
-        assert nudges[0]["agent_id"] == AGENT_ID
-
-    def test_heartbeat_nudge_deduplication(self):
-        """Heartbeat nudge is not repeated within threshold window."""
-        bus = _make_event_bus()
-        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
-        monitor = _make_monitor(bus, config)
-
-        nudges: list[dict] = []
-        monitor.on_nudge(lambda n: nudges.append(n))
-
-        _emit_heartbeat(bus, agent_id=AGENT_ID)
-
-        base = time.time()
-        with patch("health_monitor.time") as mock_time:
-            # First check at t=61 — should nudge
-            mock_time.time.return_value = base + 61
-            monitor.check_heartbeats()
-
-            # Second check at t=90 (within threshold of 60 from nudge time) — should skip
-            mock_time.time.return_value = base + 90
-            monitor.check_heartbeats()
-
-        assert len(nudges) == 1  # only one nudge, not two
-
-    def test_heartbeat_nudge_resets_on_heartbeat(self):
-        """After heartbeat, nudge state resets so next stall gets fresh nudge."""
-        bus = _make_event_bus()
-        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
-        monitor = _make_monitor(bus, config)
-
-        nudges: list[dict] = []
-        monitor.on_nudge(lambda n: nudges.append(n))
-
-        _emit_heartbeat(bus, agent_id=AGENT_ID)
-
-        base = time.time()
-        with patch("health_monitor.time") as mock_time:
-            # First stall at t=61
-            mock_time.time.return_value = base + 61
-            monitor.check_heartbeats()
-            assert len(nudges) == 1
-
-        # Agent recovers with a heartbeat
-        _emit_heartbeat(bus, agent_id=AGENT_ID)
-
-        with patch("health_monitor.time") as mock_time:
-            # Second stall at t=200
-            mock_time.time.return_value = time.time() + 61
-            monitor.check_heartbeats()
-
-        assert len(nudges) == 2  # fresh nudge after recovery
-
-    def test_heartbeat_escalates_after_max_nudges(self):
-        """After 2 unanswered nudges, heartbeat stall escalates."""
+    def test_heartbeat_timeout_fires_escalation_callback(self):
+        """Escalation callback fires on heartbeat timeout."""
         bus = _make_event_bus()
         config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
         monitor = _make_monitor(bus, config)
@@ -800,36 +661,91 @@ class TestNudgeCallbacks:
         escalations: list[dict] = []
         monitor.on_escalation(lambda e: escalations.append(e))
 
-        nudges: list[dict] = []
-        monitor.on_nudge(lambda n: nudges.append(n))
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 61
+            monitor.check_heartbeats()
+
+        assert len(escalations) == 1
+        assert escalations[0]["agent_id"] == AGENT_ID
+
+    def test_progress_stall_fires_escalation_callback(self):
+        """Escalation callback fires on first progress stall."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        _emit_progress(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 61
+            monitor.check_progress()
+
+        assert len(escalations) == 1
+        assert escalations[0]["agent_id"] == AGENT_ID
+
+    def test_heartbeat_no_re_escalation_on_subsequent_cycles(self):
+        """Subsequent poll cycles do not re-escalate the same stall."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
 
         base = time.time()
         with patch("health_monitor.time") as mock_time:
-            # Nudge 1 at t=61
             mock_time.time.return_value = base + 61
             monitor.check_heartbeats()
 
-            # Nudge 2 at t=122 (past dedup window)
-            mock_time.time.return_value = base + 122
+            mock_time.time.return_value = base + 90
             monitor.check_heartbeats()
 
-            # Escalation at t=183
-            mock_time.time.return_value = base + 183
-            actions = monitor.check_heartbeats()
+            mock_time.time.return_value = base + 200
+            monitor.check_heartbeats()
 
-            # 4th check at t=244 — should NOT re-escalate
-            mock_time.time.return_value = base + 244
-            actions2 = monitor.check_heartbeats()
-
-        assert len(nudges) == 2
         assert len(escalations) == 1
-        escalate_actions = [a for a in actions if a.get("action") == "escalate"]
-        assert len(escalate_actions) == 1
-        # No second escalation
-        escalate_actions2 = [a for a in actions2 if a.get("action") == "escalate"]
-        assert len(escalate_actions2) == 0
+
+    def test_heartbeat_escalation_resets_on_heartbeat(self):
+        """After heartbeat recovery, a new stall triggers fresh escalation."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        # First stall
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 61
+            monitor.check_heartbeats()
+
+        assert len(escalations) == 1
+
+        # Agent recovers
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        # Second stall
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 61
+            monitor.check_heartbeats()
+
+        assert len(escalations) == 2
+
+    def test_no_nudge_callbacks_exist(self):
+        """HealthMonitor no longer has on_nudge — Tier 1 never nudges."""
+        bus = _make_event_bus()
+        monitor = _make_monitor(bus)
+
+        assert not hasattr(monitor, "on_nudge")
 
 
 # ---------------------------------------------------------------------------
