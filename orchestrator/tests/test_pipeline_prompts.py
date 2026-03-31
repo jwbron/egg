@@ -1836,9 +1836,7 @@ class TestTesterCheckCoverageValidation:
                     "attestation": {"checks_run": ["test"]},  # missing "lint"
                 },
             }
-            response, status_code = handle_consensus_propose_signal(
-                "pid-1", data, Path("/tmp")
-            )
+            response, status_code = handle_consensus_propose_signal("pid-1", data, Path("/tmp"))
             # Should be rejected
             assert status_code == 400
             # Tracker.handle_propose must NOT have been called
