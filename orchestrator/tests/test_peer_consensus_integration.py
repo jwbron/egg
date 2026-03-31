@@ -78,7 +78,7 @@ class TestHappyPath:
                 "attestation": {
                     "tests_written": 5,
                     "tests_run": 5,
-                    "checks_run": ["test"],
+                    "checks_passed": ["test"],
                     "coverage_delta": "+10%",
                     "edge_cases": ["null input"],
                     "concern_considered": "None",
@@ -450,32 +450,32 @@ class TestAttestationSchemas:
                 is_producer=True,
             )
 
-    def test_tester_strict_rejects_empty_checks_run(self):
-        """Tester attestation in strict mode requires checks_run to be populated (#1459)."""
+    def test_tester_strict_rejects_empty_checks_passed(self):
+        """Tester attestation in strict mode requires checks_passed to be populated (#1459, #1467)."""
         from attestation_schemas import AttestationStrictness, validate_attestation
 
-        with pytest.raises(ValueError, match="checks_run"):
+        with pytest.raises(ValueError, match="checks_passed"):
             validate_attestation(
                 "tester",
-                {"tests_run": 5, "checks_run": []},
+                {"tests_run": 5, "checks_passed": []},
                 AttestationStrictness.STRICT,
                 is_producer=True,
             )
 
-    def test_tester_strict_accepts_populated_checks_run(self):
-        """Tester attestation passes with checks_run populated (#1459)."""
+    def test_tester_strict_accepts_populated_checks_passed(self):
+        """Tester attestation passes with checks_passed populated (#1459, #1467)."""
         from attestation_schemas import AttestationStrictness, validate_attestation
 
         # Should not raise
         validate_attestation(
             "tester",
-            {"tests_run": 5, "checks_run": ["lint", "test"]},
+            {"tests_run": 5, "checks_passed": ["lint", "test"]},
             AttestationStrictness.STRICT,
             is_producer=True,
         )
 
-    def test_tester_relaxed_allows_empty_checks_run(self):
-        """Relaxed mode does not require checks_run."""
+    def test_tester_relaxed_allows_empty_checks_passed(self):
+        """Relaxed mode does not require checks_passed."""
         from attestation_schemas import AttestationStrictness, validate_attestation
 
         # Should not raise
@@ -530,7 +530,7 @@ class TestScaledReEvaluation:
             {
                 "summary": "tests v1",
                 "artifacts": ["tests/test_auth.py"],
-                "attestation": {"tests_run": 5, "checks_run": ["test"]},
+                "attestation": {"tests_run": 5, "checks_passed": ["test"]},
             },
         )
 
@@ -596,7 +596,7 @@ class TestScaledReEvaluation:
             {
                 "summary": "tests v1",
                 "artifacts": ["tests/test_auth.py"],
-                "attestation": {"tests_run": 5, "checks_run": ["test"]},
+                "attestation": {"tests_run": 5, "checks_passed": ["test"]},
             },
         )
 
@@ -1460,7 +1460,7 @@ class TestSoleReviewerCrashIncludesBlockingProducers:
             {
                 "summary": "v1",
                 "artifacts": ["test_a.py"],
-                "attestation": {"tests_run": 3, "checks_run": ["test"]},
+                "attestation": {"tests_run": 3, "checks_passed": ["test"]},
             },
         )
 
@@ -1560,7 +1560,7 @@ class TestReconstructTrackerFromMessages:
                         "attestation": {
                             "tests_written": 1,
                             "tests_run": 1,
-                            "checks_run": ["test"],
+                            "checks_passed": ["test"],
                             "coverage_delta": "+1%",
                             "edge_cases": [],
                             "concern_considered": "none",
