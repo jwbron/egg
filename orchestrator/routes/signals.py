@@ -848,7 +848,10 @@ def handle_consensus_propose_signal(
             if pipeline.branch:
                 worktree_path = resolve_worktree_path(pipeline_id, repo_path)
                 branch_verified = _verify_commit_on_branch(
-                    commit_sha, pipeline.branch, worktree_path, pipeline_id,
+                    commit_sha,
+                    pipeline.branch,
+                    worktree_path,
+                    pipeline_id,
                 )
                 if branch_verified is False:
                     return make_error_response(
@@ -1116,9 +1119,7 @@ def handle_consensus_withdraw_signal(
         return make_error_response(str(e), 400 if isinstance(e, ValueError) else 500)
 
 
-def _write_consensus_confirmed_marker(
-    pipeline_id: str, agent_role: str, repo_path: Path
-) -> None:
+def _write_consensus_confirmed_marker(pipeline_id: str, agent_role: str, repo_path: Path) -> None:
     """Write a marker file so auto-commit skips push after BRC confirmation (#1473)."""
     try:
         worktree_path = resolve_worktree_path(pipeline_id, repo_path)
