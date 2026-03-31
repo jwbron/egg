@@ -1784,6 +1784,66 @@ class TestTesterCheckCoverageValidation:
             # Should not raise — graceful degradation
             _validate_tester_check_coverage("pid-1", payload)
 
+    def test_tests_execution_blocked_skips_validation(self):
+        """When tests_execution_blocked is set, signal validation is skipped (#1459)."""
+        from routes.signals import _validate_tester_check_coverage
+
+        mock_mod, _ = self._setup_pipeline_mock()
+        configured = [
+            {"name": "lint", "command": "make lint"},
+            {"name": "test", "command": "make test"},
+        ]
+
+        with (
+            patch.dict("sys.modules", {"pipeline_state": mock_mod}),
+            patch("config.repo_config.get_repo_checks", return_value=configured),
+        ):
+            payload = {
+                "attestation": {
+                    "tests_execution_blocked": True,
+                    "checks_run": ["test"],  # partial — would normally fail
+                },
+            }
+            # Should not raise — blocked tester is exempt
+            _validate_tester_check_coverage("pid-1", payload)
+
+    def test_rejected_proposal_does_not_mutate_tracker(self):
+        """Integration: rejected tester proposal must not leave tracker in mutated state (#1459)."""
+        from flask import Flask
+        from routes.signals import handle_consensus_propose_signal
+
+        mock_mod, _ = self._setup_pipeline_mock()
+        configured = [
+            {"name": "lint", "command": "make lint"},
+            {"name": "test", "command": "make test"},
+        ]
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose = MagicMock(return_value={"version": 1})
+
+        app = Flask(__name__)
+        with (
+            app.app_context(),
+            patch.dict("sys.modules", {"pipeline_state": mock_mod}),
+            patch("config.repo_config.get_repo_checks", return_value=configured),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+        ):
+            data = {
+                "agent_role": "tester",
+                "payload": {
+                    "summary": "tests v1",
+                    "artifacts": ["tests/test_a.py"],
+                    "attestation": {"checks_run": ["test"]},  # missing "lint"
+                },
+            }
+            response, status_code = handle_consensus_propose_signal(
+                "pid-1", data, Path("/tmp")
+            )
+            # Should be rejected
+            assert status_code == 400
+            # Tracker.handle_propose must NOT have been called
+            mock_tracker.handle_propose.assert_not_called()
+
 
 class TestReadTesterGapsNamespacedEdgeCases:
     """Additional edge-case tests for _read_tester_gaps with identifier."""

@@ -760,6 +760,12 @@ def _validate_tester_check_coverage(pipeline_id: str, payload: dict[str, Any]) -
     recorded (issue #1459).
     """
     attestation = payload.get("attestation", {})
+
+    # Skip validation when tests were blocked — mirrors attestation-level
+    # behaviour in attestation_schemas.py (issue #1459).
+    if attestation.get("tests_execution_blocked"):
+        return
+
     checks_run = {name.lower() for name in attestation.get("checks_run", [])}
     if not checks_run:
         # Empty checks_run is already caught by strict attestation validation,
@@ -791,7 +797,7 @@ def _validate_tester_check_coverage(pipeline_id: str, payload: dict[str, Any]) -
 
     try:
         configured_checks = get_repo_checks(repo)
-    except FileNotFoundError:
+    except Exception:
         return
 
     if not configured_checks:
@@ -832,16 +838,18 @@ def handle_consensus_propose_signal(
         return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
 
     try:
+        # Validate tester proposals cover all configured repo checks (#1459).
+        # Must run BEFORE handle_propose to avoid mutating tracker state on
+        # rejected proposals.
+        if agent_role == "tester":
+            _validate_tester_check_coverage(pipeline_id, payload)
+
         # Check if this is a re-proposal
         changed_artifacts = data.get("changed_artifacts")
         if changed_artifacts:
             result = tracker.handle_re_propose(agent_role, payload, changed_artifacts)
         else:
             result = tracker.handle_propose(agent_role, payload)
-
-        # Validate tester proposals cover all configured repo checks (#1459).
-        if agent_role == "tester":
-            _validate_tester_check_coverage(pipeline_id, payload)
 
         # Write consensus message to message bus
         from message_store import Message, MessageType, get_message_store
