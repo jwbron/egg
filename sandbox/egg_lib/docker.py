@@ -529,6 +529,16 @@ def create_dockerfile() -> None:
     if not quiet:
         info("Claude credentials will be mounted from host at runtime (see setup output above)")
 
+    # Copy overseer_monitor.py from script directory
+    # Referenced at /opt/egg-runtime/sandbox/overseer_monitor.py by the overseer agent
+    overseer_src = script_dir / "overseer_monitor.py"
+    overseer_dest = sandbox_dest / "overseer_monitor.py"
+    if overseer_src.exists():
+        shutil.copy(overseer_src, overseer_dest)
+        overseer_dest.chmod(0o755)
+    else:
+        warn("overseer_monitor.py not found, overseer will fall back to inline monitoring")
+
     # Copy entrypoint.py from script directory
     entrypoint_src = script_dir / "entrypoint.py"
     entrypoint_dest = sandbox_dest / "entrypoint.py"
@@ -880,6 +890,7 @@ def compute_build_hash() -> str:
         script_dir / "Dockerfile",
         script_dir / "entrypoint.py",
         script_dir / "docker-setup.py",
+        script_dir / "overseer_monitor.py",
         script_dir / "pyproject.toml",
     ]
     for path in single_files:
