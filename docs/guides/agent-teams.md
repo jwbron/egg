@@ -136,10 +136,12 @@ The reasoning layer ensures agents don't just signal states — they make **stru
 | Role | Required attestation |
 |------|---------------------|
 | Coder | Commit SHAs, files changed, test pass/fail summary, one risk considered |
-| Tester | Tests written/run count, coverage delta, edge cases covered, one concern considered (see note below) |
+| Tester | Tests written/run count, coverage delta, edge cases covered, one concern considered, `checks_run` list of all configured checks executed (see notes below) |
 | Documenter | Sections updated, links verified, one concern considered |
 
 > **Tester blocked-execution attestation:** If tests could not execute (e.g., private network mode blocks dependency downloads), the Tester must set `tests_execution_blocked: true` with a `tests_execution_blocked_reason` explaining why. The orchestrator accepts this in place of a passing test count.
+
+> **Tester `checks_run` requirement:** The Tester's attestation must include a `checks_run` list naming every configured check that was executed (e.g. `["lint", "test"]`). The server validates that all checks listed in `repositories.yaml` appear in this list and rejects the proposal if any are missing. Running tests alone is not sufficient — all configured checks must be reported.
 
 **Reviewer evaluations (`CONSENSUS_ACK/NACK`):**
 
