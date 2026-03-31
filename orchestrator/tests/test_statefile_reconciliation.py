@@ -1,6 +1,7 @@
 """Tests for statefile reconciliation: _ensure_statefiles_on_branch."""
 
 import sys
+import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -19,6 +20,50 @@ sys.modules.setdefault("docker.types", MagicMock())
 
 from routes.pipelines import _ensure_statefiles_on_branch
 
+SAMPLE_PLAN = textwrap.dedent("""\
+    # Plan: Add retry logic to API client
+
+    ## Summary
+
+    Add exponential backoff retry logic to the API client for transient failures.
+
+    ## Implementation
+
+    ### Phase 1: Implement
+
+    Add retry_with_backoff() and integrate with existing request methods.
+
+    ```yaml
+    # yaml-tasks
+    pr:
+      title: "Add retry logic to API client"
+      description: |
+        Adds exponential backoff retry for transient HTTP errors.
+    phases:
+      - id: 1
+        name: Implement
+        goal: Add retry logic to the API client
+        tasks:
+          - id: TASK-1-1
+            description: "Add retry_with_backoff() function to api_client.py"
+            acceptance: "Function retries up to 3 times with exponential backoff"
+            files:
+              - src/api_client.py
+    ```
+""")
+
+SAMPLE_ANALYSIS = textwrap.dedent("""\
+    # Analysis: API Client Reliability
+
+    ## Problem
+
+    The API client does not retry on transient failures, causing unnecessary errors.
+
+    ## Recommendation
+
+    Add exponential backoff retry logic with configurable max attempts.
+""")
+
 
 def _make_pipeline(
     pipeline_id: str = "pipe-1",
@@ -26,6 +71,9 @@ def _make_pipeline(
     repo: str = "owner/repo",
     prompt: str = "test prompt",
     mode: str | None = None,
+    branch: str | None = None,
+    plan: str | None = None,
+    analysis: str | None = None,
 ) -> MagicMock:
     """Create a mock Pipeline object."""
     pipeline = MagicMock()
@@ -34,6 +82,9 @@ def _make_pipeline(
     pipeline.repo = repo
     pipeline.prompt = prompt
     pipeline.mode = mode
+    pipeline.branch = branch
+    pipeline.plan = plan
+    pipeline.analysis = analysis
     return pipeline
 
 
@@ -142,3 +193,119 @@ class TestEnsureStatefilesOnBranch:
             result = _ensure_statefiles_on_branch(tmp_path, pipeline)
 
         assert result is False
+
+
+class TestEnsureStatefilesFallbackToPipelineModel:
+    """_ensure_statefiles_on_branch falls back to pipeline.plan/analysis fields.
+
+    When the plan draft cannot be restored from the remote branch (e.g.,
+    it was never pushed in the first place), the function should write
+    the plan content from the Pipeline model to disk before populating
+    the contract.
+
+    See: https://github.com/jwbron/egg/issues/1460
+    """
+
+    def test_falls_back_to_pipeline_plan_when_remote_fails(self, tmp_path: Path):
+        """Pipeline.plan is written to disk when git show fails."""
+        from routes.pipelines import _build_pr_body
+
+        pipeline = _make_pipeline(
+            pipeline_id="pipe-fallback",
+            issue_number=None,
+            branch="egg/pipe-fallback",
+            plan=SAMPLE_PLAN,
+        )
+
+        def failing_subprocess_run(cmd, **kwargs):
+            result = MagicMock()
+            if "show" in cmd:
+                result.returncode = 128
+                result.stdout = ""
+                return result
+            result.returncode = 0
+            result.stdout = ""
+            return result
+
+        with (
+            patch("routes.pipelines._commit_statefiles_to_worktree"),
+            patch("routes.pipelines.subprocess.run", side_effect=failing_subprocess_run),
+        ):
+            result = _ensure_statefiles_on_branch(tmp_path, pipeline)
+
+        assert result is True
+
+        # Verify plan draft was written from pipeline model
+        plan_path = tmp_path / ".egg-state" / "drafts" / "pipe-fallback-plan.md"
+        assert plan_path.exists()
+        assert plan_path.read_text() == SAMPLE_PLAN
+
+        # Verify contract has PR metadata from the plan
+        title, body = _build_pr_body(pipeline, tmp_path)
+        assert title == "Add retry logic to API client"
+        assert "exponential backoff" in body
+
+    def test_falls_back_to_pipeline_analysis_when_remote_fails(self, tmp_path: Path):
+        """Pipeline.analysis is written to disk when git show fails."""
+        pipeline = _make_pipeline(
+            pipeline_id="pipe-analysis",
+            issue_number=None,
+            branch="egg/pipe-analysis",
+            analysis=SAMPLE_ANALYSIS,
+        )
+
+        def failing_subprocess_run(cmd, **kwargs):
+            result = MagicMock()
+            if "show" in cmd:
+                result.returncode = 128
+                result.stdout = ""
+                return result
+            result.returncode = 0
+            result.stdout = ""
+            return result
+
+        with (
+            patch("routes.pipelines._commit_statefiles_to_worktree"),
+            patch("routes.pipelines.subprocess.run", side_effect=failing_subprocess_run),
+        ):
+            result = _ensure_statefiles_on_branch(tmp_path, pipeline)
+
+        assert result is True
+
+        # Verify analysis draft was written from pipeline model
+        analysis_path = tmp_path / ".egg-state" / "drafts" / "pipe-analysis-analysis.md"
+        assert analysis_path.exists()
+        assert analysis_path.read_text() == SAMPLE_ANALYSIS
+
+    def test_no_fallback_when_pipeline_fields_empty(self, tmp_path: Path):
+        """No drafts written when pipeline has no plan/analysis fields."""
+        pipeline = _make_pipeline(
+            pipeline_id="pipe-empty",
+            issue_number=None,
+            branch="egg/pipe-empty",
+            plan=None,
+            analysis=None,
+        )
+
+        def failing_subprocess_run(cmd, **kwargs):
+            result = MagicMock()
+            if "show" in cmd:
+                result.returncode = 128
+                result.stdout = ""
+                return result
+            result.returncode = 0
+            result.stdout = ""
+            return result
+
+        with (
+            patch("routes.pipelines._commit_statefiles_to_worktree"),
+            patch("routes.pipelines.subprocess.run", side_effect=failing_subprocess_run),
+        ):
+            result = _ensure_statefiles_on_branch(tmp_path, pipeline)
+
+        assert result is True
+
+        # No draft files should exist
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        if drafts_dir.exists():
+            assert list(drafts_dir.iterdir()) == []

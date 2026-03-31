@@ -2641,6 +2641,30 @@ def _ensure_statefiles_on_branch(
                         error=str(e),
                     )
 
+        # Final fallback: write plan/analysis from pipeline model if still
+        # missing after remote restoration attempt.  This handles the case
+        # where the draft was never pushed to the remote (#1460).
+        for draft_phase, field_value in [("plan", pipeline.plan), ("refine", pipeline.analysis)]:
+            if not field_value:
+                continue
+            draft_rel = _get_draft_path(
+                draft_phase,
+                issue_number=pipeline.issue_number,
+                pipeline_id=pipeline.id,
+            )
+            if not draft_rel:
+                continue
+            draft_path = worktree_repo_path / draft_rel
+            if draft_path.exists():
+                continue
+            draft_path.parent.mkdir(parents=True, exist_ok=True)
+            draft_path.write_text(field_value, encoding="utf-8")
+            logger.info(
+                "Restored draft from pipeline model (remote unavailable)",
+                pipeline_id=pipeline.id,
+                draft_path=draft_rel,
+            )
+
         # Re-populate tasks and PR metadata from plan draft if available.
         # Without this, recreated contracts lose the planner-generated PR
         # title/description and fall back to the generic pipeline ID title.
