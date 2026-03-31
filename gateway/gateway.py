@@ -703,7 +703,11 @@ def _execute_filtered_push(
             # Restore and bail
             subprocess.run(
                 git_cmd("reset", "--hard", original_head),
-                cwd=exec_path, capture_output=True, text=True, timeout=10, check=False,
+                cwd=exec_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
             )
             return False, "", f"Soft reset failed: {reset_result.stderr}"
 
@@ -736,7 +740,11 @@ def _execute_filtered_push(
             # Nothing staged after filtering (all files were blocked)
             subprocess.run(
                 git_cmd("reset", "--hard", original_head),
-                cwd=exec_path, capture_output=True, text=True, timeout=10, check=False,
+                cwd=exec_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
             )
             return False, "", f"Filtered commit failed: {commit_result.stderr}"
 
@@ -755,7 +763,11 @@ def _execute_filtered_push(
             # Push failed — restore original HEAD
             subprocess.run(
                 git_cmd("reset", "--hard", original_head),
-                cwd=exec_path, capture_output=True, text=True, timeout=10, check=False,
+                cwd=exec_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
             )
             return False, push_result.stdout, push_result.stderr
 
@@ -763,7 +775,11 @@ def _execute_filtered_push(
         # as uncommitted changes in the worktree
         subprocess.run(
             git_cmd("reset", "--hard", original_head),
-            cwd=exec_path, capture_output=True, text=True, timeout=10, check=False,
+            cwd=exec_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
         return True, push_result.stdout, push_result.stderr
 
@@ -771,7 +787,11 @@ def _execute_filtered_push(
         # Restore original HEAD on any unexpected error
         subprocess.run(
             git_cmd("reset", "--hard", original_head),
-            cwd=exec_path, capture_output=True, text=True, timeout=10, check=False,
+            cwd=exec_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
         raise
 
@@ -1303,7 +1323,9 @@ def git_push() -> tuple[Response, int] | Response:
                 timeout=10,
                 check=False,
             )
-            original_msg = msg_result.stdout.strip() if msg_result.returncode == 0 else "auto-filtered push"
+            original_msg = (
+                msg_result.stdout.strip() if msg_result.returncode == 0 else "auto-filtered push"
+            )
 
             filter_success, filter_stdout, filter_stderr = _execute_filtered_push(
                 exec_path=exec_path,

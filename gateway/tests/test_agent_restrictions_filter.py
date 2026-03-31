@@ -133,9 +133,7 @@ def _push_context(
             ),
         ),
         patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
-        patch.object(
-            gateway, "get_changed_files_in_push", return_value=(changed_files, None)
-        ),
+        patch.object(gateway, "get_changed_files_in_push", return_value=(changed_files, None)),
         patch.object(
             gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
         ),
@@ -268,8 +266,6 @@ class TestPushFailureRestoresHead:
     def test_push_failure_returns_500(self, client):
         """Push failure after rewrite returns 500."""
         session = _make_coder_session()
-
-        call_count = {"n": 0}
 
         def run_side_effect_with_push_failure(*args, **kwargs):
             cmd = args[0] if args else kwargs.get("args", [])
