@@ -3483,7 +3483,12 @@ def _build_brc_preamble(role_value: str, phase: str, repo: str | None = None) ->
                 "Handle NACKs by fixing issues and re-proposing.",
                 "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
                 "6. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
-                "until the orchestrator stops you.\n",
+                "until the orchestrator stops you.",
+                "7. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
+                "while staying alive, you MUST act on it — failure to do so will stall "
+                "the entire pipeline. If you are a reviewer of the re-proposing producer, "
+                "re-review and ACK/NACK the new proposal. Otherwise, re-confirm via "
+                "`egg-orch consensus confirmed`. Do NOT ignore these messages.\n",
             ]
         )
 
@@ -3503,7 +3508,12 @@ def _build_brc_preamble(role_value: str, phase: str, repo: str | None = None) ->
                 "5. **CONFIRM**: When all assigned producers reviewed: "
                 "`egg-orch consensus confirmed`",
                 "6. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
-                "until the orchestrator stops you.\n",
+                "until the orchestrator stops you.",
+                "7. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
+                "while staying alive, you MUST act on it — failure to do so will stall "
+                "the entire pipeline. Re-review the re-proposing producer's new proposal "
+                "and ACK/NACK it, then re-confirm via `egg-orch consensus confirmed`. "
+                "Do NOT ignore these messages.\n",
             ]
         )
 
@@ -4323,7 +4333,11 @@ def _build_agent_prompt(
                 "done",
                 "```",
                 "4. If a message arrives that affects your work, transition back to WORKING, "
-                "address it, then signal READY again.",
+                "address it, then signal READY again. **In particular, if you receive a "
+                "`CONSENSUS_RE_REVIEW` message, you MUST re-confirm via "
+                "`egg-orch consensus confirmed` (or re-review and ACK/NACK if you are a "
+                "reviewer of the re-proposing producer). Ignoring this message will stall "
+                "the pipeline.**",
                 "5. **Do NOT exit.** The orchestrator will stop your container when consensus "
                 "is reached.",
             ]

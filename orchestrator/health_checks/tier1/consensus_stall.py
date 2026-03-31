@@ -114,7 +114,13 @@ class ConsensusStallCheck:
     # ------------------------------------------------------------------
 
     def _check_consensus_complete(self, pipeline_id: str, pipeline: Pipeline) -> bool:
-        """Return True if BRC consensus is complete (all agents confirmed)."""
+        """Return True if BRC consensus is complete (all agents confirmed).
+
+        Tries the in-memory tracker first.  If the tracker exists but says
+        consensus is incomplete, falls through to the message-based check as
+        a second opinion — the tracker's in-memory state can become stale
+        after withdraw→re-propose cycles (#1471).
+        """
         # Strategy 1: check the in-memory tracker
         try:
             from peer_consensus import get_peer_consensus_tracker
@@ -122,7 +128,15 @@ class ConsensusStallCheck:
             tracker = get_peer_consensus_tracker(pipeline_id)
             if tracker is not None:
                 result = tracker.evaluate()
-                return bool(result.get("is_complete", False))
+                if result.get("is_complete", False):
+                    return True
+                # Tracker says not complete — fall through to message check.
+                # The tracker state may be stale after re-review cycles.
+                logger.debug(
+                    "Tracker says consensus incomplete, trying message fallback",
+                    pipeline_id=pipeline_id,
+                    blocking_agents=result.get("blocking_agents", []),
+                )
         except Exception:
             logger.debug("Tracker evaluate failed", pipeline_id=pipeline_id, exc_info=True)
 
