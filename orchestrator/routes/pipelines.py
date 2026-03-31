@@ -2493,7 +2493,7 @@ def _commit_statefiles_to_worktree(
 
         rel_paths = [str(Path(f).relative_to(worktree_path)) for f in matched]
         subprocess.run(
-            [*git_base, "add", "--"] + rel_paths,
+            [*git_base, "add", "--force", "--"] + rel_paths,
             capture_output=True,
             text=True,
             check=True,
@@ -2501,7 +2501,7 @@ def _commit_statefiles_to_worktree(
         )
     else:
         subprocess.run(
-            [*git_base, "add", ".egg-state/"],
+            [*git_base, "add", "--force", ".egg-state/"],
             capture_output=True,
             text=True,
             check=True,
