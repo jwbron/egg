@@ -4064,21 +4064,24 @@ def _build_agent_prompt(
         # running all configured checks (issue #1414).
         check_verify_lines = [
             "### Check Execution Verification (CRITICAL)\n",
-            "You MUST run **every** configured check command before proposing consensus. "
-            "Running tests alone is NOT sufficient — lint, type-check, and security "
-            "checks must also pass. If you skip a check that later fails in CI, "
-            "the PR will be blocked.\n",
+            "You MUST run **every** configured check command and ensure they **pass** "
+            "before proposing consensus. Running tests alone is NOT sufficient — "
+            "lint, type-check, and security checks must also pass. If you skip a "
+            "check or propose with a failing check, the server will reject your "
+            "proposal.\n",
             "Before proposing, verify:",
             "- [ ] All configured check commands have been executed",
             "- [ ] All checks pass (or failures have been auto-fixed and re-verified)",
             "- [ ] Any auto-fix commits have been pushed",
             "",
-            "### Attestation: `checks_run` (REQUIRED)\n",
-            "When proposing consensus, your attestation MUST include a `checks_run` "
-            "list containing the **name** of every configured check you executed. "
-            "For example, if the repo has `lint` and `test` checks, your attestation "
-            'must include `"checks_run": ["lint", "test"]`. The server will '
-            "reject your proposal if any configured check name is missing from this list.",
+            "### Attestation: `checks_passed` (REQUIRED)\n",
+            "When proposing consensus, your attestation MUST include a `checks_passed` "
+            "list containing the **name** of every configured check that **passed**. "
+            "Do NOT include checks that failed — only checks with a clean exit. "
+            "For example, if the repo has `lint` and `test` checks and both pass, "
+            'your attestation must include `"checks_passed": ["lint", "test"]`. '
+            "The server will reject your proposal if any configured check is missing "
+            "from this list (i.e. did not pass).",
             "",
         ]
         lines.extend(check_verify_lines)

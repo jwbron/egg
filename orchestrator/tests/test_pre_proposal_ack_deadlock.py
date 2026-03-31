@@ -297,7 +297,7 @@ class TestPreProposalDeadlockScenario:
             "tester",
             {
                 **_minimal_proposal("Tests written"),
-                "attestation": {"tests_run": 5, "checks_run": ["test"]},
+                "attestation": {"tests_run": 5, "checks_passed": ["test"]},
             },
         )
         tracker.handle_ack("reviewer_code", "tester", _minimal_ack())
@@ -365,7 +365,10 @@ class TestPreProposalDeadlockScenario:
         # Tester proposes their own tests (producer role)
         tracker.handle_propose(
             "tester",
-            {**_minimal_proposal("Tests"), "attestation": {"tests_run": 3, "checks_run": ["test"]}},
+            {
+                **_minimal_proposal("Tests"),
+                "attestation": {"tests_run": 3, "checks_passed": ["test"]},
+            },
         )
 
         # All legitimate ACKs happen now

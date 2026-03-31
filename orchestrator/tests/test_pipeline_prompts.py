@@ -1660,8 +1660,8 @@ class TestTesterRepoChecksInjection:
             )
         assert "Check Execution Verification (CRITICAL)" in result
 
-    def test_tester_prompt_includes_checks_run_attestation_instruction(self):
-        """Tester prompt tells agent to populate checks_run in attestation (#1459)."""
+    def test_tester_prompt_includes_checks_passed_attestation_instruction(self):
+        """Tester prompt tells agent to populate checks_passed in attestation (#1459, #1467)."""
         checks = [
             {"name": "lint", "command": "make lint"},
             {"name": "test", "command": "make test"},
@@ -1676,7 +1676,7 @@ class TestTesterRepoChecksInjection:
                 issue_number=1,
                 repo="org/repo",
             )
-        assert "checks_run" in result
+        assert "checks_passed" in result
         assert "attestation" in result.lower()
 
 
@@ -1711,7 +1711,7 @@ class TestTesterCheckCoverageValidation:
             patch("config.repo_config.get_repo_checks", return_value=configured),
         ):
             payload = {
-                "attestation": {"checks_run": ["test"]},  # missing "lint"
+                "attestation": {"checks_passed": ["test"]},  # missing "lint"
             }
             with pytest.raises(ValueError, match="lint"):
                 _validate_tester_check_coverage("pid-1", payload)
@@ -1731,7 +1731,7 @@ class TestTesterCheckCoverageValidation:
             patch("config.repo_config.get_repo_checks", return_value=configured),
         ):
             payload = {
-                "attestation": {"checks_run": ["lint", "test"]},
+                "attestation": {"checks_passed": ["lint", "test"]},
             }
             # Should not raise
             _validate_tester_check_coverage("pid-1", payload)
@@ -1748,7 +1748,7 @@ class TestTesterCheckCoverageValidation:
             patch("config.repo_config.get_repo_checks", return_value=configured),
         ):
             payload = {
-                "attestation": {"checks_run": ["lint"]},
+                "attestation": {"checks_passed": ["lint"]},
             }
             # Should not raise — "Lint" matches "lint"
             _validate_tester_check_coverage("pid-1", payload)
@@ -1764,7 +1764,7 @@ class TestTesterCheckCoverageValidation:
             patch("config.repo_config.get_repo_checks", return_value=[]),
         ):
             payload = {
-                "attestation": {"checks_run": ["test"]},
+                "attestation": {"checks_passed": ["test"]},
             }
             # Should not raise
             _validate_tester_check_coverage("pid-1", payload)
@@ -1779,7 +1779,7 @@ class TestTesterCheckCoverageValidation:
 
         with patch.dict("sys.modules", {"pipeline_state": mock_mod}):
             payload = {
-                "attestation": {"checks_run": ["test"]},
+                "attestation": {"checks_passed": ["test"]},
             }
             # Should not raise — graceful degradation
             _validate_tester_check_coverage("pid-1", payload)
@@ -1801,7 +1801,7 @@ class TestTesterCheckCoverageValidation:
             payload = {
                 "attestation": {
                     "tests_execution_blocked": True,
-                    "checks_run": ["test"],  # partial — would normally fail
+                    "checks_passed": ["test"],  # partial — would normally fail
                 },
             }
             # Should not raise — blocked tester is exempt
@@ -1833,7 +1833,7 @@ class TestTesterCheckCoverageValidation:
                 "payload": {
                     "summary": "tests v1",
                     "artifacts": ["tests/test_a.py"],
-                    "attestation": {"checks_run": ["test"]},  # missing "lint"
+                    "attestation": {"checks_passed": ["test"]},  # missing "lint"
                 },
             }
             response, status_code = handle_consensus_propose_signal("pid-1", data, Path("/tmp"))
