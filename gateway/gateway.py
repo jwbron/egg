@@ -640,7 +640,12 @@ def _execute_filtered_push(
     for new branches), unstages blocked files, creates a new commit with
     only allowed files and an ``[auto-filtered]`` suffix, and pushes.
 
-    On any failure the original HEAD is restored via ``git reset --hard``.
+    On success, the local branch is left on the filtered commit (matching the
+    remote) so subsequent pushes remain fast-forward. Blocked file changes
+    from the original commit are restored to the working tree as unstaged
+    modifications.
+
+    On failure, the original HEAD is restored via ``git reset --hard``.
 
     Args:
         exec_path: Path to the git working directory.
@@ -712,7 +717,7 @@ def _execute_filtered_push(
             )
             return False, "", f"Soft reset failed: {reset_result.stderr}"
 
-        # Unstage blocked files (they remain as uncommitted changes)
+        # Unstage blocked files so they are excluded from the filtered commit
         unstage_result = subprocess.run(
             git_cmd("reset", "HEAD", "--", *blocked_files),
             cwd=exec_path,
@@ -730,7 +735,7 @@ def _execute_filtered_push(
         # Create filtered commit with original message + suffix
         filtered_msg = f"{original_msg} [auto-filtered]"
         commit_result = subprocess.run(
-            git_cmd("commit", "-m", filtered_msg, "--allow-empty"),
+            git_cmd("commit", "-m", filtered_msg),
             cwd=exec_path,
             capture_output=True,
             text=True,
@@ -772,10 +777,29 @@ def _execute_filtered_push(
             )
             return False, push_result.stdout, push_result.stderr
 
-        # Push succeeded — restore original HEAD so blocked files remain
-        # as uncommitted changes in the worktree
+        # Push succeeded — local branch is now on the filtered commit,
+        # which matches the remote. Restore blocked file changes from the
+        # original commit as unstaged working-tree modifications so the
+        # agent still sees them locally but subsequent pushes stay
+        # fast-forward with the remote.
+        for blocked_file in blocked_files:
+            # Restore blocked file content from the original commit.
+            # For files that were added, this puts them back in the
+            # working tree. For modifications, this restores the
+            # original version. Deleted files are handled by checkout
+            # failing (the file didn't exist), which is fine.
+            subprocess.run(
+                git_cmd("checkout", original_head, "--", blocked_file),
+                cwd=exec_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        # Unstage any restored blocked files so they appear as
+        # working-tree changes, not staged changes.
         subprocess.run(
-            git_cmd("reset", "--hard", original_head),
+            git_cmd("reset", "HEAD", "--", *blocked_files),
             cwd=exec_path,
             capture_output=True,
             text=True,
@@ -1062,6 +1086,7 @@ def git_push() -> tuple[Response, int] | Response:
     # Default: enforce with auto-filter (rewrites push to exclude disallowed files).
     # Set EGG_AGENT_RESTRICTIONS_ENFORCE=false to use warn-only mode.
     agent_filter_blocked_files: list[str] | None = None
+    agent_filter_allowed_files: list[str] | None = None
     if session_role and changed_files and not is_infrastructure_push:
         agent_result = check_agent_restrictions(session_role, changed_files)
         if not agent_result.allowed:
@@ -1104,6 +1129,7 @@ def git_push() -> tuple[Response, int] | Response:
 
                 # Some files allowed, some blocked — flag for filtered push later
                 agent_filter_blocked_files = blocked_files
+                agent_filter_allowed_files = allowed_files
                 audit_log(
                     "push_auto_filtering",
                     "git_push",
@@ -1315,15 +1341,29 @@ def git_push() -> tuple[Response, int] | Response:
 
         # If auto-filtering is needed, use the filtered push path
         if agent_filter_blocked_files:
-            # Get original commit message for the filtered commit
-            msg_result = subprocess.run(
-                git_cmd("log", "-1", "--format=%B"),
-                cwd=exec_path,
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
+            # Get original commit messages for the filtered commit.
+            # For multi-commit pushes (squashed into one filtered commit),
+            # concatenate all messages so none are lost.
+            is_new_branch = old_ref_sha is None or old_ref_sha == "0" * 40
+            if not is_new_branch and old_ref_sha:
+                msg_result = subprocess.run(
+                    git_cmd("log", f"{old_ref_sha}..HEAD", "--format=%B", "--reverse"),
+                    cwd=exec_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+            else:
+                # New branch — just use the latest commit message
+                msg_result = subprocess.run(
+                    git_cmd("log", "-1", "--format=%B"),
+                    cwd=exec_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
             original_msg = (
                 msg_result.stdout.strip() if msg_result.returncode == 0 else "auto-filtered push"
             )
@@ -1339,9 +1379,7 @@ def git_push() -> tuple[Response, int] | Response:
             )
 
             if filter_success:
-                assert session_role is not None  # set before agent_filter_blocked_files
-                assert changed_files is not None  # set before agent_filter_blocked_files
-                allowed_files, _ = filter_agent_files(session_role, changed_files)
+                assert agent_filter_allowed_files is not None  # set alongside blocked_files
                 audit_log(
                     "push_auto_filtered_success",
                     "git_push",
@@ -1350,7 +1388,7 @@ def git_push() -> tuple[Response, int] | Response:
                         "repo": repo,
                         "branch": branch,
                         "role": session_role,
-                        "pushed_files": allowed_files,
+                        "pushed_files": agent_filter_allowed_files,
                         "excluded_files": agent_filter_blocked_files,
                     },
                 )
@@ -1411,7 +1449,7 @@ def git_push() -> tuple[Response, int] | Response:
                         "auth_mode": auth_mode,
                         "filtered": True,
                         "excluded_files": agent_filter_blocked_files,
-                        "pushed_files": allowed_files,
+                        "pushed_files": agent_filter_allowed_files,
                     },
                 )
             else:

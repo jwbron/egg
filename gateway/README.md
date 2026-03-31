@@ -102,7 +102,7 @@ When an agent pushes commits that include files outside its role's allowed set, 
 1. The push handler detects files that violate the agent's role restrictions (e.g., a coder pushing test files)
 2. Instead of returning HTTP 403, the gateway rewrites the commit to exclude blocked files
 3. It soft-resets to the remote tip, unstages blocked files, creates a new `[auto-filtered]` commit with only allowed files, and pushes that
-4. After push (success or failure), the original HEAD is restored so blocked files remain as uncommitted changes in the agent's worktree
+4. After a successful push, the local branch stays on the filtered commit (matching the remote) so subsequent pushes remain fast-forward. Blocked file changes are restored to the working tree as unstaged modifications
 5. The response includes lists of `pushed_files` and `excluded_files` so the agent knows what happened
 
 **Three outcomes:**

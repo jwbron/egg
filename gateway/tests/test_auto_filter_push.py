@@ -673,8 +673,8 @@ class TestExecuteFilteredPush:
             assert success is False
             assert "merge-base" in stderr.lower()
 
-    def test_push_success_restores_original_head(self):
-        """After successful push, original HEAD is restored (blocked files remain)."""
+    def test_push_success_restores_blocked_files_to_worktree(self):
+        """After successful push, blocked files are restored to the working tree."""
         calls = []
 
         def side_effect(*args, **kwargs):
@@ -699,9 +699,14 @@ class TestExecuteFilteredPush:
             )
 
         assert success is True
-        # After push succeeds, there should be a reset --hard to restore HEAD
+        # After push succeeds, blocked files should be checked out from the
+        # original commit (restored to the working tree) and then unstaged.
+        checkout_calls = [c for c in calls if "checkout" in c and "deadbeef1234" in c]
+        assert len(checkout_calls) >= 1
+        # Should NOT do a hard reset to original HEAD (which would diverge
+        # local and remote branches)
         reset_hard_calls = [c for c in calls if "reset" in c and "--hard" in c]
-        assert len(reset_hard_calls) >= 1
+        assert len(reset_hard_calls) == 0
 
 
 class TestAutoFilterPushFailureHandling:
