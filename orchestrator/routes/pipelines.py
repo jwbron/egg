@@ -2535,8 +2535,7 @@ def _ensure_statefiles_on_branch(
     """Verify the contract file exists in the worktree and re-create if missing.
 
     This is a safety net for short-flow pipelines where the initial contract
-    push may have failed silently (``contract_synced`` set True despite push
-    failure) or where subsequent pushes diverged.
+    push may have failed or where subsequent pushes diverged.
 
     Returns True if the contract exists (or was successfully restored),
     False if restoration failed.
@@ -6002,15 +6001,33 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Push contract statefiles to remote so agents see them.
                 # This MUST succeed before agents start — otherwise agents'
                 # diffs will include .egg-state/ files they can't push (#1431).
-                push_succeeded = True
-                if pipeline.branch and worktree_repo_path != repo_path:
+                push_succeeded = False
+                # For prompt-driven pipelines, pipeline.branch is None at this
+                # point — the branch name is only persisted later when the
+                # agent container is spawned (line ~6279).  Derive it here so
+                # the push actually happens.  The worktree was already created
+                # on this branch by the gateway.
+                push_branch = pipeline.branch or f"egg/{pipeline_id}/work"
+                if not pipeline.branch:
+                    pipeline.branch = push_branch
+                    with get_pipeline_state_lock(pipeline_id):
+                        p = store.load_pipeline(pipeline_id)
+                        if not p.branch:
+                            p.branch = push_branch
+                            store.save_pipeline(p)
+                            logger.info(
+                                "Recorded generated branch on pipeline (pre-push)",
+                                pipeline_id=pipeline_id,
+                                branch=push_branch,
+                            )
+                if worktree_repo_path != repo_path:
                     push_err_msg = ""
                     for attempt in range(2):
                         try:
                             push_succeeded = spawner.gateway.push_worktree_branch(
                                 pipeline_id=pipeline_id,
                                 repo_path=str(worktree_repo_path),
-                                branch=pipeline.branch,
+                                branch=push_branch,
                                 mode=gateway_mode,
                             )
                             if push_succeeded:
@@ -6042,16 +6059,17 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             )
                             store.save_pipeline(pipeline)
                         return
+                else:
+                    logger.warning(
+                        "Skipped contract init push — worktree path equals repo path",
+                        pipeline_id=pipeline_id,
+                        worktree_repo_path=str(worktree_repo_path),
+                        repo_path=str(repo_path),
+                    )
 
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
                     pipeline.contract_synced = push_succeeded
-                    if push_succeeded:
-                        # Clear analysis/plan from pipeline state now that they've
-                        # been written to draft files and pushed — avoids re-serializing
-                        # potentially large text blobs on every subsequent save.
-                        pipeline.analysis = None
-                        pipeline.plan = None
                     store.save_pipeline(pipeline, commit=False)
                 logger.info(
                     "Pipeline contract created in worktree",
