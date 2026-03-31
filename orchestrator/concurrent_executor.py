@@ -5,6 +5,7 @@ Monitors agent health, collects completion signals, and manages
 consensus-based phase completion.
 """
 
+import json
 import sys
 import threading
 from collections.abc import Callable
@@ -135,6 +136,26 @@ class ConcurrentPhaseExecutor:
                 ",reviewer" if env.get("EGG_BRC_ROLE_TYPE") else "reviewer"
             )
             env["EGG_BRC_PRODUCERS"] = ",".join(graph.producers_for(role.value))
+
+        # Surface file boundaries so agents know their restrictions before
+        # attempting to push (#1431).
+        try:
+            from egg_contracts.agent_roles import get_role_definition
+
+            role_def = get_role_definition(role.value)
+            if role_def and role_def.file_access:
+                fa = role_def.file_access
+                if fa.allowed_write or fa.blocked_write:
+                    env["EGG_AGENT_FILE_PATTERNS"] = json.dumps(
+                        {
+                            "allowed": fa.allowed_write,
+                            "blocked": fa.blocked_write,
+                        }
+                    )
+        except Exception:
+            # Non-critical — agents still get boundary info in prompts
+            pass
+
         return env
 
     def spawn_all(

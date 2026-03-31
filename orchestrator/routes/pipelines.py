@@ -3664,6 +3664,44 @@ def _build_producer_orientation(role_value: str, phase: str, reviewers: list[str
     )
 
 
+def _build_file_boundary_section(role_value: str) -> str:
+    """Build a file boundary section for an agent prompt.
+
+    Reads the role's ``FileAccessPattern`` from ``egg_contracts.agent_roles``
+    and formats it as a prompt section so the agent knows which files it can
+    and cannot push *before* it starts writing files (#1431).
+
+    Returns an empty string when no patterns are defined for the role.
+    """
+    try:
+        from egg_contracts.agent_roles import get_role_definition
+
+        role_def = get_role_definition(role_value)
+    except (ValueError, KeyError):
+        return ""
+
+    if not role_def or not role_def.file_access:
+        return ""
+
+    fa = role_def.file_access
+    if not fa.allowed_write and not fa.blocked_write:
+        return ""
+
+    lines = [
+        "## File Boundaries (Gateway-Enforced)\n",
+        f"Your role ({role_value.upper()}) can only push changes to files "
+        "matching these patterns. The gateway will **reject your push** if it "
+        "includes files outside your boundaries. Only create and modify files "
+        "you are allowed to push.\n",
+    ]
+    if fa.allowed_write:
+        lines.append("**Allowed:** " + ", ".join(f"`{p}`" for p in fa.allowed_write))
+    if fa.blocked_write:
+        lines.append("**Blocked:** " + ", ".join(f"`{p}`" for p in fa.blocked_write))
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _build_agent_prompt(
     role_value: str,
     phase: str,
@@ -3734,6 +3772,8 @@ def _build_agent_prompt(
             review_cycle=review_cycle,
             repo_path=repo_path,
         )
+        # Surface file boundaries so agent knows what it can push (#1431).
+        base_prompt += "\n" + _build_file_boundary_section(role_value)
         # In concurrent mode, inject BRC consensus preamble so the coder/refiner
         # knows to propose, respond to reviews, confirm, and stay alive.
         if concurrent:
@@ -4158,6 +4198,12 @@ def _build_agent_prompt(
                 "",
             ]
         )
+
+    # File boundaries (#1431) — surface allowed/blocked patterns so
+    # the agent avoids creating files the gateway will reject on push.
+    boundary_section = _build_file_boundary_section(role_value)
+    if boundary_section:
+        lines.append(boundary_section)
 
     lines.append("## Phase Completion\n")
     if concurrent:
@@ -5845,23 +5891,48 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         error=str(git_err),
                     )
 
-                # Push contract statefiles to remote so agents see them
+                # Push contract statefiles to remote so agents see them.
+                # This MUST succeed before agents start — otherwise agents'
+                # diffs will include .egg-state/ files they can't push (#1431).
                 push_succeeded = True
                 if pipeline.branch and worktree_repo_path != repo_path:
-                    try:
-                        push_succeeded = spawner.gateway.push_worktree_branch(
+                    push_err_msg = ""
+                    for attempt in range(2):
+                        try:
+                            push_succeeded = spawner.gateway.push_worktree_branch(
+                                pipeline_id=pipeline_id,
+                                repo_path=str(worktree_repo_path),
+                                branch=pipeline.branch,
+                                mode=gateway_mode,
+                            )
+                            if push_succeeded:
+                                break
+                            push_err_msg = "push_worktree_branch returned False"
+                        except Exception as push_err:
+                            push_succeeded = False
+                            push_err_msg = str(push_err)
+                            if attempt == 0:
+                                logger.warning(
+                                    "Contract init push failed, retrying",
+                                    pipeline_id=pipeline_id,
+                                    error=push_err_msg,
+                                )
+
+                    if not push_succeeded:
+                        logger.error(
+                            "Contract init push failed after retry — aborting pipeline",
                             pipeline_id=pipeline_id,
-                            repo_path=str(worktree_repo_path),
-                            branch=pipeline.branch,
-                            mode=gateway_mode,
+                            error=push_err_msg,
                         )
-                    except Exception as push_err:
-                        push_succeeded = False
-                        logger.warning(
-                            "Failed to push statefiles after contract init (continuing)",
-                            pipeline_id=pipeline_id,
-                            error=str(push_err),
-                        )
+                        with get_pipeline_state_lock(pipeline_id):
+                            pipeline = store.load_pipeline(pipeline_id)
+                            pipeline.status = PipelineStatus.FAILED
+                            pipeline.contract_synced = False
+                            pipeline.error = (
+                                f"Failed to push contract init to remote: {push_err_msg}"
+                            )
+                            store.save_pipeline(pipeline)
+                        return
 
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)

@@ -406,3 +406,54 @@ class TestConcurrentPhasesGeneralization:
             assert env.get("EGG_CONCURRENT_MODE") == "true", (
                 f"EGG_CONCURRENT_MODE should be 'true' for {phase.value}"
             )
+
+
+class TestFilePatternEnvVar:
+    """Test that EGG_AGENT_FILE_PATTERNS is set for concurrent agents (#1431)."""
+
+    def test_coder_gets_file_patterns(self):
+        import json
+
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+        env = executor.get_agent_env(AgentRole.CODER)
+        assert "EGG_AGENT_FILE_PATTERNS" in env
+        patterns = json.loads(env["EGG_AGENT_FILE_PATTERNS"])
+        assert "allowed" in patterns
+        assert "blocked" in patterns
+        assert any("*.py" in p for p in patterns["allowed"])
+        # Coder's blocked list includes docs and contracts
+        assert any("docs/" in p for p in patterns["blocked"])
+
+    def test_tester_gets_file_patterns(self):
+        import json
+
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+        env = executor.get_agent_env(AgentRole.TESTER)
+        assert "EGG_AGENT_FILE_PATTERNS" in env
+        patterns = json.loads(env["EGG_AGENT_FILE_PATTERNS"])
+        assert any("tests/" in p or "test/" in p for p in patterns["allowed"])
+
+    def test_documenter_gets_file_patterns(self):
+        import json
+
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+        env = executor.get_agent_env(AgentRole.DOCUMENTER)
+        assert "EGG_AGENT_FILE_PATTERNS" in env
+        patterns = json.loads(env["EGG_AGENT_FILE_PATTERNS"])
+        assert any("*.md" in p for p in patterns["allowed"])
+        assert any("*.py" in p for p in patterns["blocked"])
