@@ -686,7 +686,11 @@ def _execute_filtered_push(
         reset_target = old_ref_sha
 
     try:
-        # Soft-reset to the remote tip — all changes become staged
+        # Soft-reset to the remote tip — all changes become staged.
+        # NOTE: Multi-commit pushes are intentionally squashed into a single
+        # filtered commit. This is acceptable because auto-filtering is an
+        # error-recovery path (the alternative is full rejection), and squashing
+        # preserves correctness of the allowed-files subset.
         reset_result = subprocess.run(
             git_cmd("reset", "--soft", reset_target),
             cwd=exec_path,
@@ -1325,6 +1329,53 @@ def git_push() -> tuple[Response, int] | Response:
                         "excluded_files": agent_filter_blocked_files,
                     },
                 )
+
+                # Capture per-push checkpoint (same as regular push path)
+                try:
+                    head_result = subprocess.run(
+                        git_cmd("rev-parse", "HEAD"),
+                        cwd=exec_path,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        check=False,
+                    )
+                    new_sha = head_result.stdout.strip() if head_result.returncode == 0 else None
+                    if new_sha:
+                        session = getattr(g, "session", None)
+                        ckpt_repo = get_checkpoint_repo(repo) if repo else None
+                        if session is not None:
+                            session.checkpoint_repo = ckpt_repo
+                            session.last_repo_path = exec_path
+                            session.last_branch = branch
+                        if old_ref_sha:
+                            capture_and_store_checkpoints_for_push(
+                                repo_path=exec_path,
+                                new_sha=new_sha,
+                                branch=branch,
+                                session=session,
+                                github_token=token_str,
+                                async_store=True,
+                                checkpoint_repo=ckpt_repo,
+                            )
+                        else:
+                            capture_and_store_checkpoint(
+                                repo_path=exec_path,
+                                commit_sha=new_sha,
+                                branch=branch,
+                                session=session,
+                                push_sha=new_sha,
+                                github_token=token_str,
+                                async_store=True,
+                                checkpoint_repo=ckpt_repo,
+                            )
+                except Exception as checkpoint_err:
+                    logger.warning(
+                        "Checkpoint capture failed after filtered push (non-blocking)",
+                        error=str(checkpoint_err),
+                        branch=branch,
+                    )
+
                 return make_success(
                     "Push successful (auto-filtered: some files excluded by agent role restrictions)",
                     {
