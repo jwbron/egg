@@ -161,7 +161,7 @@ The sandbox container is where the LLM agent runs:
 sandbox/
 ├── entrypoint.py           # Container entry point
 ├── statusbar.py            # Status bar display
-├── overseer_monitor.py     # Pre-built overseer monitoring script (poll loop for pipeline health)
+├── overseer_monitor.py     # Pre-built overseer monitoring script (pipeline health; --once for single-cycle, default for continuous loop)
 ├── egg                     # Main egg script
 ├── Dockerfile              # Sandbox container image
 ├── docker-setup.py         # Build-time tool installation and per-repo dependency setup
