@@ -1677,6 +1677,7 @@ def create_parser() -> argparse.ArgumentParser:
     cons_propose.add_argument("--risk", help="Risk considerations")
     cons_propose.add_argument(
         "--commit-sha",
+        required=True,
         help="Commit SHA pushed to the remote branch (required, #1473)",
     )
     cons_propose.add_argument(

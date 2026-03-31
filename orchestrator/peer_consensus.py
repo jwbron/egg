@@ -1028,8 +1028,10 @@ def reconstruct_tracker_from_messages(
                     payload = {"summary": msg.body or "reconstructed", "artifacts": []}
                 # Ensure commit_sha is present for reconstruction (#1473).
                 # Historical messages may pre-date this requirement.
+                # Use an explicit sentinel so callers of
+                # get_proposal_commit_sha() can distinguish it from a real SHA.
                 if not payload.get("commit_sha"):
-                    payload["commit_sha"] = payload.get("commit_sha", "") or "reconstructed"
+                    payload["commit_sha"] = "RECONSTRUCTED_NO_SHA"
                 tracker.handle_propose(msg.from_role, payload)
 
             elif msg.message_type == "CONSENSUS_ACK":

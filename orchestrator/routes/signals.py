@@ -1126,7 +1126,7 @@ def _write_consensus_confirmed_marker(pipeline_id: str, agent_role: str, repo_pa
         marker_dir = worktree_path / ".egg-state" / "agent-outputs"
         marker_dir.mkdir(parents=True, exist_ok=True)
         marker_file = marker_dir / "consensus-confirmed"
-        marker_file.write_text(f"{agent_role}\n", encoding="utf-8")
+        marker_file.touch()
     except Exception as e:
         logger.warning(
             "Failed to write consensus-confirmed marker (non-blocking)",
