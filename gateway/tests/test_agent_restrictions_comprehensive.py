@@ -142,10 +142,10 @@ class TestTesterFilePatterns:
         assert pattern.can_write("orchestrator/tests/test_models.py") is True
         assert pattern.can_write("gateway/tests/test_restrictions.py") is True
 
-    def test_tester_can_write_source_for_autofix(self, pattern):
-        """Tester has broad source access for lint/type-check auto-fixes."""
-        assert pattern.can_write("src/main.py") is True
-        assert pattern.can_write("shared/egg_contracts/agent_roles.py") is True
+    def test_tester_cannot_write_source(self, pattern):
+        """Tester cannot write source files (coder handles implementation)."""
+        assert pattern.can_write("src/main.py") is False
+        assert pattern.can_write("shared/egg_contracts/agent_roles.py") is False
 
     def test_tester_can_write_agent_outputs(self, pattern):
         assert pattern.can_write(".egg-state/agent-outputs/tester.json") is True

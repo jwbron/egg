@@ -151,14 +151,13 @@ class TestRealAgentPatterns:
         assert pattern.can_write("lib/utils.ts")
 
     def test_tester_can_write_test_files(self):
-        """Tester should be able to write test files and source code (for auto-fixes)."""
+        """Tester should be able to write test files but not source code."""
         pattern = get_agent_pattern("tester")
         assert pattern is not None
         assert pattern.can_write("tests/test_module.py")
-        # Tester can now write source files for lint/type-check auto-fixes
-        # (checker role was absorbed into tester)
         assert pattern.can_write("src/module_test.py")
-        assert pattern.can_write("src/module.py")
+        # Tester cannot write source code — must NACK the coder instead
+        assert not pattern.can_write("src/module.py")
 
 
 class TestValidateAgentPush:

@@ -195,6 +195,22 @@ class TestCoderRole:
     def test_cannot_write_nested_test_dir(self, pattern):
         assert pattern.can_write("gateway/tests/test_gw.py") is False
 
+    def test_cannot_write_go_test_file(self, pattern):
+        """Coder cannot write Go test files (Tester handles)."""
+        assert pattern.can_write("pkg/merge_test.go") is False
+
+    def test_cannot_write_go_test_prefix(self, pattern):
+        """Coder cannot write Go test files with test_ prefix."""
+        assert pattern.can_write("pkg/test_merge.go") is False
+
+    def test_cannot_write_conftest(self, pattern):
+        """Coder cannot write conftest.py (Tester handles pytest infrastructure)."""
+        assert pattern.can_write("conftest.py") is False
+
+    def test_cannot_write_nested_conftest(self, pattern):
+        """Coder cannot write nested conftest.py files."""
+        assert pattern.can_write("gateway/conftest.py") is False
+
     def test_cannot_write_contracts(self, pattern):
         assert pattern.can_write(".egg-state/contracts/123.json") is False
 
@@ -223,13 +239,33 @@ class TestTesterRole:
     def test_can_write_spec_file(self, pattern):
         assert pattern.can_write("components/Button.spec.tsx") is True
 
-    def test_can_write_source(self, pattern):
-        """Tester can write source files (for lint/type-check auto-fixes)."""
-        assert pattern.can_write("src/app.py") is True
+    def test_can_write_conftest(self, pattern):
+        """Tester can write conftest.py (pytest infrastructure)."""
+        assert pattern.can_write("conftest.py") is True
 
-    def test_can_write_gateway(self, pattern):
-        """Tester can write gateway source files (for lint/type-check auto-fixes)."""
-        assert pattern.can_write("gateway/gateway.py") is True
+    def test_can_write_nested_conftest(self, pattern):
+        """Tester can write nested conftest.py files."""
+        assert pattern.can_write("gateway/conftest.py") is True
+
+    def test_cannot_write_source(self, pattern):
+        """Tester cannot write source files (coder handles implementation)."""
+        assert pattern.can_write("src/app.py") is False
+
+    def test_cannot_write_gateway(self, pattern):
+        """Tester cannot write gateway source files."""
+        assert pattern.can_write("gateway/gateway.py") is False
+
+    def test_cannot_write_config_toml(self, pattern):
+        """Tester cannot write configuration files."""
+        assert pattern.can_write("pyproject.toml") is False
+
+    def test_cannot_write_config_yml(self, pattern):
+        """Tester cannot write YAML configuration files."""
+        assert pattern.can_write(".github/workflows/ci.yml") is False
+
+    def test_cannot_write_config_json(self, pattern):
+        """Tester cannot write JSON configuration files."""
+        assert pattern.can_write("package.json") is False
 
     def test_cannot_write_docs(self, pattern):
         assert pattern.can_write("docs/guide.md") is False

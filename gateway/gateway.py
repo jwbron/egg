@@ -885,16 +885,15 @@ def git_push() -> tuple[Response, int] | Response:
 
     # Agent-role file restrictions.
     # Checks agent_restrictions rules (coder vs tester vs documenter file scopes).
-    # Default: warn-only (logs but allows push).
-    # Set EGG_AGENT_RESTRICTIONS_ENFORCE=true to block pushes that violate
-    # agent-role boundaries.
+    # Default: enforce (blocks pushes that violate agent-role boundaries).
+    # Set EGG_AGENT_RESTRICTIONS_ENFORCE=false to use warn-only mode.
     if session_role and changed_files and not is_infrastructure_push:
         agent_result = check_agent_restrictions(session_role, changed_files)
         if not agent_result.allowed:
-            enforce = os.environ.get("EGG_AGENT_RESTRICTIONS_ENFORCE", "false").lower() in (
-                "true",
-                "1",
-                "yes",
+            enforce = os.environ.get("EGG_AGENT_RESTRICTIONS_ENFORCE", "true").lower() not in (
+                "false",
+                "0",
+                "no",
             )
 
             if enforce:

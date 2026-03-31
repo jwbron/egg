@@ -1607,7 +1607,7 @@ class TestTesterRepoChecksInjection:
                 repo="org/repo",
             )
         assert "Auto-fix" in result
-        assert "Commit fixes" in result
+        assert "Commit test fixes" in result
 
     def test_tester_prompt_handles_missing_config(self):
         """When get_repo_checks raises FileNotFoundError, falls back to auto-discovery."""

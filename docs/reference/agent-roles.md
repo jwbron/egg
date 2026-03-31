@@ -132,7 +132,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 **File access**:
 - Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `.egg-state/agent-outputs/`
-- Blocked: `docs/`, `**/README.md`, `**/*.md`, `.egg-state/contracts/`, `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns
+- Blocked: `docs/`, `**/README.md`, `**/*.md`, `.egg-state/contracts/`, `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns, `**/conftest.py`
 
 **Outputs**:
 - Commits on the worktree branch
@@ -142,15 +142,15 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 ### `tester`
 
-**Purpose**: Find gaps in the implementation, write and run tests, run linters and type checkers, and apply auto-fixes.
+**Purpose**: Find gaps in the implementation, write and run tests, run linters and type checkers, and report issues for the coder to fix.
 
 **File access**:
-- Allowed writes: `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns (`**/*_test.py`, `**/test_*.py`, `**/*.test.ts`, etc.), `.egg-state/agent-outputs/`
-- Blocked: `src/`, `lib/`, `shared/`, `gateway/`, `sandbox/`, `action/`, `docs/`, `**/README.md`, `.egg-state/contracts/`
+- Allowed writes: `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns (`**/*_test.py`, `**/test_*.py`, `**/*.test.ts`, etc.), `**/conftest.py`, `.egg-state/agent-outputs/`
+- Blocked: `docs/`, `**/README.md`, `**/*.md`, `.egg-state/contracts/` (source code and config files are excluded by absence from the allowed list — blocked patterns cannot be used for these because they share extensions with test files)
 
 **Outputs**:
 - Test file commits on the worktree branch
-- `.egg-state/agent-outputs/{identifier}-tester-output.json` — Handoff data (includes lint/type-check results and auto-fixes applied)
+- `.egg-state/agent-outputs/{identifier}-tester-output.json` — Handoff data (includes lint/type-check results and gaps found)
 
 **Prompt context**: Summarized background, coder handoff data, task list.
 
@@ -328,7 +328,7 @@ Common agent team configurations for different workflow types:
 
 ## File Permission Enforcement
 
-Agent file restrictions are enforced at git push time by the gateway. The default behavior is **warn-only**; set `EGG_AGENT_RESTRICTIONS_ENFORCE=true` to make violations block the push.
+Agent file restrictions are enforced at git push time by the gateway. The default behavior is **enforce** (violations block the push). Set `EGG_AGENT_RESTRICTIONS_ENFORCE=false` for warn-only mode during migration.
 
 For the exact allowed and blocked patterns per role, see `gateway/agent_restrictions.py`.
 
