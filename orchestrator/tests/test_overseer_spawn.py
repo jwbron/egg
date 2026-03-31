@@ -1032,4 +1032,6 @@ class TestOverseerRespawn:
         # The last argument is the prompt
         prompt = command[-1] if command else ""
         assert "overseer_monitor.py" in prompt, "Prompt must reference pre-built monitor script"
-        assert "DO NOT write your own monitoring loop" in prompt, "Prompt must prohibit custom loops"
+        assert "DO NOT write your own monitoring loop" in prompt, (
+            "Prompt must prohibit custom loops"
+        )
