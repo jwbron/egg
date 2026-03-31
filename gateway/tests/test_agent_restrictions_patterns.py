@@ -470,6 +470,148 @@ class TestRefinerRole:
         assert pattern.can_write(".egg-state/contracts/123.json") is False
 
 
+class TestAutofixerRole:
+    """Verify autofixer agent can/cannot write expected files."""
+
+    @pytest.fixture
+    def pattern(self):
+        return get_agent_pattern(AgentRole.AUTOFIXER)
+
+    def test_can_write_source_py(self, pattern):
+        """Autofixer can write Python source files."""
+        assert pattern.can_write("gateway/gateway.py") is True
+
+    def test_can_write_makefile(self, pattern):
+        """Autofixer can write Makefile."""
+        assert pattern.can_write("Makefile") is True
+
+    def test_can_write_nested_makefile(self, pattern):
+        """Autofixer can write nested Makefile."""
+        assert pattern.can_write("gateway/Makefile") is True
+
+    def test_can_write_dockerfile(self, pattern):
+        """Autofixer can write Dockerfile."""
+        assert pattern.can_write("Dockerfile") is True
+
+    def test_can_write_python_version(self, pattern):
+        """Autofixer can write .python-version."""
+        assert pattern.can_write(".python-version") is True
+
+    def test_can_write_node_version(self, pattern):
+        """Autofixer can write .node-version."""
+        assert pattern.can_write(".node-version") is True
+
+    def test_can_write_nvmrc(self, pattern):
+        """Autofixer can write .nvmrc (same purpose as .node-version)."""
+        assert pattern.can_write(".nvmrc") is True
+
+    def test_can_write_gitattributes(self, pattern):
+        """Autofixer can write .gitattributes (line endings and diff config)."""
+        assert pattern.can_write(".gitattributes") is True
+
+    def test_can_write_lock_file(self, pattern):
+        """Autofixer can write lock files."""
+        assert pattern.can_write("uv.lock") is True
+
+    def test_can_write_requirements_txt(self, pattern):
+        """Autofixer can write requirements.txt."""
+        assert pattern.can_write("requirements.txt") is True
+
+    def test_can_write_nested_requirements(self, pattern):
+        """Autofixer can write nested requirements files."""
+        assert pattern.can_write("deploy/requirements-prod.txt") is True
+
+    def test_cannot_write_docs(self, pattern):
+        """Autofixer cannot write documentation."""
+        assert pattern.can_write("docs/guide.md") is False
+
+    def test_cannot_write_contracts(self, pattern):
+        """Autofixer cannot write contracts."""
+        assert pattern.can_write(".egg-state/contracts/123.json") is False
+
+    def test_can_write_agent_outputs(self, pattern):
+        assert pattern.can_write(".egg-state/agent-outputs/autofixer-out.json") is True
+
+
+class TestConflictResolverRole:
+    """Verify conflict resolver agent can/cannot write expected files."""
+
+    @pytest.fixture
+    def pattern(self):
+        return get_agent_pattern(AgentRole.CONFLICT_RESOLVER)
+
+    def test_can_write_source_py(self, pattern):
+        """Conflict resolver can write source files."""
+        assert pattern.can_write("gateway/gateway.py") is True
+
+    def test_can_write_test_dir(self, pattern):
+        """Conflict resolver can write test files."""
+        assert pattern.can_write("tests/test_foo.py") is True
+
+    def test_can_write_docs(self, pattern):
+        """Conflict resolver can write documentation."""
+        assert pattern.can_write("docs/guide.md") is True
+
+    def test_can_write_makefile(self, pattern):
+        """Conflict resolver can write Makefile."""
+        assert pattern.can_write("Makefile") is True
+
+    def test_can_write_dockerfile(self, pattern):
+        """Conflict resolver can write Dockerfile."""
+        assert pattern.can_write("Dockerfile") is True
+
+    def test_can_write_procfile(self, pattern):
+        """Conflict resolver can write Procfile."""
+        assert pattern.can_write("Procfile") is True
+
+    def test_can_write_python_version(self, pattern):
+        """Conflict resolver can write .python-version."""
+        assert pattern.can_write(".python-version") is True
+
+    def test_can_write_node_version(self, pattern):
+        """Conflict resolver can write .node-version."""
+        assert pattern.can_write(".node-version") is True
+
+    def test_can_write_nvmrc(self, pattern):
+        """Conflict resolver can write .nvmrc."""
+        assert pattern.can_write(".nvmrc") is True
+
+    def test_can_write_gitattributes(self, pattern):
+        """Conflict resolver can write .gitattributes."""
+        assert pattern.can_write(".gitattributes") is True
+
+    def test_can_write_lock_file(self, pattern):
+        """Conflict resolver can write lock files."""
+        assert pattern.can_write("poetry.lock") is True
+
+    def test_can_write_requirements_txt(self, pattern):
+        """Conflict resolver can write requirements.txt."""
+        assert pattern.can_write("requirements.txt") is True
+
+    def test_can_write_nested_requirements(self, pattern):
+        """Conflict resolver can write nested requirements files."""
+        assert pattern.can_write("deploy/requirements-prod.txt") is True
+
+    def test_cannot_write_contracts(self, pattern):
+        """Conflict resolver cannot write contracts."""
+        assert pattern.can_write(".egg-state/contracts/123.json") is False
+
+    def test_cannot_write_drafts(self, pattern):
+        """Conflict resolver cannot write drafts."""
+        assert pattern.can_write(".egg-state/drafts/plan.md") is False
+
+    def test_cannot_write_pipelines(self, pattern):
+        """Conflict resolver cannot write pipeline state."""
+        assert pattern.can_write(".egg-state/pipelines/p1.json") is False
+
+    def test_cannot_write_reviews(self, pattern):
+        """Conflict resolver cannot write reviews."""
+        assert pattern.can_write(".egg-state/reviews/review.json") is False
+
+    def test_can_write_agent_outputs(self, pattern):
+        assert pattern.can_write(".egg-state/agent-outputs/resolver-out.json") is True
+
+
 class TestAllRolesRegistered:
     """Verify all defined roles have patterns in the registry."""
 
