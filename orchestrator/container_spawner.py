@@ -694,18 +694,19 @@ class ContainerSpawner:
         # up automatically by the SDK via setting_sources=["project","user"].
         overseer_prompt = (
             f"You are the overseer agent for pipeline {pipeline_id}. "
-            "CRITICAL: You must run a continuous monitoring loop for the "
-            "ENTIRE lifetime of this pipeline. Producing a single monitoring "
-            "report is NOT completion — you must keep looping. Your first "
-            "action must be to enter a `while True` loop that: "
-            "(1) polls the orchestrator for progress events, health alerts, "
-            "and escalation messages, (2) classifies anomalies and decides "
-            "on corrective actions, (3) sends a heartbeat via "
-            "`egg-orch signal heartbeat`, (4) sleeps for the configured "
-            "poll interval, then repeats. The ONLY condition that exits the "
-            "loop is when `egg-orch pipeline status` returns a terminal "
-            "state: complete, failed, or cancelled. DO NOT exit after a "
-            "single cycle. DO NOT treat the first report as task completion."
+            "CRITICAL: Your first action must be to run the pre-built "
+            "monitoring script: "
+            "`python3 /opt/egg-runtime/sandbox/overseer_monitor.py` "
+            "DO NOT write your own monitoring loop or bash script. "
+            "The script polls the orchestrator for pipeline status, health "
+            "alerts, progress events, and escalation messages. It outputs "
+            "one JSON line per cycle to stdout. Read the output and act on "
+            "anomalies: classify alerts using the Haiku tier, decide "
+            "corrective actions using the Sonnet tier, and execute them "
+            "via egg-orch CLI commands. The script handles heartbeats and "
+            "exits automatically when the pipeline reaches a terminal "
+            "state (complete, failed, or cancelled). After the script "
+            "exits, generate a final health summary."
         )
         command = build_agent_command(
             prompt=overseer_prompt,
