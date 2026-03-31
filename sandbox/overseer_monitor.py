@@ -1,21 +1,31 @@
 #!/usr/bin/env python3
 """Pre-built overseer monitoring script.
 
-Runs a continuous poll cycle that queries the orchestrator API for pipeline
-status, health alerts, progress events, and escalation messages.  Outputs
-structured JSON lines to stdout so the overseer agent can read and act on
-anomalies without writing its own monitoring loop.
+Queries the orchestrator API for pipeline status, health alerts, progress
+events, and escalation messages.  Outputs structured JSON lines to stdout
+so the overseer agent can read and act on anomalies without writing its own
+monitoring loop.
 
-Exits cleanly when the pipeline reaches a terminal state or on SIGTERM.
+Two modes of operation:
+
+  --once   Run a single poll cycle and exit.  Exit code 0 means the pipeline
+           is healthy (running or complete); exit code 1 means failed,
+           cancelled, or unknown.  This is the **recommended mode** — the
+           overseer agent calls it repeatedly, processing each cycle's
+           output between calls.
+
+  (default) Run a continuous poll loop until the pipeline reaches a terminal
+            state or SIGTERM is received.  Preserved for backward compatibility.
 
 Usage:
+    python3 /opt/egg-runtime/sandbox/overseer_monitor.py --once
     python3 /opt/egg-runtime/sandbox/overseer_monitor.py
 
 Environment:
     EGG_PIPELINE_ID          Required — pipeline to monitor.
     EGG_AGENT_ROLE           Agent role (default: "overseer").
     EGG_ORCHESTRATOR_URL     Orchestrator base URL.
-    EGG_OVERSEER_POLL_INTERVAL  Poll interval in seconds (default: 30).
+    EGG_OVERSEER_POLL_INTERVAL  Poll interval in seconds (default: 30, continuous mode only).
 """
 
 from __future__ import annotations
@@ -280,7 +290,7 @@ def main() -> None:
     parser.add_argument(
         "--once",
         action="store_true",
-        help="Run a single poll cycle and exit (exit code 0=running/complete, 1=failed/cancelled)",
+        help="Run a single poll cycle and exit (exit code 0=healthy, 1=failed/cancelled/unknown)",
     )
     args = parser.parse_args()
 
@@ -293,9 +303,7 @@ def main() -> None:
 
     if args.once:
         report = run_once(pipeline_id, role=role)
-        sys.exit(
-            0 if report.get("status") != "failed" and report.get("status") != "cancelled" else 1
-        )
+        sys.exit(0 if report["status"] in ("running", "complete") else 1)
 
     poll_interval = int(os.environ.get("EGG_OVERSEER_POLL_INTERVAL", "30"))
     exit_code = run_monitor(pipeline_id, role=role, poll_interval=poll_interval)

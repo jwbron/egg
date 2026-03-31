@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 # Add sandbox/ to sys.path so overseer_monitor is importable
 _sandbox_path = str(Path(__file__).parent.parent)
 if _sandbox_path not in sys.path:
@@ -19,6 +21,7 @@ if _sandbox_path not in sys.path:
 
 from overseer_monitor import (
     TERMINAL_STATES,
+    main,
     query_health_alerts,
     query_pipeline_status,
     query_progress,
@@ -281,6 +284,79 @@ class TestRunOnce:
 
         assert report["terminal"] is True
         assert report["status"] == "failed"
+
+
+class TestMainExitCodes:
+    """Test main() exit code mapping for --once mode."""
+
+    @patch("overseer_monitor.send_heartbeat", return_value=True)
+    @patch("overseer_monitor.poll_messages", return_value=[])
+    @patch("overseer_monitor.query_progress", return_value=[])
+    @patch("overseer_monitor.query_health_alerts", return_value=[])
+    @patch("overseer_monitor.query_pipeline_status")
+    def test_main_once_running_exits_zero(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, monkeypatch
+    ):
+        mock_status.return_value = {
+            "status": "running",
+            "phase": {"name": "implement"},
+            "concurrent": {},
+        }
+        monkeypatch.setenv("EGG_PIPELINE_ID", PIPELINE_ID)
+        monkeypatch.setattr("sys.argv", ["overseer_monitor.py", "--once"])
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 0
+
+    @patch("overseer_monitor.send_heartbeat", return_value=True)
+    @patch("overseer_monitor.poll_messages", return_value=[])
+    @patch("overseer_monitor.query_progress", return_value=[])
+    @patch("overseer_monitor.query_health_alerts", return_value=[])
+    @patch("overseer_monitor.query_pipeline_status")
+    def test_main_once_complete_exits_zero(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, monkeypatch
+    ):
+        mock_status.return_value = {
+            "status": "complete",
+            "phase": {"name": "pr"},
+            "concurrent": {},
+        }
+        monkeypatch.setenv("EGG_PIPELINE_ID", PIPELINE_ID)
+        monkeypatch.setattr("sys.argv", ["overseer_monitor.py", "--once"])
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 0
+
+    @patch("overseer_monitor.send_heartbeat", return_value=True)
+    @patch("overseer_monitor.poll_messages", return_value=[])
+    @patch("overseer_monitor.query_progress", return_value=[])
+    @patch("overseer_monitor.query_health_alerts", return_value=[])
+    @patch("overseer_monitor.query_pipeline_status")
+    def test_main_once_failed_exits_one(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, monkeypatch
+    ):
+        mock_status.return_value = {"status": "failed", "phase": {}, "concurrent": {}}
+        monkeypatch.setenv("EGG_PIPELINE_ID", PIPELINE_ID)
+        monkeypatch.setattr("sys.argv", ["overseer_monitor.py", "--once"])
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 1
+
+    @patch("overseer_monitor.send_heartbeat", return_value=True)
+    @patch("overseer_monitor.poll_messages", return_value=[])
+    @patch("overseer_monitor.query_progress", return_value=[])
+    @patch("overseer_monitor.query_health_alerts", return_value=[])
+    @patch("overseer_monitor.query_pipeline_status")
+    def test_main_once_unknown_exits_one(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, monkeypatch
+    ):
+        """Unknown status (API failure) should exit 1, not 0."""
+        mock_status.return_value = {}
+        monkeypatch.setenv("EGG_PIPELINE_ID", PIPELINE_ID)
+        monkeypatch.setattr("sys.argv", ["overseer_monitor.py", "--once"])
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 1
 
 
 class TestSignalHandling:
