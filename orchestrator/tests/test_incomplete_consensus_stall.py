@@ -405,3 +405,53 @@ class TestIncompleteConsensusStallCheck:
         assert result_b.status == HealthStatus.DEGRADED
         assert result_b.details["blocking_agents"] == ["tester"]
         assert result_b.details["pipeline_id"] == "pipeline-B"
+
+    def test_multi_pipeline_reset_isolation(self):
+        """Resetting one pipeline does not affect another's tick counter."""
+        check = _make_check(stall_tick_threshold=3)
+
+        pipeline_a = _make_concurrent_pipeline()
+        pipeline_a.id = "pipeline-A"
+        ctx_a = _make_context(pipeline_a)
+
+        pipeline_b = _make_concurrent_pipeline()
+        pipeline_b.id = "pipeline-B"
+        ctx_b = _make_context(pipeline_b)
+
+        mock_ce = MagicMock()
+        mock_ce.is_concurrent_execution.return_value = True
+
+        def _run(ctx, blocking):
+            mock_tracker = MagicMock()
+            mock_tracker.evaluate.return_value = {
+                "is_complete": False,
+                "blocking_agents": blocking,
+            }
+            mock_pc = MagicMock()
+            mock_pc.get_peer_consensus_tracker.return_value = mock_tracker
+            with patch.dict(
+                "sys.modules",
+                {"concurrent_executor": mock_ce, "peer_consensus": mock_pc},
+            ):
+                return check.run(ctx)
+
+        # Tick 1: both pipelines start tracking
+        _run(ctx_a, ["documenter"])
+        _run(ctx_b, ["tester"])
+
+        # Tick 2: both accumulate
+        _run(ctx_a, ["documenter"])
+        _run(ctx_b, ["tester"])
+
+        # Pipeline A completes consensus (no blocking agents) — resets its state
+        _run(ctx_a, [])
+
+        # Tick 3 for pipeline B — should reach threshold (tick 3) and fire DEGRADED
+        result_b = _run(ctx_b, ["tester"])
+        assert result_b.status == HealthStatus.DEGRADED
+        assert result_b.details["blocking_agents"] == ["tester"]
+        assert result_b.details["pipeline_id"] == "pipeline-B"
+
+        # Pipeline A restarts with new blocking — should be tick 1, not DEGRADED
+        result_a = _run(ctx_a, ["reviewer"])
+        assert result_a.status == HealthStatus.HEALTHY
