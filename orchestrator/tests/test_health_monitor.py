@@ -391,7 +391,7 @@ class TestProgressStall:
         assert len(escalation_actions) == 0
 
     def test_progress_stall_unresolved_escalates(self):
-        """If nudge doesn't resolve stall, escalate to overseer."""
+        """If nudges don't resolve stall, escalate to overseer after max nudges."""
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
@@ -405,17 +405,84 @@ class TestProgressStall:
         # Initial progress
         _emit_progress(bus, agent_id=AGENT_ID)
 
-        # First stall -> nudge
+        base = time.time()
         with patch("health_monitor.time") as mock_time:
-            mock_time.time.return_value = time.time() + 61
+            # First stall -> nudge 1
+            mock_time.time.return_value = base + 61
             monitor.check_progress()
 
-        # Second stall (no progress after nudge) -> escalation
-        with patch("health_monitor.time") as mock_time:
-            mock_time.time.return_value = time.time() + 122
+            # Second stall (past dedup window) -> nudge 2
+            mock_time.time.return_value = base + 122
+            monitor.check_progress()
+
+            # Third stall -> escalation (nudge_count >= 2)
+            mock_time.time.return_value = base + 183
             monitor.check_progress()
 
         assert len(escalations) >= 1
+
+    def test_progress_nudge_deduplication(self):
+        """Progress nudge is not repeated within threshold window."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        nudges: list[dict] = []
+        monitor.on_nudge(lambda n: nudges.append(n))
+
+        _emit_progress(bus, agent_id=AGENT_ID)
+
+        base = time.time()
+        with patch("health_monitor.time") as mock_time:
+            # First check at t=61 — should nudge
+            mock_time.time.return_value = base + 61
+            monitor.check_progress()
+
+            # Second check at t=90 (within threshold of 60 from nudge time) — should skip
+            mock_time.time.return_value = base + 90
+            monitor.check_progress()
+
+        assert len(nudges) == 1  # only one nudge, not two
+
+    def test_progress_escalates_after_max_nudges(self):
+        """After 2 unanswered nudges, progress stall escalates."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        nudges: list[dict] = []
+        monitor.on_nudge(lambda n: nudges.append(n))
+
+        _emit_progress(bus, agent_id=AGENT_ID)
+
+        base = time.time()
+        with patch("health_monitor.time") as mock_time:
+            # Nudge 1 at t=61
+            mock_time.time.return_value = base + 61
+            monitor.check_progress()
+
+            # Nudge 2 at t=122 (past dedup window)
+            mock_time.time.return_value = base + 122
+            monitor.check_progress()
+
+            # Escalation at t=183
+            mock_time.time.return_value = base + 183
+            actions = monitor.check_progress()
+
+            # 4th check at t=244 — should NOT re-escalate
+            mock_time.time.return_value = base + 244
+            actions2 = monitor.check_progress()
+
+        assert len(nudges) == 2
+        assert len(escalations) == 1
+        escalate_actions = [a for a in actions if a.get("action") == "escalate"]
+        assert len(escalate_actions) == 1
+        # No second escalation
+        escalate_actions2 = [a for a in actions2 if a.get("action") == "escalate"]
+        assert len(escalate_actions2) == 0
 
 
 # ---------------------------------------------------------------------------

@@ -192,9 +192,14 @@ class TestFullEscalationChain:
         assert len(nudge_actions) >= 1, "Should have generated a nudge action"
         assert nudge_actions[0]["agent_id"] == AGENT_ID_CODER
 
-        # Step 3: Stall persists (no new progress) -> escalation to overseer
+        # Step 3: Stall persists (no new progress) -> second nudge
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 122
+            monitor.check_progress()
+
+        # Step 4: Stall still persists (nudge count >= _MAX_PROGRESS_NUDGES) -> escalation
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 183
             monitor.check_progress()
 
         assert len(escalations) >= 1, "Should have escalated after persistent stall"
@@ -527,9 +532,14 @@ class TestMultipleAgentsStalling:
         # Coder resumes progress (resets nudge count)
         _emit_progress(bus, agent_id=AGENT_ID_CODER)
 
-        # Second check: coder OK, tester still stalled -> tester escalates
+        # Second check: coder OK, tester still stalled -> tester gets second nudge
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 122
+            monitor.check_progress()
+
+        # Third check: tester nudge count >= _MAX_PROGRESS_NUDGES -> tester escalates
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 183
             monitor.check_progress()
 
         # Tester should have been escalated
@@ -565,9 +575,14 @@ class TestMultipleAgentsStalling:
             mock_time.time.return_value = time.time() + 61
             monitor.check_progress()
 
-        # Second stall -> escalation for both
+        # Second stall -> second nudge for both
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 122
+            monitor.check_progress()
+
+        # Third stall -> escalation for both (nudge count >= _MAX_PROGRESS_NUDGES)
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 183
             monitor.check_progress()
 
         assert len(escalations) >= 2, "Both agents should have escalated"
@@ -620,9 +635,14 @@ class TestOverseerDisabledFallback:
             mock_time.time.return_value = time.time() + 61
             monitor.check_progress()
 
-        # Second stall -> escalation (should be HITL, not overseer)
+        # Second stall -> second nudge
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 122
+            monitor.check_progress()
+
+        # Third stall -> escalation (should be HITL, not overseer)
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 183
             monitor.check_progress()
 
         assert len(escalations) >= 1
