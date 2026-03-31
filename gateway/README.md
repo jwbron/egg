@@ -94,6 +94,37 @@ The gateway enforces file-level access restrictions to prevent certain roles fro
 - `Push denied: Role 'X' cannot modify: <files>. <reason>` (HTTP 403) - File blocked by restriction
 - `Push denied: Could not verify file changes for security check: <error>` (HTTP 500) - Detection failure
 
+### Agent-Role Push Auto-Filtering
+
+When an agent pushes commits that include files outside its role's allowed set, the gateway **auto-filters** the push rather than rejecting it entirely. This prevents agents from entering recovery loops (splitting commits, cherry-picking) that waste tokens and often fail.
+
+**How it works:**
+1. The push handler detects files that violate the agent's role restrictions (e.g., a coder pushing test files)
+2. Instead of returning HTTP 403, the gateway rewrites the commit to exclude blocked files
+3. It soft-resets to the remote tip, unstages blocked files, creates a new `[auto-filtered]` commit with only allowed files, and pushes that
+4. After push (success or failure), the original HEAD is restored so blocked files remain as uncommitted changes in the agent's worktree
+5. The response includes lists of `pushed_files` and `excluded_files` so the agent knows what happened
+
+**Three outcomes:**
+- **All files allowed**: Normal push proceeds unchanged
+- **Some files blocked**: Auto-filtered push excludes blocked files, returns success with details
+- **All files blocked**: Returns soft success with `nothing_to_push: true` — no error, no recovery needed
+
+**Response format** (filtered push):
+```json
+{
+  "status": "success",
+  "message": "Push successful (auto-filtered: some files excluded by agent role restrictions)",
+  "filtered": true,
+  "excluded_files": ["tests/test_feature.py"],
+  "pushed_files": ["src/feature.py"]
+}
+```
+
+**Warn-only mode**: Set `EGG_AGENT_RESTRICTIONS_ENFORCE=false` to allow all files through with a warning log (no filtering applied).
+
+**Files:** `gateway/gateway.py` (`_execute_filtered_push()`), `gateway/agent_restrictions.py` (`filter_allowed_files()`), `gateway/phase_filter.py` (`filter_agent_files()`)
+
 ### Branch Lock (Pipeline Sessions)
 
 Pipeline sessions are locked to their assigned worktree branch. The gateway blocks `git checkout` (branch-switching) and `git switch` operations to prevent agents from moving off their assigned branch, which would break deterministic post-agent commit/push.
@@ -510,6 +541,8 @@ Both methods clear all in-memory config caches so the next access re-reads from 
 8. **Branch lock for pipeline sessions**: Pipeline agents are locked to their worktree branch to ensure deterministic post-agent commit/push. The `Session.assigned_branch` field is set during session creation when a pipeline ID is present.
 
 9. **Push-target enforcement**: Pipeline agents must push to their assigned branch only. When a push to the assigned branch fails (e.g., due to phase file restrictions from branch history contamination), agents must signal an error rather than improvise a new branch name. This prevents commits from landing on unexpected branches where the pipeline cannot find them.
+
+10. **Agent-role push auto-filtering**: Rather than blocking entire pushes when agents include files outside their role scope, the gateway auto-filters the push to include only allowed files. This follows the precedent set by `post_agent_commit.py` (which already filters files for auto-commits) and eliminates costly recovery loops where agents try to split commits or cherry-pick. Blocked files remain as uncommitted changes in the worktree so they are not lost — another agent with the correct role can push them.
 
 ## Testing
 

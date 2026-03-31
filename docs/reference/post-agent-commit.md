@@ -98,6 +98,10 @@ The auto-commit bypasses git hooks (`--no-verify`, `core.hooksPath=/dev/null`). 
 
 The auto-commit creates a standard git commit in the worktree. The checkpoint system (`egg/checkpoints/v2` branch) is independent — it captures session context at the session-end trigger, which may happen around the same time but is a separate process.
 
+## Related: Push-Time Auto-Filtering
+
+The gateway also auto-filters agent pushes at push time (separate from post-agent auto-commit). When an agent pushes commits containing files outside its role scope, the gateway rewrites the commit to exclude disallowed files rather than rejecting the entire push. This uses a similar pattern — `filter_allowed_files()` in `agent_restrictions.py` partitions files, and `_execute_filtered_push()` in `gateway.py` handles the git rewrite. See the [Gateway README](../../gateway/README.md#agent-role-push-auto-filtering) for details.
+
 ## Log Events
 
 | Event | Log Level | Fields |

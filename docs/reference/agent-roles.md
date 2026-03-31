@@ -329,7 +329,16 @@ Common agent team configurations for different workflow types:
 
 ## File Permission Enforcement
 
-Agent file restrictions are enforced at git push time by the gateway. The default behavior is **enforce** (violations block the push). Set `EGG_AGENT_RESTRICTIONS_ENFORCE=false` for warn-only mode during migration.
+Agent file restrictions are enforced at git push time by the gateway via **auto-filtering**. When a push contains files outside the agent's role scope, the gateway automatically rewrites the commit to exclude the disallowed files rather than rejecting the entire push. Excluded files remain as uncommitted changes in the agent's worktree.
+
+**Behavior modes:**
+- **Auto-filter (default)**: Disallowed files are stripped from the push; the push succeeds with only allowed files. The response includes `filtered: true` with lists of `pushed_files` and `excluded_files`.
+- **Warn-only**: Set `EGG_AGENT_RESTRICTIONS_ENFORCE=false` to allow all files through with a warning log (no filtering, no blocking).
+
+**Key functions:**
+- `filter_allowed_files(role, files)` in `gateway/agent_restrictions.py` — partitions files into allowed/blocked lists
+- `filter_agent_files(role, files)` in `gateway/phase_filter.py` — convenience wrapper used by the push handler
+- `_execute_filtered_push()` in `gateway/gateway.py` — rewrites the commit excluding blocked files
 
 For the exact allowed and blocked patterns per role, see `gateway/agent_restrictions.py`.
 

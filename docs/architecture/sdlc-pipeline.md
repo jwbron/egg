@@ -32,6 +32,7 @@ This architecture implements **structural enforcement**: the agent physically ca
 | Agent loops indefinitely | PR-based reviews provide human visibility at every cycle |
 | Agent modifies own permissions | Role comes from workflow context, not agent environment |
 | Changes lack accountability | Audit log tracks all mutations with role and actor |
+| Agent pushes files outside role scope | Gateway auto-filters push to include only allowed files; excluded files remain local |
 
 ## Architecture
 

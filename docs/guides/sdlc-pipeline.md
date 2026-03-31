@@ -19,7 +19,7 @@ Agents cannot be trusted to self-police via prompts alone. The pipeline enforces
 - **Commit-time validation**: The gateway validates staged files against phase restrictions before allowing `git commit`
 - **Push-time operation filtering**: The gateway blocks operations not permitted in the current phase
 - **Push-target enforcement**: Pipeline agents must push to their assigned branch only—the gateway rejects pushes to any other branch (HTTP 403), preventing agents from improvising branch names on push failure. Killswitch: `PUSH_TARGET_ENFORCEMENT=false`
-- **Agent-role file restrictions**: Each agent role (coder, tester, documenter, etc.) has allowed and blocked file patterns enforced at push time. Enforced by default; set `EGG_AGENT_RESTRICTIONS_ENFORCE=false` for warn-only mode with audit logging
+- **Agent-role file restrictions with auto-filtering**: Each agent role (coder, tester, documenter, etc.) has allowed and blocked file patterns. When a push includes disallowed files, the gateway auto-filters the push to exclude them rather than rejecting the entire push. Excluded files remain as uncommitted changes in the worktree. Set `EGG_AGENT_RESTRICTIONS_ENFORCE=false` for warn-only mode with audit logging
 - **Role-based field ownership**: Contract mutations are validated against caller role
 - **Completion signal branch verification**: When an agent signals completion with a commit SHA, the orchestrator verifies the commit exists on the pipeline's expected branch (HTTP 409 on mismatch)
 - **Per-command timeout**: Shell commands in the sandbox are wrapped with a configurable timeout (default 300s) to prevent runaway commands like `grep -rn / ` from hanging the container. Configurable via `BASH_COMMAND_TIMEOUT`
@@ -295,7 +295,7 @@ The implement phase uses concurrent BRC execution, where specialized agents run 
 | **Reviewer (Contract)** | Verify task completion and acceptance criteria | Review verdicts only |
 
 **File Access Enforcement:**
-The gateway enforces file access patterns for each agent role via `gateway/agent_restrictions.py`. For example, the Coder agent cannot modify documentation files, and the Tester agent cannot modify source code. This prevents agents from overstepping their responsibilities.
+The gateway enforces file access patterns for each agent role via `gateway/agent_restrictions.py`. For example, the Coder agent cannot modify documentation files, and the Tester agent cannot modify source code. When an agent pushes files outside its role scope, the gateway **auto-filters** the push to include only allowed files rather than rejecting the entire push. Excluded files remain as uncommitted changes in the worktree, so work is never lost — another agent with the appropriate role can push those files. See `filter_allowed_files()` in `agent_restrictions.py` and `_execute_filtered_push()` in `gateway.py`.
 
 **Handoff Data:**
 Agents communicate via handoff data stored in `.egg-state/agent-outputs/{identifier}-{role}-output.json` (where `{identifier}` is the issue number or pipeline ID). For example, the Coder agent outputs a list of changed files, which the Tester and Documenter agents read to focus their work. The identifier prefix prevents merge conflicts when concurrent pipelines merge to main.

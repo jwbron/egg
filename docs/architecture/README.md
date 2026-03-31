@@ -33,7 +33,7 @@ See the [main README](../../README.md) for the architecture diagram.
 - File-level access restrictions (role-based blocking of sensitive files like contract files)
 - Filesystem-level readonly mounts (phase-protected `.egg-state/` directories mounted readonly)
 - Commit-time validation (staged files checked against phase restrictions before commit)
-- Agent role-based file access (Coder, Tester, Documenter have distinct write permissions; enforced by default, set `EGG_AGENT_RESTRICTIONS_ENFORCE=false` for warn-only mode)
+- Agent role-based file access with auto-filtering (Coder, Tester, Documenter have distinct write permissions; pushes are auto-filtered to exclude disallowed files rather than being blocked entirely; set `EGG_AGENT_RESTRICTIONS_ENFORCE=false` for warn-only mode)
 - Anchor file write-scoping (agents can only write their own `.egg-state/agent-anchors/{agent-id}.json`, enforced via `AGENT_ANCHOR_ID`)
 - Role-based contract mutations (implementer, reviewer, human roles with field-level permissions)
 - No merge capability (gateway has no merge endpoint)
@@ -192,7 +192,7 @@ MCP servers front-load tool schemas, parameter descriptions, and usage instructi
 
 But for `git`, `gh`, `curl`, and standard CLI tools, agents already know how to use them. The training data *is* the documentation. Re-describing `git push` as an MCP tool wastes context and adds indirection to something the agent can already do natively.
 
-In egg, agents use these tools normally. Wrappers intercept operations and route them through the gateway, which enforces per-agent, per-phase restrictions. When an operation is denied, the agent gets a clear error explaining why — not upfront as a preamble, but at the exact moment it matters. The agent doesn't need to be taught what it can do; it finds out what it can't, only when it tries.
+In egg, agents use these tools normally. Wrappers intercept operations and route them through the gateway, which enforces per-agent, per-phase restrictions. When an agent pushes files outside its role scope, the gateway auto-filters the push to include only allowed files rather than rejecting it outright — the agent gets a clear message explaining what was excluded, not a hard failure that triggers recovery loops. For other violations (phase restrictions, branch ownership), the agent gets a clear error explaining why. The agent doesn't need to be taught what it can do; it finds out what it can't, only when it tries.
 
 This keeps agents working with familiar tools in a predictable way, without burning context on tool definitions they don't need. MCP is the right choice for tools agents need to learn. Wrappers are the right choice for tools they already know.
 
