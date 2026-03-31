@@ -1020,8 +1020,8 @@ class TestOverseerRespawn:
         with pytest.raises(ValueError):
             PipelineConfig(overseer_max_respawns=51)
 
-    def test_overseer_prompt_mentions_continuous_loop(self, spawner, mock_docker_client):
-        """Overseer prompt explicitly requires continuous looping."""
+    def test_overseer_prompt_mentions_prebuilt_monitor(self, spawner, mock_docker_client):
+        """Overseer prompt requires running the pre-built monitoring script."""
         spawner.spawn_overseer_container(
             pipeline_id="issue-1270-prompt",
             issue_number=1270,
@@ -1031,5 +1031,7 @@ class TestOverseerRespawn:
         command = create_call.kwargs.get("command", [])
         # The last argument is the prompt
         prompt = command[-1] if command else ""
-        assert "while True" in prompt, "Prompt must mention while True loop"
-        assert "DO NOT exit" in prompt, "Prompt must have anti-exit instruction"
+        assert "overseer_monitor.py" in prompt, "Prompt must reference pre-built monitor script"
+        assert "DO NOT write your own monitoring loop" in prompt, (
+            "Prompt must prohibit custom loops"
+        )
