@@ -2589,8 +2589,11 @@ def _ensure_statefiles_on_branch(
         # after agent activity during the implement phase (#1454).
         if pipeline.branch:
             git_base = [
-                "git", "-c", "core.hooksPath=/dev/null",
-                "-C", str(worktree_repo_path),
+                "git",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-C",
+                str(worktree_repo_path),
             ]
             for draft_phase in ("plan", "refine"):
                 draft_rel = _get_draft_path(
