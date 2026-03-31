@@ -131,7 +131,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 **Purpose**: Write code, create commits, push to the worktree branch.
 
 **File access**:
-- Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `.egg-state/agent-outputs/`
+- Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `Makefile`, `**/Makefile`, `Dockerfile`, `**/Dockerfile`, `Procfile`, `.python-version`, `.node-version`, `.nvmrc`, `.gitignore`, `.gitattributes`, `.editorconfig`, `**/*.lock`, `**/requirements*.txt`, `.egg-state/agent-outputs/`
 - Blocked: `docs/`, `**/README.md`, `**/*.md`, `.egg-state/contracts/`, `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns, `**/conftest.py`
 
 **Outputs**:
@@ -145,7 +145,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 **Purpose**: Find gaps in the implementation, write and run tests, run linters and type checkers, and report issues for the coder to fix.
 
 **File access**:
-- Allowed writes: `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns (`**/*_test.py`, `**/test_*.py`, `**/*.test.ts`, etc.), `**/conftest.py`, `.egg-state/agent-outputs/`
+- Allowed writes: `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns (`**/*_test.py`, `**/test_*.py`, `**/*.test.ts`, etc.), `**/conftest.py`, `.python-version`, `**/*.lock`, `**/requirements*.txt`, `.egg-state/agent-outputs/`
 - Blocked: `docs/`, `**/README.md`, `**/*.md`, `.egg-state/contracts/` (source code and config files are excluded by absence from the allowed list — blocked patterns cannot be used for these because they share extensions with test files)
 
 **Outputs**:
@@ -199,7 +199,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 **Purpose**: Automatically fix lint errors, formatting issues, and type-check failures in source and config files. Runs on-demand to clean up code without manual intervention.
 
 **File access**:
-- Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `.egg-state/agent-outputs/`
+- Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `Makefile`, `**/Makefile`, `Dockerfile`, `**/Dockerfile`, `.python-version`, `.node-version`, `.nvmrc`, `.gitignore`, `.gitattributes`, `.editorconfig`, `**/*.lock`, `**/requirements*.txt`, `.egg-state/agent-outputs/`
 - Blocked: `docs/`, `**/*.md`, `.egg-state/contracts/`
 
 **Outputs**:
@@ -213,7 +213,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 **Purpose**: Resolve merge conflicts, inter-agent file conflicts, and coordination issues across concurrent agents. Can write to source, test, doc, and config files to mediate overlapping changes.
 
 **File access**:
-- Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `tests/`, `test/`, `**/tests/`, `**/test/`, `docs/`, `**/*.md`, `.egg-state/agent-outputs/`
+- Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `Makefile`, `**/Makefile`, `Dockerfile`, `**/Dockerfile`, `Procfile`, `.python-version`, `.node-version`, `.nvmrc`, `.gitignore`, `.gitattributes`, `.editorconfig`, `**/*.lock`, `**/requirements*.txt`, `tests/`, `test/`, `**/tests/`, `**/test/`, `docs/`, `**/*.md`, `.egg-state/agent-outputs/`
 - Blocked: `.egg-state/` (contracts, drafts, reviews, pipelines)
 
 **Outputs**:
