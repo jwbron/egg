@@ -409,7 +409,12 @@ class TestConcurrentPhasesGeneralization:
 
 
 class TestFilePatternEnvVar:
-    """Test that EGG_AGENT_FILE_PATTERNS is set for concurrent agents (#1431)."""
+    """Test that EGG_AGENT_FILE_PATTERNS is set for concurrent agents (#1431).
+
+    NOTE: Pattern assertions below are coupled to live role definitions in
+    egg_contracts.agent_roles.  If role patterns change, these tests may need
+    updating even though the feature still works correctly.
+    """
 
     def test_coder_gets_file_patterns(self):
         import json

@@ -3677,7 +3677,7 @@ def _build_file_boundary_section(role_value: str) -> str:
         from egg_contracts.agent_roles import get_role_definition
 
         role_def = get_role_definition(role_value)
-    except (ValueError, KeyError):
+    except (ValueError, KeyError, ImportError):
         return ""
 
     if not role_def or not role_def.file_access:
@@ -3773,7 +3773,9 @@ def _build_agent_prompt(
             repo_path=repo_path,
         )
         # Surface file boundaries so agent knows what it can push (#1431).
-        base_prompt += "\n" + _build_file_boundary_section(role_value)
+        boundary_section = _build_file_boundary_section(role_value)
+        if boundary_section:
+            base_prompt += "\n" + boundary_section
         # In concurrent mode, inject BRC consensus preamble so the coder/refiner
         # knows to propose, respond to reviews, confirm, and stay alive.
         if concurrent:
@@ -5917,6 +5919,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                     pipeline_id=pipeline_id,
                                     error=push_err_msg,
                                 )
+                        if attempt == 0 and not push_succeeded:
+                            time.sleep(2)
 
                     if not push_succeeded:
                         logger.error(

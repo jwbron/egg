@@ -804,11 +804,11 @@ class TestContractPushHardGate:
             branch="egg/issue-42",
             mode="issue",
             status=PipelineStatus.RUNNING,
-            current_phase=PipelinePhase.PR,
+            current_phase=PipelinePhase.IMPLEMENT,
         )
         pipeline.contract_synced = False  # Triggers contract initialization
 
-        execution = pipeline.get_phase_execution(PipelinePhase.PR)
+        execution = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         execution.status = PipelineStatus.RUNNING
         execution.started_at = datetime.now(UTC)
 

@@ -153,8 +153,11 @@ class ConcurrentPhaseExecutor:
                         }
                     )
         except Exception:
-            # Non-critical — agents still get boundary info in prompts
-            pass
+            logger.debug(
+                "Could not resolve file patterns for role (non-critical)",
+                role=role.value,
+                exc_info=True,
+            )
 
         return env
 
