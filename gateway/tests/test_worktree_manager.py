@@ -663,7 +663,9 @@ class TestWorktreeManagerRemoteBranchFetch:
             return result
 
         with patch("subprocess.run", side_effect=mock_run):
-            with patch.object(manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")):
+            with patch.object(
+                manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")
+            ):
                 with patch.object(manager, "_chown_recursive"):
                     with patch.object(manager, "_chown_single"):
                         with pytest.raises(RuntimeError, match="Failed to create worktree"):
