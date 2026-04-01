@@ -603,3 +603,117 @@ class TestConsensusWrapperBehavior:
         # Should contain the full logic
         assert "CONSENSUS_CONFIRMED" in script
         assert "message poll" in script
+
+    def test_final_consensus_check_before_failure_exit(self):
+        """After max restarts, wrapper should check consensus one final time before failing.
+
+        This is the consensus wrapper half of the issue #1495 fix. Even after
+        exhausting restarts, the agent may have contributed to consensus (e.g.
+        via a network hiccup after signaling READY). A final poll prevents
+        falsely failing a pipeline that actually succeeded.
+        """
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        # Should contain the final consensus check
+        assert "FINAL_RESPONSE" in script
+        assert "FINAL_IS_COMPLETE" in script
+        # Should exit 0 if consensus was reached on final check
+        assert "Consensus reached on final check" in script
+        # The final check "exit 0" must come BEFORE the failure "exit 1".
+        # Find the success exit from the final check and the failure exit.
+        final_success_pos = script.find("Consensus reached on final check")
+        failure_exit_pos = script.find("Exiting with failure")
+        assert final_success_pos > 0, "Final consensus success message not found"
+        assert failure_exit_pos > 0, "Failure exit message not found"
+        assert final_success_pos < failure_exit_pos, (
+            "Final consensus success exit must precede the failure exit"
+        )
+
+    def test_final_consensus_check_exits_zero_when_complete(self):
+        """Behavioral test: final consensus check exits 0 when is_complete=True."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            claude_log = os.path.join(tmpdir, "claude.log")
+
+            counter_file = os.path.join(tmpdir, "orch_status_count")
+            mock_orch = os.path.join(tmpdir, "egg-orch")
+            # Mock: return is_complete=false for all status checks EXCEPT the
+            # last one (the final check after restarts exhausted).
+            # With max_restarts=1, there are ~3 status checks:
+            #   1. Initial check after agent exits
+            #   2. Check after restart
+            #   3. Final check after max restarts
+            # Return true on the 3rd+ call.
+            with open(mock_orch, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
+                f.write('if echo "$@" | grep -q "pipeline status"; then\n')
+                f.write("  COUNT=0\n")
+                f.write(f"  if [ -f {shlex.quote(counter_file)} ]; then\n")
+                f.write(f"    COUNT=$(cat {shlex.quote(counter_file)})\n")
+                f.write("  fi\n")
+                f.write("  COUNT=$((COUNT + 1))\n")
+                f.write(f'  echo "$COUNT" > {shlex.quote(counter_file)}\n')
+                f.write('  if [ "$COUNT" -ge 3 ]; then\n')
+                f.write(
+                    '    echo \'{"data": {"concurrent": {"consensus": {"is_complete": true}}}}\'\n'
+                )
+                f.write("  else\n")
+                f.write(
+                    '    echo \'{"data": {"concurrent": {"consensus": {"is_complete": false}}}}\'\n'
+                )
+                f.write("  fi\n")
+                f.write("else\n")
+                f.write(
+                    '  echo \'{"data": {"concurrent": {"consensus": {"is_complete": false}}}}\'\n'
+                )
+                f.write("fi\n")
+            os.chmod(mock_orch, 0o755)  # nosec B103
+
+            _make_mock_agent(tmpdir, claude_log)
+
+            cmd = build_consensus_wrapped_command("Do the work", max_restarts=1)
+            result = self._run_wrapper_command(cmd, tmpdir, timeout=30)
+
+            # Should exit 0 because final consensus check found is_complete=True
+            assert result.returncode == 0, (
+                f"Expected exit 0 from final consensus check, got {result.returncode}. "
+                f"stderr: {result.stderr}"
+            )
+            assert "final check" in result.stderr.lower() or "Consensus reached" in result.stderr
+
+    def test_final_consensus_check_still_fails_when_incomplete(self):
+        """Behavioral test: final check still exits 1 when consensus not reached."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            claude_log = os.path.join(tmpdir, "claude.log")
+
+            # Mock egg-orch that always returns is_complete=false
+            mock_orch = os.path.join(tmpdir, "egg-orch")
+            real_python = sys.executable
+            with open(mock_orch, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
+                f.write(
+                    'echo \'{"data": {"concurrent": {"consensus": {"is_complete": false}}}}\'\n'
+                )
+            os.chmod(mock_orch, 0o755)  # nosec B103
+
+            # Mock python3
+            mock_python = os.path.join(tmpdir, "python3")
+            with open(mock_python, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write('if [ "$1" = "-m" ] && [ "$2" = "egg_agent" ]; then\n')
+                f.write(f'  echo "---CLAUDE_CALL---" >> {shlex.quote(claude_log)}\n')
+                f.write("else\n")
+                f.write(f'  exec {shlex.quote(real_python)} "$@"\n')
+                f.write("fi\n")
+            os.chmod(mock_python, 0o755)  # nosec B103
+
+            cmd = build_consensus_wrapped_command("Do the work", max_restarts=1)
+            result = self._run_wrapper_command(cmd, tmpdir, timeout=30)
+
+            # Should still exit 1 because consensus was never reached
+            assert result.returncode == 1
+            assert "Max restarts" in result.stderr
+            assert "never reached CONFIRMED" in result.stderr
