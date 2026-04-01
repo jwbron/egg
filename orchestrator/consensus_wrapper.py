@@ -328,7 +328,20 @@ sys.stdout.write(re.sub(r"\{{(\w+)\}}", lambda x: m.get(x.group(1), x.group(0)),
     fi
 done
 
-# --- Max restarts exhausted: shut down with failure ---
+# --- Max restarts exhausted: final consensus check before giving up ---
+# The agent may have contributed to consensus even though it never reached
+# CONFIRMED locally (e.g. network hiccup after signaling READY).  A final
+# poll avoids failing a pipeline that actually succeeded.
+FINAL_RESPONSE=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
+FINAL_IS_COMPLETE=$(echo "$FINAL_RESPONSE" | python3 -c \
+    "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('is_complete',False))" \
+    2>/dev/null || echo "False")
+
+if [ "$FINAL_IS_COMPLETE" = "True" ]; then
+    cw_log "Consensus reached on final check (after max restarts). Exiting successfully."
+    exit 0
+fi
+
 cw_log "Max restarts ($MAX_RESTARTS) exhausted. Agent never reached CONFIRMED. Exiting with failure."
 exit 1
 """
