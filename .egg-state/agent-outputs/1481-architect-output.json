@@ -1,0 +1,428 @@
+{
+  "issue": 1481,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 1,
+
+  "title": "Architecture analysis: Per-agent worktree isolation and role-aware file enforcement",
+
+  "summary": "Replace the shared-worktree-per-pipeline model with per-agent worktrees, add Agent SDK tool interception for early file-access feedback, change git author to include agent role, scope push file detection to agent-owned commits, and remove auto-commit-and-push in favor of HITL recovery. Six coordinated changes across orchestrator, gateway, sandbox, and shared/egg_agent that eliminate the cascade failures from #1470 and #1480 while preserving the shared-branch push model. Recommended approach: single PR with six ordered task groups, one per enforcement layer.",
+
+  "problem_statement": {
+    "description": "The current enforcement model has a fundamental gap: agents can write any file and commit freely, but the gateway only enforces role boundaries at push time. This creates cascading failures: (1) agents commit disallowed files → push blocked → recovery loops burn tokens (#1470), (2) downstream agents inherit disallowed files in their diff from main → their pushes also blocked (#1470), (3) auto_commit_worktree() sweeps disallowed files into WIP commits that bypass role restrictions and BRC consensus → CI fails (#1480), (4) agents waste tokens writing files they can't commit, when that work belongs to another agent, (5) shared worktree means agents can overwrite each other's uncommitted changes.",
+    "root_causes": [
+      {
+        "id": "RC-1",
+        "title": "All agents in a pipeline share a single worktree",
+        "description": "In orchestrator/routes/pipelines.py (line 5772), worktree_id = pipeline_id forces all containers in a pipeline to share the same working directory. Agent A's uncommitted writes are visible to and can be overwritten by Agent B. When Agent A writes files outside its role, those files appear in Agent B's git status and can get swept into Agent B's pushes.",
+        "location": "orchestrator/routes/pipelines.py:5770-5772"
+      },
+      {
+        "id": "RC-2",
+        "title": "Push file detection includes all commits on the branch, not just the pushing agent's",
+        "description": "get_changed_files_in_push() in gateway/git_client.py (line 1301) diffs origin/<branch>..HEAD, which includes commits from ALL agents. If Agent A committed a file outside Agent B's role, Agent B's push is blocked even though Agent B didn't author the change.",
+        "location": "gateway/git_client.py:1301-1455"
+      },
+      {
+        "id": "RC-3",
+        "title": "auto_commit_worktree() commits and pushes disallowed files",
+        "description": "On container exit, post_agent_commit.py auto-commits any uncommitted changes. Phase filtering catches some disallowed files, but agent role restrictions are not checked. This leads to WIP commits containing files outside the agent's role boundaries, which bypass BRC consensus and break CI.",
+        "location": "gateway/post_agent_commit.py:127-395"
+      },
+      {
+        "id": "RC-4",
+        "title": "No pre-execution feedback on file writes",
+        "description": "The Agent SDK (shared/egg_agent/) has no tool interception layer. Agents can spend tokens writing entire files via Write/Edit/NotebookEdit only to discover at push time that the files are disallowed. There is no mechanism to give agents early feedback like 'this file belongs to the tester role'.",
+        "location": "shared/egg_agent/client.py"
+      },
+      {
+        "id": "RC-5",
+        "title": "Git author is identical for all agents",
+        "description": "All agents commit as 'egg <egg@localhost>' (sandbox/entrypoint.py:596-597). Git log cannot distinguish which agent authored which commit, making debugging and scoped file detection harder than necessary.",
+        "location": "sandbox/entrypoint.py:596-597"
+      }
+    ]
+  },
+
+  "current_architecture": {
+    "worktree_model": {
+      "description": "All agents in a pipeline share a single worktree identified by pipeline_id. The WorktreeManager creates one worktree per pipeline, and all agent containers mount the same host path at /home/egg/repos/<name>.",
+      "file": "orchestrator/routes/pipelines.py",
+      "lines": "5765-5859",
+      "key_code": "worktree_id = pipeline_id  # All containers share the same working trees",
+      "flow": "orchestrator spawns container → calls gateway.create_worktrees(container_id=pipeline_id) → mounts returned path into container → all agents in pipeline get same path"
+    },
+    "push_validation": {
+      "description": "Gateway validates pushes by: (1) detecting changed files via get_changed_files_in_push(), (2) checking phase restrictions via check_phase_file_restrictions(), (3) checking agent role restrictions via validate_agent_push(), (4) checking anchor write permissions. Changed files are detected as the full diff origin/<branch>..HEAD, which includes ALL commits on the branch.",
+      "file": "gateway/gateway.py",
+      "lines": "820-960",
+      "enforcement_chain": [
+        "get_changed_files_in_push() → full branch diff",
+        "check_phase_file_restrictions(phase, files) → phase-based filtering",
+        "validate_agent_push(role, files) → role-based filtering via agent_restrictions.py",
+        "check_anchor_write_permission(file, anchor_id) → anchor scoping"
+      ]
+    },
+    "auto_commit": {
+      "description": "On container exit, auto_commit_worktree() checks for uncommitted changes, filters phase-restricted files (restoring them via git checkout), stages remaining files, commits as a WIP, and optionally pushes. Agent role restrictions are NOT applied during this filtering.",
+      "file": "gateway/post_agent_commit.py",
+      "lines": "127-395",
+      "problems": ["Bypasses BRC consensus", "Can commit role-disallowed files", "WIP commits break CI"]
+    },
+    "agent_sdk": {
+      "description": "The egg_agent package wraps claude_agent_sdk.query() with permission_mode='bypassPermissions'. No tool interception or pre-execution validation exists. Tools (Write, Edit, NotebookEdit, Bash) execute unmediated. The gateway enforces restrictions only at push time.",
+      "file": "shared/egg_agent/client.py",
+      "lines": "54-156"
+    },
+    "agent_identity": {
+      "description": "Agent role is propagated via EGG_AGENT_ROLE env var (set by container_spawner.py:386-398) and registered in gateway session (session_manager.py). Git author is static 'egg <egg@localhost>' for all agents. Agent anchor ID scopes .egg-state/agent-anchors/ writes.",
+      "files": ["orchestrator/container_spawner.py:386-398", "sandbox/entrypoint.py:596-597", "gateway/session_manager.py:298"]
+    }
+  },
+
+  "recommended_approach": {
+    "title": "Six-layer defense-in-depth enforcement with per-agent worktrees as the structural foundation",
+    "justification": "The issue design is sound and well-specified. Per-agent worktrees eliminate the root cause (shared filesystem) structurally rather than through filtering logic. Each subsequent layer (SDK interception, scoped detection, auto-commit removal) builds naturally on top. The approach follows the existing infrastructure — WorktreeManager already creates per-container worktrees; the current code just forces sharing. No new abstractions are needed.",
+    "approach": "Implement all six changes from the issue design as a single coordinated PR with six task groups. The changes are ordered by dependency: worktree isolation first (enables scoped detection and safe auto-commit removal), then identity/audit changes, then SDK interception (depends on role env var already being set), then auto-commit removal last (requires worktree isolation to preserve uncommitted work).",
+    "alternatives_considered": [
+      {
+        "name": "Gateway auto-filter on push (issue #1470 approach)",
+        "description": "Instead of blocking pushes with disallowed files, automatically strip them. This treats the symptom rather than the cause — agents still waste tokens writing disallowed files, and stripped files may leave the codebase in an inconsistent state.",
+        "rejected_reason": "Masks the real problem. Agents should never write disallowed files in the first place. Auto-filtering can silently drop important changes if restriction patterns are misconfigured."
+      },
+      {
+        "name": "Write-time blocking only (issue #1480 approach)",
+        "description": "Block Write/Edit/NotebookEdit at the SDK level without worktree isolation. Agents get early feedback but Bash file redirects can bypass it, and the shared worktree stomping problem remains.",
+        "rejected_reason": "Incomplete — Bash bypass means gateway must still handle disallowed files, and shared worktree causes cross-agent contamination regardless of write blocking."
+      },
+      {
+        "name": "Per-agent branches instead of per-agent worktrees",
+        "description": "Give each agent its own branch instead of a shared branch, merging at the end. This adds integrator complexity and conflict resolution overhead.",
+        "rejected_reason": "Over-engineered. Agents already have mutually exclusive file permissions, so merge conflicts are impossible on a shared branch. Per-agent worktrees with a shared branch get the isolation benefits without the merge overhead."
+      }
+    ],
+    "technical_decisions": [
+      {
+        "decision": "Per-agent worktrees are the default for all pipelines, no opt-out",
+        "rationale": "No workflows depend on shared uncommitted state. The disk overhead is marginal since git worktrees share the object store."
+      },
+      {
+        "decision": "SDK tool interception covers Write, Edit, and NotebookEdit only — not Bash",
+        "rationale": "Bash file writes are too hard to reliably parse. The SDK interception is an optimization to save tokens, not a security boundary. Gateway push validation catches anything that slips through."
+      },
+      {
+        "decision": "Auto-commit-and-push is removed entirely, replaced by HITL recovery for uncommitted work",
+        "rationale": "With per-agent worktrees, uncommitted work persists in the worktree on disk. No need to auto-commit since the worktree survives container exit. HITL decision lets humans choose whether to salvage or discard."
+      },
+      {
+        "decision": "Push retry uses git pull --rebase, with conflict = error signal to orchestrator",
+        "rationale": "Agents have mutually exclusive file permissions, so rebase conflicts indicate a restriction pattern bug, not a normal condition. The agent cannot fix config bugs itself."
+      },
+      {
+        "decision": "Per-agent git author uses 'egg (<role>)' format with '<role>@egg.local' email",
+        "rationale": "Informational only — makes git log readable. Not required for enforcement since per-agent worktrees provide structural commit attribution."
+      }
+    ]
+  },
+
+  "implementation_layers": {
+    "layer_1_per_agent_worktrees": {
+      "title": "Per-Agent Worktree Isolation",
+      "priority": "P0 — Foundation for all other layers",
+      "description": "Change worktree_id from pipeline_id to a per-container unique ID so each agent gets its own isolated worktree. The WorktreeManager already supports this — the current code just forces sharing.",
+      "changes": [
+        {
+          "file": "orchestrator/routes/pipelines.py",
+          "lines": "5770-5772",
+          "change": "Replace worktree_id = pipeline_id with worktree_id = container_id (or f'{pipeline_id}-{agent_role}'). Each container gets its own worktree.",
+          "impact": "All agents now have isolated working directories. No more cross-agent file stomping."
+        },
+        {
+          "file": "orchestrator/container_spawner.py",
+          "lines": "291-325",
+          "change": "Update repo_volumes to use per-container worktree paths instead of shared pipeline paths. May need to pass worktree_id to spawn_agent_container().",
+          "impact": "Container mounts point to agent-specific worktrees."
+        }
+      ],
+      "testing": "Test that two agents spawned in the same pipeline get different worktree paths. Test that file changes in one worktree are not visible in another."
+    },
+    "layer_2_shared_branch_with_pull_rebase": {
+      "title": "Shared Branch with Pull-Before-Push",
+      "priority": "P0 — Required for per-agent worktrees to work with shared branch",
+      "description": "All agents still push to the same pipeline branch. When push fails because another agent pushed first, the agent does git pull --rebase and retries. Since agents have mutually exclusive file permissions, rebase cannot conflict.",
+      "changes": [
+        {
+          "file": "Existing push retry logic in agents",
+          "change": "Ensure agents handle push rejection by pulling with rebase and retrying. This may already be partially implemented in agent prompts/tools.",
+          "impact": "Agents can safely share a branch despite per-agent worktrees."
+        }
+      ],
+      "testing": "Test concurrent pushes from two agents to the same branch. Verify rebase succeeds when agents modify different files. Verify rebase fails (and agent signals error) when file sets overlap."
+    },
+    "layer_3_scoped_push_detection": {
+      "title": "Scoped Push File Detection",
+      "priority": "P1 — Eliminates false positives from cross-agent commits",
+      "description": "Modify get_changed_files_in_push() to only report files from the pushing agent's commits. With per-agent worktrees, only the agent's own commits exist in the worktree's HEAD..origin diff.",
+      "changes": [
+        {
+          "file": "gateway/git_client.py",
+          "lines": "1301-1455",
+          "change": "With per-agent worktrees, the existing two-dot diff (origin/<branch>..HEAD) naturally scopes to the agent's commits since each worktree has only that agent's commits. Verify this assumption holds and add defensive checks. After git pull --rebase, the agent's commits sit atop the remote, so the diff still shows only the agent's files.",
+          "impact": "Agent B is no longer blocked by files that Agent A committed."
+        }
+      ],
+      "testing": "Test that after Agent A pushes and Agent B rebases, Agent B's push only reports Agent B's files in get_changed_files_in_push()."
+    },
+    "layer_4_per_agent_git_author": {
+      "title": "Per-Agent Git Author",
+      "priority": "P2 — Auditability improvement, not required for enforcement",
+      "description": "Change git author from static 'egg <egg@localhost>' to 'egg (<role>) <<role>@egg.local>' based on EGG_AGENT_ROLE environment variable.",
+      "changes": [
+        {
+          "file": "sandbox/entrypoint.py",
+          "lines": "596-597",
+          "change": "Read EGG_AGENT_ROLE env var, set git user.name to 'egg (<role>)' and user.email to '<role>@egg.local'. Fall back to 'egg <egg@localhost>' when no role is set.",
+          "impact": "Git log shows which agent authored each commit. Useful for debugging and audit."
+        }
+      ],
+      "testing": "Test that commits in agent containers have role-specific author. Test fallback when EGG_AGENT_ROLE is not set."
+    },
+    "layer_5_sdk_tool_interception": {
+      "title": "Agent SDK Tool Interception (Soft Enforcement)",
+      "priority": "P1 — Saves tokens and drives better delegation",
+      "description": "Add a pre-execution hook in the egg_agent SDK that checks Write/Edit/NotebookEdit file paths against the role's AgentFilePattern before executing. Returns an error to the LLM if the file is disallowed, saving tokens and encouraging delegation.",
+      "changes": [
+        {
+          "file": "shared/egg_agent/client.py",
+          "lines": "54-156",
+          "change": "Add a tool_filter or pre_tool_check function that intercepts tool calls before execution. For Write, Edit, and NotebookEdit tools, extract file_path from tool_input and call check_agent_file_access(role, [file_path]). If blocked, return a ToolError explaining the restriction and which role should handle the file.",
+          "impact": "Agents get immediate feedback instead of discovering restrictions at push time. Reduces wasted tokens."
+        },
+        {
+          "file": "shared/egg_agent/__init__.py",
+          "change": "Export the new interception function if needed for testing.",
+          "impact": "Minor API surface change."
+        }
+      ],
+      "notes": "This only applies to the headless egg_agent SDK, not the interactive claude CLI. Bash file redirects are not intercepted — gateway push validation is the hard enforcement layer.",
+      "testing": "Test that Write to a disallowed path returns an error without executing. Test that Write to an allowed path proceeds normally. Test that Bash is not intercepted."
+    },
+    "layer_6_remove_auto_commit_push": {
+      "title": "Remove Auto-Commit-and-Push",
+      "priority": "P0 — Eliminates #1480 failure mode",
+      "description": "Remove the auto-commit-and-push behavior from post_agent_commit.py. With per-agent worktrees, uncommitted work persists in the worktree after container exit. Replace with orchestrator-side detection and HITL recovery.",
+      "changes": [
+        {
+          "file": "gateway/post_agent_commit.py",
+          "lines": "127-395",
+          "change": "Remove or gut auto_commit_worktree(). Replace the push logic with a no-op or a simple log statement. The function may still be called by session cleanup, so ensure the call site handles the change.",
+          "impact": "No more unreviewed WIP commits on the branch. No more CI failures from auto-committed disallowed files."
+        },
+        {
+          "file": "orchestrator/routes/pipelines.py or orchestrator/container_spawner.py",
+          "change": "After agent container exits, check if the per-agent worktree has uncommitted changes (git status --porcelain). If yes, create a HITL decision: 'Agent <role> exited with uncommitted changes in N files. Recover or discard?'",
+          "impact": "Human decides the fate of uncommitted work. No unreviewed code reaches the branch."
+        }
+      ],
+      "testing": "Test that container exit with uncommitted changes does NOT result in a push. Test that HITL decision is created. Test that worktree is preserved (not cleaned up) when uncommitted changes exist."
+    }
+  },
+
+  "key_files_affected": [
+    {
+      "file": "orchestrator/routes/pipelines.py",
+      "lines": "5765-5859",
+      "change_type": "modify",
+      "description": "Change worktree_id from pipeline_id to per-container ID. Update worktree creation flow. Add post-exit worktree state check.",
+      "risk": "High — central orchestration logic, affects all pipeline execution"
+    },
+    {
+      "file": "orchestrator/container_spawner.py",
+      "lines": "191-479",
+      "change_type": "modify",
+      "description": "Update repo volume mounts to use per-container worktree paths. May need worktree_id parameter.",
+      "risk": "High — container spawning affects all agent types"
+    },
+    {
+      "file": "gateway/git_client.py",
+      "lines": "1301-1455",
+      "change_type": "modify",
+      "description": "Verify and document that per-agent worktrees scope file detection correctly. Add defensive checks.",
+      "risk": "Medium — security-critical file detection logic"
+    },
+    {
+      "file": "gateway/post_agent_commit.py",
+      "lines": "127-395",
+      "change_type": "major_modify",
+      "description": "Remove auto-commit-and-push behavior. Replace with logging or state-check-only.",
+      "risk": "Medium — removing safety net for uncommitted work, but per-agent worktrees provide new safety net"
+    },
+    {
+      "file": "gateway/gateway.py",
+      "lines": "820-960",
+      "change_type": "minor_modify",
+      "description": "No major changes needed if per-agent worktrees scope detection correctly. May add logging.",
+      "risk": "Low — existing push validation continues to work"
+    },
+    {
+      "file": "sandbox/entrypoint.py",
+      "lines": "596-597",
+      "change_type": "modify",
+      "description": "Change git author to include agent role from EGG_AGENT_ROLE env var.",
+      "risk": "Low — cosmetic change with fallback"
+    },
+    {
+      "file": "shared/egg_agent/client.py",
+      "lines": "54-156",
+      "change_type": "modify",
+      "description": "Add tool interception hook for Write/Edit/NotebookEdit. Check file paths against agent role restrictions.",
+      "risk": "Medium — new code path in agent execution, must not break existing tool flow"
+    },
+    {
+      "file": "gateway/agent_restrictions.py",
+      "change_type": "no_change",
+      "description": "Existing AgentFilePattern and role definitions are reused by SDK interception. No changes needed.",
+      "risk": "None"
+    },
+    {
+      "file": "gateway/worktree_manager.py",
+      "change_type": "no_change_likely",
+      "description": "WorktreeManager.create_worktree() already supports per-container worktrees. The change is in how the orchestrator calls it (using container_id instead of pipeline_id). May need minor adjustments if cleanup logic assumes shared worktrees.",
+      "risk": "Low"
+    },
+    {
+      "file": "gateway/session_manager.py",
+      "change_type": "minor_modify",
+      "description": "Session cleanup may need to skip auto-commit call or change its behavior when auto-commit is removed.",
+      "risk": "Low"
+    }
+  ],
+
+  "dependency_analysis": {
+    "internal_dependencies": [
+      {
+        "from": "Layer 3 (Scoped detection)",
+        "to": "Layer 1 (Per-agent worktrees)",
+        "description": "Scoped push detection relies on per-agent worktrees ensuring only agent's commits are in the worktree's history."
+      },
+      {
+        "from": "Layer 6 (Remove auto-commit)",
+        "to": "Layer 1 (Per-agent worktrees)",
+        "description": "Safe to remove auto-commit only because per-agent worktrees preserve uncommitted work on disk after container exit."
+      },
+      {
+        "from": "Layer 5 (SDK interception)",
+        "to": "gateway/agent_restrictions.py",
+        "description": "SDK interception imports and calls check_agent_file_access() from agent_restrictions.py. This module is in gateway/ but has no gateway-specific dependencies — it's pure logic."
+      },
+      {
+        "from": "Layer 5 (SDK interception)",
+        "to": "EGG_AGENT_ROLE env var",
+        "description": "SDK interception reads role from EGG_AGENT_ROLE, which is already set by container_spawner.py."
+      }
+    ],
+    "external_dependencies": [],
+    "related_issues": [
+      {
+        "issue": 1470,
+        "relationship": "subsumed",
+        "description": "Gateway auto-filter on push. This holistic design eliminates the need for push-time filtering by preventing disallowed files from being committed in the first place."
+      },
+      {
+        "issue": 1480,
+        "relationship": "subsumed",
+        "description": "Prevent agents from writing outside their role. This design adds SDK-level write prevention AND removes the auto-commit mechanism that was the direct cause of #1480."
+      },
+      {
+        "issue": 1484,
+        "relationship": "absorbed",
+        "description": "Scoped push file detection. Absorbed into Layer 3 of this design."
+      }
+    ]
+  },
+
+  "risk_assessment": {
+    "high_risks": [
+      {
+        "risk": "Per-agent worktree change breaks existing pipeline execution",
+        "likelihood": "Medium",
+        "impact": "High",
+        "mitigation": "The WorktreeManager already supports per-container worktrees. The change is in the orchestrator's worktree_id assignment, not the worktree creation logic itself. Comprehensive integration tests with multi-agent pipelines are essential."
+      },
+      {
+        "risk": "Removing auto-commit causes data loss for timed-out agents",
+        "likelihood": "Medium",
+        "impact": "Medium",
+        "mitigation": "Per-agent worktrees persist after container exit. Uncommitted work remains on disk. HITL decision allows human recovery. The worktree cleanup logic must be updated to check for uncommitted changes before deletion."
+      }
+    ],
+    "medium_risks": [
+      {
+        "risk": "SDK tool interception breaks headless agent execution",
+        "likelihood": "Low",
+        "impact": "High",
+        "mitigation": "Tool interception is additive — it checks before executing, and only blocks disallowed writes. Extensive testing with each agent role. Graceful fallback: if role check fails, allow the write (fail-open for soft enforcement)."
+      },
+      {
+        "risk": "Disk usage increases with per-agent worktrees",
+        "likelihood": "High (certain)",
+        "impact": "Low",
+        "mitigation": "Git worktrees share the object store. Only working tree files are duplicated. For a typical repo, this is ~50-200MB per agent. Worktree cleanup on pipeline completion handles lifecycle."
+      },
+      {
+        "risk": "Agent SDK importing gateway/agent_restrictions.py creates cross-package dependency",
+        "likelihood": "High (certain)",
+        "impact": "Medium",
+        "mitigation": "agent_restrictions.py is pure logic with no gateway-specific imports. It could be moved to shared/ or the relevant functions could be extracted into a shared utility. Alternatively, the SDK can read EGG_AGENT_FILE_PATTERNS env var (already set by concurrent_executor.py) and do pattern matching locally."
+      }
+    ],
+    "low_risks": [
+      {
+        "risk": "Per-agent git author breaks tooling that expects 'egg <egg@localhost>'",
+        "likelihood": "Low",
+        "impact": "Low",
+        "mitigation": "Search for hardcoded references to the old author string. The format 'egg (<role>)' still starts with 'egg' for pattern matching."
+      }
+    ]
+  },
+
+  "open_decisions": [
+    {
+      "id": "OD-1",
+      "question": "Should agent_restrictions.py be moved to shared/ for SDK interception, or should the SDK use the EGG_AGENT_FILE_PATTERNS env var?",
+      "options": [
+        "Move check_agent_file_access() to shared/ — clean import, single source of truth",
+        "Use EGG_AGENT_FILE_PATTERNS env var — no cross-package dependency, patterns already serialized to JSON by concurrent_executor.py"
+      ],
+      "recommendation": "Use EGG_AGENT_FILE_PATTERNS env var. It's already set, avoids moving code, and the SDK only needs pattern matching, not the full AgentFilePattern class. Implement a lightweight pattern matcher in shared/egg_agent/ that reads the JSON env var.",
+      "impact": "Affects task structure for Layer 5"
+    },
+    {
+      "id": "OD-2",
+      "question": "Should the worktree cleanup wait for HITL decision before deleting worktrees with uncommitted changes, or should it always preserve them?",
+      "options": [
+        "Preserve worktrees with uncommitted changes until HITL decision",
+        "Preserve all worktrees until pipeline completion, then clean up (with warning for uncommitted changes)"
+      ],
+      "recommendation": "Preserve all worktrees until pipeline completion. Simpler lifecycle management. HITL decision is about whether to salvage the work, not whether to keep the worktree.",
+      "impact": "Affects worktree cleanup timing in orchestrator"
+    }
+  ],
+
+  "scope_estimate": {
+    "total_files_modified": "8-12",
+    "total_files_new": "2-4 (tests)",
+    "lines_added_estimate": "300-500",
+    "lines_removed_estimate": "200-350",
+    "complexity": "moderate",
+    "estimated_tasks": 6,
+    "task_groups": [
+      "Per-agent worktree isolation (orchestrator)",
+      "Pull-before-push merge strategy (agent prompts/tools)",
+      "Scoped push file detection (gateway)",
+      "Per-agent git author (sandbox)",
+      "SDK tool interception (shared/egg_agent)",
+      "Remove auto-commit-push and add HITL recovery (gateway + orchestrator)"
+    ]
+  }
+}
