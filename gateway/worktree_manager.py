@@ -115,6 +115,12 @@ def validate_branch_ref(value: str, name: str = "base_branch") -> None:
         raise ValueError(f"Invalid {name}: null bytes not allowed")
     if ".." in value:
         raise ValueError(f"Invalid {name}: '..' not allowed")
+    if "//" in value:
+        raise ValueError(f"Invalid {name}: consecutive slashes not allowed")
+    if value.endswith("/") or value.endswith("."):
+        raise ValueError(f"Invalid {name}: cannot end with '/' or '.'")
+    if "/." in value:
+        raise ValueError(f"Invalid {name}: component cannot start with '.'")
     if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._/\-]*$", value):
         raise ValueError(f"Invalid {name}: must be alphanumeric with ._-/ allowed")
 
@@ -327,6 +333,7 @@ class WorktreeManager:
                     git_cmd("rev-parse", "--verify", branch_name),
                     cwd=main_repo,
                     capture_output=True,
+                    text=True,
                     check=False,
                 ).returncode
                 == 0
@@ -377,11 +384,9 @@ class WorktreeManager:
                         if fetch_result.returncode == 0:
                             effective_base = f"origin/{base_branch}"
                         else:
-                            logger.warning(
-                                "Failed to fetch base branch from remote",
-                                base_branch=base_branch,
-                                container_id=container_id,
-                                stderr=fetch_result.stderr.strip(),
+                            raise RuntimeError(
+                                f"Failed to fetch base branch '{base_branch}' from remote: "
+                                f"{fetch_result.stderr.strip()}"
                             )
 
                 # Create new branch from base

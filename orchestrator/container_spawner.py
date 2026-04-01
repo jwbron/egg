@@ -325,7 +325,7 @@ class ContainerSpawner:
             except ContainerSpawnError:
                 raise
             except GatewayError as e:
-                details = getattr(e, "details", None) or {}
+                details = e.details or {}
                 logger.error(
                     "Per-agent worktree creation gateway error",
                     agent_worktree_id=agent_worktree_id,

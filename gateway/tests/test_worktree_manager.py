@@ -17,6 +17,7 @@ from worktree_manager import (
     WorktreeManager,
     WorktreeRemovalResult,
     get_active_docker_containers,
+    validate_branch_ref,
     validate_identifier,
 )
 
@@ -59,6 +60,56 @@ class TestValidateIdentifier:
             validate_identifier("-starting-with-dash", "test_id")
         with pytest.raises(ValueError, match="must be alphanumeric"):
             validate_identifier(".hidden", "test_id")
+
+
+class TestValidateBranchRef:
+    """Tests for branch ref validation."""
+
+    @pytest.mark.parametrize(
+        "value",
+        ["main", "egg/issue-1495", "origin/egg/issue-1495", "HEAD", "v1.0.0", "my-branch"],
+    )
+    def test_valid_refs_accepted(self, value):
+        validate_branch_ref(value, "base_branch")
+
+    def test_empty_rejected(self):
+        with pytest.raises(ValueError, match="cannot be empty"):
+            validate_branch_ref("", "base_branch")
+
+    def test_path_traversal_rejected(self):
+        with pytest.raises(ValueError, match="'\\.\\.' not allowed"):
+            validate_branch_ref("../etc/passwd", "base_branch")
+
+    def test_null_bytes_rejected(self):
+        with pytest.raises(ValueError, match="null bytes not allowed"):
+            validate_branch_ref("foo\x00bar", "base_branch")
+
+    def test_consecutive_slashes_rejected(self):
+        with pytest.raises(ValueError, match="consecutive slashes"):
+            validate_branch_ref("a//b", "base_branch")
+
+    def test_trailing_slash_rejected(self):
+        with pytest.raises(ValueError, match="cannot end with"):
+            validate_branch_ref("egg/branch/", "base_branch")
+
+    def test_trailing_dot_rejected(self):
+        with pytest.raises(ValueError, match="cannot end with"):
+            validate_branch_ref("egg/branch.", "base_branch")
+
+    def test_component_starting_with_dot_rejected(self):
+        with pytest.raises(ValueError, match="component cannot start with"):
+            validate_branch_ref("egg/.hidden", "base_branch")
+
+    @pytest.mark.parametrize("value", ["with space", "semi;colon", "back`tick", "$(cmd)"])
+    def test_special_chars_rejected(self, value):
+        with pytest.raises(ValueError, match="must be alphanumeric"):
+            validate_branch_ref(value, "base_branch")
+
+    def test_leading_special_char_rejected(self):
+        with pytest.raises(ValueError, match="must be alphanumeric"):
+            validate_branch_ref(".hidden", "base_branch")
+        with pytest.raises(ValueError, match="must be alphanumeric"):
+            validate_branch_ref("-dashed", "base_branch")
 
 
 class TestWorktreeInfo:
@@ -636,7 +687,7 @@ class TestWorktreeManagerRemoteBranchFetch:
         assert len(fetch_calls) == 0
 
     def test_raises_when_fetch_fails_and_ref_missing(self, manager_with_repo):
-        """When base_branch doesn't exist locally and fetch fails, worktree add fails with RuntimeError."""
+        """When base_branch doesn't exist locally and fetch fails, raise immediately."""
         manager, repos_base, repo_dir, worktree_base = manager_with_repo
 
         call_log = []
@@ -649,16 +700,10 @@ class TestWorktreeManagerRemoteBranchFetch:
             result.stdout = ""
 
             if "rev-parse" in args and "--verify" in args:
-                # Neither branch_name nor base_branch exist locally
                 result.returncode = 1
             elif "fetch" in args and "origin" in args:
-                # Fetch fails (e.g., branch doesn't exist on remote either)
                 result.returncode = 128
                 result.stderr = "fatal: couldn't find remote ref egg/nonexistent"
-            elif "worktree" in args and "add" in args:
-                # worktree add fails because the ref doesn't exist
-                result.returncode = 128
-                result.stderr = "fatal: invalid reference: egg/nonexistent"
 
             return result
 
@@ -668,7 +713,10 @@ class TestWorktreeManagerRemoteBranchFetch:
             ):
                 with patch.object(manager, "_chown_recursive"):
                     with patch.object(manager, "_chown_single"):
-                        with pytest.raises(RuntimeError, match="Failed to create worktree"):
+                        with pytest.raises(
+                            RuntimeError,
+                            match="Failed to fetch base branch 'egg/nonexistent' from remote",
+                        ):
                             manager.create_worktree(
                                 "test-repo", "fail-container", base_branch="egg/nonexistent"
                             )
@@ -676,11 +724,9 @@ class TestWorktreeManagerRemoteBranchFetch:
         # Verify fetch was attempted
         fetch_calls = [c for c in call_log if "fetch" in c and "origin" in c]
         assert len(fetch_calls) == 1
-        # Verify worktree add was still attempted with the original (unresolved) base_branch
-        wt_add_calls = [c for c in call_log if "worktree" in c and "add" in c and "-b" in c]
-        assert len(wt_add_calls) == 1
-        assert "egg/nonexistent" in wt_add_calls[0]
-        assert "origin/egg/nonexistent" not in wt_add_calls[0]
+        # Verify worktree add was NOT attempted (we raise before reaching it)
+        wt_add_calls = [c for c in call_log if "worktree" in c and "add" in c]
+        assert len(wt_add_calls) == 0
 
 
 class TestFindWorktreeGitDir:

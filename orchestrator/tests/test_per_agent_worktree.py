@@ -246,10 +246,10 @@ class TestPerAgentWorktreeFallback:
 class TestPerAgentWorktreeErrorLogging:
     """GatewayError.details should be logged when worktree creation fails."""
 
-    def test_gateway_error_details_are_logged(
+    def test_gateway_error_raises_container_spawn_error(
         self, spawner, mock_gateway_client, mock_docker_client, caplog
     ):
-        """GatewayError details field should appear in spawner logs."""
+        """GatewayError is caught and re-raised as ContainerSpawnError."""
         original_volumes = {"egg": "/host/path/original"}
         error_details = {"errors": ["fatal: invalid reference: egg/issue-1495"]}
 
