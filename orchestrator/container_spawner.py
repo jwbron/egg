@@ -330,7 +330,7 @@ class ContainerSpawner:
                     "Per-agent worktree creation gateway error",
                     agent_worktree_id=agent_worktree_id,
                     error=str(e),
-                    status_code=getattr(e, "status_code", None),
+                    status_code=e.status_code,
                     details=details,
                 )
                 raise ContainerSpawnError(
