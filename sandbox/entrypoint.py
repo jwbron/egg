@@ -592,9 +592,16 @@ def setup_git(config: Config, logger: Logger) -> None:
     """Configure git for egg identity and credential helper."""
     user_tuple = (config.runtime_uid, config.runtime_gid)
 
-    # Set git identity
-    run_cmd(["git", "config", "--global", "user.name", "egg"], as_user=user_tuple)
-    run_cmd(["git", "config", "--global", "user.email", "egg@localhost"], as_user=user_tuple)
+    # Set git identity — include agent role for auditability in multi-agent pipelines
+    agent_role = os.environ.get("EGG_AGENT_ROLE", "")
+    if agent_role:
+        git_name = f"egg ({agent_role})"
+        git_email = f"{agent_role}@egg.local"
+    else:
+        git_name = "egg"
+        git_email = "egg@localhost"
+    run_cmd(["git", "config", "--global", "user.name", git_name], as_user=user_tuple)
+    run_cmd(["git", "config", "--global", "user.email", git_email], as_user=user_tuple)
 
     # Configure credential helper if token available
     if config.github_token:
@@ -622,7 +629,7 @@ def setup_git(config: Config, logger: Logger) -> None:
         as_user=user_tuple,
     )
 
-    logger.success("Git configured to commit as egg <egg@localhost>")
+    logger.success(f"Git configured to commit as {git_name} <{git_email}>")
 
 
 def setup_gateway_ca(config: Config, logger: Logger) -> None:

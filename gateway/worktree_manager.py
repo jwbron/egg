@@ -1015,6 +1015,63 @@ class WorktreeManager:
 
         return worktrees
 
+    def list_worktrees_for_pipeline(self, pipeline_id: str) -> list[WorktreeInfo]:
+        """List all worktrees for a pipeline (all agent roles).
+
+        Per-agent worktrees (#1481) use IDs of the form
+        '{pipeline_id}-{role}', so we scan for all container directories
+        matching this prefix as well as the base pipeline worktree.
+
+        Args:
+            pipeline_id: Pipeline identifier to scan for.
+
+        Returns:
+            List of WorktreeInfo for every repo worktree belonging to
+            this pipeline (including both the shared orchestrator
+            worktree and per-agent worktrees).
+        """
+        results: list[WorktreeInfo] = []
+        if not self.worktree_base.exists():
+            return results
+
+        prefix = f"{pipeline_id}-"
+        for entry in self.worktree_base.iterdir():
+            if not entry.is_dir():
+                continue
+            # Match the pipeline-level worktree and any per-agent worktrees
+            if entry.name != pipeline_id and not entry.name.startswith(prefix):
+                continue
+            for repo_dir in entry.iterdir():
+                if not repo_dir.is_dir():
+                    continue
+                # Try to read branch from .git file
+                branch = ""
+                git_file = repo_dir / ".git"
+                if git_file.exists() and git_file.is_file():
+                    try:
+                        gitdir_content = git_file.read_text().strip()
+                        if gitdir_content.startswith("gitdir: "):
+                            gitdir_path = Path(gitdir_content[8:])
+                            head_file = gitdir_path / "HEAD"
+                            if head_file.exists():
+                                head_content = head_file.read_text().strip()
+                                if head_content.startswith("ref: refs/heads/"):
+                                    branch = head_content[16:]
+                    except OSError:
+                        pass
+
+                results.append(
+                    WorktreeInfo(
+                        container_id=entry.name,
+                        repo_name=repo_dir.name,
+                        branch=branch,
+                        worktree_path=repo_dir,
+                        git_dir=None,
+                    )
+                )
+
+        return results
+
     def cleanup_orphaned_worktrees(
         self,
         active_containers: set[str],
@@ -1224,6 +1281,99 @@ class WorktreeManager:
         main_repo = self.repos_base / repo_name
 
         return worktree_path, main_repo
+
+    def cleanup_clean_worktree(self, container_id: str, repo_name: str) -> bool:
+        """Remove a worktree that has no uncommitted changes.
+
+        Called after container exit for worktrees without uncommitted work.
+
+        Returns:
+            True if cleaned up, False if has uncommitted changes or error.
+        """
+        worktree_path = self.worktree_base / container_id / repo_name
+        if not worktree_path.exists():
+            return True  # Already cleaned
+
+        # Check for uncommitted changes
+        try:
+            result = subprocess.run(
+                git_cmd("status", "--porcelain"),
+                cwd=str(worktree_path),
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                logger.info(
+                    "Worktree has uncommitted changes, preserving for HITL",
+                    container_id=container_id,
+                    repo_name=repo_name,
+                )
+                return False
+        except Exception as e:
+            logger.warning(
+                "Failed to check worktree status for cleanup",
+                container_id=container_id,
+                error=str(e),
+            )
+            return False
+
+        # Clean worktree -- remove it
+        result = self.remove_worktree(container_id, repo_name, force=True, delete_branch=True)
+        return result.success
+
+    def cleanup_stale_pipeline_worktrees(self, max_age_hours: int = 48) -> int:
+        """Remove worktrees older than max_age_hours regardless of state.
+
+        Periodic cleanup to prevent disk space exhaustion from abandoned
+        worktrees. Called by the orchestrator's maintenance loop.
+
+        Returns:
+            Number of worktrees removed.
+        """
+        removed = 0
+        if not self.worktree_base.exists():
+            return removed
+
+        cutoff = time.time() - (max_age_hours * 3600)
+
+        for entry in self.worktree_base.iterdir():
+            if not entry.is_dir():
+                continue
+            try:
+                mtime = entry.stat().st_mtime
+                if mtime < cutoff:
+                    for repo_dir in entry.iterdir():
+                        if repo_dir.is_dir():
+                            removal_result = self.remove_worktree(
+                                entry.name, repo_dir.name, force=True, delete_branch=True
+                            )
+                            if removal_result.success:
+                                removed += 1
+                            else:
+                                logger.warning(
+                                    "Failed to remove stale worktree",
+                                    container_id=entry.name,
+                                    repo=repo_dir.name,
+                                    error=removal_result.error,
+                                )
+                    # Clean up empty container directory
+                    if entry.exists() and not any(entry.iterdir()):
+                        entry.rmdir()
+            except Exception as e:
+                logger.warning(
+                    "Error during stale worktree cleanup",
+                    container_id=entry.name,
+                    error=str(e),
+                )
+
+        logger.info(
+            "Stale worktree cleanup complete",
+            removed=removed,
+            max_age_hours=max_age_hours,
+        )
+        return removed
 
 
 def get_active_docker_containers() -> set[str]:

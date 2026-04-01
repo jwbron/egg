@@ -1307,6 +1307,10 @@ def get_changed_files_in_push(
     Compares local branch to remote tracking branch to determine what
     files are being modified in the commits being pushed.
 
+    Per-agent worktree isolation (#1481): With each agent in its own
+    worktree, the diff between origin/<branch> and HEAD naturally
+    contains only this agent's changes. No additional filtering needed.
+
     SECURITY: This function is used for security-critical file restriction checks.
     If it returns an error, the caller MUST treat it as a security failure and
     block the push. Never fail open on git diff errors.

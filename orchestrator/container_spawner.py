@@ -287,6 +287,45 @@ class ContainerSpawner:
         host_uid = int(os.environ.get("HOST_UID", 1000))
         host_gid = int(os.environ.get("HOST_GID", 1000))
 
+        # Per-agent worktree isolation (#1481): create a dedicated worktree
+        # for this agent so concurrent agents cannot stomp on each other's
+        # uncommitted work.  The pipeline-level worktree (worktree_id ==
+        # pipeline_id) is retained for orchestrator-side reads (contracts,
+        # drafts); agents get their own worktree branched from the same ref.
+        agent_worktree_id = f"{pipeline_id}-{agent_role.value}"
+        if repo_volumes and repos:
+            try:
+                wt_repos = repos
+                wt_result = self.gateway.create_worktrees(
+                    container_id=agent_worktree_id,
+                    repos=wt_repos,
+                    uid=host_uid,
+                    gid=host_gid,
+                    base_branch=branch,
+                )
+                if wt_result and wt_result.success and wt_result.worktrees:
+                    repo_volumes = wt_result.worktrees
+                    logger.info(
+                        "Per-agent worktree created",
+                        agent_worktree_id=agent_worktree_id,
+                        role=agent_role.value,
+                        pipeline_id=pipeline_id,
+                        worktrees=list(repo_volumes.keys()),
+                    )
+                else:
+                    logger.warning(
+                        "Per-agent worktree creation returned no worktrees, "
+                        "falling back to shared pipeline volumes",
+                        agent_worktree_id=agent_worktree_id,
+                        errors=wt_result.errors if wt_result else [],
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Per-agent worktree creation failed, using shared volumes",
+                    agent_worktree_id=agent_worktree_id,
+                    error=str(e),
+                )
+
         # Build mounts: repo volumes + .git shadows + certs
         mounts: list[MountSpec] = []
         if repo_volumes:
@@ -379,12 +418,17 @@ class ContainerSpawner:
             # CONTAINER_ID must match the worktree container_id so the gateway
             # git proxy can map /home/egg/repos/<name> to the correct worktree
             # at /home/egg/.egg-worktrees/<id>/<name>.
+            #
+            # Per-agent worktree isolation (#1481): each agent gets its own
+            # worktree so concurrent agents cannot stomp on each other's
+            # uncommitted work.  CONTAINER_ID is now per-agent.
+            agent_worktree_id = f"{pipeline_id}-{agent_role.value}"
             orchestrator_host = (
                 ORCHESTRATOR_ISOLATED_IP if mode == "private" else ORCHESTRATOR_EXTERNAL_IP
             )
             orchestrator_url = f"http://{orchestrator_host}:{ORCHESTRATOR_PORT}"
             spawner_env: dict[str, str] = {
-                "CONTAINER_ID": pipeline_id,
+                "CONTAINER_ID": agent_worktree_id,
                 "EGG_REPO_PATH": "/home/egg/repos",
                 "EGG_AGENT_ROLE": agent_role.value,
                 "EGG_PIPELINE_ID": pipeline_id,
@@ -604,6 +648,33 @@ class ContainerSpawner:
                     error=str(e),
                 )
 
+        # Clean up per-agent worktrees (#1481).  Each agent gets a worktree
+        # with container_id "{pipeline_id}-{role}".  We ask the gateway to
+        # delete worktrees for every role that was spawned, plus the shared
+        # pipeline-level worktree.
+        worktree_ids_to_clean = [pipeline_id]
+        for container in containers:
+            labels = getattr(container, "labels", {}) or {}
+            role = labels.get("egg.agent.role")
+            if role:
+                worktree_ids_to_clean.append(f"{pipeline_id}-{role}")
+
+        for wt_id in worktree_ids_to_clean:
+            try:
+                self.gateway.delete_worktrees(container_id=wt_id, force=True)
+                logger.info(
+                    "Worktree cleaned up",
+                    pipeline_id=pipeline_id,
+                    worktree_id=wt_id,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Worktree cleanup failed",
+                    pipeline_id=pipeline_id,
+                    worktree_id=wt_id,
+                    error=str(e),
+                )
+
         logger.info(
             "Pipeline cleanup complete",
             pipeline_id=pipeline_id,
@@ -611,6 +682,70 @@ class ContainerSpawner:
         )
 
         return removed
+
+    def detect_uncommitted_changes(
+        self,
+        pipeline_id: str,
+        agent_role: str,
+    ) -> dict | None:
+        """Detect uncommitted changes in an agent's worktree after container exit.
+
+        Checks the agent's worktree directly on the filesystem for uncommitted
+        changes. Per-agent worktrees (#1481) are at:
+        /home/egg/.egg-worktrees/{pipeline_id}-{role}/{repo}/
+
+        Returns:
+            Dict with change info if uncommitted changes found, None otherwise.
+        """
+        import subprocess
+
+        agent_worktree_id = f"{pipeline_id}-{agent_role}"
+        worktree_base = Path("/home/egg/.egg-worktrees") / agent_worktree_id
+
+        if not worktree_base.exists():
+            return None
+
+        for repo_dir in worktree_base.iterdir():
+            if not repo_dir.is_dir():
+                continue
+            try:
+                result = subprocess.run(
+                    ["/usr/bin/git", "-c", "safe.directory=*", "status", "--porcelain"],
+                    cwd=str(repo_dir),
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    files = [
+                        line[3:].strip() for line in result.stdout.splitlines()
+                        if line and len(line) > 3
+                    ]
+                    logger.info(
+                        "Agent exited with uncommitted changes",
+                        event_type="agent_uncommitted_changes",
+                        pipeline_id=pipeline_id,
+                        agent_role=agent_role,
+                        worktree_path=str(repo_dir),
+                        file_count=len(files),
+                        changed_files=files[:20],
+                    )
+                    return {
+                        "pipeline_id": pipeline_id,
+                        "agent_role": agent_role,
+                        "worktree_id": agent_worktree_id,
+                        "worktree_path": str(repo_dir),
+                        "file_count": len(files),
+                        "changed_files": files[:20],
+                    }
+            except Exception as e:
+                logger.warning(
+                    "Failed to check worktree status",
+                    repo_dir=str(repo_dir),
+                    error=str(e),
+                )
+        return None
 
     def _get_container_ip(self, container_id: str) -> str:
         """Get or predict container IP address.
