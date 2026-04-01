@@ -38,7 +38,7 @@ from egg_contracts.agent_roles import AgentRole as ContractAgentRole
 from egg_contracts.loader import ContractNotFoundError
 from egg_contracts.orchestrator import create_orchestrator
 from handoffs import AgentOutput, save_agent_output
-from models import AgentRole, Pipeline, PipelineStatus
+from models import AgentExecutionStatus, AgentRole, Pipeline, PipelineStatus
 from state_store import InvalidPipelineIdError, PipelineNotFoundError, get_state_store
 
 logger = get_logger("orchestrator.signals")
@@ -530,6 +530,32 @@ def handle_error_signal(
                     "clean_shutdown": True,
                 },
             )
+
+        # Suppress errors from agents already marked COMPLETE by the
+        # consensus path.  _update_agents_complete() runs before containers
+        # are stopped, so the agent is COMPLETE by the time this error
+        # signal arrives.  See issue #1495.
+        phase_key = pipeline.current_phase.value
+        phase_execution = pipeline.phases.get(phase_key)
+        if phase_execution is not None:
+            for agent in phase_execution.agents:
+                if (
+                    agent.role == agent_role
+                    and agent.status == AgentExecutionStatus.COMPLETE
+                ):
+                    logger.info(
+                        "Agent already COMPLETE, suppressing error signal "
+                        "(consensus path)",
+                        pipeline_id=pipeline_id,
+                        role=agent_role.value,
+                    )
+                    return make_success_response(
+                        "Error suppressed (agent already complete)",
+                        data={
+                            "agent_role": agent_role.value,
+                            "already_complete": True,
+                        },
+                    )
 
         # Contracts live in per-pipeline worktrees, not the main repo.
         contract_path = resolve_worktree_path(pipeline_id, repo_path)

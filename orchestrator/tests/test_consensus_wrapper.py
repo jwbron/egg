@@ -256,11 +256,37 @@ class TestConsensusWrapperBehavior:
             timeout=timeout,
         )
 
-    def test_nonzero_exit_does_not_restart(self):
-        """A non-zero Claude exit must not trigger restart or egg-orch calls."""
+    def test_nonzero_exit_with_consensus_exits_cleanly(self):
+        """Non-zero agent exit when consensus already reached should exit 0 (issue #1495)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "egg-orch.log")
+            # _make_mock_tools creates an egg-orch that returns is_complete=true
             self._make_mock_tools(tmpdir, log_file)
+            self._make_failing_agent(tmpdir, exit_code=1)
+
+            cmd = build_consensus_wrapped_command("Do the work", max_restarts=2)
+            result = self._run_wrapper_command(cmd, tmpdir)
+
+            assert result.returncode == 0
+            assert "consensus already reached" in result.stderr
+
+    def test_nonzero_exit_without_consensus_fails(self):
+        """Non-zero agent exit without consensus should still exit with failure."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            # Create mock egg-orch that returns is_complete=false and no agents
+            mock_orch = os.path.join(tmpdir, "egg-orch")
+            with open(mock_orch, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
+                f.write('if echo "$@" | grep -q "pipeline status"; then\n')
+                f.write('  echo \'{"data": {"concurrent": {"consensus": {"is_complete": false, "agents": {}}}}}\'\n')
+                f.write('elif echo "$@" | grep -q "message poll"; then\n')
+                f.write('  echo "[]"\n')
+                f.write("else\n")
+                f.write('  echo "{}"\n')
+                f.write("fi\n")
+            os.chmod(mock_orch, 0o755)  # nosec B103
             self._make_failing_agent(tmpdir, exit_code=1)
 
             cmd = build_consensus_wrapped_command("Do the work", max_restarts=2)
@@ -268,6 +294,36 @@ class TestConsensusWrapperBehavior:
 
             assert result.returncode == 1
             assert "NOT restarting" in result.stderr
+
+    def test_nonzero_exit_with_agent_confirmed_exits_cleanly(self):
+        """Non-zero agent exit when agent already CONFIRMED should exit 0 (issue #1495)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            # Create mock egg-orch: is_complete=false but agent is confirmed
+            mock_orch = os.path.join(tmpdir, "egg-orch")
+            with open(mock_orch, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
+                f.write('if echo "$@" | grep -q "pipeline status"; then\n')
+                f.write(
+                    '  echo \'{"data": {"concurrent": {"consensus": '
+                    '{"is_complete": false, "agents": {"coder": {"confirmed": true}}}}}}\'\n'
+                )
+                f.write('elif echo "$@" | grep -q "message poll"; then\n')
+                f.write('  echo "[]"\n')
+                f.write("else\n")
+                f.write('  echo "{}"\n')
+                f.write("fi\n")
+            os.chmod(mock_orch, 0o755)  # nosec B103
+            self._make_failing_agent(tmpdir, exit_code=1)
+
+            cmd = build_consensus_wrapped_command("Do the work", max_restarts=2)
+            result = self._run_wrapper_command(
+                cmd, tmpdir, agent_role="coder", timeout=30,
+            )
+
+            assert result.returncode == 0
+            assert "already CONFIRMED" in result.stderr
 
     @staticmethod
     def _make_mock_tools_with_delayed_consensus(
@@ -342,11 +398,23 @@ class TestConsensusWrapperBehavior:
             assert "--system-prompt" not in initial_call
             assert "--system-prompt" in restart_call
 
-    def test_nonzero_exit_propagates_exit_code(self):
-        """Wrapper must propagate the original non-zero exit code."""
+    def test_nonzero_exit_propagates_exit_code_without_consensus(self):
+        """Wrapper must propagate the original non-zero exit code when consensus not reached."""
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "egg-orch.log")
-            self._make_mock_tools(tmpdir, log_file)
+            # Create mock egg-orch that returns is_complete=false and no agents
+            mock_orch = os.path.join(tmpdir, "egg-orch")
+            with open(mock_orch, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
+                f.write('if echo "$@" | grep -q "pipeline status"; then\n')
+                f.write('  echo \'{"data": {"concurrent": {"consensus": {"is_complete": false, "agents": {}}}}}\'\n')
+                f.write('elif echo "$@" | grep -q "message poll"; then\n')
+                f.write('  echo "[]"\n')
+                f.write("else\n")
+                f.write('  echo "{}"\n')
+                f.write("fi\n")
+            os.chmod(mock_orch, 0o755)  # nosec B103
             self._make_failing_agent(tmpdir, exit_code=42)
 
             cmd = build_consensus_wrapped_command("Prompt", max_restarts=2)

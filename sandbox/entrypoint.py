@@ -1651,6 +1651,15 @@ def signal_orchestrator_completion(
                 agent_role=config.agent_role,
             )
             signal_type = "complete"
+        elif exit_code == 143 and os.environ.get("EGG_CONCURRENT_MODE") == "true":
+            # SIGTERM (128+15=143) in concurrent mode means the orchestrator
+            # is stopping the container after consensus — treat as success.
+            # See issue #1495.
+            response = client.signal_complete(
+                pipeline_id=config.pipeline_id,
+                agent_role=config.agent_role,
+            )
+            signal_type = "complete"
         else:
             # Failure - signal error with stderr context for debugging
             error_msg = error_message or f"Container exited with code {exit_code}"

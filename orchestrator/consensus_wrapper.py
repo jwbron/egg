@@ -85,7 +85,8 @@ _RECOVERY_USER_PROMPT = (
 
 # Shell script that wraps the agent invocation. After the agent exits:
 # - Non-concurrent mode: exit normally.
-# - Non-zero exit: treat as failure, no restart.
+# - Non-zero exit: check if consensus/confirmation reached first; if so
+#   exit cleanly (issue #1495). Otherwise treat as failure, no restart.
 # - Clean exit (code 0): restart the agent with a recovery prompt (up to
 #   MAX_RESTARTS times). After max restarts, exit 1 to trigger the
 #   orchestrator's agent failure path (HITL decision).
@@ -157,8 +158,55 @@ if [ "${{EGG_CONCURRENT_MODE:-}}" != "true" ]; then
     exit $AGENT_EXIT
 fi
 
-# Non-zero exit means the agent crashed — do not restart.
+# Non-zero exit — but check if consensus was already reached or agent
+# already confirmed before treating it as a failure.  Agents can exit
+# with non-zero codes (e.g. context exhaustion, idle timeout) after
+# successfully completing their BRC work.  See issue #1495.
 if [ "$AGENT_EXIT" -ne 0 ]; then
+    CW_RESPONSE=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
+    CW_IS_COMPLETE=$(echo "$CW_RESPONSE" | python3 -c \
+        "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('is_complete',False))" \
+        2>/dev/null || echo "False")
+    if [ "$CW_IS_COMPLETE" = "True" ]; then
+        cw_log "Agent exited with code $AGENT_EXIT but consensus already reached. Exiting cleanly."
+        exit 0
+    fi
+
+    # Check if this agent already confirmed in BRC — consensus may still
+    # be in progress but our contribution is done.
+    CW_AGENT_ROLE="${{EGG_AGENT_ROLE:-}}"
+    if [ -n "$CW_AGENT_ROLE" ]; then
+        CW_AGENT_CONFIRMED=$(get_agent_confirmed "$CW_RESPONSE" "$CW_AGENT_ROLE")
+        # Message bus fallback (tracker may be lost after orchestrator restart)
+        if [ "$CW_AGENT_CONFIRMED" != "True" ]; then
+            CW_AGENTS_EMPTY=$(echo "$CW_RESPONSE" | python3 -c \
+                "import sys,json; d=json.load(sys.stdin); agents=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}); print('True' if not agents else 'False')" \
+                2>/dev/null || echo "False")
+            if [ "$CW_AGENTS_EMPTY" = "True" ]; then
+                CW_MSG_RESPONSE=$(egg-orch message poll --json --limit 1000 2>/dev/null || echo "[]")
+                CW_AGENT_CONFIRMED=$(echo "$CW_MSG_RESPONSE" | python3 -c "
+import sys, json
+role = sys.argv[1]
+try:
+    msgs = json.load(sys.stdin)
+    if isinstance(msgs, dict):
+        msgs = msgs.get('data', msgs.get('messages', []))
+    found = any(
+        m.get('message_type') == 'CONSENSUS_CONFIRMED' and m.get('from_role') == role
+        for m in msgs
+    )
+    print('True' if found else 'False')
+except Exception:
+    print('False')
+" "$CW_AGENT_ROLE" 2>/dev/null || echo "False")
+            fi
+        fi
+        if [ "$CW_AGENT_CONFIRMED" = "True" ]; then
+            cw_log "Agent exited with code $AGENT_EXIT but already CONFIRMED in BRC. Exiting cleanly."
+            exit 0
+        fi
+    fi
+
     cw_log "Agent failed (code $AGENT_EXIT). NOT restarting."
     exit $AGENT_EXIT
 fi

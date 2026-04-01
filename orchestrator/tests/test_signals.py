@@ -373,6 +373,137 @@ class TestSigtermCleanShutdown:
         assert "clean_shutdown" not in data.get("data", {})
 
 
+class TestAgentAlreadyCompleteSuppression:
+    """Error signals for agents already marked COMPLETE are suppressed (issue #1495)."""
+
+    @patch("routes.signals.get_state_store")
+    def test_error_suppressed_when_agent_already_complete(
+        self,
+        mock_get_store,
+        app,
+    ):
+        """Error signal from a COMPLETE agent should be suppressed."""
+        from models import (
+            AgentExecution,
+            AgentExecutionStatus,
+            AgentRole,
+            PhaseExecution,
+            Pipeline,
+            PipelinePhase,
+            PipelineStatus,
+        )
+
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        phase_exec = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            agents=[
+                AgentExecution(
+                    role=AgentRole.CODER,
+                    status=AgentExecutionStatus.COMPLETE,
+                ),
+            ],
+        )
+        pipeline.phases["implement"] = phase_exec
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+
+        with app.app_context():
+            from routes.signals import handle_error_signal
+
+            response, status_code = handle_error_signal(
+                "issue-42",
+                {
+                    "agent_role": "coder",
+                    "error": "Container exited with code 1",
+                    "recoverable": False,
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 200
+        data = json.loads(response.data)
+        assert data["data"]["already_complete"] is True
+
+    @patch("routes.signals.save_contract")
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("routes.signals.load_contract")
+    def test_error_not_suppressed_when_agent_still_running(
+        self,
+        mock_load_contract,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_save_contract,
+        app,
+    ):
+        """Error signal from a RUNNING agent should NOT be suppressed."""
+        from models import (
+            AgentExecution,
+            AgentExecutionStatus,
+            AgentRole,
+            PhaseExecution,
+            Pipeline,
+            PipelinePhase,
+            PipelineStatus,
+        )
+
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        phase_exec = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            agents=[
+                AgentExecution(
+                    role=AgentRole.CODER,
+                    status=AgentExecutionStatus.RUNNING,
+                ),
+            ],
+        )
+        pipeline.phases["implement"] = phase_exec
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_orch = MagicMock()
+        mock_orch.apply_to_contract.return_value = MagicMock()
+
+        with patch("routes.signals.create_orchestrator", return_value=mock_orch):
+            with app.app_context():
+                from routes.signals import handle_error_signal
+
+                response, status_code = handle_error_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "coder",
+                        "error": "Container exited with code 1",
+                        "recoverable": False,
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 200
+        data = json.loads(response.data)
+        assert "already_complete" not in data.get("data", {})
+        # Contract should have been updated with the error
+        mock_orch.fail_agent.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # Completion signal branch verification tests (TASK-5-3)
 # ---------------------------------------------------------------------------
