@@ -5207,9 +5207,7 @@ class TestBranchIsolation:
             "map_container_path_to_worktree",
             return_value=None,
         ):
-            response = self._git_execute(
-                client, pipeline_mode_headers, "status", ["--porcelain"]
-            )
+            response = self._git_execute(client, pipeline_mode_headers, "status", ["--porcelain"])
 
             assert response.status_code == 500
             data = json.loads(response.data)
