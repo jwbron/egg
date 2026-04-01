@@ -174,7 +174,7 @@ This approach is justified because:
 
 ## Open Questions
 
-All questions have been registered as HITL decisions via `egg-orch decision create`.
+All questions have been registered as HITL decisions via `egg-orch decision create` (the pipeline's decision queue for pipeline `issue-1470-auto-filter`). Note: `egg-contract` could not reach the contract through the gateway API (404 due to path resolution between container and host), so decisions were registered through the orchestrator's decision system instead. All 6 decisions are confirmed present via `egg-orch decision list issue-1470-auto-filter`.
 
 ### Decision 1: Implementation approach
 **Question**: Which implementation approach should we use for auto-filtering disallowed files on push?
