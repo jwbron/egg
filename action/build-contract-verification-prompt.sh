@@ -63,12 +63,29 @@ For each acceptance criterion in the contract:
 3. If verified, mark it using: `egg-contract verify-criterion --criterion <id>`
 4. If not verified, note the gap in your review
 
+### Artifact Verification
+
+For each task that lists files_affected, verify that every listed file
+exists on the remote branch, not just in the local worktree:
+
+1. Run git fetch origin to ensure the remote ref is up to date
+2. For each required file path, run git show origin/$EGG_BRANCH:<file_path>
+3. If the command fails (file not found on remote), the task artifact has
+   not been pushed and the task is not complete
+
+CRITICAL: Do NOT use local file existence checks (ls, cat, test -f, Path.exists())
+to verify task artifacts. In shared worktree environments, unpushed files from
+other agents may be visible locally but absent from the remote branch.
+
+If any required artifact is missing from the remote branch, NACK the proposal
+and list the missing files.
+
 ### Contract Integrity
 
 Verify:
 - No implementation changes violate previously verified criteria
 - New changes don't break existing contract compliance
-- All required files listed in tasks are present
+- All required files listed in tasks are present on the remote branch (see Artifact Verification above)
 EOF
     fi
 }

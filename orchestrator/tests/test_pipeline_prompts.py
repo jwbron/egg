@@ -275,6 +275,7 @@ class TestSharedPromptFileContent:
         assert content is not None
         assert "Task Verification" in content
         assert "Phase Consistency" in content
+        assert "Artifact Verification" in content
         assert "Contract Integrity" in content
 
     def test_autofixer_rules_has_key_sections(self):
