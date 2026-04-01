@@ -1334,7 +1334,10 @@ class WorktreeManager:
         """Remove worktrees older than max_age_hours regardless of state.
 
         Periodic cleanup to prevent disk space exhaustion from abandoned
-        worktrees. Called by the orchestrator's maintenance loop.
+        worktrees.
+
+        TODO: Wire this into the orchestrator's maintenance loop. Currently
+        only called from tests — not yet connected to production scheduling.
 
         Args:
             max_age_hours: Worktrees inactive for longer than this are removed.
@@ -1379,6 +1382,8 @@ class WorktreeManager:
                             gitdir_line = dot_git.read_text().strip()
                             if gitdir_line.startswith("gitdir:"):
                                 git_admin = Path(gitdir_line.split(":", 1)[1].strip())
+                                if not git_admin.is_absolute():
+                                    git_admin = (repo_subdir / git_admin).resolve()
                                 for git_file in ("index", "HEAD"):
                                     try:
                                         fmt = os.stat(git_admin / git_file).st_mtime

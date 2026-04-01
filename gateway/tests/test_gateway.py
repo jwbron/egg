@@ -6391,6 +6391,20 @@ class TestGhExecuteIssueCommentBlocking:
             )
             assert response.status_code == 403
 
+    def test_non_string_agent_role_returns_403(self, client):
+        """Non-string agent_role (e.g. from corrupted session) returns 403."""
+        ctx1, ctx2 = self._make_session(phase=None, agent_role=42)
+        with ctx1, ctx2:
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps({"args": ["pr", "view", "123"]}),
+                content_type="application/json",
+            )
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "invalid" in data["message"].lower() or "role" in data["message"].lower()
+
     def test_pr_view_still_allowed(self, client):
         """Non-blocked operations like pr view should still work."""
         ctx1, ctx2 = self._make_session(phase="refine", agent_role="reviewer_refine")
