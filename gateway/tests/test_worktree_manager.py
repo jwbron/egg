@@ -474,6 +474,164 @@ class TestWorktreeManagerDockerGitDir:
         assert not info.git_dir.exists()
 
 
+class TestWorktreeManagerRemoteBranchFetch:
+    """Tests for create_worktree fetching remote branches that don't exist locally."""
+
+    @pytest.fixture
+    def manager_with_repo(self, tmp_path):
+        """Create manager with a fake repo that has a .git directory."""
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+        repo_dir = repos_base / "test-repo"
+        repo_dir.mkdir()
+        (repo_dir / ".git").mkdir()
+        worktree_base = tmp_path / "worktrees"
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+        return manager, repos_base, repo_dir, worktree_base
+
+    def test_fetches_remote_when_base_branch_not_local(self, manager_with_repo):
+        """When base_branch doesn't exist locally, fetch from origin and use origin/<branch>."""
+        manager, repos_base, repo_dir, worktree_base = manager_with_repo
+
+        call_log = []
+
+        def mock_run(args, **kwargs):
+            call_log.append(list(args))
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            result.stdout = ""
+
+            if "rev-parse" in args and "--verify" in args:
+                # Neither branch_name nor base_branch exist locally
+                result.returncode = 1
+            elif "fetch" in args and "origin" in args:
+                result.returncode = 0
+            elif "worktree" in args and "add" in args:
+                # Simulate successful worktree add
+                wt_path = None
+                for i, a in enumerate(args):
+                    if a == "-b" and i + 2 < len(args):
+                        wt_path = Path(args[i + 2])
+                        break
+                if wt_path:
+                    wt_path.mkdir(parents=True, exist_ok=True)
+                    git_file = wt_path / ".git"
+                    git_file.write_text("gitdir: /fake/git/dir")
+                result.returncode = 0
+            elif "worktree" in args and "lock" in args:
+                result.returncode = 0
+
+            return result
+
+        with patch("subprocess.run", side_effect=mock_run):
+            with patch.object(manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")):
+                with patch.object(manager, "_chown_recursive"):
+                    with patch.object(manager, "_chown_single"):
+                        info = manager.create_worktree(
+                            "test-repo", "issue-1495-coder", base_branch="egg/issue-1495"
+                        )
+
+        assert info.container_id == "issue-1495-coder"
+        # Verify fetch was called
+        fetch_calls = [c for c in call_log if "fetch" in c and "origin" in c]
+        assert len(fetch_calls) == 1
+        assert "egg/issue-1495" in fetch_calls[0]
+        # Verify worktree add used origin/<branch> as effective base
+        wt_add_calls = [c for c in call_log if "worktree" in c and "add" in c and "-b" in c]
+        assert len(wt_add_calls) == 1
+        assert "origin/egg/issue-1495" in wt_add_calls[0]
+
+    def test_skips_fetch_when_base_branch_exists_locally(self, manager_with_repo):
+        """When base_branch exists locally, no fetch needed."""
+        manager, repos_base, repo_dir, worktree_base = manager_with_repo
+
+        call_log = []
+
+        def mock_run(args, **kwargs):
+            call_log.append(args)
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            result.stdout = ""
+
+            if "rev-parse" in args:
+                if args[-1] == "egg/my-branch":
+                    result.returncode = 0  # base_branch exists locally
+                elif args[-1] == "egg/my-container/work":
+                    result.returncode = 1  # branch_name doesn't exist yet
+            elif "worktree" in args and "add" in args:
+                wt_path = None
+                for i, a in enumerate(args):
+                    if a == "-b" and i + 2 < len(args):
+                        wt_path = Path(args[i + 2])
+                        break
+                if wt_path:
+                    wt_path.mkdir(parents=True, exist_ok=True)
+                    (wt_path / ".git").write_text("gitdir: /fake/git/dir")
+            elif "worktree" in args and "lock" in args:
+                pass
+
+            return result
+
+        with patch("subprocess.run", side_effect=mock_run):
+            with patch.object(manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")):
+                with patch.object(manager, "_chown_recursive"):
+                    with patch.object(manager, "_chown_single"):
+                        manager.create_worktree(
+                            "test-repo", "my-container", base_branch="egg/my-branch"
+                        )
+
+        # No fetch should have been called
+        fetch_calls = [c for c in call_log if "fetch" in c]
+        assert len(fetch_calls) == 0
+        # worktree add should use the original base_branch directly
+        wt_add_calls = [c for c in call_log if "worktree" in c and "add" in c and "-b" in c]
+        assert len(wt_add_calls) == 1
+        assert "egg/my-branch" in wt_add_calls[0]
+        assert "origin/egg/my-branch" not in wt_add_calls[0]
+
+    def test_skips_fetch_for_head(self, manager_with_repo):
+        """HEAD should never trigger a fetch."""
+        manager, repos_base, repo_dir, worktree_base = manager_with_repo
+
+        call_log = []
+
+        def mock_run(args, **kwargs):
+            call_log.append(args)
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            result.stdout = ""
+
+            if "rev-parse" in args and args[-1] == "egg/head-container/work":
+                result.returncode = 1  # branch_name doesn't exist
+            elif "worktree" in args and "add" in args:
+                wt_path = None
+                for i, a in enumerate(args):
+                    if a == "-b" and i + 2 < len(args):
+                        wt_path = Path(args[i + 2])
+                        break
+                if wt_path:
+                    wt_path.mkdir(parents=True, exist_ok=True)
+                    (wt_path / ".git").write_text("gitdir: /fake/git/dir")
+            elif "worktree" in args and "lock" in args:
+                pass
+
+            return result
+
+        with patch("subprocess.run", side_effect=mock_run):
+            with patch.object(manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")):
+                with patch.object(manager, "_chown_recursive"):
+                    with patch.object(manager, "_chown_single"):
+                        manager.create_worktree(
+                            "test-repo", "head-container", base_branch="HEAD"
+                        )
+
+        fetch_calls = [c for c in call_log if "fetch" in c]
+        assert len(fetch_calls) == 0
+
+
 class TestFindWorktreeGitDir:
     """Tests for _find_worktree_git_dir admin dir resolution."""
 
