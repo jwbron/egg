@@ -1113,24 +1113,27 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
     pid = require_pipeline_id(args)
     role = _require_role(args)
 
-    # Resolve commit SHA: use provided value or default to HEAD
-    commit_sha = getattr(args, "commit_sha", None) or ""
-    if not commit_sha:
-        try:
-            commit_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            print(
-                "Error: --commit-sha not provided and could not resolve HEAD",
-                file=sys.stderr,
-            )
-            return 1
-
     # Read payload from file or construct from args
     payload: dict[str, Any]
     if getattr(args, "file", None):
         with open(args.file) as f:
             payload = json.load(f)
     else:
+        # Resolve commit SHA: use provided value or default to HEAD
+        commit_sha = getattr(args, "commit_sha", None) or ""
+        if not commit_sha:
+            try:
+                commit_sha = subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"],
+                    text=True,
+                    cwd=os.environ.get("EGG_REPO_PATH"),
+                ).strip()
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                print(
+                    "Error: --commit-sha not provided and could not resolve HEAD",
+                    file=sys.stderr,
+                )
+                return 1
         payload = {
             "summary": getattr(args, "summary", "") or "",
             "attestation": {},
