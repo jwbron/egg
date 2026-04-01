@@ -56,10 +56,10 @@
         {
           "container_id": "e2577d86426e07203d1ad8230b0d1e7a20a45b0328a8018a67a50e98538173df",
           "container_name": "issue-1495-coder",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-01T19:43:25.875934Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-01T20:01:16.597974Z",
+          "exit_code": -1,
           "agent_role": "coder",
           "session_token": null
         },
@@ -109,13 +109,13 @@
         },
         {
           "role": "coder",
-          "status": "running",
+          "status": "failed",
           "container_id": "e2577d86426e07203d1ad8230b0d1e7a20a45b0328a8018a67a50e98538173df",
           "started_at": "2026-04-01T19:43:25.875936Z",
-          "completed_at": null,
+          "completed_at": "2026-04-01T20:01:16.602199Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -174,7 +174,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-01T19:42:49.746664Z",
-  "updated_at": "2026-04-01T20:00:56.535016Z",
+  "updated_at": "2026-04-01T20:01:16.602768Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -182,5 +182,5 @@
   "error": null,
   "analysis": "### Task Analysis\n\n**Problem statement**: Pipelines that achieve full BRC consensus still report as `failed` and never create PRs. Users must manually create PRs even when all agents completed their work successfully.\n\n**System context**: Two components interact:\n1. The **consensus wrapper** (`orchestrator/consensus_wrapper.py`) wraps agent execution in concurrent mode. After the agent exits cleanly (code 0), it checks if the agent reached CONFIRMED in the BRC protocol. If not, it restarts the agent up to MAX_RESTARTS times. If restarts are exhausted without detecting CONFIRMED state, it exits with code 1 (line 333).\n2. The **orchestrator's consensus polling loop** (`orchestrator/routes/pipelines.py:4540+`) monitors containers and consensus state. When a container exits with code != 0, it sets `has_failures[0] = True` (line 4564) and marks the agent as FAILED (line 4588). When consensus IS detected as complete, `_update_agents_complete()` correctly re-marks agents as COMPLETE (line 4619-4620), but the function still returns 1 if `has_failures[0]` was set (line 4717-4718), causing the phase to be marked as failed.\n\n**Technical root cause**: Two bugs compound:\n1. **Consensus wrapper** (line 332-333): After exhausting restarts, exits with code 1 without a final consensus check. Due to timing, the agent may have reached CONFIRMED but the wrapper's poll didn't catch it.\n2. **Orchestrator** (line 4717-4718): When `is_complete` is True (ALL agents confirmed consensus), still returns failure if any container had a non-zero exit. But `is_complete=True` means every agent successfully participated — the `has_failures` flag is stale. The comment references OOM kills, but an OOM-killed agent wouldn't confirm, so `is_complete` would be False.\n\n**Files affected**:\n- `orchestrator/consensus_wrapper.py` — Add final consensus check before exit 1 at line 331-333\n- `orchestrator/routes/pipelines.py` — Remove `has_failures` check at lines 4717-4718 when consensus is complete",
   "plan": "# Plan: Fix consensus-complete pipelines reporting as failed\n\n## Summary\n\nFix the two compounding bugs that cause successful BRC consensus to be reported as pipeline failure. The consensus wrapper needs a final consensus check before its exit-1 fallback, and the orchestrator needs to trust `is_complete=True` as the authoritative success signal rather than propagating stale `has_failures` flags from container exit codes.\n\n**Risks / edge cases**: Safe because `is_complete=True` requires ALL agents to have confirmed — it's the strongest possible success signal. An OOM-killed agent wouldn't confirm, so `is_complete` would remain False and the existing failure path still triggers. `_update_agents_complete()` already overwrites FAILED status for the consensus path.\n\n## Implementation\n\n### Phase 1: Implement\n\nFix both the consensus wrapper exit code and the orchestrator's consensus-complete failure propagation.\n\n**Tasks**:\n1. **[task-1-1]** In `orchestrator/consensus_wrapper.py` (lines 331-333), add a final consensus status check before the `exit 1`. Poll `egg-orch pipeline status --json`, extract `is_complete`, and if True, log \"Consensus reached on final check\" and exit 0. This catches the timing race where consensus completes during or after the last restart. Acceptance: consensus wrapper exits 0 when consensus is complete, even after exhausting max restarts.\n2. **[task-1-2]** In `orchestrator/routes/pipelines.py` (lines 4713-4718), when consensus is complete (`is_complete=True` from the consensus check), log a warning if `has_failures[0]` was set (noting the exit codes are being overridden by consensus success) but return 0 instead of 1. Update the comment to reflect that `is_complete=True` means ALL agents confirmed, so container exit codes are not meaningful. Acceptance: orchestrator returns success (0) when consensus is complete, regardless of container exit codes.\n3. **[task-1-3]** Add/update tests: (a) test that the consensus wrapper template includes the final consensus check before exit 1, (b) test that `_wait_for_consensus` returns 0 when consensus is complete even when `has_failures` is True. Acceptance: tests pass and cover both fix paths.\n\n```yaml\n# yaml-tasks\npr:\n  title: \"Fix consensus-complete pipelines falsely reporting as failed\"\n  description: |\n    Fix two compounding bugs where successful BRC consensus is reported as pipeline failure.\n    The consensus wrapper now does a final consensus check before exit 1, and the orchestrator\n    trusts is_complete=True as the authoritative success signal over container exit codes.\n  test_plan: |\n    - Automated: Unit tests for consensus wrapper final check and orchestrator consensus-overrides-exit-code\n    - Manual: Run a short-flow pipeline and verify it completes successfully with PR creation\n  manual_steps: |\n    Pre-merge: None\n    Post-merge: Monitor next few pipelines for correct phase transitions after consensus\nphases:\n  - id: 1\n    name: Implement\n    goal: \"Fix consensus wrapper exit code and orchestrator failure propagation so consensus-complete pipelines succeed\"\n    tasks:\n      - id: task-1-1\n        description: \"In `orchestrator/consensus_wrapper.py` (lines 331-333), add a final consensus status check before the `exit 1`. Poll `egg-orch pipeline status --json`, extract `is_complete`, and if True, log 'Consensus reached on final check' and exit 0 instead of 1.\"\n        acceptance: \"Consensus wrapper exits 0 when consensus is complete, even after exhausting max restarts\"\n        files:\n          - orchestrator/consensus_wrapper.py\n      - id: task-1-2\n        description: \"In `orchestrator/routes/pipelines.py` (lines 4713-4718), when consensus is complete (is_complete=True), log a warning if has_failures[0] was set but return 0 (success) instead of 1. Update the comment to explain that is_complete=True means ALL agents confirmed so exit codes are stale.\"\n        acceptance: \"Orchestrator returns 0 when consensus is complete regardless of container exit codes\"\n        files:\n          - orchestrator/routes/pipelines.py\n      - id: task-1-3\n        description: \"Add tests: (a) verify consensus wrapper template includes final consensus check before exit 1, (b) verify _wait_for_consensus returns 0 when consensus complete with has_failures=True\"\n        acceptance: \"Tests pass and cover both fix paths\"\n        files:\n          - orchestrator/tests/test_consensus_wrapper.py\n          - orchestrator/tests/test_pipelines.py\n```",
-  "version": 12
+  "version": 13
 }
