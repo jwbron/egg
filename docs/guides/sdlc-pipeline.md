@@ -23,7 +23,10 @@ Agents cannot be trusted to self-police via prompts alone. The pipeline enforces
 - **Role-based field ownership**: Contract mutations are validated against caller role
 - **Completion signal branch verification**: When an agent signals completion with a commit SHA, the orchestrator verifies the commit exists on the pipeline's expected branch (HTTP 409 on mismatch)
 - **Per-command timeout**: Shell commands in the sandbox are wrapped with a configurable timeout (default 300s) to prevent runaway commands like `grep -rn / ` from hanging the container. Configurable via `BASH_COMMAND_TIMEOUT`
-- **Post-agent auto-commit**: Uncommitted work is automatically preserved when agent containers exit, with phase-restricted files restored (not committed) using `check_phase_file_restrictions()` and allowed files pushed via the gateway API
+- **Per-agent worktree isolation**: Each agent runs in its own git worktree, preventing agents from overwriting each other's uncommitted work
+- **Per-agent git identity**: Agents commit as `egg (<role>) <<role>@egg.local>` for auditability
+- **SDK tool interception**: `Write`, `Edit`, and `NotebookEdit` are checked against role boundaries before execution (Agent SDK only)
+- **HITL recovery for uncommitted work**: When agents exit with uncommitted changes, a HITL decision is created for recovery or discard (replaces auto-commit-and-push)
 - **Separate context windows**: Each agent invocation runs in a separate GitHub Actions job with fresh context
 
 ### 2. Contract-as-Code

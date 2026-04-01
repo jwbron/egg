@@ -45,7 +45,7 @@ git log --oneline -5
 git status
 ```
 
-Compare the working tree state against `files_modified` in the anchor to detect any changes made by other agents (in shared worktree scenarios) or unexpected state drift.
+Compare the working tree state against `files_modified` in the anchor to detect unexpected state drift. With per-agent worktree isolation, other agents cannot modify your working tree — but drifts can still occur from `git pull --rebase` (picking up other agents' pushed commits) or from recovery scenarios.
 
 ### Step 4: Resume from Current Progress Item
 

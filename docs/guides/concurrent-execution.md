@@ -356,9 +356,42 @@ The 60-second window is tracked via the `_failure_times` list, filtered to recen
 | Agent objection | Resolve then advance, Override, Abort |
 | All agents exited with unresolved NACKs | Retry phase, Accept current state, Abort phase |
 
-## Shared Pipeline Branch
+## Per-Agent Worktree Isolation
 
-All concurrent agents operate on the pipeline's shared branch (e.g., `egg/issue-{N}`). Rather than each agent having an isolated worktree branch, all agents commit directly to a single shared history. Agents coordinate via the message bus to sequence commits and avoid conflicts — for example, the coder signals `HANDOFF` when its changes are committed so downstream agents (tester, documenter) know it is safe to pull and build on top.
+Each concurrent agent runs in its own isolated git worktree. This prevents agents from overwriting each other's uncommitted work, ensures a clean `git status` per agent, and surfaces merge conflicts explicitly at push time rather than silently in a shared working directory.
+
+**Architecture:**
+- Each agent container receives a unique worktree created by the gateway, keyed by container ID (not pipeline ID)
+- All agents push to the same shared pipeline branch (e.g., `egg/issue-{N}`)
+- Git worktrees share the object store — only working tree files are duplicated, so disk overhead is marginal
+
+**Push coordination (pull-before-push):**
+1. Agent finishes work, commits in its own worktree
+2. Agent pushes to the shared branch via the gateway
+3. If push is rejected (another agent pushed first) → `git pull --rebase` → retry push
+4. Rebase **cannot conflict** because agents have mutually exclusive file write permissions (see [Agent Roles Reference](../reference/agent-roles.md))
+
+This works because role restrictions guarantee non-overlapping file sets (coder writes source code, tester writes tests, documenter writes docs). No overlapping writes means no merge conflicts.
+
+**What changed:** Previously, all agents in a pipeline shared a single worktree. The orchestrator used the `pipeline_id` as the worktree key, forcing all containers to share one working directory. Now each container gets its own worktree, using the `container_id` as the key.
+
+### Per-Agent Git Author
+
+Each agent commits with a role-scoped author identity for auditability:
+
+```
+Author: egg (coder) <coder@egg.local>
+Author: egg (tester) <tester@egg.local>
+Author: egg (documenter) <documenter@egg.local>
+```
+
+This makes `git log` immediately readable — you can see which agent wrote each commit. The author identity is set via `EGG_AGENT_ROLE` in the container entrypoint.
+
+### Scoped Push File Detection
+
+The gateway's push validation (`get_changed_files_in_push()`) only reports files from the current agent's commits, not the entire branch diff. Since each agent has its own worktree, only that agent's commits exist in the worktree's history — the diff against the remote naturally scopes to the agent's own changes.
+
+This eliminates false positives where an agent's push was rejected because a *different* agent had committed files outside this agent's role boundaries.
 
 ## Orchestrator API Reference
 

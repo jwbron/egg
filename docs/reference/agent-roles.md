@@ -329,9 +329,43 @@ Common agent team configurations for different workflow types:
 
 ## File Permission Enforcement
 
-Agent file restrictions are enforced at git push time by the gateway. The default behavior is **enforce** (violations block the push). Set `EGG_AGENT_RESTRICTIONS_ENFORCE=false` for warn-only mode during migration.
+Agent file restrictions are enforced at multiple layers:
 
-For the exact allowed and blocked patterns per role, see `gateway/agent_restrictions.py`.
+| Layer | What it does | Type |
+|-------|-------------|------|
+| **SDK tool interception** | Rejects `Write`, `Edit`, and `NotebookEdit` to disallowed paths before execution | Soft — saves tokens, drives delegation |
+| **Per-agent worktrees** | Isolates agents' working directories so they can't overwrite each other | Structural — prevents stomping |
+| **Gateway push validation** | Blocks pushes containing files outside the agent's role boundaries | Hard — security boundary |
+
+### SDK Tool Interception (Soft Enforcement)
+
+The Agent SDK (`egg_agent`) intercepts file write operations (`Write`, `Edit`, `NotebookEdit`) before execution and checks them against the role's `AgentFilePattern`. If the file is outside the agent's allowed patterns, the tool returns an error immediately — the agent learns "you can't write test files, that's the tester's role" before spending tokens on out-of-scope work.
+
+**Scope:** Only `Write`, `Edit`, and `NotebookEdit` are intercepted. `Bash` is not intercepted because reliably parsing file writes from shell commands is impractical. Any writes that slip through Bash are caught by gateway push validation.
+
+**Availability:** Tool interception is only active in the headless Agent SDK (`egg_agent`). The interactive `claude` CLI is not affected.
+
+### Gateway Push Validation (Hard Enforcement)
+
+The gateway enforces role-based file restrictions at push time. The default behavior is **enforce** (violations block the push). Set `EGG_AGENT_RESTRICTIONS_ENFORCE=false` for warn-only mode during migration.
+
+With per-agent worktree isolation, the gateway's `get_changed_files_in_push()` only reports files from the current agent's commits (scoped to the worktree's own history), eliminating false positives from other agents' commits.
+
+For the exact allowed and blocked patterns per role, see `shared/egg_restrictions/patterns.py` (canonical source). The gateway imports from this shared package for push-time validation.
+
+## Per-Agent Git Identity
+
+Each agent commits with a role-scoped author for auditability:
+
+| Role | Git Author | Git Email |
+|------|-----------|-----------|
+| `coder` | `egg (coder)` | `coder@egg.local` |
+| `tester` | `egg (tester)` | `tester@egg.local` |
+| `documenter` | `egg (documenter)` | `documenter@egg.local` |
+| `reviewer_code` | `egg (reviewer_code)` | `reviewer_code@egg.local` |
+| *(any role)* | `egg (<role>)` | `<role>@egg.local` |
+
+This is set automatically by the sandbox entrypoint using the `EGG_AGENT_ROLE` environment variable. If the variable is not set, the default `egg <egg@localhost>` is used.
 
 ## Related Documentation
 
