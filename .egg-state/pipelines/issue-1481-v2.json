@@ -147,10 +147,10 @@
         {
           "container_id": "d8b9fe0161facc77e281dc4d197d92eecf44b15b57cdf9756f5e80f905183fad",
           "container_name": "issue-1481-v2-architect",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-01T06:19:53.682389Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-01T06:51:51.953953Z",
+          "exit_code": 1,
           "agent_role": "architect",
           "session_token": null
         },
@@ -190,13 +190,13 @@
         },
         {
           "role": "architect",
-          "status": "running",
+          "status": "failed",
           "container_id": "d8b9fe0161facc77e281dc4d197d92eecf44b15b57cdf9756f5e80f905183fad",
           "started_at": "2026-04-01T06:19:53.682390Z",
-          "completed_at": null,
+          "completed_at": "2026-04-01T06:51:51.961187Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -261,7 +261,7 @@
     }
   ],
   "created_at": "2026-04-01T05:52:01.782899Z",
-  "updated_at": "2026-04-01T06:51:49.190949Z",
+  "updated_at": "2026-04-01T06:51:51.961254Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -269,5 +269,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 18
+  "version": 19
 }
