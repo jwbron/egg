@@ -690,7 +690,6 @@ class TestConsensusWrapperBehavior:
 
             # Mock egg-orch that always returns is_complete=false
             mock_orch = os.path.join(tmpdir, "egg-orch")
-            real_python = sys.executable
             with open(mock_orch, "w") as f:
                 f.write("#!/bin/bash\n")
                 f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
@@ -699,16 +698,7 @@ class TestConsensusWrapperBehavior:
                 )
             os.chmod(mock_orch, 0o755)  # nosec B103
 
-            # Mock python3
-            mock_python = os.path.join(tmpdir, "python3")
-            with open(mock_python, "w") as f:
-                f.write("#!/bin/bash\n")
-                f.write('if [ "$1" = "-m" ] && [ "$2" = "egg_agent" ]; then\n')
-                f.write(f'  echo "---CLAUDE_CALL---" >> {shlex.quote(claude_log)}\n')
-                f.write("else\n")
-                f.write(f'  exec {shlex.quote(real_python)} "$@"\n')
-                f.write("fi\n")
-            os.chmod(mock_python, 0o755)  # nosec B103
+            _make_mock_agent(tmpdir, claude_log)
 
             cmd = build_consensus_wrapped_command("Do the work", max_restarts=1)
             result = self._run_wrapper_command(cmd, tmpdir, timeout=30)
