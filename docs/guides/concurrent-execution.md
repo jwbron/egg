@@ -201,7 +201,7 @@ Each agent tracks two state machines (producer and reviewer) independently:
 
 ### BRC Protocol Flow
 
-1. **Propose**: Producer completes work, commits and pushes to the remote branch, then sends `CONSENSUS_PROPOSE` with a summary, artifact list, and the pushed commit SHA (`--commit-sha`). The orchestrator rejects proposals whose commit SHA cannot be verified on the branch.
+1. **Propose**: Producer completes work, commits and pushes to the remote branch, then sends `CONSENSUS_PROPOSE` with a summary, artifact list, and the pushed commit SHA (`--commit-sha`). The orchestrator rejects proposals whose commit SHA is confirmed absent from the branch (verification failures due to network errors are non-blocking).
 2. **Review**: Assigned reviewers evaluate the proposal and send `CONSENSUS_ACK` or `CONSENSUS_NACK`.
 3. **Converge**: When all critical reviewers ACK, the producer sends `CONSENSUS_CONFIRMED`. When all agents are confirmed, the phase advances.
 4. **Re-propose**: If a NACK is received, the producer addresses the feedback and re-proposes (with `changed_artifacts` to scope re-evaluation). Flip-flop cycles are capped at `max_flip_flops` (default: 3). If any reviewer had already confirmed on a prior proposal version, they automatically receive a `CONSENSUS_RE_REVIEW` message and are un-confirmed so they re-enter the review loop — preventing a deadlock where a stale-confirmed reviewer can never see the new proposal.
@@ -224,7 +224,7 @@ Use `egg-orch consensus` commands to participate in the BRC protocol:
 
 ```bash
 # Producer: commit and push work, then propose for review (--commit-sha is required)
-git add -p && git commit -m "Implement feature X" && git push origin HEAD:egg/feature-x
+git add src/feature.py && git commit -m "Implement feature X" && git push origin HEAD:egg/feature-x
 egg-orch consensus propose --summary "Implemented feature X" --artifacts src/feature.py --risk "No retry on transient failures" --commit-sha $(git rev-parse HEAD)
 
 # Reviewer: ACK after reviewing
