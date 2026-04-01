@@ -5195,6 +5195,26 @@ class TestBranchIsolation:
             assert "status" in cmd
             assert "--porcelain" in cmd
 
+    def test_git_execute_returns_500_when_worktree_not_found(self, client, pipeline_mode_headers):
+        """git_execute must return 500 when worktree path mapping returns None.
+
+        This prevents the silent fallback to the main repo that caused #1497:
+        agents could not see their own file changes because git ran against
+        the main repo instead of the agent's worktree.
+        """
+        with patch.object(
+            gateway,
+            "map_container_path_to_worktree",
+            return_value=None,
+        ):
+            response = self._git_execute(
+                client, pipeline_mode_headers, "status", ["--porcelain"]
+            )
+
+            assert response.status_code == 500
+            data = json.loads(response.data)
+            assert "worktree not found" in data["message"].lower()
+
 
 class TestCheckpointRepoBypass:
     """Tests for checkpoint repo exemption from private mode policy.
