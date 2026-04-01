@@ -133,3 +133,47 @@ class TestEnrichPendingDecisions:
         assert "completed_agents_summary" in gate
         assert choice["draft_content"] == "# Analysis\nOptions A-E"
         assert "completed_agents_summary" not in choice
+
+    def test_broken_worktree_still_processes_decisions(self, handler):
+        """When resolve_worktree_path raises, decisions are still processed without draft_content."""
+        decisions = [{"decision_type": "choice", "phase": "refine", "question": "Pick"}]
+        status = _make_status(decisions)
+
+        with patch(
+            "orchestrator.routes.resolve_worktree_path",
+            side_effect=RuntimeError("worktree not found"),
+        ):
+            handler._enrich_pending_decisions(status, "pipeline-1", _make_pipeline_data())
+
+        d = status["pending_decisions"][0]
+        assert "draft_content" not in d
+        assert d["question"] == "Pick"
+
+    def test_read_phase_draft_raises_still_processes(self, handler, worktree):
+        """When _read_phase_draft raises, the decision gets no draft_content but is still present."""
+        decisions = [{"decision_type": "feedback", "phase": "refine", "question": "Review"}]
+        status = _make_status(decisions)
+
+        with (
+            patch("orchestrator.routes.resolve_worktree_path", return_value=worktree),
+            patch(
+                "orchestrator.routes.pipelines._read_phase_draft",
+                side_effect=OSError("corrupt draft"),
+            ),
+        ):
+            handler._enrich_pending_decisions(status, "pipeline-1", _make_pipeline_data())
+
+        d = status["pending_decisions"][0]
+        assert "draft_content" not in d
+        assert d["question"] == "Review"
+
+    def test_empty_repo_skips_worktree_resolution(self, handler):
+        """When repo is empty, worktree resolution is skipped entirely."""
+        decisions = [{"decision_type": "choice", "phase": "refine", "question": "Pick"}]
+        status = _make_status(decisions)
+
+        with patch("orchestrator.routes.resolve_worktree_path") as mock_resolve:
+            handler._enrich_pending_decisions(status, "pipeline-1", _make_pipeline_data(repo=""))
+
+        mock_resolve.assert_not_called()
+        assert "draft_content" not in status["pending_decisions"][0]
