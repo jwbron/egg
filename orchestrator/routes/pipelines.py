@@ -4718,8 +4718,7 @@ def _run_concurrent_phase(
             # active for human review, but the pipeline itself succeeds.
             if has_failures[0]:
                 logger.warning(
-                    "Container failures detected but consensus is complete — "
-                    "treating as success",
+                    "Container failures detected but consensus is complete — treating as success",
                     pipeline_id=pipeline_id,
                     has_failures=has_failures[0],
                 )
