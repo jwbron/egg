@@ -1239,7 +1239,7 @@ Phase completion in concurrent mode uses a consensus-based approach:
 5. Timeout (`consensus_timeout_minutes`, default 30) triggers HITL escalation
    - Options: **Continue waiting**, **Accept current state**, **Abort phase**
    - Phase falls back to exit-code-based completion while awaiting the decision
-6. If a container exits cleanly without signaling `READY`, the consensus wrapper restarts it with a recovery prompt (up to `MAX_CONSENSUS_RESTARTS`, default 2). After exhausting restarts the wrapper exits with code 1, triggering the single-agent failure path (HITL decision: retry, abort, or continue without). See [Concurrent Execution: Consensus Wrapper](concurrent-execution.md#consensus-wrapper).
+6. If a container exits cleanly without signaling `READY`, the consensus wrapper restarts it with a recovery prompt (up to `MAX_CONSENSUS_RESTARTS`, default 2). After exhausting restarts, the wrapper performs a final consensus check — if consensus has already been reached (`is_complete=True`), it exits with code 0 (success). Only if consensus is genuinely incomplete does it exit with code 1, triggering the single-agent failure path (HITL decision: retry, abort, or continue without). See [Concurrent Execution: Consensus Wrapper](concurrent-execution.md#consensus-wrapper).
 
 **Readiness states**:
 
