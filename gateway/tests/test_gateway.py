@@ -5215,6 +5215,55 @@ class TestBranchIsolation:
             data = json.loads(response.data)
             assert "worktree not found" in data["message"].lower()
 
+    def test_git_push_returns_500_when_worktree_not_found(self, client, auth_headers):
+        """git_push must return 500 when worktree path mapping returns None (#1497)."""
+        with patch.object(
+            gateway,
+            "map_container_path_to_worktree",
+            return_value=None,
+        ):
+            response = client.post(
+                "/api/v1/git/push",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "origin",
+                        "refspec": "egg/my-branch",
+                        "container_id": "test-container",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 500
+            data = json.loads(response.data)
+            assert "worktree not found" in data["message"].lower()
+
+    def test_git_fetch_returns_500_when_worktree_not_found(self, client, auth_headers):
+        """git_fetch must return 500 when worktree path mapping returns None (#1497)."""
+        with patch.object(
+            gateway,
+            "map_container_path_to_worktree",
+            return_value=None,
+        ):
+            response = client.post(
+                "/api/v1/git/fetch",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "origin",
+                        "container_id": "test-container",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 500
+            data = json.loads(response.data)
+            assert "worktree not found" in data["message"].lower()
+
 
 class TestCheckpointRepoBypass:
     """Tests for checkpoint repo exemption from private mode policy.
