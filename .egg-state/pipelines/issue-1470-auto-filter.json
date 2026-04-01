@@ -5,7 +5,7 @@
   "branch": "egg/issue-1470-auto-filter",
   "base_branch": null,
   "prompt": null,
-  "status": "awaiting_human",
+  "status": "cancelled",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -244,7 +244,7 @@
     }
   ],
   "created_at": "2026-04-01T04:08:32.112157Z",
-  "updated_at": "2026-04-01T04:37:28.778286Z",
+  "updated_at": "2026-04-01T04:55:39.323408Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -252,5 +252,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 17
+  "version": 18
 }
