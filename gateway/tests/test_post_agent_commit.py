@@ -98,9 +98,8 @@ class TestAutoCommitDisabled:
             cmd = call[0][0]
             assert "add" not in cmd
 
-    @patch("post_agent_commit._push_via_gateway", return_value=True)
     @patch("post_agent_commit.subprocess.run")
-    def test_no_push_even_with_credentials(self, mock_run, mock_push, tmp_path):
+    def test_no_push_even_with_credentials(self, mock_run, tmp_path):
         """No push should be attempted even with session credentials."""
         mock_run.return_value = MagicMock(returncode=0, stdout=" M file.py\n", stderr="")
         result = auto_commit_worktree(
@@ -110,11 +109,9 @@ class TestAutoCommitDisabled:
             gateway_url="http://localhost:9848",
         )
         assert result is None
-        mock_push.assert_not_called()
 
-    @patch("post_agent_commit._push_via_gateway", return_value=True)
     @patch("post_agent_commit.subprocess.run")
-    def test_consensus_confirmed_still_returns_none(self, mock_run, mock_push, tmp_path):
+    def test_consensus_confirmed_still_returns_none(self, mock_run, tmp_path):
         """Even with consensus_confirmed=True, returns None (no commit)."""
         mock_run.return_value = MagicMock(returncode=0, stdout=" M file.py\n", stderr="")
         result = auto_commit_worktree(
@@ -125,7 +122,6 @@ class TestAutoCommitDisabled:
             consensus_confirmed=True,
         )
         assert result is None
-        mock_push.assert_not_called()
 
     @patch("post_agent_commit.subprocess.run")
     def test_phase_parameter_accepted_but_ignored(self, mock_run, tmp_path):

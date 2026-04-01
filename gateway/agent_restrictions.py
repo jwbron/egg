@@ -153,14 +153,14 @@ def check_agent_gh_operation(role: str, command: str) -> tuple[bool, str]:
     Returns:
         Tuple of (allowed, reason). allowed is False if blocked.
     """
-    if not role:
+    if not role or not isinstance(role, str):
         return True, "No agent role specified"
 
     role_lower = role.lower()
     restriction = AGENT_GH_RESTRICTIONS.get(role_lower)
     if restriction is None:
-        # Unknown role - allow for backwards compatibility
-        return True, f"Unknown agent role: {role}"
+        # Unknown roles are denied for consistency with file access deny-by-default (#1494 review)
+        return False, f"Unknown agent role '{role}' — all GH operations denied"
 
     if restriction.is_blocked(command):
         return False, (

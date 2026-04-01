@@ -73,57 +73,6 @@ def _parse_changed_files(porcelain_output: str) -> list[str]:
     return files
 
 
-def _push_via_gateway(
-    worktree_path: str,
-    session_token: str,
-    gateway_url: str,
-    branch: str,
-    timeout: int = 30,
-) -> bool:
-    """Push the auto-commit via the gateway API.
-
-    Uses the gateway's ``/api/v1/git/push`` endpoint so that all push
-    policy (branch ownership, phase restrictions) is enforced.
-
-    Returns:
-        True if push succeeded, False otherwise.
-    """
-    try:
-        import json
-        import urllib.request
-
-        # repo_path is the worktree path, which is a valid git working
-        # directory.  The gateway's git_push() handler resolves remotes and
-        # branches from the working directory, so this works correctly for
-        # worktrees (not just the main .git dir).
-        payload = json.dumps(
-            {
-                "repo_path": worktree_path,
-                "remote": "origin",
-                "refspec": branch,
-            }
-        ).encode()
-
-        req = urllib.request.Request(
-            f"{gateway_url}/api/v1/git/push",
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {session_token}",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return bool(resp.status == 200)
-    except Exception as e:
-        logger.warning(
-            "Push via gateway failed",
-            worktree_path=worktree_path,
-            error=str(e),
-        )
-        return False
-
-
 def auto_commit_worktree(
     worktree_path: str,
     container_id: str,

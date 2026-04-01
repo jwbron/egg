@@ -1034,6 +1034,9 @@ class WorktreeManager:
         if not self.worktree_base.exists():
             return results
 
+        # Prefix match is safe because pipeline IDs are structured as
+        # "issue-{number}" and won't overlap (e.g. "issue-12" won't
+        # match "issue-123-*" because we require a "-" after the ID).
         prefix = f"{pipeline_id}-"
         for entry in self.worktree_base.iterdir():
             if not entry.is_dir():
@@ -1319,8 +1322,10 @@ class WorktreeManager:
             )
             return False
 
-        # Clean worktree -- remove it
-        removal = self.remove_worktree(container_id, repo_name, force=True, delete_branch=True)
+        # Clean worktree -- remove it.  Use force=False as a TOCTOU safety net:
+        # if changes were made between the check and removal, git will refuse
+        # rather than silently discarding.  (#1494 review)
+        removal = self.remove_worktree(container_id, repo_name, force=False, delete_branch=True)
         return removal.success
 
     def cleanup_stale_pipeline_worktrees(self, max_age_hours: int = 48) -> int:
@@ -1342,8 +1347,22 @@ class WorktreeManager:
             if not entry.is_dir():
                 continue
             try:
-                mtime = entry.stat().st_mtime
-                if mtime < cutoff:
+                # Walk into the worktree to find the most recent mtime across
+                # all files, not just the container directory itself.  The
+                # parent directory mtime only updates when entries are
+                # added/removed from it, so active worktrees with commits
+                # inside subdirectories would appear stale.  (#1494 review)
+                newest_mtime = entry.stat().st_mtime
+                for root, _dirs, files in os.walk(entry):
+                    for fname in files:
+                        try:
+                            fpath = os.path.join(root, fname)
+                            fmt = os.stat(fpath).st_mtime
+                            if fmt > newest_mtime:
+                                newest_mtime = fmt
+                        except OSError:
+                            continue
+                if newest_mtime < cutoff:
                     for repo_dir in entry.iterdir():
                         if repo_dir.is_dir():
                             removal_result = self.remove_worktree(

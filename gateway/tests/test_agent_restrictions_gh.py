@@ -124,10 +124,10 @@ class TestCheckAgentGHOperation:
         allowed, reason = check_agent_gh_operation("coder", "pr view 123")
         assert allowed is True
 
-    def test_allows_unknown_role(self):
-        """Unknown roles are allowed for backward compatibility."""
+    def test_denies_unknown_role(self):
+        """Unknown roles are denied for consistency with file access deny-by-default (#1494)."""
         allowed, reason = check_agent_gh_operation("unknown_role", "issue comment 123")
-        assert allowed is True
+        assert allowed is False
 
     def test_allows_empty_role(self):
         """Empty role string is allowed."""

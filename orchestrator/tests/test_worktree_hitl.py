@@ -154,7 +154,9 @@ class TestCleanupCleanWorktree:
             result = manager.cleanup_clean_worktree("container-1", "myrepo")
 
         assert result is True
-        mock_remove.assert_called_once_with("container-1", "myrepo", force=True, delete_branch=True)
+        mock_remove.assert_called_once_with(
+            "container-1", "myrepo", force=False, delete_branch=True
+        )
 
     def test_preserves_dirty_worktree(self, tmp_path):
         """Should NOT remove worktree that has uncommitted changes."""

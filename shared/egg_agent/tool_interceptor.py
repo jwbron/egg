@@ -76,10 +76,11 @@ def check_file_write_permission(
     owner_role = _find_owning_role(file_path, agent_role)
     owner_hint = f" -- this file belongs to the '{owner_role}' role" if owner_role else ""
 
+    # TODO: When blocking mode is enabled, this message will be returned to
+    # the LLM in the tool result.  For now it only goes to structured logs.
     return (
         f"Role '{agent_role}' cannot write to {file_path}{owner_hint}. "
-        f"The gateway would reject this at push time. "
-        f"Consider delegating this change to the appropriate agent."
+        f"Gateway will reject at push time."
     )
 
 

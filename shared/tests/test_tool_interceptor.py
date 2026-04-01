@@ -144,15 +144,15 @@ class TestCheckFileWritePermission:
         )
         assert result is None
 
-    def test_delegation_message_in_error(self):
-        """Error message should suggest delegating to the appropriate agent."""
+    def test_rejection_message_in_error(self):
+        """Error message should mention gateway rejection for blocked writes."""
         result = check_file_write_permission(
             "Write",
             {"file_path": "/home/egg/repos/myrepo/tests/test_foo.py"},
             agent_role="coder",
         )
         assert result is not None
-        assert "delegating" in result.lower()
+        assert "gateway will reject" in result.lower()
 
     def test_gateway_mention_in_error(self):
         """Error message should mention the gateway would reject at push time."""

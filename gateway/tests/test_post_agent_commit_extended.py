@@ -2,14 +2,12 @@
 
 With per-agent worktree isolation (#1481), auto_commit_worktree() is a
 logged no-op.  Tests for the old commit/push/phase-filter behavior have
-been replaced with tests confirming the no-op.  Helper function tests
-(_push_via_gateway, _parse_changed_files) are retained since the helpers
-are kept for potential future use.
+been replaced with tests confirming the no-op.
 """
 
 from unittest.mock import MagicMock, patch
 
-from post_agent_commit import _parse_changed_files, _push_via_gateway, auto_commit_worktree
+from post_agent_commit import _parse_changed_files, auto_commit_worktree
 
 
 class TestAutoCommitDisabledPhaseFiltering:
@@ -58,9 +56,8 @@ class TestAutoCommitDisabledPhaseFiltering:
 class TestAutoCommitDisabledPush:
     """Push-related behavior is disabled along with auto-commit (#1481)."""
 
-    @patch("post_agent_commit._push_via_gateway", return_value=True)
     @patch("post_agent_commit.subprocess.run")
-    def test_no_push_with_credentials(self, mock_run, mock_push, tmp_path):
+    def test_no_push_with_credentials(self, mock_run, tmp_path):
         """Push is never attempted even with session credentials."""
         mock_run.return_value = MagicMock(returncode=0, stdout=" M file.py\n", stderr="")
         result = auto_commit_worktree(
@@ -70,11 +67,9 @@ class TestAutoCommitDisabledPush:
             gateway_url="http://gw:9848",
         )
         assert result is None
-        mock_push.assert_not_called()
 
-    @patch("post_agent_commit._push_via_gateway", return_value=True)
     @patch("post_agent_commit.subprocess.run")
-    def test_no_salvage_branch_on_main(self, mock_run, mock_push, tmp_path):
+    def test_no_salvage_branch_on_main(self, mock_run, tmp_path):
         """No salvage branch creation even when on main."""
         mock_run.return_value = MagicMock(returncode=0, stdout=" M file.py\n", stderr="")
         result = auto_commit_worktree(
@@ -86,44 +81,6 @@ class TestAutoCommitDisabledPush:
         assert result is None
         # Only one subprocess call (git status), no checkout -b
         assert mock_run.call_count == 1
-
-
-class TestPushViaGateway:
-    """Tests for _push_via_gateway() HTTP integration (helper retained)."""
-
-    @patch("urllib.request.urlopen")
-    @patch("urllib.request.Request")
-    def test_constructs_correct_request(self, mock_request_cls, mock_urlopen):
-        """Push constructs POST to /api/v1/git/push with correct payload."""
-        mock_resp = MagicMock()
-        mock_resp.status = 200
-        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
-        mock_resp.__exit__ = MagicMock(return_value=False)
-        mock_urlopen.return_value = mock_resp
-
-        result = _push_via_gateway(
-            "/path/to/worktree",
-            "tok-123",
-            "http://egg-gateway:9848",
-            "egg/my-branch",
-        )
-
-        assert result is True
-        call_args = mock_request_cls.call_args
-        assert call_args[0][0] == "http://egg-gateway:9848/api/v1/git/push"
-
-    @patch("urllib.request.urlopen")
-    def test_returns_false_on_exception(self, mock_urlopen):
-        """Push returns False on network errors."""
-        mock_urlopen.side_effect = Exception("Connection refused")
-
-        result = _push_via_gateway(
-            "/path/to/worktree",
-            "tok-123",
-            "http://egg-gateway:9848",
-            "egg/my-branch",
-        )
-        assert result is False
 
 
 class TestParseChangedFilesExtended:

@@ -542,10 +542,10 @@ class TestGHRestrictionsNewRoles:
         allowed, reason = check_agent_gh_operation("conflict_resolver", "issue comment 123")
         assert allowed is False
 
-    def test_unknown_role_allows_gh_operations(self):
-        """Unknown roles should be allowed for backward compatibility."""
+    def test_unknown_role_denies_gh_operations(self):
+        """Unknown roles are denied for consistency with file access deny-by-default (#1494)."""
         allowed, reason = check_agent_gh_operation("unknown_role", "issue comment 123")
-        assert allowed is True
+        assert allowed is False
 
     def test_empty_role_allows_gh_operations(self):
         allowed, reason = check_agent_gh_operation("", "issue comment 123")

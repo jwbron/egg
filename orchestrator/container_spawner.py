@@ -419,10 +419,8 @@ class ContainerSpawner:
             # git proxy can map /home/egg/repos/<name> to the correct worktree
             # at /home/egg/.egg-worktrees/<id>/<name>.
             #
-            # Per-agent worktree isolation (#1481): each agent gets its own
-            # worktree so concurrent agents cannot stomp on each other's
-            # uncommitted work.  CONTAINER_ID is now per-agent.
-            agent_worktree_id = f"{pipeline_id}-{agent_role.value}"
+            # Per-agent worktree isolation (#1481): CONTAINER_ID is now per-agent.
+            # agent_worktree_id computed once at the top of this function.
             orchestrator_host = (
                 ORCHESTRATOR_ISOLATED_IP if mode == "private" else ORCHESTRATOR_EXTERNAL_IP
             )
@@ -529,6 +527,11 @@ class ContainerSpawner:
                     self.gateway.delete_session(session_info.session_token)
                 except GatewayError:
                     pass  # Best effort cleanup
+            # Clean up per-agent worktree created before Docker spawn (#1494 review)
+            try:
+                self.gateway.delete_worktrees(container_id=agent_worktree_id, force=True)
+            except Exception:
+                pass  # Best effort cleanup
             raise ContainerSpawnError(f"Failed to spawn container: {e}") from e
 
     def stop_agent_container(
@@ -649,15 +652,33 @@ class ContainerSpawner:
                 )
 
         # Clean up per-agent worktrees (#1481).  Each agent gets a worktree
-        # with container_id "{pipeline_id}-{role}".  We ask the gateway to
-        # delete worktrees for every role that was spawned, plus the shared
-        # pipeline-level worktree.
-        worktree_ids_to_clean = [pipeline_id]
+        # with container_id "{pipeline_id}-{role}".  We collect worktree IDs
+        # from both container labels AND the filesystem, because containers
+        # may have been removed (OOM kill, daemon cleanup) before this runs.
+        # (#1494 review)
+        worktree_ids_to_clean = {pipeline_id}
         for container in containers:
             labels = getattr(container, "labels", {}) or {}
             role = labels.get("egg.agent.role")
             if role:
-                worktree_ids_to_clean.append(f"{pipeline_id}-{role}")
+                worktree_ids_to_clean.add(f"{pipeline_id}-{role}")
+        # Also scan filesystem for any per-agent worktrees whose containers
+        # no longer exist (e.g. OOM-killed, daemon-cleaned).
+        worktree_base = Path("/home/egg/.egg-worktrees")
+        if worktree_base.exists():
+            prefix = f"{pipeline_id}-"
+            try:
+                for entry in worktree_base.iterdir():
+                    if entry.is_dir() and (
+                        entry.name == pipeline_id or entry.name.startswith(prefix)
+                    ):
+                        worktree_ids_to_clean.add(entry.name)
+            except Exception as e:
+                logger.warning(
+                    "Filesystem worktree scan failed during cleanup",
+                    pipeline_id=pipeline_id,
+                    error=str(e),
+                )
 
         for wt_id in worktree_ids_to_clean:
             try:
@@ -710,7 +731,17 @@ class ContainerSpawner:
                 continue
             try:
                 result = subprocess.run(
-                    ["/usr/bin/git", "-c", "safe.directory=*", "status", "--porcelain"],
+                    [
+                        "/usr/bin/git",
+                        "-c",
+                        "safe.directory=*",
+                        "-c",
+                        "core.hooksPath=/dev/null",
+                        "-c",
+                        "gc.auto=0",
+                        "status",
+                        "--porcelain",
+                    ],
                     cwd=str(repo_dir),
                     capture_output=True,
                     text=True,

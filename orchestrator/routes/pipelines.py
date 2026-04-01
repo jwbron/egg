@@ -7185,6 +7185,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # never removed via the normal per-container cleanup.  Sweep
                 # them here as a safety net.  delete_worktrees is a no-op for
                 # container IDs that have no worktree directory.
+                #
+                # NOTE: This uses the "egg-{pipeline_id}-{role}" naming for
+                # session-created worktrees.  Per-agent worktrees from #1481
+                # use "{pipeline_id}-{role}" (no "egg-" prefix) and are
+                # cleaned up by cleanup_pipeline() which scans both container
+                # labels and the filesystem.
                 for role in AgentRole:
                     agent_container_id = f"egg-{pipeline_id}-{role.value}"
                     try:
