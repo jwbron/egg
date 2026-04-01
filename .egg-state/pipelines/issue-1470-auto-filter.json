@@ -128,9 +128,28 @@
       "phase_start_sha": "75c4611c1054ebf804bd3d0e477704a274082270"
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Which implementation approach should we use for auto-filtering disallowed files on push?",
+      "context": "",
+      "options": [
+        "Option C: Push-time selective filtering — rewrite agent's own commits to exclude disallowed files, skip validation for other agents' inherited commits (recommended)",
+        "Option D: Scope-only — only change file detection to ignore inherited commits, still block agent's own disallowed files (simpler but partial fix)",
+        "Option E: Dual-layer — add commit-time filtering + scoped push detection (most thorough but largest scope)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-01T04:33:24.834957Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-04-01T04:08:32.112157Z",
-  "updated_at": "2026-04-01T04:09:03.939894Z",
+  "updated_at": "2026-04-01T04:33:24.837780Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -138,5 +157,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 7
+  "version": 8
 }
