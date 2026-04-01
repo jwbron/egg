@@ -86,6 +86,12 @@ class OverseerMonitor:
         self._post_consensus_stall_reported = False
         self._post_consensus_stall_first_seen: float | None = None
 
+        # Incomplete consensus stall tracking (#1471)
+        self._incomplete_consensus_first_seen: float | None = None
+        self._incomplete_consensus_blocking: frozenset[str] | None = None
+        self._incomplete_consensus_nudged = False
+        self._incomplete_consensus_hitl_created = False
+
         # Re-run anomaly deduplication (decision IDs already flagged)
         self._rerun_anomaly_reported: set[str] = set()
 
@@ -266,7 +272,8 @@ class OverseerMonitor:
             8. Check pipeline status for terminal state
             9. Cross-phase consistency (LLM-based, only on phase transitions)
             10. Check for post-consensus stalls
-            11. Update self-monitoring
+            11. Check for incomplete consensus stalls (#1471)
+            12. Update self-monitoring
         """
         cycle_start = time.time()
 
@@ -350,10 +357,13 @@ class OverseerMonitor:
             # 10. Check for post-consensus stall
             await self._check_post_consensus_stall(consensus, status)
 
+            # 11. Check for incomplete consensus stall (#1471)
+            await self._check_incomplete_consensus_stall(consensus, status)
+
         except Exception:
             logger.exception("Error in overseer poll cycle")
 
-        # 11. Update self-monitoring
+        # 12. Update self-monitoring
         duration = time.time() - cycle_start
         self.self_monitor.record_poll_cycle(duration)
 
@@ -774,6 +784,128 @@ class OverseerMonitor:
                 "pipeline_status": pipeline_status_str,
             }
         )
+
+    # -----------------------------------------------------------------
+    # Incomplete consensus stall detection (issue #1471)
+    # -----------------------------------------------------------------
+
+    async def _check_incomplete_consensus_stall(
+        self, consensus: dict, pipeline_status_str: str
+    ) -> None:
+        """Detect and nudge when consensus is incomplete with stuck blocking agents.
+
+        When one or more agents have not confirmed for an extended period while
+        other agents have, this method sends a targeted nudge to the blocking
+        agents. If the nudge doesn't resolve the stall, escalates to HITL.
+
+        Args:
+            consensus: Current consensus status dict from ``_query_consensus_status()``.
+            pipeline_status_str: Current pipeline status string (e.g. "running").
+        """
+        if pipeline_status_str != "running":
+            return
+
+        # If consensus is complete or empty, reset and skip
+        if not consensus or consensus.get("is_complete"):
+            self._reset_incomplete_consensus_tracking()
+            return
+
+        blocking_agents = consensus.get("blocking_agents", [])
+        if not blocking_agents:
+            self._reset_incomplete_consensus_tracking()
+            return
+
+        current_blocking = frozenset(blocking_agents)
+        now = time.time()
+
+        # If blocking set changed, reset tracking
+        if current_blocking != self._incomplete_consensus_blocking:
+            self._reset_incomplete_consensus_tracking()
+            self._incomplete_consensus_blocking = current_blocking
+            self._incomplete_consensus_first_seen = now
+            return
+
+        if self._incomplete_consensus_first_seen is None:
+            self._incomplete_consensus_first_seen = now
+            return
+
+        elapsed = now - self._incomplete_consensus_first_seen
+        poll_interval = getattr(self.config, "overseer_poll_interval_seconds", 30)
+
+        # Nudge threshold: 10 poll cycles (~5 min at 30s interval)
+        nudge_threshold = poll_interval * 10
+        # HITL threshold: 20 poll cycles (~10 min at 30s interval)
+        hitl_threshold = poll_interval * 20
+
+        if elapsed >= hitl_threshold and not self._incomplete_consensus_hitl_created:
+            # Nudge didn't resolve — escalate to HITL
+            logger.warning(
+                "Incomplete consensus stall persists after nudge — escalating to HITL",
+                pipeline_id=self.pipeline_id,
+                blocking_agents=sorted(blocking_agents),
+                elapsed_seconds=round(elapsed),
+            )
+            message = (
+                f"Consensus incomplete for {round(elapsed)}s. "
+                f"Blocking agents: {', '.join(sorted(blocking_agents))}. "
+                f"These agents were nudged but have not re-confirmed. "
+                f"Pipeline: {self.pipeline_id}"
+            )
+            await self._create_hitl_decision("orchestrator", message)
+            await self._send_slack_notification("orchestrator", message)
+            self._incomplete_consensus_hitl_created = True
+
+            self._log_oversight_event(
+                {
+                    "event": "incomplete_consensus_hitl",
+                    "blocking_agents": sorted(blocking_agents),
+                    "elapsed_seconds": round(elapsed),
+                }
+            )
+
+        elif elapsed >= nudge_threshold and not self._incomplete_consensus_nudged:
+            # Send targeted nudge to each blocking agent
+            logger.info(
+                "Incomplete consensus stall detected — nudging blocking agents",
+                pipeline_id=self.pipeline_id,
+                blocking_agents=sorted(blocking_agents),
+                elapsed_seconds=round(elapsed),
+            )
+            for agent_role in sorted(blocking_agents):
+                nudge_message = (
+                    f"You are blocking consensus for pipeline {self.pipeline_id}. "
+                    f"Your confirmed status may have been cleared after a re-review "
+                    f"cycle. Please re-confirm via `egg-orch consensus confirmed`, "
+                    f"or if you are a reviewer of a re-proposing producer, re-review "
+                    f"and ACK/NACK the latest proposal then confirm."
+                )
+                await self._send_message(agent_role, nudge_message)
+                self.self_monitor.record_message_sent()
+
+            await self._broadcast_alert(
+                "incomplete_consensus_stall",
+                ", ".join(sorted(blocking_agents)),
+                f"Consensus incomplete for {round(elapsed)}s. "
+                f"Blocking agents: {', '.join(sorted(blocking_agents))}. "
+                f"Nudge sent.",
+                "medium",
+            )
+            self._incomplete_consensus_nudged = True
+
+            self._log_oversight_event(
+                {
+                    "event": "incomplete_consensus_nudge",
+                    "blocking_agents": sorted(blocking_agents),
+                    "elapsed_seconds": round(elapsed),
+                }
+            )
+
+    def _reset_incomplete_consensus_tracking(self) -> None:
+        """Reset all incomplete-consensus stall tracking state."""
+        self._incomplete_consensus_first_seen = None
+        self._incomplete_consensus_blocking = None
+        self._incomplete_consensus_nudged = False
+        self._incomplete_consensus_hitl_created = False
 
     # -----------------------------------------------------------------
     # Orchestrator reachability (issue #1371)

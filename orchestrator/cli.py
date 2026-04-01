@@ -201,6 +201,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
             from health_checks.tier1 import (
                 ConsensusStallCheck,
                 ContainerLivenessCheck,
+                IncompleteConsensusStallCheck,
                 PhaseOutputPresenceCheck,
                 StartupStateCheck,
                 StateConsistencyCheck,
@@ -214,6 +215,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
             runner.register(PhaseOutputPresenceCheck())  # Agents produced artifacts?
             runner.register(StateConsistencyCheck())  # State vs Docker vs contract?
             runner.register(ConsensusStallCheck())  # BRC consensus stuck?
+            runner.register(IncompleteConsensusStallCheck())  # BRC consensus incomplete?
             # Tier 2 (semantic — runs on escalation per DD-6)
             runner.register(AgentInspectorCheck())  # Claude-powered agent analysis
 

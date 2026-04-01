@@ -404,10 +404,13 @@ class ConcurrentPhaseExecutor:
                     }
                     all_roles = tracker.graph.all_roles()
                     if all_roles and all_roles.issubset(confirmed_roles):
-                        logger.info(
-                            "All roles confirmed via message bus fallback",
+                        logger.warning(
+                            "Tracker state inconsistent with message bus — "
+                            "tracker says incomplete but all roles confirmed "
+                            "via messages (#1471)",
                             pipeline_id=self.pipeline.id,
                             confirmed_roles=sorted(confirmed_roles),
+                            tracker_blocking=result.get("blocking_agents", []),
                         )
                         result["is_complete"] = True
                         result["fallback"] = "message_bus"
