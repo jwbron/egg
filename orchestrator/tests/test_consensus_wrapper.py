@@ -260,7 +260,10 @@ class TestConsensusWrapperBehavior:
         """Non-zero agent exit when consensus already reached should exit 0 (issue #1495)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "egg-orch.log")
-            # _make_mock_tools creates an egg-orch that returns is_complete=true
+            # _make_mock_tools creates an egg-orch that returns is_complete=true.
+            # No agent_role is set, so this only exercises the is_complete=True
+            # early-return path. The agent_confirmed path is tested separately
+            # in test_nonzero_exit_with_agent_confirmed_exits_cleanly.
             self._make_mock_tools(tmpdir, log_file)
             self._make_failing_agent(tmpdir, exit_code=1)
 
