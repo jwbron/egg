@@ -989,6 +989,8 @@ class WorktreeManager:
                             gitdir_content = git_file.read_text().strip()
                             if gitdir_content.startswith("gitdir: "):
                                 gitdir_path = Path(gitdir_content[8:])
+                                if not gitdir_path.is_absolute():
+                                    gitdir_path = (repo_dir / gitdir_path).resolve()
                                 head_file = gitdir_path / "HEAD"
                                 if head_file.exists():
                                     head_content = head_file.read_text().strip()
@@ -1055,6 +1057,8 @@ class WorktreeManager:
                         gitdir_content = git_file.read_text().strip()
                         if gitdir_content.startswith("gitdir: "):
                             gitdir_path = Path(gitdir_content[8:])
+                            if not gitdir_path.is_absolute():
+                                gitdir_path = (repo_dir / gitdir_path).resolve()
                             head_file = gitdir_path / "HEAD"
                             if head_file.exists():
                                 head_content = head_file.read_text().strip()

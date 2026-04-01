@@ -283,6 +283,35 @@ class TestCleanupStalePipelineWorktrees:
         assert removed == 0
         mock_remove.assert_not_called()
 
+    def test_preserves_recent_worktrees_relative_gitdir(self, tmp_path):
+        """Should resolve relative gitdir paths in .git files for mtime checks."""
+        manager = self._make_manager(tmp_path)
+
+        container_dir = manager.worktree_base / "rel-gitdir-container"
+        repo_dir = container_dir / "myrepo"
+        repo_dir.mkdir(parents=True)
+
+        # Place git admin dir relative to the repo dir
+        git_admin_dir = tmp_path / "git-admin" / "worktrees" / "rel-gitdir-container"
+        git_admin_dir.mkdir(parents=True)
+        # Write a *relative* gitdir path (from repo_dir to git_admin_dir)
+        rel_path = os.path.relpath(git_admin_dir, repo_dir)
+        (repo_dir / ".git").write_text(f"gitdir: {rel_path}\n")
+        (git_admin_dir / "index").touch()
+        (git_admin_dir / "HEAD").write_text("ref: refs/heads/egg/rel-gitdir/work\n")
+
+        # Parent dir old, but git admin files are recent — should be preserved
+        old_time = time.time() - (72 * 3600)
+        os.utime(str(container_dir), (old_time, old_time))
+
+        with patch.object(manager, "remove_worktree") as mock_remove:
+            removed = manager.cleanup_stale_pipeline_worktrees(
+                max_age_hours=48, active_containers=set()
+            )
+
+        assert removed == 0
+        mock_remove.assert_not_called()
+
     def test_empty_base_returns_zero(self, tmp_path):
         """Empty worktree base should return 0."""
         manager = self._make_manager(tmp_path)
