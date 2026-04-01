@@ -56,10 +56,10 @@
         {
           "container_id": "f99826028271f212ba56b97b48fc67c0243067d56cd1be3583d1deabf1c0894e",
           "container_name": "issue-1481-reviewer_agent_design",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-01T05:30:24.495425Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-01T05:49:17.746687Z",
+          "exit_code": -1,
           "agent_role": "reviewer_agent_design",
           "session_token": null
         },
@@ -89,13 +89,13 @@
         },
         {
           "role": "reviewer_agent_design",
-          "status": "running",
+          "status": "failed",
           "container_id": "f99826028271f212ba56b97b48fc67c0243067d56cd1be3583d1deabf1c0894e",
           "started_at": "2026-04-01T05:30:24.495427Z",
-          "completed_at": null,
+          "completed_at": "2026-04-01T05:49:17.747415Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -130,7 +130,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-01T05:29:48.831653Z",
-  "updated_at": "2026-04-01T05:48:57.697795Z",
+  "updated_at": "2026-04-01T05:49:17.747482Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -138,5 +138,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 9
+  "version": 10
 }
