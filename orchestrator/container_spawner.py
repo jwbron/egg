@@ -317,18 +317,17 @@ class ContainerSpawner:
                         worktrees=list(repo_volumes.keys()),
                     )
                 else:
-                    logger.warning(
-                        "Per-agent worktree creation returned no worktrees, "
-                        "falling back to shared pipeline volumes",
-                        agent_worktree_id=agent_worktree_id,
-                        errors=wt_result.errors if wt_result else [],
+                    errors = wt_result.errors if wt_result else []
+                    raise ContainerSpawnError(
+                        f"Per-agent worktree creation returned no worktrees "
+                        f"for {agent_worktree_id}: {errors}"
                     )
+            except ContainerSpawnError:
+                raise
             except Exception as e:
-                logger.warning(
-                    "Per-agent worktree creation failed, using shared volumes",
-                    agent_worktree_id=agent_worktree_id,
-                    error=str(e),
-                )
+                raise ContainerSpawnError(
+                    f"Per-agent worktree creation failed for {agent_worktree_id}: {e}"
+                ) from e
 
         # Build mounts: repo volumes + .git shadows + certs
         mounts: list[MountSpec] = []

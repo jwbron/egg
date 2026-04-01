@@ -9,7 +9,7 @@ uncommitted work.
 Key behaviors tested:
 - Agent worktree ID is "{pipeline_id}-{role}"
 - CONTAINER_ID env var uses per-agent worktree ID
-- Fallback to shared volumes when per-agent worktree creation fails
+- Spawn aborts when per-agent worktree creation fails (#1497)
 - Worktree cleanup includes per-agent worktrees
 - Uncommitted changes detection in per-agent worktrees
 """
@@ -19,7 +19,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from container_spawner import ContainerSpawner
+from container_spawner import ContainerSpawner, ContainerSpawnError
 from gateway_client import GatewayError, GatewayHealth, SessionInfo
 from models import AgentRole, ContainerInfo, ContainerStatus
 
@@ -184,21 +184,22 @@ class TestContainerIdEnvVar:
 
 
 class TestPerAgentWorktreeFallback:
-    """When per-agent worktree creation fails, fall back to shared volumes."""
+    """Per-agent worktree creation failure must abort the spawn.
 
-    def test_fallback_on_gateway_error(self, spawner, mock_gateway_client, mock_docker_client):
-        """Gateway error during per-agent worktree creation falls back gracefully."""
-        call_count = 0
+    Per-agent worktrees are load-bearing infrastructure (#1497): without them,
+    the agent's CONTAINER_ID points to a non-existent worktree and the gateway
+    silently runs git against the main repo, causing git status to show no
+    changes even though the agent has modified files.
+    """
+
+    def test_raises_on_gateway_error(self, spawner, mock_gateway_client, mock_docker_client):
+        """Gateway error during per-agent worktree creation aborts the spawn."""
         original_volumes = {"egg": "/host/path/original"}
 
         def side_effect(**kwargs):
-            nonlocal call_count
-            call_count += 1
             cid = kwargs.get("container_id", "")
-            # Per-agent worktree call fails
             if "-" in cid and cid != kwargs.get("pipeline_id", ""):
                 raise GatewayError("Gateway unavailable", status_code=500)
-            # Pipeline-level call succeeds
             result = MagicMock()
             result.success = True
             result.worktrees = original_volumes
@@ -207,44 +208,34 @@ class TestPerAgentWorktreeFallback:
 
         mock_gateway_client.create_worktrees.side_effect = side_effect
 
-        # Should not raise — should fall back to shared volumes
-        result = spawner.spawn_agent_container(
-            pipeline_id="pipe-1",
-            agent_role=AgentRole.CODER,
-            repo_volumes=original_volumes,
-            repos=["egg"],
-        )
-        assert result is not None
+        with pytest.raises(ContainerSpawnError, match="worktree creation failed"):
+            spawner.spawn_agent_container(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                repo_volumes=original_volumes,
+                repos=["egg"],
+            )
 
-    def test_fallback_on_empty_worktree_result(self, spawner, mock_gateway_client):
-        """When per-agent worktree returns no worktrees, fall back gracefully."""
-        call_count = 0
+    def test_raises_on_empty_worktree_result(self, spawner, mock_gateway_client):
+        """Empty worktree result aborts the spawn."""
 
         def side_effect(**kwargs):
-            nonlocal call_count
-            call_count += 1
-            cid = kwargs.get("container_id", "")
             result = MagicMock()
-            if "-" in cid and not cid.startswith("pipe"):
-                # Per-agent call returns empty
-                result.success = True
-                result.worktrees = {}
-                result.errors = ["no worktrees available"]
-            else:
-                result.success = True
-                result.worktrees = {"egg": "/host/path"}
-                result.errors = []
+            # All per-agent worktree calls return empty
+            result.success = True
+            result.worktrees = {}
+            result.errors = ["no worktrees available"]
             return result
 
         mock_gateway_client.create_worktrees.side_effect = side_effect
-        # Should not raise
-        result = spawner.spawn_agent_container(
-            pipeline_id="pipe-1",
-            agent_role=AgentRole.CODER,
-            repo_volumes={"egg": "/host/path"},
-            repos=["egg"],
-        )
-        assert result is not None
+
+        with pytest.raises(ContainerSpawnError, match="no worktrees"):
+            spawner.spawn_agent_container(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                repo_volumes={"egg": "/host/path"},
+                repos=["egg"],
+            )
 
 
 # ---------------------------------------------------------------------------

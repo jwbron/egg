@@ -442,6 +442,21 @@ def make_success(message: str, data: dict[str, Any] | None = None) -> tuple[Resp
     return make_response(True, message, data, 200)
 
 
+def make_worktree_not_found_error(container_id: str) -> tuple[Response, int]:
+    """Return a 500 error when a container's worktree cannot be found.
+
+    This prevents the silent fallback to the main repo that caused #1497:
+    agents could not see their own file changes because git ran against
+    the main repo instead of the agent's worktree.
+    """
+    return make_error(
+        f"Worktree not found for container '{container_id}'. "
+        "The per-agent worktree may not have been created. "
+        "Git operations require a valid worktree.",
+        status_code=500,
+    )
+
+
 def audit_log(
     event_type: str,
     operation: str,
@@ -665,6 +680,8 @@ def git_push() -> tuple[Response, int] | Response:
 
     # Map container path to worktree path if container_id is provided
     exec_path = map_container_path_to_worktree(repo_path, container_id, "push")
+    if exec_path is None:
+        return make_worktree_not_found_error(container_id)
 
     # Get remote URL to determine repo
     remote_url, url_error = resolve_remote_url(remote, exec_path)
@@ -1376,6 +1393,8 @@ def git_execute() -> tuple[Response, int] | Response:
 
     # Map container path to worktree path if container_id is provided
     exec_path = map_container_path_to_worktree(repo_path, container_id, operation)
+    if exec_path is None:
+        return make_worktree_not_found_error(container_id)
     is_worktree = exec_path != repo_path
 
     # SECURITY: Enforce branch isolation in pipeline worktree sessions.
@@ -1630,6 +1649,8 @@ def git_fetch() -> tuple[Response, int] | Response:
 
     # Map container path to worktree path if container_id is provided
     exec_path = map_container_path_to_worktree(repo_path, container_id, operation)
+    if exec_path is None:
+        return make_worktree_not_found_error(container_id)
 
     # Get remote URL to determine repo
     remote_url, url_error = resolve_remote_url(remote, exec_path)
@@ -3338,7 +3359,7 @@ def get_worktree_manager() -> WorktreeManager:
 
 def map_container_path_to_worktree(
     repo_path: str, container_id: str | None, operation: str = "git"
-) -> str:
+) -> str | None:
     """
     Map a container's repo path to the corresponding worktree path.
 
@@ -3352,7 +3373,9 @@ def map_container_path_to_worktree(
         operation: Name of the operation for logging purposes
 
     Returns:
-        The worktree path if mapping succeeds, otherwise the original repo_path.
+        The worktree path if mapping succeeds, the original repo_path if no
+        container_id was provided (interactive session), or None if a
+        container_id was provided but the worktree could not be found.
     """
     if not container_id:
         return repo_path
@@ -3391,15 +3414,23 @@ def map_container_path_to_worktree(
                 container_id=container_id,
             )
             return str(final_path)
+        else:
+            logger.warning(
+                f"Worktree path does not exist for {operation} — "
+                f"container_id may not match any created worktree",
+                container_path=repo_path,
+                expected_worktree=str(worktree_path),
+                container_id=container_id,
+            )
+            return None
     except ValueError as e:
-        logger.debug(
+        logger.warning(
             f"Failed to map container path to worktree for {operation}",
             error=str(e),
             container_id=container_id,
             repo_name=repo_name,
         )
-
-    return repo_path
+        return None
 
 
 @app.route("/api/v1/worktree/create", methods=["POST"])

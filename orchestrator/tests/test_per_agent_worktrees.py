@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-from container_spawner import ContainerSpawner
+from container_spawner import ContainerSpawner, ContainerSpawnError
 from docker_client import ContainerNotFoundError
 from gateway_client import GatewayHealth, SessionInfo, WorktreeResult
 from models import AgentRole, ContainerInfo, ContainerStatus
@@ -169,49 +169,50 @@ class TestContainerIdEnvVar:
 
 
 class TestWorktreeCreationFallback:
-    """Tests that spawn falls back gracefully when worktree creation fails."""
+    """Tests that spawn aborts when worktree creation fails (#1497).
+
+    Per-agent worktrees are required infrastructure. Without them, the agent's
+    CONTAINER_ID points to a non-existent worktree and git operations silently
+    run against the main repo, causing the agent to not see its own changes.
+    """
 
     @patch.dict("os.environ", {"HOST_UID": "1000", "HOST_GID": "1000"})
-    def test_fallback_on_worktree_creation_failure(
+    def test_raises_on_worktree_creation_failure(
         self, spawner, mock_docker_client, mock_gateway_client
     ):
-        """If per-agent worktree creation fails, should fall back to shared volumes."""
+        """If per-agent worktree creation fails, spawn must abort."""
         mock_gateway_client.create_worktrees.side_effect = Exception("gateway down")
 
-        # Should not raise -- should fall back gracefully
-        result = spawner.spawn_agent_container(
-            pipeline_id="issue-123",
-            agent_role=AgentRole.CODER,
-            repo_volumes={"egg": "/host/path/egg"},
-            repos=["owner/egg"],
-            mode="public",
-            branch="egg/issue-123/work",
-        )
-
-        assert result is not None
-        assert result.container_info.container_id is not None
+        with pytest.raises(ContainerSpawnError, match="worktree creation failed"):
+            spawner.spawn_agent_container(
+                pipeline_id="issue-123",
+                agent_role=AgentRole.CODER,
+                repo_volumes={"egg": "/host/path/egg"},
+                repos=["owner/egg"],
+                mode="public",
+                branch="egg/issue-123/work",
+            )
 
     @patch.dict("os.environ", {"HOST_UID": "1000", "HOST_GID": "1000"})
-    def test_fallback_on_empty_worktree_result(
+    def test_raises_on_empty_worktree_result(
         self, spawner, mock_docker_client, mock_gateway_client
     ):
-        """If gateway returns no worktrees, should fall back to shared volumes."""
+        """If gateway returns no worktrees, spawn must abort."""
         mock_gateway_client.create_worktrees.return_value = WorktreeResult(
             success=True,
             worktrees={},
             errors=["no worktrees created"],
         )
 
-        result = spawner.spawn_agent_container(
-            pipeline_id="issue-123",
-            agent_role=AgentRole.CODER,
-            repo_volumes={"egg": "/host/path/egg"},
-            repos=["owner/egg"],
-            mode="public",
-            branch="egg/issue-123/work",
-        )
-
-        assert result is not None
+        with pytest.raises(ContainerSpawnError, match="no worktrees"):
+            spawner.spawn_agent_container(
+                pipeline_id="issue-123",
+                agent_role=AgentRole.CODER,
+                repo_volumes={"egg": "/host/path/egg"},
+                repos=["owner/egg"],
+                mode="public",
+                branch="egg/issue-123/work",
+            )
 
 
 class TestCleanupPipelineWorktrees:
