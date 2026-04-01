@@ -28,7 +28,19 @@ if TYPE_CHECKING:
 
 # Re-export from shared package for backwards compatibility
 from egg_restrictions.patterns import (
+    AGENT_PATTERNS,
+    AUTOFIXER_PATTERNS,
+    CONFLICT_RESOLVER_PATTERNS,
+    INSPECTOR_PATTERNS,
+    OVERSEER_PATTERNS,
+    AgentFilePattern,
     AgentRole,
+)
+from egg_restrictions.checker import (
+    AgentRestrictionResult,
+    check_agent_file_access,
+    get_agent_pattern,
+    validate_agent_push,
 )
 
 # --- GitHub operation restrictions ---
