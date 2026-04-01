@@ -1031,7 +1031,9 @@ class TestOverseerRespawn:
         command = create_call.kwargs.get("command", [])
         # The last argument is the prompt
         prompt = command[-1] if command else ""
-        assert "overseer_monitor.py" in prompt, "Prompt must reference pre-built monitor script"
+        assert "overseer_monitor.py --once" in prompt, (
+            "Prompt must reference pre-built monitor script with --once flag"
+        )
         assert "DO NOT write your own monitoring loop" in prompt, (
             "Prompt must prohibit custom loops"
         )
