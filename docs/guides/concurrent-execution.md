@@ -225,7 +225,7 @@ These protections prevent a deadlock that previously occurred when a reviewer's 
 Use `egg-orch consensus` commands to participate in the BRC protocol:
 
 ```bash
-# Producer: commit and push work, then propose for review (--commit-sha is required)
+# Producer: commit and push work, then propose for review (--commit-sha defaults to HEAD if omitted)
 git add src/feature.py && git commit -m "Implement feature X" && git push origin HEAD:egg/feature-x
 egg-orch consensus propose --summary "Implemented feature X" --artifacts src/feature.py --risk "No retry on transient failures" --commit-sha $(git rev-parse HEAD)
 
