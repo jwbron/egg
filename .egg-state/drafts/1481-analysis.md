@@ -151,37 +151,50 @@ Justification:
 
 ## Open Questions
 
-> **Note**: `egg-contract add-decision` and `egg-contract add-feedback` commands failed with "Contract for issue #1481 not found" — the gateway's contract API cannot locate the contract file from the agent's session context. Decisions and questions are documented below for human review during phase approval.
+> **Infrastructure note**: `egg-contract add-decision` and `egg-contract add-feedback` commands failed because the gateway session for this container does not have `agent_role` set in its session metadata, causing the contract mutation API to reject all writes with "Cannot determine agent role." The contract file exists at the pipeline worktree path (`/home/egg/.egg-worktrees/issue-1481-v2/egg`) but mutations are blocked. Decisions and feedback are documented below with structured markers for the pipeline to process.
 
+<!-- DECISION: decision-1 -->
 ### Decision 1: Rollout Strategy for Per-Agent Worktrees
 
-Should per-agent worktree isolation be the default for all pipelines, or opt-in?
+**Question**: Should per-agent worktree isolation be the default for all pipelines, or opt-in?
 
-- **Option A: Default for all pipelines** — breaking change for any workflow depending on shared worktrees
-- **Option B: Opt-in via pipeline config** (e.g., `per_agent_worktrees: true`)
-- **Option C: Default on, with opt-out escape hatch** (e.g., `per_agent_worktrees: false`)
+| Option | Description |
+|--------|-------------|
+| Default for all pipelines | Breaking change for any workflow depending on shared worktrees |
+| Opt-in via pipeline config flag | e.g., `per_agent_worktrees: true` — safest rollout |
+| Default on, with opt-out escape hatch | e.g., `per_agent_worktrees: false` — recommended balance |
+| Other (explain in reply) | |
 
-**Context**: The issue states no workflows depend on agents seeing each other's uncommitted work. If true, Option A or C is safe. However, if there are edge cases (e.g., a coder needing to see tester's WIP), opt-in may be prudent for initial rollout.
+**Context**: The issue states no workflows depend on agents seeing each other's uncommitted work. If true, default-on is safe. However, if there are edge cases (e.g., a coder needing to see tester's WIP), opt-in may be prudent for initial rollout.
 
+<!-- DECISION: decision-2 -->
 ### Decision 2: SDK Tool Interception Scope
 
-For the Agent SDK soft enforcement, which tool operations should be intercepted?
+**Question**: For the Agent SDK soft enforcement, which tool operations should be intercepted?
 
-- **Option A: Write and Edit only** — Bash file redirects not intercepted
-- **Option B: Write, Edit, and NotebookEdit** — all explicit file-write tools
-- **Option C: Write, Edit, NotebookEdit, and best-effort Bash detection** — intercept obvious redirects like `>` and `>>`
+| Option | Description |
+|--------|-------------|
+| Write and Edit only | Bash file redirects not intercepted (issue's proposal) |
+| Write, Edit, and NotebookEdit | All explicit file-write tools |
+| Write, Edit, NotebookEdit, and best-effort Bash detection | Intercept obvious redirects like `>` and `>>` |
+| Other (explain in reply) | |
 
-**Context**: The issue proposes Option A (Write and Edit only, Bash not intercepted). Option B adds NotebookEdit for completeness. Option C adds complexity and fragility for marginal gain since the gateway is the hard enforcement boundary.
+**Context**: The issue proposes Write and Edit only, with Bash unintercepted. Adding NotebookEdit is trivial. Bash detection adds complexity and fragility for marginal gain since the gateway is the hard enforcement boundary.
 
-### Decision 3: Should `.egg-state/agent-outputs/` Files Be Keyed by Role?
+<!-- DECISION: decision-3 -->
+### Decision 3: Agent-Outputs File Keying
 
-The issue notes that all roles can write to `.egg-state/agent-outputs/` and "agents write to separate files within it (keyed by role)." Is this currently enforced, or is it just a convention?
+**Question**: Should `.egg-state/agent-outputs/` files be enforced to be keyed by role, or remain convention-only?
 
-- **Option A: Convention only** — agents write `{identifier}-{role}-output.json` by convention
-- **Option B: Enforce via pattern** — e.g., each agent can only write files matching `*-{role}-*` within `agent-outputs/`
+| Option | Description |
+|--------|-------------|
+| Convention only | Agents write `{identifier}-{role}-output.json` by convention |
+| Enforce via pattern | Each agent can only write files matching `*-{role}-*` within `agent-outputs/` |
+| Other (explain in reply) | |
 
-**Context**: If agents can overwrite each other's output files, per-agent worktrees would prevent this at the filesystem level but the files would still diverge across worktrees. Enforcement at the pattern level would also protect the merged branch.
+**Context**: If agents can overwrite each other's output files, per-agent worktrees prevent this at the filesystem level but the files would still diverge across worktrees. Pattern enforcement would also protect the merged branch.
 
+<!-- FEEDBACK: feedback-1 -->
 ### Feedback Questions
 
 1. **Are there any pipelines or workflows that intentionally depend on agents seeing each other's uncommitted work in a shared worktree?** If so, what is the use case?
@@ -190,7 +203,7 @@ The issue notes that all roles can write to `.egg-state/agent-outputs/` and "age
 
 3. **What is the expected behavior if an agent's `git pull --rebase` encounters a conflict (e.g., due to a bug in role pattern configuration causing overlapping writes)?** Should the agent retry, abort, or signal an error to the orchestrator?
 
-4. **The issue mentions that `.egg-state/agent-outputs/` is "allowed for all roles." Should the auto-commit role filtering treat this directory specially (always allow) or defer to the existing `AgentFilePattern` definitions?**
+4. **Should the auto-commit role filtering treat `.egg-state/agent-outputs/` specially (always allow) or defer to the existing `AgentFilePattern` definitions?**
 
 ---
 
