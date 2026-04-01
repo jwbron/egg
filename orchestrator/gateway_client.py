@@ -635,7 +635,11 @@ class GatewayClient:
             )
             session_token = session.session_token
 
-            # Push the branch
+            # Push the branch.  Do NOT include container_id — the repo_path
+            # is already the resolved worktree path.  Including the synthetic
+            # container_id would cause map_container_path_to_worktree() to
+            # fail with "worktree not found" since no real worktree exists
+            # for the temp session (see #1500).
             self._make_request(
                 "/api/v1/git/push",
                 method="POST",
@@ -643,7 +647,6 @@ class GatewayClient:
                     "repo_path": repo_path,
                     "remote": "origin",
                     "refspec": f"HEAD:refs/heads/{branch}",
-                    "container_id": temp_container_id,
                 },
                 bearer_token=session_token,
             )
