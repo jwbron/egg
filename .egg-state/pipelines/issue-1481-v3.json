@@ -40,13 +40,20 @@
       "phase": "implement",
       "status": "running",
       "started_at": "2026-04-01T07:21:55.938804Z",
-      "work_started_at": null,
+      "work_started_at": "2026-04-01T07:21:55.949705Z",
       "completed_at": null,
       "containers": [],
       "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [],
+      "cycle_timings": [
+        {
+          "cycle": 0,
+          "started_at": "2026-04-01T07:21:55.949705Z",
+          "completed_at": null,
+          "commit_sha": "73ac7b18b512c06a7381a308fc097708d29614d6"
+        }
+      ],
       "artifacts": {},
       "error": null,
       "hitl_feedback": null,
@@ -55,7 +62,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-01T07:21:25.079432Z",
-  "updated_at": "2026-04-01T07:21:55.938869Z",
+  "updated_at": "2026-04-01T07:21:55.953222Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -63,5 +70,5 @@
   "error": null,
   "analysis": "See the full analysis at .egg-state/drafts/1481-analysis.md on the egg/issue-1481-v2 branch. Key points: shared worktree is the root cause, Option A (full layered enforcement) recommended and HITL-approved. All design decisions resolved: default-on worktrees (no opt-out), Write/Edit/NotebookEdit SDK interception (egg_agent only), convention-only agent-outputs keying, auto-commit-push removed entirely (HITL recovery instead), signal error to orchestrator on rebase conflict.",
   "plan": "See the full plan at .egg-state/drafts/1481-plan.md on the egg/issue-1481-v2 branch. 6 phases, 24 tasks: (1) Extract agent restrictions to shared package, (2) Per-agent worktree isolation + scoped push detection, (3) Per-agent git identity, (4) SDK tool interception, (5) Remove auto-commit-push + HITL recovery, (6) Integration tests + docs. Single PR.",
-  "version": 5
+  "version": 6
 }
