@@ -1,0 +1,197 @@
+# Analysis: Per-Agent Worktree Isolation and Role-Aware File Enforcement
+
+> Issue: #1481 | Phase: refine
+
+## Problem Statement
+
+The current multi-agent pipeline shares a single git worktree across all agents in a pipeline. This creates cascading failures:
+
+1. **Agents commit disallowed files** that the gateway blocks at push time, burning tokens on recovery loops (#1470)
+2. **Downstream agents inherit disallowed files** in their diff from main, causing their pushes to also be blocked
+3. **`auto_commit_worktree()` sweeps disallowed files** into WIP commits that bypass role restrictions, causing CI failures (#1480)
+4. **Agents waste tokens** writing files outside their role scope, when that work belongs to another agent
+5. **Shared worktree** means agents can silently overwrite each other's uncommitted changes
+
+The desired outcome is a layered enforcement model where: (a) agents are structurally isolated via per-agent worktrees, (b) the Agent SDK provides early feedback on disallowed writes to save tokens, (c) `auto_commit_worktree()` filters by role restrictions, and (d) push-time validation remains the hard security boundary.
+
+## Current Behavior
+
+### Shared Worktree (orchestrator/routes/pipelines.py:5770-5772)
+
+All containers in a pipeline share a single worktree keyed by `pipeline_id`:
+
+```python
+# We use the pipeline_id as the worktree container_id so all
+# containers in the pipeline share the same working trees.
+worktree_id = pipeline_id
+```
+
+The infrastructure already supports per-container worktrees — `WorktreeManager.create_worktree()` creates unique worktrees per container ID. The current code intentionally forces sharing.
+
+### Push File Detection (gateway/git_client.py:1301-1440)
+
+`get_changed_files_in_push()` diffs the entire `origin/{branch}..HEAD` range. In a shared worktree, this includes commits from ALL agents, not just the current one. This means Agent B's push can be blocked because Agent A committed files that Agent B's role isn't allowed to touch.
+
+The function has two modes:
+- **Primary**: `git diff --name-only {remote}/{branch}..HEAD` — returns all changed files in the range
+- **Fallback**: Per-commit `git rev-list` + `git diff-tree` — still returns the union of all commits
+
+Neither mode scopes to a specific agent's commits.
+
+### Agent Restrictions (gateway/agent_restrictions.py)
+
+A comprehensive role-based file access system already exists:
+- `AgentFilePattern` class with `allowed_patterns` and `blocked_patterns` per role
+- `check_agent_file_access()` validates file lists against role patterns
+- `validate_agent_push()` is the main entry point for gateway push validation
+- Patterns are well-defined for all 15+ roles (coder, tester, documenter, refiner, reviewers, etc.)
+
+This enforcement works correctly — the problem is that `get_changed_files_in_push()` feeds it files from OTHER agents' commits.
+
+### Auto-Commit (gateway/post_agent_commit.py)
+
+`auto_commit_worktree()` runs on container exit and commits uncommitted changes. It filters files by **phase restrictions** but does NOT filter by **agent role restrictions**. This means if a coder agent writes test files (which slip past because there's no write-time enforcement), those files get swept into the WIP commit and can cause CI failures.
+
+### Git Identity (sandbox/entrypoint.py:591-597)
+
+All agents share the identity `egg <egg@localhost>`:
+
+```python
+run_cmd(["git", "config", "--global", "user.name", "egg"], as_user=user_tuple)
+run_cmd(["git", "config", "--global", "user.email", "egg@localhost"], as_user=user_tuple)
+```
+
+There's no way to distinguish which agent authored which commit in `git log`.
+
+### Agent SDK (shared/egg_agent/)
+
+The Agent SDK has no tool interception hooks. `Write`, `Edit`, and `NotebookEdit` operations are not checked against role restrictions before execution. Agents discover they can't push disallowed files only after spending tokens writing them.
+
+## Constraints
+
+- **Gateway is the hard security boundary** — all other enforcement layers are optimizations. Any design must keep push-time validation as the authoritative gate.
+- **BRC protocol requires committed+pushed artifacts** — reviewers read from the branch, not the worktree. Per-agent isolation must not break the BRC proposal/review workflow.
+- **`EGG_AGENT_ROLE` is already available** in agent containers via `concurrent_executor.py:get_agent_env()`. No new plumbing needed for role awareness.
+- **Disk usage** — git worktrees share the object store; only working tree files are duplicated. Marginal overhead.
+- **Backward compatibility** — existing single-agent pipelines must continue to work. Per-agent worktrees should be transparent when only one agent runs.
+- **Push retry logic** — agents already handle push retries. With per-agent worktrees and mutually exclusive file patterns, `git pull --rebase` cannot produce merge conflicts.
+- **Subsumes #1470 and #1480** — this design resolves both issues holistically rather than patching symptoms individually.
+
+## Options Considered
+
+### Option A: Issue's Proposed Design (Full Layered Enforcement)
+
+**Approach**: Implement all six layers from the issue: (1) per-agent worktrees, (2) shared branch with pull-before-push, (3) scoped push file detection, (4) per-agent git author, (5) SDK tool interception, (6) auto-commit role filtering.
+
+**Pros**:
+- Defense in depth — each layer catches different failure modes
+- Early feedback saves tokens (SDK interception catches writes before they happen)
+- Per-agent worktrees eliminate all stomping/cross-contamination risks
+- Scoped file detection fixes false positives in push validation
+- Auto-commit filtering prevents unreviewed disallowed files from being committed
+- Per-agent git author improves auditability at zero cost
+- Each piece is self-contained and testable independently
+
+**Cons**:
+- Largest scope — touches 6+ components across orchestrator, gateway, sandbox, and shared packages
+- Per-agent worktrees change the fundamental execution model for concurrent pipelines
+- SDK tool interception adds a new enforcement layer that needs maintenance as patterns change
+- Bash file redirects bypass SDK interception (by design, but worth noting)
+
+### Option B: Minimal Fix — Auto-Commit Filtering + Scoped Push Detection Only
+
+**Approach**: Fix only the two proximate causes: (1) add agent-role filtering to `auto_commit_worktree()`, (2) scope `get_changed_files_in_push()` to the current agent's commits (via commit author attribution).
+
+**Pros**:
+- Smallest scope — only gateway changes
+- Directly fixes #1470 and #1480
+- No changes to orchestrator, sandbox, or Agent SDK
+
+**Cons**:
+- Agents can still stomp each other's uncommitted work in shared worktrees
+- Agents still waste tokens writing disallowed files (no early feedback)
+- Commit attribution via author email is fragile — requires matching author to role
+- Doesn't prevent the root cause (shared worktree), only patches symptoms
+- Future issues will continue to arise from the shared worktree model
+
+### Option C: Per-Agent Worktrees + Auto-Commit Filtering (No SDK Interception)
+
+**Approach**: Implement per-agent worktrees (the structural fix) and auto-commit role filtering (the safety net), but skip SDK tool interception and per-agent git author. Scoped push detection becomes trivial with per-agent worktrees.
+
+**Pros**:
+- Addresses the root cause (shared worktrees) and the safety net (auto-commit)
+- Smaller scope than Option A — no Agent SDK changes, no entrypoint changes
+- Per-agent worktrees make scoped push detection automatic (no code changes to `get_changed_files_in_push()`)
+- Still eliminates stomping, cross-contamination, and false positive push blocks
+
+**Cons**:
+- Agents still waste tokens on disallowed writes (no early feedback from SDK)
+- Git log doesn't show which agent authored commits (less debuggable)
+- Misses the "drive better delegation" benefit of SDK interception
+
+## Recommended Approach
+
+**Option A: Full Layered Enforcement** — the issue's proposed design.
+
+Justification:
+
+1. **The root cause is structural** (shared worktrees), so the fix should be structural (per-agent worktrees). Option B patches symptoms.
+
+2. **SDK tool interception is high ROI** — the cost is modest (a pre-execution hook in the Agent SDK), but the benefit is significant: agents learn immediately that they can't write to a file, saving tokens and driving delegation behavior. This is especially valuable for multi-agent pipelines where role boundaries are the primary coordination mechanism.
+
+3. **Per-agent git author is trivial** — a one-line change in `sandbox/entrypoint.py` that dramatically improves debuggability.
+
+4. **Each layer is independently valuable and testable** — the design is not all-or-nothing. Layers can be implemented and shipped incrementally.
+
+5. **The issue has already resolved the design decisions** — shared branch strategy, push retry logic, no commit attribution needed for enforcement (per-agent worktrees handle it structurally), etc. The analysis confirms these decisions are sound.
+
+## Complexity Assessment
+
+**high** — This is an architectural change spanning orchestrator (worktree creation), gateway (push detection, auto-commit filtering), sandbox (git identity), and shared packages (Agent SDK tool interception). The changes touch the concurrent execution model which is a core subsystem. Multiple independent components can be implemented in parallel phases.
+
+## Open Questions
+
+> **Note**: `egg-contract add-decision` and `egg-contract add-feedback` commands failed with "Contract for issue #1481 not found" — the gateway's contract API cannot locate the contract file from the agent's session context. Decisions and questions are documented below for human review during phase approval.
+
+### Decision 1: Rollout Strategy for Per-Agent Worktrees
+
+Should per-agent worktree isolation be the default for all pipelines, or opt-in?
+
+- **Option A: Default for all pipelines** — breaking change for any workflow depending on shared worktrees
+- **Option B: Opt-in via pipeline config** (e.g., `per_agent_worktrees: true`)
+- **Option C: Default on, with opt-out escape hatch** (e.g., `per_agent_worktrees: false`)
+
+**Context**: The issue states no workflows depend on agents seeing each other's uncommitted work. If true, Option A or C is safe. However, if there are edge cases (e.g., a coder needing to see tester's WIP), opt-in may be prudent for initial rollout.
+
+### Decision 2: SDK Tool Interception Scope
+
+For the Agent SDK soft enforcement, which tool operations should be intercepted?
+
+- **Option A: Write and Edit only** — Bash file redirects not intercepted
+- **Option B: Write, Edit, and NotebookEdit** — all explicit file-write tools
+- **Option C: Write, Edit, NotebookEdit, and best-effort Bash detection** — intercept obvious redirects like `>` and `>>`
+
+**Context**: The issue proposes Option A (Write and Edit only, Bash not intercepted). Option B adds NotebookEdit for completeness. Option C adds complexity and fragility for marginal gain since the gateway is the hard enforcement boundary.
+
+### Decision 3: Should `.egg-state/agent-outputs/` Files Be Keyed by Role?
+
+The issue notes that all roles can write to `.egg-state/agent-outputs/` and "agents write to separate files within it (keyed by role)." Is this currently enforced, or is it just a convention?
+
+- **Option A: Convention only** — agents write `{identifier}-{role}-output.json` by convention
+- **Option B: Enforce via pattern** — e.g., each agent can only write files matching `*-{role}-*` within `agent-outputs/`
+
+**Context**: If agents can overwrite each other's output files, per-agent worktrees would prevent this at the filesystem level but the files would still diverge across worktrees. Enforcement at the pattern level would also protect the merged branch.
+
+### Feedback Questions
+
+1. **Are there any pipelines or workflows that intentionally depend on agents seeing each other's uncommitted work in a shared worktree?** If so, what is the use case?
+
+2. **Should SDK tool interception be implemented in `egg_agent` (headless Agent SDK) only, or also in the `claude` CLI interactive path?** The issue mentions the Agent SDK, but interactive users may also benefit from early feedback on file restrictions.
+
+3. **What is the expected behavior if an agent's `git pull --rebase` encounters a conflict (e.g., due to a bug in role pattern configuration causing overlapping writes)?** Should the agent retry, abort, or signal an error to the orchestrator?
+
+4. **The issue mentions that `.egg-state/agent-outputs/` is "allowed for all roles." Should the auto-commit role filtering treat this directory specially (always allow) or defer to the existing `AgentFilePattern` definitions?**
+
+---
+
+*Authored-by: egg*
