@@ -280,11 +280,10 @@ class TestPerAgentWorktreeErrorLogging:
                     repos=["egg"],
                 )
 
-        # Verify the error was logged (structlog may not appear in caplog,
-        # but the ContainerSpawnError itself carries the message through)
-        assert any("worktree creation failed" in str(r) for r in caplog.records) or True
-        # The key assertion: the exception is a ContainerSpawnError wrapping GatewayError
-        # and the GatewayError handler in container_spawner now logs details before re-raising
+        # The key assertion is the pytest.raises above: a GatewayError with details
+        # is caught and re-raised as ContainerSpawnError with the message preserved.
+        # structlog logging is not verified here because structlog doesn't integrate
+        # with caplog; the exception propagation is what matters.
 
 
 # ---------------------------------------------------------------------------

@@ -549,7 +549,7 @@ class TestWorktreeManagerRemoteBranchFetch:
         call_log = []
 
         def mock_run(args, **kwargs):
-            call_log.append(args)
+            call_log.append(list(args))
             result = MagicMock()
             result.returncode = 0
             result.stderr = ""
@@ -598,7 +598,7 @@ class TestWorktreeManagerRemoteBranchFetch:
         call_log = []
 
         def mock_run(args, **kwargs):
-            call_log.append(args)
+            call_log.append(list(args))
             result = MagicMock()
             result.returncode = 0
             result.stderr = ""
@@ -630,6 +630,51 @@ class TestWorktreeManagerRemoteBranchFetch:
 
         fetch_calls = [c for c in call_log if "fetch" in c]
         assert len(fetch_calls) == 0
+
+    def test_raises_when_fetch_fails_and_ref_missing(self, manager_with_repo):
+        """When base_branch doesn't exist locally and fetch fails, worktree add fails with RuntimeError."""
+        manager, repos_base, repo_dir, worktree_base = manager_with_repo
+
+        call_log = []
+
+        def mock_run(args, **kwargs):
+            call_log.append(list(args))
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            result.stdout = ""
+
+            if "rev-parse" in args and "--verify" in args:
+                # Neither branch_name nor base_branch exist locally
+                result.returncode = 1
+            elif "fetch" in args and "origin" in args:
+                # Fetch fails (e.g., branch doesn't exist on remote either)
+                result.returncode = 128
+                result.stderr = "fatal: couldn't find remote ref egg/nonexistent"
+            elif "worktree" in args and "add" in args:
+                # worktree add fails because the ref doesn't exist
+                result.returncode = 128
+                result.stderr = "fatal: invalid reference: egg/nonexistent"
+
+            return result
+
+        with patch("subprocess.run", side_effect=mock_run):
+            with patch.object(manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")):
+                with patch.object(manager, "_chown_recursive"):
+                    with patch.object(manager, "_chown_single"):
+                        with pytest.raises(RuntimeError, match="Failed to create worktree"):
+                            manager.create_worktree(
+                                "test-repo", "fail-container", base_branch="egg/nonexistent"
+                            )
+
+        # Verify fetch was attempted
+        fetch_calls = [c for c in call_log if "fetch" in c and "origin" in c]
+        assert len(fetch_calls) == 1
+        # Verify worktree add was still attempted with the original (unresolved) base_branch
+        wt_add_calls = [c for c in call_log if "worktree" in c and "add" in c and "-b" in c]
+        assert len(wt_add_calls) == 1
+        assert "egg/nonexistent" in wt_add_calls[0]
+        assert "origin/egg/nonexistent" not in wt_add_calls[0]
 
 
 class TestFindWorktreeGitDir:
