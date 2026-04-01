@@ -283,7 +283,7 @@ Both `OrchClient.create_decision()` and the underlying orchestrator API (`POST /
 
 ## Related Files
 
-- `orchestrator/mcp_tools.py` — MCP `get_status` tool; enriches `phase_gate` decisions with `draft_content`, `completed_agents_summary`, and `reviewer_feedback`
+- `orchestrator/mcp_tools.py` — MCP `get_status` tool; enriches all pending decisions with `draft_content`; enriches `phase_gate` decisions additionally with `completed_agents_summary` and `reviewer_feedback`
 - `orchestrator/models.py` — `HITLDecision` model with `decision_type`, `questions`, `phase`, and `content_changed` fields; `content_changed` is set by the orchestrator on re-run phase gates to indicate whether the draft changed since the previous resolved decision (literal string comparison; `None` on first decision, `True`/`False` on subsequent ones)
 - `orchestrator/decision_queue.py` — Decision queue handling typed decisions
 - `orchestrator/routes/decisions.py` — Decision API endpoints (create, list, resolve)
