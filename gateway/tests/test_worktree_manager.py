@@ -525,7 +525,9 @@ class TestWorktreeManagerRemoteBranchFetch:
             return result
 
         with patch("subprocess.run", side_effect=mock_run):
-            with patch.object(manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")):
+            with patch.object(
+                manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")
+            ):
                 with patch.object(manager, "_chown_recursive"):
                     with patch.object(manager, "_chown_single"):
                         info = manager.create_worktree(
@@ -575,7 +577,9 @@ class TestWorktreeManagerRemoteBranchFetch:
             return result
 
         with patch("subprocess.run", side_effect=mock_run):
-            with patch.object(manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")):
+            with patch.object(
+                manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")
+            ):
                 with patch.object(manager, "_chown_recursive"):
                     with patch.object(manager, "_chown_single"):
                         manager.create_worktree(
@@ -621,12 +625,12 @@ class TestWorktreeManagerRemoteBranchFetch:
             return result
 
         with patch("subprocess.run", side_effect=mock_run):
-            with patch.object(manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")):
+            with patch.object(
+                manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")
+            ):
                 with patch.object(manager, "_chown_recursive"):
                     with patch.object(manager, "_chown_single"):
-                        manager.create_worktree(
-                            "test-repo", "head-container", base_branch="HEAD"
-                        )
+                        manager.create_worktree("test-repo", "head-container", base_branch="HEAD")
 
         fetch_calls = [c for c in call_log if "fetch" in c]
         assert len(fetch_calls) == 0
