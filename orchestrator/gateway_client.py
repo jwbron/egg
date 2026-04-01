@@ -706,7 +706,10 @@ class GatewayClient:
             )
             session_token = session.session_token
 
-            # Push with empty source = delete remote branch
+            # Push with empty source = delete remote branch.
+            # Do NOT include container_id — repo_path is already the
+            # resolved path; the synthetic container_id has no real
+            # worktree and would trigger a "worktree not found" error.
             self._make_request(
                 "/api/v1/git/push",
                 method="POST",
@@ -714,7 +717,6 @@ class GatewayClient:
                     "repo_path": repo_path,
                     "remote": "origin",
                     "refspec": f":{branch}",
-                    "container_id": temp_container_id,
                 },
                 bearer_token=session_token,
             )
@@ -862,13 +864,15 @@ class GatewayClient:
             )
             session_token = session.session_token
 
+            # Do NOT include container_id — repo_path is already the
+            # resolved worktree path; the synthetic container_id has no
+            # real worktree and would trigger a "worktree not found" error.
             self._make_request(
                 "/api/v1/git/fetch",
                 method="POST",
                 data={
                     "repo_path": repo_path,
                     "remote": "origin",
-                    "container_id": temp_container_id,
                 },
                 bearer_token=session_token,
             )
@@ -922,6 +926,9 @@ class GatewayClient:
             )
             session_token = session.session_token
 
+            # Do NOT include container_id — repo_path is already the
+            # resolved path; the synthetic container_id has no real
+            # worktree and would trigger a "worktree not found" error.
             self._make_request(
                 "/api/v1/git/fetch",
                 method="POST",
@@ -929,7 +936,6 @@ class GatewayClient:
                     "repo_path": repo_path,
                     "remote": "origin",
                     "args": args or [],
-                    "container_id": temp_container_id,
                 },
                 bearer_token=session_token,
             )
@@ -983,6 +989,9 @@ class GatewayClient:
             )
             session_token = session.session_token
 
+            # Do NOT include container_id — repo_path is already the
+            # resolved path; the synthetic container_id has no real
+            # worktree and would trigger a "worktree not found" error.
             result = self._make_request(
                 "/api/v1/git/fetch",
                 method="POST",
@@ -991,7 +1000,6 @@ class GatewayClient:
                     "remote": "origin",
                     "operation": "ls-remote",
                     "args": ["--heads", ref],
-                    "container_id": temp_container_id,
                 },
                 bearer_token=session_token,
             )
