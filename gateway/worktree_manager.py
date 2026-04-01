@@ -1320,8 +1320,8 @@ class WorktreeManager:
             return False
 
         # Clean worktree -- remove it
-        result = self.remove_worktree(container_id, repo_name, force=True, delete_branch=True)
-        return result.success
+        removal = self.remove_worktree(container_id, repo_name, force=True, delete_branch=True)
+        return removal.success
 
     def cleanup_stale_pipeline_worktrees(self, max_age_hours: int = 48) -> int:
         """Remove worktrees older than max_age_hours regardless of state.
