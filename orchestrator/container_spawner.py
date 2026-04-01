@@ -28,6 +28,10 @@ except ImportError:
         return logging.getLogger(name)
 
 
+# Must match the gateway's WORKTREE_BASE_DIR and docker-compose volume mounts.
+WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
+
+
 from sandbox_template import (
     ORCHESTRATOR_ISOLATED_IP,
     ORCHESTRATOR_PORT,
@@ -664,11 +668,10 @@ class ContainerSpawner:
                 worktree_ids_to_clean.add(f"{pipeline_id}-{role}")
         # Also scan filesystem for any per-agent worktrees whose containers
         # no longer exist (e.g. OOM-killed, daemon-cleaned).
-        worktree_base = Path("/home/egg/.egg-worktrees")
-        if worktree_base.exists():
+        if WORKTREE_BASE_DIR.exists():
             prefix = f"{pipeline_id}-"
             try:
-                for entry in worktree_base.iterdir():
+                for entry in WORKTREE_BASE_DIR.iterdir():
                     if entry.is_dir() and (
                         entry.name == pipeline_id or entry.name.startswith(prefix)
                     ):
@@ -721,7 +724,7 @@ class ContainerSpawner:
         import subprocess
 
         agent_worktree_id = f"{pipeline_id}-{agent_role}"
-        worktree_base = Path("/home/egg/.egg-worktrees") / agent_worktree_id
+        worktree_base = WORKTREE_BASE_DIR / agent_worktree_id
 
         if not worktree_base.exists():
             return None

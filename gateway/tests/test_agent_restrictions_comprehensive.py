@@ -547,6 +547,6 @@ class TestGHRestrictionsNewRoles:
         allowed, reason = check_agent_gh_operation("unknown_role", "issue comment 123")
         assert allowed is False
 
-    def test_empty_role_allows_gh_operations(self):
+    def test_empty_role_denies_gh_operations(self):
         allowed, reason = check_agent_gh_operation("", "issue comment 123")
-        assert allowed is True
+        assert allowed is False

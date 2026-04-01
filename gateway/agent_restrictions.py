@@ -153,8 +153,8 @@ def check_agent_gh_operation(role: str, command: str) -> tuple[bool, str]:
     Returns:
         Tuple of (allowed, reason). allowed is False if blocked.
     """
-    if not role or not isinstance(role, str):
-        return True, "No agent role specified"
+    if not isinstance(role, str) or not role:
+        return False, "Invalid or missing agent role"
 
     role_lower = role.lower()
     restriction = AGENT_GH_RESTRICTIONS.get(role_lower)

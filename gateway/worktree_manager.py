@@ -1328,11 +1328,19 @@ class WorktreeManager:
         removal = self.remove_worktree(container_id, repo_name, force=False, delete_branch=True)
         return removal.success
 
-    def cleanup_stale_pipeline_worktrees(self, max_age_hours: int = 48) -> int:
+    def cleanup_stale_pipeline_worktrees(
+        self, max_age_hours: int = 48, active_containers: set[str] | None = None
+    ) -> int:
         """Remove worktrees older than max_age_hours regardless of state.
 
         Periodic cleanup to prevent disk space exhaustion from abandoned
         worktrees. Called by the orchestrator's maintenance loop.
+
+        Args:
+            max_age_hours: Worktrees inactive for longer than this are removed.
+            active_containers: Set of running container IDs. Worktrees with
+                active containers are never deleted. If None, fetched via
+                ``get_active_docker_containers()``.
 
         Returns:
             Number of worktrees removed.
@@ -1341,23 +1349,30 @@ class WorktreeManager:
         if not self.worktree_base.exists():
             return removed
 
+        if active_containers is None:
+            active_containers = get_active_docker_containers()
+
         cutoff = time.time() - (max_age_hours * 3600)
 
         for entry in self.worktree_base.iterdir():
             if not entry.is_dir():
                 continue
+            # Skip worktrees whose containers are still running.
+            if entry.name in active_containers:
+                continue
             try:
-                # Walk into the worktree to find the most recent mtime across
-                # all files, not just the container directory itself.  The
-                # parent directory mtime only updates when entries are
-                # added/removed from it, so active worktrees with commits
-                # inside subdirectories would appear stale.  (#1494 review)
+                # Use .git/index (updated on every commit/checkout) as the
+                # staleness signal instead of walking the entire tree, which
+                # would cause an I/O storm on large worktrees containing
+                # .git/objects, node_modules, build artifacts, etc.
                 newest_mtime = entry.stat().st_mtime
-                for root, _dirs, files in os.walk(entry):
-                    for fname in files:
+                for repo_subdir in entry.iterdir():
+                    if not repo_subdir.is_dir():
+                        continue
+                    for git_file in ("index", "HEAD"):
+                        git_path = repo_subdir / ".git" / git_file
                         try:
-                            fpath = os.path.join(root, fname)
-                            fmt = os.stat(fpath).st_mtime
+                            fmt = os.stat(git_path).st_mtime
                             if fmt > newest_mtime:
                                 newest_mtime = fmt
                         except OSError:

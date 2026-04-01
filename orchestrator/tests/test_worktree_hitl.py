@@ -43,14 +43,11 @@ class TestDetectUncommittedChanges:
             stdout=" M changed.py\n?? new_file.txt\n",
         )
 
-        # Patch the base path used inside the method and subprocess.run
+        # Patch the WORKTREE_BASE_DIR constant and subprocess.run
         with (
             patch("subprocess.run", return_value=mock_result),
-            patch("container_spawner.Path") as mock_path_cls,
+            patch("container_spawner.WORKTREE_BASE_DIR", tmp_path),
         ):
-            # Make Path("/home/egg/.egg-worktrees") return tmp_path
-            mock_path_cls.return_value = tmp_path
-
             result = spawner.detect_uncommitted_changes(
                 pipeline_id="issue-99",
                 agent_role="coder",
@@ -75,10 +72,8 @@ class TestDetectUncommittedChanges:
 
         with (
             patch("subprocess.run", return_value=mock_result),
-            patch("container_spawner.Path") as mock_path_cls,
+            patch("container_spawner.WORKTREE_BASE_DIR", tmp_path),
         ):
-            mock_path_cls.return_value = tmp_path
-
             result = spawner.detect_uncommitted_changes(
                 pipeline_id="issue-99",
                 agent_role="coder",
@@ -91,9 +86,7 @@ class TestDetectUncommittedChanges:
         spawner = self._make_spawner()
 
         # tmp_path exists but does NOT contain "nonexistent-pipeline-coder"
-        with patch("container_spawner.Path") as mock_path_cls:
-            mock_path_cls.return_value = tmp_path
-
+        with patch("container_spawner.WORKTREE_BASE_DIR", tmp_path):
             result = spawner.detect_uncommitted_changes(
                 pipeline_id="nonexistent-pipeline",
                 agent_role="coder",
@@ -112,10 +105,8 @@ class TestDetectUncommittedChanges:
 
         with (
             patch("subprocess.run", return_value=mock_result),
-            patch("container_spawner.Path") as mock_path_cls,
+            patch("container_spawner.WORKTREE_BASE_DIR", tmp_path),
         ):
-            mock_path_cls.return_value = tmp_path
-
             result = spawner.detect_uncommitted_changes(
                 pipeline_id="issue-99",
                 agent_role="coder",
@@ -222,7 +213,9 @@ class TestCleanupStalePipelineWorktrees:
 
         removal_result = MagicMock(success=True)
         with patch.object(manager, "remove_worktree", return_value=removal_result) as mock_remove:
-            removed = manager.cleanup_stale_pipeline_worktrees(max_age_hours=48)
+            removed = manager.cleanup_stale_pipeline_worktrees(
+                max_age_hours=48, active_containers=set()
+            )
 
         assert removed == 1
         mock_remove.assert_called_once_with(
@@ -238,7 +231,29 @@ class TestCleanupStalePipelineWorktrees:
         repo_dir.mkdir(parents=True)
 
         with patch.object(manager, "remove_worktree") as mock_remove:
-            removed = manager.cleanup_stale_pipeline_worktrees(max_age_hours=48)
+            removed = manager.cleanup_stale_pipeline_worktrees(
+                max_age_hours=48, active_containers=set()
+            )
+
+        assert removed == 0
+        mock_remove.assert_not_called()
+
+    def test_skips_active_container_worktrees(self, tmp_path):
+        """Should NOT remove worktrees whose containers are still running."""
+        manager = self._make_manager(tmp_path)
+
+        container_dir = manager.worktree_base / "active-container"
+        repo_dir = container_dir / "myrepo"
+        repo_dir.mkdir(parents=True)
+
+        # Set mtime to 72 hours ago — would be stale, but container is active
+        old_time = time.time() - (72 * 3600)
+        os.utime(str(container_dir), (old_time, old_time))
+
+        with patch.object(manager, "remove_worktree") as mock_remove:
+            removed = manager.cleanup_stale_pipeline_worktrees(
+                max_age_hours=48, active_containers={"active-container"}
+            )
 
         assert removed == 0
         mock_remove.assert_not_called()
@@ -246,5 +261,5 @@ class TestCleanupStalePipelineWorktrees:
     def test_empty_base_returns_zero(self, tmp_path):
         """Empty worktree base should return 0."""
         manager = self._make_manager(tmp_path)
-        removed = manager.cleanup_stale_pipeline_worktrees()
+        removed = manager.cleanup_stale_pipeline_worktrees(active_containers=set())
         assert removed == 0
