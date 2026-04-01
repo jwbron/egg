@@ -130,6 +130,52 @@ get_agent_confirmed() {{
         "$role" 2>/dev/null || echo "False"
 }}
 
+# Check if an agent is confirmed, with message bus fallback for when the
+# in-memory consensus tracker was lost (e.g. orchestrator restart).
+# Prints "True" or "False".
+# NOTE: The --limit 1000 fallback pulls all messages, which is expensive.
+# This only runs when the tracker state is empty, so it should be rare.
+check_agent_confirmed_with_fallback() {{
+    local response="$1"
+    local role="$2"
+    local confirmed
+    confirmed=$(get_agent_confirmed "$response" "$role")
+    if [ "$confirmed" = "True" ]; then
+        echo "True"
+        return
+    fi
+    # Fallback: if consensus agents map is empty, the tracker was lost.
+    # Check the message bus for our own CONSENSUS_CONFIRMED message.
+    local agents_empty
+    agents_empty=$(echo "$response" | python3 -c \
+        "import sys,json; d=json.load(sys.stdin); agents=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}); print('True' if not agents else 'False')" \
+        2>/dev/null || echo "False")
+    if [ "$agents_empty" = "True" ]; then
+        cw_log "Consensus state empty (tracker lost?). Checking message bus..."
+        local msg_response
+        msg_response=$(egg-orch message poll --json --limit 1000 2>/dev/null || echo "[]")
+        confirmed=$(echo "$msg_response" | python3 -c "
+import sys, json
+role = sys.argv[1]
+try:
+    msgs = json.load(sys.stdin)
+    if isinstance(msgs, dict):
+        msgs = msgs.get('data', msgs.get('messages', []))
+    found = any(
+        m.get('message_type') == 'CONSENSUS_CONFIRMED' and m.get('from_role') == role
+        for m in msgs
+    )
+    print('True' if found else 'False')
+except Exception:
+    print('False')
+" "$role" 2>/dev/null || echo "False")
+        if [ "$confirmed" = "True" ]; then
+            cw_log "Found own CONSENSUS_CONFIRMED in message bus. Already confirmed."
+        fi
+    fi
+    echo "$confirmed"
+}}
+
 # Extract unresolved NACK feedback targeting this agent (as a producer)
 get_nack_feedback() {{
     local response="$1"
@@ -176,31 +222,7 @@ if [ "$AGENT_EXIT" -ne 0 ]; then
     # be in progress but our contribution is done.
     CW_AGENT_ROLE="${{EGG_AGENT_ROLE:-}}"
     if [ -n "$CW_AGENT_ROLE" ]; then
-        CW_AGENT_CONFIRMED=$(get_agent_confirmed "$CW_RESPONSE" "$CW_AGENT_ROLE")
-        # Message bus fallback (tracker may be lost after orchestrator restart)
-        if [ "$CW_AGENT_CONFIRMED" != "True" ]; then
-            CW_AGENTS_EMPTY=$(echo "$CW_RESPONSE" | python3 -c \
-                "import sys,json; d=json.load(sys.stdin); agents=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}); print('True' if not agents else 'False')" \
-                2>/dev/null || echo "False")
-            if [ "$CW_AGENTS_EMPTY" = "True" ]; then
-                CW_MSG_RESPONSE=$(egg-orch message poll --json --limit 1000 2>/dev/null || echo "[]")
-                CW_AGENT_CONFIRMED=$(echo "$CW_MSG_RESPONSE" | python3 -c "
-import sys, json
-role = sys.argv[1]
-try:
-    msgs = json.load(sys.stdin)
-    if isinstance(msgs, dict):
-        msgs = msgs.get('data', msgs.get('messages', []))
-    found = any(
-        m.get('message_type') == 'CONSENSUS_CONFIRMED' and m.get('from_role') == role
-        for m in msgs
-    )
-    print('True' if found else 'False')
-except Exception:
-    print('False')
-" "$CW_AGENT_ROLE" 2>/dev/null || echo "False")
-            fi
-        fi
+        CW_AGENT_CONFIRMED=$(check_agent_confirmed_with_fallback "$CW_RESPONSE" "$CW_AGENT_ROLE")
         if [ "$CW_AGENT_CONFIRMED" = "True" ]; then
             cw_log "Agent exited with code $AGENT_EXIT but already CONFIRMED in BRC. Exiting cleanly."
             exit 0
@@ -235,41 +257,7 @@ check_confirmed_and_wait() {{
     local response="$1"
     local agent_role="$2"
     local agent_confirmed
-    agent_confirmed=$(get_agent_confirmed "$response" "$agent_role")
-
-    # Message bus fallback: if pipeline status returned empty consensus state
-    # (e.g. after orchestrator restart lost in-memory tracker), check the
-    # message store directly for our own CONSENSUS_CONFIRMED message.
-    if [ "$agent_confirmed" != "True" ]; then
-        local agents_empty
-        agents_empty=$(echo "$response" | python3 -c \
-            "import sys,json; d=json.load(sys.stdin); agents=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}); print('True' if not agents else 'False')" \
-            2>/dev/null || echo "False")
-        if [ "$agents_empty" = "True" ]; then
-            cw_log "Consensus state empty (tracker lost?). Checking message bus..."
-            local msg_response confirmed_via_msg
-            msg_response=$(egg-orch message poll --json --limit 1000 2>/dev/null || echo "[]")
-            confirmed_via_msg=$(echo "$msg_response" | python3 -c "
-import sys, json
-role = sys.argv[1]
-try:
-    msgs = json.load(sys.stdin)
-    if isinstance(msgs, dict):
-        msgs = msgs.get('data', msgs.get('messages', []))
-    found = any(
-        m.get('message_type') == 'CONSENSUS_CONFIRMED' and m.get('from_role') == role
-        for m in msgs
-    )
-    print('True' if found else 'False')
-except Exception:
-    print('False')
-" "$agent_role" 2>/dev/null || echo "False")
-            if [ "$confirmed_via_msg" = "True" ]; then
-                cw_log "Found own CONSENSUS_CONFIRMED in message bus. Already confirmed."
-                agent_confirmed="True"
-            fi
-        fi
-    fi
+    agent_confirmed=$(check_agent_confirmed_with_fallback "$response" "$agent_role")
 
     if [ "$agent_confirmed" = "True" ]; then
         cw_log "Agent already CONFIRMED in BRC protocol. Waiting for consensus..."

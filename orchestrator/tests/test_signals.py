@@ -479,6 +479,7 @@ class TestAgentAlreadyCompleteSuppression:
         mock_store.load_pipeline.return_value = pipeline
         mock_get_store.return_value = mock_store
         mock_resolve_wt.return_value = Path("/tmp/worktree")
+        mock_load_contract.return_value = MagicMock()
 
         mock_orch = MagicMock()
         mock_orch.apply_to_contract.return_value = MagicMock()
