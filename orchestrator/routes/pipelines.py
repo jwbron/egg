@@ -3478,7 +3478,7 @@ def _build_brc_preamble(role_value: str, phase: str, repo: str | None = None) ->
                 + _build_producer_orientation(role_value, phase, reviewers),
                 "2. **WORK**: Complete your assigned task (see Your Task below).",
                 "3. **PROPOSE**: When done, run: "
-                '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2"`',
+                '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2" --commit-sha $(git rev-parse HEAD)`',
                 "4. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers. "
                 "Handle NACKs by fixing issues and re-proposing.",
                 "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",

@@ -46,6 +46,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -1118,12 +1119,28 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
         with open(args.file) as f:
             payload = json.load(f)
     else:
+        # Resolve commit SHA: use provided value or default to HEAD
+        commit_sha = getattr(args, "commit_sha", None) or ""
+        if not commit_sha:
+            try:
+                commit_sha = subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"],
+                    text=True,
+                    cwd=os.environ.get("EGG_REPO_PATH"),
+                    stderr=subprocess.DEVNULL,
+                ).strip()
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                print(
+                    "Error: --commit-sha not provided and could not resolve HEAD",
+                    file=sys.stderr,
+                )
+                return 1
         payload = {
             "summary": getattr(args, "summary", "") or "",
             "attestation": {},
             "artifacts": getattr(args, "artifacts", []) or [],
             "risk_considered": getattr(args, "risk", "") or "",
-            "commit_sha": getattr(args, "commit_sha", "") or "",
+            "commit_sha": commit_sha,
         }
 
     changed_artifacts = getattr(args, "changed_artifacts", None)
@@ -1677,8 +1694,8 @@ def create_parser() -> argparse.ArgumentParser:
     cons_propose.add_argument("--risk", help="Risk considerations")
     cons_propose.add_argument(
         "--commit-sha",
-        required=True,
-        help="Commit SHA pushed to the remote branch (required, #1473)",
+        default=None,
+        help="Commit SHA pushed to the remote branch (defaults to HEAD)",
     )
     cons_propose.add_argument(
         "--changed-artifacts",
