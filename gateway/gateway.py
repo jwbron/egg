@@ -2955,7 +2955,9 @@ def gh_execute() -> tuple[Response, int] | Response:
     # Role-based operation filtering — block agents from posting issue comments regardless of phase.
     session_role = None
     if hasattr(g, "session") and g.session:
-        session_role = getattr(g.session, "agent_role", None)
+        _role = getattr(g.session, "agent_role", None)
+        if isinstance(_role, str) and _role:
+            session_role = _role
     if session_role:
         role_allowed, role_reason = check_agent_gh_operation(session_role, gh_command_str)
         if not role_allowed:
