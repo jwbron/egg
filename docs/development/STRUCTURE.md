@@ -221,7 +221,8 @@ shared/
 │   ├── __main__.py         # CLI entry point (python3 -m egg_agent)
 │   ├── client.py           # run_agent(), run_agent_async() via claude-agent-sdk
 │   ├── command.py          # build_agent_command() for orchestrator-spawned containers
-│   └── result.py           # AgentResult dataclass
+│   ├── result.py           # AgentResult dataclass
+│   └── tool_interceptor.py # Pre-execution file write checks (Write/Edit/NotebookEdit) against role restrictions
 ├── egg_babysit/            # Autonomous PR review/fix loop (babysit-pr command)
 │   ├── __init__.py         # Public API exports
 │   ├── config.py           # BabysitConfig dataclass
