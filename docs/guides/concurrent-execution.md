@@ -206,6 +206,8 @@ Each agent tracks two state machines (producer and reviewer) independently:
 3. **Converge**: When all critical reviewers ACK, the producer sends `CONSENSUS_CONFIRMED`. When all agents are confirmed, the phase advances.
 4. **Re-propose**: If a NACK is received, the producer addresses the feedback and re-proposes (with `changed_artifacts` to scope re-evaluation). Flip-flop cycles are capped at `max_flip_flops` (default: 3). If any reviewer had already confirmed on a prior proposal version, they automatically receive a `CONSENSUS_RE_REVIEW` message and are un-confirmed so they re-enter the review loop — preventing a deadlock where a stale-confirmed reviewer can never see the new proposal.
 
+   > **Note — `CONSENSUS_RE_REVIEW` handling:** Agents that receive a `CONSENSUS_RE_REVIEW` while staying alive **must** act on it immediately: reviewers of the re-proposing producer must re-review and ACK/NACK; all other agents must re-confirm via `egg-orch consensus confirmed`. Ignoring this message stalls the pipeline.
+
 > **Note — `pending_acks` (exit code 2):** After a re-proposal, previously-confirmed reviewers are un-confirmed and must re-ACK. If the producer calls `confirmed` before those re-ACKs arrive, the command returns exit code **2** (`pending_acks`) — this is transient, not an error. The producer should poll for messages and retry `confirmed` until it exits 0.
 >
 > **Note — Reviewer `pending_acks`:** Reviewers can also receive exit code 2 from `confirmed` when they have stale ACKs (e.g., an ACK recorded before the producer proposed). The reviewer must re-ACK the listed producers at their current proposal version before confirming.
@@ -300,6 +302,8 @@ When a stall is detected, `ContainerMonitor` drives a two-track recovery:
 2. **Aggressive recovery**: If reconstruction fails, marks all running agents and the phase as `COMPLETE` directly, using optimistic locking to avoid conflicts with concurrent state writers.
 
 Startup reconciliation also handles this: when tracker reconstruction succeeds on orchestrator restart and `evaluate()` reports `is_complete: true`, agents and the phase are marked `COMPLETE` before normal pipeline polling resumes.
+
+A complementary check, `IncompleteConsensusStallCheck`, handles the inverse scenario: consensus is **not yet complete** and the same blocking agents are not progressing (e.g., stuck in a heartbeat loop after a re-review cycle). After a 5-minute grace period, if the blocking set is unchanged for 10 consecutive `RUNTIME_TICK` events, the check reports `DEGRADED`. The overseer then sends targeted nudges and escalates to HITL if unresolved. See [Pipeline Health Monitoring](pipeline-health-monitoring.md#incomplete-consensus-stall-detection) for details.
 
 ### Agent Failure During Consensus
 

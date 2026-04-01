@@ -234,6 +234,13 @@ The system follows a progressive escalation ladder:
 
 If all agents have confirmed BRC consensus but the pipeline phase has not transitioned within ~90 seconds (3× the poll interval), the overseer escalates with a HITL decision, Slack notification, and message bus broadcast (`OVERSEER_ALERT`). This detects potential orchestrator transition failures after a successful concurrent phase. The escalation fires only once per consensus cycle to avoid duplicate alerts.
 
+### Incomplete Consensus Stall Detection
+
+A complementary scenario: consensus is **incomplete** and the same blocking agents are not progressing — typically after a re-review cycle that cleared their confirmed status, leaving them stuck in a heartbeat loop. Two layers handle this:
+
+- **Tier 1 `IncompleteConsensusStallCheck`**: Fires on each `RUNTIME_TICK` after a 5-minute grace period. If the same set of blocking agents persists for 10 consecutive ticks, the check reports `DEGRADED`.
+- **Overseer recovery**: After ~5 poll minutes (~10 cycles at the default 30s interval) with unchanged blocking agents, the overseer sends a targeted nudge to each blocking agent instructing them to re-confirm or re-review. If the stall continues for another ~5 minutes (10 more cycles), it escalates to HITL with a Slack notification.
+
 ### Additional Overseer Health Checks
 
 Each poll cycle the overseer evaluates six targeted health checks (the fourth triggers only on phase transitions; the fifth triggers only at pipeline completion). Only the fourth (cross-phase consistency) uses an LLM classifier; the rest are deterministic (no LLM cost):
@@ -248,6 +255,7 @@ Each poll cycle the overseer evaluates six targeted health checks (the fourth tr
 | **Cross-phase consistency** | On a phase transition, the new phase's contract output may not honour prior resolved HITL decisions (uses the Haiku `decision_consistency` classifier; requires confidence > 0.7 to escalate) | HITL escalation + Slack notification + message bus broadcast (deduplicated per phase-transition pair) |
 | **PR phase no PR** | Pipeline reaches `complete` with `current_phase=pr` but no `pr_url` in phase artifacts — defense-in-depth for edge cases where primary PR creation failure handling was bypassed, so stranded branch work is not silently lost | HITL decision + Slack notification + message bus broadcast |
 | **Orchestrator unreachability** | Both pipeline status and phase queries return empty for 3 consecutive poll cycles — likely orchestrator container crash or network partition | Slack notification + oversight event + message bus broadcast (re-alerts every 3 cycles until recovered; oversight event also logged on recovery) |
+| **Incomplete consensus stall** | Consensus is incomplete and the same agents are blocking for ~5 minutes — likely stuck in a heartbeat loop after a re-review cycle cleared their confirmed status | Targeted nudge to each blocking agent; HITL + Slack if stall persists for ~5 more minutes |
 
 ### Autonomous Issue Filing
 
