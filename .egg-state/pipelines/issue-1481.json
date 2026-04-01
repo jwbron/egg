@@ -46,10 +46,10 @@
         {
           "container_id": "2b7b8fd8ef940c1af860f230304ba92234fd0cb84bee6216ad9bb2c0760ceaba",
           "container_name": "issue-1481-refiner",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-01T05:30:24.495410Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-01T05:49:37.779483Z",
+          "exit_code": -1,
           "agent_role": "refiner",
           "session_token": null
         },
@@ -77,13 +77,13 @@
       "agents": [
         {
           "role": "refiner",
-          "status": "running",
+          "status": "failed",
           "container_id": "2b7b8fd8ef940c1af860f230304ba92234fd0cb84bee6216ad9bb2c0760ceaba",
           "started_at": "2026-04-01T05:30:24.495419Z",
-          "completed_at": null,
+          "completed_at": "2026-04-01T05:49:37.781130Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -130,7 +130,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-01T05:29:48.831653Z",
-  "updated_at": "2026-04-01T05:49:17.747482Z",
+  "updated_at": "2026-04-01T05:49:37.781314Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -138,5 +138,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 10
+  "version": 11
 }
