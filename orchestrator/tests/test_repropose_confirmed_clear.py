@@ -40,7 +40,9 @@ def tracker(simple_graph):
 
 
 def _propose(tracker, role="producer", version=1):
-    return tracker.handle_propose(role, {"summary": f"v{version}", "artifacts": ["a.py"]})
+    return tracker.handle_propose(
+        role, {"summary": f"v{version}", "artifacts": ["a.py"], "commit_sha": "abc123"}
+    )
 
 
 def _ack(tracker, reviewer, producer="producer"):
@@ -89,7 +91,7 @@ class TestReProposeClearsConfirmed:
         _nack(tracker, "reviewer_a")
         tracker.handle_re_propose(
             "producer",
-            {"summary": "v2", "artifacts": ["a.py"]},
+            {"summary": "v2", "artifacts": ["a.py"], "commit_sha": "abc123"},
             changed_artifacts=["a.py"],
         )
         assert "producer" not in tracker._confirmed

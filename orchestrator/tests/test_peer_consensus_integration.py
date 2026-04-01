@@ -58,6 +58,7 @@ class TestHappyPath:
             {
                 "summary": "Implemented auth",
                 "artifacts": ["src/auth.py"],
+                "commit_sha": "abc123",
                 "attestation": {
                     "commit_shas": ["abc123"],
                     "files_changed": ["src/auth.py"],
@@ -75,6 +76,7 @@ class TestHappyPath:
             {
                 "summary": "Added tests",
                 "artifacts": ["tests/test_auth.py"],
+                "commit_sha": "abc123",
                 "attestation": {
                     "tests_written": 5,
                     "tests_run": 5,
@@ -156,6 +158,7 @@ class TestNackAndRePropose:
             {
                 "summary": "v1",
                 "artifacts": ["src/auth.py", "src/utils.py"],
+                "commit_sha": "abc123",
             },
         )
 
@@ -186,6 +189,7 @@ class TestNackAndRePropose:
             {
                 "summary": "Fixed SQL injection",
                 "artifacts": ["src/auth.py"],
+                "commit_sha": "abc123",
             },
             changed_artifacts=["src/auth.py"],
         )
@@ -195,7 +199,9 @@ class TestNackAndRePropose:
         assert result["version"] == 2
 
     def test_nack_reason_required(self, tracker):
-        tracker.handle_propose("coder", {"summary": "v1", "artifacts": ["src/a.py"]})
+        tracker.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["src/a.py"], "commit_sha": "abc123"}
+        )
         with pytest.raises(ValueError, match="reason"):
             tracker.handle_nack(
                 "reviewer_code",
@@ -217,17 +223,19 @@ class TestCommitmentDevices:
         t.register_agent("reviewer_code")
 
         # First proposal + withdrawal
-        t.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
+        t.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc123"})
         t.handle_withdraw("coder", "Changed approach")
 
         # Second proposal + withdrawal -- should trigger lockout
-        t.handle_propose("coder", {"summary": "v2", "artifacts": ["a.py"]})
+        t.handle_propose("coder", {"summary": "v2", "artifacts": ["a.py"], "commit_sha": "abc123"})
         result = t.handle_withdraw("coder", "Changed again")
         assert result["status"] == "locked_out"
         assert result["needs_escalation"] is True
 
     def test_withdrawal_requires_reason(self, tracker):
-        tracker.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
+        tracker.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc123"}
+        )
         with pytest.raises(ValueError, match="reason"):
             tracker.handle_withdraw("coder", "")
 
@@ -238,13 +246,13 @@ class TestCommitmentDevices:
         t.register_agent("reviewer_code")
 
         # First round
-        t.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
+        t.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc123"})
         t.handle_nack(
             "reviewer_code", "coder", {"artifact_references": ["a.py"], "reason": "bug 1"}
         )
 
         # Second round
-        t.handle_propose("coder", {"summary": "v2", "artifacts": ["a.py"]})
+        t.handle_propose("coder", {"summary": "v2", "artifacts": ["a.py"], "commit_sha": "abc123"})
         result = t.handle_nack(
             "reviewer_code", "coder", {"artifact_references": ["a.py"], "reason": "bug 2"}
         )
@@ -255,7 +263,9 @@ class TestTimeoutHandling:
     """Test consensus timeout with critical vs advisory roles."""
 
     def test_timeout_critical_blocker_escalates(self, tracker):
-        tracker.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
+        tracker.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc123"}
+        )
         # Only reviewer_code ACKs, reviewer_contract doesn't
         tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
 
@@ -275,7 +285,7 @@ class TestTimeoutHandling:
         t.register_agent("reviewer_code")
         t.register_agent("reviewer_contract")
 
-        t.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
+        t.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc123"})
         t.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
         # reviewer_contract hasn't ACKed but is advisory
 
@@ -296,7 +306,9 @@ class TestAgentCrash:
         assert result["action"] == "escalate"
 
     def test_producer_crash_preserves_proposal(self, tracker):
-        tracker.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
+        tracker.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc123"}
+        )
         result = tracker.handle_agent_crash("coder")
         assert result["action"] == "continue"
 
@@ -306,7 +318,9 @@ class TestDelphiOrdering:
 
     def test_reviewer_without_evaluation_hidden(self, tracker):
         """Verify the matrix tracks evaluation status correctly."""
-        tracker.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
+        tracker.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc123"}
+        )
 
         # Before review, reviewer hasn't evaluated
         assert not tracker.matrix.has_reviewed("reviewer_code", "coder")
@@ -524,12 +538,15 @@ class TestScaledReEvaluation:
         t = four_agent_tracker
 
         # Both producers propose
-        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/auth.py"]})
+        t.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["src/auth.py"], "commit_sha": "abc123"}
+        )
         t.handle_propose(
             "tester",
             {
                 "summary": "tests v1",
                 "artifacts": ["tests/test_auth.py"],
+                "commit_sha": "abc123",
                 "attestation": {"tests_run": 5, "checks_passed": ["test"]},
             },
         )
@@ -554,7 +571,7 @@ class TestScaledReEvaluation:
         # Coder re-proposes — only rev_code needs to re-review
         result = t.handle_re_propose(
             "coder",
-            {"summary": "fixed auth", "artifacts": ["src/auth.py"]},
+            {"summary": "fixed auth", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
             changed_artifacts=["src/auth.py"],
         )
         # rev_contract ACKed auth.py, which is the changed artifact,
@@ -566,7 +583,12 @@ class TestScaledReEvaluation:
         t = four_agent_tracker
 
         t.handle_propose(
-            "coder", {"summary": "v1", "artifacts": ["src/auth.py", "src/utils.py", "src/db.py"]}
+            "coder",
+            {
+                "summary": "v1",
+                "artifacts": ["src/auth.py", "src/utils.py", "src/db.py"],
+                "commit_sha": "abc123",
+            },
         )
 
         # Different reviewers ACK referencing different files
@@ -590,12 +612,15 @@ class TestScaledReEvaluation:
         t = four_agent_tracker
 
         # Both producers propose
-        t.handle_propose("coder", {"summary": "code v1", "artifacts": ["src/auth.py"]})
+        t.handle_propose(
+            "coder", {"summary": "code v1", "artifacts": ["src/auth.py"], "commit_sha": "abc123"}
+        )
         t.handle_propose(
             "tester",
             {
                 "summary": "tests v1",
                 "artifacts": ["tests/test_auth.py"],
+                "commit_sha": "abc123",
                 "attestation": {"tests_run": 5, "checks_passed": ["test"]},
             },
         )
@@ -611,7 +636,7 @@ class TestScaledReEvaluation:
         )
         t.handle_re_propose(
             "coder",
-            {"summary": "code v2", "artifacts": ["src/auth.py"]},
+            {"summary": "code v2", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
             changed_artifacts=["src/auth.py"],
         )
 
@@ -624,7 +649,10 @@ class TestScaledReEvaluation:
         artifacts weren't changed."""
         t = four_agent_tracker
 
-        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/auth.py", "src/utils.py"]})
+        t.handle_propose(
+            "coder",
+            {"summary": "v1", "artifacts": ["src/auth.py", "src/utils.py"], "commit_sha": "abc123"},
+        )
 
         # rev_contract ACKs (referencing utils.py only)
         t.handle_ack("rev_contract", "coder", {"artifact_references": ["src/utils.py"]})
@@ -638,7 +666,7 @@ class TestScaledReEvaluation:
         # Coder re-proposes, changing only auth.py
         result = t.handle_re_propose(
             "coder",
-            {"summary": "v2", "artifacts": ["src/auth.py"]},
+            {"summary": "v2", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
             changed_artifacts=["src/auth.py"],
         )
 
@@ -656,7 +684,9 @@ class TestScaledReEvaluation:
         t.register_agent("rev_code")
 
         # Round 1: propose, NACK on file A
-        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/auth.py"]})
+        t.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["src/auth.py"], "commit_sha": "abc123"}
+        )
         r1 = t.handle_nack(
             "rev_code",
             "coder",
@@ -669,7 +699,7 @@ class TestScaledReEvaluation:
         # Round 2: fix and re-propose, reviewer ACKs
         t.handle_re_propose(
             "coder",
-            {"summary": "v2 - fixed auth", "artifacts": ["src/auth.py"]},
+            {"summary": "v2 - fixed auth", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
             changed_artifacts=["src/auth.py"],
         )
         t.handle_ack("rev_code", "coder", {"artifact_references": ["src/auth.py"]})
@@ -677,7 +707,11 @@ class TestScaledReEvaluation:
         # New tester commit changes file B — coder re-proposes with B
         t.handle_re_propose(
             "coder",
-            {"summary": "v3 - includes tester changes", "artifacts": ["src/auth.py", "src/db.py"]},
+            {
+                "summary": "v3 - includes tester changes",
+                "artifacts": ["src/auth.py", "src/db.py"],
+                "commit_sha": "abc123",
+            },
             changed_artifacts=["src/db.py"],
         )
 
@@ -705,15 +739,19 @@ class TestScaledReEvaluation:
         # Producers propose
         t.handle_propose(
             "coder",
-            {"summary": "Implementation", "artifacts": ["src/main.py", "src/utils.py"]},
+            {
+                "summary": "Implementation",
+                "artifacts": ["src/main.py", "src/utils.py"],
+                "commit_sha": "abc123",
+            },
         )
         t.handle_propose(
             "tester",
-            {"summary": "Tests", "artifacts": ["tests/test_main.py"]},
+            {"summary": "Tests", "artifacts": ["tests/test_main.py"], "commit_sha": "abc123"},
         )
         t.handle_propose(
             "documenter",
-            {"summary": "Docs", "artifacts": ["docs/README.md"]},
+            {"summary": "Docs", "artifacts": ["docs/README.md"], "commit_sha": "abc123"},
         )
 
         # All reviewers ACK coder
@@ -745,7 +783,11 @@ class TestScaledReEvaluation:
         # Coder re-proposes changing only utils.py
         result = t.handle_re_propose(
             "coder",
-            {"summary": "Fixed utils", "artifacts": ["src/main.py", "src/utils.py"]},
+            {
+                "summary": "Fixed utils",
+                "artifacts": ["src/main.py", "src/utils.py"],
+                "commit_sha": "abc123",
+            },
             changed_artifacts=["src/utils.py"],
         )
 
@@ -798,7 +840,9 @@ class TestTimeoutIdempotency:
         t.register_agent("rev_code")
 
         # Propose but don't ACK — creates a blocking edge
-        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/main.py"]})
+        t.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["src/main.py"], "commit_sha": "abc123"}
+        )
 
         result1 = t.handle_timeout()
         assert result1["action"] == "escalate"
@@ -815,7 +859,9 @@ class TestTimeoutIdempotency:
         t.register_agent("coder")
         t.register_agent("rev_code")
 
-        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/main.py"]})
+        t.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["src/main.py"], "commit_sha": "abc123"}
+        )
 
         result1 = t.handle_timeout()
         assert result1["action"] == "proceed_with_notification"
@@ -840,7 +886,9 @@ class TestAlternatingNackHardCap:
         # Hard cap = max_revision_rounds * 3 = 6
         # Alternate NACKs on different files until we hit the cap
         for i in range(6):
-            t.handle_propose("coder", {"summary": f"v{i + 1}", "artifacts": files})
+            t.handle_propose(
+                "coder", {"summary": f"v{i + 1}", "artifacts": files, "commit_sha": "abc123"}
+            )
             result = t.handle_nack(
                 "rev_code",
                 "coder",
@@ -895,7 +943,9 @@ class TestWithdrawReProposalDeadlock:
         t = refine_tracker
 
         # v1: refiner proposes
-        t.handle_propose("refiner", {"summary": "v1", "artifacts": ["design.md"]})
+        t.handle_propose(
+            "refiner", {"summary": "v1", "artifacts": ["design.md"], "commit_sha": "abc123"}
+        )
 
         # reviewer_agent_design ACKs and confirms on v1
         t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
@@ -912,7 +962,11 @@ class TestWithdrawReProposalDeadlock:
         # refiner re-proposes v2 (addresses NACK)
         t.handle_re_propose(
             "refiner",
-            {"summary": "v2 - added error handling", "artifacts": ["design.md"]},
+            {
+                "summary": "v2 - added error handling",
+                "artifacts": ["design.md"],
+                "commit_sha": "abc123",
+            },
             changed_artifacts=["design.md"],
         )
 
@@ -924,7 +978,9 @@ class TestWithdrawReProposalDeadlock:
         t.handle_withdraw("refiner", "Need to incorporate additional feedback")
 
         # refiner re-proposes v3 (new proposal after withdrawal)
-        result = t.handle_propose("refiner", {"summary": "v3 - final", "artifacts": ["design.md"]})
+        result = t.handle_propose(
+            "refiner", {"summary": "v3 - final", "artifacts": ["design.md"], "commit_sha": "abc123"}
+        )
 
         # The fix: reviewer_agent_design was already un-confirmed during
         # handle_re_propose(v2) because their ACK on design.md overlapped
@@ -955,7 +1011,9 @@ class TestWithdrawReProposalDeadlock:
         t = refine_tracker
 
         # Quick setup: propose, both ACK and confirm, then withdraw and re-propose
-        t.handle_propose("refiner", {"summary": "v1", "artifacts": ["design.md"]})
+        t.handle_propose(
+            "refiner", {"summary": "v1", "artifacts": ["design.md"], "commit_sha": "abc123"}
+        )
         t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
         t.handle_ack("reviewer_refine", "refiner", {"artifact_references": ["design.md"]})
         t.handle_confirmed("reviewer_agent_design")
@@ -963,7 +1021,9 @@ class TestWithdrawReProposalDeadlock:
 
         # Withdraw and re-propose
         t.handle_withdraw("refiner", "Revised approach needed")
-        result = t.handle_propose("refiner", {"summary": "v3", "artifacts": ["design.md"]})
+        result = t.handle_propose(
+            "refiner", {"summary": "v3", "artifacts": ["design.md"], "commit_sha": "abc123"}
+        )
 
         # Both reviewers should be in the stale list
         stale = result["stale_reviewers"]
@@ -973,7 +1033,9 @@ class TestWithdrawReProposalDeadlock:
     def test_no_stale_reviewers_on_first_proposal(self, refine_tracker):
         """First proposal should never have stale confirmed reviewers."""
         t = refine_tracker
-        result = t.handle_propose("refiner", {"summary": "v1", "artifacts": ["design.md"]})
+        result = t.handle_propose(
+            "refiner", {"summary": "v1", "artifacts": ["design.md"], "commit_sha": "abc123"}
+        )
         assert result["stale_reviewers"] == []
 
     def test_re_propose_via_changed_artifacts_also_unconfirms(self, refine_tracker):
@@ -981,7 +1043,9 @@ class TestWithdrawReProposalDeadlock:
         un-confirm stale reviewers, not just handle_propose."""
         t = refine_tracker
 
-        t.handle_propose("refiner", {"summary": "v1", "artifacts": ["design.md"]})
+        t.handle_propose(
+            "refiner", {"summary": "v1", "artifacts": ["design.md"], "commit_sha": "abc123"}
+        )
         t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
         t.handle_confirmed("reviewer_agent_design")
 
@@ -995,7 +1059,7 @@ class TestWithdrawReProposalDeadlock:
         # Re-propose with changed artifacts
         result = t.handle_re_propose(
             "refiner",
-            {"summary": "v2", "artifacts": ["design.md"]},
+            {"summary": "v2", "artifacts": ["design.md"], "commit_sha": "abc123"},
             changed_artifacts=["design.md"],
         )
 
@@ -1008,7 +1072,9 @@ class TestWithdrawReProposalDeadlock:
         """Without re-review, producer cannot confirm after withdrawal."""
         t = refine_tracker
 
-        t.handle_propose("refiner", {"summary": "v1", "artifacts": ["design.md"]})
+        t.handle_propose(
+            "refiner", {"summary": "v1", "artifacts": ["design.md"], "commit_sha": "abc123"}
+        )
         t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
         t.handle_ack("reviewer_refine", "refiner", {"artifact_references": ["design.md"]})
         t.handle_confirmed("reviewer_agent_design")
@@ -1016,7 +1082,9 @@ class TestWithdrawReProposalDeadlock:
 
         # Withdraw and re-propose
         t.handle_withdraw("refiner", "Revised approach")
-        t.handle_propose("refiner", {"summary": "v3", "artifacts": ["design.md"]})
+        t.handle_propose(
+            "refiner", {"summary": "v3", "artifacts": ["design.md"], "commit_sha": "abc123"}
+        )
 
         # Refiner should NOT be able to confirm (not fully ACKed on v3)
         # Returns pending_acks instead of raising ValueError (issue #1178)
@@ -1039,7 +1107,9 @@ class TestWithdrawReProposalDeadlock:
         t = refine_tracker
 
         # v1: refiner proposes
-        t.handle_propose("refiner", {"summary": "v1", "artifacts": ["design.md"]})
+        t.handle_propose(
+            "refiner", {"summary": "v1", "artifacts": ["design.md"], "commit_sha": "abc123"}
+        )
 
         # reviewer_agent_design ACKs v1 and confirms
         t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
@@ -1056,7 +1126,9 @@ class TestWithdrawReProposalDeadlock:
 
         # refiner withdraws and re-proposes v2
         t.handle_withdraw("refiner", "Addressing NACK feedback")
-        result = t.handle_propose("refiner", {"summary": "v2", "artifacts": ["design.md"]})
+        result = t.handle_propose(
+            "refiner", {"summary": "v2", "artifacts": ["design.md"], "commit_sha": "abc123"}
+        )
 
         # Both reviewers must be un-confirmed — reviewer_refine had a stale NACK
         assert "reviewer_refine" not in t._confirmed, (
@@ -1088,6 +1160,7 @@ class TestPrematureConfirmReturnsPending:
             {
                 "summary": "Implemented feature",
                 "artifacts": ["src/feature.py"],
+                "commit_sha": "abc123",
             },
         )
 
@@ -1119,7 +1192,7 @@ class TestPrematureConfirmReturnsPending:
         # Full happy path first: propose, ACK, but then re-propose
         tracker.handle_propose(
             "coder",
-            {"summary": "v1", "artifacts": ["src/auth.py"]},
+            {"summary": "v1", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
         )
         tracker.handle_ack(
             "reviewer_code",
@@ -1135,7 +1208,7 @@ class TestPrematureConfirmReturnsPending:
         # Coder re-proposes (invalidating stale ACKs)
         tracker.handle_re_propose(
             "coder",
-            {"summary": "v2", "artifacts": ["src/auth.py"]},
+            {"summary": "v2", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
             changed_artifacts=["src/auth.py"],
         )
 
@@ -1152,7 +1225,7 @@ class TestReProposalGuard:
         # Coder proposes
         tracker.handle_propose(
             "coder",
-            {"summary": "v1", "artifacts": ["src/auth.py"]},
+            {"summary": "v1", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
         )
 
         # Both reviewers ACK
@@ -1166,14 +1239,14 @@ class TestReProposalGuard:
         with pytest.raises(ValueError, match="already fully ACKed"):
             tracker.handle_propose(
                 "coder",
-                {"summary": "v2", "artifacts": ["src/auth.py"]},
+                {"summary": "v2", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
             )
 
     def test_re_propose_allowed_after_nack(self, tracker):
         """handle_re_propose is allowed after NACK (producer phase is WORKING)."""
         tracker.handle_propose(
             "coder",
-            {"summary": "v1", "artifacts": ["src/auth.py"]},
+            {"summary": "v1", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
         )
         tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
         # reviewer_contract NACKs instead of ACKing
@@ -1186,7 +1259,7 @@ class TestReProposalGuard:
         # Re-proposing after NACK should work (producer phase is WORKING)
         result = tracker.handle_re_propose(
             "coder",
-            {"summary": "v2", "artifacts": ["src/auth.py"]},
+            {"summary": "v2", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
             changed_artifacts=["src/auth.py"],
         )
         assert result["status"] == "proposed"
@@ -1211,7 +1284,7 @@ class TestReviewerCrashPendingAck:
         # Coder proposes
         t.handle_propose(
             "coder",
-            {"summary": "v1", "artifacts": ["src/auth.py"]},
+            {"summary": "v1", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
         )
 
         # Only reviewer_code ACKs; reviewer_contract hasn't reviewed yet
@@ -1257,7 +1330,7 @@ class TestReviewerCrashPendingAck:
         # Coder proposes
         t.handle_propose(
             "coder",
-            {"summary": "v1", "artifacts": ["src/auth.py"]},
+            {"summary": "v1", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
         )
 
         # Both reviewers ACK
@@ -1285,7 +1358,7 @@ class TestReviewerCrashPendingAck:
         # Coder proposes
         t.handle_propose(
             "coder",
-            {"summary": "v1", "artifacts": ["src/auth.py"]},
+            {"summary": "v1", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
         )
 
         # Only reviewer_code ACKs; reviewer_contract hasn't reviewed yet
@@ -1320,7 +1393,7 @@ class TestExcuseReviewer:
         # Coder proposes
         t.handle_propose(
             "coder",
-            {"summary": "v1", "artifacts": ["src/auth.py"]},
+            {"summary": "v1", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
         )
 
         # Only reviewer_code ACKs
@@ -1389,7 +1462,7 @@ class TestConfirmErrorListsPendingReviewers:
         """Premature confirm message lists which reviewers haven't ACKed."""
         tracker.handle_propose(
             "coder",
-            {"summary": "v1", "artifacts": ["src/auth.py"]},
+            {"summary": "v1", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
         )
 
         # Only reviewer_code ACKs
@@ -1454,12 +1527,15 @@ class TestSoleReviewerCrashIncludesBlockingProducers:
         t.register_agent("reviewer_contract")
 
         # Both producers propose
-        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/a.py"]})
+        t.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["src/a.py"], "commit_sha": "abc123"}
+        )
         t.handle_propose(
             "tester",
             {
                 "summary": "v1",
                 "artifacts": ["test_a.py"],
+                "commit_sha": "abc123",
                 "attestation": {"tests_run": 3, "checks_passed": ["test"]},
             },
         )
@@ -1637,7 +1713,9 @@ class TestReconstructTrackerFromMessages:
                 "CONSENSUS_PROPOSE",
                 "coder",
                 "all",
-                metadata={"payload": {"summary": "wip", "artifacts": ["src/a.py"]}},
+                metadata={
+                    "payload": {"summary": "wip", "artifacts": ["src/a.py"], "commit_sha": "abc123"}
+                },
                 timestamp=base,
             ),
         ]
@@ -1662,7 +1740,7 @@ class TestReconstructTrackerFromMessages:
                 "CONSENSUS_PROPOSE",
                 "coder",
                 "all",
-                metadata={"payload": {"summary": "x", "artifacts": []}},
+                metadata={"payload": {"summary": "x", "artifacts": [], "commit_sha": "abc123"}},
                 timestamp=datetime.now(UTC),
             ),
         ]
@@ -1715,14 +1793,18 @@ class TestACKGuardErrorMessage:
 
     def test_ack_guard_includes_confirmed_guidance(self, tracker):
         """Error message should tell the agent to call confirmed."""
-        tracker.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
+        tracker.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc123"}
+        )
 
         tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
         tracker.handle_ack("reviewer_contract", "coder", {"artifact_references": ["a.py"]})
 
         # Re-proposing when fully ACKed should raise with clear guidance
         with pytest.raises(ValueError, match="egg-orch consensus confirmed"):
-            tracker.handle_propose("coder", {"summary": "v2", "artifacts": ["a.py"]})
+            tracker.handle_propose(
+                "coder", {"summary": "v2", "artifacts": ["a.py"], "commit_sha": "abc123"}
+            )
 
 
 class TestStallDemotion:
@@ -1770,7 +1852,9 @@ class TestStallDemotion:
 
     def test_stall_demotion_allows_consensus_without_stalled_ack(self, dual_tracker):
         """After demotion, consensus should proceed without the stalled agent's ACK."""
-        dual_tracker.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
+        dual_tracker.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc123"}
+        )
 
         # reviewer_code ACKs coder, but tester (stalled) does not ACK
         dual_tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
@@ -1834,7 +1918,7 @@ class TestPreProposalACKDeadlock:
         # Coder proposes (version 1) — should invalidate the version-0 ACK
         result = t.handle_propose(
             "coder",
-            {"summary": "Implemented auth", "artifacts": ["src/auth.py"]},
+            {"summary": "Implemented auth", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
         )
         assert result["version"] == 1
         assert "reviewer_code" in result["stale_reviewers"]
@@ -1872,7 +1956,7 @@ class TestPreProposalACKDeadlock:
         # Coder proposes — both version-0 ACKs should be invalidated
         result = t.handle_propose(
             "coder",
-            {"summary": "Implementation", "artifacts": ["src/auth.py"]},
+            {"summary": "Implementation", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
         )
         stale = result["stale_reviewers"]
         assert "reviewer_code" in stale
@@ -1891,7 +1975,9 @@ class TestPreProposalACKDeadlock:
         t = deadlock_tracker
 
         # Normal flow: coder proposes, both ACK
-        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/auth.py"]})
+        t.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["src/auth.py"], "commit_sha": "abc123"}
+        )
         t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
         t.handle_ack("reviewer_contract", "coder", {"artifact_references": ["src/auth.py"]})
         assert t.matrix.is_fully_acked("coder")
@@ -1902,7 +1988,9 @@ class TestPreProposalACKDeadlock:
 
         # Coder withdraws and re-proposes
         t.handle_withdraw("coder", "Need to update approach")
-        result = t.handle_propose("coder", {"summary": "v2", "artifacts": ["src/auth.py"]})
+        result = t.handle_propose(
+            "coder", {"summary": "v2", "artifacts": ["src/auth.py"], "commit_sha": "def456"}
+        )
 
         # Confirmed reviewers should be un-confirmed and listed as stale
         assert "reviewer_code" in result["stale_reviewers"]
@@ -1923,7 +2011,9 @@ class TestPreProposalACKDeadlock:
         t = deadlock_tracker
 
         # Coder proposes v1, reviewer_code ACKs v1
-        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/auth.py"]})
+        t.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["src/auth.py"], "commit_sha": "abc123"}
+        )
         t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
 
         # Coder gets NACKed and re-proposes v2
@@ -1934,7 +2024,7 @@ class TestPreProposalACKDeadlock:
         )
         t.handle_re_propose(
             "coder",
-            {"summary": "v2", "artifacts": ["src/auth.py"]},
+            {"summary": "v2", "artifacts": ["src/auth.py"], "commit_sha": "def456"},
             changed_artifacts=["src/auth.py"],
         )
 
@@ -1964,7 +2054,7 @@ class TestPreProposalACKDeadlock:
         # should be un-confirmed via _un_confirm_stale_reviewers
         result = t.handle_propose(
             "coder",
-            {"summary": "Implementation", "artifacts": ["src/auth.py"]},
+            {"summary": "Implementation", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
         )
         assert "reviewer_code" in result["stale_reviewers"]
         assert "reviewer_code" not in t._confirmed
@@ -2054,3 +2144,59 @@ class TestReconstructTrackerConfirmedReplay:
         finally:
             with _trackers_lock:
                 _trackers.pop("test-rc5", None)
+
+
+class TestCommitShaRequirement:
+    """Tests for commit_sha enforcement in proposals (#1473)."""
+
+    def test_proposal_requires_commit_sha(self, tracker):
+        """Proposal without commit_sha should be rejected."""
+        with pytest.raises(ValueError, match="commit_sha"):
+            tracker.handle_propose(
+                "coder",
+                {"summary": "No SHA", "artifacts": ["a.py"]},
+            )
+
+    def test_proposal_with_empty_commit_sha_rejected(self, tracker):
+        """Empty commit_sha string should be rejected."""
+        with pytest.raises(ValueError, match="commit_sha"):
+            tracker.handle_propose(
+                "coder",
+                {"summary": "Empty SHA", "artifacts": ["a.py"], "commit_sha": ""},
+            )
+
+    def test_proposal_with_commit_sha_accepted(self, tracker):
+        """Proposal with valid commit_sha should be accepted."""
+        result = tracker.handle_propose(
+            "coder",
+            {"summary": "With SHA", "artifacts": ["a.py"], "commit_sha": "abc123"},
+        )
+        assert result["status"] == "proposed"
+        assert result["commit_sha"] == "abc123"
+
+    def test_commit_sha_stored_in_tracker(self, tracker):
+        """get_proposal_commit_sha() should return the SHA from the proposal."""
+        tracker.handle_propose(
+            "coder",
+            {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "deadbeef"},
+        )
+        assert tracker.get_proposal_commit_sha("coder") == "deadbeef"
+        assert tracker.get_proposal_commit_sha("unknown_role") == ""
+
+    def test_commit_sha_updated_on_repropose(self, tracker):
+        """Re-proposal should update the stored commit_sha."""
+        tracker.handle_propose(
+            "coder",
+            {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "sha1"},
+        )
+        tracker.handle_nack(
+            "reviewer_code",
+            "coder",
+            {"artifact_references": ["a.py"], "reason": "bug"},
+        )
+        tracker.handle_re_propose(
+            "coder",
+            {"summary": "v2", "artifacts": ["a.py"], "commit_sha": "sha2"},
+            changed_artifacts=["a.py"],
+        )
+        assert tracker.get_proposal_commit_sha("coder") == "sha2"

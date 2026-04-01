@@ -798,3 +798,213 @@ class TestCompletionBranchVerificationEdgeCases:
         # Refiner does not use contract, so it succeeds directly.
         # Branch verification applies before the contract check.
         assert status_code == 200
+
+
+class TestConsensusProposeBranchVerification:
+    """Verify commit SHA on branch when agent sends CONSENSUS_PROPOSE (#1473)."""
+
+    @patch("routes.signals.subprocess.run")
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    def test_propose_commit_not_on_branch_rejected_409(
+        self,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_subprocess_run,
+        app,
+        mock_pipeline,
+    ):
+        """Proposal with commit SHA not on expected branch -> 409."""
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_get_tracker.return_value = mock_tracker
+
+        # fetch succeeds, branch --contains returns different branch
+        mock_subprocess_run.side_effect = [
+            _make_subprocess_result(returncode=0),  # fetch
+            _make_subprocess_result(stdout="  origin/other-branch\n"),  # no match
+        ]
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {
+                    "agent_role": "coder",
+                    "payload": {
+                        "summary": "impl",
+                        "artifacts": ["src/a.py"],
+                        "commit_sha": "abc1234",
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 409
+        data = response.get_json()
+        assert "not found on expected branch" in data.get("message", "")
+
+    @patch("routes.signals.subprocess.run")
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    def test_propose_commit_on_branch_accepted(
+        self,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_subprocess_run,
+        app,
+        mock_pipeline,
+    ):
+        """Proposal with commit SHA on correct branch -> accepted."""
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose.return_value = {
+            "version": 1,
+            "status": "proposed",
+            "commit_sha": "abc1234",
+            "reviewers": [],
+            "stale_reviewers": [],
+        }
+        mock_get_tracker.return_value = mock_tracker
+
+        # fetch succeeds, branch --contains returns correct branch
+        mock_subprocess_run.side_effect = [
+            _make_subprocess_result(returncode=0),  # fetch
+            _make_subprocess_result(stdout="  origin/egg/issue-42\n"),  # match
+        ]
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {
+                    "agent_role": "coder",
+                    "payload": {
+                        "summary": "impl",
+                        "artifacts": ["src/a.py"],
+                        "commit_sha": "abc1234",
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 200
+
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    def test_propose_verification_failure_non_blocking(
+        self,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        app,
+        mock_pipeline,
+    ):
+        """Pipeline state load failure should not block proposal."""
+        mock_get_store.side_effect = Exception("state store unavailable")
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose.return_value = {
+            "version": 1,
+            "status": "proposed",
+            "commit_sha": "abc1234",
+            "reviewers": [],
+            "stale_reviewers": [],
+        }
+        mock_get_tracker.return_value = mock_tracker
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {
+                    "agent_role": "coder",
+                    "payload": {
+                        "summary": "impl",
+                        "artifacts": ["src/a.py"],
+                        "commit_sha": "abc1234",
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+
+        # Should proceed despite state store failure
+        assert status_code == 200
+
+    @patch("routes.signals.subprocess.run")
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    def test_propose_commit_sha_in_message_metadata(
+        self,
+        mock_get_tracker,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_subprocess_run,
+        app,
+        mock_pipeline,
+    ):
+        """Message metadata should include commit_sha for reviewers."""
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose.return_value = {
+            "version": 1,
+            "status": "proposed",
+            "commit_sha": "deadbeef",
+            "reviewers": [],
+            "stale_reviewers": [],
+        }
+        mock_get_tracker.return_value = mock_tracker
+
+        # Branch verification succeeds
+        mock_subprocess_run.side_effect = [
+            _make_subprocess_result(returncode=0),
+            _make_subprocess_result(stdout="  origin/egg/issue-42\n"),
+        ]
+
+        with app.app_context():
+            from routes.signals import handle_consensus_propose_signal
+
+            with patch("message_store.get_message_store") as mock_msg_store:
+                mock_store_inst = MagicMock()
+                mock_msg_store.return_value = mock_store_inst
+
+                response, status_code = handle_consensus_propose_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "coder",
+                        "payload": {
+                            "summary": "impl",
+                            "artifacts": ["src/a.py"],
+                            "commit_sha": "deadbeef",
+                        },
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 200
+        # Verify message was written with commit_sha in metadata
+        call_args = mock_store_inst.add_message.call_args_list[0]
+        msg = call_args[0][0]
+        assert msg.metadata.get("commit_sha") == "deadbeef"

@@ -1123,6 +1123,7 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
             "attestation": {},
             "artifacts": getattr(args, "artifacts", []) or [],
             "risk_considered": getattr(args, "risk", "") or "",
+            "commit_sha": getattr(args, "commit_sha", "") or "",
         }
 
     changed_artifacts = getattr(args, "changed_artifacts", None)
@@ -1674,6 +1675,11 @@ def create_parser() -> argparse.ArgumentParser:
     cons_propose.add_argument("--summary", help="Proposal summary")
     cons_propose.add_argument("--artifacts", nargs="*", help="Artifact paths")
     cons_propose.add_argument("--risk", help="Risk considerations")
+    cons_propose.add_argument(
+        "--commit-sha",
+        required=True,
+        help="Commit SHA pushed to the remote branch (required, #1473)",
+    )
     cons_propose.add_argument(
         "--changed-artifacts",
         nargs="*",

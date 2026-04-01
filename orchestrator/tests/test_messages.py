@@ -76,6 +76,7 @@ class TestDelphiFiltering:
             {
                 "summary": "Implemented auth",
                 "artifacts": ["src/auth.py"],
+                "commit_sha": "abc123",
             },
         )
 
@@ -126,6 +127,7 @@ class TestDelphiFiltering:
             {
                 "summary": "Implemented auth",
                 "artifacts": ["src/auth.py"],
+                "commit_sha": "abc123",
             },
         )
 
@@ -184,6 +186,7 @@ class TestDelphiFiltering:
             {
                 "summary": "Implemented auth",
                 "artifacts": ["src/auth.py"],
+                "commit_sha": "abc123",
             },
         )
 
