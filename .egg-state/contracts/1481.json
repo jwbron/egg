@@ -9,7 +9,30 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "## Resolved Questions\n\n**Decision 1 (Rollout)**: Default on for all pipelines, no opt-out. No workflows depend on shared uncommitted state.\n\n**Decision 2 (SDK scope)**: Write, Edit, and NotebookEdit. Bash not intercepted. Agent SDK (egg_agent) only, not the interactive claude CLI.\n\n**Decision 3 (Agent-outputs keying)**: Convention only. Per-agent worktrees prevent filesystem stomping; no need for pattern enforcement.\n\n**Feedback 1 (Shared worktree consumers)**: No pipelines depend on agents seeing each other's uncommitted work.\n\n**Feedback 2 (SDK interception path)**: Agent SDK (egg_agent) only, not the interactive claude CLI path.\n\n**Feedback 3 (Rebase conflict behavior)**: Signal an error to the orchestrator. The agent can't fix a role pattern config bug itself.\n\n**Feedback 4 (Auto-commit agent-outputs handling)**: N/A \u2014 auto_commit_worktree() is being removed entirely. Replaced with: on container exit, if worktree has uncommitted changes, orchestrator creates a HITL decision ('Agent X timed out with uncommitted changes. Recover or discard?'). No unreviewed code auto-pushed to branch. The worktree persists after container exit for manual recovery if needed.\n\n**Design change**: Item 6 changed from 'add role filtering to auto_commit_worktree()' to 'remove auto-commit-push entirely'. Reason: auto-commits bypass BRC consensus, commit disallowed files (#1480), and create WIP commits that break CI. With per-agent worktrees, uncommitted work is preserved in the worktree on disk \u2014 no need to auto-push it.",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-01T06:19:21.473106Z",
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
   "audit_log": [],
   "refine_review_cycles": 0,

@@ -208,3 +208,26 @@ Justification:
 ---
 
 *Authored-by: egg*
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+## Resolved Questions
+
+**Decision 1 (Rollout)**: Default on for all pipelines, no opt-out. No workflows depend on shared uncommitted state.
+
+**Decision 2 (SDK scope)**: Write, Edit, and NotebookEdit. Bash not intercepted. Agent SDK (egg_agent) only, not the interactive claude CLI.
+
+**Decision 3 (Agent-outputs keying)**: Convention only. Per-agent worktrees prevent filesystem stomping; no need for pattern enforcement.
+
+**Feedback 1 (Shared worktree consumers)**: No pipelines depend on agents seeing each other's uncommitted work.
+
+**Feedback 2 (SDK interception path)**: Agent SDK (egg_agent) only, not the interactive claude CLI path.
+
+**Feedback 3 (Rebase conflict behavior)**: Signal an error to the orchestrator. The agent can't fix a role pattern config bug itself.
+
+**Feedback 4 (Auto-commit agent-outputs handling)**: N/A — auto_commit_worktree() is being removed entirely. Replaced with: on container exit, if worktree has uncommitted changes, orchestrator creates a HITL decision ('Agent X timed out with uncommitted changes. Recover or discard?'). No unreviewed code auto-pushed to branch. The worktree persists after container exit for manual recovery if needed.
+
+**Design change**: Item 6 changed from 'add role filtering to auto_commit_worktree()' to 'remove auto-commit-push entirely'. Reason: auto-commits bypass BRC consensus, commit disallowed files (#1480), and create WIP commits that break CI. With per-agent worktrees, uncommitted work is preserved in the worktree on disk — no need to auto-push it.
