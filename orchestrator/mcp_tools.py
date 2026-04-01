@@ -714,30 +714,33 @@ class PipelineToolHandler:
         except Exception:
             logger.debug("Failed to fetch messages", task_id=task_id)
 
-        # Enrichment: attach draft content to phase_gate decisions (optional)
+        # Enrichment: attach draft content to pending decisions (optional)
         raw_task_id = args["task_id"]
-        self._enrich_phase_gate_decisions(status, raw_task_id, pipeline_data)
+        self._enrich_pending_decisions(status, raw_task_id, pipeline_data)
 
         return status
 
-    def _enrich_phase_gate_decisions(
+    def _enrich_pending_decisions(
         self,
         status: dict[str, Any],
         pipeline_id: str,
         pipeline_data: dict[str, Any],
     ) -> None:
-        """Attach draft content and agent summaries to phase_gate decisions.
+        """Attach draft content and agent summaries to pending decisions.
 
-        Reads the draft document from the pipeline worktree so the caller
-        can present it to the user without needing direct filesystem access.
+        For all decision types (phase_gate, choice, feedback), reads the
+        phase's draft document from the pipeline worktree and attaches it
+        as ``draft_content`` so the caller can present context to the user.
+        Agent summaries and reviewer feedback are attached only to
+        phase_gate decisions.
+
         Mutates ``status["pending_decisions"]`` in place.
         """
         pending = status.get("pending_decisions", [])
-        phase_gates = [d for d in pending if d.get("decision_type") == "phase_gate"]
-        if not phase_gates:
+        if not pending:
             return
 
-        # Build completed agents summary
+        # Build completed agents summary (phase_gate only)
         completed_agents = status.get("completed_agents", [])
         agents_summary = [
             {
@@ -769,16 +772,16 @@ class PipelineToolHandler:
                 worktree_path = resolve_worktree_path(pipeline_id, repo_path)
             except Exception:
                 logger.debug(
-                    "Failed to resolve worktree for phase_gate enrichment",
+                    "Failed to resolve worktree for decision enrichment",
                     pipeline_id=pipeline_id,
                 )
 
-        # Attach enrichments per-decision
-        for decision in phase_gates:
+        # Attach draft_content to all pending decisions from draft-producing phases
+        for decision in pending:
+            decision_phase = decision.get("phase") or current_phase
             draft_content = None
             if worktree_path is not None and _read_phase_draft is not None:
                 try:
-                    decision_phase = decision.get("phase") or current_phase
                     draft_content = _read_phase_draft(
                         worktree_path,
                         decision_phase,
@@ -788,24 +791,26 @@ class PipelineToolHandler:
                     )
                 except Exception:
                     logger.debug(
-                        "Failed to read draft for phase_gate enrichment",
+                        "Failed to read draft for decision enrichment",
                         pipeline_id=pipeline_id,
                     )
 
             if draft_content is not None:
                 decision["draft_content"] = draft_content
-            if agents_summary:
-                decision["completed_agents_summary"] = agents_summary
 
-            # Attach reviewer feedback from .egg-state/reviews/
-            reviewer_feedback = self._read_reviewer_feedback(
-                worktree_path,
-                decision.get("phase") or current_phase,
-                issue_number,
-                pipeline_id,
-            )
-            if reviewer_feedback:
-                decision["reviewer_feedback"] = reviewer_feedback
+            # Phase-gate-specific enrichments
+            if decision.get("decision_type") == "phase_gate":
+                if agents_summary:
+                    decision["completed_agents_summary"] = agents_summary
+
+                reviewer_feedback = self._read_reviewer_feedback(
+                    worktree_path,
+                    decision_phase,
+                    issue_number,
+                    pipeline_id,
+                )
+                if reviewer_feedback:
+                    decision["reviewer_feedback"] = reviewer_feedback
 
     def _read_reviewer_feedback(
         self,

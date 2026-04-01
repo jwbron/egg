@@ -710,6 +710,8 @@ After resolving this decision, move to the next pending decision (if any) before
 
 ### For `choice` type decisions:
 
+If the decision includes a `draft_content` field, display it to the user first as context for the decision. If the content is long, show a summary of the key sections (headings and first paragraph of each) followed by the full content. This is especially important for decisions from the refine and plan phases, where the draft contains the analysis or plan that motivates the decision.
+
 Show the decision's `question` and `context` (if non-empty) prominently, then use `AskUserQuestion` to present the options:
 - Question: the decision's `question` field
 - Options: the decision's `options` array (each as a label with empty description)
@@ -725,6 +727,8 @@ If the user types custom text via "Other", send:
 ```
 
 ### For `feedback` type decisions:
+
+If the decision includes a `draft_content` field, display it to the user first as context for the feedback request. If the content is long, show a summary of the key sections (headings and first paragraph of each) followed by the full content. This is especially important for decisions from the refine and plan phases, where the draft contains the analysis or plan that motivates the questions.
 
 Feedback decisions include a `questions` array — each entry has `id`, `question`, and an empty `answer` field. Present each question to the user:
 
