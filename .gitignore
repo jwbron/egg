@@ -42,13 +42,6 @@ secrets.yaml
 *.swp
 *.swo
 
-# SDLC pipeline state (transient artifacts, not shipped to main)
-.egg-state/pipelines/
-.egg-state/agent-outputs/
-.egg-state/contracts/
-.egg-state/drafts/
-.egg-state/reviews/
-.egg-state/checks/
 
 # Docker
 .docker/
