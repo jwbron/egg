@@ -19,7 +19,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from container_spawner import ContainerSpawnError, ContainerSpawner
+from container_spawner import ContainerSpawner, ContainerSpawnError
 from gateway_client import GatewayError, GatewayHealth, SessionInfo
 from models import AgentRole, ContainerInfo, ContainerStatus
 

@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-from container_spawner import ContainerSpawnError, ContainerSpawner
+from container_spawner import ContainerSpawner, ContainerSpawnError
 from docker_client import ContainerNotFoundError
 from gateway_client import GatewayHealth, SessionInfo, WorktreeResult
 from models import AgentRole, ContainerInfo, ContainerStatus

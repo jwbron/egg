@@ -326,8 +326,7 @@ class ContainerSpawner:
                 raise
             except Exception as e:
                 raise ContainerSpawnError(
-                    f"Per-agent worktree creation failed for "
-                    f"{agent_worktree_id}: {e}"
+                    f"Per-agent worktree creation failed for {agent_worktree_id}: {e}"
                 ) from e
 
         # Build mounts: repo volumes + .git shadows + certs
