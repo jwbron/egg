@@ -157,10 +157,10 @@
         {
           "container_id": "e55d1dba891de14035187bd36b5f4037b896ab0910b2d6d4b085a34cc12081f7",
           "container_name": "issue-1481-v2-risk_analyst",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-01T06:19:53.682393Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-01T06:51:49.167640Z",
+          "exit_code": 1,
           "agent_role": "risk_analyst",
           "session_token": null
         },
@@ -202,13 +202,13 @@
         },
         {
           "role": "risk_analyst",
-          "status": "running",
+          "status": "failed",
           "container_id": "e55d1dba891de14035187bd36b5f4037b896ab0910b2d6d4b085a34cc12081f7",
           "started_at": "2026-04-01T06:19:53.682394Z",
-          "completed_at": null,
+          "completed_at": "2026-04-01T06:51:49.190771Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -261,7 +261,7 @@
     }
   ],
   "created_at": "2026-04-01T05:52:01.782899Z",
-  "updated_at": "2026-04-01T06:19:53.682465Z",
+  "updated_at": "2026-04-01T06:51:49.190949Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -269,5 +269,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 17
+  "version": 18
 }
