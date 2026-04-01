@@ -196,10 +196,24 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Should the auto-filter feature be opt-in (new env var like EGG_AGENT_AUTO_FILTER=true) or replace the current blocking behavior by default? What about the existing warn-only mode (EGG_AGENT_RESTRICTIONS_ENFORCE=false) — should it be preserved as a third option?",
+      "context": "",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-01T04:33:40.083039Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-01T04:08:32.112157Z",
-  "updated_at": "2026-04-01T04:33:39.957457Z",
+  "updated_at": "2026-04-01T04:33:40.085610Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -207,5 +221,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 11
+  "version": 12
 }
