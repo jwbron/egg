@@ -139,16 +139,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-01T06:10:40.514614Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-01T06:19:21.473106Z",
+      "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved Questions\\n\\n**Decision 1 (Rollout)**: Default on for all pipelines, no opt-out. No workflows depend on shared uncommitted state.\\n\\n**Decision 2 (SDK scope)**: Write, Edit, and NotebookEdit. Bash not intercepted. Agent SDK (egg_agent) only, not the interactive claude CLI.\\n\\n**Decision 3 (Agent-outputs keying)**: Convention only. Per-agent worktrees prevent filesystem stomping; no need for pattern enforcement.\\n\\n**Feedback 1 (Shared worktree consumers)**: No pipelines depend on agents seeing each other's uncommitted work.\\n\\n**Feedback 2 (SDK interception path)**: Agent SDK (egg_agent) only, not the interactive claude CLI path.\\n\\n**Feedback 3 (Rebase conflict behavior)**: Signal an error to the orchestrator. The agent can't fix a role pattern config bug itself.\\n\\n**Feedback 4 (Auto-commit agent-outputs handling)**: N/A — auto_commit_worktree() is being removed entirely. Replaced with: on container exit, if worktree has uncommitted changes, orchestrator creates a HITL decision ('Agent X timed out with uncommitted changes. Recover or discard?'). No unreviewed code auto-pushed to branch. The worktree persists after container exit for manual recovery if needed.\\n\\n**Design change**: Item 6 changed from 'add role filtering to auto_commit_worktree()' to 'remove auto-commit-push entirely'. Reason: auto-commits bypass BRC consensus, commit disallowed files (#1480), and create WIP commits that break CI. With per-agent worktrees, uncommitted work is preserved in the worktree on disk — no need to auto-push it.\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-01T05:52:01.782899Z",
-  "updated_at": "2026-04-01T06:10:40.532427Z",
+  "updated_at": "2026-04-01T06:19:21.475677Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -156,5 +156,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 11
+  "version": 12
 }
