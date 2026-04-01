@@ -1,0 +1,234 @@
+{
+  "issue": 1481,
+  "agent": "risk_analyst",
+  "phase": "plan",
+  "revision": 1,
+  "timestamp": "2026-04-01T06:15:00Z",
+  "summary": "Risk assessment for per-agent worktree isolation and role-aware file enforcement. 10 risks identified: 3 HIGH, 4 MEDIUM, 3 LOW. Primary concerns: migration safety of CONTAINER_ID semantics change (RISK-1), auto-commit removal leaving orphaned worktrees consuming disk (RISK-3), and SDK tool interception introducing new failure modes in headless agents (RISK-4). The design is architecturally sound — each layer addresses a distinct failure mode and the defense-in-depth approach is appropriate. Key recommendation: implement and ship layers incrementally rather than as a single big-bang change.",
+
+  "risks": [
+    {
+      "id": "RISK-1",
+      "title": "CONTAINER_ID semantics change breaks worktree path mapping",
+      "category": "compatibility",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "HIGH",
+      "description": "Currently CONTAINER_ID is set to pipeline_id (container_spawner.py:387), and all gateway path mapping (map_container_path_to_worktree), session registration, and worktree lifecycle management depend on this value. Changing CONTAINER_ID from pipeline_id to a per-container identifier changes the worktree path from .egg-worktrees/{pipeline_id}/{repo} to .egg-worktrees/{container_id}/{repo}. Every gateway function that calls map_container_path_to_worktree() — including git push, git commit, git status, and all file operations — will resolve to a different filesystem path. If any component still assumes the old semantics, agents will operate on wrong or nonexistent worktrees.",
+      "affected_components": [
+        "orchestrator/container_spawner.py (line 387: CONTAINER_ID=pipeline_id)",
+        "orchestrator/routes/pipelines.py (lines 5770-5772: worktree_id=pipeline_id)",
+        "gateway/gateway.py (line 667: map_container_path_to_worktree)",
+        "gateway/worktree_manager.py (create_worktree, path resolution)",
+        "gateway/session_manager.py (session registration with container_id)"
+      ],
+      "mitigation": "Both the orchestrator (container_spawner.py) and gateway (worktree_manager.py) must be updated atomically. Since they are co-located and deployed together, this is feasible. Add an integration test that spawns two concurrent agents and verifies they get distinct worktree paths. Test the full lifecycle: create worktree → clone → agent operates → push → cleanup. Ensure session registration passes the new container-scoped ID so map_container_path_to_worktree resolves correctly.",
+      "rollback_plan": "Revert the CONTAINER_ID change in container_spawner.py and the worktree_id change in pipelines.py. Both are single-line changes. The gateway's worktree_manager already supports arbitrary container_id values, so reverting only requires restoring pipeline_id as the key. No data migration needed since worktrees are ephemeral.",
+      "human_review_needed": true,
+      "human_review_reason": "This is the most critical change — it alters the fundamental isolation model for concurrent pipelines. A human should verify that all code paths consuming CONTAINER_ID have been updated, especially in the gateway session registration flow and any monitoring/logging that references container identity."
+    },
+    {
+      "id": "RISK-2",
+      "title": "Shared branch push conflicts despite mutually exclusive file patterns",
+      "category": "performance",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "The design relies on agents having mutually exclusive file write permissions to guarantee that git pull --rebase cannot produce merge conflicts. This is true for the standard role patterns in agent_restrictions.py. However, .egg-state/agent-outputs/ is allowed for ALL roles. If two agents modify the same file within agent-outputs/ (e.g., both write to a shared metadata file), rebase conflicts will occur. Additionally, pattern bugs (e.g., an overly broad glob like **/*.json matching both config and agent-output files) could create unexpected overlaps. The fallback — agent signals error to orchestrator — leaves the agent stuck and requires human intervention.",
+      "affected_components": [
+        "gateway/agent_restrictions.py (agent-outputs allowed for all roles)",
+        "gateway/git_client.py (get_changed_files_in_push pull-before-push logic)",
+        "All agent roles that write to .egg-state/agent-outputs/"
+      ],
+      "mitigation": "The convention of keying output files as {issue}-{role}-output.json reduces collision risk, but it's convention-only (per HITL Decision 3). Add a unit test that verifies all role patterns in agent_restrictions.py are pairwise non-overlapping (excluding .egg-state/agent-outputs/). For agent-outputs, document the naming convention prominently and consider adding a pre-push check that warns (not blocks) if an agent modifies another role's output file. Implement exponential backoff on push retry with a maximum of 3 attempts before signaling error.",
+      "rollback_plan": "If rebase conflicts occur frequently, add gateway-level enforcement that agent-outputs files must match *-{role}-* pattern for the pushing agent's role. This turns convention into enforcement without changing the worktree model.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-3",
+      "title": "Removing auto-commit-push creates orphaned worktrees consuming disk",
+      "category": "performance",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "MEDIUM",
+      "description": "The design removes auto_commit_worktree() auto-push and replaces it with a HITL decision ('Agent X timed out with uncommitted changes — recover or discard?'). Per-agent worktrees persist after container exit. If the human doesn't respond to the HITL decision promptly (or at all), worktrees accumulate on disk. With per-agent worktrees, each pipeline now creates N worktrees (one per agent) instead of 1. A 4-agent pipeline creates 4 worktrees, each containing a full working copy. While git objects are shared, working tree files are not — a large monorepo could consume significant disk per worktree. Additionally, the HITL decision mechanism depends on the orchestrator detecting uncommitted changes in the worktree after container exit, which requires new orchestrator logic that doesn't exist yet.",
+      "affected_components": [
+        "gateway/post_agent_commit.py (auto_commit_worktree removal)",
+        "orchestrator/routes/pipelines.py (worktree lifecycle management)",
+        "gateway/worktree_manager.py (remove_worktree cleanup)",
+        "orchestrator/ (new: HITL decision on uncommitted work)"
+      ],
+      "mitigation": "Implement a worktree cleanup policy: (1) Auto-discard worktrees with no uncommitted changes immediately after container exit. (2) For worktrees with uncommitted changes, create HITL decision with a 24-hour timeout that defaults to 'discard' if unanswered. (3) Add a periodic cleanup job that removes worktrees older than 48 hours regardless of state. (4) Add monitoring/alerting for worktree disk usage. The orchestrator already has pipeline cleanup logic — extend it to handle per-agent worktrees.",
+      "rollback_plan": "Re-enable auto_commit_worktree() with the addition of agent-role filtering (the original Option B from the refine analysis). This preserves the current cleanup behavior while adding the safety net. The HITL decision pathway can be added later as an enhancement.",
+      "human_review_needed": true,
+      "human_review_reason": "The worktree cleanup policy and HITL timeout defaults are product decisions that affect operational cost and data retention."
+    },
+    {
+      "id": "RISK-4",
+      "title": "SDK tool interception introduces new failure modes in headless agents",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "Adding a pre-execution hook in egg_agent that checks Write/Edit/NotebookEdit against AgentFilePattern introduces a dependency from the Agent SDK (shared/egg_agent/) on the gateway's restriction logic (gateway/agent_restrictions.py). This creates a cross-component coupling: changes to AgentFilePattern (e.g., new patterns, changed glob syntax) must be synchronized across both packages. If the SDK's copy of restriction logic diverges from the gateway's, agents get contradictory signals — the SDK says 'allowed' but the gateway blocks the push (or vice versa). Additionally, the hook runs in the agent's process; if it throws an unexpected exception, it could crash the agent or produce confusing error messages that waste tokens on recovery attempts.",
+      "affected_components": [
+        "shared/egg_agent/client.py (tool dispatch, new pre-execution hook)",
+        "gateway/agent_restrictions.py (AgentFilePattern, check_agent_file_access)",
+        "shared/egg_agent/ (new dependency on gateway restriction logic)"
+      ],
+      "mitigation": "Import AgentFilePattern from a shared package (it's already in gateway/ but could be extracted to shared/). Use the same pattern definitions for both SDK and gateway enforcement — single source of truth. Make the SDK hook fail-open: if the restriction check throws an exception, log the error and allow the operation (the gateway will catch it at push time). Return a clear, structured ToolError message that the LLM can understand without burning tokens on debugging.",
+      "rollback_plan": "Remove the pre-execution hook from egg_agent. This is a single function removal. The gateway push validation continues to work as the hard enforcement boundary. Token waste increases but correctness is unaffected.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-5",
+      "title": "Scoped push file detection regression in edge cases",
+      "category": "security",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "With per-agent worktrees, get_changed_files_in_push() no longer needs commit attribution logic because each worktree only contains that agent's commits. However, after git pull --rebase, the worktree's HEAD includes rebased versions of the agent's commits on top of the remote branch. The diff origin/{branch}..HEAD now includes both the agent's original changes AND any files touched by the rebase resolution. If the rebase modifies a file that the agent isn't allowed to touch (e.g., fixing a trivial whitespace conflict in a shared config file), the push would be incorrectly blocked. Additionally, the fallback path in get_changed_files_in_push() (per-commit git rev-list + git diff-tree, lines 1365-1379) may behave differently with rebased commit history.",
+      "affected_components": [
+        "gateway/git_client.py (get_changed_files_in_push, lines 1301-1440)",
+        "gateway/gateway.py (push handler, lines 819-884)"
+      ],
+      "mitigation": "Since role patterns are mutually exclusive, rebase conflicts should not occur (the design guarantees this). If they do occur, it indicates a pattern configuration bug. The agent should signal an error rather than attempting to fix the conflict (per HITL Decision, Feedback 3). Add an integration test that simulates: Agent A pushes files → Agent B pulls/rebases → verify Agent B's diff only contains Agent B's files. Test the fallback path separately.",
+      "rollback_plan": "Keep the existing get_changed_files_in_push() behavior unchanged. With per-agent worktrees, the function naturally scopes to the agent's commits without code changes. Only modify it if the integration test reveals actual false positives.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-6",
+      "title": "Per-agent worktrees break BRC artifact visibility for reviewers",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "impact": "HIGH",
+      "description": "BRC reviewers read artifacts from the shared branch (pushed commits). With per-agent worktrees, a producer must commit AND push before the reviewer can see their artifacts. Currently, in shared worktrees, a reviewer agent running in the same worktree could theoretically read uncommitted files. While the BRC protocol requires pushed artifacts, there may be implicit dependencies on shared filesystem visibility that aren't documented. If any workflow reads from the worktree directly rather than from git, per-agent isolation will break it.",
+      "affected_components": [
+        "orchestrator/routes/pipelines.py (worktree creation for reviewers)",
+        "shared/egg_agent/ (BRC consensus protocol)",
+        "sandbox/ (agent CLAUDE.md instructions referencing file paths)"
+      ],
+      "mitigation": "The BRC protocol explicitly requires proposed artifacts to be committed and pushed (reviewers use git to access them). Verify that no code path in the orchestrator or gateway reads directly from another agent's worktree path. Search for cross-references between container worktree paths. The reviewer's worktree should have its own git fetch/pull to see the producer's pushed commits.",
+      "rollback_plan": "If a workflow is discovered that depends on shared worktree visibility, add a git pull step in the reviewer's container initialization to fetch the latest branch state before review begins.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-7",
+      "title": "Unknown agent role fallback allows unrestricted pushes",
+      "category": "security",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "impact": "HIGH",
+      "description": "In agent_restrictions.py line 697-698, check_agent_file_access() allows all files for unknown agent roles as a backwards compatibility measure. With the addition of SDK tool interception and per-agent worktrees, this fallback becomes more dangerous: an agent with an unknown/misspelled role would bypass both the SDK soft enforcement and the gateway hard enforcement. While the role is set by the orchestrator (not the agent), a configuration bug or new role that hasn't been registered in agent_restrictions.py would silently bypass all file restrictions.",
+      "affected_components": [
+        "gateway/agent_restrictions.py (line 697-698: unknown role fallback)",
+        "shared/egg_agent/ (SDK tool interception for unknown roles)"
+      ],
+      "mitigation": "Change the unknown role fallback from allow-all to deny-all as part of this change. All 15+ existing roles are already defined in agent_restrictions.py. New roles must be explicitly registered with their file patterns before they can push. Add a startup validation that verifies EGG_AGENT_ROLE matches a known role in the gateway's restriction registry.",
+      "rollback_plan": "If the deny-all default breaks a new role that was added without updating agent_restrictions.py, add the role's patterns immediately. The fix is a small addition to agent_restrictions.py.",
+      "human_review_needed": true,
+      "human_review_reason": "Changing from allow-all to deny-all for unknown roles is a security policy decision. While it's clearly the right default, it could break new roles added without updating the restriction registry."
+    },
+    {
+      "id": "RISK-8",
+      "title": "Per-agent git author may break automation that parses git log",
+      "category": "compatibility",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "description": "Changing the git author from 'egg <egg@localhost>' to 'egg (coder) <coder@egg.local>' changes the commit author format. Any automation, scripts, or CI checks that filter or parse commits by author (e.g., 'git log --author=egg@localhost') will stop matching. The gateway's post_agent_commit.py explicitly uses the egg identity for WIP commits. Dashboard or monitoring tools that track agent commits by author may need updating.",
+      "affected_components": [
+        "sandbox/entrypoint.py (lines 591-597: git identity setup)",
+        "gateway/post_agent_commit.py (egg identity for WIP commits)",
+        "Any CI/scripts that filter by git author"
+      ],
+      "mitigation": "Search the codebase for references to 'egg@localhost' and 'user.name.*egg' to identify all consumers. Update any scripts that match on the exact author string. Use 'git log --author=egg' (partial match) rather than exact email matching. Since auto-commit-push is being removed, post_agent_commit.py's author usage becomes moot.",
+      "rollback_plan": "Revert the entrypoint.py author change. This is a one-line revert with no dependencies on other changes.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-9",
+      "title": "Increased complexity in pipeline cleanup and error recovery",
+      "category": "performance",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "description": "Per-agent worktrees multiply the number of worktrees the orchestrator must manage. Pipeline cleanup (on completion, cancellation, or error) must now iterate over N worktrees instead of 1. If cleanup fails for one worktree (e.g., file locks, permission issues), it must handle partial cleanup gracefully. Error recovery for a stuck pipeline is more complex — the orchestrator needs to know which agent's worktree has uncommitted work and present that information in the HITL decision.",
+      "affected_components": [
+        "orchestrator/routes/pipelines.py (pipeline cleanup)",
+        "gateway/worktree_manager.py (remove_worktree, bulk cleanup)",
+        "orchestrator/ (error recovery, HITL decision creation)"
+      ],
+      "mitigation": "Implement worktree cleanup as a best-effort operation that logs failures but doesn't fail the pipeline. Add a 'list worktrees for pipeline' utility that the orchestrator can call during cleanup. Use WorktreeManager's existing force-remove capability (line 730) for cleanup of stale worktrees. Add a monitoring metric for worktree count per pipeline.",
+      "rollback_plan": "Revert to shared worktrees. Pipeline cleanup reverts to single-worktree removal.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-10",
+      "title": "SDK restriction logic import path creates circular dependency risk",
+      "category": "compatibility",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "description": "The SDK tool interception needs access to AgentFilePattern and role definitions from gateway/agent_restrictions.py. The shared/egg_agent/ package should not directly import from gateway/ — this would create an architectural dependency from agent code to gateway code. If the restriction logic is duplicated rather than shared, it will drift over time.",
+      "affected_components": [
+        "shared/egg_agent/ (new dependency)",
+        "gateway/agent_restrictions.py (source of restriction logic)"
+      ],
+      "mitigation": "Extract the AgentFilePattern class and role pattern definitions into a shared package (e.g., shared/egg_restrictions/ or add to shared/egg_config/). Both gateway and egg_agent import from the shared location. This is a clean separation that avoids both duplication and circular dependencies.",
+      "rollback_plan": "If extraction is too complex for this iteration, have egg_agent call the gateway's API to check file access (the gateway already has the check_agent_file_access endpoint). This adds a network call but avoids any code sharing issues.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    }
+  ],
+
+  "overall_assessment": {
+    "risk_level": "MODERATE",
+    "recommendation": "PROCEED with incremental implementation",
+    "rationale": "The design is architecturally sound and addresses real, documented failures (#1470, #1480). Each enforcement layer is independently valuable. The highest risks (RISK-1, RISK-2, RISK-3) are all mitigable with careful implementation ordering and integration testing. No showstoppers identified. The key risk is the CONTAINER_ID semantics change (RISK-1) which must be implemented atomically with the worktree path mapping changes — this is the one area where a partial deployment would cause total failure.",
+    "implementation_order_recommendation": [
+      "1. Per-agent git author (RISK-8, trivial, zero-risk, immediate auditability benefit)",
+      "2. Per-agent worktrees + CONTAINER_ID change (RISK-1, foundational, must be atomic)",
+      "3. Scoped push file detection (RISK-5, follows naturally from per-agent worktrees)",
+      "4. Remove auto-commit-push + add HITL decision (RISK-3, depends on per-agent worktrees)",
+      "5. SDK tool interception (RISK-4, RISK-10, independent of other layers, can ship separately)",
+      "6. Unknown role fallback change (RISK-7, security hardening, can ship anytime)"
+    ]
+  },
+
+  "areas_requiring_human_review": [
+    {
+      "area": "CONTAINER_ID semantics change",
+      "risk_id": "RISK-1",
+      "reason": "Alters the fundamental isolation model. Must verify all code paths consuming CONTAINER_ID have been updated."
+    },
+    {
+      "area": "Worktree cleanup policy and HITL timeout defaults",
+      "risk_id": "RISK-3",
+      "reason": "Product decision on operational cost, data retention, and default behavior for unanswered HITL decisions."
+    },
+    {
+      "area": "Unknown role deny-all default",
+      "risk_id": "RISK-7",
+      "reason": "Security policy change from allow-all to deny-all for unrecognized agent roles."
+    }
+  ],
+
+  "rollback_strategy": {
+    "summary": "Each layer can be independently rolled back. The only atomic pair is CONTAINER_ID + worktree path mapping (RISK-1). All other changes are independent and reversible without affecting other layers.",
+    "critical_rollback_path": "If per-agent worktrees cause unexpected failures: (1) Revert container_spawner.py CONTAINER_ID to pipeline_id, (2) Revert pipelines.py worktree_id to pipeline_id, (3) Re-enable auto_commit_worktree(). These three reverts restore the current shared-worktree behavior completely."
+  },
+
+  "external_dependencies": {
+    "note": "No third-party dependency changes. All changes are internal to the egg platform. No external research needed — this is purely internal infrastructure.",
+    "git_version_requirements": "git worktree support (git 2.5+) is already required by the existing codebase. No new git features needed.",
+    "python_dependencies": "No new Python packages. fnmatch (used in agent_restrictions.py) is stdlib."
+  }
+}
