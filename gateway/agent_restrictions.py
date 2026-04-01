@@ -27,7 +27,13 @@ if TYPE_CHECKING:
     pass
 
 # Re-export from shared package for backwards compatibility
-from egg_restrictions.patterns import (
+from egg_restrictions.checker import (  # noqa: F401
+    AgentRestrictionResult,
+    check_agent_file_access,
+    get_agent_pattern,
+    validate_agent_push,
+)
+from egg_restrictions.patterns import (  # noqa: F401
     AGENT_PATTERNS,
     AUTOFIXER_PATTERNS,
     CONFLICT_RESOLVER_PATTERNS,
@@ -35,12 +41,6 @@ from egg_restrictions.patterns import (
     OVERSEER_PATTERNS,
     AgentFilePattern,
     AgentRole,
-)
-from egg_restrictions.checker import (
-    AgentRestrictionResult,
-    check_agent_file_access,
-    get_agent_pattern,
-    validate_agent_push,
 )
 
 # --- GitHub operation restrictions ---
