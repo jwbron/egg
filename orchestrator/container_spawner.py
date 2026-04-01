@@ -719,7 +719,8 @@ class ContainerSpawner:
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     files = [
-                        line[3:].strip() for line in result.stdout.splitlines()
+                        line[3:].strip()
+                        for line in result.stdout.splitlines()
                         if line and len(line) > 3
                     ]
                     logger.info(

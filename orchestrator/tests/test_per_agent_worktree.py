@@ -50,9 +50,7 @@ def mock_docker_client():
 @pytest.fixture
 def mock_gateway_client():
     mock = MagicMock()
-    mock.check_health.return_value = GatewayHealth(
-        healthy=True, status="healthy", version="0.1.0"
-    )
+    mock.check_health.return_value = GatewayHealth(healthy=True, status="healthy", version="0.1.0")
     mock.register_session.return_value = SessionInfo(
         session_token="tok-123",
         container_id="abc123",
@@ -101,7 +99,9 @@ class TestPerAgentWorktreeId:
         calls = mock_gateway_client.create_worktrees.call_args_list
         # At least one call must use the per-agent container_id
         per_agent_calls = [
-            c for c in calls if c.kwargs.get("container_id") == "pipe-42-coder"
+            c
+            for c in calls
+            if c.kwargs.get("container_id") == "pipe-42-coder"
             or (c.args and c.args[0] == "pipe-42-coder")
         ]
         assert len(per_agent_calls) >= 1, (
@@ -255,7 +255,9 @@ class TestPerAgentWorktreeFallback:
 class TestWorktreeCleanup:
     """Pipeline cleanup must delete per-agent worktrees."""
 
-    def test_cleanup_deletes_per_agent_worktrees(self, spawner, mock_docker_client, mock_gateway_client):
+    def test_cleanup_deletes_per_agent_worktrees(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
         """cleanup_pipeline deletes worktrees for each agent role."""
         # Simulate containers with role labels
         container1 = MagicMock()
@@ -297,9 +299,13 @@ class TestDetectUncommittedChanges:
             returncode=0,
             stdout=" M src/main.py\n?? new_file.txt\n",
         )
-        with patch.object(Path, "exists", return_value=True), \
-             patch.object(Path, "iterdir", return_value=[Path("/home/egg/.egg-worktrees/pipe-1-coder/egg")]), \
-             patch.object(Path, "is_dir", return_value=True):
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch.object(
+                Path, "iterdir", return_value=[Path("/home/egg/.egg-worktrees/pipe-1-coder/egg")]
+            ),
+            patch.object(Path, "is_dir", return_value=True),
+        ):
             result = spawner.detect_uncommitted_changes("pipe-1", "coder")
 
         assert result is not None
@@ -312,9 +318,13 @@ class TestDetectUncommittedChanges:
     def test_clean_worktree_returns_none(self, mock_run, spawner):
         """Clean worktree returns None."""
         mock_run.return_value = MagicMock(returncode=0, stdout="")
-        with patch.object(Path, "exists", return_value=True), \
-             patch.object(Path, "iterdir", return_value=[Path("/home/egg/.egg-worktrees/pipe-1-coder/egg")]), \
-             patch.object(Path, "is_dir", return_value=True):
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch.object(
+                Path, "iterdir", return_value=[Path("/home/egg/.egg-worktrees/pipe-1-coder/egg")]
+            ),
+            patch.object(Path, "is_dir", return_value=True),
+        ):
             result = spawner.detect_uncommitted_changes("pipe-1", "coder")
         assert result is None
 

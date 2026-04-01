@@ -7,7 +7,6 @@ been replaced with tests confirming the no-op.  Helper function tests
 are kept for potential future use.
 """
 
-import types
 from unittest.mock import MagicMock, patch
 
 from post_agent_commit import _parse_changed_files, _push_via_gateway, auto_commit_worktree
@@ -63,9 +62,7 @@ class TestAutoCommitDisabledPush:
     @patch("post_agent_commit.subprocess.run")
     def test_no_push_with_credentials(self, mock_run, mock_push, tmp_path):
         """Push is never attempted even with session credentials."""
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout=" M file.py\n", stderr=""
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=" M file.py\n", stderr="")
         result = auto_commit_worktree(
             str(tmp_path),
             container_id="c1",
@@ -79,9 +76,7 @@ class TestAutoCommitDisabledPush:
     @patch("post_agent_commit.subprocess.run")
     def test_no_salvage_branch_on_main(self, mock_run, mock_push, tmp_path):
         """No salvage branch creation even when on main."""
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout=" M file.py\n", stderr=""
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=" M file.py\n", stderr="")
         result = auto_commit_worktree(
             str(tmp_path),
             container_id="c1",

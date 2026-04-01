@@ -11,7 +11,6 @@ Called from the session cleanup flow in ``session_manager.py``.
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path

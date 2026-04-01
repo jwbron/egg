@@ -74,9 +74,7 @@ class TestAutoCommitDisabled:
     @patch("post_agent_commit.subprocess.run")
     def test_dirty_worktree_returns_none(self, mock_run, tmp_path):
         """Dirty worktree no longer creates a commit -- returns None."""
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout=" M file.py\n", stderr=""
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=" M file.py\n", stderr="")
         result = auto_commit_worktree(str(tmp_path), container_id="c1")
         assert result is None
 
@@ -94,9 +92,7 @@ class TestAutoCommitDisabled:
     @patch("post_agent_commit.subprocess.run")
     def test_no_add_call(self, mock_run, tmp_path):
         """No git add should be executed."""
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout=" M file.py\n", stderr=""
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=" M file.py\n", stderr="")
         auto_commit_worktree(str(tmp_path), container_id="c1")
         for call in mock_run.call_args_list:
             cmd = call[0][0]
@@ -106,9 +102,7 @@ class TestAutoCommitDisabled:
     @patch("post_agent_commit.subprocess.run")
     def test_no_push_even_with_credentials(self, mock_run, mock_push, tmp_path):
         """No push should be attempted even with session credentials."""
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout=" M file.py\n", stderr=""
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=" M file.py\n", stderr="")
         result = auto_commit_worktree(
             str(tmp_path),
             container_id="c1",
@@ -122,9 +116,7 @@ class TestAutoCommitDisabled:
     @patch("post_agent_commit.subprocess.run")
     def test_consensus_confirmed_still_returns_none(self, mock_run, mock_push, tmp_path):
         """Even with consensus_confirmed=True, returns None (no commit)."""
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout=" M file.py\n", stderr=""
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=" M file.py\n", stderr="")
         result = auto_commit_worktree(
             str(tmp_path),
             container_id="c1",
@@ -205,8 +197,7 @@ class TestAutoCommitLogging:
         )
         assert mock_logger.info.called
         call_kwargs = mock_logger.info.call_args
-        assert "disabled" in call_kwargs[0][0].lower() or \
-               "auto_commit_disabled" in str(call_kwargs)
+        assert "disabled" in call_kwargs[0][0].lower() or "auto_commit_disabled" in str(call_kwargs)
 
     @patch("post_agent_commit.logger")
     @patch("post_agent_commit.subprocess.run")

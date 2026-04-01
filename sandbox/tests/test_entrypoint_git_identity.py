@@ -8,7 +8,7 @@ pipelines.
 import os
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -104,9 +104,7 @@ class TestSetupGitIdentityWithoutRole:
             os.environ.pop("EGG_AGENT_ROLE", None)
             setup_git(mock_config, mock_logger)
 
-        mock_logger.success.assert_any_call(
-            "Git configured to commit as egg <egg@localhost>"
-        )
+        mock_logger.success.assert_any_call("Git configured to commit as egg <egg@localhost>")
 
 
 class TestSetupGitIdentityEmptyRole:

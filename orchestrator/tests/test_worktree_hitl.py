@@ -12,8 +12,6 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 # Ensure gateway is importable for WorktreeManager tests
 _gateway_path = str(Path(__file__).parent.parent.parent / "gateway")
 if _gateway_path not in sys.path:
@@ -46,8 +44,10 @@ class TestDetectUncommittedChanges:
         )
 
         # Patch the base path used inside the method and subprocess.run
-        with patch("subprocess.run", return_value=mock_result), \
-             patch("container_spawner.Path") as mock_path_cls:
+        with (
+            patch("subprocess.run", return_value=mock_result),
+            patch("container_spawner.Path") as mock_path_cls,
+        ):
             # Make Path("/home/egg/.egg-worktrees") return tmp_path
             mock_path_cls.return_value = tmp_path
 
@@ -73,8 +73,10 @@ class TestDetectUncommittedChanges:
 
         mock_result = MagicMock(returncode=0, stdout="", stderr="")
 
-        with patch("subprocess.run", return_value=mock_result), \
-             patch("container_spawner.Path") as mock_path_cls:
+        with (
+            patch("subprocess.run", return_value=mock_result),
+            patch("container_spawner.Path") as mock_path_cls,
+        ):
             mock_path_cls.return_value = tmp_path
 
             result = spawner.detect_uncommitted_changes(
@@ -108,8 +110,10 @@ class TestDetectUncommittedChanges:
 
         mock_result = MagicMock(returncode=128, stdout="", stderr="fatal: error")
 
-        with patch("subprocess.run", return_value=mock_result), \
-             patch("container_spawner.Path") as mock_path_cls:
+        with (
+            patch("subprocess.run", return_value=mock_result),
+            patch("container_spawner.Path") as mock_path_cls,
+        ):
             mock_path_cls.return_value = tmp_path
 
             result = spawner.detect_uncommitted_changes(
@@ -143,14 +147,14 @@ class TestCleanupCleanWorktree:
         clean_result = MagicMock(returncode=0, stdout="", stderr="")
         removal_result = MagicMock(success=True)
 
-        with patch("worktree_manager.subprocess.run", return_value=clean_result), \
-             patch.object(manager, "remove_worktree", return_value=removal_result) as mock_remove:
+        with (
+            patch("worktree_manager.subprocess.run", return_value=clean_result),
+            patch.object(manager, "remove_worktree", return_value=removal_result) as mock_remove,
+        ):
             result = manager.cleanup_clean_worktree("container-1", "myrepo")
 
         assert result is True
-        mock_remove.assert_called_once_with(
-            "container-1", "myrepo", force=True, delete_branch=True
-        )
+        mock_remove.assert_called_once_with("container-1", "myrepo", force=True, delete_branch=True)
 
     def test_preserves_dirty_worktree(self, tmp_path):
         """Should NOT remove worktree that has uncommitted changes."""
@@ -161,8 +165,10 @@ class TestCleanupCleanWorktree:
 
         dirty_result = MagicMock(returncode=0, stdout=" M dirty.py\n", stderr="")
 
-        with patch("worktree_manager.subprocess.run", return_value=dirty_result), \
-             patch.object(manager, "remove_worktree") as mock_remove:
+        with (
+            patch("worktree_manager.subprocess.run", return_value=dirty_result),
+            patch.object(manager, "remove_worktree") as mock_remove,
+        ):
             result = manager.cleanup_clean_worktree("container-1", "myrepo")
 
         assert result is False

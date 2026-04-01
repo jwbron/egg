@@ -29,32 +29,7 @@ if TYPE_CHECKING:
 # Re-export from shared package for backwards compatibility
 from egg_restrictions.patterns import (
     AgentRole,
-    AgentFilePattern,
-    CODER_PATTERNS,
-    TESTER_PATTERNS,
-    DOCUMENTER_PATTERNS,
-    ARCHITECT_PATTERNS,
-    TASK_PLANNER_PATTERNS,
-    RISK_ANALYST_PATTERNS,
-    REFINER_PATTERNS,
-    REVIEWER_CODE_PATTERNS,
-    REVIEWER_CONTRACT_PATTERNS,
-    REVIEWER_AGENT_DESIGN_PATTERNS,
-    REVIEWER_REFINE_PATTERNS,
-    REVIEWER_PLAN_PATTERNS,
-    OVERSEER_PATTERNS,
-    AUTOFIXER_PATTERNS,
-    CONFLICT_RESOLVER_PATTERNS,
-    INSPECTOR_PATTERNS,
-    AGENT_PATTERNS,
 )
-from egg_restrictions.checker import (
-    AgentRestrictionResult,
-    check_agent_file_access,
-    get_agent_pattern,
-    validate_agent_push,
-)
-
 
 # --- GitHub operation restrictions ---
 # Blocks agents from executing specific gh CLI commands (e.g., issue comment).

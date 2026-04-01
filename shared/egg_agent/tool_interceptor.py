@@ -63,7 +63,7 @@ def check_file_write_permission(
 
     # Check against role restrictions
     try:
-        from egg_restrictions import check_agent_file_access, AGENT_PATTERNS
+        from egg_restrictions import AGENT_PATTERNS, check_agent_file_access
     except ImportError:
         # If egg_restrictions not available, allow (fail-open for backward compat)
         return None

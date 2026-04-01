@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from egg_restrictions import (
     AGENT_PATTERNS,
     AgentFilePattern,
@@ -31,7 +29,6 @@ from egg_restrictions.patterns import (
     TASK_PLANNER_PATTERNS,
     TESTER_PATTERNS,
 )
-
 
 # ---------------------------------------------------------------------------
 # AgentRole
@@ -580,9 +577,7 @@ class TestAgentRestrictionResult:
         assert result.blocked_files == []
 
     def test_block_factory(self):
-        result = AgentRestrictionResult.block(
-            "coder", ["docs/guide.md"], "Cannot modify docs"
-        )
+        result = AgentRestrictionResult.block("coder", ["docs/guide.md"], "Cannot modify docs")
         assert result.allowed is False
         assert result.role == "coder"
         assert result.blocked_files == ["docs/guide.md"]
@@ -645,9 +640,7 @@ class TestValidateAgentPush:
         assert result.allowed is True
 
     def test_reviewer_contract_push_contracts(self):
-        result = validate_agent_push(
-            "reviewer_contract", [".egg-state/contracts/spec.json"]
-        )
+        result = validate_agent_push("reviewer_contract", [".egg-state/contracts/spec.json"])
         assert result.allowed is True
 
     def test_overseer_push_oversight(self):

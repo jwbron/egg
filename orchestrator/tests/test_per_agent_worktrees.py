@@ -42,9 +42,7 @@ def mock_docker_client():
 def mock_gateway_client():
     """Create a mock Gateway client."""
     mock = MagicMock()
-    mock.check_health.return_value = GatewayHealth(
-        healthy=True, status="healthy", version="0.1.0"
-    )
+    mock.check_health.return_value = GatewayHealth(healthy=True, status="healthy", version="0.1.0")
     mock.register_session.return_value = SessionInfo(
         session_token="test-token-12345",
         container_id="abc123def456",
@@ -108,15 +106,18 @@ class TestContainerIdEnvVar:
         # Verify that create_worktrees was called with the per-agent ID.
         mock_gateway_client.create_worktrees.assert_called_once()
         call_kwargs = mock_gateway_client.create_worktrees.call_args
-        assert call_kwargs.kwargs.get("container_id") or call_kwargs[1].get(
-            "container_id"
-        ), "create_worktrees should be called with container_id"
+        assert call_kwargs.kwargs.get("container_id") or call_kwargs[1].get("container_id"), (
+            "create_worktrees should be called with container_id"
+        )
 
         # The container_id for the worktree should be per-agent
         if call_kwargs.kwargs:
             assert call_kwargs.kwargs["container_id"] == "issue-123-coder"
         else:
-            assert call_kwargs[0][0] == "issue-123-coder" or call_kwargs[1]["container_id"] == "issue-123-coder"
+            assert (
+                call_kwargs[0][0] == "issue-123-coder"
+                or call_kwargs[1]["container_id"] == "issue-123-coder"
+            )
 
     @patch.dict("os.environ", {"HOST_UID": "1000", "HOST_GID": "1000"})
     def test_different_roles_get_different_worktree_ids(
@@ -245,9 +246,7 @@ class TestCleanupPipelineWorktrees:
         assert "issue-123-coder" in deleted_ids
         assert "issue-123-tester" in deleted_ids
 
-    def test_cleanup_handles_no_containers(
-        self, spawner, mock_docker_client, mock_gateway_client
-    ):
+    def test_cleanup_handles_no_containers(self, spawner, mock_docker_client, mock_gateway_client):
         """cleanup_pipeline should still clean up pipeline-level worktree."""
         mock_docker_client.list_containers.return_value = []
 

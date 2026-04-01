@@ -9,13 +9,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 # Add shared/ to sys.path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "shared"))
 
 from egg_agent.tool_interceptor import check_file_write_permission
-
 
 # ---------------------------------------------------------------------------
 # Write tool interception
@@ -293,9 +290,7 @@ class TestErrorMessageIncludesOwnerRole:
             agent_role="tester",
         )
         assert result is not None
-        assert "coder" in result, (
-            f"Error should mention 'coder' as the owning role, got: {result}"
-        )
+        assert "coder" in result, f"Error should mention 'coder' as the owning role, got: {result}"
 
     def test_error_message_mentions_gateway(self):
         """Error should mention that the gateway would reject the operation."""
@@ -305,9 +300,7 @@ class TestErrorMessageIncludesOwnerRole:
             agent_role="coder",
         )
         assert result is not None
-        assert "gateway" in result.lower(), (
-            f"Error should mention gateway rejection, got: {result}"
-        )
+        assert "gateway" in result.lower(), f"Error should mention gateway rejection, got: {result}"
 
     def test_error_message_suggests_delegation(self):
         """Error should suggest delegating to the appropriate agent."""
@@ -317,9 +310,7 @@ class TestErrorMessageIncludesOwnerRole:
             agent_role="coder",
         )
         assert result is not None
-        assert "delegat" in result.lower(), (
-            f"Error should suggest delegation, got: {result}"
-        )
+        assert "delegat" in result.lower(), f"Error should suggest delegation, got: {result}"
 
 
 # ---------------------------------------------------------------------------

@@ -5,15 +5,12 @@ from __future__ import annotations
 import os
 from unittest import mock
 
-import pytest
-
 from egg_agent.tool_interceptor import (
     _find_owning_role,
     _normalize_to_repo_relative,
     check_file_write_permission,
     get_role_from_env,
 )
-
 
 # ---------------------------------------------------------------------------
 # check_file_write_permission

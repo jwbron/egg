@@ -176,9 +176,7 @@ class TestNormalizeToRepoRelative:
 
     def test_deep_repo_path(self):
         """Deeply nested file under repos prefix."""
-        result = _normalize_to_repo_relative(
-            "/home/egg/repos/myrepo/deep/nested/file.py"
-        )
+        result = _normalize_to_repo_relative("/home/egg/repos/myrepo/deep/nested/file.py")
         assert result == "deep/nested/file.py"
 
 

@@ -13,11 +13,9 @@ interactions. Full end-to-end tests require a running infrastructure.
 
 from __future__ import annotations
 
-import os
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -26,15 +24,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "shared"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "gateway"))
 
 from egg_restrictions import (
-    AGENT_PATTERNS,
-    AgentFilePattern,
-    AgentRole,
     check_agent_file_access,
     get_agent_pattern,
     validate_agent_push,
 )
-from egg_restrictions.checker import AgentRestrictionResult
-
 
 # ---------------------------------------------------------------------------
 # Worktree ID generation
@@ -193,9 +186,7 @@ class TestUnknownRoleDenied:
     """Verify unknown role gets deny-all from egg_restrictions."""
 
     def test_unknown_role_denied(self):
-        allowed, blocked, reason = check_agent_file_access(
-            "unknown_agent", ["src/main.py"]
-        )
+        allowed, blocked, reason = check_agent_file_access("unknown_agent", ["src/main.py"])
         assert not allowed
         assert "src/main.py" in blocked
         assert "Unknown agent role" in reason
@@ -358,13 +349,9 @@ class TestCrossRoleEnforcementMatrix:
     def test_cross_role_enforcement_matrix(self, role, file_path, expected_allowed):
         allowed, blocked, reason = check_agent_file_access(role, [file_path])
         if expected_allowed:
-            assert allowed, (
-                f"Role '{role}' should be ALLOWED to write {file_path}: {reason}"
-            )
+            assert allowed, f"Role '{role}' should be ALLOWED to write {file_path}: {reason}"
         else:
-            assert not allowed, (
-                f"Role '{role}' should be BLOCKED from writing {file_path}"
-            )
+            assert not allowed, f"Role '{role}' should be BLOCKED from writing {file_path}"
             assert file_path in blocked
 
 
@@ -392,9 +379,7 @@ class TestValidateAgentPushIntegration:
         assert result.allowed
 
     def test_mixed_files_blocks_on_any_violation(self):
-        result = validate_agent_push(
-            "coder", ["src/main.py", "tests/test_main.py"]
-        )
+        result = validate_agent_push("coder", ["src/main.py", "tests/test_main.py"])
         assert not result.allowed
         assert "tests/test_main.py" in result.blocked_files
         # Allowed file should NOT be in blocked list

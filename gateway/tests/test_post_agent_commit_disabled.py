@@ -6,10 +6,9 @@ behavior: no git commits are created, uncommitted changes are logged,
 and the function signature remains backward-compatible.
 """
 
-import subprocess
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
-from post_agent_commit import _parse_changed_files, auto_commit_worktree
+from post_agent_commit import auto_commit_worktree
 
 
 class TestAutoCommitDisabledWithChanges:
@@ -31,13 +30,9 @@ class TestAutoCommitDisabledWithChanges:
         assert result is None
 
     @patch("post_agent_commit.subprocess.run")
-    def test_uncommitted_changes_with_session_credentials_returns_none(
-        self, mock_run, tmp_path
-    ):
+    def test_uncommitted_changes_with_session_credentials_returns_none(self, mock_run, tmp_path):
         """Even with session token and gateway URL, should still return None."""
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout=" M file.py\n", stderr=""
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=" M file.py\n", stderr="")
         result = auto_commit_worktree(
             str(tmp_path),
             container_id="c1",
@@ -62,9 +57,7 @@ class TestAutoCommitDisabledNonExistent:
     """auto_commit_worktree with non-existent path returns None."""
 
     def test_nonexistent_worktree_returns_none(self, tmp_path):
-        result = auto_commit_worktree(
-            str(tmp_path / "nonexistent"), container_id="c1"
-        )
+        result = auto_commit_worktree(str(tmp_path / "nonexistent"), container_id="c1")
         assert result is None
 
 
@@ -74,9 +67,7 @@ class TestNoGitCommitExecuted:
     @patch("post_agent_commit.subprocess.run")
     def test_no_commit_call_with_changes(self, mock_run, tmp_path):
         """With uncommitted changes, only git status should be called."""
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout=" M file.py\n", stderr=""
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=" M file.py\n", stderr="")
         auto_commit_worktree(
             str(tmp_path),
             container_id="c1",
@@ -89,9 +80,7 @@ class TestNoGitCommitExecuted:
         # Verify no call contains "commit" in its arguments
         for c in mock_run.call_args_list:
             args = c[0][0] if c[0] else c[1].get("args", [])
-            assert "commit" not in args, (
-                f"git commit should not be called, but found: {args}"
-            )
+            assert "commit" not in args, f"git commit should not be called, but found: {args}"
 
     @patch("post_agent_commit.subprocess.run")
     def test_no_add_call_with_changes(self, mock_run, tmp_path):
@@ -103,16 +92,12 @@ class TestNoGitCommitExecuted:
 
         for c in mock_run.call_args_list:
             args = c[0][0] if c[0] else c[1].get("args", [])
-            assert "add" not in args, (
-                f"git add should not be called, but found: {args}"
-            )
+            assert "add" not in args, f"git add should not be called, but found: {args}"
 
     @patch("post_agent_commit.subprocess.run")
     def test_no_push_call_with_changes(self, mock_run, tmp_path):
         """No push should be attempted even with session credentials."""
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout=" M file.py\n", stderr=""
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=" M file.py\n", stderr="")
         auto_commit_worktree(
             str(tmp_path),
             container_id="c1",
@@ -122,9 +107,7 @@ class TestNoGitCommitExecuted:
 
         for c in mock_run.call_args_list:
             args = c[0][0] if c[0] else c[1].get("args", [])
-            assert "push" not in args, (
-                f"git push should not be called, but found: {args}"
-            )
+            assert "push" not in args, f"git push should not be called, but found: {args}"
 
 
 class TestUncommittedChangesLogged:
@@ -155,9 +138,7 @@ class TestUncommittedChangesLogged:
             if "disabled" in msg.lower() or "auto_commit_disabled" in str(c):
                 found = True
                 break
-        assert found, (
-            f"Expected log about auto-commit being disabled, got: {info_calls}"
-        )
+        assert found, f"Expected log about auto-commit being disabled, got: {info_calls}"
 
     @patch("post_agent_commit.logger")
     @patch("post_agent_commit.subprocess.run")
