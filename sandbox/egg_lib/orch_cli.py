@@ -1127,6 +1127,7 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
                     ["git", "rev-parse", "HEAD"],
                     text=True,
                     cwd=os.environ.get("EGG_REPO_PATH"),
+                    stderr=subprocess.DEVNULL,
                 ).strip()
             except (subprocess.CalledProcessError, FileNotFoundError):
                 print(
