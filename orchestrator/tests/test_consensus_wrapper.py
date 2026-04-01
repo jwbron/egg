@@ -280,7 +280,9 @@ class TestConsensusWrapperBehavior:
                 f.write("#!/bin/bash\n")
                 f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
                 f.write('if echo "$@" | grep -q "pipeline status"; then\n')
-                f.write('  echo \'{"data": {"concurrent": {"consensus": {"is_complete": false, "agents": {}}}}}\'\n')
+                f.write(
+                    '  echo \'{"data": {"concurrent": {"consensus": {"is_complete": false, "agents": {}}}}}\'\n'
+                )
                 f.write('elif echo "$@" | grep -q "message poll"; then\n')
                 f.write('  echo "[]"\n')
                 f.write("else\n")
@@ -319,7 +321,10 @@ class TestConsensusWrapperBehavior:
 
             cmd = build_consensus_wrapped_command("Do the work", max_restarts=2)
             result = self._run_wrapper_command(
-                cmd, tmpdir, agent_role="coder", timeout=30,
+                cmd,
+                tmpdir,
+                agent_role="coder",
+                timeout=30,
             )
 
             assert result.returncode == 0
@@ -408,7 +413,9 @@ class TestConsensusWrapperBehavior:
                 f.write("#!/bin/bash\n")
                 f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
                 f.write('if echo "$@" | grep -q "pipeline status"; then\n')
-                f.write('  echo \'{"data": {"concurrent": {"consensus": {"is_complete": false, "agents": {}}}}}\'\n')
+                f.write(
+                    '  echo \'{"data": {"concurrent": {"consensus": {"is_complete": false, "agents": {}}}}}\'\n'
+                )
                 f.write('elif echo "$@" | grep -q "message poll"; then\n')
                 f.write('  echo "[]"\n')
                 f.write("else\n")

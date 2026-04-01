@@ -539,13 +539,9 @@ def handle_error_signal(
         phase_execution = pipeline.phases.get(phase_key)
         if phase_execution is not None:
             for agent in phase_execution.agents:
-                if (
-                    agent.role == agent_role
-                    and agent.status == AgentExecutionStatus.COMPLETE
-                ):
+                if agent.role == agent_role and agent.status == AgentExecutionStatus.COMPLETE:
                     logger.info(
-                        "Agent already COMPLETE, suppressing error signal "
-                        "(consensus path)",
+                        "Agent already COMPLETE, suppressing error signal (consensus path)",
                         pipeline_id=pipeline_id,
                         role=agent_role.value,
                     )
