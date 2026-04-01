@@ -42,8 +42,120 @@
       "started_at": "2026-04-01T21:37:26.966651Z",
       "work_started_at": "2026-04-01T21:37:26.981325Z",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "ef8ef6797af698586a7c904c63cf362242bca4191af0d49fd69c7fac80985758",
+          "container_name": "issue-1495-coder",
+          "status": "running",
+          "started_at": "2026-04-01T21:37:30.557071Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "coder",
+          "session_token": null
+        },
+        {
+          "container_id": "4e548243728020a273038b714bbaa37de41294801749bd87f58857ea4f9e5976",
+          "container_name": "issue-1495-reviewer_code",
+          "status": "running",
+          "started_at": "2026-04-01T21:37:30.557108Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_code",
+          "session_token": null
+        },
+        {
+          "container_id": "f0a7e8508bee1ab6fe5ada01ac5eec0f2b9ac2aee5dacc585f89bb6ab87f6c61",
+          "container_name": "issue-1495-tester",
+          "status": "running",
+          "started_at": "2026-04-01T21:37:30.557121Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "tester",
+          "session_token": null
+        },
+        {
+          "container_id": "8295d588cfc11a7731eb8c406aaa3e5bc94b22f2f0980a889f0f8e054c652956",
+          "container_name": "issue-1495-documenter",
+          "status": "running",
+          "started_at": "2026-04-01T21:37:30.557132Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "documenter",
+          "session_token": null
+        },
+        {
+          "container_id": "d79cfd7ee2e1e388d6f9f907d7ed52aae5cf549c5abd971cbfb6446dea4e6e0c",
+          "container_name": "issue-1495-reviewer_contract",
+          "status": "running",
+          "started_at": "2026-04-01T21:37:30.557142Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_contract",
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "coder",
+          "status": "running",
+          "container_id": "ef8ef6797af698586a7c904c63cf362242bca4191af0d49fd69c7fac80985758",
+          "started_at": "2026-04-01T21:37:30.557092Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_code",
+          "status": "running",
+          "container_id": "4e548243728020a273038b714bbaa37de41294801749bd87f58857ea4f9e5976",
+          "started_at": "2026-04-01T21:37:30.557114Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "tester",
+          "status": "running",
+          "container_id": "f0a7e8508bee1ab6fe5ada01ac5eec0f2b9ac2aee5dacc585f89bb6ab87f6c61",
+          "started_at": "2026-04-01T21:37:30.557126Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "documenter",
+          "status": "running",
+          "container_id": "8295d588cfc11a7731eb8c406aaa3e5bc94b22f2f0980a889f0f8e054c652956",
+          "started_at": "2026-04-01T21:37:30.557137Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_contract",
+          "status": "running",
+          "container_id": "d79cfd7ee2e1e388d6f9f907d7ed52aae5cf549c5abd971cbfb6446dea4e6e0c",
+          "started_at": "2026-04-01T21:37:30.557150Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -62,7 +174,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-01T21:37:01.139273Z",
-  "updated_at": "2026-04-01T21:37:26.982635Z",
+  "updated_at": "2026-04-01T21:37:30.557336Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -70,5 +182,5 @@
   "error": null,
   "analysis": "### Task Analysis\n\n**Problem statement**: Pipelines that achieve full BRC consensus still report as `failed` and never create PRs.\n\n**Technical root cause**: Two bugs compound:\n1. **Consensus wrapper** (line 332-333): After exhausting restarts, exits with code 1 without a final consensus check.\n2. **Orchestrator** (line 4717-4718): When `is_complete` is True, still returns failure if any container had a non-zero exit.\n\n**Files affected**:\n- `orchestrator/consensus_wrapper.py` — Add final consensus check before exit 1\n- `orchestrator/routes/pipelines.py` — Remove `has_failures` check when consensus is complete",
   "plan": "# Plan: Fix consensus-complete pipelines reporting as failed\n\n## Summary\n\nFix the two compounding bugs that cause successful BRC consensus to be reported as pipeline failure. The consensus wrapper needs a final consensus check before its exit-1 fallback, and the orchestrator needs to trust `is_complete=True` as the authoritative success signal rather than propagating stale `has_failures` flags from container exit codes.\n\n**Risks / edge cases**: Safe because `is_complete=True` requires ALL agents to have confirmed.\n\n## Implementation\n\n### Phase 1: Implement\n\n**Tasks**:\n1. **[task-1-1]** In `orchestrator/consensus_wrapper.py` (lines 331-333), add a final consensus status check before the `exit 1`. Poll `egg-orch pipeline status --json`, extract `is_complete`, and if True, log \"Consensus reached on final check\" and exit 0.\n2. **[task-1-2]** In `orchestrator/routes/pipelines.py` (lines 4713-4718), when consensus is complete (`is_complete=True`), log a warning if `has_failures[0]` was set but return 0 instead of 1.\n3. **[task-1-3]** Add tests for both fixes.\n\n```yaml\n# yaml-tasks\npr:\n  title: \"Fix consensus-complete pipelines falsely reporting as failed\"\n  description: |\n    Fix two compounding bugs where successful BRC consensus is reported as pipeline failure.\n    The consensus wrapper now does a final consensus check before exit 1, and the orchestrator\n    trusts is_complete=True as the authoritative success signal over container exit codes.\n  test_plan: |\n    - Automated: Unit tests for consensus wrapper final check and orchestrator consensus-overrides-exit-code\n    - Manual: Run a short-flow pipeline and verify it completes successfully with PR creation\n  manual_steps: |\n    Pre-merge: None\n    Post-merge: Monitor next few pipelines for correct phase transitions after consensus\nphases:\n  - id: 1\n    name: Implement\n    goal: \"Fix consensus wrapper exit code and orchestrator failure propagation so consensus-complete pipelines succeed\"\n    tasks:\n      - id: task-1-1\n        description: \"In `orchestrator/consensus_wrapper.py` (lines 331-333), add a final consensus status check before the `exit 1`. Poll `egg-orch pipeline status --json`, extract `is_complete`, and if True, log 'Consensus reached on final check' and exit 0 instead of 1.\"\n        acceptance: \"Consensus wrapper exits 0 when consensus is complete, even after exhausting max restarts\"\n        files:\n          - orchestrator/consensus_wrapper.py\n      - id: task-1-2\n        description: \"In `orchestrator/routes/pipelines.py` (lines 4713-4718), when consensus is complete (is_complete=True), log a warning if has_failures[0] was set but return 0 (success) instead of 1.\"\n        acceptance: \"Orchestrator returns 0 when consensus is complete regardless of container exit codes\"\n        files:\n          - orchestrator/routes/pipelines.py\n      - id: task-1-3\n        description: \"Add tests: (a) verify consensus wrapper template includes final consensus check before exit 1, (b) verify _wait_for_consensus returns 0 when consensus complete with has_failures=True\"\n        acceptance: \"Tests pass and cover both fix paths\"\n        files:\n          - orchestrator/tests/test_consensus_wrapper.py\n          - orchestrator/tests/test_pipelines.py\n```",
-  "version": 6
+  "version": 7
 }
