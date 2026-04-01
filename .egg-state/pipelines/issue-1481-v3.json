@@ -42,8 +42,120 @@
       "started_at": "2026-04-01T07:21:55.938804Z",
       "work_started_at": "2026-04-01T07:21:55.949705Z",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "8c95d5be215288133ec4484333e03bf83f3fbf705ce5b29396e0e49026cdf44f",
+          "container_name": "issue-1481-v3-tester",
+          "status": "running",
+          "started_at": "2026-04-01T07:21:56.960279Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "tester",
+          "session_token": null
+        },
+        {
+          "container_id": "fad9be13426033f5cf9b460ec3d1bcfca0480e333fb2794958ec0f4b309682ad",
+          "container_name": "issue-1481-v3-reviewer_contract",
+          "status": "running",
+          "started_at": "2026-04-01T07:21:56.960294Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_contract",
+          "session_token": null
+        },
+        {
+          "container_id": "285c6a8823fb013f6e29d7fe65648093d6218169e15bb76044f9e1f93c5550ac",
+          "container_name": "issue-1481-v3-documenter",
+          "status": "running",
+          "started_at": "2026-04-01T07:21:56.960299Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "documenter",
+          "session_token": null
+        },
+        {
+          "container_id": "8dd27eb258ca6cde37ce086beb3a6696075b154ed2ade82e1756bc02c8884da6",
+          "container_name": "issue-1481-v3-coder",
+          "status": "running",
+          "started_at": "2026-04-01T07:21:56.960304Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "coder",
+          "session_token": null
+        },
+        {
+          "container_id": "b4ff5c1aa3d202a83291da9561158319a287b2aef9863bfadd0e7da5858c8690",
+          "container_name": "issue-1481-v3-reviewer_code",
+          "status": "running",
+          "started_at": "2026-04-01T07:21:56.960308Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_code",
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "tester",
+          "status": "running",
+          "container_id": "8c95d5be215288133ec4484333e03bf83f3fbf705ce5b29396e0e49026cdf44f",
+          "started_at": "2026-04-01T07:21:56.960288Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_contract",
+          "status": "running",
+          "container_id": "fad9be13426033f5cf9b460ec3d1bcfca0480e333fb2794958ec0f4b309682ad",
+          "started_at": "2026-04-01T07:21:56.960297Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "documenter",
+          "status": "running",
+          "container_id": "285c6a8823fb013f6e29d7fe65648093d6218169e15bb76044f9e1f93c5550ac",
+          "started_at": "2026-04-01T07:21:56.960301Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "coder",
+          "status": "running",
+          "container_id": "8dd27eb258ca6cde37ce086beb3a6696075b154ed2ade82e1756bc02c8884da6",
+          "started_at": "2026-04-01T07:21:56.960306Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_code",
+          "status": "running",
+          "container_id": "b4ff5c1aa3d202a83291da9561158319a287b2aef9863bfadd0e7da5858c8690",
+          "started_at": "2026-04-01T07:21:56.960310Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -62,7 +174,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-01T07:21:25.079432Z",
-  "updated_at": "2026-04-01T07:21:55.953222Z",
+  "updated_at": "2026-04-01T07:21:56.960381Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -70,5 +182,5 @@
   "error": null,
   "analysis": "See the full analysis at .egg-state/drafts/1481-analysis.md on the egg/issue-1481-v2 branch. Key points: shared worktree is the root cause, Option A (full layered enforcement) recommended and HITL-approved. All design decisions resolved: default-on worktrees (no opt-out), Write/Edit/NotebookEdit SDK interception (egg_agent only), convention-only agent-outputs keying, auto-commit-push removed entirely (HITL recovery instead), signal error to orchestrator on rebase conflict.",
   "plan": "See the full plan at .egg-state/drafts/1481-plan.md on the egg/issue-1481-v2 branch. 6 phases, 24 tasks: (1) Extract agent restrictions to shared package, (2) Per-agent worktree isolation + scoped push detection, (3) Per-agent git identity, (4) SDK tool interception, (5) Remove auto-commit-push + HITL recovery, (6) Integration tests + docs. Single PR.",
-  "version": 6
+  "version": 7
 }
