@@ -182,10 +182,24 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "What is the expected behavior when an agent's commit contains ONLY disallowed files (i.e., all files would be filtered)? Should the push succeed with zero files, or should it return a specific error/warning?",
+      "context": "",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-01T04:33:39.955838Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-01T04:08:32.112157Z",
-  "updated_at": "2026-04-01T04:33:29.540502Z",
+  "updated_at": "2026-04-01T04:33:39.957457Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -193,5 +207,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 10
+  "version": 11
 }
