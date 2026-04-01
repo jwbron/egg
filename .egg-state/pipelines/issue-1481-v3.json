@@ -5,7 +5,7 @@
   "branch": "egg/issue-1481-v3",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -38,10 +38,10 @@
   "phases": {
     "implement": {
       "phase": "implement",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-04-01T07:21:55.938804Z",
       "work_started_at": "2026-04-01T07:21:55.949705Z",
-      "completed_at": null,
+      "completed_at": "2026-04-01T08:51:57.223704Z",
       "containers": [
         {
           "container_id": "8c95d5be215288133ec4484333e03bf83f3fbf705ce5b29396e0e49026cdf44f",
@@ -162,25 +162,25 @@
         {
           "cycle": 0,
           "started_at": "2026-04-01T07:21:55.949705Z",
-          "completed_at": null,
+          "completed_at": "2026-04-01T08:51:57.223691Z",
           "commit_sha": "73ac7b18b512c06a7381a308fc097708d29614d6"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-01T08:51:55.567011928Z   event_type=tool_use\n2026-04-01T08:51:55.567042886Z   tool_name=Bash\n2026-04-01T08:51:55.567068803Z   tool_use_id=toolu_01QVEuvaJiSxgwHNo8P4Sgm7\n2026-04-01T08:51:55.567094886Z   input:\n2026-04-01T08:51:55.567125262Z     {\"command\": \"egg-orch signal heartbeat 2>&1 && egg-orch message poll --wait 30 2>&1 | grep -E \\\"PHASE_TRANSITION|STOP|SHUTDOWN\\\" | head -5\", \"description\": \"Poll for stop/transition\", \"timeout\": 45000}\n2026-04-01T08:51:55.945292124Z 2026-04-01 08:51:55 [INFO    ] egg-agent: Tool result [/opt/egg-runtime/shared/egg_agent/client.py:205]\n2026-04-01T08:51:55.945344374Z   event_type=tool_result\n2026-04-01T08:51:55.945356291Z   tool_use_id=toolu_01QVEuvaJiSxgwHNo8P4Sgm7\n2026-04-01T08:51:55.945368124Z   is_error=False\n2026-04-01T08:51:55.945379416Z   content=Heartbeat sent",
       "hitl_feedback": null,
       "phase_start_sha": "73ac7b18b512c06a7381a308fc097708d29614d6"
     }
   },
   "decisions": [],
   "created_at": "2026-04-01T07:21:25.079432Z",
-  "updated_at": "2026-04-01T08:51:57.207780Z",
+  "updated_at": "2026-04-01T08:51:57.223943Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-01T08:51:55.567011928Z   event_type=tool_use\n2026-04-01T08:51:55.567042886Z   tool_name=Bash\n2026-04-01T08:51:55.567068803Z   tool_use_id=toolu_01QVEuvaJiSxgwHNo8P4Sgm7\n2026-04-01T08:51:55.567094886Z   input:\n2026-04-01T08:51:55.567125262Z     {\"command\": \"egg-orch signal heartbeat 2>&1 && egg-orch message poll --wait 30 2>&1 | grep -E \\\"PHASE_TRANSITION|STOP|SHUTDOWN\\\" | head -5\", \"description\": \"Poll for stop/transition\", \"timeout\": 45000}\n2026-04-01T08:51:55.945292124Z 2026-04-01 08:51:55 [INFO    ] egg-agent: Tool result [/opt/egg-runtime/shared/egg_agent/client.py:205]\n2026-04-01T08:51:55.945344374Z   event_type=tool_result\n2026-04-01T08:51:55.945356291Z   tool_use_id=toolu_01QVEuvaJiSxgwHNo8P4Sgm7\n2026-04-01T08:51:55.945368124Z   is_error=False\n2026-04-01T08:51:55.945379416Z   content=Heartbeat sent",
   "analysis": "See the full analysis at .egg-state/drafts/1481-analysis.md on the egg/issue-1481-v2 branch. Key points: shared worktree is the root cause, Option A (full layered enforcement) recommended and HITL-approved. All design decisions resolved: default-on worktrees (no opt-out), Write/Edit/NotebookEdit SDK interception (egg_agent only), convention-only agent-outputs keying, auto-commit-push removed entirely (HITL recovery instead), signal error to orchestrator on rebase conflict.",
   "plan": "See the full plan at .egg-state/drafts/1481-plan.md on the egg/issue-1481-v2 branch. 6 phases, 24 tasks: (1) Extract agent restrictions to shared package, (2) Per-agent worktree isolation + scoped push detection, (3) Per-agent git identity, (4) SDK tool interception, (5) Remove auto-commit-push + HITL recovery, (6) Integration tests + docs. Single PR.",
-  "version": 12
+  "version": 13
 }
