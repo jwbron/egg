@@ -164,10 +164,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Should plan generation be updated to respect gateway role boundaries when assigning files to tasks?",
+      "context": "",
+      "options": [
+        "Yes — plan should align task file assignments with role boundaries (prevents mismatch at source)",
+        "No — gateway auto-filtering is sufficient, keep plan assignments advisory",
+        "Both — align plan AND auto-filter as defense-in-depth"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-01T04:33:29.538831Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-01T04:08:32.112157Z",
-  "updated_at": "2026-04-01T04:33:29.407132Z",
+  "updated_at": "2026-04-01T04:33:29.540502Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -175,5 +193,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 9
+  "version": 10
 }
