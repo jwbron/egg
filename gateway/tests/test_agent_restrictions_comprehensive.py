@@ -449,10 +449,11 @@ class TestCheckAgentFileAccess:
         assert allowed is False
         assert "docs/guide.md" in blocked_files
 
-    def test_unknown_role_allows(self):
-        """Unknown roles should be allowed for backward compatibility."""
+    def test_unknown_role_denied(self):
+        """Unknown roles are denied by default (RISK-7 mitigation, #1481)."""
         allowed, blocked_files, reason = check_agent_file_access("unknown_role", ["any/file.py"])
-        assert allowed is True
+        assert allowed is False
+        assert blocked_files == ["any/file.py"]
 
 
 # ---------------------------------------------------------------------------

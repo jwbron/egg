@@ -659,10 +659,11 @@ class TestCheckAgentFileAccess:
         assert allowed is False
         assert "tests/test_foo.py" in blocked
 
-    def test_unknown_role_allows_all(self):
+    def test_unknown_role_denies_all(self):
+        """Unknown roles are denied by default (RISK-7 mitigation, #1481)."""
         allowed, blocked, reason = check_agent_file_access("unknown_role", ["anything.py"])
-        assert allowed is True
-        assert blocked == []
+        assert allowed is False
+        assert blocked == ["anything.py"]
 
     def test_multiple_blocked_files_truncated(self):
         """Reason message shows at most 5 blocked files then count."""

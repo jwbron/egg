@@ -1,8 +1,9 @@
-"""Tests for post_agent_commit.py auto-commit functionality.
+"""Tests for post_agent_commit.py.
 
-Validates that auto_commit_worktree correctly detects uncommitted changes,
-stages them, creates a WIP commit, filters phase-restricted files, and
-handles error cases.
+With per-agent worktree isolation (#1481), auto_commit_worktree() is a
+logged no-op that always returns None.  These tests verify the helper
+functions still work correctly and that auto_commit_worktree() never
+creates commits or pushes.
 """
 
 import subprocess
@@ -67,409 +68,102 @@ class TestAutoCommitWorktreeNoChanges:
         assert result is None
 
 
-class TestAutoCommitWorktreeSuccess:
-    """Cases where auto-commit should create a commit."""
+class TestAutoCommitDisabled:
+    """Auto-commit is now a no-op (#1481) -- always returns None."""
 
     @patch("post_agent_commit.subprocess.run")
-    def test_successful_commit_returns_sha(self, mock_run, tmp_path):
-        """Dirty worktree -> stage -> commit -> return SHA."""
-        mock_run.side_effect = [
-            # git status --porcelain
-            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
-            # git add -- file.py
-            MagicMock(returncode=0, stdout="", stderr=""),
-            # git commit
-            MagicMock(returncode=0, stdout="", stderr=""),
-            # git rev-parse HEAD
-            MagicMock(returncode=0, stdout="abc1234def5678\n", stderr=""),
-        ]
+    def test_dirty_worktree_returns_none(self, mock_run, tmp_path):
+        """Dirty worktree no longer creates a commit -- returns None."""
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout=" M file.py\n", stderr=""
+        )
         result = auto_commit_worktree(str(tmp_path), container_id="c1")
-        assert result == "abc1234def5678"
+        assert result is None
 
     @patch("post_agent_commit.subprocess.run")
-    def test_stages_specific_files_not_all(self, mock_run, tmp_path):
-        """Should use 'git add -- <files>' instead of 'git add -A'."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M file.py\n?? new.txt\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="sha123\n", stderr=""),
-        ]
-        auto_commit_worktree(str(tmp_path), container_id="c1")
-        # Second call is git add -- file.py new.txt
-        add_call = mock_run.call_args_list[1]
-        add_cmd = add_call[0][0]
-        assert "-A" not in add_cmd
-        assert "--" in add_cmd
-        assert "file.py" in add_cmd
-        assert "new.txt" in add_cmd
-
-    @patch("post_agent_commit.subprocess.run")
-    def test_commit_message_includes_container_id(self, mock_run, tmp_path):
-        """Commit message includes container ID."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M x.py\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="sha123\n", stderr=""),
-        ]
-        auto_commit_worktree(str(tmp_path), container_id="my-container-42")
-        # Third call is commit
-        commit_call = mock_run.call_args_list[2]
-        commit_cmd = commit_call[0][0]
-        msg_idx = commit_cmd.index("-m") + 1
-        assert "my-container-42" in commit_cmd[msg_idx]
-
-    @patch("post_agent_commit.subprocess.run")
-    def test_commit_message_includes_role(self, mock_run, tmp_path):
-        """Commit message includes agent role when provided."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout="?? new.txt\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="sha456\n", stderr=""),
-        ]
-        auto_commit_worktree(str(tmp_path), container_id="c1", agent_role="coder")
-        commit_cmd = mock_run.call_args_list[2][0][0]
-        msg_idx = commit_cmd.index("-m") + 1
-        assert "(coder)" in commit_cmd[msg_idx]
-
-    @patch("post_agent_commit.subprocess.run")
-    def test_commit_message_includes_pipeline_id(self, mock_run, tmp_path):
-        """Commit message includes pipeline ID when provided."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout="?? new.txt\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="sha789\n", stderr=""),
-        ]
-        auto_commit_worktree(str(tmp_path), container_id="c1", pipeline_id="issue-42")
-        commit_cmd = mock_run.call_args_list[2][0][0]
-        msg_idx = commit_cmd.index("-m") + 1
-        assert "[issue-42]" in commit_cmd[msg_idx]
-
-    @patch("post_agent_commit.subprocess.run")
-    def test_author_is_egg(self, mock_run, tmp_path):
-        """Commit uses egg as author."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M x.py\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="sha000\n", stderr=""),
-        ]
-        auto_commit_worktree(str(tmp_path), container_id="c1")
-        commit_cmd = mock_run.call_args_list[2][0][0]
-        author_idx = commit_cmd.index("--author") + 1
-        assert commit_cmd[author_idx] == "egg <egg@localhost>"
-
-    @patch("post_agent_commit.subprocess.run")
-    def test_commit_uses_no_verify(self, mock_run, tmp_path):
-        """Commit includes --no-verify flag."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M x.py\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="sha000\n", stderr=""),
-        ]
-        auto_commit_worktree(str(tmp_path), container_id="c1")
-        commit_cmd = mock_run.call_args_list[2][0][0]
-        assert "--no-verify" in commit_cmd
-
-    @patch("post_agent_commit.subprocess.run")
-    def test_git_uses_security_configs(self, mock_run, tmp_path):
-        """All git commands include safe.directory and hooks prevention."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M x.py\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="sha000\n", stderr=""),
-        ]
+    def test_no_commit_call(self, mock_run, tmp_path):
+        """No git commit should be executed."""
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout=" M file.py\n?? new.txt\n", stderr=""
+        )
         auto_commit_worktree(str(tmp_path), container_id="c1")
         for call in mock_run.call_args_list:
             cmd = call[0][0]
-            assert "safe.directory=*" in cmd
-            assert "core.hooksPath=/dev/null" in cmd
-
-
-class TestAutoCommitPhaseFiltering:
-    """Tests for phase-based file restriction filtering."""
+            assert "commit" not in cmd
 
     @patch("post_agent_commit.subprocess.run")
-    def test_blocked_files_restored_and_excluded(self, mock_run, tmp_path):
-        """Files blocked by phase restrictions are restored and not staged."""
-        mock_run.side_effect = [
-            # git status --porcelain
-            MagicMock(
-                returncode=0,
-                stdout=" M src/app.py\n M .egg-state/contracts/c.json\n",
-                stderr="",
-            ),
-            # git checkout -- .egg-state/contracts/c.json (restore blocked)
-            MagicMock(returncode=0, stdout="", stderr=""),
-            # git add -- src/app.py (only allowed file)
-            MagicMock(returncode=0, stdout="", stderr=""),
-            # git commit
-            MagicMock(returncode=0, stdout="", stderr=""),
-            # git rev-parse HEAD
-            MagicMock(returncode=0, stdout="sha_filtered\n", stderr=""),
-        ]
-
-        # Mock check_phase_file_restrictions to block the contract file
-        mock_result = MagicMock()
-        mock_result.allowed = False
-        mock_result.blocked_files = [".egg-state/contracts/c.json"]
-
-        import sys
-        import types
-
-        mock_pf = types.ModuleType("phase_filter")
-        mock_pf.check_phase_file_restrictions = MagicMock(return_value=mock_result)
-        old = sys.modules.get("phase_filter")
-        sys.modules["phase_filter"] = mock_pf
-        try:
-            result = auto_commit_worktree(
-                str(tmp_path),
-                container_id="c1",
-                phase="implement",
-            )
-            assert result == "sha_filtered"
-
-            # Verify git checkout -- was called for blocked file
-            checkout_call = mock_run.call_args_list[1]
-            checkout_cmd = checkout_call[0][0]
-            assert "checkout" in checkout_cmd
-            assert ".egg-state/contracts/c.json" in checkout_cmd
-
-            # Verify git add only includes allowed file
-            add_call = mock_run.call_args_list[2]
-            add_cmd = add_call[0][0]
-            assert "src/app.py" in add_cmd
-            assert ".egg-state/contracts/c.json" not in add_cmd
-        finally:
-            if old is not None:
-                sys.modules["phase_filter"] = old
-            else:
-                sys.modules.pop("phase_filter", None)
-
-    @patch("post_agent_commit.subprocess.run")
-    def test_all_files_blocked_returns_none(self, mock_run, tmp_path):
-        """When all files are blocked, no commit is made."""
-        mock_run.side_effect = [
-            # git status --porcelain
-            MagicMock(
-                returncode=0,
-                stdout=" M .egg-state/drafts/plan.md\n",
-                stderr="",
-            ),
-            # git checkout -- (restore blocked file)
-            MagicMock(returncode=0, stdout="", stderr=""),
-        ]
-
-        mock_result = MagicMock()
-        mock_result.allowed = False
-        mock_result.blocked_files = [".egg-state/drafts/plan.md"]
-
-        import sys
-        import types
-
-        mock_pf = types.ModuleType("phase_filter")
-        mock_pf.check_phase_file_restrictions = MagicMock(return_value=mock_result)
-        old = sys.modules.get("phase_filter")
-        sys.modules["phase_filter"] = mock_pf
-        try:
-            result = auto_commit_worktree(
-                str(tmp_path),
-                container_id="c1",
-                phase="implement",
-            )
-            assert result is None
-        finally:
-            if old is not None:
-                sys.modules["phase_filter"] = old
-            else:
-                sys.modules.pop("phase_filter", None)
-
-    @patch("post_agent_commit.subprocess.run")
-    def test_no_phase_skips_filtering(self, mock_run, tmp_path):
-        """Without a phase, all files are committed without filtering."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="sha_no_phase\n", stderr=""),
-        ]
-        result = auto_commit_worktree(str(tmp_path), container_id="c1")
-        assert result == "sha_no_phase"
-
-    @patch("post_agent_commit.subprocess.run")
-    def test_phase_filter_import_fails_gracefully(self, mock_run, tmp_path):
-        """If phase_filter can't be imported, files are committed unfiltered."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="sha_fallback\n", stderr=""),
-        ]
-        # Ensure phase_filter is not importable
-        import sys
-
-        old = sys.modules.get("phase_filter")
-        old_gw = sys.modules.get("gateway.phase_filter")
-        sys.modules["phase_filter"] = None  # type: ignore[assignment]
-        sys.modules["gateway.phase_filter"] = None  # type: ignore[assignment]
-        try:
-            result = auto_commit_worktree(
-                str(tmp_path),
-                container_id="c1",
-                phase="implement",
-            )
-            assert result == "sha_fallback"
-        finally:
-            if old is not None:
-                sys.modules["phase_filter"] = old
-            else:
-                sys.modules.pop("phase_filter", None)
-            if old_gw is not None:
-                sys.modules["gateway.phase_filter"] = old_gw
-            else:
-                sys.modules.pop("gateway.phase_filter", None)
-
-    @patch("post_agent_commit.subprocess.run")
-    def test_allowed_result_commits_all(self, mock_run, tmp_path):
-        """When phase filter allows all files, all are committed."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M src/app.py\n M src/lib.py\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="sha_all\n", stderr=""),
-        ]
-
-        mock_result = MagicMock()
-        mock_result.allowed = True
-
-        import sys
-        import types
-
-        mock_pf = types.ModuleType("phase_filter")
-        mock_pf.check_phase_file_restrictions = MagicMock(return_value=mock_result)
-        old = sys.modules.get("phase_filter")
-        sys.modules["phase_filter"] = mock_pf
-        try:
-            result = auto_commit_worktree(
-                str(tmp_path),
-                container_id="c1",
-                phase="implement",
-            )
-            assert result == "sha_all"
-            # All files should be staged
-            add_cmd = mock_run.call_args_list[1][0][0]
-            assert "src/app.py" in add_cmd
-            assert "src/lib.py" in add_cmd
-        finally:
-            if old is not None:
-                sys.modules["phase_filter"] = old
-            else:
-                sys.modules.pop("phase_filter", None)
-
-
-class TestAutoCommitPushViaGateway:
-    """Tests for push-via-gateway functionality."""
+    def test_no_add_call(self, mock_run, tmp_path):
+        """No git add should be executed."""
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout=" M file.py\n", stderr=""
+        )
+        auto_commit_worktree(str(tmp_path), container_id="c1")
+        for call in mock_run.call_args_list:
+            cmd = call[0][0]
+            assert "add" not in cmd
 
     @patch("post_agent_commit._push_via_gateway", return_value=True)
     @patch("post_agent_commit.subprocess.run")
-    def test_push_called_with_credentials(self, mock_run, mock_push, tmp_path):
-        """When session_token and gateway_url are provided, push is attempted."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="sha123\n", stderr=""),
-            # git rev-parse --abbrev-ref HEAD
-            MagicMock(returncode=0, stdout="egg/my-branch\n", stderr=""),
-        ]
+    def test_no_push_even_with_credentials(self, mock_run, mock_push, tmp_path):
+        """No push should be attempted even with session credentials."""
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout=" M file.py\n", stderr=""
+        )
         result = auto_commit_worktree(
             str(tmp_path),
             container_id="c1",
             session_token="tok-123",
             gateway_url="http://localhost:9848",
         )
-        assert result == "sha123"
-        mock_push.assert_called_once_with(
-            str(tmp_path),
-            "tok-123",
-            "http://localhost:9848",
-            "egg/my-branch",
-        )
+        assert result is None
+        mock_push.assert_not_called()
 
-    @patch("post_agent_commit._push_via_gateway", return_value=False)
+    @patch("post_agent_commit._push_via_gateway", return_value=True)
     @patch("post_agent_commit.subprocess.run")
-    def test_push_failure_still_returns_sha(self, mock_run, mock_push, tmp_path):
-        """Push failure does not prevent returning the commit SHA."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="sha456\n", stderr=""),
-            MagicMock(returncode=0, stdout="egg/branch\n", stderr=""),
-        ]
+    def test_consensus_confirmed_still_returns_none(self, mock_run, mock_push, tmp_path):
+        """Even with consensus_confirmed=True, returns None (no commit)."""
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout=" M file.py\n", stderr=""
+        )
         result = auto_commit_worktree(
             str(tmp_path),
             container_id="c1",
             session_token="tok-123",
             gateway_url="http://localhost:9848",
+            consensus_confirmed=True,
         )
-        assert result == "sha456"
+        assert result is None
+        mock_push.assert_not_called()
 
     @patch("post_agent_commit.subprocess.run")
-    def test_no_push_without_credentials(self, mock_run, tmp_path):
-        """Without session_token, no push is attempted."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="sha789\n", stderr=""),
-        ]
-        result = auto_commit_worktree(str(tmp_path), container_id="c1")
-        assert result == "sha789"
-        # Only 4 git calls (no rev-parse --abbrev-ref for push)
-        assert len(mock_run.call_args_list) == 4
+    def test_phase_parameter_accepted_but_ignored(self, mock_run, tmp_path):
+        """Phase parameter is accepted for backward compat but no filtering occurs."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=" M src/app.py\n M .egg-state/contracts/c.json\n",
+            stderr="",
+        )
+        result = auto_commit_worktree(
+            str(tmp_path),
+            container_id="c1",
+            phase="implement",
+        )
+        assert result is None
+        # Only one git call (status), no checkout/add/commit calls
+        assert mock_run.call_count == 1
+
+    @patch("post_agent_commit.subprocess.run")
+    def test_git_uses_security_configs(self, mock_run, tmp_path):
+        """Git status command includes safe.directory and hooks prevention."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        auto_commit_worktree(str(tmp_path), container_id="c1")
+        cmd = mock_run.call_args[0][0]
+        assert "safe.directory=*" in cmd
+        assert "core.hooksPath=/dev/null" in cmd
 
 
 class TestAutoCommitWorktreeErrors:
-    """Error handling during auto-commit."""
-
-    @patch("post_agent_commit.subprocess.run")
-    def test_add_failure_returns_none(self, mock_run, tmp_path):
-        """git add failure should return None."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
-            MagicMock(returncode=1, stdout="", stderr="add failed"),
-        ]
-        result = auto_commit_worktree(str(tmp_path), container_id="c1")
-        assert result is None
-
-    @patch("post_agent_commit.subprocess.run")
-    def test_commit_failure_returns_none(self, mock_run, tmp_path):
-        """git commit failure should return None."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=128, stdout="", stderr="commit failed"),
-        ]
-        result = auto_commit_worktree(str(tmp_path), container_id="c1")
-        assert result is None
-
-    @patch("post_agent_commit.subprocess.run")
-    def test_rev_parse_failure_returns_none(self, mock_run, tmp_path):
-        """rev-parse failure returns None instead of an invalid SHA."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=128, stdout="", stderr="rev-parse failed"),
-        ]
-        result = auto_commit_worktree(str(tmp_path), container_id="c1")
-        assert result is None
+    """Error handling during auto-commit status check."""
 
     @patch("post_agent_commit.subprocess.run")
     def test_timeout_returns_none(self, mock_run, tmp_path):
@@ -487,124 +181,37 @@ class TestAutoCommitWorktreeErrors:
 
     @patch("post_agent_commit.subprocess.run")
     def test_cwd_is_worktree_path(self, mock_run, tmp_path):
-        """All git commands should use the worktree path as cwd."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout="", stderr=""),
-        ]
+        """Git status command should use the worktree path as cwd."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         auto_commit_worktree(str(tmp_path), container_id="c1")
         assert mock_run.call_args[1]["cwd"] == str(tmp_path)
 
 
-class TestAutoCommitSymlinkFiltering:
-    """Tests for symlink filtering during auto-commit.
+class TestAutoCommitLogging:
+    """Verify logging behavior for the disabled auto-commit."""
 
-    Symlinks to container-local paths (e.g., CLAUDE.md -> ~/.claude/CLAUDE.md)
-    must not be committed to user repositories. The auto-commit filters them out.
-    """
-
+    @patch("post_agent_commit.logger")
     @patch("post_agent_commit.subprocess.run")
-    def test_symlinks_excluded_from_staging(self, mock_run, tmp_path):
-        """Symlinks in the worktree are not staged for commit."""
-        # Create a real file and a symlink in the worktree
-        (tmp_path / "real_file.py").write_text("print('hello')")
-        symlink_target = tmp_path / ".claude-global" / "CLAUDE.md"
-        symlink_target.parent.mkdir()
-        symlink_target.write_text("# Rules")
-        (tmp_path / "CLAUDE.md").symlink_to(symlink_target)
-
-        mock_run.side_effect = [
-            # git status --porcelain (reports both files)
-            MagicMock(returncode=0, stdout=" M real_file.py\n?? CLAUDE.md\n", stderr=""),
-            # git add -- real_file.py (only real file staged)
-            MagicMock(returncode=0, stdout="", stderr=""),
-            # git commit
-            MagicMock(returncode=0, stdout="", stderr=""),
-            # git rev-parse HEAD
-            MagicMock(returncode=0, stdout="sha_no_symlink\n", stderr=""),
-        ]
-        result = auto_commit_worktree(str(tmp_path), container_id="c1")
-        assert result == "sha_no_symlink"
-
-        # Verify git add only includes real_file.py, not CLAUDE.md
-        add_call = mock_run.call_args_list[1]
-        add_cmd = add_call[0][0]
-        assert "real_file.py" in add_cmd
-        assert "CLAUDE.md" not in add_cmd
-
-    @patch("post_agent_commit.subprocess.run")
-    def test_all_symlinks_returns_none(self, mock_run, tmp_path):
-        """When only symlinks have changed, no commit is made."""
-        symlink_target = tmp_path / ".claude-global" / "CLAUDE.md"
-        symlink_target.parent.mkdir()
-        symlink_target.write_text("# Rules")
-        (tmp_path / "CLAUDE.md").symlink_to(symlink_target)
-
-        mock_run.side_effect = [
-            # git status --porcelain (only the symlink)
-            MagicMock(returncode=0, stdout="?? CLAUDE.md\n", stderr=""),
-        ]
-        result = auto_commit_worktree(str(tmp_path), container_id="c1")
-        assert result is None
-
-    @patch("post_agent_commit.subprocess.run")
-    def test_non_symlink_files_unaffected(self, mock_run, tmp_path):
-        """Regular files pass through the symlink filter unchanged."""
-        (tmp_path / "app.py").write_text("code")
-        (tmp_path / "lib.py").write_text("more code")
-
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M app.py\n M lib.py\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="sha_regular\n", stderr=""),
-        ]
-        result = auto_commit_worktree(str(tmp_path), container_id="c1")
-        assert result == "sha_regular"
-        add_cmd = mock_run.call_args_list[1][0][0]
-        assert "app.py" in add_cmd
-        assert "lib.py" in add_cmd
-
-
-class TestAutoCommitConsensusConfirmed:
-    """Tests for consensus_confirmed push gating (#1473)."""
-
-    @patch("post_agent_commit._push_via_gateway", return_value=True)
-    @patch("post_agent_commit.subprocess.run")
-    def test_skips_push_when_consensus_confirmed(self, mock_run, mock_push, tmp_path):
-        """When consensus_confirmed=True, commit is created but push is skipped."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="sha_wip\n", stderr=""),
-        ]
-        result = auto_commit_worktree(
+    def test_uncommitted_changes_logged(self, mock_run, mock_logger, tmp_path):
+        """Uncommitted changes should be logged at INFO level."""
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout=" M file.py\n?? new.txt\n", stderr=""
+        )
+        auto_commit_worktree(
             str(tmp_path),
             container_id="c1",
-            session_token="tok-123",
-            gateway_url="http://localhost:9848",
-            consensus_confirmed=True,
+            agent_role="coder",
+            pipeline_id="issue-42",
         )
-        assert result == "sha_wip"
-        mock_push.assert_not_called()
+        assert mock_logger.info.called
+        call_kwargs = mock_logger.info.call_args
+        assert "disabled" in call_kwargs[0][0].lower() or \
+               "auto_commit_disabled" in str(call_kwargs)
 
-    @patch("post_agent_commit._push_via_gateway", return_value=True)
+    @patch("post_agent_commit.logger")
     @patch("post_agent_commit.subprocess.run")
-    def test_pushes_when_consensus_not_confirmed(self, mock_run, mock_push, tmp_path):
-        """When consensus_confirmed=False (default), push proceeds normally."""
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="sha_normal\n", stderr=""),
-            MagicMock(returncode=0, stdout="egg/branch\n", stderr=""),
-        ]
-        result = auto_commit_worktree(
-            str(tmp_path),
-            container_id="c1",
-            session_token="tok-123",
-            gateway_url="http://localhost:9848",
-            consensus_confirmed=False,
-        )
-        assert result == "sha_normal"
-        mock_push.assert_called_once()
+    def test_clean_worktree_logged_at_debug(self, mock_run, mock_logger, tmp_path):
+        """Clean worktree should be logged at DEBUG level."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        auto_commit_worktree(str(tmp_path), container_id="c1")
+        assert mock_logger.debug.called
