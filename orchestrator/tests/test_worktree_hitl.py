@@ -207,9 +207,19 @@ class TestCleanupStalePipelineWorktrees:
         repo_dir = container_dir / "myrepo"
         repo_dir.mkdir(parents=True)
 
-        # Set mtime to 72 hours ago
+        # Create a realistic .git file (worktrees use a file, not a directory)
+        # pointing to a git admin dir with old index/HEAD files.
+        git_admin_dir = tmp_path / "git-admin" / "worktrees" / "old-container"
+        git_admin_dir.mkdir(parents=True)
+        (repo_dir / ".git").write_text(f"gitdir: {git_admin_dir}\n")
+        (git_admin_dir / "index").touch()
+        (git_admin_dir / "HEAD").write_text("ref: refs/heads/egg/old-container/work\n")
+
+        # Set mtime to 72 hours ago on all relevant files
         old_time = time.time() - (72 * 3600)
         os.utime(str(container_dir), (old_time, old_time))
+        os.utime(str(git_admin_dir / "index"), (old_time, old_time))
+        os.utime(str(git_admin_dir / "HEAD"), (old_time, old_time))
 
         removal_result = MagicMock(success=True)
         with patch.object(manager, "remove_worktree", return_value=removal_result) as mock_remove:
@@ -223,12 +233,27 @@ class TestCleanupStalePipelineWorktrees:
         )
 
     def test_preserves_recent_worktrees(self, tmp_path):
-        """Should NOT remove worktrees newer than max_age_hours."""
+        """Should NOT remove worktrees newer than max_age_hours.
+
+        Uses a .git file pointing to a git admin dir with recent index/HEAD,
+        verifying the mtime detection follows the gitdir indirection.
+        """
         manager = self._make_manager(tmp_path)
 
         container_dir = manager.worktree_base / "recent-container"
         repo_dir = container_dir / "myrepo"
         repo_dir.mkdir(parents=True)
+
+        # Create realistic .git file pointing to git admin dir
+        git_admin_dir = tmp_path / "git-admin" / "worktrees" / "recent-container"
+        git_admin_dir.mkdir(parents=True)
+        (repo_dir / ".git").write_text(f"gitdir: {git_admin_dir}\n")
+        (git_admin_dir / "index").touch()
+        (git_admin_dir / "HEAD").write_text("ref: refs/heads/egg/recent-container/work\n")
+
+        # Parent dir old, but git admin files are recent — should be preserved
+        old_time = time.time() - (72 * 3600)
+        os.utime(str(container_dir), (old_time, old_time))
 
         with patch.object(manager, "remove_worktree") as mock_remove:
             removed = manager.cleanup_stale_pipeline_worktrees(

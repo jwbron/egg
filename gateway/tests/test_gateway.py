@@ -63,6 +63,7 @@ def auth_headers():
     mock_session.container_id = "test-container"
     mock_session.expires_at = None
     mock_session.pipeline_id = None  # Interactive session, not a pipeline
+    mock_session.agent_role = None
 
     mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -3285,6 +3286,7 @@ class TestGhExecutePrivateMode:
         mock_session.mode = "private"  # Private mode session
         mock_session.container_id = "test-container"
         mock_session.expires_at = None
+        mock_session.agent_role = None
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -5220,6 +5222,7 @@ class TestCheckpointRepoBypass:
         mock_session.expires_at = None
         mock_session.pipeline_id = None
         mock_session.checkpoint_repo = None
+        mock_session.agent_role = None
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 

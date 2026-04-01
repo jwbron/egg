@@ -1369,14 +1369,34 @@ class WorktreeManager:
                 for repo_subdir in entry.iterdir():
                     if not repo_subdir.is_dir():
                         continue
-                    for git_file in ("index", "HEAD"):
-                        git_path = repo_subdir / ".git" / git_file
-                        try:
-                            fmt = os.stat(git_path).st_mtime
-                            if fmt > newest_mtime:
-                                newest_mtime = fmt
-                        except OSError:
-                            continue
+                    dot_git = repo_subdir / ".git"
+                    try:
+                        # Worktrees have a .git *file* (not directory)
+                        # containing "gitdir: /path/to/admin/dir".
+                        # Resolve to the actual git admin dir to check
+                        # index/HEAD mtime.
+                        if dot_git.is_file():
+                            gitdir_line = dot_git.read_text().strip()
+                            if gitdir_line.startswith("gitdir:"):
+                                git_admin = Path(gitdir_line.split(":", 1)[1].strip())
+                                for git_file in ("index", "HEAD"):
+                                    try:
+                                        fmt = os.stat(git_admin / git_file).st_mtime
+                                        if fmt > newest_mtime:
+                                            newest_mtime = fmt
+                                    except OSError:
+                                        continue
+                        elif dot_git.is_dir():
+                            # Full clone (shouldn't happen but handle it)
+                            for git_file in ("index", "HEAD"):
+                                try:
+                                    fmt = os.stat(dot_git / git_file).st_mtime
+                                    if fmt > newest_mtime:
+                                        newest_mtime = fmt
+                                except OSError:
+                                    continue
+                    except OSError:
+                        continue
                 if newest_mtime < cutoff:
                     for repo_dir in entry.iterdir():
                         if repo_dir.is_dir():
