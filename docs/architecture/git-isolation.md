@@ -217,7 +217,9 @@ All git operations that require metadata access go through the gateway:
    │  Gateway receives cleanup request                                │
    │                              │                                   │
    │                              ▼                                   │
-   │  Check for uncommitted changes (warn if present)                 │
+   │  Check for uncommitted changes                                   │
+   │  - If uncommitted: create HITL decision for recovery/discard     │
+   │  - No auto-commit (removed — see post-agent-commit reference)    │
    │                              │                                   │
    │                              ▼                                   │
    │  git worktree remove /worktrees/abc123/my-repo                  │
@@ -226,7 +228,7 @@ All git operations that require metadata access go through the gateway:
 
 ### Multi-Agent Isolation
 
-Each agent works on its own isolated branch with its own staging area:
+Each agent works on its own isolated worktree with its own staging area. This applies to **all** agents, including concurrent pipeline agents (coder, tester, documenter, reviewers) that share a pipeline branch:
 
 | Agent | Working Directory | Branch | Index (Staging) |
 |-------|-------------------|--------|-----------------|
@@ -238,6 +240,10 @@ Each agent works on its own isolated branch with its own staging area:
 - Agents can work on different branches simultaneously
 - All agents share commit history and git objects (efficient storage)
 - Gateway manages worktree metadata---agents never touch it
+
+**Pipeline agents:** In concurrent pipeline execution, all agents push to the same shared branch (e.g., `egg/issue-{N}`) but each agent has its own worktree. Since each role has mutually exclusive file write permissions (coder → source code, tester → tests, documenter → docs), push rebases cannot conflict. See [Concurrent Execution Guide](../guides/concurrent-execution.md#per-agent-worktree-isolation) for details.
+
+**Per-agent git identity:** Each agent commits with a role-scoped author (e.g., `egg (coder) <coder@egg.local>`) for auditability. Combined with per-agent worktrees, this provides structural commit attribution without requiring post-hoc analysis.
 
 ---
 

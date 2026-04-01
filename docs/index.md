@@ -59,7 +59,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 |----------|-------------|
 | [Agent Roles](reference/agent-roles.md) | All agent roles: purpose, phase, file access permissions, input/output artifacts |
 | [Agent Recovery](reference/agent-recovery.md) | Retry manager, circuit breaker, conflict detection, and resilience utilities |
-| [Post-Agent Commit](reference/post-agent-commit.md) | Auto-commit behavior on container exit: phase restrictions, error handling |
+| [Post-Agent Commit](reference/post-agent-commit.md) | HITL recovery for uncommitted work on agent exit (replaces auto-commit) |
 | [Redaction](reference/redaction.md) | Checkpoint redaction patterns, security model, and limitations |
 | [Orchestrator CLI](reference/orchestrator-cli.md) | Full `egg-orch` command reference for pipelines, phases, decisions, containers |
 | [Checkpoint Browser](reference/checkpoint-browser.md) | Full `egg-checkpoint` command reference for browsing agent session history |
@@ -118,7 +118,8 @@ Each major component has detailed documentation:
 | **Concurrent execution mode** | [Concurrent Execution Guide](guides/concurrent-execution.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Checkpoint Access](guides/checkpoint-access.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Agent roles and file permissions** | [Agent Roles Reference](reference/agent-roles.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Architecture Overview](architecture/README.md) |
 | **Agent failure recovery** | [Agent Recovery Reference](reference/agent-recovery.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [Orchestrator Architecture](architecture/orchestrator.md) |
-| **Post-agent auto-commit** | [Post-Agent Commit Reference](reference/post-agent-commit.md) | [Architecture Overview](architecture/README.md) |
+| **Post-agent exit handling** | [Post-Agent Commit Reference](reference/post-agent-commit.md) | [Architecture Overview](architecture/README.md), [Concurrent Execution](guides/concurrent-execution.md) |
+| **Per-agent worktree isolation** | [Concurrent Execution Guide](guides/concurrent-execution.md#per-agent-worktree-isolation) | [Git Isolation Architecture](architecture/git-isolation.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Checkpoint redaction** | [Redaction Reference](reference/redaction.md) | [Checkpoint Access](guides/checkpoint-access.md), [Architecture Overview](architecture/README.md) |
 | **Health check framework** | [Health Checks README](../orchestrator/health_checks/README.md) | [Orchestrator Architecture](architecture/orchestrator.md), [Orchestrator README](../orchestrator/README.md) |
 | **Pipeline health monitoring** | [Pipeline Health Monitoring](guides/pipeline-health-monitoring.md) | [Health Checks README](../orchestrator/health_checks/README.md), [Agent Roles](reference/agent-roles.md), [Orchestrator Architecture](architecture/orchestrator.md) |

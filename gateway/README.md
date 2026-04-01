@@ -138,24 +138,25 @@ In addition to push-time file restriction enforcement, the gateway validates sta
 
 **Defense-in-depth:** Commit-time validation is a complement to push-time validation, not a replacement. If the commit-time check encounters an error, it fails open—the push-time check remains the authoritative gate.
 
-### Post-Agent Auto-Commit
+### Post-Agent Auto-Commit (Removed)
 
-When a pipeline agent container exits (normally or via timeout), the gateway automatically commits any uncommitted changes in the agent's worktree so that work-in-progress is never lost.
+> **Removed in issue #1481.** The auto-commit-and-push behavior has been replaced by HITL recovery for uncommitted work. See [Post-Agent Commit Reference](../docs/reference/post-agent-commit.md) for details.
 
-**How it works:**
-- Triggered during session cleanup in `session_manager.py`, before checkpoint capture
-- Only runs for pipeline sessions (`pipeline_id` is set)
-- Uses `post_agent_commit.auto_commit_worktree()` which:
-  1. Detects uncommitted changes via `git status --porcelain`
-  2. When a phase is set, imports `check_phase_file_restrictions` from `phase_filter` to classify files as allowed or blocked
-  3. Restores blocked files to their committed state via `git checkout -- <file>`
-  4. Stages only allowed files via `git add -- <file1> <file2> ...` (not `git add -A`)
-  5. Commits with a descriptive WIP message and `egg <egg@localhost>` author
-  6. If a session token and gateway URL are available, pushes via the gateway API (`/api/v1/git/push`) so push policy is enforced
-- Commit message format: `WIP: auto-commit uncommitted work (<role>) [<pipeline_id>]`
-- Errors during auto-commit do not block session cleanup (fail-safe)
+When a pipeline agent container exits with uncommitted changes, the orchestrator detects this and creates a HITL decision asking whether to recover or discard the work. No automatic commits are created.
 
-**Phase filtering defense-in-depth:** The auto-commit reuses `check_phase_file_restrictions()` from `phase_filter.py` (the same function used by push-time validation) rather than reimplementing restriction logic. This ensures consistent enforcement across all code paths.
+**Rationale for removal:**
+- Auto-commits bypassed BRC consensus — unreviewed code landed on the branch
+- Auto-commits included files outside the agent's role boundaries, causing downstream push failures
+- With per-agent worktree isolation, uncommitted work persists safely in the agent's worktree until cleanup
+
+### Scoped Push File Detection
+
+The gateway's `get_changed_files_in_push()` scopes file detection to the current agent's commits only, rather than diffing the entire branch history against `origin`. Since each agent has its own per-agent worktree, only that agent's commits exist in the worktree's history.
+
+**Benefits:**
+- Eliminates false positives where Agent A's push is rejected because Agent B committed files outside Agent A's role boundaries
+- No commit attribution logic needed — worktree isolation provides structural scoping
+- Simplifies the push validation pipeline by removing the need to filter other agents' commits
 
 **Files:** `gateway/post_agent_commit.py`, `gateway/session_manager.py`
 

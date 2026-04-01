@@ -60,8 +60,8 @@ gateway/
 ├── checkpoint_handler.py   # Checkpoint capture (commit and session-end triggers)
 ├── transcript_buffer.py    # API proxy transcript capture buffer
 ├── worktree_manager.py     # Git worktree lifecycle
-├── session_manager.py      # Agent session management (branch lock, auto-commit trigger)
-├── post_agent_commit.py    # Post-agent auto-commit for uncommitted worktree changes
+├── session_manager.py      # Agent session management (branch lock, worktree cleanup)
+├── post_agent_commit.py    # Post-agent exit handling (HITL recovery for uncommitted work)
 ├── repo_parser.py          # Repository config parsing
 ├── repo_visibility.py      # Repository visibility logic
 ├── proxy_monitor.py        # Squid proxy monitoring
@@ -251,6 +251,10 @@ shared/
 │   ├── constants.py        # Centralized constants (ports, networks, container names, devserver resource limits, infrastructure branch names, anchor size limits)
 │   ├── compose_config.py   # Bridges config.yaml settings to docker-compose environment variables
 │   └── validators.py       # Validation functions (URLs, emails, tokens, check commands)
+├── egg_restrictions/        # Shared agent file restriction patterns and checking logic
+│   ├── __init__.py         # Public API: AgentFilePattern, check_agent_file_access, validate_agent_push
+│   ├── patterns.py         # Role-based file access patterns (AgentRole, AgentFilePattern, AGENT_PATTERNS)
+│   └── checker.py          # File access validation (check_agent_file_access, validate_agent_push)
 ├── egg_container/          # Shared container-launch config builder
 │   └── __init__.py         # build_sandbox_config(), build_sandbox_docker_cmd(), git_shadow_mounts(), phase_readonly_mounts(), ensure_egg_state_dirs(), to_dockerpy_kwargs()
 ├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration, checkpoints

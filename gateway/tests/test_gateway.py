@@ -63,6 +63,7 @@ def auth_headers():
     mock_session.container_id = "test-container"
     mock_session.expires_at = None
     mock_session.pipeline_id = None  # Interactive session, not a pipeline
+    mock_session.agent_role = None
 
     mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -573,12 +574,12 @@ class TestGitPush:
 
         import auth
 
-        # Create a session with implementer role
+        # Create a session with coder role
         mock_session = MagicMock()
         mock_session.mode = "public"
         mock_session.container_id = "test-container"
         mock_session.expires_at = None
-        mock_session.agent_role = "implementer"
+        mock_session.agent_role = "coder"
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -635,7 +636,7 @@ class TestGitPush:
 
             mock_check_restrictions.return_value = FileRestrictionResult.block(
                 message="Role 'implementer' cannot modify: .egg-state/contracts/123.json",
-                role="implementer",
+                role="coder",
                 blocked_files=[".egg-state/contracts/123.json"],
                 blocked_reason="Contract files can only be modified through the contract API",
             )
@@ -657,7 +658,7 @@ class TestGitPush:
             data = json.loads(response.data)
             assert "cannot modify" in data["message"].lower()
             assert ".egg-state/contracts/123.json" in data["data"]["blocked_files"]
-            assert data["data"]["role"] == "implementer"
+            assert data["data"]["role"] == "coder"
 
     def test_push_allowed_for_reviewer_modifying_contract_files(self, client):
         """Push allowed when reviewer modifies contract files.
@@ -673,7 +674,7 @@ class TestGitPush:
         mock_session.mode = "public"
         mock_session.container_id = "test-container"
         mock_session.expires_at = None
-        mock_session.agent_role = "reviewer"
+        mock_session.agent_role = "reviewer_contract"
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -769,12 +770,12 @@ class TestGitPush:
 
         import auth
 
-        # Create a session with implementer role
+        # Create a session with coder role
         mock_session = MagicMock()
         mock_session.mode = "public"
         mock_session.container_id = "test-container"
         mock_session.expires_at = None
-        mock_session.agent_role = "implementer"
+        mock_session.agent_role = "coder"
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -834,7 +835,8 @@ class TestGitPush:
             mock_policy.return_value = mock_engine
 
             # Mock get_changed_files_in_push - NO contract files being modified
-            mock_get_changed_files.return_value = (["src/main.py", "README.md"], None)
+            # Use coder-allowed files (README.md is blocked for coders)
+            mock_get_changed_files.return_value = (["src/main.py", "config.yml"], None)
 
             # Mock check_file_restrictions - all files allowed
             from phase_filter import FileRestrictionResult
@@ -868,12 +870,12 @@ class TestGitPush:
 
         import auth
 
-        # Create a session with implementer role
+        # Create a session with coder role
         mock_session = MagicMock()
         mock_session.mode = "public"
         mock_session.container_id = "test-container"
         mock_session.expires_at = None
-        mock_session.agent_role = "implementer"
+        mock_session.agent_role = "coder"
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -938,7 +940,7 @@ class TestGitPush:
             assert response.status_code == 500
             data = json.loads(response.data)
             assert "could not verify" in data["message"].lower()
-            assert data["data"]["role"] == "implementer"
+            assert data["data"]["role"] == "coder"
 
     def test_force_push_with_protected_files_blocked(self, client):
         """Force push containing protected files should also be blocked."""
@@ -946,12 +948,12 @@ class TestGitPush:
 
         import auth
 
-        # Create a session with implementer role
+        # Create a session with coder role
         mock_session = MagicMock()
         mock_session.mode = "public"
         mock_session.container_id = "test-container"
         mock_session.expires_at = None
-        mock_session.agent_role = "implementer"
+        mock_session.agent_role = "coder"
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -1005,7 +1007,7 @@ class TestGitPush:
 
             mock_check_restrictions.return_value = FileRestrictionResult.block(
                 message="Role 'implementer' cannot modify: .egg-state/contracts/123.json",
-                role="implementer",
+                role="coder",
                 blocked_files=[".egg-state/contracts/123.json"],
                 blocked_reason="Contract files can only be modified through the contract API",
             )
@@ -1333,6 +1335,7 @@ class TestGitPush:
         mock_session.mode = "public"
         mock_session.container_id = "test-container"
         mock_session.expires_at = None
+        mock_session.agent_role = "coder"
         mock_session.agent_anchor_id = agent_anchor_id
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
@@ -3283,6 +3286,7 @@ class TestGhExecutePrivateMode:
         mock_session.mode = "private"  # Private mode session
         mock_session.container_id = "test-container"
         mock_session.expires_at = None
+        mock_session.agent_role = None
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -5218,6 +5222,7 @@ class TestCheckpointRepoBypass:
         mock_session.expires_at = None
         mock_session.pipeline_id = None
         mock_session.checkpoint_repo = None
+        mock_session.agent_role = None
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -6385,6 +6390,20 @@ class TestGhExecuteIssueCommentBlocking:
                 content_type="application/json",
             )
             assert response.status_code == 403
+
+    def test_non_string_agent_role_returns_403(self, client):
+        """Non-string agent_role (e.g. from corrupted session) returns 403."""
+        ctx1, ctx2 = self._make_session(phase=None, agent_role=42)
+        with ctx1, ctx2:
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps({"args": ["pr", "view", "123"]}),
+                content_type="application/json",
+            )
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "invalid" in data["message"].lower() or "role" in data["message"].lower()
 
     def test_pr_view_still_allowed(self, client):
         """Non-blocked operations like pr view should still work."""

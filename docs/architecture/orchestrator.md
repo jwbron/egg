@@ -156,10 +156,13 @@ This eliminates the need for agent interaction during PR creation and ensures co
 The orchestrator reads pipeline artifacts (verdict files, draft documents, check results) from per-pipeline worktrees created by the gateway. These worktrees isolate work for each pipeline and are separate from both the orchestrator's state worktree and the main repository working directory.
 
 **Architecture:**
-- Gateway creates worktrees at `/home/egg/.egg-worktrees/{pipeline-id}/{repo-name}/`
-- Agent containers mount these worktrees and write artifacts to them
+- Gateway creates worktrees at `/home/egg/.egg-worktrees/{container-id}/{repo-name}/` (one per agent)
+- Each agent container mounts its own worktree and writes artifacts to it
+- All agents in a pipeline push to the same shared branch (e.g., `egg/issue-{N}`)
 - Orchestrator mounts `/home/egg/.egg-worktrees` and reads artifacts from pipeline-specific paths
-- Worktree paths are resolved dynamically based on pipeline ID and repository
+- Worktree paths are resolved dynamically based on container ID and repository
+
+> **Changed in issue #1481:** Previously, all agents in a pipeline shared a single worktree (keyed by `pipeline_id`). Now each agent gets its own isolated worktree (keyed by `container_id`). This prevents agents from overwriting each other's uncommitted work and ensures clean `git status` per agent.
 
 **Key artifact files in worktrees:**
 - `.egg-state/contracts/{identifier}.json` — Contract state (issue number for issue-driven pipelines, pipeline ID for prompt-driven pipelines)

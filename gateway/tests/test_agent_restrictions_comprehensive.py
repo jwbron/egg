@@ -449,10 +449,11 @@ class TestCheckAgentFileAccess:
         assert allowed is False
         assert "docs/guide.md" in blocked_files
 
-    def test_unknown_role_allows(self):
-        """Unknown roles should be allowed for backward compatibility."""
+    def test_unknown_role_denied(self):
+        """Unknown roles are denied by default (RISK-7 mitigation, #1481)."""
         allowed, blocked_files, reason = check_agent_file_access("unknown_role", ["any/file.py"])
-        assert allowed is True
+        assert allowed is False
+        assert blocked_files == ["any/file.py"]
 
 
 # ---------------------------------------------------------------------------
@@ -541,11 +542,11 @@ class TestGHRestrictionsNewRoles:
         allowed, reason = check_agent_gh_operation("conflict_resolver", "issue comment 123")
         assert allowed is False
 
-    def test_unknown_role_allows_gh_operations(self):
-        """Unknown roles should be allowed for backward compatibility."""
+    def test_unknown_role_denies_gh_operations(self):
+        """Unknown roles are denied for consistency with file access deny-by-default (#1494)."""
         allowed, reason = check_agent_gh_operation("unknown_role", "issue comment 123")
-        assert allowed is True
+        assert allowed is False
 
-    def test_empty_role_allows_gh_operations(self):
+    def test_empty_role_denies_gh_operations(self):
         allowed, reason = check_agent_gh_operation("", "issue comment 123")
-        assert allowed is True
+        assert allowed is False

@@ -38,7 +38,10 @@ See the [main README](../../README.md) for the architecture diagram.
 - Role-based contract mutations (implementer, reviewer, human roles with field-level permissions)
 - No merge capability (gateway has no merge endpoint)
 - Force push and destructive operations blocked
-- Post-agent auto-commit (uncommitted work preserved when agent containers exit)
+- Per-agent worktree isolation (each agent gets its own working directory)
+- Per-agent git identity (role-scoped commit author for auditability)
+- SDK tool interception (Write/Edit/NotebookEdit checked against role boundaries before execution)
+- HITL recovery for uncommitted work on agent exit (replaces auto-commit-and-push)
 
 ## Components
 

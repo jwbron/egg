@@ -37,7 +37,7 @@ If push fails: check `git remote -v` is HTTPS, check `curl http://egg-gateway:98
 
 **Pipeline readonly directories:** During the implement phase, `.egg-state/drafts/`, `.egg-state/contracts/`, `.egg-state/pipelines/`, and `.egg-state/reviews/` are mounted readonly. Check for `.egg-readonly` marker files to understand restrictions. Attempting to write to these directories will produce an EROFS (read-only filesystem) error.
 
-**Post-agent auto-commit**: Uncommitted changes are auto-committed on container exit. Phase-restricted files are restored.
+**Post-agent worktree preservation**: Uncommitted changes are preserved in the agent's worktree on container exit. The orchestrator detects uncommitted work and creates a HITL decision for recovery.
 
 ## Services
 

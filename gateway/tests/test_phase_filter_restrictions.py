@@ -412,11 +412,12 @@ class TestCheckAgentRestrictions:
         result = validate_agent_push("tester", ["tests/test_foo.py"])
         assert result.allowed is True
 
-    def test_unknown_role_allowed(self):
+    def test_unknown_role_denied(self):
+        """Unknown roles are denied by default (RISK-7 mitigation, #1481)."""
         from agent_restrictions import validate_agent_push
 
         result = validate_agent_push("unknown_role", ["anything.py"])
-        assert result.allowed is True
+        assert result.allowed is False
 
 
 class TestOperation:

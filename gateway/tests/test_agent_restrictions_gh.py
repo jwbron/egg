@@ -124,21 +124,22 @@ class TestCheckAgentGHOperation:
         allowed, reason = check_agent_gh_operation("coder", "pr view 123")
         assert allowed is True
 
-    def test_allows_unknown_role(self):
-        """Unknown roles are allowed for backward compatibility."""
+    def test_denies_unknown_role(self):
+        """Unknown roles are denied for consistency with file access deny-by-default (#1494)."""
         allowed, reason = check_agent_gh_operation("unknown_role", "issue comment 123")
-        assert allowed is True
+        assert allowed is False
 
-    def test_allows_empty_role(self):
-        """Empty role string is allowed."""
+    def test_denies_empty_role(self):
+        """Empty role string is denied (deny-by-default)."""
         allowed, reason = check_agent_gh_operation("", "issue comment 123")
-        assert allowed is True
+        assert allowed is False
+        assert "Invalid or missing" in reason
 
-    def test_allows_none_role(self):
-        """None role is allowed (backward compat)."""
-        # check_agent_gh_operation expects str, but empty works
-        allowed, reason = check_agent_gh_operation("", "issue comment 123")
-        assert allowed is True
+    def test_denies_none_role(self):
+        """None role is denied (deny-by-default)."""
+        allowed, reason = check_agent_gh_operation(None, "issue comment 123")  # type: ignore[arg-type]
+        assert allowed is False
+        assert "Invalid or missing" in reason
 
     def test_blocks_all_pipeline_roles(self):
         """All pipeline roles are blocked from issue comments."""

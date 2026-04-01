@@ -989,6 +989,8 @@ class WorktreeManager:
                             gitdir_content = git_file.read_text().strip()
                             if gitdir_content.startswith("gitdir: "):
                                 gitdir_path = Path(gitdir_content[8:])
+                                if not gitdir_path.is_absolute():
+                                    gitdir_path = (repo_dir / gitdir_path).resolve()
                                 head_file = gitdir_path / "HEAD"
                                 if head_file.exists():
                                     head_content = head_file.read_text().strip()
@@ -1014,6 +1016,68 @@ class WorktreeManager:
                 )
 
         return worktrees
+
+    def list_worktrees_for_pipeline(self, pipeline_id: str) -> list[WorktreeInfo]:
+        """List all worktrees for a pipeline (all agent roles).
+
+        Per-agent worktrees (#1481) use IDs of the form
+        '{pipeline_id}-{role}', so we scan for all container directories
+        matching this prefix as well as the base pipeline worktree.
+
+        Args:
+            pipeline_id: Pipeline identifier to scan for.
+
+        Returns:
+            List of WorktreeInfo for every repo worktree belonging to
+            this pipeline (including both the shared orchestrator
+            worktree and per-agent worktrees).
+        """
+        results: list[WorktreeInfo] = []
+        if not self.worktree_base.exists():
+            return results
+
+        # Prefix match is safe because pipeline IDs are structured as
+        # "issue-{number}" and won't overlap (e.g. "issue-12" won't
+        # match "issue-123-*" because we require a "-" after the ID).
+        prefix = f"{pipeline_id}-"
+        for entry in self.worktree_base.iterdir():
+            if not entry.is_dir():
+                continue
+            # Match the pipeline-level worktree and any per-agent worktrees
+            if entry.name != pipeline_id and not entry.name.startswith(prefix):
+                continue
+            for repo_dir in entry.iterdir():
+                if not repo_dir.is_dir():
+                    continue
+                # Try to read branch from .git file
+                branch = ""
+                git_file = repo_dir / ".git"
+                if git_file.exists() and git_file.is_file():
+                    try:
+                        gitdir_content = git_file.read_text().strip()
+                        if gitdir_content.startswith("gitdir: "):
+                            gitdir_path = Path(gitdir_content[8:])
+                            if not gitdir_path.is_absolute():
+                                gitdir_path = (repo_dir / gitdir_path).resolve()
+                            head_file = gitdir_path / "HEAD"
+                            if head_file.exists():
+                                head_content = head_file.read_text().strip()
+                                if head_content.startswith("ref: refs/heads/"):
+                                    branch = head_content[16:]
+                    except OSError:
+                        pass
+
+                results.append(
+                    WorktreeInfo(
+                        container_id=entry.name,
+                        repo_name=repo_dir.name,
+                        branch=branch,
+                        worktree_path=repo_dir,
+                        git_dir=None,
+                    )
+                )
+
+        return results
 
     def cleanup_orphaned_worktrees(
         self,
@@ -1224,6 +1288,155 @@ class WorktreeManager:
         main_repo = self.repos_base / repo_name
 
         return worktree_path, main_repo
+
+    def cleanup_clean_worktree(self, container_id: str, repo_name: str) -> bool:
+        """Remove a worktree that has no uncommitted changes.
+
+        Called after container exit for worktrees without uncommitted work.
+
+        Returns:
+            True if cleaned up, False if has uncommitted changes or error.
+        """
+        worktree_path = self.worktree_base / container_id / repo_name
+        if not worktree_path.exists():
+            return True  # Already cleaned
+
+        # Check for uncommitted changes
+        try:
+            result = subprocess.run(
+                git_cmd("status", "--porcelain"),
+                cwd=str(worktree_path),
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                logger.info(
+                    "Worktree has uncommitted changes, preserving for HITL",
+                    container_id=container_id,
+                    repo_name=repo_name,
+                )
+                return False
+        except Exception as e:
+            logger.warning(
+                "Failed to check worktree status for cleanup",
+                container_id=container_id,
+                error=str(e),
+            )
+            return False
+
+        # Clean worktree -- remove it.  Use force=False as a TOCTOU safety net:
+        # if changes were made between the check and removal, git will refuse
+        # rather than silently discarding.  (#1494 review)
+        removal = self.remove_worktree(container_id, repo_name, force=False, delete_branch=True)
+        return removal.success
+
+    def cleanup_stale_pipeline_worktrees(
+        self, max_age_hours: int = 48, active_containers: set[str] | None = None
+    ) -> int:
+        """Remove worktrees older than max_age_hours regardless of state.
+
+        Periodic cleanup to prevent disk space exhaustion from abandoned
+        worktrees.
+
+        TODO: Wire this into the orchestrator's maintenance loop. Currently
+        only called from tests — not yet connected to production scheduling.
+
+        Args:
+            max_age_hours: Worktrees inactive for longer than this are removed.
+            active_containers: Set of running container IDs. Worktrees with
+                active containers are never deleted. If None, fetched via
+                ``get_active_docker_containers()``.
+
+        Returns:
+            Number of worktrees removed.
+        """
+        removed = 0
+        if not self.worktree_base.exists():
+            return removed
+
+        if active_containers is None:
+            active_containers = get_active_docker_containers()
+
+        cutoff = time.time() - (max_age_hours * 3600)
+
+        for entry in self.worktree_base.iterdir():
+            if not entry.is_dir():
+                continue
+            # Skip worktrees whose containers are still running.
+            if entry.name in active_containers:
+                continue
+            try:
+                # Use .git/index (updated on every commit/checkout) as the
+                # staleness signal instead of walking the entire tree, which
+                # would cause an I/O storm on large worktrees containing
+                # .git/objects, node_modules, build artifacts, etc.
+                newest_mtime = entry.stat().st_mtime
+                for repo_subdir in entry.iterdir():
+                    if not repo_subdir.is_dir():
+                        continue
+                    dot_git = repo_subdir / ".git"
+                    try:
+                        # Worktrees have a .git *file* (not directory)
+                        # containing "gitdir: /path/to/admin/dir".
+                        # Resolve to the actual git admin dir to check
+                        # index/HEAD mtime.
+                        if dot_git.is_file():
+                            gitdir_line = dot_git.read_text().strip()
+                            if gitdir_line.startswith("gitdir:"):
+                                git_admin = Path(gitdir_line.split(":", 1)[1].strip())
+                                if not git_admin.is_absolute():
+                                    git_admin = (repo_subdir / git_admin).resolve()
+                                for git_file in ("index", "HEAD"):
+                                    try:
+                                        fmt = os.stat(git_admin / git_file).st_mtime
+                                        if fmt > newest_mtime:
+                                            newest_mtime = fmt
+                                    except OSError:
+                                        continue
+                        elif dot_git.is_dir():
+                            # Full clone (shouldn't happen but handle it)
+                            for git_file in ("index", "HEAD"):
+                                try:
+                                    fmt = os.stat(dot_git / git_file).st_mtime
+                                    if fmt > newest_mtime:
+                                        newest_mtime = fmt
+                                except OSError:
+                                    continue
+                    except OSError:
+                        continue
+                if newest_mtime < cutoff:
+                    for repo_dir in entry.iterdir():
+                        if repo_dir.is_dir():
+                            removal_result = self.remove_worktree(
+                                entry.name, repo_dir.name, force=True, delete_branch=True
+                            )
+                            if removal_result.success:
+                                removed += 1
+                            else:
+                                logger.warning(
+                                    "Failed to remove stale worktree",
+                                    container_id=entry.name,
+                                    repo=repo_dir.name,
+                                    error=removal_result.error,
+                                )
+                    # Clean up empty container directory
+                    if entry.exists() and not any(entry.iterdir()):
+                        entry.rmdir()
+            except Exception as e:
+                logger.warning(
+                    "Error during stale worktree cleanup",
+                    container_id=entry.name,
+                    error=str(e),
+                )
+
+        logger.info(
+            "Stale worktree cleanup complete",
+            removed=removed,
+            max_age_hours=max_age_hours,
+        )
+        return removed
 
 
 def get_active_docker_containers() -> set[str]:

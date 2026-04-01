@@ -5762,13 +5762,16 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 f"EGG_HOST_REPO_MAP contains invalid JSON: {host_repo_map_raw!r}"
             ) from exc
 
-        # Create isolated worktrees via the gateway.  The gateway creates
-        # per-pipeline worktrees from the main repos and returns host paths
-        # suitable for Docker volume mounts.  All containers in a pipeline
-        # share the same worktrees so they see each other's commits.
+        # Create a pipeline-level worktree via the gateway.  This worktree
+        # is used by the orchestrator for reading/writing contracts, drafts,
+        # and state files.  Individual agents get their own per-agent
+        # worktrees at spawn time (created in container_spawner.py) so
+        # concurrent agents cannot stomp on each other's uncommitted work.
+        # See #1481 for the per-agent worktree isolation design.
         #
-        # We use the pipeline_id as the worktree container_id so all
-        # containers in the pipeline share the same working trees.
+        # We use the pipeline_id as the worktree container_id for the
+        # orchestrator-side worktree.  Agent worktrees use
+        # "{pipeline_id}-{role}" as their container_id.
         worktree_id = pipeline_id
         repo_volumes: dict[str, str] = {}
         worktree_repo_path = repo_path  # default; overridden when worktrees exist
@@ -7182,6 +7185,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # never removed via the normal per-container cleanup.  Sweep
                 # them here as a safety net.  delete_worktrees is a no-op for
                 # container IDs that have no worktree directory.
+                #
+                # NOTE: This uses the "egg-{pipeline_id}-{role}" naming for
+                # session-created worktrees.  Per-agent worktrees from #1481
+                # use "{pipeline_id}-{role}" (no "egg-" prefix) and are
+                # cleaned up by cleanup_pipeline() which scans both container
+                # labels and the filesystem.
                 for role in AgentRole:
                     agent_container_id = f"egg-{pipeline_id}-{role.value}"
                     try:
