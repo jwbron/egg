@@ -134,7 +134,7 @@ Component 5 (SDK tool interception) is a pure optimization for token savings. It
 
 ## Open Questions
 
-> **Note**: `egg-contract add-decision` and `egg-contract add-feedback` commands failed with "Contract for issue #1481 not found" — the gateway's contract API cannot locate the contract file. Questions are documented here for manual registration.
+> **Note**: `egg-contract add-decision` and `egg-contract add-feedback` commands failed with "Contract for issue #1481 not found". The gateway's contract API reports `exists: false` for issue 1481 despite the pipeline running. The contract was likely not initialized by the orchestrator for this pipeline. Verified by calling `curl -s -H "Authorization: Bearer $EGG_SESSION_TOKEN" "http://egg-gateway:9848/api/v1/contract/exists/1481"` which returned `{"data":{"exists":false}}`. All HITL questions below require manual registration once the contract is available, or direct human review via the analysis document.
 
 ### Decisions Needed
 
