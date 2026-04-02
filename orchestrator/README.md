@@ -266,9 +266,12 @@ orchestrator/
 ├── requirements.txt        # Python dependencies
 ├── overseer/               # Overseer agent server-side logic
 │   ├── __init__.py         # Package init
+│   ├── monitor.py          # Main poll loop, health checks, CLI wrappers (explicit pipeline routing)
 │   ├── classifier.py       # Haiku classification (stall, loop, error, off-track)
 │   ├── decision_maker.py   # Sonnet/Opus corrective decision-making
-│   └── issue_filer.py      # Autonomous GitHub issue filing with diagnostics
+│   ├── issue_filer.py      # Autonomous GitHub issue filing with diagnostics
+│   ├── self_monitor.py     # Self-monitoring (poll timing, message volume, LLM costs)
+│   └── utils.py            # Utility functions
 ├── routes/
 │   ├── anchors.py          # Agent anchor CRUD and team anchor generation endpoints
 │   ├── checks.py           # Deployment check endpoints
@@ -375,7 +378,7 @@ The `health_monitor.py` module subscribes to EventBus events and evaluates five 
 
 ### Overseer Agent
 
-Auto-spawned on every pipeline (when `overseer_enabled` is true). Uses Haiku for anomaly classification and Sonnet/Opus for corrective decisions via `shared/egg_agent/`. No code access. See `orchestrator/overseer/` for server-side logic.
+Auto-spawned on every pipeline (when `overseer_enabled` is true). Uses Haiku for anomaly classification and Sonnet/Opus for corrective decisions via `shared/egg_agent/`. No code access. All CLI operations (alert broadcasting, message sending, alert resolution, HITL decisions) pass the pipeline ID explicitly to prevent cross-pipeline alert leakage. See `orchestrator/overseer/` for server-side logic.
 
 See the [Pipeline Health Monitoring Guide](../docs/guides/pipeline-health-monitoring.md) for the full reference.
 
