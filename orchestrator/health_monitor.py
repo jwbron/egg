@@ -175,16 +175,20 @@ class HealthMonitor:
                 agent.last_progress = now
                 agent.last_heartbeat = now
                 self._last_heartbeat[agent_id] = now
+                # Save old blocker before overwriting progress data
+                old_blocker = agent.last_progress_data.get("blocker", "")
                 agent.last_progress_data = event.data
                 # Reset escalation state on new progress
                 agent.heartbeat_escalated = False
                 agent.progress_escalated = False
                 # Only reset infra_error_escalated when the agent is no longer
-                # blocked (or blocked with a different blocker).  Resetting on
-                # every progress event — including re-emitted blocked events —
+                # blocked, or when the blocker text changes (indicating a new
+                # infrastructure error).  Resetting on every progress event —
+                # including re-emitted blocked events with the same blocker —
                 # would defeat dedup for persistent blockers (#1489 review).
                 new_state = event.data.get("state", "")
-                if new_state != "blocked":
+                new_blocker = event.data.get("blocker", "")
+                if new_state != "blocked" or new_blocker != old_blocker:
                     agent.infra_error_escalated = False
 
     def _on_error(self, event: Event) -> None:

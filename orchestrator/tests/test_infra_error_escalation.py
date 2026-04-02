@@ -539,6 +539,42 @@ class TestInfraErrorDedupBlockedReemission:
         )
 
 
+class TestInfraErrorDedupBlockerChange:
+    """Tier 1: Changing blocker text while still blocked should allow re-escalation."""
+
+    def test_different_blocker_while_blocked_resets_dedup(self):
+        """Agent hitting a new infra error while still blocked should escalate again."""
+        bus = _make_event_bus()
+        monitor = _make_monitor(bus)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        # First blocked event with infra error
+        _emit_progress(
+            bus,
+            agent_id=AGENT_ID,
+            state="blocked",
+            blocker="git add failed: .gitignore",
+        )
+        monitor.check_tripwires()
+        first_count = len(escalations)
+        assert first_count >= 1, "First check should escalate"
+
+        # Agent hits a DIFFERENT infra error while still blocked
+        _emit_progress(
+            bus,
+            agent_id=AGENT_ID,
+            state="blocked",
+            blocker="permission denied on /tmp/workspace",
+        )
+        monitor.check_tripwires()
+
+        assert len(escalations) > first_count, (
+            "Different blocker text while still blocked should trigger new escalation"
+        )
+
+
 class TestInfraErrorAlertSeverity:
     """Infrastructure errors should produce critical severity alerts."""
 
