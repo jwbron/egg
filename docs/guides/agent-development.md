@@ -207,9 +207,11 @@ The `FileAccessPattern` class supports:
 
 Pattern evaluation order:
 1. Check `blocked_write` patterns first
-2. If blocked, deny access
+2. If blocked, check `block_exempt_patterns` — if the path matches an exemption, continue; otherwise deny access
 3. Check `allowed_write` patterns
 4. If no allowed patterns match, deny access
+
+`block_exempt_patterns` carve out narrow exceptions from blocked patterns. For example, `**/*.md` is blocked for coders (documentation), but `.md` files in `sandbox/agent-config/` and `skills/` are functional code and exempted.
 
 ## Handoff Data
 
