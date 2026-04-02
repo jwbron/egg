@@ -158,9 +158,7 @@ class ConcurrentPhaseExecutor:
 
                         agent_pat = get_agent_pattern(role.value)
                         if agent_pat and agent_pat.block_exempt_patterns:
-                            patterns_dict["block_exempt"] = (
-                                agent_pat.block_exempt_patterns
-                            )
+                            patterns_dict["block_exempt"] = agent_pat.block_exempt_patterns
                     except Exception:
                         pass  # Non-critical — omit block_exempt if unavailable
                     env["EGG_AGENT_FILE_PATTERNS"] = json.dumps(patterns_dict)
