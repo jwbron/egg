@@ -170,6 +170,15 @@ class TestDelphiFiltering:
                 to_role="all",
                 message_type=MessageType.CONSENSUS_PROPOSE,
                 subject="Proposal from coder",
+                body="Detailed self-assessment of my implementation",
+                metadata={
+                    "payload": {
+                        "summary": "Implemented auth",
+                        "artifacts": ["src/auth.py"],
+                        "version": 1,
+                        "commit_sha": "abc123",
+                    }
+                },
             )
         )
 
@@ -186,8 +195,13 @@ class TestDelphiFiltering:
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages?role=reviewer_code")
                 data = json.loads(resp.data)
 
-                # PROPOSE should now be visible
+                # PROPOSE should now be visible with full unredacted content
                 assert data["data"]["count"] == 1
+                msg = data["data"]["messages"][0]
+                assert msg["body"] == "Detailed self-assessment of my implementation"
+                assert msg["metadata"]["payload"]["summary"] == "Implemented auth"
+                assert msg["metadata"]["payload"]["artifacts"] == ["src/auth.py"]
+                assert "delphi_redacted" not in msg["metadata"]
 
     def test_non_reviewer_sees_propose(self, client, app):
         """Non-reviewer agents should see PROPOSE immediately."""
@@ -487,7 +501,7 @@ class TestDelphiFiltering:
                 assert data["data"]["count"] == 1
                 msg = data["data"]["messages"][0]
                 assert msg["body"] == "Full documentation details"
-                assert msg["metadata"].get("delphi_redacted") is not True
+                assert "delphi_redacted" not in msg["metadata"]
 
     def test_multiple_proposals_mixed_redaction(self, client, app):
         """Reviewer should see redacted PROPOSE from assigned producer and full

@@ -193,7 +193,11 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
                         if tracker.graph.get_edge(role, producer):
                             if not tracker.matrix.has_reviewed(role, producer):
                                 # Redact: preserve header but strip body and
-                                # sensitive payload fields
+                                # sensitive payload fields.  Top-level
+                                # metadata.version / metadata.commit_sha are
+                                # intentionally kept — reviewers need them to
+                                # identify which proposal to evaluate.  Only
+                                # the nested payload dict is filtered.
                                 redacted_metadata = dict(msg.metadata)
                                 if "payload" in redacted_metadata:
                                     payload = redacted_metadata["payload"]
