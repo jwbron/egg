@@ -582,7 +582,7 @@ class TestDelphiFiltering:
                 # Tester proposal: full (reviewer_code does NOT review tester)
                 tester_msg = msgs["tester"]
                 assert tester_msg["body"] == "Tester self-assessment"
-                assert tester_msg["metadata"].get("delphi_redacted") is not True
+                assert "delphi_redacted" not in tester_msg["metadata"]
 
     def test_no_filtering_without_role(self, client, app):
         """Messages without role filter should not be Delphi-filtered."""
