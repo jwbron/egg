@@ -207,7 +207,7 @@ Each agent tracks two state machines (producer and reviewer) independently:
 ### BRC Protocol Flow
 
 1. **Propose**: Producer completes work, commits and pushes to the remote branch, then sends `CONSENSUS_PROPOSE` with a summary, artifact list, and the pushed commit SHA (`--commit-sha`). The orchestrator rejects proposals whose commit SHA is confirmed absent from the branch (verification failures due to network errors are non-blocking).
-2. **Review**: Assigned reviewers evaluate the proposal and send `CONSENSUS_ACK` or `CONSENSUS_NACK`.
+2. **Review**: Assigned reviewers discover proposals via polling. Before a reviewer has submitted their own evaluation, the Delphi filter delivers a **redacted** version of the `CONSENSUS_PROPOSE` message (`body` cleared, `metadata.payload` stripped except `version` and `commit_sha`, `metadata.delphi_redacted=True`). This notifies the reviewer that a proposal exists without exposing the producer's self-assessment. After reviewing the git artifacts and submitting `CONSENSUS_ACK` or `CONSENSUS_NACK`, subsequent polls return the full unredacted message.
 3. **Converge**: When all critical reviewers ACK, the producer sends `CONSENSUS_CONFIRMED`. When all agents are confirmed, the phase advances.
 4. **Re-propose**: If a NACK is received, the producer addresses the feedback and re-proposes (with `changed_artifacts` to scope re-evaluation). Flip-flop cycles are capped at `max_flip_flops` (default: 3). If any reviewer had already confirmed on a prior proposal version, they automatically receive a `CONSENSUS_RE_REVIEW` message and are un-confirmed so they re-enter the review loop — preventing a deadlock where a stale-confirmed reviewer can never see the new proposal.
 
@@ -226,6 +226,18 @@ When agents work at different speeds, a faster reviewer may ACK a producer befor
 2. **On confirm**: A version-match guard prevents reviewers from confirming with stale ACKs. If a reviewer's ACK version does not match the producer's current proposal version, `CONSENSUS_CONFIRMED` returns `pending_acks` (exit code 2) with a message listing which producers need re-ACKing.
 
 These protections prevent a deadlock that previously occurred when a reviewer's stale version-0 ACK could never satisfy `is_fully_acked()`, permanently blocking the producer from confirming.
+
+### Delphi Redaction
+
+The Delphi filter prevents reviewer anchoring by redacting `CONSENSUS_PROPOSE` messages until the reviewer has submitted their own independent evaluation. When a reviewer polls for messages before ACK/NACK:
+
+- The message `body` is cleared (empty string)
+- All `metadata.payload` keys are stripped except `version` and `commit_sha`
+- `metadata.delphi_redacted` is set to `True`
+
+The redacted message preserves enough information for the reviewer to know *who* proposed and *which commit* to review, without exposing the producer's summary, attestations, or self-assessment. After the reviewer submits their ACK or NACK, subsequent polls return the full unredacted message.
+
+> **Why redact instead of withhold?** Previously, the filter dropped `CONSENSUS_PROPOSE` messages entirely from reviewers who hadn't evaluated the producer. This created a deadlock: reviewers waiting for a PROPOSE message to discover proposals never received one, because the filter withheld it until they reviewed. Redaction preserves the notification while protecting independent evaluation.
 
 Use `egg-orch consensus` commands to participate in the BRC protocol:
 
