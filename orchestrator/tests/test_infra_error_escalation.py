@@ -56,6 +56,11 @@ from models import PipelineConfig
 # Constants
 # ---------------------------------------------------------------------------
 
+try:
+    from egg_config import GATEWAY_PORT
+except ImportError:
+    GATEWAY_PORT = 9848  # noqa: EGG002
+
 PIPELINE_ID = "issue-1489"
 AGENT_ID = "coder-abc123"
 AGENT_ID_2 = "tester-def456"
@@ -861,7 +866,7 @@ class TestInfraErrorPatternCoverage:
         "EROFS: read-only file system, open '/egg-state/drafts/1481-plan.md'",
         "permission denied: cannot write to /home/egg/repos/egg/.egg-state/contracts",
         "403 Forbidden",
-        "gateway error: connection refused to egg-gateway:9848",
+        f"gateway error: connection refused to egg-gateway:{GATEWAY_PORT}",
         "git push failed: remote rejected",
         "git commit failed: pre-commit hook error",
     ]
