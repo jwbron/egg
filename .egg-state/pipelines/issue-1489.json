@@ -5,7 +5,7 @@
   "branch": "egg/issue-1489",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "awaiting_human",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -38,7 +38,7 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "complete",
+      "status": "awaiting_human",
       "started_at": "2026-04-02T06:52:26.260151Z",
       "work_started_at": "2026-04-02T06:52:26.272172Z",
       "completed_at": "2026-04-02T07:05:25.252002Z",
@@ -148,7 +148,7 @@
     }
   ],
   "created_at": "2026-04-02T06:51:48.663562Z",
-  "updated_at": "2026-04-02T07:05:29.603010Z",
+  "updated_at": "2026-04-02T07:05:29.625178Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -156,5 +156,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 10
+  "version": 11
 }
