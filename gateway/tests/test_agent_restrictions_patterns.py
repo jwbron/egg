@@ -163,6 +163,39 @@ class TestCanWrite:
         )
         assert pattern.can_write(".egg-state/contracts/644.json") is False
 
+    def test_block_exempt_overrides_blocked(self):
+        """block_exempt_patterns carve out exceptions from blocked patterns."""
+        pattern = AgentFilePattern(
+            role="test",
+            allowed_patterns=["**/*.md"],
+            blocked_patterns=["**/*.md"],
+            block_exempt_patterns=["config/rules/*.md"],
+        )
+        assert pattern.can_write("config/rules/my-rule.md") is True
+        assert pattern.can_write("docs/guide.md") is False
+
+    def test_block_exempt_still_requires_allowed(self):
+        """Exempt from block is not enough — must also match allowed patterns."""
+        pattern = AgentFilePattern(
+            role="test",
+            allowed_patterns=["src/"],
+            blocked_patterns=["**/*.md"],
+            block_exempt_patterns=["config/rules/*.md"],
+        )
+        assert pattern.can_write("config/rules/my-rule.md") is False
+
+    def test_block_exempt_does_not_bypass_other_blocks(self):
+        """Exempt patterns must only bypass their intended block, not others."""
+        pattern = AgentFilePattern(
+            role="test",
+            allowed_patterns=["**/*.md", "config/rules/*.md"],
+            blocked_patterns=["**/*.md", "docs/"],
+            block_exempt_patterns=["config/rules/*.md"],
+        )
+        assert pattern.can_write("config/rules/my-rule.md") is True
+        # Exempt pattern should NOT let paths inside docs/ through
+        assert pattern.can_write("docs/rules/evil.md") is False
+
 
 class TestCoderRole:
     """Verify coder agent can/cannot write expected files."""
@@ -252,6 +285,47 @@ class TestCoderRole:
     def test_cannot_write_test_dir_still_blocked(self, pattern):
         """Regression: Coder still cannot write test directory files."""
         assert pattern.can_write("tests/test_foo.py") is False
+
+    def test_can_write_agent_config_rules_md(self, pattern):
+        """Coder can write .md files in rules/ (functional code, not docs)."""
+        assert pattern.can_write("sandbox/agent-config/rules/push-recovery.md") is True
+
+    def test_can_write_agent_config_commands_md(self, pattern):
+        """Coder can write .md files in commands/ (functional code, not docs)."""
+        assert pattern.can_write("sandbox/agent-config/commands/run-tests.md") is True
+
+    def test_cannot_write_docs_md_still_blocked(self, pattern):
+        """Regression: Coder still cannot write documentation .md files."""
+        assert pattern.can_write("docs/guide.md") is False
+
+    def test_cannot_write_readme_still_blocked(self, pattern):
+        """Regression: Coder still cannot write README.md."""
+        assert pattern.can_write("README.md") is False
+
+    def test_cannot_write_arbitrary_md(self, pattern):
+        """Coder cannot write .md files outside exempt directories."""
+        assert pattern.can_write("CHANGELOG.md") is False
+
+    def test_cannot_write_docs_rules_md(self, pattern):
+        """Coder cannot write .md in docs/ even if path contains 'rules/'."""
+        assert pattern.can_write("docs/rules/evil.md") is False
+
+    def test_cannot_write_tests_rules_md(self, pattern):
+        """Coder cannot write .md in tests/ even if path contains 'rules/'."""
+        assert pattern.can_write("tests/rules/evil.md") is False
+
+    def test_cannot_write_contracts_commands_md(self, pattern):
+        """Coder cannot write .md in contracts/ even if path contains 'commands/'."""
+        assert pattern.can_write(".egg-state/contracts/commands/evil.md") is False
+
+    def test_can_write_top_level_skills_md(self, pattern):
+        """Coder can write .md files in top-level skills/ (skill definitions)."""
+        assert pattern.can_write("skills/sdlc/SKILL.md") is True
+        assert pattern.can_write("skills/egg-setup/SKILL.md") is True
+
+    def test_can_write_top_level_skills_non_md(self, pattern):
+        """Coder can write non-.md files in top-level skills/."""
+        assert pattern.can_write("skills/sdlc/helper.py") is True
 
 
 class TestTesterRole:
