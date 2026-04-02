@@ -245,7 +245,7 @@ A complementary scenario: consensus is **incomplete** and the same blocking agen
 
 Each poll cycle the overseer evaluates six targeted health checks (the fourth triggers only on phase transitions; the fifth triggers only at pipeline completion). Only the fourth (cross-phase consistency) uses an LLM classifier; the rest are deterministic (no LLM cost):
 
-> **Note:** All checks also broadcast an `OVERSEER_ALERT` message to the `all` target on the message bus, allowing the `/sdlc` monitoring session and other listeners to surface findings via `egg-orch message recent`.
+> **Note:** All checks broadcast an `OVERSEER_ALERT` message to the `all` target on the message bus, allowing the `/sdlc` monitoring session and other listeners to surface findings via `egg-orch message recent`. Each alert is routed to the correct pipeline using an explicit `pipeline_id` argument and attributed with `from_role: overseer`, ensuring alerts from internal self-tests or other pipelines never leak into unrelated pipelines' message streams.
 
 | Check | Detects | Action |
 |-------|---------|--------|
@@ -295,6 +295,14 @@ When the overseer files a GitHub issue (decided by the Sonnet/Opus tier), it use
 
 Issues are auto-labeled with `overseer-alert` and the error category (e.g., `stall`, `repeated-error`).
 
+### Pipeline Isolation
+
+All overseer CLI operations (`_broadcast_alert`, `_send_message`, `_resolve_alert`, `_create_hitl_decision`) pass the pipeline ID explicitly as a positional argument rather than relying on the `EGG_PIPELINE_ID` environment variable. This ensures that:
+
+- **Alerts are routed to the correct pipeline** — self-test alerts (e.g., for test pipeline IDs like `test-postconsensus-001`) never leak into real pipelines' message streams.
+- **`from_role` is always `overseer`** — the `--role overseer` flag is passed explicitly, preventing misattribution when the environment's `EGG_AGENT_ROLE` differs (e.g., inherited `coder` role).
+- **Targeted messages include the `--type` flag** — `_send_message` passes `--type STATUS` to satisfy the CLI parser's required argument, ensuring messages are delivered rather than silently dropped.
+
 ### Overseer Access & Restrictions
 
 **Has access to:**
@@ -303,7 +311,7 @@ Issues are auto-labeled with `overseer-alert` and the error category (e.g., `sta
 - Agent container logs via `egg-orch container logs`
 - Gateway and orchestrator health endpoints
 - GitHub API: `gh issue create` for diagnostic filing
-- `egg-orch message send` to redirect individual agents or broadcast `OVERSEER_ALERT` notifications to all
+- `egg-orch message send` to redirect individual agents or broadcast `OVERSEER_ALERT` notifications to all (always with explicit pipeline routing)
 
 **Blocked from:**
 - All git operations (no repo mounted)

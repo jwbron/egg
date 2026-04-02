@@ -153,6 +153,7 @@ Returns total message count and a breakdown by message type.
 | `CONSENSUS_WITHDRAW` | Producer withdrawing its proposal (e.g., to address NACK) |
 | `CONSENSUS_CONFIRMED` | Agent confirmed after all required reviews are ACKed |
 | `CONSENSUS_RE_REVIEW` | Orchestrator notifying a reviewer that their prior confirmation is stale and they must re-review the producer's new proposal version |
+| `OVERSEER_ALERT` | Overseer broadcasting a health anomaly alert (always sent with explicit `pipeline_id` and `from_role: overseer`) |
 
 ### Message Store Backend
 

@@ -565,6 +565,7 @@ class TestPostConsensusStall:
         )
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
 
         consensus = {"is_complete": True}
 
@@ -589,6 +590,7 @@ class TestPostConsensusStall:
         )
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
 
         consensus = {"is_complete": True}
 
@@ -613,6 +615,7 @@ class TestPostConsensusStall:
         )
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
 
         # Mark as already reported
         monitor._post_consensus_stall_reported = True
@@ -631,6 +634,7 @@ class TestPostConsensusStall:
         )
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
 
         consensus = {"is_complete": True}
 
@@ -647,6 +651,7 @@ class TestPostConsensusStall:
         )
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
 
         consensus = {"is_complete": False}
 
@@ -840,6 +845,7 @@ class TestRerunAnomaly:
         )
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
 
         decisions = [
             {
@@ -875,6 +881,7 @@ class TestRerunAnomaly:
         monitor = OverseerMonitor(pipeline_id="test-rerun-002", config=_MockConfig())
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
 
         decisions = [
             {
@@ -899,6 +906,7 @@ class TestRerunAnomaly:
         monitor = OverseerMonitor(pipeline_id="test-rerun-003", config=config)
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
 
         decisions = [
             {
@@ -934,6 +942,7 @@ class TestRerunAnomaly:
         monitor = OverseerMonitor(pipeline_id="test-rerun-004", config=config)
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
         monitor._rerun_anomaly_reported.add("d-4")
 
         decisions = [
@@ -976,6 +985,7 @@ class TestStatusConsistency:
         monitor = OverseerMonitor(pipeline_id="test-status-001", config=_MockConfig())
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
 
         pipeline_data = {
             "status": "failed",
@@ -1005,6 +1015,7 @@ class TestStatusConsistency:
         """Tracking resets when pipeline is no longer in failed state."""
         monitor = OverseerMonitor(pipeline_id="test-status-002", config=_MockConfig())
         monitor._create_hitl_decision = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
         monitor._status_inconsistency_first_seen = time.time() - 999
         monitor._status_inconsistency_reported = True
 
@@ -1018,6 +1029,7 @@ class TestStatusConsistency:
         monitor = OverseerMonitor(pipeline_id="test-status-003", config=_MockConfig())
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
 
         pipeline_data = {
             "status": "failed",
@@ -1037,6 +1049,7 @@ class TestStatusConsistency:
         monitor = OverseerMonitor(pipeline_id="test-status-004", config=_MockConfig())
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
         monitor._status_inconsistency_reported = True
         monitor._status_inconsistency_first_seen = time.time() - 999
 
@@ -1066,6 +1079,7 @@ class TestHitlResolutionPropagation:
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
         monitor._query_contract_data = AsyncMock(return_value={"decisions": []})
+        monitor._broadcast_alert = AsyncMock()
 
         decisions = [
             {
@@ -1101,6 +1115,7 @@ class TestHitlResolutionPropagation:
         monitor._query_contract_data = AsyncMock(
             return_value={"decisions": [{"id": "d-11", "status": "resolved"}]}
         )
+        monitor._broadcast_alert = AsyncMock()
 
         decisions = [
             {
@@ -1123,6 +1138,7 @@ class TestHitlResolutionPropagation:
         monitor = OverseerMonitor(pipeline_id="test-hitl-prop-003", config=_MockConfig())
         monitor._create_hitl_decision = AsyncMock()
         monitor._query_contract_data = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
         monitor._hitl_resolution_verified.add("d-12")
 
         decisions = [{"id": "d-12", "decision_type": "phase_gate", "status": "resolved"}]
@@ -1158,6 +1174,7 @@ class TestCrossPhaseConsistency:
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
         monitor._query_contract_data = AsyncMock(return_value={"tasks": [{"id": "t1"}]})
+        monitor._broadcast_alert = AsyncMock()
 
         # Set initial phase
         monitor._last_phase_name = "plan"
@@ -1206,6 +1223,7 @@ class TestCrossPhaseConsistency:
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
         monitor._query_contract_data = AsyncMock(return_value={"tasks": []})
+        monitor._broadcast_alert = AsyncMock()
         monitor._last_phase_name = "plan"
 
         decisions = [{"id": "d-21", "status": "resolved", "phase": "plan", "resolution": "approve"}]
@@ -1230,6 +1248,7 @@ class TestCrossPhaseConsistency:
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
         monitor._query_contract_data = AsyncMock(return_value={"tasks": []})
+        monitor._broadcast_alert = AsyncMock()
         monitor._last_phase_name = "plan"
 
         decisions = [{"id": "d-22", "status": "resolved", "phase": "plan", "resolution": "approve"}]
@@ -1269,6 +1288,7 @@ class TestCrossPhaseConsistency:
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
         monitor._query_contract_data = AsyncMock(return_value={"tasks": [{"id": "t1"}]})
+        monitor._broadcast_alert = AsyncMock()
         monitor._last_phase_name = "plan"
 
         decisions = [{"id": "d-30", "status": "resolved", "phase": "plan", "resolution": "approve"}]
@@ -1295,6 +1315,7 @@ class TestCrossPhaseConsistency:
             classifier=classifier,
         )
         monitor._query_contract_data = AsyncMock(return_value={})
+        monitor._broadcast_alert = AsyncMock()
         monitor._last_phase_name = "plan"
 
         decisions = [{"id": "d-31", "status": "resolved", "phase": "plan", "resolution": "approve"}]
@@ -1392,6 +1413,7 @@ class TestPrPhaseOutcomeCheck:
         )
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
 
         pipeline_data = {
             "status": "complete",
@@ -1418,6 +1440,7 @@ class TestPrPhaseOutcomeCheck:
         )
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
 
         pipeline_data = {
             "status": "complete",
@@ -1442,6 +1465,7 @@ class TestPrPhaseOutcomeCheck:
         )
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
 
         pipeline_data = {
             "status": "complete",
@@ -1461,6 +1485,7 @@ class TestPrPhaseOutcomeCheck:
         )
         monitor._create_hitl_decision = AsyncMock()
         monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
 
         pipeline_data = {
             "status": "complete",
@@ -1495,6 +1520,7 @@ class TestOrchestratorReachability:
         )
         monitor._send_slack_notification = AsyncMock()
         monitor._log_oversight_event = MagicMock()
+        monitor._broadcast_alert = AsyncMock()
         return monitor
 
     def test_reachable_resets_counter(self) -> None:
