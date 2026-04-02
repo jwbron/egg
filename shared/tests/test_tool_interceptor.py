@@ -144,25 +144,25 @@ class TestCheckFileWritePermission:
         )
         assert result is None
 
-    def test_rejection_message_in_error(self):
-        """Error message should mention gateway rejection for blocked writes."""
+    def test_blocked_prefix_in_error(self):
+        """Error message should start with BLOCKED for blocked writes."""
         result = check_file_write_permission(
             "Write",
             {"file_path": "/home/egg/repos/myrepo/tests/test_foo.py"},
             agent_role="coder",
         )
         assert result is not None
-        assert "gateway will reject" in result.lower()
+        assert result.startswith("BLOCKED:")
 
-    def test_gateway_mention_in_error(self):
-        """Error message should mention the gateway would reject at push time."""
+    def test_scope_guidance_in_error(self):
+        """Error message should guide the LLM to focus on in-scope files."""
         result = check_file_write_permission(
             "Write",
             {"file_path": "/home/egg/repos/myrepo/tests/test_foo.py"},
             agent_role="coder",
         )
         assert result is not None
-        assert "gateway" in result.lower()
+        assert "role's scope" in result.lower()
 
     def test_egg_restrictions_import_failure_allows(self):
         """When egg_restrictions is not importable, should fail open."""
