@@ -26,6 +26,9 @@ COPY shared/egg_orchestrator/ ./egg_orchestrator/
 COPY shared/egg_git/ ./egg_git/
 COPY shared/egg_anchor/ ./egg_anchor/
 
+# Copy anchor schema files (required by egg_anchor.validator)
+COPY .egg/schemas/ ./.egg/schemas/
+
 # Copy shared prompt criteria files
 COPY shared/prompts/ ./prompts/
 
