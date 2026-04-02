@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import fnmatch
 import json
 import os
@@ -151,7 +152,7 @@ def _get_merge_base(branch: str) -> str:
     return "HEAD~1"
 
 
-def cmd_push(args) -> None:
+def cmd_push(args: argparse.Namespace) -> None:
     """Handle the push subcommand."""
 
     # Without --scope-filter, just passthrough to git push.
@@ -255,7 +256,7 @@ def cmd_push(args) -> None:
     sys.exit(push_result.returncode)
 
 
-def register_push_subcommand(subparsers) -> None:
+def register_push_subcommand(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Register the push subcommand on the given subparsers."""
     push_parser = subparsers.add_parser(
         "push",
