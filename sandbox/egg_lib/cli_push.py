@@ -230,6 +230,8 @@ def cmd_push(args: argparse.Namespace) -> None:
             "Error: no changes remain after filtering. The commit would be empty.",
             file=sys.stderr,
         )
+        if orig_head:
+            sys.stderr.write(f"\nTo restore your original commits: git reset --hard {orig_head}\n")
         sys.exit(1)
 
     # Step 4: recommit with the original HEAD commit message.

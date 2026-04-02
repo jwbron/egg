@@ -371,9 +371,9 @@ class TestCmdPushScopeFilter:
     @patch("egg_lib.cli_push.subprocess.run")
     @patch("egg_lib.cli_push._run_git")
     def test_empty_staging_after_filter_exits(
-        self, mock_run_git, mock_subprocess_run, mock_get_branch, mock_merge_base
+        self, mock_run_git, mock_subprocess_run, mock_get_branch, mock_merge_base, capsys
     ):
-        """Safety check: exits if staging is empty after filtering."""
+        """Safety check: exits if staging is empty after filtering, with recovery hint."""
         patterns = json.dumps({"allowed": ["**/*.py"], "blocked": ["docs/"]})
         with patch.dict(os.environ, {"EGG_AGENT_FILE_PATTERNS": patterns}):
             # diff returns one .py file (kept) and one doc file (removed)
@@ -392,6 +392,8 @@ class TestCmdPushScopeFilter:
             with pytest.raises(SystemExit) as exc_info:
                 cmd_push(_make_args(scope_filter=True))
             assert exc_info.value.code == 1
+            captured = capsys.readouterr()
+            assert "git reset --hard abc999" in captured.err
 
     @patch("egg_lib.cli_push._get_merge_base", return_value="abc123")
     @patch("egg_lib.cli_push._get_current_branch", return_value="egg/test")
