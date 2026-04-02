@@ -135,25 +135,25 @@ class TestCheckFileWritePermission:
         )
         assert result is None
 
-    def test_error_message_mentions_delegation(self):
-        """Error message suggests delegating to appropriate role."""
+    def test_error_message_mentions_role(self):
+        """Error message mentions the role that was blocked."""
         result = check_file_write_permission(
             "Write",
             {"file_path": "/home/egg/repos/egg/src/main.py"},
             agent_role="tester",
         )
         assert result is not None
-        assert "delegat" in result.lower() or "role" in result.lower()
+        assert "tester" in result.lower()
 
-    def test_error_message_mentions_gateway(self):
-        """Error message warns about gateway rejection at push time."""
+    def test_error_message_starts_with_blocked(self):
+        """Error message starts with BLOCKED prefix for LLM feedback."""
         result = check_file_write_permission(
             "Write",
             {"file_path": "/home/egg/repos/egg/src/main.py"},
             agent_role="tester",
         )
         assert result is not None
-        assert "gateway" in result.lower() or "push" in result.lower()
+        assert result.startswith("BLOCKED:")
 
 
 class TestNormalizeToRepoRelative:

@@ -93,6 +93,24 @@ except ImportError:
         system_prompt: str | None = None
         setting_sources: list[str] | None = None
         disallowed_tools: list[str] = field(default_factory=list)
+        can_use_tool: Any = None
+
+    @dataclass
+    class PermissionResultAllow:  # type: ignore[no-redef]
+        behavior: str = "allow"
+
+    @dataclass
+    class PermissionResultDeny:  # type: ignore[no-redef]
+        behavior: str = "deny"
+        message: str = ""
+        interrupt: bool = False
+
+    @dataclass
+    class ToolPermissionContext:  # type: ignore[no-redef]
+        signal: Any = None
+        suggestions: list = field(default_factory=list)
+        tool_use_id: str | None = None
+        agent_id: str | None = None
 
     # Install mock module so client.py's lazy import finds it
     _mock_sdk = ModuleType("claude_agent_sdk")
@@ -107,6 +125,9 @@ except ImportError:
     _mock_sdk.ClaudeSDKError = ClaudeSDKError  # type: ignore[attr-defined]
     _mock_sdk.SystemMessage = SystemMessage  # type: ignore[attr-defined]
     _mock_sdk.ClaudeAgentOptions = ClaudeAgentOptions  # type: ignore[attr-defined]
+    _mock_sdk.PermissionResultAllow = PermissionResultAllow  # type: ignore[attr-defined]
+    _mock_sdk.PermissionResultDeny = PermissionResultDeny  # type: ignore[attr-defined]
+    _mock_sdk.ToolPermissionContext = ToolPermissionContext  # type: ignore[attr-defined]
     _mock_sdk.query = None  # type: ignore[attr-defined]  # Patched in tests
     sys.modules["claude_agent_sdk"] = _mock_sdk
 
@@ -666,6 +687,75 @@ class TestRunAgentAsync:
         call_kwargs = mock_query.call_args.kwargs
         opts = call_kwargs["options"]
         assert opts.disallowed_tools == []
+
+
+class TestToolInterception:
+    """Tests for can_use_tool-based tool interception."""
+
+    @patch.dict(os.environ, {"EGG_AGENT_ROLE": "tester"})
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_intercept_tools_sets_can_use_tool(self, mock_query):
+        """When intercept_tools=True and role is set, can_use_tool should be set."""
+        _run_async(run_agent_async("test prompt"))
+        call_kwargs = mock_query.call_args.kwargs
+        opts = call_kwargs["options"]
+        assert opts.can_use_tool is not None
+
+    @patch.dict(os.environ, {"EGG_AGENT_ROLE": "tester"})
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_intercept_tools_callback_blocks_disallowed_write(self, mock_query):
+        """Callback should return PermissionResultDeny for out-of-scope writes."""
+        _run_async(run_agent_async("test prompt"))
+        callback = mock_query.call_args.kwargs["options"].can_use_tool
+        # Tester writing to source code should be blocked
+        result = _run_async(
+            callback("Write", {"file_path": "/home/egg/repos/egg/src/main.py"}, None)
+        )
+        assert result.behavior == "deny"
+        assert "BLOCKED" in result.message
+        assert "tester" in result.message
+
+    @patch.dict(os.environ, {"EGG_AGENT_ROLE": "tester"})
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_intercept_tools_callback_allows_in_scope_write(self, mock_query):
+        """Callback should return PermissionResultAllow for in-scope writes."""
+        _run_async(run_agent_async("test prompt"))
+        callback = mock_query.call_args.kwargs["options"].can_use_tool
+        # Tester writing to test files should be allowed
+        result = _run_async(
+            callback("Write", {"file_path": "/home/egg/repos/egg/tests/test_foo.py"}, None)
+        )
+        assert result.behavior == "allow"
+
+    @patch.dict(os.environ, {"EGG_AGENT_ROLE": "tester"})
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_intercept_tools_callback_allows_non_write_tools(self, mock_query):
+        """Callback should allow Read, Bash, etc. (non-write tools)."""
+        _run_async(run_agent_async("test prompt"))
+        callback = mock_query.call_args.kwargs["options"].can_use_tool
+        result = _run_async(callback("Bash", {"command": "ls"}, None))
+        assert result.behavior == "allow"
+
+    @patch.dict(os.environ, {}, clear=False)
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_intercept_tools_no_role_no_callback(self, mock_query):
+        """When EGG_AGENT_ROLE is not set, can_use_tool should be None."""
+        env = os.environ.copy()
+        env.pop("EGG_AGENT_ROLE", None)
+        with patch.dict(os.environ, env, clear=True):
+            _run_async(run_agent_async("test prompt"))
+            call_kwargs = mock_query.call_args.kwargs
+            opts = call_kwargs["options"]
+            assert opts.can_use_tool is None
+
+    @patch.dict(os.environ, {"EGG_AGENT_ROLE": "tester"})
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_intercept_tools_disabled_no_callback(self, mock_query):
+        """When intercept_tools=False, can_use_tool should be None."""
+        _run_async(run_agent_async("test prompt", intercept_tools=False))
+        call_kwargs = mock_query.call_args.kwargs
+        opts = call_kwargs["options"]
+        assert opts.can_use_tool is None
 
 
 class TestRunAgentSync:

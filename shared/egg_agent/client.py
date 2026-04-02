@@ -85,8 +85,9 @@ async def run_agent_async(
         timeout: Maximum execution time in seconds (default: 2 hours).
         on_output: Optional callback for streaming text output.
         env: Optional environment variables to pass to the agent.
-        intercept_tools: If True (default), check Write/Edit/NotebookEdit
-            calls against role-based file restrictions and log warnings.
+        intercept_tools: If True (default), block Write/Edit/NotebookEdit
+            calls that violate role-based file restrictions. Blocked tools
+            return an error to the LLM instead of executing.
             Only active when EGG_AGENT_ROLE is set.
 
     Returns:
@@ -100,6 +101,8 @@ async def run_agent_async(
             ClaudeAgentOptions,
             ClaudeSDKError,
             CLINotFoundError,
+            PermissionResultAllow,
+            PermissionResultDeny,
             ProcessError,
             ResultMessage,
             SystemMessage,
@@ -125,6 +128,36 @@ async def run_agent_async(
     private_mode = os.environ.get("EGG_PRIVATE_MODE", "").lower() in ("true", "1")
     disallowed: list[str] = ["WebFetch", "WebSearch"] if private_mode else []
 
+    # Build the can_use_tool callback for role-based file write blocking.
+    # When active, Write/Edit/NotebookEdit calls to out-of-scope files are
+    # denied and the error message is returned to the LLM as a tool result.
+    tool_permission_callback = None
+    if intercept_tools:
+        from egg_agent.tool_interceptor import (
+            check_file_write_permission,
+            get_role_from_env,
+        )
+
+        role = get_role_from_env()
+        if role:
+
+            async def _check_tool_permission(
+                tool_name: str, tool_input: dict[str, Any], context: Any
+            ) -> Any:
+                error = check_file_write_permission(tool_name, tool_input, role)
+                if error:
+                    logger.warning(
+                        "Tool blocked by role restrictions",
+                        event_type="tool_intercepted",
+                        tool_name=tool_name,
+                        agent_role=role,
+                        error=error,
+                    )
+                    return PermissionResultDeny(message=error)
+                return PermissionResultAllow()
+
+            tool_permission_callback = _check_tool_permission
+
     options = ClaudeAgentOptions(
         permission_mode="bypassPermissions",
         model=model,
@@ -135,6 +168,7 @@ async def run_agent_async(
         # Without this the SDK ignores all filesystem-based configuration.
         setting_sources=["project", "user"],
         disallowed_tools=disallowed,
+        can_use_tool=tool_permission_callback,
     )
     if max_turns is not None:
         options.max_turns = max_turns
@@ -180,27 +214,6 @@ async def run_agent_async(
                                 tool_use_id=block.id,
                                 input=_truncate(input_str),
                             )
-                            # Check file write permissions against role restrictions
-                            if intercept_tools:
-                                from egg_agent.tool_interceptor import (
-                                    check_file_write_permission,
-                                    get_role_from_env,
-                                )
-
-                                role = get_role_from_env()
-                                if role:
-                                    error = check_file_write_permission(
-                                        block.name, block.input or {}, role
-                                    )
-                                    if error:
-                                        logger.warning(
-                                            "Tool blocked by role restrictions",
-                                            event_type="tool_intercepted",
-                                            tool_name=block.name,
-                                            tool_use_id=block.id,
-                                            agent_role=role,
-                                            error=error,
-                                        )
                         elif isinstance(block, TextBlock) and block.text:
                             logger.info(
                                 "Assistant message",
