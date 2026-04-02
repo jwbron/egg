@@ -206,6 +206,8 @@ CODER_PATTERNS = AgentFilePattern(
         # Agent config (.md files that are functional code, not docs)
         "sandbox/agent-config/rules/*.md",
         "sandbox/agent-config/commands/*.md",
+        # Top-level skills directory (skill definitions are functional code)
+        "skills/",
         # Handoff output
         ".egg-state/agent-outputs/",
     ],
@@ -242,6 +244,7 @@ CODER_PATTERNS = AgentFilePattern(
         # other blocked patterns (docs/, tests/, .egg-state/contracts/).
         "sandbox/agent-config/rules/*.md",
         "sandbox/agent-config/commands/*.md",
+        "skills/",
     ],
 )
 

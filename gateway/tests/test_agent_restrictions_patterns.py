@@ -318,6 +318,15 @@ class TestCoderRole:
         """Coder cannot write .md in contracts/ even if path contains 'commands/'."""
         assert pattern.can_write(".egg-state/contracts/commands/evil.md") is False
 
+    def test_can_write_top_level_skills_md(self, pattern):
+        """Coder can write .md files in top-level skills/ (skill definitions)."""
+        assert pattern.can_write("skills/sdlc/SKILL.md") is True
+        assert pattern.can_write("skills/egg-setup/SKILL.md") is True
+
+    def test_can_write_top_level_skills_non_md(self, pattern):
+        """Coder can write non-.md files in top-level skills/."""
+        assert pattern.can_write("skills/sdlc/helper.py") is True
+
 
 class TestTesterRole:
     """Verify tester agent can/cannot write expected files."""
