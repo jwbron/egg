@@ -31,9 +31,6 @@ secrets.yaml
 .env.*.local
 # Note: .env may be generated at runtime by egg --compose
 
-# SDLC pipeline state (operational artifacts, not source code)
-.egg-state/
-
 # Claude Code
 .claude/worktrees/
 .claude/settings.local.json

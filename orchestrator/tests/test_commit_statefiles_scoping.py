@@ -75,6 +75,11 @@ class TestCommitStatefilesScoping:
 
         assert add_call is not None, "Expected a git add call"
 
+        # --force must be present to override .gitignore (#1548)
+        assert "--force" in add_call, (
+            "git add must use --force to stage gitignored .egg-state/ files"
+        )
+
         # The add call should contain paths with '42' but NOT '99'
         add_paths = add_call[add_call.index("--") + 1 :]
         add_filenames = [Path(p).name for p in add_paths]
@@ -136,10 +141,11 @@ class TestCommitStatefilesScoping:
         with patch("subprocess.run", side_effect=_make_run_side_effect()) as mock_run:
             _commit_statefiles_to_worktree(tmp_path, "unscoped commit", pipeline_identifier=None)
 
-        # The git add call should use the broad ".egg-state/" path
+        # The git add call should use the broad ".egg-state/" path with --force
         add_call = mock_run.call_args_list[0]
         cmd = add_call[0][0]
         assert ".egg-state/" in cmd
+        assert "--force" in cmd, "git add must use --force to stage gitignored .egg-state/ files"
 
     def test_idempotent_when_nothing_staged(self, tmp_path: Path):
         """When diff --cached --quiet returns 0, no commit is created."""

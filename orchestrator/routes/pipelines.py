@@ -2510,7 +2510,7 @@ def _commit_statefiles_to_worktree(
 
         rel_paths = [str(Path(f).relative_to(worktree_path)) for f in matched]
         subprocess.run(
-            [*git_base, "add", "--"] + rel_paths,
+            [*git_base, "add", "--force", "--"] + rel_paths,
             capture_output=True,
             text=True,
             check=True,
@@ -2518,7 +2518,7 @@ def _commit_statefiles_to_worktree(
         )
     else:
         subprocess.run(
-            [*git_base, "add", ".egg-state/"],
+            [*git_base, "add", "--force", ".egg-state/"],
             capture_output=True,
             text=True,
             check=True,
@@ -6032,11 +6032,18 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         ),
                     )
                 except subprocess.CalledProcessError as git_err:
-                    logger.warning(
-                        "Failed to commit statefiles to worktree (continuing)",
+                    logger.error(
+                        "Failed to commit initial statefiles — aborting pipeline",
                         pipeline_id=pipeline_id,
                         error=str(git_err),
                     )
+                    with get_pipeline_state_lock(pipeline_id):
+                        pipeline = store.load_pipeline(pipeline_id)
+                        pipeline.status = PipelineStatus.FAILED
+                        pipeline.contract_synced = False
+                        pipeline.error = f"Failed to commit initial statefiles: {git_err}"
+                        store.save_pipeline(pipeline)
+                    return
 
                 # Push contract statefiles to remote so agents see them.
                 # This MUST succeed before agents start — otherwise agents'
