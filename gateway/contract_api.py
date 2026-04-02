@@ -219,7 +219,7 @@ def get_contract(issue_number: int) -> tuple[Response, int]:
     _map_path, _worktree_err = _get_worktree_helpers()
     mapped_path = _map_path(str(repo_path), container_id, "contract")
     if mapped_path is None:
-        return _worktree_err(container_id)
+        return _worktree_err(container_id or "")
     repo_path = Path(mapped_path)
 
     include_audit = request.args.get("include_audit_log", "false").lower() == "true"
@@ -455,7 +455,7 @@ def check_contract_exists(issue_number: int) -> tuple[Response, int]:
     _map_path, _worktree_err = _get_worktree_helpers()
     mapped_path = _map_path(str(repo_path), container_id, "contract")
     if mapped_path is None:
-        return _worktree_err(container_id)
+        return _worktree_err(container_id or "")
     repo_path = Path(mapped_path)
 
     exists = contract_exists(issue_number, repo_path)
