@@ -163,6 +163,27 @@ class TestCanWrite:
         )
         assert pattern.can_write(".egg-state/contracts/644.json") is False
 
+    def test_block_exempt_overrides_blocked(self):
+        """block_exempt_patterns carve out exceptions from blocked patterns."""
+        pattern = AgentFilePattern(
+            role="test",
+            allowed_patterns=["**/*.md"],
+            blocked_patterns=["**/*.md"],
+            block_exempt_patterns=["**/rules/*.md"],
+        )
+        assert pattern.can_write("config/rules/my-rule.md") is True
+        assert pattern.can_write("docs/guide.md") is False
+
+    def test_block_exempt_still_requires_allowed(self):
+        """Exempt from block is not enough — must also match allowed patterns."""
+        pattern = AgentFilePattern(
+            role="test",
+            allowed_patterns=["src/"],
+            blocked_patterns=["**/*.md"],
+            block_exempt_patterns=["**/rules/*.md"],
+        )
+        assert pattern.can_write("config/rules/my-rule.md") is False
+
 
 class TestCoderRole:
     """Verify coder agent can/cannot write expected files."""
@@ -252,6 +273,30 @@ class TestCoderRole:
     def test_cannot_write_test_dir_still_blocked(self, pattern):
         """Regression: Coder still cannot write test directory files."""
         assert pattern.can_write("tests/test_foo.py") is False
+
+    def test_can_write_agent_config_rules_md(self, pattern):
+        """Coder can write .md files in rules/ (functional code, not docs)."""
+        assert pattern.can_write("sandbox/agent-config/rules/push-recovery.md") is True
+
+    def test_can_write_agent_config_skills_md(self, pattern):
+        """Coder can write .md files in skills/ (functional code, not docs)."""
+        assert pattern.can_write("sandbox/agent-config/skills/deploy.md") is True
+
+    def test_can_write_agent_config_commands_md(self, pattern):
+        """Coder can write .md files in commands/ (functional code, not docs)."""
+        assert pattern.can_write("sandbox/agent-config/commands/run-tests.md") is True
+
+    def test_cannot_write_docs_md_still_blocked(self, pattern):
+        """Regression: Coder still cannot write documentation .md files."""
+        assert pattern.can_write("docs/guide.md") is False
+
+    def test_cannot_write_readme_still_blocked(self, pattern):
+        """Regression: Coder still cannot write README.md."""
+        assert pattern.can_write("README.md") is False
+
+    def test_cannot_write_arbitrary_md(self, pattern):
+        """Coder cannot write .md files outside exempt directories."""
+        assert pattern.can_write("CHANGELOG.md") is False
 
 
 class TestTesterRole:

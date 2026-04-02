@@ -53,6 +53,7 @@ class AgentFilePattern:
     role: str
     allowed_patterns: list[str] = field(default_factory=list)
     blocked_patterns: list[str] = field(default_factory=list)
+    block_exempt_patterns: list[str] = field(default_factory=list)
     description: str = ""
 
     def can_write(self, file_path: str) -> bool:
@@ -70,6 +71,12 @@ class AgentFilePattern:
             include ".egg-state/agent-outputs/" but blocked patterns
             include ".egg-state/contracts/", we must ensure the blocked
             pattern takes precedence.
+
+            However, block_exempt_patterns can carve out narrow exceptions
+            from blocked patterns. For example, ``**/*.md`` is blocked for
+            coders (documentation), but ``.md`` files in agent-config
+            directories (rules, skills, commands) are functional code and
+            are exempted via block_exempt_patterns.
         """
         normalized = self._normalize_path(file_path)
 
@@ -78,8 +85,12 @@ class AgentFilePattern:
             return False
 
         # Check blocked patterns FIRST - security takes precedence
+        # BUT skip the block if the path matches a block-exemption pattern.
         if any(self._matches_pattern(normalized, p) for p in self.blocked_patterns):
-            return False
+            if not any(
+                self._matches_pattern(normalized, p) for p in self.block_exempt_patterns
+            ):
+                return False
 
         # If no allowed patterns, nothing is allowed
         if not self.allowed_patterns:
@@ -194,6 +205,10 @@ CODER_PATTERNS = AgentFilePattern(
         "**/*.lock",
         # Requirements files
         "**/requirements*.txt",
+        # Agent config (.md files that are functional code, not docs)
+        "**/rules/*.md",
+        "**/skills/*.md",
+        "**/commands/*.md",
         # Handoff output
         ".egg-state/agent-outputs/",
     ],
@@ -223,6 +238,13 @@ CODER_PATTERNS = AgentFilePattern(
         "**/*.spec.jsx",
         # Pytest infrastructure (Tester handles)
         "**/conftest.py",
+    ],
+    block_exempt_patterns=[
+        # Agent config .md files are functional code (rules, skills, commands),
+        # not documentation. See #1537.
+        "**/rules/*.md",
+        "**/skills/*.md",
+        "**/commands/*.md",
     ],
 )
 
