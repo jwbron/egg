@@ -65,9 +65,12 @@ def _get_worktree_helpers():
     harness, so we import on first use instead of at module load time.
     """
     try:
-        from .gateway import map_container_path_to_worktree, make_worktree_not_found_error
+        from .gateway import make_worktree_not_found_error, map_container_path_to_worktree
     except ImportError:
-        from gateway import map_container_path_to_worktree, make_worktree_not_found_error  # type: ignore[no-redef, import-untyped]
+        from gateway import (  # type: ignore[no-redef, import-untyped]
+            make_worktree_not_found_error,
+            map_container_path_to_worktree,
+        )
     return map_container_path_to_worktree, make_worktree_not_found_error
 
 
