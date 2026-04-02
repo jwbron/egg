@@ -60,6 +60,7 @@ from egg_logging import get_logger
 try:
     from .agent_restrictions import (
         check_agent_gh_operation,
+        get_agent_pattern,
     )
     from .anthropic_credentials import get_credentials_manager
     from .checkpoint_handler import (
@@ -131,6 +132,7 @@ try:
 except ImportError:
     from agent_restrictions import (  # type: ignore[no-redef, import-untyped]
         check_agent_gh_operation,
+        get_agent_pattern,
     )
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
     from checkpoint_handler import (  # type: ignore[no-redef, import-untyped]
@@ -926,6 +928,19 @@ def git_push() -> tuple[Response, int] | Response:
                         "restriction_message": agent_result.message,
                     },
                 )
+                # Look up allowed patterns for remediation guidance
+                agent_pattern = get_agent_pattern(session_role)
+                allowed_patterns = (
+                    agent_pattern.allowed_patterns if agent_pattern else []
+                )
+                remediation = (
+                    f"To recover: (1) git reset HEAD~1, "
+                    f"(2) git add only files matching allowed patterns: "
+                    f"{', '.join(allowed_patterns)}, "
+                    f"(3) git commit again, (4) git push. "
+                    f"Or use: egg-orch push --scope-filter to automatically "
+                    f"strip out-of-scope files before pushing."
+                )
                 return make_error(
                     f"Push denied: agent role '{session_role}' cannot modify "
                     f"these files. {agent_result.message}",
@@ -933,6 +948,8 @@ def git_push() -> tuple[Response, int] | Response:
                     details={
                         "role": session_role,
                         "blocked_files": agent_result.blocked_files,
+                        "allowed_patterns": allowed_patterns,
+                        "remediation": remediation,
                     },
                 )
             else:

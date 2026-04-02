@@ -1932,6 +1932,11 @@ def create_parser() -> argparse.ArgumentParser:
     _add_json_flag(prog_query)
     prog_query.set_defaults(func=cmd_progress_query)
 
+    # --- push ---
+    from .cli_push import register_push_subcommand
+
+    register_push_subcommand(subparsers)
+
     return parser
 
 
