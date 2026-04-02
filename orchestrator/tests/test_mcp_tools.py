@@ -490,6 +490,28 @@ class TestListCheckpoints:
         call_url = mock_gw.call_args[0][0]
         assert "limit=20" in call_url
 
+    def test_with_repo_param(self, handler):
+        """Verify repo is forwarded as source_repo query param (#1514)."""
+        with patch.object(handler, "_make_gateway_request") as mock_gw:
+            mock_gw.return_value = {"success": True, "data": {"checkpoints": []}}
+            handler.handle_tool_call(
+                "list_checkpoints",
+                {"repo": "jwbron/egg-checkpoints", "issue": 42},
+            )
+
+        call_url = mock_gw.call_args[0][0]
+        assert "source_repo=jwbron%2Fegg-checkpoints" in call_url
+        assert "issue=42" in call_url
+
+    def test_without_repo_param_no_source_repo(self, handler):
+        """Verify source_repo is not added when repo is not provided."""
+        with patch.object(handler, "_make_gateway_request") as mock_gw:
+            mock_gw.return_value = {"success": True, "data": {"checkpoints": []}}
+            handler.handle_tool_call("list_checkpoints", {"pipeline": "issue-42"})
+
+        call_url = mock_gw.call_args[0][0]
+        assert "source_repo" not in call_url
+
 
 class TestSearchCheckpoints:
     def test_text_filtering(self, handler):
@@ -544,6 +566,27 @@ class TestSearchCheckpoints:
             result = handler.handle_tool_call("search_checkpoints", {"text": "coder"})
 
         assert result["total"] == 1
+
+    def test_with_repo_param(self, handler):
+        """Verify repo is forwarded as source_repo query param (#1514)."""
+        with patch.object(handler, "_make_gateway_request") as mock_gw:
+            mock_gw.return_value = {"data": {"checkpoints": []}}
+            handler.handle_tool_call(
+                "search_checkpoints",
+                {"text": "coder", "repo": "jwbron/egg-checkpoints"},
+            )
+
+        call_url = mock_gw.call_args[0][0]
+        assert "source_repo=jwbron%2Fegg-checkpoints" in call_url
+
+    def test_without_repo_param_no_source_repo(self, handler):
+        """Verify source_repo is not added when repo is not provided."""
+        with patch.object(handler, "_make_gateway_request") as mock_gw:
+            mock_gw.return_value = {"data": {"checkpoints": []}}
+            handler.handle_tool_call("search_checkpoints", {"text": "some-search"})
+
+        call_url = mock_gw.call_args[0][0]
+        assert "source_repo" not in call_url
 
 
 class TestGetContract:
@@ -604,6 +647,29 @@ class TestGatewayAuth:
             gateway_host="test-gateway",
             gateway_port=TEST_GATEWAY_PORT,
             launcher_secret="test-secret",
+        )
+
+    def test_session_registration_passes_pipeline_id(self, handler):
+        """Verify register_session is called with pipeline_id='mcp-server' (#1514)."""
+        assert handler._gateway_session_token is None
+        with (
+            patch.dict("os.environ", {"EGG_LAUNCHER_SECRET": "test-secret"}),
+            patch("orchestrator.gateway_client.GatewayClient") as MockGW,
+        ):
+            mock_client = MagicMock()
+            mock_session = MagicMock()
+            mock_session.session_token = "new-token"
+            mock_client.self_ip = "10.0.0.1"
+            mock_client.register_session.return_value = mock_session
+            MockGW.return_value = mock_client
+
+            handler._ensure_gateway_session()
+
+        mock_client.register_session.assert_called_once_with(
+            container_id="mcp-server",
+            container_ip="10.0.0.1",
+            mode="public",
+            pipeline_id="mcp-server",
         )
 
     def test_missing_launcher_secret(self, handler):
@@ -695,6 +761,18 @@ class TestToolRouting:
         result = handler.handle_tool_call("nonexistent", {})
         assert "error" in result
         assert "Unknown tool" in result["error"]
+
+    def test_checkpoint_tools_have_repo_property(self):
+        """Verify list_checkpoints and search_checkpoints schemas include repo (#1514)."""
+        from mcp_tools import PIPELINE_TOOLS
+
+        tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
+        for tool_name in ("list_checkpoints", "search_checkpoints"):
+            schema = tools_by_name[tool_name]["inputSchema"]
+            props = schema["properties"]
+            assert "repo" in props, f"{tool_name} schema missing 'repo' property"
+            assert props["repo"]["type"] == "string"
+            assert "owner/repo" in props["repo"]["description"]
 
 
 class TestValidateConfig:
