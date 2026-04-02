@@ -341,6 +341,22 @@ sys.stdout.write(re.sub(r"\{{(\w+)\}}", lambda x: m.get(x.group(1), x.group(0)),
     AGENT_EXIT=$?
 
     if [ "$AGENT_EXIT" -ne 0 ]; then
+        # Same consensus/confirmed check as the initial exit handler (issue #1495).
+        CW_RESPONSE=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
+        CW_IS_COMPLETE=$(echo "$CW_RESPONSE" | python3 -c \
+            "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('is_complete',False))" \
+            2>/dev/null || echo "False")
+        if [ "$CW_IS_COMPLETE" = "True" ]; then
+            cw_log "Agent failed on restart $RESTART_COUNT (code $AGENT_EXIT) but consensus already reached. Exiting cleanly."
+            exit 0
+        fi
+        if [ -n "$AGENT_ROLE" ]; then
+            CW_AGENT_CONFIRMED=$(check_agent_confirmed_with_fallback "$CW_RESPONSE" "$AGENT_ROLE")
+            if [ "$CW_AGENT_CONFIRMED" = "True" ]; then
+                cw_log "Agent failed on restart $RESTART_COUNT (code $AGENT_EXIT) but already CONFIRMED. Exiting cleanly."
+                exit 0
+            fi
+        fi
         cw_log "Agent failed on restart $RESTART_COUNT (code $AGENT_EXIT). Stopping."
         exit $AGENT_EXIT
     fi
@@ -364,7 +380,20 @@ sys.stdout.write(re.sub(r"\{{(\w+)\}}", lambda x: m.get(x.group(1), x.group(0)),
     fi
 done
 
-# --- Max restarts exhausted: shut down with failure ---
+# --- Max restarts exhausted: final consensus check before giving up ---
+# The agent may have contributed to consensus even though it never reached
+# CONFIRMED locally (e.g. network hiccup after signaling READY).  A final
+# poll avoids failing a pipeline that actually succeeded.
+FINAL_RESPONSE=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
+FINAL_IS_COMPLETE=$(echo "$FINAL_RESPONSE" | python3 -c \
+    "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('is_complete',False))" \
+    2>/dev/null || echo "False")
+
+if [ "$FINAL_IS_COMPLETE" = "True" ]; then
+    cw_log "Consensus reached on final check (after max restarts). Exiting successfully."
+    exit 0
+fi
+
 cw_log "Max restarts ($MAX_RESTARTS) exhausted. Agent never reached CONFIRMED. Exiting with failure."
 exit 1
 """

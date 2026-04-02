@@ -2979,7 +2979,7 @@ def gh_execute() -> tuple[Response, int] | Response:
         _role = getattr(g.session, "agent_role", None)
         if isinstance(_role, str) and _role:
             session_role = _role
-        elif _role is not None:
+        elif _role is not None and not isinstance(_role, str):
             # Non-string agent_role — corrupted session, deny
             return make_error(
                 "Invalid agent role type",
@@ -3785,6 +3785,8 @@ def session_create() -> tuple[Response, int] | Response:
     if agent_role is not None:
         if not isinstance(agent_role, str):
             return make_error("Invalid agent_role: must be a string")
+        if not agent_role:
+            return make_error("Invalid agent_role: must be non-empty if provided")
         if len(agent_role) > 64:
             return make_error("Invalid agent_role: must be 64 characters or fewer")
 

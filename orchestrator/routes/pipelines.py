@@ -3478,7 +3478,7 @@ def _build_brc_preamble(role_value: str, phase: str, repo: str | None = None) ->
                 + _build_producer_orientation(role_value, phase, reviewers),
                 "2. **WORK**: Complete your assigned task (see Your Task below).",
                 "3. **PROPOSE**: When done, run: "
-                '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2"`',
+                '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2" --commit-sha $(git rev-parse HEAD)`',
                 "4. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers. "
                 "Handle NACKs by fixing issues and re-proposing.",
                 "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
@@ -4710,12 +4710,18 @@ def _run_concurrent_phase(
             combined_logs = (
                 "\n".join(all_logs) if all_logs else "Consensus reached; phase complete."
             )
-            # If any container failed before consensus was reached (e.g. OOM
-            # kill), propagate the failure even though remaining agents agreed.
-            # The HITL decision from handle_agent_failure is still pending but
-            # callers need a non-zero exit to trigger failure handling.
+            # Consensus is the authoritative success signal.  When all agents
+            # have confirmed (is_complete=True), container-level failures
+            # (e.g. OOM kills that happened *before* the surviving agents
+            # reached agreement) should not override the consensus result.
+            # Any pending HITL decisions from handle_agent_failure remain
+            # active for human review, but the pipeline itself succeeds.
             if has_failures[0]:
-                return 1, combined_logs
+                logger.warning(
+                    "Container failures detected but consensus is complete — treating as success",
+                    pipeline_id=pipeline_id,
+                    has_failures=has_failures[0],
+                )
             return 0, combined_logs
 
         # 3. Handle objections (create HITL decision once).

@@ -1070,6 +1070,20 @@ Handle each response:
 
 ## Phase S4 — Submit
 
+### Step 1: Validate plan and analysis content
+
+Before calling `submit_task`, verify that the `plan` and `analysis` values contain **actual document content**, not references to files on other branches. This is critical — the remote pipeline cannot resolve cross-branch file references.
+
+**Check for reference strings**: If either value looks like a pointer rather than content (e.g., contains phrases like "See the full plan at", "on the ... branch", or is under ~200 characters and references a file path), you must resolve it to actual content:
+
+1. Extract the branch and file path from the reference
+2. Read the full content: `git show origin/<branch>:<path>`
+3. Use the retrieved content as the field value
+
+This situation can arise when reusing artifacts from a previous pipeline run. The `plan` field **must** contain the full markdown plan document including the `yaml-tasks` code block. The `analysis` field **must** contain the full analysis text.
+
+### Step 2: Call submit_task
+
 Call the `submit_task` MCP tool with the gathered parameters, the lightweight config, and the pre-generated artifacts:
 
 ```
@@ -1215,6 +1229,7 @@ Phase: <phase where failure occurred>
 - **Auto-approve phase gates** — this is a no-HITL flow; if a gate appears, approve it automatically and inform the user
 - **Include yaml-tasks appendix** — the remote pipeline parses the `yaml-tasks` appendix from the plan to populate its own formal contract; local Pydantic validation is not needed
 - **Pass plan via the `plan` field** — the plan document (with `yaml-tasks` appendix) must be passed as the `plan` argument to `submit_task`, not embedded in `description`. The `analysis` field carries the Phase S2 analysis. This ensures the remote pipeline creates a proper structured contract
+- **Never pass file references as content** — the `plan` and `analysis` fields must contain the actual document text, not pointers like "See the full plan at .egg-state/drafts/... on the egg/... branch". The remote pipeline cannot resolve cross-branch file references. If reusing artifacts from a prior run, read the file content with `git show origin/<branch>:<path>` first
 - **Stop polling on exit** — always exit the monitoring loop when the workflow ends
 - **Handle errors gracefully** — if an MCP tool call fails, inform the user and offer to retry
 - **Keep output concise** — don't flood the user with raw JSON; format status as a readable dashboard

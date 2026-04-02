@@ -4323,6 +4323,32 @@ class TestSessionCreateWithPhase:
         assert "pipeline_id" in data["message"].lower()
         assert "non-empty" in data["message"].lower()
 
+    def test_session_create_rejects_empty_agent_role(self, client, launcher_auth_headers):
+        """Session create rejects empty string agent_role.
+
+        An empty agent_role would bypass role-based restrictions in gh_execute.
+        Reject at registration so callers get a clear error instead of silent no-op.
+        """
+        response = client.post(
+            "/api/v1/sessions/create",
+            headers=launcher_auth_headers,
+            data=json.dumps(
+                {
+                    "container_id": "test-container",
+                    "container_ip": "172.18.0.5",
+                    "mode": "private",
+                    "repos": ["owner/repo"],
+                    "agent_role": "",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "agent_role" in data["message"].lower()
+        assert "non-empty" in data["message"].lower()
+
     def test_session_create_without_repos_rejected(self, client, launcher_auth_headers):
         """Sessions without repos are rejected."""
         for mode in ("private", "public"):
@@ -6471,6 +6497,31 @@ class TestGhExecuteIssueCommentBlocking:
             assert response.status_code == 403
             data = json.loads(response.data)
             assert "invalid" in data["message"].lower() or "role" in data["message"].lower()
+
+    def test_empty_string_agent_role_treated_as_no_role(self, client):
+        """Empty-string agent_role is treated as no role, not as corrupted session."""
+        ctx1, ctx2 = self._make_session(phase=None, agent_role="")
+        with ctx1, ctx2:
+            with patch.object(gateway, "get_github_client") as mock_gh:
+                mock_result = MagicMock()
+                mock_result.success = True
+                mock_result.stdout = "PR #1"
+                mock_result.stderr = ""
+                mock_result.to_dict.return_value = {
+                    "success": True,
+                    "stdout": "PR #1",
+                    "stderr": "",
+                }
+                mock_gh.return_value.execute.return_value = mock_result
+
+                response = client.post(
+                    "/api/v1/gh/execute",
+                    headers={"Authorization": "Bearer test-session-token"},
+                    data=json.dumps({"args": ["pr", "view", "123"]}),
+                    content_type="application/json",
+                )
+                # Empty string should NOT trigger 403 — it's "no role", not corrupted
+                assert response.status_code == 200
 
     def test_pr_view_still_allowed(self, client):
         """Non-blocked operations like pr view should still work."""

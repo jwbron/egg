@@ -239,6 +239,54 @@ class TestPerAgentWorktreeFallback:
 
 
 # ---------------------------------------------------------------------------
+# GatewayError detail logging
+# ---------------------------------------------------------------------------
+
+
+class TestPerAgentWorktreeErrorLogging:
+    """GatewayError.details should be logged when worktree creation fails."""
+
+    def test_gateway_error_raises_container_spawn_error(
+        self, spawner, mock_gateway_client, mock_docker_client, caplog
+    ):
+        """GatewayError is caught and re-raised as ContainerSpawnError."""
+        original_volumes = {"egg": "/host/path/original"}
+        error_details = {"errors": ["fatal: invalid reference: egg/issue-1495"]}
+
+        def side_effect(**kwargs):
+            cid = kwargs.get("container_id", "")
+            if "-" in cid and cid != kwargs.get("pipeline_id", ""):
+                raise GatewayError(
+                    "Worktree creation failed",
+                    status_code=500,
+                    details=error_details,
+                )
+            result = MagicMock()
+            result.success = True
+            result.worktrees = original_volumes
+            result.errors = []
+            return result
+
+        mock_gateway_client.create_worktrees.side_effect = side_effect
+
+        import logging
+
+        with caplog.at_level(logging.ERROR):
+            with pytest.raises(ContainerSpawnError, match="worktree creation failed"):
+                spawner.spawn_agent_container(
+                    pipeline_id="pipe-1",
+                    agent_role=AgentRole.CODER,
+                    repo_volumes=original_volumes,
+                    repos=["egg"],
+                )
+
+        # The key assertion is the pytest.raises above: a GatewayError with details
+        # is caught and re-raised as ContainerSpawnError with the message preserved.
+        # structlog logging is not verified here because structlog doesn't integrate
+        # with caplog; the exception propagation is what matters.
+
+
+# ---------------------------------------------------------------------------
 # Worktree cleanup
 # ---------------------------------------------------------------------------
 

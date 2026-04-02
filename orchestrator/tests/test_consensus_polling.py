@@ -711,10 +711,14 @@ class TestMixedScenarios:
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
-    def test_consensus_with_prior_failure_returns_nonzero(
+    def test_consensus_with_prior_failure_returns_zero(
         self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
     ):
-        """When a container fails but remaining agents reach consensus, returns (1, ...)."""
+        """When a container fails but remaining agents reach consensus, returns (0, ...).
+
+        Issue #1495: consensus is the authoritative success signal — container
+        failures should not override it when consensus is_complete=True.
+        """
         poll_count = [0]
 
         def _monotonic():
@@ -774,8 +778,10 @@ class TestMixedScenarios:
             **_CALL_ARGS,
         )
 
-        # Consensus was reached, but a prior failure means the phase should fail
-        assert exit_code == 1
+        # Issue #1495 fix: consensus is the authoritative success signal.
+        # Even though a container failed (OOM), consensus was reached so
+        # the phase should succeed (exit 0).
+        assert exit_code == 0
         # handle_agent_failure should have been called for the crashed coder
         mock_executor_instance.handle_agent_failure.assert_called_once_with(
             role="coder",
