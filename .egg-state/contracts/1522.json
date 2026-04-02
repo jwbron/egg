@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1522,
+    "title": "Issue #1522",
+    "url": "https://github.com/jwbron/egg/issues/1522"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/routes/messages.py:poll_messages()`, replace the `continue` on line 191 that drops withheld PROPOSE messages with logic that creates a redacted copy of the message \u2014 clear `msg.body`, strip `metadata.payload` keys except `version` and `commit_sha`, and set `metadata.delphi_redacted = True`. Append the redacted message to filtered_messages instead of skipping it.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Reviewer polling before ACK/NACK receives CONSENSUS_PROPOSE messages with empty body, stripped payload summary, and metadata.delphi_redacted=True. Reviewer polling after ACK/NACK receives the full unredacted message.",
+          "files_affected": [
+            "orchestrator/routes/messages.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `orchestrator/tests/test_messages.py:TestDelphiFiltering`, update `test_propose_withheld_from_unreviewed_reviewer` to assert count=1 (not 0) with empty body and delphi_redacted=True in metadata. Add new test `test_propose_redacted_preserves_header` that verifies from_role, subject, version, and commit_sha survive redaction while body and payload.summary are stripped. Ensure test_propose_visible_after_reviewer_evaluates still passes with full message after ACK.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All tests in test_messages.py pass. New test verifies redacted message structure.",
+          "files_affected": [
+            "orchestrator/tests/test_messages.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Fix Delphi filter deadlock: redact proposals instead of withholding",
+    "description": "The Delphi visibility filter drops CONSENSUS_PROPOSE messages entirely from\nreviewers who haven't ACK'd/NACK'd, creating a deadlock when reviewers depend\non polling to discover proposals. Replace full withholding with redacted\npass-through: strip body and payload summary but preserve message header so\nreviewers know a proposal exists.",
+    "test_plan": "- Automated: test_propose_withheld_from_unreviewed_reviewer (updated), test_propose_redacted_preserves_header (new), test_propose_visible_after_reviewer_evaluates (unchanged), test_non_reviewer_sees_propose (unchanged)\n- Manual: Run a BRC pipeline and verify reviewer_code receives redacted PROPOSE messages before ACKing",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
