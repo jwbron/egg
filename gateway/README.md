@@ -258,14 +258,16 @@ GET /api/v1/phase/permissions/<phase>
 
 The contract API provides role-based access to SDLC contracts that track issue progress through phases, tasks, and decisions.
 
+**Worktree support:** Contract endpoints support per-agent worktree isolation. When a `container_id` is provided (via query parameter for GET, or request body for POST), the gateway maps the agent's container repo path to the correct worktree path using `map_container_path_to_worktree()` — the same mechanism used by git endpoints. When no `container_id` is provided (interactive sessions), the original path is used unchanged.
+
 ```
 GET /api/v1/contract/<issue_number>
-  Query: ?repo_path=<path>&include_audit_log=<bool>
+  Query: ?repo_path=<path>&include_audit_log=<bool>&container_id=<id>
   Policy: session_auth
   Description: Get contract state for an issue
 
 POST /api/v1/contract/mutate
-  Request: {issue_number, field_path, new_value, repo_path?, actor?, reason?}
+  Request: {issue_number, field_path, new_value, repo_path?, container_id?, actor?, reason?}
   Policy: session_auth + role_based
   Description: Apply a mutation to a contract (role determines allowed fields)
 
@@ -275,7 +277,7 @@ POST /api/v1/contract/validate
   Description: Validate a mutation without applying it
 
 GET /api/v1/contract/exists/<issue_number>
-  Query: ?repo_path=<path>
+  Query: ?repo_path=<path>&container_id=<id>
   Policy: session_auth
   Description: Check if a contract exists for an issue
 ```

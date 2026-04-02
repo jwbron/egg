@@ -54,9 +54,16 @@ Both mechanisms use a 30-second debounce to allow humans to edit before processi
 When submitted, the pipeline resumes with the human input available in your prompt
 context via `get_submitted_feedback()` or the selected decision option.
 
+## Per-Agent Worktree Support
+
+All `egg-contract` commands work correctly from per-agent worktrees in concurrent execution mode. The CLI automatically sends the `CONTAINER_ID` environment variable to the gateway, which maps the container's repo path to the correct worktree path before loading or saving contracts.
+
+No additional configuration is needed — the `CONTAINER_ID` env var is set automatically in pipeline containers.
+
 ## Environment
 
 - `EGG_ISSUE_NUMBER` — current issue (auto-set)
 - `EGG_REPO_PATH` — repository path (auto-set)
+- `CONTAINER_ID` — container identifier for worktree path resolution (auto-set in pipeline containers)
 
 See contract schema docs at `.egg/schemas/contract.schema.json`.

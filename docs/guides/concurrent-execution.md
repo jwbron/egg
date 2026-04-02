@@ -393,6 +393,12 @@ The gateway's push validation (`get_changed_files_in_push()`) only reports files
 
 This eliminates false positives where an agent's push was rejected because a *different* agent had committed files outside this agent's role boundaries.
 
+### Contract API Worktree Support
+
+The gateway's contract API endpoints (`get_contract`, `mutate_contract`, `check_contract_exists`) support per-agent worktree path mapping, using the same `map_container_path_to_worktree()` mechanism as git endpoints. The `egg-contract` CLI automatically includes the `CONTAINER_ID` environment variable in all gateway requests, allowing the gateway to resolve the correct worktree path for each agent.
+
+Without this mapping, agents in per-agent worktrees would receive "Contract not found" errors because the gateway would look for the contract file at the container's repo path rather than the worktree path where the file actually resides. See [#1513](https://github.com/jwbron/egg/issues/1513) for the original issue.
+
 ## Orchestrator API Reference
 
 For the full message bus and signal API, see [Orchestrator Architecture: API Endpoints](../architecture/orchestrator.md#api-endpoints).
