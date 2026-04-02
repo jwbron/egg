@@ -87,9 +87,7 @@ class AgentFilePattern:
         # Check blocked patterns FIRST - security takes precedence
         # BUT skip the block if the path matches a block-exemption pattern.
         if any(self._matches_pattern(normalized, p) for p in self.blocked_patterns):
-            if not any(
-                self._matches_pattern(normalized, p) for p in self.block_exempt_patterns
-            ):
+            if not any(self._matches_pattern(normalized, p) for p in self.block_exempt_patterns):
                 return False
 
         # If no allowed patterns, nothing is allowed
