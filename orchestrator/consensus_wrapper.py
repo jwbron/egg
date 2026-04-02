@@ -37,6 +37,11 @@ MAX_CONSENSUS_RESTARTS = 2
 # 10 * 30 = 300 seconds (5 minutes) for other agents to finish.
 MAX_READY_POLL_CYCLES = 10
 
+# Default initial backoff (in seconds) when restarting after a transient crash
+# (signal-based exit codes like SIGSEGV, SIGKILL, etc.). The backoff doubles
+# after each consecutive crash restart, capped at 30 seconds.
+TRANSIENT_RESTART_BACKOFF_INITIAL = 5
+
 # System prompt injected on restart so the agent treats recovery instructions as
 # trusted operator context (not user input that might be flagged as injection).
 # Placeholders: {restart_number}, {max_restarts}, {brc_state}, {nack_feedback}
@@ -86,7 +91,9 @@ _RECOVERY_USER_PROMPT = (
 # Shell script that wraps the agent invocation. After the agent exits:
 # - Non-concurrent mode: exit normally.
 # - Non-zero exit: check if consensus/confirmation reached first; if so
-#   exit cleanly (issue #1495). Otherwise treat as failure, no restart.
+#   exit cleanly (issue #1495). Otherwise classify the exit code:
+#   transient crashes (segfault, OOM, etc.) fall through to the restart
+#   loop with backoff; non-transient failures exit immediately.
 # - Clean exit (code 0): restart the agent with a recovery prompt (up to
 #   MAX_RESTARTS times). After max restarts, exit 1 to trigger the
 #   orchestrator's agent failure path (HITL decision).
@@ -96,6 +103,9 @@ set -uo pipefail
 
 MAX_RESTARTS={max_restarts}
 RESTART_COUNT=0
+CRASH_BACKOFF=0
+TRANSIENT_BACKOFF_INITIAL={transient_backoff_initial}
+TRANSIENT_BACKOFF_MAX=30
 
 # Log wrapper messages to stderr so they never leak into agent SDK context.
 cw_log() {{
@@ -195,6 +205,16 @@ if my_nacks:
 " "$role" 2>/dev/null || echo ""
 }}
 
+# Detect transient crashes (signal-based exits) that warrant a restart with backoff.
+# Returns 0 (true) for transient, 1 (false) for permanent failures.
+is_transient_crash() {{
+    local code="$1"
+    case "$code" in
+        134|136|137|139|255) return 0 ;;  # SIGABRT, SIGFPE, SIGKILL/OOM, SIGSEGV, Bun segfault
+        *) return 1 ;;
+    esac
+}}
+
 # --- Initial run ---
 run_agent {initial_prompt}
 AGENT_EXIT=$?
@@ -229,15 +249,21 @@ if [ "$AGENT_EXIT" -ne 0 ]; then
         fi
     fi
 
-    cw_log "Agent failed (code $AGENT_EXIT). NOT restarting."
-    exit $AGENT_EXIT
+    if is_transient_crash "$AGENT_EXIT"; then
+        cw_log "Transient crash (code $AGENT_EXIT). Will restart with backoff."
+        CRASH_BACKOFF=$TRANSIENT_BACKOFF_INITIAL
+    else
+        cw_log "Agent failed (code $AGENT_EXIT). NOT restarting."
+        exit $AGENT_EXIT
+    fi
 fi
 
 # --- Check if consensus is already complete or agent already CONFIRMED ---
 # If the agent reached CONFIRMED in the BRC protocol but then exited
 # (e.g., context exhaustion), restarting is unnecessary.
 MAX_READY_POLLS={max_ready_polls}
-RESPONSE=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
+# Reuse response from the non-zero handler if available, otherwise fetch fresh.
+RESPONSE="${{CW_RESPONSE:-$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")}}"
 IS_COMPLETE=$(echo "$RESPONSE" | python3 -c \
     "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('is_complete',False))" \
     2>/dev/null || echo "False")
@@ -288,9 +314,20 @@ if [ -n "$AGENT_ROLE" ]; then
     check_confirmed_and_wait "$RESPONSE" "$AGENT_ROLE" || true
 fi
 
-# --- Restart loop for clean exits without BRC consensus ---
+# --- Restart loop for clean exits and transient crashes without BRC consensus ---
 while [ "$RESTART_COUNT" -lt "$MAX_RESTARTS" ]; do
     RESTART_COUNT=$((RESTART_COUNT + 1))
+
+    # Apply backoff delay for transient crash restarts
+    if [ "$CRASH_BACKOFF" -gt 0 ]; then
+        cw_log "Backoff: sleeping ${{CRASH_BACKOFF}}s before restart..."
+        sleep "$CRASH_BACKOFF"
+        CRASH_BACKOFF=$((CRASH_BACKOFF * 2))
+        if [ "$CRASH_BACKOFF" -gt "$TRANSIENT_BACKOFF_MAX" ]; then
+            CRASH_BACKOFF=$TRANSIENT_BACKOFF_MAX
+        fi
+    fi
+
     cw_log "Agent exited without BRC consensus. Restarting ($RESTART_COUNT/$MAX_RESTARTS)..."
 
     # Get current BRC state and NACK feedback for the recovery system prompt
@@ -357,9 +394,19 @@ sys.stdout.write(re.sub(r"\{{(\w+)\}}", lambda x: m.get(x.group(1), x.group(0)),
                 exit 0
             fi
         fi
+        if is_transient_crash "$AGENT_EXIT"; then
+            cw_log "Transient crash on restart $RESTART_COUNT (code $AGENT_EXIT). Will retry."
+            if [ "$CRASH_BACKOFF" -eq 0 ]; then
+                CRASH_BACKOFF=$TRANSIENT_BACKOFF_INITIAL
+            fi
+            continue
+        fi
         cw_log "Agent failed on restart $RESTART_COUNT (code $AGENT_EXIT). Stopping."
         exit $AGENT_EXIT
     fi
+
+    # Reset backoff on clean exit
+    CRASH_BACKOFF=0
 
     # Check if consensus was reached during the restart
     RESPONSE=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
@@ -405,6 +452,7 @@ def build_consensus_wrapped_command(
     max_turns: int = 1000,
     max_restarts: int = MAX_CONSENSUS_RESTARTS,
     max_ready_polls: int = MAX_READY_POLL_CYCLES,
+    transient_backoff_initial: int = TRANSIENT_RESTART_BACKOFF_INITIAL,
 ) -> list[str]:
     """Build a shell command that runs the agent with a BRC consensus restart wrapper.
 
@@ -420,6 +468,8 @@ def build_consensus_wrapped_command(
         max_restarts: Maximum restart attempts before exiting with failure.
         max_ready_polls: Maximum poll cycles to wait when agent already
             signaled READY (avoids unnecessary restarts).
+        transient_backoff_initial: Initial backoff in seconds for transient
+            crash restarts. Doubles after each crash, capped at 30s.
 
     Returns:
         Command list suitable for container spawning (bash -c "...").
@@ -447,6 +497,7 @@ def build_consensus_wrapped_command(
         max_ready_polls=max_ready_polls,
         recovery_system_prompt_template=_RECOVERY_SYSTEM_PROMPT,
         recovery_user_prompt=recovery_user_prompt,
+        transient_backoff_initial=transient_backoff_initial,
     )
 
     return ["bash", "-c", script]

@@ -113,6 +113,49 @@ The `is_open()` method returns `True` only in the `OPEN` state. `can_execute()` 
 | `resolution_hint` | Human-readable guidance |
 | `detected_at` | Timestamp |
 
+## Consensus Wrapper: Transient Crash Recovery
+
+Source: `orchestrator/consensus_wrapper.py`
+
+In concurrent (BRC) mode, all agents are wrapped with a shell script that handles exit conditions. The wrapper distinguishes **transient runtime crashes** from application-level failures and restarts agents that crash due to infrastructure issues.
+
+### Transient Exit Codes
+
+The `is_transient_crash()` function classifies these exit codes as transient:
+
+| Exit Code | Signal | Cause |
+|-----------|--------|-------|
+| 134 | SIGABRT | Assertion failure, `abort()` |
+| 136 | SIGFPE | Floating-point exception |
+| 137 | SIGKILL | OOM kill or external `kill -9` |
+| 139 | SIGSEGV | Segmentation fault |
+| 255 | *(Bun-specific)* | Bun runtime segfault (wraps the crash as exit 255) |
+
+All other non-zero exit codes (e.g., exit 1) are treated as non-transient and cause immediate failure without restart.
+
+### Restart with Backoff
+
+When a transient crash is detected, the wrapper:
+
+1. Logs `"Transient crash (code $AGENT_EXIT). Will restart with backoff."`
+2. Sleeps for `CRASH_BACKOFF` seconds (initial: `TRANSIENT_RESTART_BACKOFF_INITIAL`, default 5)
+3. Restarts the agent via the same recovery loop used for clean-exit restarts (with BRC state, NACK feedback, and anchor state injected into the recovery system prompt)
+4. Doubles the backoff after each crash restart (capped at 30 seconds)
+5. Shares the `MAX_CONSENSUS_RESTARTS` (default: 2) cap with clean-exit restarts
+
+Clean-exit restarts (exit code 0) do not incur any backoff delay.
+
+### Before and After
+
+| Behavior | Before | After |
+|----------|--------|-------|
+| Segfault (exit 139/255) | `NOT restarting` — agent permanently dead | Classified as transient, restarted with backoff |
+| OOM kill (exit 137) | `NOT restarting` — agent permanently dead | Classified as transient, restarted with backoff |
+| Application error (exit 1) | `NOT restarting` — immediate failure | Unchanged — still exits immediately |
+| Pipeline impact | Single crash kills pipeline | Transient crashes recovered; pipeline continues |
+
+This addresses the scenario described in [issue #1512](https://github.com/jwbron/egg/issues/1512), where a Bun segfault permanently killed an agent and caused the entire pipeline to fail even though 4 of 5 agents were healthy.
+
 ## When Recovery Is Triggered vs. HITL Escalation
 
 | Scenario | Behavior |
@@ -120,6 +163,8 @@ The `is_open()` method returns `True` only in the `OPEN` state. `can_execute()` 
 | Agent fails, error is retryable, retries remain | `AgentRetryManager`: retry with backoff |
 | Agent fails, error not retryable | Escalate to HITL (MANUAL policy) |
 | Agent fails, max retries exceeded | Escalate to HITL |
+| Transient crash in consensus wrapper (segfault, OOM) | Restart with exponential backoff (shares `MAX_CONSENSUS_RESTARTS` cap) |
+| Non-transient crash in consensus wrapper (exit 1) | Immediate failure, no restart |
 | Single agent failure in concurrent mode | HITL decision: retry / abort / continue without |
 | Multiple failures (2+ within 60s) in concurrent mode | Immediate phase abort + HITL decision |
 | Circuit breaker OPEN | Block new agent spawns; alert operators |

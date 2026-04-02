@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1512,
+    "title": "Issue #1512",
+    "url": "https://github.com/jwbron/egg/issues/1512"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/consensus_wrapper.py`, add shell function `is_transient_crash()` to `_CONSENSUS_WRAPPER_TEMPLATE` that returns 0 (true) for exit codes 137 (SIGKILL/OOM), 139 (SIGSEGV), 134 (SIGABRT), 136 (SIGFPE), and 255 (Bun segfault). Returns 1 (false) for all others.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Function correctly classifies transient vs non-transient exit codes",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `orchestrator/consensus_wrapper.py` non-zero exit handler (lines 211-234), after consensus/confirmed checks fail, call `is_transient_crash $AGENT_EXIT`. If transient, log and fall through to the existing restart loop. Non-transient codes still exit immediately with NOT restarting.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Segfault (139/255) reaches the restart loop; exit code 1 still exits immediately",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In `orchestrator/consensus_wrapper.py`, add `TRANSIENT_RESTART_BACKOFF_INITIAL` constant (default 5) and track `CRASH_BACKOFF` in the wrapper script. Insert `sleep $CRASH_BACKOFF` before each restart when previous exit was non-zero. Double backoff after each crash restart, capped at 30s. Clean exits skip backoff.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Backoff sleep present for transient crash restarts; clean-exit restarts have no added delay",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "In `orchestrator/tests/test_consensus_wrapper.py`, add tests: transient crash triggers restart (behavioral), non-transient exit still fails, backoff sleep in script, is_transient_crash function present. Update existing test_nonzero_exit_does_not_restart to clarify it tests non-transient codes.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All new and existing tests pass",
+          "files_affected": [
+            "orchestrator/tests/test_consensus_wrapper.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Restart agents after transient runtime crashes in consensus wrapper",
+    "description": "Add transient crash detection (segfault, OOM, SIGABRT) to the consensus\nwrapper so agents can recover from infrastructure failures instead of being\npermanently killed. Reuses the existing restart loop with exponential backoff.\nFixes #1512.",
+    "test_plan": "- Automated: new tests in test_consensus_wrapper.py cover transient crash restart,\n  non-transient exit behavior, backoff presence, and exit code classification\n- Manual: verify existing tests still pass with `pytest orchestrator/tests/test_consensus_wrapper.py`",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}

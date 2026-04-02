@@ -252,6 +252,9 @@ orchestrator/
 ├── sse.py                  # Server-Sent Events for real-time status
 ├── unified_sse.py          # Unified SSE stream for multiple pipelines
 ├── dag_visualizer.py       # Pipeline DAG visualization
+├── consensus_wrapper.py    # BRC consensus wrapper script builder (transient crash detection and restart with backoff)
+├── concurrent_executor.py  # Concurrent phase execution with BRC consensus
+├── peer_consensus.py       # Peer consensus tracker for BRC protocol
 ├── resilience.py           # Retry, circuit breaker, and resilience patterns
 ├── metrics.py              # Metrics collection and reporting
 ├── status_reporter.py      # Status reporting utilities
