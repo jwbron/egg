@@ -116,13 +116,15 @@ All endpoints are prefixed with `/api/v1`.
 | `GET` | `/pipelines` | List all pipelines |
 | `POST` | `/pipelines` | Create new pipeline |
 | `GET` | `/pipelines/{id}` | Get pipeline details |
-| `PATCH` | `/pipelines/{id}` | Update pipeline |
+| `PATCH` | `/pipelines/{id}` | Update pipeline (async container cleanup) |
 | `DELETE` | `/pipelines/{id}` | Delete pipeline |
 | `GET` | `/pipelines/{id}/status` | Get pipeline status summary |
 | `POST` | `/pipelines/{id}/start` | Start or restart pipeline |
 | `GET` | `/pipelines/{id}/visualization` | Get DAG visualization (JSON, text, or ASCII) |
 | `GET` | `/pipelines/{id}/stream` | SSE stream for single pipeline |
 | `GET` | `/pipelines/stream` | Unified SSE stream for all active pipelines |
+
+**PATCH cancel/fail behavior:** When a pipeline is updated to `cancelled` or `failed` status, the PATCH handler cancels pending HITL decisions and marks agent records as terminated synchronously, then returns the response immediately. Container and worktree cleanup runs in a background daemon thread so the caller is not blocked by slow Docker/gateway operations. The response includes `cleanup_pending: true` to indicate that container teardown is still in progress. The DELETE handler re-runs `cleanup_pipeline()` as a safety net, so any containers not yet removed by the background thread will be caught there.
 
 ### Signals
 

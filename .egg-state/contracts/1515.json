@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1515,
+    "title": "Issue #1515",
+    "url": "https://github.com/jwbron/egg/issues/1515"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/routes/pipelines.py:update_pipeline()` (lines 841-863), move the `spawner.cleanup_pipeline()` call into a daemon `threading.Thread`. Reorder so `_mark_pipeline_records_terminated()` runs synchronously before the response, and container cleanup happens in the background after. Use the same best-effort error handling pattern already in place.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "PATCH /api/v1/pipelines/{id} with status: cancelled returns a response before spawner.cleanup_pipeline() completes",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `orchestrator/routes/pipelines.py:update_pipeline()` (lines 885-888), add `cleanup_pending: true` to the response data dict when the pipeline status is cancelled or failed, so callers know async cleanup is in progress.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Response JSON includes cleanup_pending: true when pipeline is cancelled or failed",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add tests in `orchestrator/tests/` to verify: (a) PATCH with status: cancelled returns before cleanup completes (mock cleanup_pipeline with a delay), (b) response includes cleanup_pending: true, (c) cleanup still runs to completion in the background (verify mock was called after a short wait).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests pass covering async cleanup behavior, response field, and background execution",
+          "files_affected": [
+            "orchestrator/tests/test_cancel_async_cleanup.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Make cancel_task return immediately with async cleanup",
+    "description": "Move synchronous container/worktree cleanup in the PATCH cancel handler\nto a background thread so cancel_task returns within the MCP timeout.\nThe DELETE handler already re-runs cleanup as a safety net.",
+    "test_plan": "- Automated: New tests verify PATCH returns before cleanup completes, response includes cleanup_pending, and background cleanup runs to completion\n- Manual: Cancel a pipeline with 4+ running containers and verify the MCP call returns promptly without timeout",
+    "manual_steps": "Pre-merge: None\nPost-merge: Monitor cancel_task latency in production to confirm timeouts are resolved"
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
