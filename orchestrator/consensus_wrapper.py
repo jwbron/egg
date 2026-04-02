@@ -91,7 +91,9 @@ _RECOVERY_USER_PROMPT = (
 # Shell script that wraps the agent invocation. After the agent exits:
 # - Non-concurrent mode: exit normally.
 # - Non-zero exit: check if consensus/confirmation reached first; if so
-#   exit cleanly (issue #1495). Otherwise treat as failure, no restart.
+#   exit cleanly (issue #1495). Otherwise classify the exit code:
+#   transient crashes (segfault, OOM, etc.) fall through to the restart
+#   loop with backoff; non-transient failures exit immediately.
 # - Clean exit (code 0): restart the agent with a recovery prompt (up to
 #   MAX_RESTARTS times). After max restarts, exit 1 to trigger the
 #   orchestrator's agent failure path (HITL decision).
@@ -260,7 +262,8 @@ fi
 # If the agent reached CONFIRMED in the BRC protocol but then exited
 # (e.g., context exhaustion), restarting is unnecessary.
 MAX_READY_POLLS={max_ready_polls}
-RESPONSE=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
+# Reuse response from the non-zero handler if available, otherwise fetch fresh.
+RESPONSE="${{CW_RESPONSE:-$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")}}"
 IS_COMPLETE=$(echo "$RESPONSE" | python3 -c \
     "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('is_complete',False))" \
     2>/dev/null || echo "False")

@@ -109,12 +109,8 @@ class TestBuildConsensusWrappedCommand:
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
         assert "is_transient_crash()" in script
-        # Verify all expected transient exit codes are listed
-        assert "134" in script  # SIGABRT
-        assert "136" in script  # SIGFPE
-        assert "137" in script  # SIGKILL/OOM
-        assert "139" in script  # SIGSEGV
-        assert "255" in script  # Bun segfault
+        # Verify the exact case pattern with all expected transient exit codes
+        assert "134|136|137|139|255) return 0" in script
 
     def test_transient_crash_detection_in_nonzero_handler(self):
         """The non-zero exit handler should call is_transient_crash before giving up."""
@@ -1040,6 +1036,81 @@ class TestConsensusWrapperBehavior:
             # Should see backoff messages with increasing values
             assert "Backoff: sleeping 1s before restart" in result.stderr
             assert "Backoff: sleeping 2s before restart" in result.stderr
+
+    def test_transient_crash_then_crash_then_succeed(self):
+        """Crash (transient) -> crash (transient) -> succeed should recover."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            claude_log = os.path.join(tmpdir, "claude.log")
+
+            counter_file = os.path.join(tmpdir, "orch_status_count")
+            call_counter = os.path.join(tmpdir, "agent_call_count")
+            mock_orch = os.path.join(tmpdir, "egg-orch")
+
+            # Mock egg-orch: consensus complete on 4th+ pipeline status call
+            with open(mock_orch, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
+                f.write('if echo "$@" | grep -q "pipeline status"; then\n')
+                f.write("  COUNT=0\n")
+                f.write(f"  if [ -f {shlex.quote(counter_file)} ]; then\n")
+                f.write(f"    COUNT=$(cat {shlex.quote(counter_file)})\n")
+                f.write("  fi\n")
+                f.write("  COUNT=$((COUNT + 1))\n")
+                f.write(f'  echo "$COUNT" > {shlex.quote(counter_file)}\n')
+                f.write('  if [ "$COUNT" -ge 4 ]; then\n')
+                f.write(
+                    '    echo \'{"data": {"concurrent": {"consensus": {"is_complete": true}}}}\'\n'
+                )
+                f.write("  else\n")
+                f.write(
+                    '    echo \'{"data": {"concurrent": {"consensus": {"is_complete": false}}}}\'\n'
+                )
+                f.write("  fi\n")
+                f.write("else\n")
+                f.write(
+                    '  echo \'{"data": {"concurrent": {"consensus": {"is_complete": false}}}}\'\n'
+                )
+                f.write("fi\n")
+            os.chmod(mock_orch, 0o755)  # nosec B103
+
+            # Mock agent: exits 139 on calls 1 and 2, then exits 0
+            mock_python = os.path.join(tmpdir, "python3")
+            real_python = sys.executable
+            with open(mock_python, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write('if [ "$1" = "-m" ] && [ "$2" = "egg_agent" ]; then\n')
+                f.write("  CALL_COUNT=0\n")
+                f.write(f"  if [ -f {shlex.quote(call_counter)} ]; then\n")
+                f.write(f"    CALL_COUNT=$(cat {shlex.quote(call_counter)})\n")
+                f.write("  fi\n")
+                f.write("  CALL_COUNT=$((CALL_COUNT + 1))\n")
+                f.write(f'  echo "$CALL_COUNT" > {shlex.quote(call_counter)}\n')
+                f.write(f'  echo "---CLAUDE_CALL_START---" >> {shlex.quote(claude_log)}\n')
+                f.write(f'  echo "ARGS: $*" >> {shlex.quote(claude_log)}\n')
+                f.write(f'  echo "---CLAUDE_CALL_END---" >> {shlex.quote(claude_log)}\n')
+                f.write('  if [ "$CALL_COUNT" -le 2 ]; then\n')
+                f.write("    exit 139\n")  # SIGSEGV on calls 1 and 2
+                f.write("  fi\n")
+                f.write("  exit 0\n")  # Clean exit on call 3
+                f.write("else\n")
+                f.write(f'  exec {shlex.quote(real_python)} "$@"\n')
+                f.write("fi\n")
+            os.chmod(mock_python, 0o755)  # nosec B103
+
+            cmd = build_consensus_wrapped_command(
+                "Do the work", max_restarts=3, transient_backoff_initial=1
+            )
+            result = self._run_wrapper_command(cmd, tmpdir, timeout=60)
+
+            # Should have restarted after both crashes and then succeeded
+            assert "Transient crash (code 139)" in result.stderr
+            assert "Transient crash on restart" in result.stderr
+            assert result.returncode == 0
+            # Agent called 3 times: initial crash + restart crash + restart succeed
+            with open(claude_log) as f:
+                call_count = f.read().count("---CLAUDE_CALL_START---")
+            assert call_count == 3
 
     def test_non_transient_exit_code_42_does_not_restart(self):
         """Exit code 42 (application error) should NOT be treated as transient."""
