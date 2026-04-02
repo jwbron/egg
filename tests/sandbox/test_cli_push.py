@@ -338,6 +338,35 @@ class TestCmdPushScopeFilter:
             assert push_call == call(["git", "push", "origin", "egg/my-branch"], text=True)
 
     @patch("egg_lib.cli_push._get_merge_base", return_value="abc123")
+    @patch("egg_lib.cli_push._get_current_branch", return_value="egg/my-branch")
+    @patch("egg_lib.cli_push.subprocess.run")
+    @patch("egg_lib.cli_push._run_git")
+    def test_push_failure_after_rewrite_shows_recovery_hint(
+        self, mock_run_git, mock_subprocess_run, mock_get_branch, mock_merge_base, capsys
+    ):
+        """When push fails after commit rewrite, recovery hint is printed."""
+        patterns = json.dumps({"allowed": ["**/*.py"], "blocked": ["docs/"]})
+        with patch.dict(os.environ, {"EGG_AGENT_FILE_PATTERNS": patterns}):
+            diff_result = MagicMock(stdout="src/main.py\ndocs/guide.md\n", returncode=0)
+            mock_run_git.side_effect = [
+                diff_result,  # diff --name-only
+                MagicMock(returncode=0),  # reset --soft
+                MagicMock(returncode=0),  # reset HEAD -- .
+                MagicMock(returncode=0),  # add
+                MagicMock(returncode=0),  # commit
+            ]
+            mock_subprocess_run.side_effect = [
+                MagicMock(stdout="abc999\n", returncode=0),  # rev-parse HEAD
+                MagicMock(returncode=1),  # diff --cached --quiet -> has staged
+                MagicMock(returncode=1),  # push fails
+            ]
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_push(_make_args(scope_filter=True))
+            assert exc_info.value.code == 1
+            captured = capsys.readouterr()
+            assert "git reset --hard abc999" in captured.err
+
+    @patch("egg_lib.cli_push._get_merge_base", return_value="abc123")
     @patch("egg_lib.cli_push._get_current_branch", return_value="egg/test")
     @patch("egg_lib.cli_push.subprocess.run")
     @patch("egg_lib.cli_push._run_git")

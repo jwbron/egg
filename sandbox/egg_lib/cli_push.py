@@ -240,6 +240,11 @@ def cmd_push(args: argparse.Namespace) -> None:
         ["git", "push", "origin", branch],
         text=True,
     )
+    if push_result.returncode != 0 and orig_head:
+        sys.stderr.write(
+            f"\nPush failed after commit rewrite. To restore your original commits: "
+            f"git reset --hard {orig_head}\n"
+        )
     sys.exit(push_result.returncode)
 
 
