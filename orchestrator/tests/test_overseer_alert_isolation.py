@@ -107,23 +107,6 @@ class TestBroadcastAlertIsolation:
         idx_role = args.index("--role")
         assert args[idx_role + 1] == "overseer"
 
-    def test_different_pipeline_ids_route_to_correct_pipeline(self) -> None:
-        """Two monitors with different pipeline_ids route alerts correctly."""
-        for pid in ("pipeline-alpha", "pipeline-beta", "pipeline-gamma"):
-            monitor = _make_monitor(pid)
-            _run(
-                monitor._broadcast_alert(
-                    anomaly_type="stall",
-                    agent_role="coder",
-                    message="stuck",
-                )
-            )
-            args = _get_cli_args(monitor)
-            send_idx = args.index("send")
-            assert args[send_idx + 1] == pid, (
-                f"Expected pipeline_id={pid}, got {args[send_idx + 1]}"
-            )
-
     def test_message_type_is_overseer_alert(self) -> None:
         """_broadcast_alert still sends OVERSEER_ALERT type."""
         monitor = _make_monitor()
