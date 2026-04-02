@@ -159,8 +159,8 @@ class TestAsyncCleanupOnCancel:
         # Allow cleanup to finish so the background thread can complete
         cleanup_can_finish.set()
 
-        # Wait a bit for the background thread to finish
-        time.sleep(0.5)
+        # Wait for cleanup to actually start (proves it ran in the background)
+        assert cleanup_started.wait(timeout=5), "Cleanup was never started"
 
         # Verify cleanup was actually called (in the background)
         mock_spawner.cleanup_pipeline.assert_called_once_with("test-pipeline", force=True)
@@ -486,8 +486,9 @@ class TestCleanupBackgroundThreadBehavior:
 
         assert response.status_code == 200
 
-        if "thread" in thread_captured:
-            assert thread_captured["thread"].daemon, "Cleanup thread should be a daemon thread"
+        assert "thread" in thread_captured, "Expected a cleanup thread to be created"
+        assert thread_captured["thread"].daemon, "Cleanup thread should be a daemon thread"
+        assert thread_captured["thread"].name == "cleanup-test-pipeline"
 
     @patch("routes.pipelines.get_decision_queue")
     @patch("routes.pipelines.get_container_spawner")
@@ -506,8 +507,14 @@ class TestCleanupBackgroundThreadBehavior:
         pipeline.status = PipelineStatus.CANCELLED
         mock_resolve.return_value = (mock_store, pipeline)
 
+        cleanup_done = threading.Event()
+
+        def cleanup_with_signal(pipeline_id, force=False):
+            cleanup_done.set()
+            return 2
+
         mock_spawner = MagicMock()
-        mock_spawner.cleanup_pipeline.return_value = 2
+        mock_spawner.cleanup_pipeline.side_effect = cleanup_with_signal
         mock_spawner_fn.return_value = mock_spawner
 
         mock_dq = MagicMock()
@@ -520,8 +527,8 @@ class TestCleanupBackgroundThreadBehavior:
         )
         assert response.status_code == 200
 
-        # Wait for background thread
-        time.sleep(0.5)
+        # Wait for background thread to complete
+        assert cleanup_done.wait(timeout=5), "Cleanup was never called"
 
         # Verify the correct pipeline_id was passed
         mock_spawner.cleanup_pipeline.assert_called_once_with("specific-pipeline-123", force=True)

@@ -860,7 +860,7 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
             # so the PATCH response returns immediately.  The DELETE handler
             # already re-runs cleanup_pipeline() as a safety net, so it will
             # catch anything the background thread hasn't finished.
-            def _background_cleanup(pid: str) -> None:
+            def _background_cleanup(pid: str, status_value: str) -> None:
                 try:
                     spawner = get_container_spawner()
                     removed = spawner.cleanup_pipeline(pid, force=True)
@@ -868,7 +868,7 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         logger.info(
                             "Cleaned up pipeline containers after status change",
                             pipeline_id=pid,
-                            status="cancelled_or_failed",
+                            status=status_value,
                             containers_removed=removed,
                         )
                 except (DockerClientError, DockerException) as e:
@@ -887,7 +887,7 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
             cleanup_thread = threading.Thread(
                 target=_background_cleanup,
-                args=(pipeline_id,),
+                args=(pipeline_id, pipeline.status.value),
                 daemon=True,
                 name=f"cleanup-{pipeline_id}",
             )
@@ -895,13 +895,13 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
         logger.info("Pipeline updated", pipeline_id=pipeline_id)
 
-        data = {"pipeline": pipeline.model_dump(mode="json")}
+        response_data = {"pipeline": pipeline.model_dump(mode="json")}
         if pipeline.status in (PipelineStatus.CANCELLED, PipelineStatus.FAILED):
-            data["cleanup_pending"] = True
+            response_data["cleanup_pending"] = True
 
         return make_success_response(
             "Pipeline updated",
-            data=data,
+            data=response_data,
         )
 
     except InvalidPipelineIdError:
