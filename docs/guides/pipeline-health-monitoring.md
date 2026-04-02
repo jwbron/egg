@@ -115,6 +115,9 @@ egg-orch health alerts --pipeline issue-123
 
 # Resolve (remove) alerts after an issue is addressed
 egg-orch health resolve --agent-id coder --alert-type heartbeat_timeout
+
+# Or specify an explicit pipeline ID
+egg-orch health resolve issue-123 --agent-id coder --alert-type heartbeat_timeout
 ```
 
 **API endpoints:**
