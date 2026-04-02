@@ -243,6 +243,8 @@ Each agent works on its own isolated worktree with its own staging area. This ap
 
 **Pipeline agents:** In concurrent pipeline execution, all agents push to the same shared branch (e.g., `egg/issue-{N}`) but each agent has its own worktree. Since each role has mutually exclusive file write permissions (coder → source code, tester → tests, documenter → docs), push rebases cannot conflict. See [Concurrent Execution Guide](../guides/concurrent-execution.md#per-agent-worktree-isolation) for details.
 
+**Worktree-aware APIs:** All gateway APIs that access the filesystem use `map_container_path_to_worktree()` to resolve container repo paths to worktree paths. This includes git operations, contract operations (`egg-contract show`, `add-commit`, `add-decision`, etc.), and checkpoint operations. The mapping is transparent to agents --- they use their normal repo path and the gateway resolves it to the correct worktree.
+
 **Per-agent git identity:** Each agent commits with a role-scoped author (e.g., `egg (coder) <coder@egg.local>`) for auditability. Combined with per-agent worktrees, this provides structural commit attribution without requiring post-hoc analysis.
 
 ---
