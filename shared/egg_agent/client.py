@@ -11,7 +11,7 @@ import asyncio
 import json
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
@@ -196,7 +196,22 @@ async def run_agent_async(
 
     try:
         async with asyncio.timeout(timeout):
-            stream = query(prompt=prompt, options=options)
+            # can_use_tool requires streaming mode (AsyncIterable prompt).
+            # Wrap the string prompt in a single-message async generator.
+            if tool_permission_callback is not None:
+
+                async def _prompt_iter() -> AsyncIterator[dict[str, Any]]:
+                    yield {
+                        "type": "user",
+                        "message": {"role": "user", "content": prompt},
+                    }
+
+                effective_prompt: str | AsyncIterator[dict[str, Any]] = (
+                    _prompt_iter()
+                )
+            else:
+                effective_prompt = prompt
+            stream = query(prompt=effective_prompt, options=options)
             async for message in stream:
                 if isinstance(message, AssistantMessage):
                     if not actual_model and message.model:
