@@ -91,8 +91,8 @@ The gateway enforces file-level access restrictions to prevent certain roles fro
 - Backwards compatibility: when session role is unavailable, file restrictions are skipped to support legacy sessions
 
 **Error messages:**
-- `Push denied: Role 'X' cannot modify: <files>. <reason>` (HTTP 403) - File blocked by restriction
-- `Push denied: Could not verify file changes for security check: <error>` (HTTP 500) - Detection failure
+- `Push denied: agent role '<role>' cannot modify: <files>. Remediation: Run 'git reset HEAD~1' ...` (HTTP 403) — File blocked by role restriction. The error includes the agent's allowed patterns and specific remediation steps so the agent can self-correct without entering a retry loop. See [Role-Scope Enforcement Guide](../docs/guides/role-scope-enforcement.md) for recovery procedures.
+- `Push denied: Could not verify file changes for security check: <error>` (HTTP 500) — Detection failure (fail-closed)
 
 ### Branch Lock (Pipeline Sessions)
 
@@ -533,3 +533,4 @@ make test
 - [Git Isolation](../docs/architecture/git-isolation.md) - Worktree isolation design
 - [Credential Injection](../docs/architecture/credential-injection.md) - Zero-credential sandbox
 - [Network Isolation](../docs/architecture/network-isolation.md) - Network modes
+- [Role-Scope Enforcement](../docs/guides/role-scope-enforcement.md) - Agent file boundary enforcement and recovery

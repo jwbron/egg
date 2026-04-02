@@ -236,3 +236,4 @@ This is a state-save trigger utility, not the agent checkpoint system (which sto
 - [Concurrent Execution Guide](../guides/concurrent-execution.md) — Failure handling in concurrent mode
 - [Orchestrator Architecture](../architecture/orchestrator.md) — Container monitoring and startup reconciliation
 - [Post-Agent Commit Reference](post-agent-commit.md) — Work preservation on container exit
+- [Role-Scope Enforcement Guide](../guides/role-scope-enforcement.md) — How agents recover from push rejections due to file scope violations

@@ -353,6 +353,8 @@ With per-agent worktree isolation, the gateway's `get_changed_files_in_push()` o
 
 For the exact allowed and blocked patterns per role, see `shared/egg_restrictions/patterns.py` (canonical source). The gateway imports from this shared package for push-time validation.
 
+For operational details on how agents interact with enforcement, including recovery steps when pushes are rejected, see the [Role-Scope Enforcement Guide](../guides/role-scope-enforcement.md).
+
 ## Per-Agent Git Identity
 
 Each agent commits with a role-scoped author for auditability:

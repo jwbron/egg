@@ -52,6 +52,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Pipeline Health Monitoring](guides/pipeline-health-monitoring.md) | Two-tier health monitoring: orchestrator tripwires + overseer agent |
 | [Babysit-PR](guides/babysit-pr.md) | Autonomous PR review/fix loop: conflict resolution, CI fixing, code review, feedback addressing |
 | [Anchor Recovery](guides/anchor-recovery.md) | Agent post-compaction state recovery via persistent anchors |
+| [Role-Scope Enforcement](guides/role-scope-enforcement.md) | Defense-in-depth agent file boundaries: SDK interception, commit-time, and push-time validation |
 
 ### Reference
 
@@ -116,7 +117,7 @@ Each major component has detailed documentation:
 | **Agent anchor / recovery changes** | [Anchor Recovery Guide](guides/anchor-recovery.md) | [egg_anchor README](../shared/egg_anchor/README.md), [Orchestrator CLI](reference/orchestrator-cli.md), [Concurrent Execution](guides/concurrent-execution.md) |
 | **Babysit-PR / PR review loops** | [Babysit-PR Guide](guides/babysit-pr.md) | [GitHub Automation](guides/github-automation.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [`egg_babysit` README](../shared/egg_babysit/README.md) |
 | **Concurrent execution mode** | [Concurrent Execution Guide](guides/concurrent-execution.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Checkpoint Access](guides/checkpoint-access.md), [Orchestrator Architecture](architecture/orchestrator.md) |
-| **Agent roles and file permissions** | [Agent Roles Reference](reference/agent-roles.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Architecture Overview](architecture/README.md) |
+| **Agent roles and file permissions** | [Agent Roles Reference](reference/agent-roles.md) | [Role-Scope Enforcement Guide](guides/role-scope-enforcement.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Architecture Overview](architecture/README.md) |
 | **Agent failure recovery** | [Agent Recovery Reference](reference/agent-recovery.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Post-agent exit handling** | [Post-Agent Commit Reference](reference/post-agent-commit.md) | [Architecture Overview](architecture/README.md), [Concurrent Execution](guides/concurrent-execution.md) |
 | **Per-agent worktree isolation** | [Concurrent Execution Guide](guides/concurrent-execution.md#per-agent-worktree-isolation) | [Git Isolation Architecture](architecture/git-isolation.md), [Orchestrator Architecture](architecture/orchestrator.md) |
