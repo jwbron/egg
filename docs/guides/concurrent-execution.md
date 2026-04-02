@@ -411,7 +411,7 @@ This makes `git log` immediately readable — you can see which agent wrote each
 
 ### Scoped Push File Detection
 
-The gateway's push validation (`get_changed_files_in_push()`) only reports files from the current agent's commits, not the entire branch diff. Since each agent has its own worktree, only that agent's commits exist in the worktree's history — the diff against the remote naturally scopes to the agent's own changes.
+The gateway's push validation (`get_changed_files_in_push()`) only reports files from the current agent's commits, not the entire branch diff. It does this by using `git rev-list remote/branch..HEAD` to enumerate the new commits being pushed, then running `git diff-tree` on each commit individually to collect the changed files. This per-commit approach avoids a tree-level `git diff remote/branch..HEAD`, which would report all cumulative differences between the two tree states — including files changed by other agents who previously pushed to the same remote branch.
 
 This eliminates false positives where an agent's push was rejected because a *different* agent had committed files outside this agent's role boundaries.
 
