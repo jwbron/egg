@@ -251,8 +251,10 @@ class TestCmdPushScopeFilter:
                 cmd_push(_make_args(scope_filter=True))
             assert exc_info.value.code == 1
 
+    @patch("egg_lib.cli_push._get_merge_base", return_value="abc123")
+    @patch("egg_lib.cli_push._get_current_branch", return_value="egg/test")
     @patch("egg_lib.cli_push._run_git")
-    def test_no_files_in_commit(self, mock_run_git):
+    def test_no_files_in_commit(self, mock_run_git, mock_get_branch, mock_merge_base):
         """Exits with error when commit has no files."""
         patterns = json.dumps({"allowed": ["**/*.py"], "blocked": ["docs/"]})
         with patch.dict(os.environ, {"EGG_AGENT_FILE_PATTERNS": patterns}):
@@ -261,8 +263,10 @@ class TestCmdPushScopeFilter:
                 cmd_push(_make_args(scope_filter=True))
             assert exc_info.value.code == 1
 
+    @patch("egg_lib.cli_push._get_merge_base", return_value="abc123")
+    @patch("egg_lib.cli_push._get_current_branch", return_value="egg/test")
     @patch("egg_lib.cli_push._run_git")
-    def test_all_files_out_of_scope(self, mock_run_git):
+    def test_all_files_out_of_scope(self, mock_run_git, mock_get_branch, mock_merge_base):
         """Exits with error when all commit files are out of scope."""
         patterns = json.dumps({"allowed": ["**/*.py"], "blocked": ["docs/"]})
         with patch.dict(os.environ, {"EGG_AGENT_FILE_PATTERNS": patterns}):
@@ -271,9 +275,13 @@ class TestCmdPushScopeFilter:
                 cmd_push(_make_args(scope_filter=True))
             assert exc_info.value.code == 1
 
+    @patch("egg_lib.cli_push._get_merge_base", return_value="abc123")
+    @patch("egg_lib.cli_push._get_current_branch", return_value="egg/test")
     @patch("egg_lib.cli_push.subprocess.run")
     @patch("egg_lib.cli_push._run_git")
-    def test_no_files_removed_pushes_directly(self, mock_run_git, mock_subprocess_run):
+    def test_no_files_removed_pushes_directly(
+        self, mock_run_git, mock_subprocess_run, mock_get_branch, mock_merge_base
+    ):
         """When all files are in scope, pushes without rewriting."""
         patterns = json.dumps({"allowed": ["**/*.py"], "blocked": ["docs/"]})
         with patch.dict(os.environ, {"EGG_AGENT_FILE_PATTERNS": patterns}):
@@ -282,21 +290,27 @@ class TestCmdPushScopeFilter:
             with pytest.raises(SystemExit) as exc_info:
                 cmd_push(_make_args(scope_filter=True))
             assert exc_info.value.code == 0
-            mock_subprocess_run.assert_called_once_with(["git", "push"], text=True)
+            mock_subprocess_run.assert_called_once_with(
+                ["git", "push", "origin", "egg/test"], text=True
+            )
 
+    @patch("egg_lib.cli_push._get_merge_base", return_value="abc123")
     @patch("egg_lib.cli_push._get_current_branch", return_value="egg/my-branch")
     @patch("egg_lib.cli_push.subprocess.run")
     @patch("egg_lib.cli_push._run_git")
-    def test_rewrite_commit_and_push(self, mock_run_git, mock_subprocess_run, mock_get_branch):
-        """When some files removed, rewrites commit and pushes."""
+    def test_rewrite_commit_and_push(
+        self, mock_run_git, mock_subprocess_run, mock_get_branch, mock_merge_base
+    ):
+        """When some files removed, squashes and rewrites commit then pushes."""
         patterns = json.dumps({"allowed": ["**/*.py"], "blocked": ["docs/"]})
         with patch.dict(os.environ, {"EGG_AGENT_FILE_PATTERNS": patterns}):
             # First call: diff returns mixed files
             diff_result = MagicMock(stdout="src/main.py\ndocs/guide.md\n", returncode=0)
-            # Subsequent calls: reset, add, commit succeed
+            # Subsequent calls: soft-reset, un-stage, re-add, commit succeed
             mock_run_git.side_effect = [
-                diff_result,  # diff --name-only
-                MagicMock(returncode=0),  # reset HEAD~1
+                diff_result,  # diff --name-only merge_base HEAD
+                MagicMock(returncode=0),  # reset --soft merge_base
+                MagicMock(returncode=0),  # reset HEAD -- .
                 MagicMock(returncode=0),  # add -- src/main.py
                 MagicMock(returncode=0),  # commit -C ORIG_HEAD
             ]
@@ -311,20 +325,22 @@ class TestCmdPushScopeFilter:
 
             # Verify the git operations sequence
             calls = mock_run_git.call_args_list
-            assert calls[0] == call("diff", "--name-only", "HEAD~1", "HEAD")
-            assert calls[1] == call("reset", "HEAD~1")
-            assert calls[2] == call("add", "--", "src/main.py")
-            assert calls[3] == call("commit", "-C", "ORIG_HEAD")
+            assert calls[0] == call("diff", "--name-only", "abc123", "HEAD")
+            assert calls[1] == call("reset", "--soft", "abc123")
+            assert calls[2] == call("reset", "HEAD", "--", ".")
+            assert calls[3] == call("add", "--", "src/main.py")
+            assert calls[4] == call("commit", "-C", "ORIG_HEAD")
 
             # Verify push was to the correct branch
             push_call = mock_subprocess_run.call_args_list[1]
             assert push_call == call(["git", "push", "origin", "egg/my-branch"], text=True)
 
+    @patch("egg_lib.cli_push._get_merge_base", return_value="abc123")
     @patch("egg_lib.cli_push._get_current_branch", return_value="egg/test")
     @patch("egg_lib.cli_push.subprocess.run")
     @patch("egg_lib.cli_push._run_git")
     def test_empty_staging_after_filter_exits(
-        self, mock_run_git, mock_subprocess_run, mock_get_branch
+        self, mock_run_git, mock_subprocess_run, mock_get_branch, mock_merge_base
     ):
         """Safety check: exits if staging is empty after filtering."""
         patterns = json.dumps({"allowed": ["**/*.py"], "blocked": ["docs/"]})
@@ -333,7 +349,8 @@ class TestCmdPushScopeFilter:
             diff_result = MagicMock(stdout="src/main.py\ndocs/guide.md\n", returncode=0)
             mock_run_git.side_effect = [
                 diff_result,  # diff --name-only
-                MagicMock(returncode=0),  # reset HEAD~1
+                MagicMock(returncode=0),  # reset --soft merge_base
+                MagicMock(returncode=0),  # reset HEAD -- .
                 MagicMock(returncode=0),  # add -- src/main.py
             ]
             # staged check: nothing staged (returncode 0)
@@ -341,6 +358,41 @@ class TestCmdPushScopeFilter:
             with pytest.raises(SystemExit) as exc_info:
                 cmd_push(_make_args(scope_filter=True))
             assert exc_info.value.code == 1
+
+    @patch("egg_lib.cli_push._get_merge_base", return_value="abc123")
+    @patch("egg_lib.cli_push._get_current_branch", return_value="egg/test")
+    @patch("egg_lib.cli_push.subprocess.run")
+    @patch("egg_lib.cli_push._run_git")
+    def test_block_exempt_in_env_var(
+        self, mock_run_git, mock_subprocess_run, mock_get_branch, mock_merge_base
+    ):
+        """When block_exempt is in EGG_AGENT_FILE_PATTERNS, exemptions work."""
+        patterns = json.dumps(
+            {
+                "allowed": ["**/*.py", "sandbox/agent-config/rules/*.md"],
+                "blocked": ["**/*.md"],
+                "block_exempt": ["sandbox/agent-config/rules/*.md"],
+            }
+        )
+        with patch.dict(os.environ, {"EGG_AGENT_FILE_PATTERNS": patterns}):
+            # Need run_git calls for the rewrite path (some files removed)
+            mock_run_git.side_effect = [
+                MagicMock(
+                    stdout="src/main.py\nsandbox/agent-config/rules/push.md\ndocs/guide.md\n",
+                    returncode=0,
+                ),  # diff
+                MagicMock(returncode=0),  # reset --soft
+                MagicMock(returncode=0),  # reset HEAD -- .
+                MagicMock(returncode=0),  # add
+                MagicMock(returncode=0),  # commit
+            ]
+            mock_subprocess_run.side_effect = [
+                MagicMock(returncode=1),  # diff --cached --quiet -> has staged
+                MagicMock(returncode=0),  # push
+            ]
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_push(_make_args(scope_filter=True))
+            assert exc_info.value.code == 0
 
 
 # ---------------------------------------------------------------------------
@@ -388,24 +440,39 @@ class TestFilterFilesEdgeCases:
         assert kept == []
         assert removed == ["tests/conftest.py"]
 
-    def test_block_exempt_not_considered(self):
-        """_filter_files does NOT support block_exempt_patterns.
-
-        This is a known gap: the CLI-side filter doesn't handle block
-        exemptions. If the env var patterns include agent-config .md
-        files in 'allowed' but also have '**/*.md' in 'blocked', the
-        CLI filter will block them — unlike AgentFilePattern.can_write().
-        """
-        # Simulates coder patterns where agent-config .md files should be exempt
+    def test_block_exempt_allows_exempted_files(self):
+        """block_exempt carves out exceptions from blocked patterns."""
         kept, removed = _filter_files(
             ["sandbox/agent-config/rules/push.md"],
             allowed=["**/*.md", "sandbox/agent-config/rules/*.md"],
             blocked=["**/*.md"],
+            block_exempt=["sandbox/agent-config/rules/*.md"],
         )
-        # The CLI filter blocks this because blocked is checked first.
-        # This differs from AgentFilePattern.can_write() which has
-        # block_exempt_patterns support.
-        assert removed == ["sandbox/agent-config/rules/push.md"]
+        # With block_exempt, the file should now be kept
+        assert kept == ["sandbox/agent-config/rules/push.md"]
+        assert removed == []
+
+    def test_block_exempt_does_not_bypass_other_blocks(self):
+        """block_exempt only applies to its specific pattern, not all blocks."""
+        kept, removed = _filter_files(
+            ["docs/guide.md", "sandbox/agent-config/rules/push.md"],
+            allowed=["**/*.md", "sandbox/agent-config/rules/*.md"],
+            blocked=["docs/", "**/*.md"],
+            block_exempt=["sandbox/agent-config/rules/*.md"],
+        )
+        assert "sandbox/agent-config/rules/push.md" in kept
+        assert "docs/guide.md" in removed
+
+    def test_block_exempt_none_defaults_empty(self):
+        """block_exempt=None behaves like no exemptions."""
+        kept, removed = _filter_files(
+            ["tests/test_foo.py"],
+            allowed=["**/*.py"],
+            blocked=["tests/"],
+            block_exempt=None,
+        )
+        assert kept == []
+        assert removed == ["tests/test_foo.py"]
 
     def test_preserves_order(self):
         """Output preserves input order."""
