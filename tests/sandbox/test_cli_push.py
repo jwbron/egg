@@ -314,8 +314,10 @@ class TestCmdPushScopeFilter:
                 MagicMock(returncode=0),  # add -- src/main.py
                 MagicMock(returncode=0),  # commit -C ORIG_HEAD
             ]
-            # staged check: something staged (returncode != 0)
+            # subprocess.run calls: rev-parse HEAD (orig_head save),
+            # staged check, push
             mock_subprocess_run.side_effect = [
+                MagicMock(stdout="abc999\n", returncode=0),  # rev-parse HEAD
                 MagicMock(returncode=1),  # diff --cached --quiet -> has staged
                 MagicMock(returncode=0),  # push
             ]
@@ -326,13 +328,13 @@ class TestCmdPushScopeFilter:
             # Verify the git operations sequence
             calls = mock_run_git.call_args_list
             assert calls[0] == call("diff", "--name-only", "abc123", "HEAD")
-            assert calls[1] == call("reset", "--soft", "abc123")
-            assert calls[2] == call("reset", "HEAD", "--", ".")
-            assert calls[3] == call("add", "--", "src/main.py")
-            assert calls[4] == call("commit", "-C", "ORIG_HEAD")
+            assert calls[1] == call("reset", "--soft", "abc123", _recovery_hint="abc999")
+            assert calls[2] == call("reset", "HEAD", "--", ".", _recovery_hint="abc999")
+            assert calls[3] == call("add", "--", "src/main.py", _recovery_hint="abc999")
+            assert calls[4] == call("commit", "-C", "ORIG_HEAD", _recovery_hint="abc999")
 
             # Verify push was to the correct branch
-            push_call = mock_subprocess_run.call_args_list[1]
+            push_call = mock_subprocess_run.call_args_list[2]
             assert push_call == call(["git", "push", "origin", "egg/my-branch"], text=True)
 
     @patch("egg_lib.cli_push._get_merge_base", return_value="abc123")
@@ -353,8 +355,11 @@ class TestCmdPushScopeFilter:
                 MagicMock(returncode=0),  # reset HEAD -- .
                 MagicMock(returncode=0),  # add -- src/main.py
             ]
-            # staged check: nothing staged (returncode 0)
-            mock_subprocess_run.return_value = MagicMock(returncode=0)
+            # subprocess.run calls: rev-parse HEAD, staged check
+            mock_subprocess_run.side_effect = [
+                MagicMock(stdout="abc999\n", returncode=0),  # rev-parse HEAD
+                MagicMock(returncode=0),  # diff --cached --quiet -> nothing staged
+            ]
             with pytest.raises(SystemExit) as exc_info:
                 cmd_push(_make_args(scope_filter=True))
             assert exc_info.value.code == 1
@@ -387,6 +392,7 @@ class TestCmdPushScopeFilter:
                 MagicMock(returncode=0),  # commit
             ]
             mock_subprocess_run.side_effect = [
+                MagicMock(stdout="abc999\n", returncode=0),  # rev-parse HEAD
                 MagicMock(returncode=1),  # diff --cached --quiet -> has staged
                 MagicMock(returncode=0),  # push
             ]
@@ -462,6 +468,18 @@ class TestFilterFilesEdgeCases:
         )
         assert "sandbox/agent-config/rules/push.md" in kept
         assert "docs/guide.md" in removed
+
+    def test_block_exempt_without_allowed_match_is_rejected(self):
+        """block_exempt bypasses the block check but still requires an allowed match."""
+        kept, removed = _filter_files(
+            ["sandbox/agent-config/rules/push.md"],
+            allowed=["**/*.py"],  # No .md in allowed
+            blocked=["**/*.md"],
+            block_exempt=["sandbox/agent-config/rules/*.md"],
+        )
+        # Exempt from block, but doesn't match any allowed pattern → removed
+        assert kept == []
+        assert removed == ["sandbox/agent-config/rules/push.md"]
 
     def test_block_exempt_none_defaults_empty(self):
         """block_exempt=None behaves like no exemptions."""

@@ -3,48 +3,21 @@
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import json
 import os
 import subprocess
 import sys
 
+from egg_restrictions.patterns import AgentFilePattern
+
 
 def _matches_pattern(file_path: str, pattern: str) -> bool:
     """Check if a file path matches a glob-like pattern.
 
-    Mirrors the matching logic in AgentFilePattern._matches_pattern from
-    shared/egg_restrictions/patterns.py.
-
-    Supports:
-    - Exact match: "foo/bar.py"
-    - Prefix match: "foo/" (matches any file under foo/)
-    - Wildcard: "*.py" (matches files ending in .py)
-    - Double wildcard: "**/*.py" (matches .py files at any depth)
+    Delegates to AgentFilePattern._matches_pattern to avoid duplicating
+    logic (see shared/egg_restrictions/patterns.py).
     """
-    # Normalize both paths
-    file_path = file_path.lstrip("./")
-    pattern = pattern.lstrip("./")
-
-    # Prefix match (directory pattern)
-    if pattern.endswith("/"):
-        return file_path.startswith(pattern) or file_path + "/" == pattern
-
-    # Handle ** patterns for recursive matching
-    if "**" in pattern:
-        parts = pattern.split("**")
-        if len(parts) == 2:
-            prefix, suffix = parts
-            prefix_match = not prefix or file_path.startswith(prefix.rstrip("/"))
-            suffix = suffix.lstrip("/")
-            suffix_match = not suffix or fnmatch.fnmatch(file_path.split("/")[-1], suffix)
-            if prefix_match and suffix_match:
-                if suffix.startswith("*"):
-                    return fnmatch.fnmatch(file_path, "*" + suffix)
-                return True
-
-    # Standard fnmatch for simple wildcards
-    return fnmatch.fnmatch(file_path, pattern)
+    return AgentFilePattern._matches_pattern(file_path, pattern)
 
 
 def _matches_any_pattern(file_path: str, patterns: list[str]) -> bool:
@@ -83,7 +56,7 @@ def _filter_files(
             # Blocked, but check if exempt
             if _matches_any_pattern(f, exempt):
                 # Exempt from block — still needs to match allowed
-                if _matches_any_pattern(f, allowed) or _matches_any_pattern(f, exempt):
+                if _matches_any_pattern(f, allowed):
                     kept.append(f)
                 else:
                     removed.append(f)
@@ -96,10 +69,12 @@ def _filter_files(
     return kept, removed
 
 
-def _run_git(*args: str) -> subprocess.CompletedProcess[str]:
+def _run_git(*args: str, _recovery_hint: str | None = None) -> subprocess.CompletedProcess[str]:
     """Run a git command and return the result.
 
-    Raises SystemExit with the git return code on failure.
+    Raises SystemExit with the git return code on failure.  When
+    ``_recovery_hint`` is a commit SHA, a restore command is printed to
+    stderr before exiting so the user can undo a partial rewrite.
     """
     result = subprocess.run(
         ["git", *args],
@@ -108,6 +83,10 @@ def _run_git(*args: str) -> subprocess.CompletedProcess[str]:
     )
     if result.returncode != 0:
         sys.stderr.write(result.stderr)
+        if _recovery_hint:
+            sys.stderr.write(
+                f"\nTo restore your original commits: git reset --hard {_recovery_hint}\n"
+            )
         sys.exit(result.returncode)
     return result
 
@@ -223,12 +202,20 @@ def cmd_push(args: argparse.Namespace) -> None:
     print()
 
     # Squash all unpushed commits into one, keeping only allowed files.
+    # Save original HEAD so the user can recover if the rewrite fails midway.
+    orig_head_result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    orig_head = orig_head_result.stdout.strip() if orig_head_result.returncode == 0 else None
+
     # Step 1: soft-reset to the merge base so we can re-stage selectively.
-    _run_git("reset", "--soft", merge_base)
+    _run_git("reset", "--soft", merge_base, _recovery_hint=orig_head)
 
     # Step 2: un-stage everything, then re-add only allowed files.
-    _run_git("reset", "HEAD", "--", ".")
-    _run_git("add", "--", *kept)
+    _run_git("reset", "HEAD", "--", ".", _recovery_hint=orig_head)
+    _run_git("add", "--", *kept, _recovery_hint=orig_head)
 
     # Step 3: verify we actually have something staged (safety check).
     staged_check = subprocess.run(
@@ -246,7 +233,7 @@ def cmd_push(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     # Step 4: recommit with the original HEAD commit message.
-    _run_git("commit", "-C", "ORIG_HEAD")
+    _run_git("commit", "-C", "ORIG_HEAD", _recovery_hint=orig_head)
 
     # Step 5: push.
     push_result = subprocess.run(

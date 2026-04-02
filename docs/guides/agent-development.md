@@ -213,6 +213,30 @@ Pattern evaluation order:
 
 `block_exempt_patterns` carve out narrow exceptions from blocked patterns. For example, `**/*.md` is blocked for coders (documentation), but `.md` files in `sandbox/agent-config/` and `skills/` are functional code and exempted. Exempt paths must also appear in `allowed_patterns` — the exemption only bypasses the block check, it does not grant write access on its own.
 
+## Push Recovery and Scope Filtering
+
+When the gateway rejects a push due to agent-role file restrictions, the error response includes enriched details to help the agent recover:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `role` | `string` | The agent's role that triggered the restriction |
+| `blocked_files` | `list[str]` | Files that violated the role's file access policy |
+| `allowed_patterns` | `list[str]` | Glob patterns the agent IS allowed to write to |
+| `remediation` | `string` | Human-readable recovery steps |
+
+### `egg-orch push --scope-filter`
+
+The `egg-orch push --scope-filter` command automatically strips out-of-scope files from unpushed commits before pushing. It:
+
+1. Reads the agent's file patterns from `EGG_AGENT_FILE_PATTERNS`
+2. Computes the merge-base to capture all unpushed commits (not just HEAD~1)
+3. Filters files using the same `allowed`/`blocked`/`block_exempt` logic as the gateway
+4. Squashes filtered commits into one and pushes
+
+Without `--scope-filter`, `egg-orch push` passes through to `git push` unchanged.
+
+See `sandbox/agent-config/rules/push-recovery.md` for step-by-step recovery instructions available to agents at runtime.
+
 ## Handoff Data
 
 Agents communicate via JSON files in `.egg-state/agent-outputs/`, namespaced

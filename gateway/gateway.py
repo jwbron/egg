@@ -931,13 +931,23 @@ def git_push() -> tuple[Response, int] | Response:
                 # Look up allowed patterns for remediation guidance
                 agent_pattern = get_agent_pattern(session_role)
                 allowed_patterns = agent_pattern.allowed_patterns if agent_pattern else []
+                # Truncate pattern list in human-readable message to avoid
+                # overwhelming the agent; full list is in structured response.
+                max_shown = 5
+                if len(allowed_patterns) > max_shown:
+                    pattern_summary = (
+                        f"{', '.join(allowed_patterns[:max_shown])}, "
+                        f"and {len(allowed_patterns) - max_shown} more"
+                    )
+                else:
+                    pattern_summary = ", ".join(allowed_patterns) if allowed_patterns else "(none)"
                 remediation = (
-                    f"To recover: (1) git reset HEAD~1, "
-                    f"(2) git add only files matching allowed patterns: "
-                    f"{', '.join(allowed_patterns)}, "
-                    f"(3) git commit again, (4) git push. "
-                    f"Or use: egg-orch push --scope-filter to automatically "
-                    f"strip out-of-scope files before pushing."
+                    f"To recover: run `egg-orch push --scope-filter` to "
+                    f"automatically strip out-of-scope files and push. "
+                    f"Manual alternative: (1) git reset --soft $(git merge-base "
+                    f"origin/<branch> HEAD), (2) git add only files matching "
+                    f"allowed patterns: {pattern_summary}, "
+                    f"(3) git commit again, (4) git push."
                 )
                 return make_error(
                     f"Push denied: agent role '{session_role}' cannot modify "

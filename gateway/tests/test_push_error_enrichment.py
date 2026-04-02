@@ -204,10 +204,10 @@ class TestPushErrorEnrichment:
                 resp_data = data.get("data", {})
                 assert "remediation" in resp_data
                 remediation = resp_data["remediation"]
-                # Should mention git reset recovery steps
-                assert "git reset HEAD~1" in remediation
-                # Should mention the scope-filter alternative
-                assert "scope-filter" in remediation
+                # Should mention the scope-filter command as primary recovery
+                assert "egg-orch push --scope-filter" in remediation
+                # Should mention merge-base for manual recovery
+                assert "merge-base" in remediation
 
     def test_response_includes_role(self, client):
         """The 403 response data include the agent's role."""
