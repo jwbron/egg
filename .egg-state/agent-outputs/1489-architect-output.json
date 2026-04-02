@@ -1,0 +1,321 @@
+{
+  "issue": 1489,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 1,
+  "title": "Overseer Infrastructure Error Escalation",
+  "summary": "The overseer currently treats all escalations as stall classifications and defaults to nudge/redirect actions. Infrastructure errors (git failures, gateway errors, permission denied) are not distinguished from behavioral slowness. This analysis proposes a three-part change: (1) enrich error events with structured context and an error category field, (2) integrate the existing but unused classify_error() function into the overseer's escalation handling, and (3) add an infrastructure-error fast-path in the decision maker that escalates to HITL immediately instead of cycling through nudge/redirect.",
+  "revision_notes": "",
+  "problem_statement": {
+    "description": "When an agent hits a persistent infrastructure error (e.g., git add fails due to .gitignore rules, gateway rejects a push, permission denied on a path), the overseer does not distinguish this from an agent being slow or stuck. It sends generic 'please ACK or NACK' nudges instead of escalating to a human with error details. This was observed in pipeline issue-1481 where reviewer_refine hit a .gitignore error preventing commits to .egg-state/reviews/, and the overseer only sent status-check nudges.",
+    "root_causes": [
+      {
+        "id": "RC-1",
+        "title": "Error events carry no structured context",
+        "description": "The ERROR event payload only contains agent_id and a plain-text error string. There is no error_type, error_category, tool_output, or structured context that would allow programmatic classification of infrastructure vs. behavioral errors.",
+        "location": "orchestrator/health_monitor.py:162-179 (event structure), orchestrator/events.py (EventType.ERROR)"
+      },
+      {
+        "id": "RC-2",
+        "title": "Health monitor only escalates on repeat threshold",
+        "description": "The _on_error() handler counts identical error strings and only escalates after the configurable threshold (default 3). A single infrastructure failure is not escalated — it is just counted. The agent may be stuck but the error count hasn't reached threshold because each retry produces a slightly different error message.",
+        "location": "orchestrator/health_monitor.py:162-179, config: orchestrator_error_repeat_threshold"
+      },
+      {
+        "id": "RC-3",
+        "title": "Overseer treats all escalations as stall classifications",
+        "description": "The handle_escalation() method always calls classify_stall() regardless of whether the escalation came from a heartbeat timeout or a repeated error. The error context (error_message, count) in the escalation dict is not used for classification. The existing classify_error() function in classifier.py is defined but never invoked anywhere in the monitor.",
+        "location": "orchestrator/overseer/monitor.py:374-424 (handle_escalation), orchestrator/overseer/classifier.py:138-171 (unused classify_error)"
+      },
+      {
+        "id": "RC-4",
+        "title": "Decision maker has no infrastructure error awareness",
+        "description": "The decide_corrective_action() function only receives stall classification output. There is no error_type, severity, or infrastructure context field. It defaults to nudge/redirect actions and only escalates to HITL after the redirect threshold (default 2 redirects) is exceeded. Infrastructure errors go through the same slow escalation ladder as behavioral issues.",
+        "location": "orchestrator/overseer/decision_maker.py:43-80"
+      },
+      {
+        "id": "RC-5",
+        "title": "No infrastructure error pattern matching at Tier 1",
+        "description": "The Tier 1 health monitor (orchestrator/health_monitor.py) has no pattern matching for infrastructure-specific errors. It cannot distinguish 'git add failed: pathspec matches .gitignore' from 'agent is thinking slowly'. Both are handled identically through generic escalation.",
+        "location": "orchestrator/health_monitor.py"
+      }
+    ]
+  },
+  "current_architecture": {
+    "error_event_flow": {
+      "description": "When an agent hits an error, the flow is: (1) Agent calls egg-orch signal error → (2) routes/signals.py handle_error_signal() processes it → (3) contract orchestrator fail_agent() called → (4) EventBus emits ERROR event → (5) health_monitor._on_error() counts it → (6) if threshold reached, escalate to overseer/HITL",
+      "files": [
+        "orchestrator/routes/signals.py:486-625",
+        "orchestrator/health_monitor.py:162-179",
+        "orchestrator/events.py"
+      ]
+    },
+    "overseer_escalation_handling": {
+      "description": "Overseer receives escalation dict with {type, agent_id, reason, error_message, count, timestamp}. It calls classify_stall() (not classify_error()), checks redirect history, and either nudges/redirects (under threshold) or escalates (over threshold). The classify_error() function exists in classifier.py but has zero call sites.",
+      "files": [
+        "orchestrator/overseer/monitor.py:374-424",
+        "orchestrator/overseer/classifier.py:138-171",
+        "orchestrator/overseer/decision_maker.py:43-80"
+      ]
+    },
+    "tier1_health_monitor": {
+      "description": "Deterministic tripwire rules: heartbeat timeout, container exit, repeated errors, message volume spike, progress stall. Each rule either escalates to overseer (if enabled) or directly to HITL. The repeated error rule is the only one that processes error content, but it only counts string matches.",
+      "file": "orchestrator/health_monitor.py",
+      "rules": {
+        "heartbeat_timeout": "No heartbeat within threshold (default 120s) → escalate",
+        "container_exit": "Agent container dies → immediate HITL",
+        "repeated_errors": "Same error message N times (default 3) → escalate",
+        "message_volume_spike": "Above rate limit → auto-throttle",
+        "progress_stall": "No structured progress update within threshold → escalate"
+      }
+    },
+    "health_check_framework": {
+      "description": "Two-tier health check system with programmatic (Tier 1) and LLM-based (Tier 2) checks run at various trigger points (startup, runtime tick, wave complete, phase complete, on-demand). Overseer is the Tier 2 LLM component. Infrastructure error detection is not currently a check in either tier.",
+      "file": "orchestrator/health_checks/"
+    }
+  },
+  "approaches_considered": [
+    {
+      "id": "A",
+      "name": "Tier 1 pattern matching with immediate HITL escalation",
+      "description": "Add infrastructure error pattern matching directly in the Tier 1 health_monitor._on_error() method. Define a list of known infrastructure error patterns (git failures, gateway 403/502, EROFS, permission denied). When a matching error is detected, escalate immediately to HITL without waiting for repeat threshold or overseer classification.",
+      "pros": [
+        "Fastest possible response — no LLM classification delay",
+        "Zero cost — purely deterministic",
+        "Simple implementation — regex patterns against error messages",
+        "Works even if overseer is disabled or slow"
+      ],
+      "cons": [
+        "Brittle — new error patterns require code changes",
+        "May over-escalate transient errors (e.g., a single git timeout that resolves)",
+        "Bypasses overseer's classification ability, reducing its usefulness",
+        "No semantic understanding — can't distinguish recoverable from fatal infrastructure errors"
+      ],
+      "rejected_reason": "Too rigid alone. Infrastructure errors have varying severity and some are transient. Pure pattern matching would over-escalate."
+    },
+    {
+      "id": "B",
+      "name": "Enrich error events + integrate classify_error() + decision maker fast-path",
+      "description": "Three-part change: (1) Add structured error context (error_category, tool_output, recoverable flag) to ERROR events and escalation payloads. (2) Wire classify_error() into handle_escalation() alongside classify_stall() so the overseer can distinguish error types. (3) Add an infrastructure error fast-path in the decision maker that skips the nudge/redirect ladder and goes directly to HITL with error details.",
+      "pros": [
+        "Uses existing unused code (classify_error)",
+        "Semantic classification handles edge cases better than patterns alone",
+        "Error details flow through to HITL decision so humans can diagnose",
+        "Decision maker retains flexibility for different error severities",
+        "Graceful — overseer classifies before escalating, reducing false positives"
+      ],
+      "cons": [
+        "Slightly slower than pure Tier 1 — requires LLM classification call",
+        "More files to modify than approach A",
+        "classify_error() needs testing since it has never been used"
+      ],
+      "rejected_reason": null
+    },
+    {
+      "id": "C",
+      "name": "Hybrid: Tier 1 fast-path for critical + Tier 2 for ambiguous",
+      "description": "Combine approaches A and B. Add a small set of critical infrastructure patterns (container EROFS, gateway connection refused) for immediate Tier 1 HITL escalation. For all other errors, use the enriched Tier 2 classify_error() path. This gives fast response for clear-cut failures while preserving semantic classification for ambiguous cases.",
+      "pros": [
+        "Best of both — critical errors get instant HITL, ambiguous get smart classification",
+        "Aligns with existing two-tier architecture philosophy",
+        "Least false positives for critical errors (exact pattern match)",
+        "Least false negatives for ambiguous errors (LLM classification)"
+      ],
+      "cons": [
+        "Most complex implementation — changes in both Tier 1 and Tier 2",
+        "Two escalation paths to maintain and test",
+        "Pattern list and classification overlap need careful coordination"
+      ],
+      "rejected_reason": null
+    }
+  ],
+  "recommended_approach": {
+    "strategy": "Approach C — Hybrid: Tier 1 fast-path for critical infrastructure errors + Tier 2 classify_error() for ambiguous errors",
+    "rationale": "This approach aligns with the existing two-tier health monitoring philosophy: deterministic rules catch clear-cut failures instantly, while the overseer's LLM tier handles ambiguous cases with semantic understanding. The critical infrastructure patterns (EROFS, gateway unreachable, authentication failures) are unambiguous and should never be nudged. Ambiguous errors (git timeout, transient network issues) benefit from LLM classification to determine if they are persistent infrastructure problems or transient glitches. The existing classify_error() function is already defined and just needs to be wired in.",
+    "implementation_overview": {
+      "part_1_tier1_infrastructure_patterns": {
+        "description": "Add an infrastructure error pattern matcher to health_monitor._on_error(). Define a set of critical patterns that trigger immediate HITL escalation (bypassing repeat threshold). These are errors that are unambiguously infrastructure failures and cannot be resolved by the agent.",
+        "patterns": [
+          "EROFS|Read-only file system",
+          "fatal: unable to access|Authentication failed",
+          "Connection refused.*egg-gateway",
+          "Permission denied.*\\.egg-state",
+          "gateway.*50[0-9]|502 Bad Gateway|503 Service Unavailable"
+        ],
+        "file": "orchestrator/health_monitor.py",
+        "changes": "Add _is_infrastructure_error() method with pattern matching. In _on_error(), check patterns before counting. If matched, call new _escalate_infrastructure_error() that immediately escalates to HITL with error details and high priority, setting alert_type to 'infrastructure_error'."
+      },
+      "part_2_enrich_error_events": {
+        "description": "Add structured context to error events and escalation payloads so the overseer has enough information to classify and the HITL decision includes actionable details.",
+        "changes": [
+          {
+            "file": "orchestrator/routes/signals.py",
+            "what": "Accept optional error_category and error_context fields in error signal payload. error_category can be 'infrastructure', 'behavioral', 'transient', or 'unknown'. error_context can include tool output, git command, etc."
+          },
+          {
+            "file": "orchestrator/health_monitor.py",
+            "what": "Pass error_category and error_context through to escalation payload alongside existing error_message and count fields."
+          },
+          {
+            "file": "orchestrator/overseer/monitor.py",
+            "what": "In handle_escalation(), extract error_category from escalation dict. If error_category is 'infrastructure', route to classify_error() instead of classify_stall()."
+          }
+        ]
+      },
+      "part_3_integrate_classify_error": {
+        "description": "Wire the existing classify_error() function into the overseer's escalation handling path. Add an infrastructure error fast-path in the decision maker.",
+        "changes": [
+          {
+            "file": "orchestrator/overseer/monitor.py",
+            "what": "In handle_escalation(), when escalation contains error_message or error_category, call classify_error() to get error_type and severity. Pass this classification to the decision maker alongside or instead of stall classification."
+          },
+          {
+            "file": "orchestrator/overseer/decision_maker.py",
+            "what": "Add decide_infrastructure_error_action() function or modify decide_corrective_action() to accept error classification. When error severity is 'high' or 'critical', skip nudge/redirect and go directly to HITL. Include error details in the HITL decision question so the human can diagnose."
+          },
+          {
+            "file": "orchestrator/overseer/classifier.py",
+            "what": "Ensure classify_error() returns infrastructure-specific fields: is_infrastructure (bool), error_category (string), can_agent_recover (bool). May need to enhance the existing function signature."
+          }
+        ]
+      },
+      "part_4_hitl_decision_enrichment": {
+        "description": "When creating HITL decisions for infrastructure errors, include the error details, affected agent, and suggested remediation in the decision body.",
+        "changes": [
+          {
+            "file": "orchestrator/overseer/monitor.py",
+            "what": "In _create_hitl_decision() or _execute_action(), when action is 'hitl' and error is infrastructure, include structured error context in the decision question and options. Options should include: 'Restart agent', 'Fix infrastructure and restart', 'Continue monitoring', 'Cancel pipeline'."
+          }
+        ]
+      }
+    },
+    "validation": "The implementation should be validated by: (1) Unit tests for pattern matching in health_monitor, (2) Unit tests for classify_error() integration in the overseer monitor, (3) Integration test simulating a git failure and verifying HITL escalation instead of nudge, (4) Regression test ensuring non-infrastructure errors still go through normal nudge/redirect ladder."
+  },
+  "risk_assessment": [
+    {
+      "id": "R-1",
+      "risk": "Over-escalation: infrastructure error patterns may match transient errors that resolve on retry",
+      "severity": "medium",
+      "mitigation": "Only include unambiguous patterns (EROFS, authentication failure, gateway unreachable) in Tier 1 fast-path. Transient patterns (timeout, temporary network error) should go through Tier 2 classify_error() which can assess persistence."
+    },
+    {
+      "id": "R-2",
+      "risk": "classify_error() has never been used in production — may have bugs or produce unexpected classifications",
+      "severity": "medium",
+      "mitigation": "Add comprehensive unit tests for classify_error() with representative infrastructure error inputs. Use hallucination guard pattern already established in handle_escalation() — always classify before deciding."
+    },
+    {
+      "id": "R-3",
+      "risk": "Agents may not always call egg-orch signal error for infrastructure failures — some may just retry silently",
+      "severity": "medium",
+      "mitigation": "Tier 1 heartbeat/progress stall detection already catches agents that get stuck silently. The progress stall escalation can also be enriched: when the overseer queries container logs for a stalled agent and finds infrastructure errors, it can use classify_error() to reclassify the stall as an infrastructure issue."
+    },
+    {
+      "id": "R-4",
+      "risk": "Error category field may not be populated by all agent tooling",
+      "severity": "low",
+      "mitigation": "Make error_category optional with a default of 'unknown'. The Tier 1 pattern matcher works on error message text regardless of category field. Tier 2 classify_error() can classify from the error string alone."
+    },
+    {
+      "id": "R-5",
+      "risk": "Multiple escalation paths (Tier 1 fast-path + Tier 2 classify_error) could create duplicate HITL decisions for the same error",
+      "severity": "low",
+      "mitigation": "Add deduplication: track escalated error messages per agent in health_monitor and overseer. If an infrastructure error has already been escalated via Tier 1, skip Tier 2 re-escalation. Use the existing escalation_history dict in the overseer."
+    }
+  ],
+  "key_files_affected": {
+    "primary_changes": [
+      "orchestrator/health_monitor.py",
+      "orchestrator/overseer/monitor.py",
+      "orchestrator/overseer/classifier.py",
+      "orchestrator/overseer/decision_maker.py",
+      "orchestrator/routes/signals.py"
+    ],
+    "secondary_changes": [
+      "orchestrator/overseer/utils.py",
+      "orchestrator/health_checks/types.py"
+    ],
+    "test_files": [
+      "orchestrator/tests/test_health_monitor.py",
+      "orchestrator/tests/test_overseer_monitor.py",
+      "orchestrator/tests/test_overseer_classifier.py",
+      "orchestrator/tests/test_overseer_decision_maker.py"
+    ],
+    "documentation": [
+      "docs/guides/pipeline-health-monitoring.md"
+    ],
+    "configuration": [
+      "orchestrator/config.py or equivalent (new config fields)"
+    ]
+  },
+  "dependency_analysis": {
+    "prerequisite_issues": [
+      {
+        "issue": 1487,
+        "title": ".egg-state/reviews/ is gitignored, blocking reviewer agents",
+        "status": "related",
+        "description": "This is the root cause of the specific incident in issue-1481. Fixing #1487 prevents that specific failure, but the overseer escalation gap is a general problem that affects any infrastructure error. These issues are complementary, not dependent."
+      }
+    ],
+    "internal_dependencies": [
+      {
+        "blocker": "Part 1 (Tier 1 patterns) and Part 2 (enriched error events)",
+        "blocked": "Part 3 (classify_error integration)",
+        "reason": "The overseer needs enriched error context to classify effectively. The Tier 1 patterns can be implemented independently."
+      },
+      {
+        "blocker": "Part 3 (classify_error integration)",
+        "blocked": "Part 4 (HITL decision enrichment)",
+        "reason": "HITL decisions need the classification output to include structured error details."
+      }
+    ]
+  },
+  "open_decisions": [
+    {
+      "id": "OD-1",
+      "question": "Should the Tier 1 infrastructure pattern list be configurable (in config.py) or hardcoded?",
+      "recommendation": "Start hardcoded in health_monitor.py with a clear constant (INFRASTRUCTURE_ERROR_PATTERNS). Add configurability later if the pattern list needs frequent updates. Hardcoding is simpler and avoids config complexity for an initial implementation.",
+      "status": "recommendation_provided"
+    },
+    {
+      "id": "OD-2",
+      "question": "Should agents be required to send error_category in egg-orch signal error, or should the orchestrator infer it?",
+      "recommendation": "Make it optional. Agents that know the error category (e.g., the gateway sidecar for permission errors) can send it. The orchestrator should also infer from error message patterns as a fallback. This avoids requiring changes to all agent tooling simultaneously.",
+      "status": "recommendation_provided"
+    },
+    {
+      "id": "OD-3",
+      "question": "Should infrastructure errors bypass the overseer entirely and go directly to HITL, or should they always go through the overseer for classification?",
+      "recommendation": "Hybrid: critical patterns (EROFS, auth failure) bypass overseer and go directly to HITL via Tier 1. Ambiguous infrastructure patterns go through overseer classify_error() for semantic analysis. This matches the existing two-tier philosophy.",
+      "status": "recommendation_provided"
+    }
+  ],
+  "scope_estimate": {
+    "files_modified": "5-7",
+    "lines_added": "150-250",
+    "lines_modified": "50-80",
+    "test_files_added_or_modified": "3-4",
+    "estimated_complexity": "medium",
+    "estimated_phases": "1 implementation phase with 4-5 tasks"
+  },
+  "technical_decisions": [
+    {
+      "id": "TD-1",
+      "decision": "Use regex pattern matching for Tier 1 infrastructure error detection",
+      "rationale": "Infrastructure errors have distinctive signatures (EROFS, 'fatal: unable to access', 'Connection refused') that are reliably matchable with simple patterns. This avoids LLM cost for obvious failures and provides sub-second response time.",
+      "alternatives_considered": "Substring matching (too loose), exact string matching (too brittle), LLM-only classification (too slow for critical errors)"
+    },
+    {
+      "id": "TD-2",
+      "decision": "Wire existing classify_error() into handle_escalation() rather than creating a new classification function",
+      "rationale": "The function already exists with the right signature and return type. It was designed for this purpose but never connected. Reusing it reduces code and leverages existing design intent.",
+      "alternatives_considered": "New classify_infrastructure_error() function (unnecessary duplication), inline classification in monitor.py (violates existing classifier/monitor separation)"
+    },
+    {
+      "id": "TD-3",
+      "decision": "Add infrastructure error fast-path in decision_maker that skips nudge/redirect for high/critical severity",
+      "rationale": "The current escalation ladder (nudge → redirect → HITL) is appropriate for behavioral issues but wasteful for infrastructure errors. An agent cannot fix a read-only filesystem or a gateway outage by being nudged. Skipping to HITL saves time and avoids confusing nudge messages.",
+      "alternatives_considered": "Always go through full ladder (wastes time), always bypass overseer (loses semantic classification benefits)"
+    }
+  ]
+}
