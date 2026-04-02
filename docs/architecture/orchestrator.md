@@ -401,7 +401,8 @@ Fixed IPs:
 **Orchestrator (`/api/v1/`)**
 - `GET /health` - Health check
 - `GET/POST /pipelines` - Pipeline CRUD (list, create). Creating a pipeline whose existing record is in a terminal state (failed, cancelled, or complete) automatically replaces it, enabling resubmission without a prior delete
-- `DELETE /pipelines/{id}` - Delete pipeline (stops containers, cleans up remote worktree branches best-effort, removes state)
+- `PATCH /pipelines/{id}` - Update pipeline. When status is set to `cancelled` or `failed`, pending decisions are cancelled and agent records are marked terminated synchronously; container/worktree cleanup runs asynchronously in a background thread. Response includes `cleanup_pending: true` to signal that teardown is still in progress
+- `DELETE /pipelines/{id}` - Delete pipeline (stops containers, cleans up remote worktree branches best-effort, removes state). Acts as a safety net for any containers not yet removed by the PATCH handler's background cleanup
 - `POST /pipelines/{id}/start` - Start or restart a pipeline (restarts failed pipelines by resetting the failed phase; recovers orphaned AWAITING_HUMAN pipelines by parsing the latest phase_gate resolution and either advancing to next phase or resetting for re-run; worktrees are preserved across restarts)
 - `GET /pipelines/{id}/visualization` - Pipeline status snapshot (JSON, text, or ASCII)
 - `GET /pipelines/{id}/stream` - Real-time SSE stream for single pipeline events and visualization
