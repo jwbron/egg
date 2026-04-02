@@ -1440,10 +1440,10 @@ def get_changed_files_in_push(
             if log_result.returncode != 0:
                 continue
 
-            all_files: set[str] = set()
+            all_files = set()
             commits_found = 0
             commits_inspected = 0
-            diff_tree_errors: list[str] = []
+            diff_tree_errors = []
             for sha in log_result.stdout.strip().split("\n"):
                 sha = sha.strip()
                 if not sha:
