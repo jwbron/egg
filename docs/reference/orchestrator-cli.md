@@ -38,6 +38,7 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch message poll [<id>] [--since <id>] [--limit <n>]` | Poll for messages from other agents (concurrent mode) |
 | `egg-orch message status [<id>]` | Get message bus status (concurrent mode) |
 | `egg-orch signal readiness [<id>] --state <WORKING\|READY\|BLOCKED\|OBJECTING> [--reason "..."]` | Signal readiness state (concurrent mode) |
+| `egg-orch push [--scope-filter]` | Push current branch; with `--scope-filter`, strips out-of-scope files before pushing |
 | `egg-orch progress emit --step <text> --state <working\|blocked\|complete> [--detail <text>] [--blocker <text>]` | Emit structured progress event |
 | `egg-orch progress query [--agent <role>] [--since <timestamp>] [--limit <n>]` | Query structured progress events |
 | `egg-orch health alerts [--pipeline <id>]` | List active deterministic health alerts |
