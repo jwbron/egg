@@ -236,7 +236,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 ### `overseer`
 
-**Purpose**: Pipeline health monitoring agent that detects and responds to agent failures, stalls, loops, and off-track behavior. Uses a two-sub-tier LLM architecture: Haiku classifiers for anomaly detection and Sonnet/Opus decision-makers for corrective action.
+**Purpose**: Pipeline health monitoring agent that detects and responds to agent failures, stalls, loops, off-track behavior, and infrastructure errors. Uses a two-sub-tier LLM architecture: Haiku classifiers for anomaly detection (including infrastructure error identification) and Sonnet/Opus decision-makers for corrective action. Infrastructure errors (git failures, gateway errors, permission denied) are fast-pathed directly to HITL escalation, bypassing the normal nudge/redirect ladder.
 
 **Lifecycle**: Auto-spawned at pipeline start (when `overseer_enabled` is true in `PipelineConfig`). Runs across all phases until pipeline completion — one overseer per pipeline.
 
@@ -257,7 +257,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 **Outputs**:
 - Redirect messages to stalled/off-track agents
-- HITL escalation requests for agent restarts
+- HITL escalation requests for agent restarts and infrastructure errors
 - Autonomous GitHub issues with structured diagnostics (labeled `overseer-alert`)
 - Pipeline health summary at completion
 - Structured oversight logs in `.egg-state/oversight/`
