@@ -137,40 +137,40 @@
         {
           "container_id": "02e4139abbd3485321d0f640ed7001911f7ce275306f5d94e6ba3001a041f668",
           "container_name": "issue-1489-reviewer_plan",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-02T07:10:26.049145Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-02T07:19:14.836996Z",
+          "exit_code": 0,
           "agent_role": "reviewer_plan",
           "session_token": null
         },
         {
           "container_id": "e8c155c870623762cbe4de66c241cc2e7327d568c7973a1aaee99ec84435d48f",
           "container_name": "issue-1489-task_planner",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-02T07:10:26.049165Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-02T07:19:14.837000Z",
+          "exit_code": 0,
           "agent_role": "task_planner",
           "session_token": null
         },
         {
           "container_id": "736d9048a3a89577d6e9090cc5348e60cdd3236b50808d4f341c7fc17a30ece4",
           "container_name": "issue-1489-risk_analyst",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-02T07:10:26.049176Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-02T07:19:14.837004Z",
+          "exit_code": 0,
           "agent_role": "risk_analyst",
           "session_token": null
         },
         {
           "container_id": "108ae3d0a85f7f328dd1a4c7a99aa17152d37bc91e405c119c45c3aeddb47f82",
           "container_name": "issue-1489-architect",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-02T07:10:26.049186Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-02T07:19:14.837007Z",
+          "exit_code": 0,
           "agent_role": "architect",
           "session_token": null
         }
@@ -178,10 +178,10 @@
       "agents": [
         {
           "role": "reviewer_plan",
-          "status": "running",
+          "status": "complete",
           "container_id": "02e4139abbd3485321d0f640ed7001911f7ce275306f5d94e6ba3001a041f668",
           "started_at": "2026-04-02T07:10:26.049156Z",
-          "completed_at": null,
+          "completed_at": "2026-04-02T07:19:14.836975Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -190,10 +190,10 @@
         },
         {
           "role": "task_planner",
-          "status": "running",
+          "status": "complete",
           "container_id": "e8c155c870623762cbe4de66c241cc2e7327d568c7973a1aaee99ec84435d48f",
           "started_at": "2026-04-02T07:10:26.049170Z",
-          "completed_at": null,
+          "completed_at": "2026-04-02T07:19:14.836981Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -202,10 +202,10 @@
         },
         {
           "role": "risk_analyst",
-          "status": "running",
+          "status": "complete",
           "container_id": "736d9048a3a89577d6e9090cc5348e60cdd3236b50808d4f341c7fc17a30ece4",
           "started_at": "2026-04-02T07:10:26.049181Z",
-          "completed_at": null,
+          "completed_at": "2026-04-02T07:19:14.836985Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -214,10 +214,10 @@
         },
         {
           "role": "architect",
-          "status": "running",
+          "status": "complete",
           "container_id": "108ae3d0a85f7f328dd1a4c7a99aa17152d37bc91e405c119c45c3aeddb47f82",
           "started_at": "2026-04-02T07:10:26.049191Z",
-          "completed_at": null,
+          "completed_at": "2026-04-02T07:19:14.836988Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -261,7 +261,7 @@
     }
   ],
   "created_at": "2026-04-02T06:51:48.663562Z",
-  "updated_at": "2026-04-02T07:10:26.049385Z",
+  "updated_at": "2026-04-02T07:19:14.837247Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -269,5 +269,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 17
+  "version": 18
 }
