@@ -262,10 +262,7 @@ class TestAsyncCleanupOnCancel:
 
         body = response.get_json()
         # cleanup_pending should not be in the response for non-terminal status
-        assert (
-            "cleanup_pending" not in body.get("data", {})
-            or body["data"].get("cleanup_pending") is not True
-        )
+        assert "cleanup_pending" not in body.get("data", {})
 
     @patch("routes.pipelines.get_decision_queue")
     @patch("routes.pipelines.get_container_spawner")
