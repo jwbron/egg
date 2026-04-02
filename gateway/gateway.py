@@ -930,9 +930,7 @@ def git_push() -> tuple[Response, int] | Response:
                 )
                 # Look up allowed patterns for remediation guidance
                 agent_pattern = get_agent_pattern(session_role)
-                allowed_patterns = (
-                    agent_pattern.allowed_patterns if agent_pattern else []
-                )
+                allowed_patterns = agent_pattern.allowed_patterns if agent_pattern else []
                 remediation = (
                     f"To recover: (1) git reset HEAD~1, "
                     f"(2) git add only files matching allowed patterns: "

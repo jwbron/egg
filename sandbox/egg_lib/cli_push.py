@@ -36,9 +36,7 @@ def _matches_pattern(file_path: str, pattern: str) -> bool:
             prefix, suffix = parts
             prefix_match = not prefix or file_path.startswith(prefix.rstrip("/"))
             suffix = suffix.lstrip("/")
-            suffix_match = not suffix or fnmatch.fnmatch(
-                file_path.split("/")[-1], suffix
-            )
+            suffix_match = not suffix or fnmatch.fnmatch(file_path.split("/")[-1], suffix)
             if prefix_match and suffix_match:
                 if suffix.startswith("*"):
                     return fnmatch.fnmatch(file_path, "*" + suffix)
@@ -207,8 +205,7 @@ def cmd_push(args) -> None:
     # All files filtered out
     if not kept:
         print(
-            "All files in the unpushed commits are out of scope for your "
-            "role. Nothing to push.",
+            "All files in the unpushed commits are out of scope for your role. Nothing to push.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -242,8 +239,7 @@ def cmd_push(args) -> None:
         # Nothing staged — this shouldn't happen since kept is non-empty,
         # but guard against it anyway.
         print(
-            "Error: no changes remain after filtering. "
-            "The commit would be empty.",
+            "Error: no changes remain after filtering. The commit would be empty.",
             file=sys.stderr,
         )
         sys.exit(1)
