@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1513,
+    "title": "Issue #1513",
+    "url": "https://github.com/jwbron/egg/issues/1513"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `gateway/contract_api.py`, modify `get_repo_path_from_request()` to extract `container_id` from request params (query for GET, body for POST) or fall back to `g.session.container_id`. Return as `(path, error, container_id)` tuple.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Function returns container_id alongside path and error",
+          "files_affected": [
+            "gateway/contract_api.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `gateway/contract_api.py`, update `get_contract()`, `mutate_contract()`, and `check_contract_exists()` to call `map_container_path_to_worktree(str(repo_path), container_id, 'contract')` before passing to contract loader. Handle None returns with `make_worktree_not_found_error(container_id)`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Contract operations use worktree-mapped path when container_id is present; interactive sessions unchanged",
+          "files_affected": [
+            "gateway/contract_api.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In `sandbox/egg_lib/contract_cli.py`, add `get_container_id()` returning `os.environ.get('CONTAINER_ID', '')`. Include container_id as query param on GET requests and in POST body data dicts for all gateway calls.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All egg-contract gateway requests include container_id when CONTAINER_ID env var is set",
+          "files_affected": [
+            "sandbox/egg_lib/contract_cli.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add tests in `gateway/tests/test_contract_api.py` for: GET/POST/exists with container_id maps to worktree, without container_id uses original path, worktree-not-found returns error.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All new tests pass",
+          "files_affected": [
+            "gateway/tests/test_contract_api.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Fix egg-contract commands in per-agent worktrees",
+    "description": "Add worktree path mapping to the gateway's contract API endpoints so that\negg-contract CLI commands work correctly from per-agent worktree containers.\nPreviously, contract endpoints didn't map container repo paths to worktree\npaths, causing \"Contract not found\" errors when agents used add-decision\nor add-feedback from their isolated worktrees.",
+    "test_plan": "- Automated: New tests in gateway/tests/test_contract_api.py for worktree mapping\n- Manual: Run egg-contract add-decision from a per-agent worktree container and verify it succeeds",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
