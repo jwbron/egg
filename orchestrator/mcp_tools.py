@@ -372,6 +372,10 @@ PIPELINE_TOOLS = [
                     "description": "Maximum checkpoints to return",
                     "default": 20,
                 },
+                "repo": {
+                    "type": "string",
+                    "description": "Checkpoint repository in owner/repo format, e.g. jwbron/egg-checkpoints",
+                },
             },
         },
     },
@@ -405,6 +409,10 @@ PIPELINE_TOOLS = [
                     "type": "integer",
                     "description": "Maximum checkpoints to search",
                     "default": 10,
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Checkpoint repository in owner/repo format, e.g. jwbron/egg-checkpoints",
                 },
             },
             "required": ["text"],
@@ -1025,6 +1033,7 @@ class PipelineToolHandler:
             container_id="mcp-server",
             container_ip=client.self_ip,
             mode="public",
+            pipeline_id="mcp-server",
         )
         self._gateway_session_token = session.session_token
         return session.session_token
@@ -1334,6 +1343,8 @@ class PipelineToolHandler:
                 params.append(f"{key}={quote(str(args[key]), safe='')}")
         limit = args.get("limit", 20)
         params.append(f"limit={limit}")
+        if args.get("repo"):
+            params.append(f"source_repo={quote(str(args['repo']), safe='')}")
 
         query = "&".join(params)
         return self._make_gateway_request(f"/api/v1/checkpoints?{query}")
@@ -1346,6 +1357,8 @@ class PipelineToolHandler:
                 params.append(f"{key}={quote(str(args[key]), safe='')}")
         limit = args.get("limit", 10)
         params.append(f"limit={limit}")
+        if args.get("repo"):
+            params.append(f"source_repo={quote(str(args['repo']), safe='')}")
 
         query = "&".join(params)
         result = self._make_gateway_request(f"/api/v1/checkpoints?{query}")
