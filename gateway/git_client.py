@@ -1375,6 +1375,11 @@ def get_changed_files_in_push(
                 if not sha:
                     continue
                 commits_found += 1
+                # NOTE: On merge commits, `diff-tree -r` uses combined diff
+                # format, which only shows files differing from *all* parents
+                # (i.e., conflict resolutions). Clean merges produce empty
+                # output — this is correct here because a clean merge didn't
+                # introduce new changes.
                 dt_result = subprocess.run(
                     git_cmd("diff-tree", "--no-commit-id", "--name-only", "-r", sha),
                     cwd=repo_path,

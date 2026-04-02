@@ -1094,6 +1094,58 @@ class TestGetChangedFilesInPush:
             assert files == ["gateway/gateway.py", "gateway/git_client.py"]
             assert "docs/" not in str(files)
 
+    def test_primary_fails_closed_when_partial_diff_tree_fail(self):
+        """When some diff-tree calls fail in the primary path, fall through to fallback."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            diff_tree_call_count = 0
+
+            def side_effect(cmd, **kwargs):
+                nonlocal diff_tree_call_count
+                result = MagicMock()
+                cmd_str = " ".join(cmd)
+
+                if "fetch" in cmd:
+                    result.returncode = 0
+                    return result
+
+                # Primary rev-list succeeds with 3 commits
+                if "rev-list" in cmd and "origin/branch..HEAD" in cmd_str:
+                    result.returncode = 0
+                    result.stdout = "sha1\nsha2\nsha3\n"
+                    return result
+
+                # First diff-tree succeeds, rest fail — triggers fallback
+                if "diff-tree" in cmd:
+                    diff_tree_call_count += 1
+                    if diff_tree_call_count == 1:
+                        result.returncode = 0
+                        result.stdout = "file1.py\n"
+                    else:
+                        result.returncode = 128
+                        result.stderr = "fatal: bad object"
+                    return result
+
+                # Fallback: merge-base with main also fails
+                if "merge-base" in cmd:
+                    result.returncode = 128
+                    result.stderr = "fatal: not a valid object"
+                    return result
+
+                result.returncode = 128
+                return result
+
+            mock_run.side_effect = side_effect
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            # Primary partial failure should fall through to fallback,
+            # and if fallback also fails, should fail closed
+            assert error is not None
+            assert "security" in error.lower()
+            assert files == []
+
     def test_fetches_remote_branch_before_diff(self):
         """Should fetch the remote branch before diffing to pick up orchestrator pushes (#1431)."""
         from unittest.mock import MagicMock, patch
