@@ -354,7 +354,7 @@ This prevents agents from wasting context window on out-of-scope work. Without t
 
 The gateway enforces role-based file restrictions at push time. The default behavior is **enforce** (violations block the push). Set `EGG_AGENT_RESTRICTIONS_ENFORCE=false` for warn-only mode during migration.
 
-The gateway's `get_changed_files_in_push()` uses per-commit detection (`rev-list` + `diff-tree`) to report only files from the current push's commits, not the entire branch history. Combined with per-agent worktree isolation, this eliminates false positives from other agents' commits on the same shared branch.
+The gateway's `get_changed_files_in_push()` uses per-commit detection (#1539) — inspecting each commit individually via `rev-list` + `diff-tree` — to report only files from the current push, eliminating false positives from other agents' prior pushes to the same branch.
 
 For the exact allowed and blocked patterns per role, see `shared/egg_restrictions/patterns.py` (canonical source). The gateway imports from this shared package for push-time validation.
 

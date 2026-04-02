@@ -141,6 +141,14 @@ def _run_async(coro):
         loop.close()
 
 
+async def _collect_async_iter(ait) -> list:
+    """Drain an async iterator into a list."""
+    items = []
+    async for item in ait:
+        items.append(item)
+    return items
+
+
 def _make_assistant_msg(text: str) -> AssistantMessage:
     return AssistantMessage(
         content=[TextBlock(text=text)],
@@ -779,6 +787,34 @@ class TestToolInterception:
         call_kwargs = mock_query.call_args.kwargs
         opts = call_kwargs["options"]
         assert opts.can_use_tool is None
+
+    @patch.dict(os.environ, {"EGG_AGENT_ROLE": "tester"})
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_intercept_tools_wraps_prompt_as_async_iterable(self, mock_query):
+        """When can_use_tool is set, prompt must be an AsyncIterable (streaming mode)."""
+        from collections.abc import AsyncIterator
+
+        _run_async(run_agent_async("hello agent"))
+        call_kwargs = mock_query.call_args.kwargs
+        prompt = call_kwargs["prompt"]
+        assert isinstance(prompt, AsyncIterator)
+        # mock doesn't consume the generator, so we can drain it here
+        messages = _run_async(_collect_async_iter(prompt))
+        assert len(messages) == 1
+        assert messages[0]["type"] == "user"
+        assert messages[0]["message"]["role"] == "user"
+        assert messages[0]["message"]["content"] == "hello agent"
+
+    @patch.dict(os.environ, {}, clear=False)
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_no_callback_passes_string_prompt(self, mock_query):
+        """Without can_use_tool, prompt should remain a plain string."""
+        env = os.environ.copy()
+        env.pop("EGG_AGENT_ROLE", None)
+        with patch.dict(os.environ, env, clear=True):
+            _run_async(run_agent_async("hello agent"))
+            call_kwargs = mock_query.call_args.kwargs
+            assert call_kwargs["prompt"] == "hello agent"
 
 
 class TestRunAgentSync:
