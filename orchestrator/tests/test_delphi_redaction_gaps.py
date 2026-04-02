@@ -784,3 +784,325 @@ class TestRedactionWithTargetedMessages:
         ack = next(m for m in data["data"]["messages"] if m["message_type"] == "CONSENSUS_ACK")
         assert ack["body"] == "Tests pass"
         assert "delphi_redacted" not in ack["metadata"]
+
+
+class TestReProposalResetsRedaction:
+    """Re-proposal should reset redaction for reviewers who previously ACKed."""
+
+    def test_reviewer_sees_redacted_after_reproposal(self, client, app):
+        """After a producer re-proposes, a reviewer who previously ACKed
+        should see redacted proposals again (their ACK was invalidated)."""
+        from review_graph import ReviewCriticality, ReviewEdge
+
+        tracker, store = _make_tracker_and_store(
+            edges=[
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
+            ],
+            agents=["coder", "reviewer_code", "reviewer_contract"],
+            proposals=[
+                (
+                    "coder",
+                    {
+                        "summary": "Implemented auth v1",
+                        "artifacts": ["src/auth.py"],
+                        "commit_sha": "v1abc",
+                    },
+                )
+            ],
+        )
+
+        # reviewer_code ACKs v1
+        tracker.handle_ack(
+            "reviewer_code",
+            "coder",
+            {"artifact_references": ["src/auth.py"]},
+        )
+
+        # reviewer_contract NACKs v1, triggering a re-proposal
+        tracker.handle_nack(
+            "reviewer_contract",
+            "coder",
+            {
+                "reason": "Missing error handling",
+                "artifact_references": ["src/auth.py"],
+            },
+        )
+
+        # Coder re-proposes (v2) — invalidates reviewer_code's ACK
+        tracker.handle_re_propose(
+            "coder",
+            {
+                "summary": "Implemented auth v2",
+                "artifacts": ["src/auth.py"],
+                "commit_sha": "v2def",
+            },
+            changed_artifacts=["src/auth.py"],
+        )
+
+        # Add the v2 proposal message to the store
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject="Proposal from coder v2",
+                body="Updated self-assessment for v2",
+                metadata={
+                    "payload": {
+                        "summary": "Implemented auth v2",
+                        "artifacts": ["src/auth.py"],
+                        "version": 2,
+                        "commit_sha": "v2def",
+                    }
+                },
+            )
+        )
+
+        # reviewer_code's ACK was invalidated by re-proposal, so
+        # has_reviewed returns False → proposal should be redacted again
+        data = _poll_messages(client, app, store, tracker, "reviewer_code")
+        assert data["data"]["count"] == 1
+        msg = data["data"]["messages"][0]
+        assert msg["body"] == ""
+        assert msg["metadata"]["delphi_redacted"] is True
+        assert set(msg["metadata"]["payload"].keys()) == {"version", "commit_sha"}
+
+    def test_reviewer_sees_full_after_re_ack(self, client, app):
+        """After re-ACKing a re-proposal, the reviewer should see unredacted."""
+        from review_graph import ReviewCriticality, ReviewEdge
+
+        tracker, store = _make_tracker_and_store(
+            edges=[ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)],
+            agents=["coder", "reviewer_code"],
+            proposals=[
+                (
+                    "coder",
+                    {
+                        "summary": "Feature v1",
+                        "artifacts": ["src/feat.py"],
+                        "commit_sha": "v1abc",
+                    },
+                )
+            ],
+        )
+
+        # ACK v1
+        tracker.handle_ack(
+            "reviewer_code",
+            "coder",
+            {"artifact_references": ["src/feat.py"]},
+        )
+
+        # Re-propose (conservative invalidation — no changed_artifacts)
+        tracker.handle_re_propose(
+            "coder",
+            {
+                "summary": "Feature v2",
+                "artifacts": ["src/feat.py"],
+                "commit_sha": "v2def",
+            },
+        )
+
+        # Re-ACK v2
+        tracker.handle_ack(
+            "reviewer_code",
+            "coder",
+            {"artifact_references": ["src/feat.py"]},
+        )
+
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject="Proposal from coder v2",
+                body="Full v2 assessment",
+                metadata={
+                    "payload": {
+                        "summary": "Feature v2",
+                        "artifacts": ["src/feat.py"],
+                        "version": 2,
+                        "commit_sha": "v2def",
+                    }
+                },
+            )
+        )
+
+        data = _poll_messages(client, app, store, tracker, "reviewer_code")
+        assert data["data"]["count"] == 1
+        msg = data["data"]["messages"][0]
+        assert msg["body"] == "Full v2 assessment"
+        assert "delphi_redacted" not in msg["metadata"]
+
+
+class TestMultiProducerRedaction:
+    """Redaction of proposals from multiple producers in one poll."""
+
+    def test_both_proposals_redacted_for_unevaluated_reviewer(self, client, app):
+        """When a reviewer reviews multiple producers, proposals from all
+        unevaluated producers should be independently redacted."""
+        from review_graph import ReviewCriticality, ReviewEdge
+
+        tracker, store = _make_tracker_and_store(
+            edges=[
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_code", "tester", ReviewCriticality.CRITICAL),
+            ],
+            agents=["coder", "tester", "reviewer_code"],
+            proposals=[
+                (
+                    "coder",
+                    {
+                        "summary": "Implemented feature",
+                        "artifacts": ["src/feature.py"],
+                        "commit_sha": "coder123",
+                    },
+                ),
+                (
+                    "tester",
+                    {
+                        "summary": "Added tests",
+                        "artifacts": ["tests/test_feature.py"],
+                        "commit_sha": "tester456",
+                    },
+                ),
+            ],
+        )
+
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject="Proposal from coder",
+                body="Coder self-assessment",
+                metadata={
+                    "payload": {
+                        "summary": "Implemented feature",
+                        "artifacts": ["src/feature.py"],
+                        "version": 1,
+                        "commit_sha": "coder123",
+                    }
+                },
+            )
+        )
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="tester",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject="Proposal from tester",
+                body="Tester self-assessment",
+                metadata={
+                    "payload": {
+                        "summary": "Added tests",
+                        "artifacts": ["tests/test_feature.py"],
+                        "version": 1,
+                        "commit_sha": "tester456",
+                    }
+                },
+            )
+        )
+
+        data = _poll_messages(client, app, store, tracker, "reviewer_code")
+
+        assert data["data"]["count"] == 2
+        msgs = {m["from_role"]: m for m in data["data"]["messages"]}
+
+        # Both should be redacted (reviewer hasn't evaluated either)
+        for role in ("coder", "tester"):
+            assert msgs[role]["body"] == ""
+            assert msgs[role]["metadata"]["delphi_redacted"] is True
+
+    def test_partial_evaluation_across_producers(self, client, app):
+        """After ACKing one producer but not the other, only the
+        unevaluated producer's proposal should remain redacted."""
+        from review_graph import ReviewCriticality, ReviewEdge
+
+        tracker, store = _make_tracker_and_store(
+            edges=[
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_code", "tester", ReviewCriticality.CRITICAL),
+            ],
+            agents=["coder", "tester", "reviewer_code"],
+            proposals=[
+                (
+                    "coder",
+                    {
+                        "summary": "Implemented feature",
+                        "artifacts": ["src/feature.py"],
+                        "commit_sha": "coder123",
+                    },
+                ),
+                (
+                    "tester",
+                    {
+                        "summary": "Added tests",
+                        "artifacts": ["tests/test_feature.py"],
+                        "commit_sha": "tester456",
+                    },
+                ),
+            ],
+        )
+
+        # ACK only tester
+        tracker.handle_ack(
+            "reviewer_code",
+            "tester",
+            {"artifact_references": ["tests/test_feature.py"]},
+        )
+
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject="Proposal from coder",
+                body="Coder self-assessment",
+                metadata={
+                    "payload": {
+                        "summary": "Implemented feature",
+                        "artifacts": ["src/feature.py"],
+                        "version": 1,
+                        "commit_sha": "coder123",
+                    }
+                },
+            )
+        )
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="tester",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject="Proposal from tester",
+                body="Tester self-assessment",
+                metadata={
+                    "payload": {
+                        "summary": "Added tests",
+                        "artifacts": ["tests/test_feature.py"],
+                        "version": 1,
+                        "commit_sha": "tester456",
+                    }
+                },
+            )
+        )
+
+        data = _poll_messages(client, app, store, tracker, "reviewer_code")
+
+        assert data["data"]["count"] == 2
+        msgs = {m["from_role"]: m for m in data["data"]["messages"]}
+
+        # Coder: still redacted (not evaluated)
+        assert msgs["coder"]["body"] == ""
+        assert msgs["coder"]["metadata"]["delphi_redacted"] is True
+
+        # Tester: unredacted (ACKed)
+        assert msgs["tester"]["body"] == "Tester self-assessment"
+        assert "delphi_redacted" not in msgs["tester"]["metadata"]
