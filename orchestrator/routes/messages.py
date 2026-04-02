@@ -170,8 +170,12 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
         kwargs.pop("wait", None)
         messages = message_store.get_messages(pipeline_id, **kwargs)
 
-    # Delphi visibility filtering: withhold CONSENSUS_PROPOSE messages from
-    # reviewers who haven't yet submitted their independent ACK/NACK
+    # Delphi visibility filtering: redact CONSENSUS_PROPOSE messages for
+    # reviewers who haven't yet submitted their independent ACK/NACK.
+    # Instead of dropping the message entirely (which causes deadlocks when
+    # reviewers depend on polling to discover proposals), send a redacted
+    # copy with body cleared and payload summary stripped, preserving the
+    # message header so reviewers know a proposal exists.
     if role:
         try:
             from peer_consensus import get_peer_consensus_tracker
@@ -185,10 +189,32 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
                 for msg in messages:
                     if msg.message_type == "CONSENSUS_PROPOSE":
                         producer = msg.from_role
-                        # Only withhold if this reviewer is assigned to this producer
+                        # Only redact if this reviewer is assigned to this producer
                         if tracker.graph.get_edge(role, producer):
                             if not tracker.matrix.has_reviewed(role, producer):
-                                continue  # Withhold PROPOSE until reviewer submits evaluation
+                                # Redact: preserve header but strip body and
+                                # sensitive payload fields.  Top-level
+                                # metadata.version / metadata.commit_sha are
+                                # intentionally kept — reviewers need them to
+                                # identify which proposal to evaluate.  Only
+                                # the nested payload dict is filtered.
+                                redacted_metadata = dict(msg.metadata)
+                                if "payload" in redacted_metadata:
+                                    payload = redacted_metadata["payload"]
+                                    redacted_metadata["payload"] = {
+                                        k: v
+                                        for k, v in payload.items()
+                                        if k in ("version", "commit_sha")
+                                    }
+                                redacted_metadata["delphi_redacted"] = True
+                                redacted_msg = msg.model_copy(
+                                    update={
+                                        "body": "",
+                                        "metadata": redacted_metadata,
+                                    }
+                                )
+                                filtered_messages.append(redacted_msg)
+                                continue
                     filtered_messages.append(msg)
                 messages = filtered_messages
 

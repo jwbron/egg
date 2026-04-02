@@ -113,17 +113,17 @@ WORKING → REVIEWING → CONFIRMED
              └───┘  (producer re-proposes → re-review if affected)
 ```
 
-Reviewers transition from WORKING to REVIEWING when they receive a `CONSENSUS_PROPOSE` message from a producer they're assigned to review. While waiting, reviewers may read the contract/plan to prepare, but MUST NOT inspect the filesystem for producer artifacts — the producer may not have started yet. Once the proposal arrives, reviewers examine the referenced git artifacts (commits, files) to form their independent judgment. The producer's self-assessment metadata is held back by the server until the reviewer submits their evaluation (Delphi-style ordering).
+Reviewers transition from WORKING to REVIEWING when they receive a `CONSENSUS_PROPOSE` message from a producer they're assigned to review. While waiting, reviewers may read the contract/plan to prepare, but MUST NOT inspect the filesystem for producer artifacts — the producer may not have started yet. Once the proposal arrives (initially as a redacted message with `delphi_redacted=True`), reviewers examine the referenced git artifacts (commits, files) to form their independent judgment. The producer's self-assessment metadata is withheld via Delphi redaction until the reviewer submits their evaluation (see Delphi-Style Ordering below).
 
 #### Delphi-Style Ordering
 
 To prevent anchoring and sycophancy, the protocol enforces independent evaluation:
 
 - Reviewers see git artifacts (commits, files) immediately — they're in the repo
-- The server holds back the producer's `CONSENSUS_PROPOSE` message (self-assessment, attestations) from reviewers until the reviewer has submitted their own initial ACK/NACK
-- After the reviewer posts their independent evaluation, the server releases the producer's self-assessment metadata
+- When a reviewer polls for messages before submitting their own ACK/NACK, `CONSENSUS_PROPOSE` messages are **redacted**: the `body` is cleared, `metadata.payload` keys are stripped (except `version` and `commit_sha`), and `metadata.delphi_redacted` is set to `True`. This tells the reviewer a proposal exists — unblocking their "poll for proposals" workflow — without exposing the producer's self-assessment
+- After the reviewer posts their independent evaluation, subsequent polls return the full unredacted `CONSENSUS_PROPOSE` message with the producer's self-assessment metadata
 
-This is a conditional release on one message type to one role category — a check in the long-polling endpoint, not a general visibility filter.
+This is a conditional redaction on one message type to one role category — a check in the long-polling endpoint, not a general visibility filter.
 
 ### Reasoning: Evidence-Backed Deliberation
 
