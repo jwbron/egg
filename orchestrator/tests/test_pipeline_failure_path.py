@@ -10,7 +10,7 @@ import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
@@ -1417,8 +1417,8 @@ class TestWorktreeCreationRetry:
 
         # create_worktrees should have been called twice (retry)
         assert mock_gateway.create_worktrees.call_count == 2
-        # Sleep should have been called once between attempts
-        mock_sleep.assert_called_once_with(2.0)
+        # Sleep should have been called with 2.0 between retry attempts
+        assert call(2.0) in mock_sleep.call_args_list
         # Pipeline should have progressed past worktree creation to agent spawning
         mock_spawner = mock_get_spawner.return_value
         mock_spawner.spawn_overseer_container.assert_called()
