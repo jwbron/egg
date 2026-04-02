@@ -26,6 +26,8 @@ _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
+from egg_anchor.validator import check_size_budget, validate_anchor
+
 try:
     from egg_logging import get_logger
 except ImportError:
@@ -110,15 +112,17 @@ def create_or_update_anchor(agent_id: str) -> tuple[Response, int]:
     if body_agent_id and body_agent_id != agent_id:
         return _make_error("agent_id in body does not match URL parameter")
 
-    # Validate the anchor data
-    try:
-        from egg_anchor.validator import validate_anchor
+    # Validate the anchor data against JSON Schema
+    errors = validate_anchor(body)
+    if errors:
+        return _make_error(f"Schema validation failed: {'; '.join(errors)}")
 
-        errors = validate_anchor(body)
-        if errors:
-            return _make_error(f"Schema validation failed: {'; '.join(errors)}")
-    except ImportError:
-        logger.warning("egg_anchor not available, skipping validation")
+    # Check size budget
+    budget = check_size_budget(body)
+    if not budget.within_budget:
+        return _make_error(f"Anchor too large: {'; '.join(budget.errors)}")
+    for warning in budget.warnings:
+        logger.warning(warning, agent_id=agent_id)
 
     # Extract pipeline_id from anchor data
     pipeline_id = body.get("pipeline_id", "unknown")
