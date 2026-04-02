@@ -57,21 +57,39 @@ def _filter_files(
     files: list[str],
     allowed: list[str],
     blocked: list[str],
+    block_exempt: list[str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Filter files by allowed/blocked patterns.
 
     A file is kept if it matches at least one allowed pattern AND does not
-    match any blocked pattern.  Blocked patterns are checked first (security
-    takes precedence), consistent with AgentFilePattern.can_write.
+    match any blocked pattern (unless it matches a block_exempt pattern).
+    Blocked patterns are checked first (security takes precedence),
+    consistent with AgentFilePattern.can_write.
+
+    Args:
+        files: List of file paths to filter.
+        allowed: Glob patterns for files the agent CAN write to.
+        blocked: Glob patterns for files the agent CANNOT write to.
+        block_exempt: Glob patterns that carve out exceptions from blocked
+            patterns (e.g. functional .md files in agent-config/).
 
     Returns:
         Tuple of (kept_files, removed_files).
     """
+    exempt = block_exempt or []
     kept: list[str] = []
     removed: list[str] = []
     for f in files:
         if _matches_any_pattern(f, blocked):
-            removed.append(f)
+            # Blocked, but check if exempt
+            if _matches_any_pattern(f, exempt):
+                # Exempt from block — still needs to match allowed
+                if _matches_any_pattern(f, allowed) or _matches_any_pattern(f, exempt):
+                    kept.append(f)
+                else:
+                    removed.append(f)
+            else:
+                removed.append(f)
         elif _matches_any_pattern(f, allowed):
             kept.append(f)
         else:
@@ -99,6 +117,40 @@ def _get_current_branch() -> str:
     """Return the current branch name."""
     result = _run_git("rev-parse", "--abbrev-ref", "HEAD")
     return result.stdout.strip()
+
+
+def _get_merge_base(branch: str) -> str:
+    """Return the merge-base commit between the branch and its upstream.
+
+    Falls back to HEAD~1 if no upstream tracking branch exists.
+    """
+    # Try to find the upstream tracking branch
+    upstream_result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", f"{branch}@{{upstream}}"],
+        capture_output=True,
+        text=True,
+    )
+    if upstream_result.returncode == 0:
+        upstream = upstream_result.stdout.strip()
+        mb_result = subprocess.run(
+            ["git", "merge-base", upstream, "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        if mb_result.returncode == 0:
+            return mb_result.stdout.strip()
+
+    # Fallback: try origin/<branch>
+    mb_result = subprocess.run(
+        ["git", "merge-base", f"origin/{branch}", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    if mb_result.returncode == 0:
+        return mb_result.stdout.strip()
+
+    # Last resort: single commit
+    return "HEAD~1"
 
 
 def cmd_push(args) -> None:
@@ -130,46 +182,54 @@ def cmd_push(args) -> None:
 
     allowed: list[str] = patterns.get("allowed", [])
     blocked: list[str] = patterns.get("blocked", [])
+    block_exempt: list[str] = patterns.get("block_exempt", [])
 
-    # Get list of files in the current commit
-    diff_result = _run_git("diff", "--name-only", "HEAD~1", "HEAD")
+    branch = _get_current_branch()
+
+    # Determine the upstream tracking point.  We compare against the remote
+    # tracking branch so we capture *all* unpushed commits, not just the last
+    # one (addresses the multi-commit edge case).
+    merge_base = _get_merge_base(branch)
+
+    # Get list of files across all unpushed commits
+    diff_result = _run_git("diff", "--name-only", merge_base, "HEAD")
     commit_files = [f for f in diff_result.stdout.strip().splitlines() if f]
 
     if not commit_files:
         print(
-            "No files found in the current commit. Nothing to push.",
+            "No changed files found in unpushed commits. Nothing to push.",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    kept, removed = _filter_files(commit_files, allowed, blocked)
+    kept, removed = _filter_files(commit_files, allowed, blocked, block_exempt)
 
     # All files filtered out
     if not kept:
         print(
-            "All files in the commit are out of scope for your role. "
-            "Nothing to push.",
+            "All files in the unpushed commits are out of scope for your "
+            "role. Nothing to push.",
             file=sys.stderr,
         )
         sys.exit(1)
 
     # If nothing was removed, push as-is — no rewriting needed.
     if not removed:
-        result = subprocess.run(["git", "push"], text=True)
+        result = subprocess.run(["git", "push", "origin", branch], text=True)
         sys.exit(result.returncode)
 
-    # Some files removed — inform the user and rewrite the commit.
+    # Some files removed — inform the user and rewrite the commits.
     print("The following files are out of scope and will be excluded:")
     for f in removed:
         print(f"  - {f}")
     print()
 
-    branch = _get_current_branch()
+    # Squash all unpushed commits into one, keeping only allowed files.
+    # Step 1: soft-reset to the merge base so we can re-stage selectively.
+    _run_git("reset", "--soft", merge_base)
 
-    # Step 1: soft-reset the last commit so we can re-stage selectively.
-    _run_git("reset", "HEAD~1")
-
-    # Step 2: stage only the allowed files.
+    # Step 2: un-stage everything, then re-add only allowed files.
+    _run_git("reset", "HEAD", "--", ".")
     _run_git("add", "--", *kept)
 
     # Step 3: verify we actually have something staged (safety check).
@@ -188,7 +248,7 @@ def cmd_push(args) -> None:
         )
         sys.exit(1)
 
-    # Step 4: recommit with the original commit message.
+    # Step 4: recommit with the original HEAD commit message.
     _run_git("commit", "-C", "ORIG_HEAD")
 
     # Step 5: push.

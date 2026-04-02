@@ -146,12 +146,24 @@ class ConcurrentPhaseExecutor:
             if role_def and role_def.file_access:
                 fa = role_def.file_access
                 if fa.allowed_write or fa.blocked_write:
-                    env["EGG_AGENT_FILE_PATTERNS"] = json.dumps(
-                        {
-                            "allowed": fa.allowed_write,
-                            "blocked": fa.blocked_write,
-                        }
-                    )
+                    patterns_dict: dict = {
+                        "allowed": fa.allowed_write,
+                        "blocked": fa.blocked_write,
+                    }
+                    # Include block_exempt_patterns from egg_restrictions
+                    # if available (these carve out narrow exceptions from
+                    # blocked patterns, e.g. functional .md files for coder).
+                    try:
+                        from egg_restrictions.checker import get_agent_pattern
+
+                        agent_pat = get_agent_pattern(role.value)
+                        if agent_pat and agent_pat.block_exempt_patterns:
+                            patterns_dict["block_exempt"] = (
+                                agent_pat.block_exempt_patterns
+                            )
+                    except Exception:
+                        pass  # Non-critical — omit block_exempt if unavailable
+                    env["EGG_AGENT_FILE_PATTERNS"] = json.dumps(patterns_dict)
         except Exception:
             logger.debug(
                 "Could not resolve file patterns for role (non-critical)",
