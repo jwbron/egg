@@ -350,7 +350,7 @@ The Agent SDK (`egg_agent`) intercepts file write operations (`Write`, `Edit`, `
 
 The gateway enforces role-based file restrictions at push time. The default behavior is **enforce** (violations block the push). Set `EGG_AGENT_RESTRICTIONS_ENFORCE=false` for warn-only mode during migration.
 
-With per-agent worktree isolation, the gateway's `get_changed_files_in_push()` only reports files from the current agent's commits (scoped to the worktree's own history), eliminating false positives from other agents' commits.
+The gateway's `get_changed_files_in_push()` uses per-commit detection (#1539) — inspecting each commit individually via `rev-list` + `diff-tree` — to report only files from the current push, eliminating false positives from other agents' prior pushes to the same branch.
 
 For the exact allowed and blocked patterns per role, see `shared/egg_restrictions/patterns.py` (canonical source). The gateway imports from this shared package for push-time validation.
 
