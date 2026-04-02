@@ -206,9 +206,7 @@ async def run_agent_async(
                         "message": {"role": "user", "content": prompt},
                     }
 
-                effective_prompt: str | AsyncIterator[dict[str, Any]] = (
-                    _prompt_iter()
-                )
+                effective_prompt: str | AsyncIterator[dict[str, Any]] = _prompt_iter()
             else:
                 effective_prompt = prompt
             stream = query(prompt=effective_prompt, options=options)
