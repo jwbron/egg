@@ -118,7 +118,7 @@ def create_or_update_anchor(agent_id: str) -> tuple[Response, int]:
         if errors:
             return _make_error(f"Schema validation failed: {'; '.join(errors)}")
     except ImportError:
-        logger.warning("egg_anchor not available, skipping validation")
+        logger.debug("egg_anchor not available, skipping validation")
 
     # Extract pipeline_id from anchor data
     pipeline_id = body.get("pipeline_id", "unknown")
