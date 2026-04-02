@@ -131,8 +131,9 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 **Purpose**: Write code, create commits, push to the worktree branch.
 
 **File access**:
-- Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `Makefile`, `**/Makefile`, `Dockerfile`, `**/Dockerfile`, `Procfile`, `.python-version`, `.node-version`, `.nvmrc`, `.gitignore`, `.gitattributes`, `.editorconfig`, `**/*.lock`, `**/requirements*.txt`, `.egg-state/agent-outputs/`
+- Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `Makefile`, `**/Makefile`, `Dockerfile`, `**/Dockerfile`, `Procfile`, `.python-version`, `.node-version`, `.nvmrc`, `.gitignore`, `.gitattributes`, `.editorconfig`, `**/*.lock`, `**/requirements*.txt`, `sandbox/agent-config/rules/*.md`, `sandbox/agent-config/commands/*.md`, `skills/`, `.egg-state/agent-outputs/`
 - Blocked: `docs/`, `**/README.md`, `**/*.md`, `.egg-state/contracts/`, `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns, `**/conftest.py`
+- Block exemptions (override the `**/*.md` block): `sandbox/agent-config/rules/*.md`, `sandbox/agent-config/commands/*.md`, `skills/` — these `.md` files are functional code (agent rules, skill definitions), not documentation
 
 **Outputs**:
 - Commits on the worktree branch
