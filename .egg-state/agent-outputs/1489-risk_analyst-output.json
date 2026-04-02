@@ -1,0 +1,299 @@
+{
+  "issue": 1489,
+  "agent": "risk_analyst",
+  "phase": "plan",
+  "revision": 1,
+  "timestamp": "2026-04-02T07:15:00Z",
+  "summary": "Identified 7 risks (1 HIGH, 4 MEDIUM, 2 LOW) for the overseer infrastructure error escalation feature. The primary concern is false-positive escalation from brittle keyword/regex matching in INFRA_ERROR_PATTERNS (RISK-1), which could trigger unnecessary HITL interruptions. The change is internal (no third-party dependencies), follows established two-tier architecture patterns, and has strong existing test coverage to build on. Key mitigations: comprehensive negative test cases, a configurable dedup window, and ensuring the escalation flag resets properly on agent recovery.",
+  "risks": [
+    {
+      "id": "RISK-1",
+      "title": "False-positive HITL escalation from brittle INFRA_ERROR_PATTERNS regex",
+      "category": "reliability",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "TASK-1-1 introduces an INFRA_ERROR_PATTERNS constant (regex list) that matches blocker text from progress events. If patterns are too broad (e.g., matching 'permission' in 'waiting for permission from reviewer' or '403' in a task description), legitimate non-infrastructure blocked events will trigger critical HITL alerts. Each false-positive interrupts the human operator unnecessarily and erodes trust in the alerting system. The existing repeated_error tripwire uses exact-message dedup, but the new regex-based approach has a wider surface area for false matches.",
+      "affected_components": [
+        "orchestrator/health_monitor.py (_check_infra_errors, INFRA_ERROR_PATTERNS)"
+      ],
+      "scenarios": [
+        "Agent emits blocked state with blocker='waiting for permission from code owner to proceed' — regex matches 'permission' and escalates",
+        "Agent emits blocker='reviewing .gitignore changes for task' — regex matches '.gitignore' despite this being normal work",
+        "Agent emits blocker='gateway timeout while polling long-running job' — regex matches 'gateway' even though this is transient"
+      ],
+      "mitigations": [
+        {
+          "id": "M-1-1",
+          "description": "Use multi-word patterns with word boundaries instead of single keywords. E.g., r'\\bgit (add|commit|push) failed\\b' instead of r'git'. Require both an action verb and a failure indicator.",
+          "status": "recommended_addition_to_task_TASK-1-1",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-1-2",
+          "description": "Add comprehensive negative test cases in TASK-1-2 covering edge cases: 'waiting for permission', 'reviewing .gitignore', 'gateway polling', '403 items in list'. Each negative case should verify NO alert is created.",
+          "status": "recommended_addition_to_task_TASK-1-2",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-1-3",
+          "description": "Require state=blocked AND blocker text match simultaneously (not just blocker text). The plan already specifies this, but implementation should enforce it strictly.",
+          "status": "planned_in_task_TASK-1-1",
+          "effectiveness": "medium"
+        }
+      ],
+      "rollback_plan": "Remove or comment out _check_infra_errors() from check_tripwires() call chain. The existing stall/heartbeat detection continues to work as before. No data migration needed.",
+      "human_review_needed": true,
+      "human_review_reason": "Human should review the specific INFRA_ERROR_PATTERNS regex list to verify patterns are precise enough to avoid false positives in real pipeline scenarios."
+    },
+    {
+      "id": "RISK-2",
+      "title": "Dedup race between Tier 1 and Tier 2 creating duplicate HITL escalations",
+      "category": "reliability",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "TASK-3-1 adds dedup between tiers using a per-agent set with a configurable time window (default 5 min). However, the Tier 1 tripwire fires synchronously when a progress event arrives, while the Tier 2 overseer polls every 30 seconds asynchronously. If the Tier 1 alert is created and the overseer hasn't polled yet, the overseer's next poll may independently classify the same situation and create a second HITL escalation before processing the Tier 1 alert. The dedup logic in TASK-3-1 must process Tier 1 alerts BEFORE running the classifier to prevent this window.",
+      "affected_components": [
+        "orchestrator/overseer/monitor.py (poll cycle ordering)",
+        "orchestrator/health_monitor.py (alert creation)"
+      ],
+      "scenarios": [
+        "Tier 1 creates infrastructure_error alert at t=0. Overseer polls at t=1, sees stall progress, classifies as infrastructure_error via LLM, creates HITL. Then processes Tier 1 alert and records dedup — but HITL already duplicated.",
+        "Overseer crashes and restarts (dedup state lost). Both tiers re-detect the same persisted infrastructure error."
+      ],
+      "mitigations": [
+        {
+          "id": "M-2-1",
+          "description": "Ensure the poll cycle processes Tier 1 infrastructure_error alerts BEFORE running classifiers on stall data. The plan's TASK-2-3 already specifies routing Tier 1 alerts directly to the decision maker — this ordering must be enforced.",
+          "status": "planned_in_task_TASK-2-3",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-2-2",
+          "description": "Add a dedup test in TASK-3-2 that verifies: emit blocked event → Tier 1 fires → overseer processes alert → classifier runs on same data → only ONE HITL escalation created.",
+          "status": "planned_in_task_TASK-3-2",
+          "effectiveness": "high"
+        }
+      ],
+      "rollback_plan": "If duplicate escalations are observed, disable the Tier 2 classifier infrastructure_error category (revert TASK-2-1 prompt changes) and rely solely on Tier 1 deterministic detection.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-3",
+      "title": "Escalation flag (infra_error_escalated) reset logic could suppress re-detection",
+      "category": "reliability",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The plan specifies that infra_error_escalated resets when the agent emits a non-blocked progress event (mirroring heartbeat_escalated). However, if an agent briefly reports 'working' (e.g., retrying the failed operation) then immediately hits the same infrastructure error again, the flag resets and a second critical alert is created. This is technically correct (the error recurred) but could create alert noise. Conversely, the existing pattern where _on_progress() resets ALL escalation flags (heartbeat_escalated, progress_escalated) on ANY progress event means a progress event from agent A could inadvertently reset flags for agent B if agent tracking is not properly scoped.",
+      "affected_components": [
+        "orchestrator/health_monitor.py (AgentState, _on_progress)"
+      ],
+      "scenarios": [
+        "Agent emits working → hits same git error → blocked → alert. Agent retries → working → same git error → blocked → second alert. Repeated cycle creates alert spam.",
+        "Per the existing codebase, _on_progress() at line 159-160 resets heartbeat_escalated and progress_escalated. If infra_error_escalated follows the same pattern, it must be scoped to the correct agent."
+      ],
+      "mitigations": [
+        {
+          "id": "M-3-1",
+          "description": "Add a cooldown period to the infra_error_escalated flag: don't reset it on the first non-blocked event, but require N consecutive non-blocked events (e.g., 2-3) or a minimum time since the last infra error alert before resetting.",
+          "status": "recommended_addition_to_task_TASK-1-1",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-3-2",
+          "description": "Verify that flag reset logic is scoped per-agent. The existing code already scopes flags per AgentState object (line 97 of health_monitor.py uses per-agent state tracking), so infra_error_escalated on the AgentState dataclass should be safe. Confirm this in code review.",
+          "status": "recommended_addition_to_task_TASK-1-2",
+          "effectiveness": "medium"
+        }
+      ],
+      "rollback_plan": "If alert spam occurs, add a hardcoded cooldown (e.g., 5 minutes) before re-alerting on the same agent's infrastructure errors.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-4",
+      "title": "Classifier prompt changes could degrade existing stall/error classification accuracy",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "description": "TASK-2-1 modifies the classify_stall() and classify_error() prompts to add a new infrastructure_error output category. Adding a new category to an LLM classification prompt can shift the distribution of existing classifications — the model may start classifying some genuinely 'stuck' agents as 'infrastructure_error' (or vice versa) because the categories overlap in some cases. The classifier uses Haiku for cost efficiency, which is more prone to category confusion than larger models. Additionally, the classifier's SHA256-based cache (classifier.py line 25-48) means existing cached results are invalidated by prompt changes (good — prevents stale results).",
+      "affected_components": [
+        "orchestrator/overseer/classifier.py (classify_stall, classify_error prompts)"
+      ],
+      "scenarios": [
+        "Agent is genuinely stuck on a complex task (not infrastructure). classify_stall() was returning 'stuck' but now returns 'infrastructure_error' because the agent mentioned 'git' in its progress context (e.g., 'committing progress'). This skips the nudge/redirect ladder and goes straight to HITL — wasting human attention.",
+        "Agent hits a real infrastructure error but the classifier returns 'stuck' because the error message doesn't match the prompt's infrastructure examples."
+      ],
+      "mitigations": [
+        {
+          "id": "M-4-1",
+          "description": "Add clear differentiators in the classifier prompt: infrastructure_error requires BOTH an infrastructure-related keyword AND evidence of failure/error (not just mention of 'git' or 'gateway' in working context).",
+          "status": "recommended_addition_to_task_TASK-2-1",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-4-2",
+          "description": "Include explicit negative examples in the classifier prompt: 'Agent says it is committing code via git → NOT infrastructure_error, this is normal work.'",
+          "status": "recommended_addition_to_task_TASK-2-1",
+          "effectiveness": "medium"
+        },
+        {
+          "id": "M-4-3",
+          "description": "Run the existing classifier test suite (test_overseer_classifier.py) to verify no regressions in stuck/working/needs_help classification after prompt changes.",
+          "status": "planned_in_task_TASK-2-4",
+          "effectiveness": "high"
+        }
+      ],
+      "rollback_plan": "Revert the classifier prompt changes (TASK-2-1). The Tier 1 deterministic detection continues to work independently.",
+      "human_review_needed": true,
+      "human_review_reason": "Human should review the classifier prompt wording to ensure the infrastructure_error category is clearly distinguished from 'stuck' and 'needs_help' categories."
+    },
+    {
+      "id": "RISK-5",
+      "title": "Decision maker fast-path bypasses safety net and redirect value",
+      "category": "operational",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "description": "TASK-2-2 adds a fast-path in the decision maker that bypasses the nudge/redirect ladder for infrastructure_error classifications. While this is correct for genuine infrastructure errors (agents can't fix .gitignore rules), it removes the safety net of giving the agent one redirect attempt. Some 'infrastructure' errors may actually be resolvable by the agent (e.g., retrying a transient gateway timeout, using a different git command). The analysis's Decision 2 flagged this as an open question with three options; the plan defaults to 'Direct HITL: skip nudge/redirect entirely.'",
+      "affected_components": [
+        "orchestrator/overseer/decision_maker.py (decide_corrective_action, decide_escalation_level)"
+      ],
+      "scenarios": [
+        "Agent hits a transient gateway 503. Tier 2 classifies as infrastructure_error. Direct HITL escalation interrupts human. Agent would have recovered on retry.",
+        "Agent has a permission error writing to a path but could use an alternative path. Direct HITL escalation prevents the redirect that would have guided the agent."
+      ],
+      "mitigations": [
+        {
+          "id": "M-5-1",
+          "description": "Distinguish between transient and persistent infrastructure errors. Transient errors (gateway timeouts, HTTP 5xx) could get one redirect attempt before HITL. Persistent errors (EROFS, .gitignore, permission denied on system paths) should go directly to HITL.",
+          "status": "recommended_addition_to_task_TASK-2-2",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-5-2",
+          "description": "Make the fast-path behavior configurable via PipelineConfig (e.g., overseer_infra_error_max_redirects defaulting to 0). This aligns with the analysis's Decision 2 option 3.",
+          "status": "recommended_for_v2",
+          "effectiveness": "medium"
+        }
+      ],
+      "rollback_plan": "Change the fast-path to allow one redirect attempt before HITL (the analysis's Decision 2 option 2). This is a one-line change in decide_corrective_action().",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-6",
+      "title": "Overseer state loss on crash causes duplicate infra error escalations",
+      "category": "reliability",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "description": "The overseer stores all deduplication state in memory (monitor.py lines 78-114). The new infra-error dedup set (TASK-3-1) follows this same pattern. If the overseer crashes and respawns (up to overseer_max_respawns=3), all dedup state is lost. The Tier 1 alert persists in the orchestrator's _active_alerts deque, so the overseer's next poll will re-process the same infrastructure_error alert and create a duplicate HITL escalation. This is a pre-existing pattern (affects heartbeat and stall escalations too), but infrastructure errors are more likely to persist than transient stalls.",
+      "affected_components": [
+        "orchestrator/overseer/monitor.py (dedup state)",
+        "orchestrator/health_monitor.py (_active_alerts)"
+      ],
+      "scenarios": [
+        "Overseer crashes at poll cycle N. Respawns. Tier 1 infra_error alert still in _active_alerts. Overseer re-processes it and creates a second HITL decision."
+      ],
+      "mitigations": [
+        {
+          "id": "M-6-1",
+          "description": "The Tier 1 health monitor already has alert resolution (resolve_alerts method, line 467). After the overseer processes an infrastructure_error alert and creates the HITL escalation, it should resolve the alert. This prevents re-processing after crash/restart.",
+          "status": "recommended_addition_to_task_TASK-2-3",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-6-2",
+          "description": "This is a pre-existing weakness, not new to this change. Persisting dedup state is out of scope for this PR.",
+          "status": "recommended_for_v2",
+          "effectiveness": "medium"
+        }
+      ],
+      "rollback_plan": "No specific rollback needed; this is a pre-existing pattern. Duplicate HITL decisions are annoying but not harmful.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-7",
+      "title": "Thread safety for new infra_error_escalated flag and _check_infra_errors()",
+      "category": "reliability",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "HIGH",
+      "description": "The health_monitor.py uses threading.Lock() for all state mutations, with a snapshot pattern in check_heartbeats() and check_progress() to avoid TOCTOU races. The new _check_infra_errors() method must follow the same pattern: take a snapshot of agent states inside the lock, then process outside the lock with callbacks invoked outside the lock (preventing deadlock). If the implementer doesn't follow this pattern, race conditions between _on_progress() (which fires on event receipt) and _check_infra_errors() (which fires on poll) could cause missed detections or duplicate alerts.",
+      "affected_components": [
+        "orchestrator/health_monitor.py (_check_infra_errors, AgentState)"
+      ],
+      "scenarios": [
+        "Progress event arrives during _check_infra_errors() processing. Without lock, the infra_error_escalated flag could be reset by _on_progress() between the check and the alert creation, causing the next poll to re-fire."
+      ],
+      "mitigations": [
+        {
+          "id": "M-7-1",
+          "description": "Follow the exact same snapshot-inside-lock, callbacks-outside-lock pattern used by check_heartbeats() (lines 286-341) and check_progress() (lines 360-417). The existing test suite validates this pattern.",
+          "status": "recommended_addition_to_task_TASK-1-1",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-7-2",
+          "description": "Add a test in TASK-1-2 that verifies the lock is held during flag mutation (mock the lock to assert acquire/release ordering).",
+          "status": "recommended_addition_to_task_TASK-1-2",
+          "effectiveness": "medium"
+        }
+      ],
+      "rollback_plan": "If thread safety issues are observed, add explicit lock guards around the entire _check_infra_errors() method as a quick fix.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    }
+  ],
+  "cross_cutting_concerns": [
+    {
+      "concern": "No third-party dependency changes — all changes are internal to the orchestrator/overseer Python packages",
+      "status": "RESOLVED",
+      "detail": "The proposed implementation does not add, upgrade, or modify any third-party dependencies. All changes are to internal Python modules. No external research for vulnerability or deprecation issues is needed.",
+      "affected_tasks": []
+    },
+    {
+      "concern": "Agent prompt/rules are NOT modified in this PR",
+      "status": "RESOLVED",
+      "detail": "The plan correctly defers agent-side changes (updating sandbox agent rules to emit structured blocked events on infrastructure errors) to a separate PR. This means the Tier 1 detection depends on agents already emitting blocked events voluntarily. The Tier 2 classifier enhancement partially mitigates this gap, but agents that neither emit blocked events nor produce classifiable log output will remain undetected. This is an acceptable scope boundary for this PR.",
+      "affected_tasks": []
+    },
+    {
+      "concern": "Backward compatibility of classifier output",
+      "status": "FLAGGED_BY_REVIEWER",
+      "detail": "The new infrastructure_error classification category in classify_stall() and classify_error() must be handled gracefully by all consumers. The decision maker (TASK-2-2) is updated, and the monitor (TASK-2-3) is updated. Verify no other code paths consume classifier output that would fail on an unexpected category value.",
+      "affected_tasks": ["TASK-2-1", "TASK-2-2", "TASK-2-3"]
+    }
+  ],
+  "security_assessment": {
+    "level": "LOW",
+    "rationale": "This change does not introduce new attack surfaces. It modifies internal health monitoring logic that runs within the orchestrator process (trusted context, not agent-facing). The HITL escalation mechanism already exists — this change adds a new trigger for it. No new API endpoints, no credential handling, no user-facing inputs. The regex patterns in INFRA_ERROR_PATTERNS match agent-emitted progress events, which are already validated by the progress API schema."
+  },
+  "performance_assessment": {
+    "level": "LOW",
+    "rationale": "Tier 1: The _check_infra_errors() method iterates over recent progress events (bounded by the progress API's limit parameter) and applies regex matching. This is O(n*m) where n=events and m=patterns, but both are small (typically <50 events, <10 patterns). Runs once per poll cycle (default 30s). Tier 2: The classifier prompt changes add a few sentences — negligible impact on Haiku inference cost. The decision maker fast-path actually reduces cost by skipping the nudge/redirect LLM calls for clear-cut infrastructure errors."
+  },
+  "recommendations": {
+    "pr_strategy": "Single PR with three logical phases as proposed. All changes are tightly coupled (Tier 1 detection feeds Tier 2 routing) and should be reviewed together.",
+    "testing_strategy": "Unit tests per component (TASK-1-2, TASK-2-4) plus one integration test (TASK-3-2). The integration test is critical — it validates the end-to-end flow including deduplication. Recommend adding the negative test cases from RISK-1 mitigations to TASK-1-2.",
+    "deployment_strategy": "No special deployment steps needed. The change takes effect immediately on the next pipeline run. No database migrations, no config file changes required.",
+    "areas_needing_human_review": [
+      {
+        "area": "INFRA_ERROR_PATTERNS regex list (TASK-1-1)",
+        "reason": "Patterns must be precise enough to avoid false positives but broad enough to catch real infrastructure errors. Human should review against known error messages from production pipelines."
+      },
+      {
+        "area": "Classifier prompt changes (TASK-2-1)",
+        "reason": "Prompt wording for the infrastructure_error category must be clearly differentiated from 'stuck' and 'needs_help'. Small wording changes can shift Haiku's classification distribution."
+      }
+    ]
+  },
+  "overall_risk_rating": "MEDIUM",
+  "overall_risk_rationale": "The implementation follows the well-established two-tier health monitoring architecture and extends existing patterns (tripwires, dedup flags, classifier categories). The primary risk is false-positive escalation from overly broad regex patterns (RISK-1, HIGH severity but mitigable with careful pattern design and testing). All other risks are MEDIUM or LOW. The change is purely internal (no third-party deps, no new APIs), has a clear rollback path (remove _check_infra_errors from the call chain), and benefits from strong existing test coverage. The overall risk is MEDIUM because the false-positive risk requires careful implementation and human review, but the architecture is sound."
+}
