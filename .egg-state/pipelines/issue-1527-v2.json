@@ -5,7 +5,7 @@
   "branch": "egg/issue-1527-v2",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -46,10 +46,10 @@
         {
           "container_id": "70eac7bc6179a1e762ff6312f642760830804b56b7fc90e518d7c25d9a941fa3",
           "container_name": "issue-1527-v2-reviewer_code",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-02T16:18:14.335935Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-02T16:18:35.197948Z",
+          "exit_code": 1,
           "agent_role": "reviewer_code",
           "session_token": null
         },
@@ -97,13 +97,13 @@
       "agents": [
         {
           "role": "reviewer_code",
-          "status": "running",
+          "status": "failed",
           "container_id": "70eac7bc6179a1e762ff6312f642760830804b56b7fc90e518d7c25d9a941fa3",
           "started_at": "2026-04-02T16:18:14.335944Z",
-          "completed_at": null,
+          "completed_at": "2026-04-02T16:18:57.873921Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited unexpectedly during execution — detected by runtime container monitor",
           "retry_count": 0,
           "conflicts": []
         },
@@ -174,13 +174,13 @@
   },
   "decisions": [],
   "created_at": "2026-04-02T16:17:35.817369Z",
-  "updated_at": "2026-04-02T16:18:57.070450Z",
+  "updated_at": "2026-04-02T16:18:57.874504Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
-  "error": null,
+  "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "analysis": "### Task Analysis\n\n**Problem statement**: When a tester (or other specialized agent) writes files outside its allowed scope, the gateway only blocks the push — by which point the agent has already wasted context window writing those files and then enters a retry loop trying to force-push, blocking BRC consensus.\n\n**Source context**: Issue #1527, stemming from pipeline `issue-1522-v2`. The tester agent committed docs files alongside its test file. The gateway correctly rejected the push, but the agent burned remaining context trying workarounds (force push, rebase) instead of recovering.\n\n**System context**: The guardrail architecture has three layers:\n1. **Agent prompts** — `_build_file_boundary_section()` in `orchestrator/routes/pipelines.py:3785` already injects a \"File Boundaries\" section into agent prompts listing allowed/blocked patterns. The `concurrent_executor.py:140` also sets `EGG_AGENT_FILE_PATTERNS` env var. So prevention via prompt already exists (#1431).\n2. **Gateway enforcement** — `gateway.py:907-937` calls `check_agent_restrictions()` at push time, returning a 403 with \"Push denied: agent role '<role>' cannot modify these files.\" + the list of blocked files.\n3. **Recovery** — This is the gap. The error message tells the agent what was blocked but not how to fix it.\n\n**Technical root cause**: The gateway error at `gateway.py:929-937` returns a generic message with `blocked_files` in the JSON details, but:\n- No remediation steps (e.g., \"run `git reset HEAD~1`, re-add only allowed files, re-commit\")\n- No `egg-orch push --scope-filter` command exists to automatically strip out-of-scope files\n- No mechanism to inject a recovery prompt into the agent's context after a push rejection\n\n**Files affected**:\n- `gateway/gateway.py:929-937` — Enrich the push-denied error message with specific remediation steps (CODER)\n- `sandbox/agent-config/rules/push-recovery.md` — New rule file for push-rejection recovery instructions (DOCUMENTER — this is a .md file)\n- Sandbox CLI tools — New `egg-orch push --scope-filter` subcommand (CODER)\n- `gateway/tests/test_agent_restrictions_enforce.py` — Update tests for enriched error messages (TESTER — this is a test file)\n\n**IMPORTANT role-scope note**: `.md` files are blocked for the coder role (`**/*.md` in blocked_patterns). Test files (`**/test_*.py`) are also blocked for the coder role. The coder must ONLY modify `gateway/gateway.py` and the new CLI push module. The documenter handles `.md` files. The tester handles test files. Do NOT attempt to create or modify files outside your role's allowed patterns.\n\n**Risks / edge cases**:\n- The prompt boundary section already exists (#1431) — the issue is about recovery not prevention. Must not duplicate or conflict with existing boundary injection.\n- Error message format is consumed by agents parsing gateway responses — changing the format could affect existing retry logic if agents pattern-match on the current message.\n- The `EGG_AGENT_FILE_PATTERNS` env var is already set by `concurrent_executor.py:149` — the scope-filter command can read this directly.",
   "plan": "# Plan: Enrich gateway push rejections with recovery guidance\n\n## Summary\n\nEnrich the gateway's push-denied error with actionable remediation steps so agents know *how* to fix a rejected push, add an `egg-orch push --scope-filter` command that auto-strips out-of-scope files before pushing, and add a sandbox rule file that teaches agents the recovery pattern for push rejections. The prompt reinforcement part of #1527 is already implemented via #1431's `_build_file_boundary_section()`.\n\n**Risks / edge cases**: The error message format change must preserve the existing JSON structure (`blocked_files` key in `details`) since agents may parse it. The `egg-orch push --scope-filter` command needs to handle the case where all files are out of scope (nothing left to push). The recovery rule must not conflict with the existing anchor-recovery rule.\n\n**CRITICAL — Role-scope assignments**: Each task below is assigned to the role permitted to modify those files. The coder MUST NOT create or modify `.md` files (blocked by `**/*.md`) or test files (blocked by `**/test_*.py`). The documenter handles `.md` files. The tester handles test files. Each agent should only implement the tasks within their role's file scope.\n\n## Implementation\n\n### Phase 1: Implement\n\nEnrich gateway error messages, add scope-filtered push command, and add agent recovery rule.\n\n**Coder tasks** (source code only — no .md, no test files):\n1. **[task-1-1]** In `gateway/gateway.py:929-937`, enrich the push-denied error message for agent-role restrictions to include specific remediation steps — tell the agent to `git reset HEAD~1`, re-add only the allowed files (listed explicitly from the agent pattern's `allowed_patterns`), and re-commit. Add `remediation` and `allowed_patterns` keys to the `details` dict. Preserve existing `blocked_files` key.\n2. **[task-1-2]** Add `egg-orch push --scope-filter` subcommand that reads `EGG_AGENT_FILE_PATTERNS` env var (JSON with `allowed` and `blocked` arrays), filters the staged commit to only include files matching the allowed patterns (excluding blocked), and pushes. Handle edge case where no files remain after filtering (exit with clear message).\n\n**Documenter tasks** (.md files only):\n3. **[task-1-3]** Create `sandbox/agent-config/rules/push-recovery.md` — a Claude Code rule that teaches agents how to recover from gateway push rejections: detect the rejection, identify blocked files from the error, reset the commit, re-commit with only allowed files, and retry the push. Reference `egg-orch push --scope-filter` as the preferred recovery method.\n\n**Tester tasks** (test files only):\n4. **[task-1-4]** Update gateway tests in `gateway/tests/test_agent_restrictions_enforce.py` to verify the enriched error message includes `remediation` and `allowed_patterns` in details, and preserves the existing `blocked_files` structure.\n\n```yaml\n# yaml-tasks\npr:\n  title: \"Enrich gateway push rejections with agent recovery guidance\"\n  description: |\n    When agents push files outside their role scope, the gateway now returns\n    actionable remediation steps instead of a generic rejection. Adds\n    egg-orch push --scope-filter for automatic out-of-scope file stripping\n    and a push-recovery rule for agent self-correction.\n  test_plan: |\n    - Automated: gateway tests verify enriched error message format and remediation content\n    - Automated: egg-orch push --scope-filter tests verify file filtering and edge cases\n    - Manual: verify push-recovery.md rule is syntactically correct and referenced in sandbox config\n  manual_steps: |\n    Pre-merge: none\n    Post-merge: none\nphases:\n  - id: 1\n    name: Implement\n    goal: \"Add push rejection recovery guidance: enriched errors, scope-filter command, recovery rule\"\n    tasks:\n      - id: task-1-1\n        description: \"CODER: In `gateway/gateway.py:929-937`, enrich the push-denied error for agent-role restrictions to include remediation steps — git reset HEAD~1, re-add allowed files, re-commit. Add `remediation` and `allowed_patterns` keys to details dict. Preserve existing blocked_files.\"\n        acceptance: \"Error response details include `remediation` string with git recovery commands and `allowed_patterns` list, alongside existing `blocked_files`\"\n        files:\n          - gateway/gateway.py\n      - id: task-1-2\n        description: \"CODER: Add egg-orch push --scope-filter subcommand that reads EGG_AGENT_FILE_PATTERNS env var, filters commit to allowed files only, and pushes. Handle all-filtered edge case with clear error message.\"\n        acceptance: \"Command strips out-of-scope files and pushes allowed ones; exits cleanly when no files remain\"\n        files:\n          - sandbox/egg_lib/cli_push.py\n      - id: task-1-3\n        description: \"DOCUMENTER: Create `sandbox/agent-config/rules/push-recovery.md` — Claude Code rule teaching agents to recover from push rejections: identify blocked files, reset commit, re-commit with allowed files only, or use egg-orch push --scope-filter\"\n        acceptance: \"Rule file exists in sandbox/agent-config/rules/ with step-by-step recovery instructions\"\n        files:\n          - sandbox/agent-config/rules/push-recovery.md\n      - id: task-1-4\n        description: \"TESTER: Update gateway tests in test_agent_restrictions_enforce.py to verify enriched error message includes `remediation` and `allowed_patterns` in details, and preserves `blocked_files` structure\"\n        acceptance: \"Tests pass and validate new response format including remediation content and allowed_patterns\"\n        files:\n          - gateway/tests/test_agent_restrictions_enforce.py\n```",
-  "version": 9
+  "version": 10
 }
