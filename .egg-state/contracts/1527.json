@@ -1,0 +1,189 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1527,
+    "title": "Agents working outside their role scope bypass gateway only at push time",
+    "url": "https://github.com/jwbron/egg/issues/1527"
+  },
+  "pipeline_id": "issue-1527-v3",
+  "current_phase": "implement",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "When an agent push is rejected for role restrictions, the error message includes specific git reset HEAD~1 remediation steps and lists the allowed files separately from blocked files",
+      "status": "complete"
+    },
+    {
+      "id": "ac-2",
+      "description": "A push-recovery.md rule file exists in sandbox/agent-config/rules/ with step-by-step recovery instructions",
+      "status": "complete"
+    },
+    {
+      "id": "ac-3",
+      "description": "egg-orch push --scope-filter successfully strips out-of-scope files and pushes only allowed ones, and handles the all-filtered edge case gracefully",
+      "status": "complete"
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "complete",
+      "review_cycles": 2,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "CODER: In gateway/gateway.py:929-937, enrich the push-denied error for agent-role restrictions to include remediation steps — git reset HEAD~1, re-add allowed files, re-commit. Add remediation and allowed_patterns keys to details dict. Preserve existing blocked_files.",
+          "status": "complete",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "Enriched error includes remediation string, allowed_patterns list, and preserves blocked_files. Also imports get_agent_pattern for pattern lookup.",
+          "acceptance_criteria": "Error response details include remediation string with git recovery commands and allowed_patterns list, alongside existing blocked_files",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "review_cycles": 2,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "CODER: Add egg-orch push --scope-filter subcommand that reads EGG_AGENT_FILE_PATTERNS env var, filters commit to allowed files only, and pushes. Handle all-filtered edge case with clear error message.",
+          "status": "complete",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "Added cli_push.py with _filter_files supporting allowed, blocked, and block_exempt patterns. Uses merge-base for multi-commit handling. Integrated into orch_cli.py.",
+          "acceptance_criteria": "Command strips out-of-scope files and pushes allowed ones; exits cleanly when no files remain",
+          "files_affected": [
+            "sandbox/egg_lib/cli_push.py",
+            "sandbox/egg_lib/orch_cli.py"
+          ],
+          "review_cycles": 2,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "DOCUMENTER: Update role-scope enforcement documentation across agent-development.md, agent-roles.md, and concurrent-execution.md",
+          "status": "complete",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "Restored block_exempt_patterns docs, expanded SDK tool interception section, updated push detection docs.",
+          "acceptance_criteria": "Documentation accurately describes the enriched error format, scope-filter command, and block_exempt_patterns",
+          "files_affected": [
+            "docs/guides/agent-development.md",
+            "docs/guides/concurrent-execution.md",
+            "docs/reference/agent-roles.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "TESTER: Update gateway tests to verify enriched error message includes remediation and allowed_patterns in details, and preserves blocked_files structure",
+          "status": "complete",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "Added test_push_error_enrichment.py and tests/sandbox/test_cli_push.py covering enriched error format, block_exempt support, and multi-commit handling.",
+          "acceptance_criteria": "Tests pass and validate new response format including remediation content and allowed_patterns",
+          "files_affected": [
+            "gateway/tests/test_push_error_enrichment.py",
+            "tests/sandbox/test_cli_push.py"
+          ],
+          "review_cycles": 1,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": [
+        "NACK v1 (reviewer_code): (1) cli_push.py _filter_files does not handle block_exempt_patterns, (2) concurrent_executor.py does not include block_exempt in EGG_AGENT_FILE_PATTERNS, (3) --scope-filter uses HEAD~1 instead of merge-base for multi-commit handling",
+        "NACK v2 (tester): Test assertions updated to match multi-commit and block_exempt support in v2"
+      ]
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "number": 1547,
+    "url": "https://github.com/jwbron/egg/pull/1547"
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": [
+    {
+      "role": "coder",
+      "phase_id": "phase-1",
+      "status": "complete",
+      "started_at": "2026-04-02T16:30:34.749519Z",
+      "completed_at": "2026-04-02T16:46:30.824480Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "documenter",
+      "phase_id": "phase-1",
+      "status": "complete",
+      "started_at": "2026-04-02T16:30:34.749527Z",
+      "completed_at": "2026-04-02T16:36:26.790971Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "tester",
+      "phase_id": "phase-1",
+      "status": "complete",
+      "started_at": "2026-04-02T16:30:34.749539Z",
+      "completed_at": "2026-04-02T16:46:02.300886Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_code",
+      "phase_id": "phase-1",
+      "status": "complete",
+      "started_at": "2026-04-02T16:30:34.749535Z",
+      "completed_at": "2026-04-02T16:46:30.630703Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_contract",
+      "phase_id": "phase-1",
+      "status": "complete",
+      "started_at": "2026-04-02T16:30:34.749531Z",
+      "completed_at": "2026-04-02T16:42:25.706599Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    }
+  ]
+}
