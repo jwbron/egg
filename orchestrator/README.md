@@ -234,7 +234,7 @@ orchestrator/
 ├── docker_client.py        # Docker client wrapper
 ├── sandbox_template.py     # Sandbox container configuration templates
 ├── mcp_server.py           # SSE-based MCP server for pipeline management tools (port 9850)
-├── mcp_tools.py            # MCP tool definitions and handlers (submit_task, get_status, etc.)
+├── mcp_tools.py            # MCP tool definitions and handlers (submit_task, get_status, checkpoints, contracts, etc.)
 ├── events.py               # Event emission and tracking
 ├── health_monitor.py       # Deterministic tripwire processor (heartbeat, error repeat, stall detection)
 ├── progress_store.py       # In-memory structured progress event storage
@@ -280,6 +280,26 @@ orchestrator/
 │   └── signals.py          # Sandbox signal callback endpoints
 └── tests/                  # Unit and integration tests (30+ files, including health check and concurrent execution tests)
 ```
+
+## MCP Server
+
+The orchestrator includes an MCP server (port 9850) that exposes pipeline management and checkpoint tools to Claude Code and other MCP clients via Streamable HTTP transport.
+
+### Gateway-Backed Tools
+
+These tools require a `gateway_url` and authenticate via a gateway session. The session is registered with `pipeline_id="mcp-server"`, which uses the gateway's exemption for orchestrator-internal sessions (no repos list required).
+
+| Tool | Description |
+|------|-------------|
+| `list_checkpoints` | List agent checkpoints with filters (issue, pipeline, agent_type, phase, status, repo, limit) |
+| `search_checkpoints` | Search checkpoint metadata by text with filters (issue, pipeline, agent_type, repo, limit) |
+| `get_contract` | Get SDLC contract state by issue number or task ID |
+
+Both checkpoint tools accept an optional `repo` parameter (string, `owner/repo` format) to specify the checkpoint repository when checkpoints are stored separately (e.g., `jwbron/egg-checkpoints`). The value is forwarded as `source_repo` to the gateway.
+
+### Orchestrator-Backed Tools
+
+`submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `validate_config`
 
 ## Health Check Framework
 
