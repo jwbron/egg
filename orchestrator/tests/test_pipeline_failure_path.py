@@ -489,8 +489,8 @@ class TestSuccessPathPushesStatefiles:
             f"Expected push_worktree_branch to be called twice "
             f"(auto-PR pre-push + phase completion), got {len(calls)} calls"
         )
-        for call in calls:
-            assert call.kwargs == {
+        for c in calls:
+            assert c.kwargs == {
                 "pipeline_id": "issue-42",
                 "repo_path": str(worktree_dir),
                 "branch": "egg/issue-42",
@@ -577,8 +577,8 @@ class TestSuccessPathPushesStatefiles:
             f"(contract init + auto-PR pre-push + phase completion), got {len(calls)} calls"
         )
         # Verify arguments match for every call
-        for call in calls:
-            assert call.kwargs == {
+        for c in calls:
+            assert c.kwargs == {
                 "pipeline_id": "issue-42",
                 "repo_path": str(worktree_dir),
                 "branch": "egg/issue-42",
