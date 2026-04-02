@@ -5,7 +5,7 @@
   "branch": "egg/issue-1489",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -250,10 +250,10 @@
         {
           "container_id": "6e0fe6fb8fbfe27bdce27401294cf4475c54500490849f5adeef4e2bbc7bb24d",
           "container_name": "issue-1489-reviewer_contract",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-02T07:21:01.059537Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-02T07:45:48.259070Z",
+          "exit_code": 1,
           "agent_role": "reviewer_contract",
           "session_token": null
         },
@@ -301,13 +301,13 @@
       "agents": [
         {
           "role": "reviewer_contract",
-          "status": "running",
+          "status": "failed",
           "container_id": "6e0fe6fb8fbfe27bdce27401294cf4475c54500490849f5adeef4e2bbc7bb24d",
           "started_at": "2026-04-02T07:21:01.059542Z",
-          "completed_at": null,
+          "completed_at": "2026-04-02T07:45:48.934000Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited unexpectedly during execution — detected by runtime container monitor",
           "retry_count": 0,
           "conflicts": []
         },
@@ -413,13 +413,13 @@
     }
   ],
   "created_at": "2026-04-02T06:51:48.663562Z",
-  "updated_at": "2026-04-02T07:21:01.059626Z",
+  "updated_at": "2026-04-02T07:45:48.934405Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
-  "error": null,
+  "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "analysis": null,
   "plan": null,
-  "version": 27
+  "version": 28
 }
