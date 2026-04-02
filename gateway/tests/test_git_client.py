@@ -823,10 +823,7 @@ class TestGetChangedFilesInPush:
             get_changed_files_in_push("/fake/repo", "origin", "feature")
 
             # Find the rev-list call and check it uses two-dot syntax
-            rev_list_calls = [
-                call for call in mock_run.call_args_list
-                if "rev-list" in call[0][0]
-            ]
+            rev_list_calls = [call for call in mock_run.call_args_list if "rev-list" in call[0][0]]
             assert len(rev_list_calls) >= 1
             rev_list_args = rev_list_calls[0][0][0]
             assert any(".." in arg and "..." not in arg for arg in rev_list_args), (
@@ -1090,9 +1087,7 @@ class TestGetChangedFilesInPush:
 
             mock_run.side_effect = side_effect
 
-            files, error = get_changed_files_in_push(
-                "/fake/repo", "origin", "egg/issue-1527"
-            )
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "egg/issue-1527")
 
             assert error is None
             # Only the coder's files — NOT the documenter's .md files
