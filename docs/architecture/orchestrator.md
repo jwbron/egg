@@ -255,7 +255,7 @@ The orchestrator coordinates specialized agent roles across pipeline phases. Eac
 | **Reviewer (Code)** | Security, correctness, code quality, testing, documentation |
 | **Reviewer (Contract)** | Verify acceptance criteria met, task completion status |
 
-**Execution model**: All implement phase agents run concurrently via the BRC consensus protocol. Agents communicate via the orchestrator message bus and reach phase completion through peer consensus.
+**Execution model**: All implement phase agents run concurrently via the BRC consensus protocol. Agents communicate via the orchestrator message bus and reach phase completion through peer consensus. The message bus applies a **Delphi visibility filter** to `CONSENSUS_PROPOSE` messages: reviewers who haven't yet submitted their independent ACK/NACK receive a redacted copy (body cleared, payload stripped, `delphi_redacted=True`) so they know a proposal exists without being anchored by the producer's self-assessment. See [Concurrent Execution: Delphi Redaction](../guides/concurrent-execution.md#delphi-redaction) for details.
 
 ### Prompt Context Scoping
 
@@ -408,7 +408,7 @@ Fixed IPs:
 - `GET /pipelines/{id}/stream` - Real-time SSE stream for single pipeline events and visualization
 - `GET /pipelines/stream` - Unified SSE stream for all active pipelines (supports `?ascii=true`, `?active_only=false`, `?full_dag=true`)
 - `POST /pipelines/{id}/signal` - Sandbox signals (complete, progress, error, readiness)
-- `GET|POST /pipelines/{id}/messages` - Inter-agent message bus (send/poll; concurrent mode)
+- `GET|POST /pipelines/{id}/messages` - Inter-agent message bus (send/poll; concurrent mode). Poll applies Delphi redaction to `CONSENSUS_PROPOSE` messages for reviewers who haven't yet evaluated the producer
 - `GET /pipelines/{id}/messages/status` - Message bus statistics (concurrent mode)
 - `GET /pipelines/{id}/decisions` - HITL decision queue
 - `POST /pipelines/{id}/deployment-check/start` - Start devserver for deployment validation

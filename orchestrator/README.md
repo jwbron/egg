@@ -76,7 +76,7 @@ Pipeline state is stored on a dedicated `egg/pipeline-state` orphan branch acces
 
 By default, agents within the refine, plan, and implement phases run simultaneously via BRC consensus (configurable via `concurrent_phases`). When `concurrent_execution: true` is set, this extends to all phases. Agents coordinate through:
 
-- **Message bus** — Agents exchange typed messages (PROGRESS, QUESTION, RESPONSE, STATUS, AGENT_FAILED) via the orchestrator's message API. Messages can target a specific role or broadcast to all agents.
+- **Message bus** — Agents exchange typed messages (PROGRESS, QUESTION, RESPONSE, STATUS, AGENT_FAILED, CONSENSUS_*) via the orchestrator's message API. Messages can target a specific role or broadcast to all agents. A **Delphi visibility filter** redacts `CONSENSUS_PROPOSE` messages for reviewers who haven't yet submitted their independent evaluation, preventing anchoring while still notifying reviewers that proposals exist.
 - **Readiness consensus** — Each agent signals its readiness state (WORKING, READY, BLOCKED, OBJECTING). The phase advances only when all agents reach READY. Any OBJECTING agent blocks phase completion.
 - **Shared pipeline branch** — All concurrent agents operate on the pipeline's shared branch (e.g., `egg/issue-999`). Agents coordinate commits via the message bus.
 
@@ -275,6 +275,7 @@ orchestrator/
 │   ├── containers.py       # Container lifecycle endpoints
 │   ├── decisions.py        # HITL decision endpoints
 │   ├── health.py           # Health check endpoints (includes /health/alerts)
+│   ├── messages.py         # Message bus endpoints with Delphi visibility filter
 │   ├── metrics.py          # Metrics endpoints
 │   ├── phases.py           # Phase management endpoints
 │   ├── pipelines.py        # Pipeline CRUD endpoints

@@ -465,6 +465,42 @@ egg-orch message poll --since <last_message_id>
 
 See [Anchor Recovery Guide](anchor-recovery.md) for the full recovery protocol.
 
+## Troubleshooting
+
+### Reviewer receives zero messages (Delphi deadlock)
+
+**Symptom:** A reviewer agent polls the message bus but receives no `CONSENSUS_PROPOSE` messages, even though producers have proposed. Other reviewers receive proposals normally. The BRC protocol deadlocks because the affected reviewer never discovers proposals to review.
+
+**Cause:** Prior to the fix in [#1522](https://github.com/jwbron/egg/issues/1522) / [#1525](https://github.com/jwbron/egg/pull/1525), the Delphi visibility filter in `orchestrator/routes/messages.py` **dropped** `CONSENSUS_PROPOSE` messages entirely from reviewers who hadn't yet submitted their ACK/NACK. This created a circular dependency: the reviewer waited for a proposal notification to start reviewing, but the filter withheld the notification until the reviewer had already reviewed.
+
+**Resolution:** The filter now sends a **redacted** copy of the proposal message (`body` cleared, `metadata.payload` stripped except `version` and `commit_sha`, `metadata.delphi_redacted=True`). This notifies the reviewer that a proposal exists — unblocking the polling workflow — without exposing the producer's self-assessment. See [Delphi Redaction](#delphi-redaction) for details.
+
+**Diagnosis (if seen on older versions):** Check the message bus status endpoint for the pipeline. If `CONSENSUS_PROPOSE` messages exist but the reviewer's poll returns zero messages, the Delphi filter is dropping them. Upgrade to a version containing the fix.
+
+### Reviewer sees redacted proposal but cannot find artifacts
+
+**Symptom:** A reviewer receives a `CONSENSUS_PROPOSE` message with `delphi_redacted=True` and an empty body, but the `commit_sha` in the metadata does not exist on the pipeline branch.
+
+**Cause:** The producer proposed with a commit SHA that has not yet been pushed to the remote branch, or the push failed silently.
+
+**Resolution:** The reviewer should wait and re-poll. If the commit never appears, check the producer's container logs for push failures. The orchestrator validates commit SHAs on proposal submission but allows proposals through when verification fails due to network errors (non-blocking verification).
+
+### `pending_acks` (exit code 2) on `consensus confirmed`
+
+**Symptom:** A producer or reviewer calls `egg-orch consensus confirmed` and receives exit code 2 with a `pending_acks` message listing producers or reviewers that need re-ACKing.
+
+**Cause:** This is a transient state, not an error. It occurs after a re-proposal when previously-confirmed reviewers are un-confirmed and must re-ACK at the new proposal version. It can also occur when a reviewer has stale version-0 ACKs recorded before the producer's first proposal.
+
+**Resolution:** Poll for messages (`egg-orch message poll --wait 30`), process any `CONSENSUS_RE_REVIEW` messages, re-ACK or re-confirm as needed, then retry `egg-orch consensus confirmed`. Repeat until exit code 0.
+
+### BRC consensus stall (all confirmed but phase not advancing)
+
+**Symptom:** All agents show `confirmed: true` in `egg-orch consensus status`, but the phase does not advance to the next stage.
+
+**Cause:** The orchestrator's polling loop may have missed the completion event, or the in-memory consensus tracker was not reconstructed after an orchestrator restart.
+
+**Resolution:** The `ConsensusStallCheck` (Tier 1 health check) automatically detects this after a 60-second grace period and drives recovery — first via tracker reconstruction from message history, then via aggressive agent/phase completion if reconstruction fails. No manual intervention is needed in most cases. If the stall persists, use `GET /api/v1/pipelines/{id}/health` to trigger an on-demand health check.
+
 ## Related Documentation
 
 - [SDLC Pipeline Guide](sdlc-pipeline.md) — Standard wave-based execution
