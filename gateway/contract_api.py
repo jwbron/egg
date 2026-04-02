@@ -123,7 +123,9 @@ def get_role_from_context() -> Role | None:
     return None
 
 
-def get_repo_path_from_request(from_query: bool = False) -> tuple[Path | None, str | None, str | None]:
+def get_repo_path_from_request(
+    from_query: bool = False,
+) -> tuple[Path | None, str | None, str | None]:
     """Get the repository path from the request with validation.
 
     Args:

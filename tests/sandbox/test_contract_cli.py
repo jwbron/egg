@@ -983,9 +983,7 @@ class TestContainerIdInGatewayRequests:
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(
-                    json.dumps({"success": True, "message": "OK"}).encode()
-                )
+                self.wfile.write(json.dumps({"success": True, "message": "OK"}).encode())
 
         server = HTTPServer(("127.0.0.1", 0), BodyCapturingHandler)
         port = server.server_address[1]
@@ -1016,9 +1014,7 @@ class TestContainerIdInGatewayRequests:
         # The GET request path should contain container_id
         assert any("container_id=test-container-abc" in path for path in captured["paths"])
 
-    def test_add_commit_includes_container_id_in_body(
-        self, mock_gateway_with_body_capture, capsys
-    ):
+    def test_add_commit_includes_container_id_in_body(self, mock_gateway_with_body_capture, capsys):
         """add-commit command includes container_id in POST body."""
         gateway_url, captured = mock_gateway_with_body_capture
 
@@ -1037,9 +1033,7 @@ class TestContainerIdInGatewayRequests:
         assert len(post_bodies) >= 1
         assert post_bodies[0].get("container_id") == "test-container-abc"
 
-    def test_show_omits_container_id_when_not_set(
-        self, mock_gateway_with_body_capture, capsys
-    ):
+    def test_show_omits_container_id_when_not_set(self, mock_gateway_with_body_capture, capsys):
         """show command omits container_id query param when CONTAINER_ID is not set."""
         gateway_url, captured = mock_gateway_with_body_capture
 
