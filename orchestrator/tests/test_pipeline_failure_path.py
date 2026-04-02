@@ -1417,8 +1417,8 @@ class TestWorktreeCreationRetry:
 
         # create_worktrees should have been called twice (retry)
         assert mock_gateway.create_worktrees.call_count == 2
-        # Sleep should have been called with 2.0 between retry attempts
-        assert call(2.0) in mock_sleep.call_args_list
+        # Sleep should have been called exactly once with 2.0 between retry attempts
+        assert mock_sleep.call_args_list.count(call(2.0)) == 1
         # Pipeline should have progressed past worktree creation to agent spawning
         mock_spawner = mock_get_spawner.return_value
         mock_spawner.spawn_overseer_container.assert_called()
