@@ -200,10 +200,12 @@ async def run_agent_async(
             # Wrap the string prompt in a single-message async generator.
             if tool_permission_callback is not None:
 
-                async def _prompt_iter() -> AsyncIterator[dict[str, Any]]:
+                async def _prompt_iter(
+                    _p: str = prompt,
+                ) -> AsyncIterator[dict[str, Any]]:
                     yield {
                         "type": "user",
-                        "message": {"role": "user", "content": prompt},
+                        "message": {"role": "user", "content": _p},
                     }
 
                 effective_prompt: str | AsyncIterator[dict[str, Any]] = _prompt_iter()

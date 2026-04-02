@@ -798,7 +798,7 @@ class TestToolInterception:
         call_kwargs = mock_query.call_args.kwargs
         prompt = call_kwargs["prompt"]
         assert isinstance(prompt, AsyncIterator)
-        # Drain the iterator and verify it yields the original prompt text
+        # mock doesn't consume the generator, so we can drain it here
         messages = _run_async(_collect_async_iter(prompt))
         assert len(messages) == 1
         assert messages[0]["type"] == "user"
