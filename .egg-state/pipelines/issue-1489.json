@@ -258,10 +258,27 @@
       "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved Questions\\n\\n**Detection approach**: Both (Option D) — Proactive Tier 1 tripwire for structured progress events + enhanced Tier 2 classifier for ambiguous cases.\\n\\n**Escalation behavior**: Direct HITL — infrastructure errors are not agent-fixable, skip nudge/redirect entirely.\\n\\n**Agent rules scope**: Yes, include agent-side changes in this issue — update agent prompts/rules to encourage emitting blocked progress events with error details on infrastructure errors.\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.",
+      "context": "**Warning**: No plan draft was found on the work branch. The agent may not have written the output to the expected path.",
+      "options": [
+        "approve",
+        "request changes"
+      ],
+      "decision_type": "phase_gate",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-02T07:19:21.796820Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "plan",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-02T06:51:48.663562Z",
-  "updated_at": "2026-04-02T07:19:18.505209Z",
+  "updated_at": "2026-04-02T07:19:21.798637Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -269,5 +286,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 19
+  "version": 20
 }
