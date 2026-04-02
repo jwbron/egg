@@ -10,7 +10,7 @@ import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
@@ -489,8 +489,8 @@ class TestSuccessPathPushesStatefiles:
             f"Expected push_worktree_branch to be called twice "
             f"(auto-PR pre-push + phase completion), got {len(calls)} calls"
         )
-        for call in calls:
-            assert call.kwargs == {
+        for c in calls:
+            assert c.kwargs == {
                 "pipeline_id": "issue-42",
                 "repo_path": str(worktree_dir),
                 "branch": "egg/issue-42",
@@ -577,8 +577,8 @@ class TestSuccessPathPushesStatefiles:
             f"(contract init + auto-PR pre-push + phase completion), got {len(calls)} calls"
         )
         # Verify arguments match for every call
-        for call in calls:
-            assert call.kwargs == {
+        for c in calls:
+            assert c.kwargs == {
                 "pipeline_id": "issue-42",
                 "repo_path": str(worktree_dir),
                 "branch": "egg/issue-42",
@@ -1417,8 +1417,8 @@ class TestWorktreeCreationRetry:
 
         # create_worktrees should have been called twice (retry)
         assert mock_gateway.create_worktrees.call_count == 2
-        # Sleep should have been called once between attempts
-        mock_sleep.assert_called_once_with(2.0)
+        # Sleep should have been called exactly once with 2.0 between retry attempts
+        assert mock_sleep.call_args_list.count(call(2.0)) == 1
         # Pipeline should have progressed past worktree creation to agent spawning
         mock_spawner = mock_get_spawner.return_value
         mock_spawner.spawn_overseer_container.assert_called()

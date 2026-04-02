@@ -24,11 +24,21 @@ ARG PIP_IGNORE_INSTALLED=1
 ENV GOMODCACHE=/usr/local/pkg/mod
 
 # Install minimal tooling needed to run docker-setup.py and build commands
+# Python 3.13 is required because repos may set requires-python >= 3.13 in
+# pyproject.toml. Without it, uv downloads a managed Python into /root/ which
+# creates broken symlinks when the .venv is persisted and restored for the
+# non-root runtime user.
 RUN apt-get update && apt-get install -y \
     python3 python3-pip \
     git curl wget make build-essential pkg-config \
     # Common build deps needed by repo build_commands
-    jq unzip \
+    jq unzip software-properties-common \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y python3.13 python3.13-venv python3.13-dev \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1 \
+    && update-alternatives --set python3 /usr/bin/python3.13 \
+    && python3.13 -m ensurepip --upgrade \
     && pip3 install --no-cache-dir pyyaml \
     && rm -rf /var/lib/apt/lists/*
 
