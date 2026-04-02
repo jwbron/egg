@@ -503,6 +503,42 @@ class TestInfraErrorDeduplication:
         assert AGENT_ID_2 in escalated_agents, "Agent 2 should have escalated"
 
 
+class TestInfraErrorDedupBlockedReemission:
+    """Tier 1: Re-emitted blocked events should NOT reset the dedup flag."""
+
+    def test_reemitted_blocked_event_does_not_cause_duplicate(self):
+        """Agent re-emitting the same blocked progress should not re-escalate."""
+        bus = _make_event_bus()
+        monitor = _make_monitor(bus)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        # First blocked event with infra error
+        _emit_progress(
+            bus,
+            agent_id=AGENT_ID,
+            state="blocked",
+            blocker="git add failed: .gitignore",
+        )
+        monitor.check_tripwires()
+        first_count = len(escalations)
+        assert first_count >= 1, "First check should escalate"
+
+        # Agent re-emits the same blocked event (periodic progress reporting)
+        _emit_progress(
+            bus,
+            agent_id=AGENT_ID,
+            state="blocked",
+            blocker="git add failed: .gitignore",
+        )
+        monitor.check_tripwires()
+
+        assert len(escalations) == first_count, (
+            "Re-emitted blocked event should NOT cause duplicate escalation"
+        )
+
+
 class TestInfraErrorAlertSeverity:
     """Infrastructure errors should produce critical severity alerts."""
 
@@ -777,6 +813,8 @@ class TestDecisionMakerInfraFastPath:
             f"Infrastructure error priority should be high or critical, "
             f"got {result.get('priority')}"
         )
+        # The fast-path should bypass the LLM entirely
+        mock_agent.assert_not_awaited()
 
     @patch(_DECISION_AGENT_PATCH, new_callable=AsyncMock)
     def test_infra_error_escalation_level_always_hitl(self, mock_agent: AsyncMock) -> None:

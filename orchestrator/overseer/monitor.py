@@ -283,6 +283,9 @@ class OverseerMonitor:
         """
         cycle_start = time.time()
 
+        # Periodic cleanup of expired infra error dedup entries (#1489)
+        self._cleanup_infra_error_dedup()
+
         try:
             # 1. Query consensus status and current phase
             consensus = await self._query_consensus_status()
@@ -355,10 +358,12 @@ class OverseerMonitor:
                         consensus=consensus or None,
                     )
 
-                    # Dedup: if classifier detected infra error, check dedup window
+                    # Dedup: if classifier detected infra error, check dedup window.
+                    # Use the raw alert message (not LLM reasoning) so that Tier 1
+                    # and Tier 2 hash to the same value for the same underlying error.
                     if classification.get("classification") == "infrastructure_error":
-                        reasoning = classification.get("reasoning", "")
-                        if self._is_infra_error_deduped(agent_role, reasoning):
+                        dedup_key = alert.get("message", classification.get("reasoning", ""))
+                        if self._is_infra_error_deduped(agent_role, dedup_key):
                             logger.debug(
                                 "Dedup: skipping classifier-detected infra error for %s",
                                 agent_role,
@@ -368,7 +373,7 @@ class OverseerMonitor:
                                 alert_type=alert.get("alert_type", "unknown"),
                             )
                             continue
-                        self._record_infra_error_escalation(agent_role, reasoning)
+                        self._record_infra_error_escalation(agent_role, dedup_key)
 
                 decision = await self._decide_corrective_action(
                     classification,
@@ -1350,6 +1355,14 @@ class OverseerMonitor:
         error_hash = self._infra_error_hash(error_msg)
         key = (agent_id, error_hash)
         self._infra_error_dedup[key] = time.time()
+
+    def _cleanup_infra_error_dedup(self) -> None:
+        """Remove expired entries from the infra error dedup dict."""
+        window = getattr(self.config, "overseer_infra_error_dedup_window_seconds", 300)
+        now = time.time()
+        expired = [k for k, ts in self._infra_error_dedup.items() if now - ts >= window]
+        for k in expired:
+            del self._infra_error_dedup[k]
 
     async def _broadcast_alert(
         self, anomaly_type: str, agent_role: str, message: str, priority: str = "medium"

@@ -49,10 +49,11 @@ logger = get_logger("orchestrator.health_monitor")
 INFRA_ERROR_PATTERNS = [
     re.compile(r"git\s+(add|push|commit|checkout)\s+failed", re.IGNORECASE),
     re.compile(r"permission\s+denied", re.IGNORECASE),
-    re.compile(r"\bERO?FS\b", re.IGNORECASE),
+    re.compile(r"\bEROFS\b", re.IGNORECASE),
     re.compile(r"403\s+Forbidden", re.IGNORECASE),
-    re.compile(r"gateway.*error", re.IGNORECASE),
-    re.compile(r"\.gitignore", re.IGNORECASE),
+    re.compile(r"gateway.*(error|timeout|refused|unavailable)", re.IGNORECASE),
+    re.compile(r"error.*gateway", re.IGNORECASE),
+    re.compile(r"\.gitignore.*(block|reject|ignor|exclud|prevent|fail)", re.IGNORECASE),
     re.compile(r"500\s+Internal\s+Server\s+Error", re.IGNORECASE),
     re.compile(r"read-only\s+file\s*system", re.IGNORECASE),
     re.compile(r"docker\s+socket", re.IGNORECASE),
@@ -85,7 +86,7 @@ class AgentState:
 class HealthMonitor:
     """Deterministic tripwire processor for pipeline health.
 
-    Subscribes to EventBus events and evaluates five tripwire rules
+    Subscribes to EventBus events and evaluates six tripwire rules
     to detect and respond to agent health issues.
 
     Args:
@@ -178,7 +179,13 @@ class HealthMonitor:
                 # Reset escalation state on new progress
                 agent.heartbeat_escalated = False
                 agent.progress_escalated = False
-                agent.infra_error_escalated = False
+                # Only reset infra_error_escalated when the agent is no longer
+                # blocked (or blocked with a different blocker).  Resetting on
+                # every progress event — including re-emitted blocked events —
+                # would defeat dedup for persistent blockers (#1489 review).
+                new_state = event.data.get("state", "")
+                if new_state != "blocked":
+                    agent.infra_error_escalated = False
 
     def _on_error(self, event: Event) -> None:
         """Handle ERROR event — track repeated identical errors."""
