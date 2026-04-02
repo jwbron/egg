@@ -134,7 +134,7 @@ Anchors are size-constrained to keep recovery lightweight:
 
 2 KB ≈ 500-600 tokens. Total recovery context (own + team) ≈ 1,500 tokens — under 2% of the post-clear window.
 
-The `egg-orch anchor validate` command checks both schema compliance and size limits.
+The orchestrator API enforces size limits on every `egg-orch anchor update` call: it rejects anchors that exceed the hard limit and logs a warning when the soft limit is crossed. The `egg-orch anchor validate` command performs the same checks locally without writing.
 
 ## Gateway Enforcement
 
@@ -161,7 +161,7 @@ The gateway enforces anchor file access:
 
 **Stale anchor data**: Run `egg-orch message poll --since <last_message_id>` to catch up on messages since the anchor was last written. Check `_meta.updated_at` to see when the anchor was last updated.
 
-**Size limit exceeded**: Use `egg-orch anchor validate` to check. Prune old `completed` progress items or outdated `key_context` entries. The CLI warns at soft limit and rejects at hard limit.
+**Size limit exceeded**: The API rejects `egg-orch anchor update` when the anchor exceeds the hard limit and logs a warning at the soft limit. Use `egg-orch anchor validate` to check locally. Prune old `completed` progress items or outdated `key_context` entries to reduce size.
 
 **Cross-agent anchor read fails**: Ensure the orchestrator API is reachable. Use `egg-orch health` to verify. Cross-agent reads go through the API, not the filesystem.
 
