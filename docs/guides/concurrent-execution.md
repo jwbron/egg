@@ -413,7 +413,7 @@ This makes `git log` immediately readable — you can see which agent wrote each
 
 The gateway's push validation (`get_changed_files_in_push()`) only reports files from the current agent's commits, not the entire branch diff. It does this by using `git rev-list remote/branch..HEAD` to enumerate the new commits being pushed, then running `git diff-tree` on each commit individually to collect the changed files. This per-commit approach avoids a tree-level `git diff remote/branch..HEAD`, which would report all cumulative differences between the two tree states — including files changed by other agents who previously pushed to the same remote branch.
 
-This eliminates false positives where an agent's push was rejected because a *different* agent had committed files outside this agent's role boundaries.
+Combined with per-agent worktree isolation, this eliminates false positives where an agent's push was rejected because a *different* agent had committed files outside this agent's role boundaries.
 
 ### Contract API Worktree Support
 
