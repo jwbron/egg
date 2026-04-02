@@ -256,7 +256,9 @@ def cmd_push(args: argparse.Namespace) -> None:
     sys.exit(push_result.returncode)
 
 
-def register_push_subcommand(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+def register_push_subcommand(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     """Register the push subcommand on the given subparsers."""
     push_parser = subparsers.add_parser(
         "push",
