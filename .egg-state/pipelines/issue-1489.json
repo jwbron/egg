@@ -133,8 +133,98 @@
       "started_at": "2026-04-02T07:10:22.159848Z",
       "work_started_at": "2026-04-02T07:10:22.171295Z",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "02e4139abbd3485321d0f640ed7001911f7ce275306f5d94e6ba3001a041f668",
+          "container_name": "issue-1489-reviewer_plan",
+          "status": "running",
+          "started_at": "2026-04-02T07:10:26.049145Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_plan",
+          "session_token": null
+        },
+        {
+          "container_id": "e8c155c870623762cbe4de66c241cc2e7327d568c7973a1aaee99ec84435d48f",
+          "container_name": "issue-1489-task_planner",
+          "status": "running",
+          "started_at": "2026-04-02T07:10:26.049165Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "task_planner",
+          "session_token": null
+        },
+        {
+          "container_id": "736d9048a3a89577d6e9090cc5348e60cdd3236b50808d4f341c7fc17a30ece4",
+          "container_name": "issue-1489-risk_analyst",
+          "status": "running",
+          "started_at": "2026-04-02T07:10:26.049176Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "risk_analyst",
+          "session_token": null
+        },
+        {
+          "container_id": "108ae3d0a85f7f328dd1a4c7a99aa17152d37bc91e405c119c45c3aeddb47f82",
+          "container_name": "issue-1489-architect",
+          "status": "running",
+          "started_at": "2026-04-02T07:10:26.049186Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "architect",
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "reviewer_plan",
+          "status": "running",
+          "container_id": "02e4139abbd3485321d0f640ed7001911f7ce275306f5d94e6ba3001a041f668",
+          "started_at": "2026-04-02T07:10:26.049156Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "task_planner",
+          "status": "running",
+          "container_id": "e8c155c870623762cbe4de66c241cc2e7327d568c7973a1aaee99ec84435d48f",
+          "started_at": "2026-04-02T07:10:26.049170Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "risk_analyst",
+          "status": "running",
+          "container_id": "736d9048a3a89577d6e9090cc5348e60cdd3236b50808d4f341c7fc17a30ece4",
+          "started_at": "2026-04-02T07:10:26.049181Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "architect",
+          "status": "running",
+          "container_id": "108ae3d0a85f7f328dd1a4c7a99aa17152d37bc91e405c119c45c3aeddb47f82",
+          "started_at": "2026-04-02T07:10:26.049191Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -171,7 +261,7 @@
     }
   ],
   "created_at": "2026-04-02T06:51:48.663562Z",
-  "updated_at": "2026-04-02T07:10:22.172799Z",
+  "updated_at": "2026-04-02T07:10:26.049385Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -179,5 +269,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 16
+  "version": 17
 }
