@@ -139,16 +139,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-02T07:05:29.600912Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-02T07:10:17.088472Z",
+      "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved Questions\\n\\n**Detection approach**: Both (Option D) — Proactive Tier 1 tripwire for structured progress events + enhanced Tier 2 classifier for ambiguous cases.\\n\\n**Escalation behavior**: Direct HITL — infrastructure errors are not agent-fixable, skip nudge/redirect entirely.\\n\\n**Agent rules scope**: Yes, include agent-side changes in this issue — update agent prompts/rules to encourage emitting blocked progress events with error details on infrastructure errors.\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-02T06:51:48.663562Z",
-  "updated_at": "2026-04-02T07:05:29.625178Z",
+  "updated_at": "2026-04-02T07:10:17.092425Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -156,5 +156,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 11
+  "version": 12
 }
