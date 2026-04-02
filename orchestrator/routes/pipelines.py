@@ -838,30 +838,6 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     error=str(e),
                 )
 
-            try:
-                spawner = get_container_spawner()
-                removed = spawner.cleanup_pipeline(pipeline_id, force=True)
-                if removed > 0:
-                    logger.info(
-                        "Cleaned up pipeline containers after status change",
-                        pipeline_id=pipeline_id,
-                        status=pipeline.status.value,
-                        containers_removed=removed,
-                    )
-            except (DockerClientError, DockerException) as e:
-                logger.warning(
-                    "Failed to clean up pipeline containers",
-                    pipeline_id=pipeline_id,
-                    error=str(e),
-                )
-            except Exception as e:
-                logger.error(
-                    "Unexpected error during pipeline container cleanup",
-                    pipeline_id=pipeline_id,
-                    error=str(e),
-                    exc_info=True,
-                )
-
             # Sync pipeline state: reload latest state (agents may have
             # written updates between status change and container cleanup),
             # mark all running records as stopped, and re-save.
@@ -880,11 +856,52 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 except Exception:
                     pass  # Use stale pipeline if reload also fails
 
+            # Move container/worktree cleanup to a background daemon thread
+            # so the PATCH response returns immediately.  The DELETE handler
+            # already re-runs cleanup_pipeline() as a safety net, so it will
+            # catch anything the background thread hasn't finished.
+            def _background_cleanup(pid: str) -> None:
+                try:
+                    spawner = get_container_spawner()
+                    removed = spawner.cleanup_pipeline(pid, force=True)
+                    if removed > 0:
+                        logger.info(
+                            "Cleaned up pipeline containers after status change",
+                            pipeline_id=pid,
+                            status="cancelled_or_failed",
+                            containers_removed=removed,
+                        )
+                except (DockerClientError, DockerException) as e:
+                    logger.warning(
+                        "Failed to clean up pipeline containers",
+                        pipeline_id=pid,
+                        error=str(e),
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Unexpected error during pipeline container cleanup",
+                        pipeline_id=pid,
+                        error=str(e),
+                        exc_info=True,
+                    )
+
+            cleanup_thread = threading.Thread(
+                target=_background_cleanup,
+                args=(pipeline_id,),
+                daemon=True,
+                name=f"cleanup-{pipeline_id}",
+            )
+            cleanup_thread.start()
+
         logger.info("Pipeline updated", pipeline_id=pipeline_id)
+
+        data = {"pipeline": pipeline.model_dump(mode="json")}
+        if pipeline.status in (PipelineStatus.CANCELLED, PipelineStatus.FAILED):
+            data["cleanup_pending"] = True
 
         return make_success_response(
             "Pipeline updated",
-            data={"pipeline": pipeline.model_dump(mode="json")},
+            data=data,
         )
 
     except InvalidPipelineIdError:
