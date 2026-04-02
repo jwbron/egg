@@ -169,7 +169,7 @@ class TestCanWrite:
             role="test",
             allowed_patterns=["**/*.md"],
             blocked_patterns=["**/*.md"],
-            block_exempt_patterns=["**/rules/*.md"],
+            block_exempt_patterns=["config/rules/*.md"],
         )
         assert pattern.can_write("config/rules/my-rule.md") is True
         assert pattern.can_write("docs/guide.md") is False
@@ -180,9 +180,21 @@ class TestCanWrite:
             role="test",
             allowed_patterns=["src/"],
             blocked_patterns=["**/*.md"],
-            block_exempt_patterns=["**/rules/*.md"],
+            block_exempt_patterns=["config/rules/*.md"],
         )
         assert pattern.can_write("config/rules/my-rule.md") is False
+
+    def test_block_exempt_does_not_bypass_other_blocks(self):
+        """Exempt patterns must only bypass their intended block, not others."""
+        pattern = AgentFilePattern(
+            role="test",
+            allowed_patterns=["**/*.md", "config/rules/*.md"],
+            blocked_patterns=["**/*.md", "docs/"],
+            block_exempt_patterns=["config/rules/*.md"],
+        )
+        assert pattern.can_write("config/rules/my-rule.md") is True
+        # Exempt pattern should NOT let paths inside docs/ through
+        assert pattern.can_write("docs/rules/evil.md") is False
 
 
 class TestCoderRole:
@@ -278,13 +290,13 @@ class TestCoderRole:
         """Coder can write .md files in rules/ (functional code, not docs)."""
         assert pattern.can_write("sandbox/agent-config/rules/push-recovery.md") is True
 
-    def test_can_write_agent_config_skills_md(self, pattern):
-        """Coder can write .md files in skills/ (functional code, not docs)."""
-        assert pattern.can_write("sandbox/agent-config/skills/deploy.md") is True
-
     def test_can_write_agent_config_commands_md(self, pattern):
         """Coder can write .md files in commands/ (functional code, not docs)."""
         assert pattern.can_write("sandbox/agent-config/commands/run-tests.md") is True
+
+    def test_can_write_shared_agent_config_rules_md(self, pattern):
+        """Coder can write .md files in shared/agent-config/rules/."""
+        assert pattern.can_write("shared/agent-config/rules/some-rule.md") is True
 
     def test_cannot_write_docs_md_still_blocked(self, pattern):
         """Regression: Coder still cannot write documentation .md files."""
@@ -297,6 +309,18 @@ class TestCoderRole:
     def test_cannot_write_arbitrary_md(self, pattern):
         """Coder cannot write .md files outside exempt directories."""
         assert pattern.can_write("CHANGELOG.md") is False
+
+    def test_cannot_write_docs_rules_md_cross_bypass(self, pattern):
+        """Exempt patterns must not bypass docs/ block for rules/ subdirs."""
+        assert pattern.can_write("docs/rules/evil.md") is False
+
+    def test_cannot_write_tests_rules_md_cross_bypass(self, pattern):
+        """Exempt patterns must not bypass tests/ block for rules/ subdirs."""
+        assert pattern.can_write("tests/rules/evil.md") is False
+
+    def test_cannot_write_contracts_commands_md_cross_bypass(self, pattern):
+        """Exempt patterns must not bypass contracts block for commands/ subdirs."""
+        assert pattern.can_write(".egg-state/contracts/commands/evil.md") is False
 
 
 class TestTesterRole:

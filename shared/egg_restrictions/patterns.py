@@ -204,9 +204,10 @@ CODER_PATTERNS = AgentFilePattern(
         # Requirements files
         "**/requirements*.txt",
         # Agent config (.md files that are functional code, not docs)
-        "**/rules/*.md",
-        "**/skills/*.md",
-        "**/commands/*.md",
+        "sandbox/agent-config/rules/*.md",
+        "sandbox/agent-config/commands/*.md",
+        "shared/agent-config/rules/*.md",
+        "shared/agent-config/commands/*.md",
         # Handoff output
         ".egg-state/agent-outputs/",
     ],
@@ -239,10 +240,12 @@ CODER_PATTERNS = AgentFilePattern(
     ],
     block_exempt_patterns=[
         # Agent config .md files are functional code (rules, skills, commands),
-        # not documentation. See #1537.
-        "**/rules/*.md",
-        "**/skills/*.md",
-        "**/commands/*.md",
+        # not documentation. See #1537. Paths are specific to avoid bypassing
+        # other blocked patterns (docs/, tests/, .egg-state/contracts/).
+        "sandbox/agent-config/rules/*.md",
+        "sandbox/agent-config/commands/*.md",
+        "shared/agent-config/rules/*.md",
+        "shared/agent-config/commands/*.md",
     ],
 )
 
