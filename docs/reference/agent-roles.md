@@ -131,8 +131,9 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 **Purpose**: Write code, create commits, push to the worktree branch.
 
 **File access**:
-- Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `Makefile`, `**/Makefile`, `Dockerfile`, `**/Dockerfile`, `Procfile`, `.python-version`, `.node-version`, `.nvmrc`, `.gitignore`, `.gitattributes`, `.editorconfig`, `**/*.lock`, `**/requirements*.txt`, `.egg-state/agent-outputs/`
+- Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `Makefile`, `**/Makefile`, `Dockerfile`, `**/Dockerfile`, `Procfile`, `.python-version`, `.node-version`, `.nvmrc`, `.gitignore`, `.gitattributes`, `.editorconfig`, `**/*.lock`, `**/requirements*.txt`, `sandbox/agent-config/rules/*.md`, `sandbox/agent-config/commands/*.md`, `skills/`, `.egg-state/agent-outputs/`
 - Blocked: `docs/`, `**/README.md`, `**/*.md`, `.egg-state/contracts/`, `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns, `**/conftest.py`
+- Block exemptions (override the `**/*.md` block): `sandbox/agent-config/rules/*.md`, `sandbox/agent-config/commands/*.md`, `skills/` — these `.md` files are functional code (agent rules, skill definitions), not documentation
 
 **Outputs**:
 - Commits on the worktree branch
@@ -339,17 +340,21 @@ Agent file restrictions are enforced at multiple layers:
 
 ### SDK Tool Interception (Soft Enforcement)
 
-The Agent SDK (`egg_agent`) intercepts file write operations (`Write`, `Edit`, `NotebookEdit`) before execution and checks them against the role's `AgentFilePattern`. If the file is outside the agent's allowed patterns, the tool returns an error immediately — the agent learns "you can't write test files, that's the tester's role" before spending tokens on out-of-scope work.
+The Agent SDK (`egg_agent`) intercepts file write operations (`Write`, `Edit`, `NotebookEdit`) before execution and checks them against the role's `AgentFilePattern`. If the file is outside the agent's allowed patterns, the SDK's `can_use_tool` callback returns a `PermissionResultDeny` — the tool call is blocked and the error message is returned to the LLM as a tool result. The error message identifies which role owns the target file (e.g., "this file belongs to the 'documenter' role"), helping the agent redirect its work rather than retry.
+
+This prevents agents from wasting context window on out-of-scope work. Without this interception, an agent could spend significant tokens writing files it can never push, only to discover the restriction at push time (#1527).
 
 **Scope:** Only `Write`, `Edit`, and `NotebookEdit` are intercepted. `Bash` is not intercepted because reliably parsing file writes from shell commands is impractical. Any writes that slip through Bash are caught by gateway push validation.
 
-**Availability:** Tool interception is only active in the headless Agent SDK (`egg_agent`). The interactive `claude` CLI is not affected.
+**Availability:** Tool interception is only active in the headless Agent SDK (`egg_agent`) when `EGG_AGENT_ROLE` is set (pipeline mode). The interactive `claude` CLI is not affected. Interception can be disabled per-invocation by passing `intercept_tools=False` to `run_agent_async()`.
+
+**Implementation:** `shared/egg_agent/tool_interceptor.py` contains the `check_file_write_permission()` function. It normalizes the absolute file path to a repo-relative path, then calls `check_agent_file_access()` from `egg_restrictions`. The callback is registered via the `can_use_tool` parameter on `ClaudeAgentOptions`.
 
 ### Gateway Push Validation (Hard Enforcement)
 
 The gateway enforces role-based file restrictions at push time. The default behavior is **enforce** (violations block the push). Set `EGG_AGENT_RESTRICTIONS_ENFORCE=false` for warn-only mode during migration.
 
-With per-agent worktree isolation, the gateway's `get_changed_files_in_push()` only reports files from the current agent's commits (scoped to the worktree's own history), eliminating false positives from other agents' commits.
+The gateway's `get_changed_files_in_push()` uses per-commit detection (`rev-list` + `diff-tree`) to report only files from the current push's commits, not the entire branch history. Combined with per-agent worktree isolation, this eliminates false positives from other agents' commits on the same shared branch.
 
 For the exact allowed and blocked patterns per role, see `shared/egg_restrictions/patterns.py` (canonical source). The gateway imports from this shared package for push-time validation.
 
