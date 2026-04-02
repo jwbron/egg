@@ -95,6 +95,36 @@ def validate_identifier(value: str, name: str) -> None:
         raise ValueError(f"Invalid {name}: must be alphanumeric with ._- allowed")
 
 
+def validate_branch_ref(value: str, name: str = "base_branch") -> None:
+    """
+    Ensure a git branch/ref name contains only safe characters.
+
+    Similar to validate_identifier but also allows '/' for branch names
+    like 'egg/issue-1495' or 'origin/main'.
+
+    Args:
+        value: The branch ref to validate
+        name: Name of the parameter (for error messages)
+
+    Raises:
+        ValueError: If the ref contains unsafe characters
+    """
+    if not value:
+        raise ValueError(f"Invalid {name}: cannot be empty")
+    if "\x00" in value:
+        raise ValueError(f"Invalid {name}: null bytes not allowed")
+    if ".." in value:
+        raise ValueError(f"Invalid {name}: '..' not allowed")
+    if "//" in value:
+        raise ValueError(f"Invalid {name}: consecutive slashes not allowed")
+    if value.endswith("/") or value.endswith("."):
+        raise ValueError(f"Invalid {name}: cannot end with '/' or '.'")
+    if "/." in value:
+        raise ValueError(f"Invalid {name}: component cannot start with '.'")
+    if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._/\-]*$", value):
+        raise ValueError(f"Invalid {name}: must be alphanumeric with ._-/ allowed")
+
+
 class WorktreeManager:
     """
     Manages git worktrees for container isolation.
@@ -234,6 +264,7 @@ class WorktreeManager:
         # Validate inputs to prevent path traversal
         validate_identifier(container_id, "container_id")
         validate_identifier(repo_name, "repo_name")
+        validate_branch_ref(base_branch, "base_branch")
 
         # Find main repo
         main_repo = self.repos_base / repo_name
@@ -302,6 +333,7 @@ class WorktreeManager:
                     git_cmd("rev-parse", "--verify", branch_name),
                     cwd=main_repo,
                     capture_output=True,
+                    text=True,
                     check=False,
                 ).returncode
                 == 0
@@ -321,6 +353,42 @@ class WorktreeManager:
                     worktree_path=worktree_path,
                 )
             else:
+                # Resolve the base ref: if base_branch is not available
+                # locally (e.g. a pipeline branch that only exists on the
+                # remote), fetch it first and use origin/<base_branch>.
+                effective_base = base_branch
+                if base_branch != "HEAD":
+                    local_ref_exists = (
+                        subprocess.run(
+                            git_cmd("rev-parse", "--verify", base_branch),
+                            cwd=main_repo,
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                        ).returncode
+                        == 0
+                    )
+                    if not local_ref_exists:
+                        logger.info(
+                            "Base branch not found locally, fetching from remote",
+                            base_branch=base_branch,
+                            container_id=container_id,
+                        )
+                        fetch_result = subprocess.run(
+                            git_cmd("fetch", "origin", base_branch),
+                            cwd=main_repo,
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                        )
+                        if fetch_result.returncode == 0:
+                            effective_base = f"origin/{base_branch}"
+                        else:
+                            raise RuntimeError(
+                                f"Failed to fetch base branch '{base_branch}' from remote: "
+                                f"{fetch_result.stderr.strip()}"
+                            )
+
                 # Create new branch from base
                 result = self._run_git_worktree_add(
                     git_cmd(
@@ -329,7 +397,7 @@ class WorktreeManager:
                         "-b",
                         branch_name,
                         str(worktree_path),
-                        base_branch,
+                        effective_base,
                     ),
                     cwd=main_repo,
                     main_repo=main_repo,
