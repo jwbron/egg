@@ -433,6 +433,8 @@ Available MCP tools (orchestrator-backed): `submit_task`, `get_status`, `provide
 
 Available MCP tools (gateway-backed, requires `gateway_url`): `list_checkpoints`, `search_checkpoints`, `get_contract`
 
+The gateway-backed checkpoint tools (`list_checkpoints`, `search_checkpoints`) accept an optional `repo` parameter to specify the checkpoint repository in `owner/repo` format (e.g., `jwbron/egg-checkpoints`). When provided, this is forwarded as the `source_repo` query parameter to the gateway checkpoint endpoint. The `get_contract` tool also uses the gateway session but does not require the `repo` parameter.
+
 **CLI Access:**
 The `egg-orch` CLI (`sandbox/bin/egg-orch`) provides command-line access to all orchestrator API endpoints. Available in sandbox containers for agent use, or can be run from the host with appropriate environment variables. See the [README CLI Reference](../../README.md#egg-orch-cli) for command details.
 

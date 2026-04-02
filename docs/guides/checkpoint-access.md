@@ -247,6 +247,44 @@ egg-checkpoint list --limit 20
 egg-checkpoint search --text "the topic you're looking for"
 ```
 
+## MCP Tool Access
+
+The orchestrator MCP server (port 9850) provides two checkpoint tools for querying checkpoint data programmatically from Claude Code or other MCP clients.
+
+### `list_checkpoints`
+
+List checkpoints with optional filters.
+
+```
+list_checkpoints(issue=1489, phase="implement")
+list_checkpoints(pipeline="issue-1489", agent_type="coder")
+list_checkpoints(issue=1489, repo="jwbron/egg-checkpoints")
+```
+
+**Parameters:** `issue` (int), `pipeline` (string), `agent_type` (string), `phase` (string), `status` (string), `repo` (string, `owner/repo` format), `limit` (int, default 20)
+
+### `search_checkpoints`
+
+Search checkpoint metadata for matching text (searches agent_type, pipeline_phase, pipeline_id, branch, repo, and status fields).
+
+```
+search_checkpoints(text="coder", pipeline="issue-1489")
+search_checkpoints(text="reviewer", repo="jwbron/egg-checkpoints")
+```
+
+**Parameters:** `text` (string, required), `issue` (int), `pipeline` (string), `agent_type` (string), `repo` (string, `owner/repo` format), `limit` (int, default 10)
+
+### Specifying the checkpoint repository
+
+When checkpoints are stored in a separate repository (e.g., `jwbron/egg-checkpoints`), use the `repo` parameter to target it:
+
+```
+list_checkpoints(issue=1489, repo="jwbron/egg-checkpoints")
+search_checkpoints(text="error", repo="jwbron/egg-checkpoints")
+```
+
+The `repo` value is forwarded as `source_repo` to the gateway checkpoint endpoint.
+
 ## Programmatic Access
 
 ```python

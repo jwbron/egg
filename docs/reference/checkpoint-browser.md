@@ -91,6 +91,24 @@ egg-checkpoint cost --issue $EGG_ISSUE_NUMBER
 
 **Finding unlabeled checkpoints**: Non-pipeline sessions may lack issue/pipeline metadata. Use `egg-checkpoint list --limit 20` without filters, or search by transcript content: `egg-checkpoint search --text "your topic"`
 
+## MCP Tools
+
+The orchestrator MCP server (port 9850) exposes checkpoint data via two tools:
+
+| Tool | Purpose |
+|------|---------|
+| `list_checkpoints` | List checkpoints with filters (issue, pipeline, agent_type, phase, status, repo) |
+| `search_checkpoints` | Search checkpoint metadata by text with filters (issue, pipeline, agent_type, repo) |
+
+Both tools accept an optional `repo` parameter to specify the checkpoint repository in `owner/repo` format (e.g., `jwbron/egg-checkpoints`). This is useful when checkpoints are stored in a separate repository from the main codebase.
+
+**Examples:**
+```
+list_checkpoints(issue=1489, phase="implement")
+list_checkpoints(issue=1489, repo="jwbron/egg-checkpoints")
+search_checkpoints(text="coder", pipeline="issue-1489", repo="jwbron/egg-checkpoints")
+```
+
 ## Related CLIs
 
 - `egg-orch` — Orchestrator operations (pipelines, phases, decisions)
