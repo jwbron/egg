@@ -1342,19 +1342,22 @@ def get_changed_files_in_push(
     except Exception:
         pass  # Best-effort; primary diff path will fall through to fallback if needed
 
-    # Get the merge base between local and remote
-    # This shows what commits are being pushed (local commits not on remote)
-    # Using two-dot (..) syntax to get the actual diff, not three-dot (...)
-    # which uses the merge-base and may miss files if remote has been updated
+    # Determine which files are changed in the new commits being pushed.
+    #
+    # IMPORTANT: We use per-commit diff-tree detection (rev-list + diff-tree)
+    # instead of `git diff origin/branch..HEAD` because the latter is a
+    # tree-level comparison that shows ALL differences between two tree states.
+    # In multi-agent pipelines where agents push to the same branch from
+    # separate worktrees, a tree diff would include files from other agents'
+    # commits, causing false-positive push rejections. (Bug #1535)
+    #
+    # Per-commit diff-tree only reports files actually modified in each commit,
+    # so it correctly scopes the check to the pushing agent's own changes.
     try:
-        # First, try to get files changed between remote tracking branch and local
-        # Using --name-only with git diff to get just file names
-        result = subprocess.run(
-            git_cmd(
-                "diff",
-                "--name-only",
-                f"{remote}/{branch}..HEAD",
-            ),
+        # Primary path: list commits on HEAD that are not on the remote branch,
+        # then inspect each commit individually with diff-tree.
+        rev_list_result = subprocess.run(
+            git_cmd("rev-list", f"{remote}/{branch}..HEAD"),
             cwd=repo_path,
             capture_output=True,
             text=True,
@@ -1362,9 +1365,54 @@ def get_changed_files_in_push(
             check=False,
         )
 
-        if result.returncode == 0:
-            files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
-            return files, None
+        if rev_list_result.returncode == 0:
+            all_files: set[str] = set()
+            commits_found = 0
+            commits_inspected = 0
+            diff_tree_errors: list[str] = []
+            for sha in rev_list_result.stdout.strip().split("\n"):
+                sha = sha.strip()
+                if not sha:
+                    continue
+                commits_found += 1
+                # NOTE: On merge commits, `diff-tree -r` uses combined diff
+                # format, which only shows files differing from *all* parents
+                # (i.e., conflict resolutions). Clean merges produce empty
+                # output — this is correct here because a clean merge didn't
+                # introduce new changes.
+                dt_result = subprocess.run(
+                    git_cmd("diff-tree", "--no-commit-id", "--name-only", "-r", sha),
+                    cwd=repo_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+                if dt_result.returncode == 0:
+                    commits_inspected += 1
+                    for f in dt_result.stdout.strip().split("\n"):
+                        f = f.strip()
+                        if f:
+                            all_files.add(f)
+                else:
+                    diff_tree_errors.append(
+                        f"sha={sha} rc={dt_result.returncode} stderr={dt_result.stderr.strip()}"
+                    )
+
+            if commits_found > 0 and commits_inspected < commits_found:
+                # Some diff-tree calls failed — fail closed
+                logger.error(
+                    "Some diff-tree calls failed during per-commit file detection - failing closed",
+                    repo_path=repo_path,
+                    remote=remote,
+                    branch=branch,
+                    commits_found=commits_found,
+                    commits_inspected=commits_inspected,
+                    errors=diff_tree_errors,
+                )
+                # Fall through to merge-base fallback
+            else:
+                return sorted(all_files), None
 
         # If remote branch doesn't exist yet, use per-commit file detection via
         # merge-base + diff-tree. This avoids false positives from inherited
@@ -1397,10 +1445,10 @@ def get_changed_files_in_push(
             if log_result.returncode != 0:
                 continue
 
-            all_files: set[str] = set()
+            all_files = set()
             commits_found = 0
             commits_inspected = 0
-            diff_tree_errors: list[str] = []
+            diff_tree_errors = []
             for sha in log_result.stdout.strip().split("\n"):
                 sha = sha.strip()
                 if not sha:

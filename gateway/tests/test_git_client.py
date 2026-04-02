@@ -697,19 +697,41 @@ class TestGetChangedFilesInPush:
     """Tests for getting changed files in a push."""
 
     def test_successful_diff(self):
-        """Should return files from git diff output."""
+        """Should return files from per-commit diff-tree detection."""
         from unittest.mock import MagicMock, patch
 
         with patch("subprocess.run") as mock_run:
-            mock_result = MagicMock()
-            mock_result.returncode = 0
-            mock_result.stdout = "file1.py\nfile2.py\ndir/file3.txt\n"
-            mock_run.return_value = mock_result
+
+            def side_effect(cmd, **kwargs):
+                result = MagicMock()
+                cmd_str = " ".join(cmd)
+
+                if "fetch" in cmd:
+                    result.returncode = 0
+                    return result
+
+                if "rev-list" in cmd and "origin/branch..HEAD" in cmd_str:
+                    result.returncode = 0
+                    result.stdout = "sha1\nsha2\n"
+                    return result
+
+                if "diff-tree" in cmd:
+                    result.returncode = 0
+                    if "sha1" in cmd:
+                        result.stdout = "file1.py\nfile2.py\n"
+                    elif "sha2" in cmd:
+                        result.stdout = "dir/file3.txt\n"
+                    return result
+
+                result.returncode = 128
+                return result
+
+            mock_run.side_effect = side_effect
 
             files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
 
             assert error is None
-            assert files == ["file1.py", "file2.py", "dir/file3.txt"]
+            assert files == ["dir/file3.txt", "file1.py", "file2.py"]
 
     def test_timeout_returns_error(self):
         """Should return error on timeout."""
@@ -725,14 +747,24 @@ class TestGetChangedFilesInPush:
             assert "Timeout" in error
 
     def test_empty_output(self):
-        """Should handle empty diff output."""
+        """Should handle no new commits to push."""
         from unittest.mock import MagicMock, patch
 
         with patch("subprocess.run") as mock_run:
-            mock_result = MagicMock()
-            mock_result.returncode = 0
-            mock_result.stdout = ""
-            mock_run.return_value = mock_result
+
+            def side_effect(cmd, **kwargs):
+                result = MagicMock()
+                if "fetch" in cmd:
+                    result.returncode = 0
+                    return result
+                if "rev-list" in cmd:
+                    result.returncode = 0
+                    result.stdout = ""
+                    return result
+                result.returncode = 128
+                return result
+
+            mock_run.side_effect = side_effect
 
             files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
 
@@ -740,15 +772,22 @@ class TestGetChangedFilesInPush:
             assert files == []
 
     def test_all_remotes_fail_returns_error(self):
-        """When all git diff attempts fail, should return error (fail closed)."""
+        """When all rev-list/merge-base attempts fail, should return error (fail closed)."""
         from unittest.mock import MagicMock, patch
 
         with patch("subprocess.run") as mock_run:
-            # All attempts fail
-            mock_result = MagicMock()
-            mock_result.returncode = 128
-            mock_result.stderr = "fatal: ambiguous argument"
-            mock_run.return_value = mock_result
+
+            def side_effect(cmd, **kwargs):
+                result = MagicMock()
+                if "fetch" in cmd:
+                    result.returncode = 0
+                    return result
+                # All attempts fail
+                result.returncode = 128
+                result.stderr = "fatal: ambiguous argument"
+                return result
+
+            mock_run.side_effect = side_effect
 
             files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
 
@@ -757,22 +796,38 @@ class TestGetChangedFilesInPush:
             assert error is not None
             assert "blocked for security" in error.lower()
 
-    def test_uses_two_dot_syntax(self):
-        """Should use two-dot syntax (..) not three-dot (...) for accuracy."""
+    def test_uses_two_dot_syntax_in_rev_list(self):
+        """Should use two-dot syntax (..) in rev-list for commit enumeration."""
         from unittest.mock import MagicMock, patch
 
         with patch("subprocess.run") as mock_run:
-            mock_result = MagicMock()
-            mock_result.returncode = 0
-            mock_result.stdout = "file.py\n"
-            mock_run.return_value = mock_result
+
+            def side_effect(cmd, **kwargs):
+                result = MagicMock()
+                if "fetch" in cmd:
+                    result.returncode = 0
+                    return result
+                if "rev-list" in cmd:
+                    result.returncode = 0
+                    result.stdout = "sha1\n"
+                    return result
+                if "diff-tree" in cmd:
+                    result.returncode = 0
+                    result.stdout = "file.py\n"
+                    return result
+                result.returncode = 128
+                return result
+
+            mock_run.side_effect = side_effect
 
             get_changed_files_in_push("/fake/repo", "origin", "feature")
 
-            # Check that the command uses two-dot syntax
-            call_args = mock_run.call_args[0][0]
-            assert any(".." in arg and "..." not in arg for arg in call_args), (
-                f"Expected two-dot syntax (..) in git diff, got: {call_args}"
+            # Find the rev-list call and check it uses two-dot syntax
+            rev_list_calls = [call for call in mock_run.call_args_list if "rev-list" in call[0][0]]
+            assert len(rev_list_calls) >= 1
+            rev_list_args = rev_list_calls[0][0][0]
+            assert any(".." in arg and "..." not in arg for arg in rev_list_args), (
+                f"Expected two-dot syntax (..) in rev-list, got: {rev_list_args}"
             )
 
     def test_fallback_uses_per_commit_detection(self):
@@ -785,8 +840,13 @@ class TestGetChangedFilesInPush:
                 result = MagicMock()
                 cmd_str = " ".join(cmd)
 
-                # First call: git diff origin/branch..HEAD fails (branch doesn't exist)
-                if "diff" in cmd and "origin/branch..HEAD" in cmd_str:
+                if "fetch" in cmd:
+                    result.returncode = 128
+                    result.stderr = "fatal: couldn't find remote ref"
+                    return result
+
+                # Primary rev-list fails (branch doesn't exist on remote)
+                if "rev-list" in cmd and "origin/branch..HEAD" in cmd_str:
                     result.returncode = 128
                     result.stderr = "fatal: bad revision"
                     return result
@@ -797,7 +857,7 @@ class TestGetChangedFilesInPush:
                     result.stdout = "abc123\n"
                     return result
 
-                # rev-list returns two commits
+                # Fallback rev-list returns two commits
                 if "rev-list" in cmd:
                     result.returncode = 0
                     result.stdout = "sha1\nsha2\n"
@@ -835,7 +895,12 @@ class TestGetChangedFilesInPush:
                 result = MagicMock()
                 cmd_str = " ".join(cmd)
 
-                if "diff" in cmd and "origin/branch..HEAD" in cmd_str:
+                if "fetch" in cmd:
+                    result.returncode = 128
+                    return result
+
+                # Primary rev-list fails (branch doesn't exist)
+                if "rev-list" in cmd and "origin/branch..HEAD" in cmd_str:
                     result.returncode = 128
                     result.stderr = "fatal: bad revision"
                     return result
@@ -880,7 +945,12 @@ class TestGetChangedFilesInPush:
                 result = MagicMock()
                 cmd_str = " ".join(cmd)
 
-                if "diff" in cmd and "origin/branch..HEAD" in cmd_str:
+                if "fetch" in cmd:
+                    result.returncode = 128
+                    return result
+
+                # Primary rev-list fails
+                if "rev-list" in cmd and "origin/branch..HEAD" in cmd_str:
                     result.returncode = 128
                     result.stderr = "fatal: bad revision"
                     return result
@@ -931,7 +1001,12 @@ class TestGetChangedFilesInPush:
                 result = MagicMock()
                 cmd_str = " ".join(cmd)
 
-                if "diff" in cmd and "origin/branch..HEAD" in cmd_str:
+                if "fetch" in cmd:
+                    result.returncode = 128
+                    return result
+
+                # Primary rev-list fails
+                if "rev-list" in cmd and "origin/branch..HEAD" in cmd_str:
                     result.returncode = 128
                     result.stderr = "fatal: bad revision"
                     return result
@@ -975,15 +1050,125 @@ class TestGetChangedFilesInPush:
             assert "security" in error.lower()
             assert files == []
 
+    def test_multi_agent_push_only_reports_pushing_agents_files(self):
+        """Per-commit detection avoids false positives from other agents' commits (#1535).
+
+        Scenario: documenter pushed .md files, coder then pushes source files.
+        The coder's push should only report the coder's files, not the
+        documenter's .md files that differ between the tree states.
+        """
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+
+            def side_effect(cmd, **kwargs):
+                result = MagicMock()
+                cmd_str = " ".join(cmd)
+
+                if "fetch" in cmd:
+                    result.returncode = 0
+                    return result
+
+                # rev-list returns only the coder's new commit (not the
+                # documenter's commit which is already on origin/branch)
+                if "rev-list" in cmd and "origin/egg/issue-1527..HEAD" in cmd_str:
+                    result.returncode = 0
+                    result.stdout = "574e22cf1a\n"
+                    return result
+
+                # diff-tree for coder's commit: only source files
+                if "diff-tree" in cmd and "574e22cf1a" in cmd:
+                    result.returncode = 0
+                    result.stdout = "gateway/gateway.py\ngateway/git_client.py\n"
+                    return result
+
+                result.returncode = 128
+                return result
+
+            mock_run.side_effect = side_effect
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "egg/issue-1527")
+
+            assert error is None
+            # Only the coder's files — NOT the documenter's .md files
+            assert files == ["gateway/gateway.py", "gateway/git_client.py"]
+            assert "docs/" not in str(files)
+
+    def test_primary_fails_closed_when_partial_diff_tree_fail(self):
+        """When some diff-tree calls fail in the primary path, fall through to fallback."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            diff_tree_call_count = 0
+
+            def side_effect(cmd, **kwargs):
+                nonlocal diff_tree_call_count
+                result = MagicMock()
+                cmd_str = " ".join(cmd)
+
+                if "fetch" in cmd:
+                    result.returncode = 0
+                    return result
+
+                # Primary rev-list succeeds with 3 commits
+                if "rev-list" in cmd and "origin/branch..HEAD" in cmd_str:
+                    result.returncode = 0
+                    result.stdout = "sha1\nsha2\nsha3\n"
+                    return result
+
+                # First diff-tree succeeds, rest fail — triggers fallback
+                if "diff-tree" in cmd:
+                    diff_tree_call_count += 1
+                    if diff_tree_call_count == 1:
+                        result.returncode = 0
+                        result.stdout = "file1.py\n"
+                    else:
+                        result.returncode = 128
+                        result.stderr = "fatal: bad object"
+                    return result
+
+                # Fallback: merge-base with main also fails
+                if "merge-base" in cmd:
+                    result.returncode = 128
+                    result.stderr = "fatal: not a valid object"
+                    return result
+
+                result.returncode = 128
+                return result
+
+            mock_run.side_effect = side_effect
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            # Primary partial failure should fall through to fallback,
+            # and if fallback also fails, should fail closed
+            assert error is not None
+            assert "security" in error.lower()
+            assert files == []
+
     def test_fetches_remote_branch_before_diff(self):
         """Should fetch the remote branch before diffing to pick up orchestrator pushes (#1431)."""
         from unittest.mock import MagicMock, patch
 
         with patch("subprocess.run") as mock_run:
-            mock_result = MagicMock()
-            mock_result.returncode = 0
-            mock_result.stdout = "file.py\n"
-            mock_run.return_value = mock_result
+
+            def side_effect(cmd, **kwargs):
+                result = MagicMock()
+                if "fetch" in cmd:
+                    result.returncode = 0
+                    return result
+                if "rev-list" in cmd:
+                    result.returncode = 0
+                    result.stdout = "sha1\n"
+                    return result
+                if "diff-tree" in cmd:
+                    result.returncode = 0
+                    result.stdout = "file.py\n"
+                    return result
+                result.returncode = 128
+                return result
+
+            mock_run.side_effect = side_effect
 
             get_changed_files_in_push("/fake/repo", "origin", "egg/pipeline-abc/work")
 
@@ -995,8 +1180,8 @@ class TestGetChangedFilesInPush:
             assert "origin" in fetch_cmd
             assert "egg/pipeline-abc/work" in fetch_cmd
 
-    def test_fetch_failure_falls_through_to_diff(self):
-        """If fetch fails (branch doesn't exist on remote yet), diff should still be attempted."""
+    def test_fetch_failure_falls_through_to_rev_list(self):
+        """If fetch fails (branch doesn't exist on remote yet), rev-list should still be attempted."""
         from unittest.mock import MagicMock, patch
 
         call_count = 0
@@ -1015,8 +1200,8 @@ class TestGetChangedFilesInPush:
                     result.stderr = "fatal: couldn't find remote ref"
                     return result
 
-                # Diff also fails (branch not in local refs)
-                if "diff" in cmd and "origin/" in cmd_str:
+                # Primary rev-list also fails (branch not in local refs)
+                if "rev-list" in cmd and "origin/branch..HEAD" in cmd_str:
                     result.returncode = 128
                     result.stderr = "fatal: bad revision"
                     return result
@@ -1027,6 +1212,7 @@ class TestGetChangedFilesInPush:
                     result.stdout = "abc123\n"
                     return result
 
+                # Fallback rev-list
                 if "rev-list" in cmd:
                     result.returncode = 0
                     result.stdout = "sha1\n"

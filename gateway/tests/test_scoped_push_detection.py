@@ -25,12 +25,14 @@ class TestGetChangedFilesInPushScopedIsolation:
 
     @patch("subprocess.run")
     def test_diff_returns_only_agent_files(self, mock_run):
-        """In a per-agent worktree, diff only contains that agent's changes."""
-        # Simulate: agent made changes to test files only
+        """In a per-agent worktree, per-commit detection only contains that agent's changes."""
+        # Simulate: agent made changes to test files only via rev-list + diff-tree
         mock_run.side_effect = [
             # git fetch
             MagicMock(returncode=0, stdout="", stderr=""),
-            # git diff --name-only
+            # git rev-list origin/branch..HEAD
+            MagicMock(returncode=0, stdout="abc123\n", stderr=""),
+            # git diff-tree for abc123
             MagicMock(
                 returncode=0,
                 stdout="tests/test_new.py\ntests/conftest.py\n",
@@ -51,7 +53,9 @@ class TestGetChangedFilesInPushScopedIsolation:
     def test_empty_diff_for_clean_worktree(self, mock_run):
         """Agent with no changes produces empty file list."""
         mock_run.side_effect = [
+            # git fetch
             MagicMock(returncode=0, stdout="", stderr=""),
+            # git rev-list returns no commits
             MagicMock(returncode=0, stdout="", stderr=""),
         ]
         try:
