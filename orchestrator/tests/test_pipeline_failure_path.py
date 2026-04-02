@@ -7,6 +7,7 @@ Verifies that when a phase fails:
 """
 
 import os
+import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1585,3 +1586,104 @@ class TestSafetyNetContainerCleanup:
         # cleanup_pipeline should have been called as safety net
         mock_spawner = mock_get_spawner.return_value
         mock_spawner.cleanup_pipeline.assert_called_with("issue-42", force=True)
+
+
+class TestInitialStatefileCommitFailure:
+    """Verify that _commit_statefiles_to_worktree failure during initial
+    contract creation aborts the pipeline (#1548)."""
+
+    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
+    @patch(
+        "routes.pipelines._commit_statefiles_to_worktree",
+        side_effect=subprocess.CalledProcessError(1, "git add"),
+    )
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_pipeline_fails_when_initial_statefile_commit_fails(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_commit_statefiles,
+        mock_auto_create_pr,
+    ):
+        """When _commit_statefiles_to_worktree raises CalledProcessError during
+        initial contract creation, the pipeline should be marked FAILED and
+        return early (no agents spawned)."""
+        from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
+
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        pipeline.contract_synced = False  # Triggers contract initialization path
+
+        execution = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        execution.status = PipelineStatus.RUNNING
+        execution.started_at = datetime.now(UTC)
+
+        mock_store, mock_gateway = _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
+        mock_gateway.create_worktrees.return_value = MagicMock(
+            success=True,
+            worktrees={"repo": str(worktree_dir)},
+            errors=[],
+        )
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("egg_contracts.loader.create_contract"),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        # Pipeline should be marked as FAILED
+        save_calls = mock_store.save_pipeline.call_args_list
+        final_statuses = [
+            call.args[0].status
+            for call in save_calls
+            if call.args and hasattr(call.args[0], "status")
+        ]
+        assert PipelineStatus.FAILED in final_statuses, (
+            "Pipeline should be marked FAILED when initial statefile commit fails"
+        )
+
+        # contract_synced should be False
+        synced_values = [
+            call.args[0].contract_synced
+            for call in save_calls
+            if call.args and hasattr(call.args[0], "contract_synced")
+        ]
+        assert False in synced_values, (
+            "contract_synced should be False when initial statefile commit fails"
+        )
+
+        # No agents should be spawned — pipeline should return early
+        mock_spawn_wait.assert_not_called()

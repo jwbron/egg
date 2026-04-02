@@ -2482,8 +2482,8 @@ def _commit_statefiles_to_worktree(
     *pipeline_identifier* is ``None`` (backwards-compatibility).
 
     The commit is idempotent (skips when nothing is staged).
-    Raises ``subprocess.CalledProcessError`` on git failure;
-    call sites catch and log rather than aborting the pipeline.
+    Raises ``subprocess.CalledProcessError`` on git failure.
+    Call sites decide whether to abort or continue.
     """
     state_dir = worktree_path / ".egg-state"
     if not state_dir.exists():
