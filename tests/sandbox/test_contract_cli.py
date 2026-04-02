@@ -1054,10 +1054,10 @@ class TestContainerIdInGatewayRequests:
         # None of the paths should contain container_id
         assert not any("container_id" in path for path in captured["paths"])
 
-    def test_add_commit_includes_empty_container_id_when_not_set(
+    def test_add_commit_omits_container_id_when_not_set(
         self, mock_gateway_with_body_capture, capsys
     ):
-        """add-commit includes empty container_id in POST body when CONTAINER_ID not set."""
+        """add-commit omits container_id from POST body when CONTAINER_ID not set."""
         gateway_url, captured = mock_gateway_with_body_capture
 
         with patch.dict(
@@ -1073,7 +1073,7 @@ class TestContainerIdInGatewayRequests:
             os.environ.pop("CONTAINER_ID", None)
             main(["add-commit", "--task", "task-1", "--commit", "abc1234def"])
 
-        # POST body should have container_id as empty string
+        # POST body should not contain container_id when env var is unset
         post_bodies = captured["bodies"]
         assert len(post_bodies) >= 1
-        assert post_bodies[0].get("container_id") == ""
+        assert "container_id" not in post_bodies[0]

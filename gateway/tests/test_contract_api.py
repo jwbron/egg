@@ -46,12 +46,16 @@ def mock_worktree_helpers():
     passthrough_map = MagicMock(side_effect=lambda path, cid, op: path)
     dummy_err = MagicMock()
 
+    # Clear the module-level cache so each test gets a fresh lookup
+    old_cache = contract_api._cached_worktree_helpers
+    contract_api._cached_worktree_helpers = None
     with patch.object(
         contract_api,
         "_get_worktree_helpers",
         return_value=(passthrough_map, dummy_err),
     ):
         yield
+    contract_api._cached_worktree_helpers = old_cache
 
 
 @pytest.fixture

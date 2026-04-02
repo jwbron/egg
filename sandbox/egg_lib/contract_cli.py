@@ -89,6 +89,17 @@ def get_container_id() -> str:
     return os.environ.get("CONTAINER_ID", "")
 
 
+def _container_id_field() -> dict[str, str]:
+    """Return a dict with container_id only when the env var is set.
+
+    Used with ``**`` unpacking in POST data dicts so that an empty
+    container_id is never sent over the wire, matching the conditional
+    GET-parameter pattern used elsewhere in this module.
+    """
+    cid = get_container_id()
+    return {"container_id": cid} if cid else {}
+
+
 def parse_task_id(task_id: str) -> tuple[int, int]:
     """Parse task ID and return (phase_idx, task_idx).
 
@@ -341,7 +352,7 @@ def cmd_add_commit(args: argparse.Namespace) -> int:
             "new_value": args.commit,
             "actor": "egg",
             "reason": f"Linked commit {args.commit[:7]} to {args.task}",
-            "container_id": get_container_id(),
+            **_container_id_field(),
         },
     )
 
@@ -378,7 +389,7 @@ def cmd_update_notes(args: argparse.Namespace) -> int:
             "new_value": args.notes,
             "actor": "egg",
             "reason": f"Updated notes for {args.task}",
-            "container_id": get_container_id(),
+            **_container_id_field(),
         },
     )
 
@@ -472,7 +483,7 @@ def cmd_verify_criterion(args: argparse.Namespace) -> int:
             "new_value": True,
             "actor": "egg",
             "reason": f"Verified criterion {args.criterion}",
-            "container_id": get_container_id(),
+            **_container_id_field(),
         },
     )
 
@@ -558,7 +569,7 @@ def cmd_add_decision(args: argparse.Namespace) -> int:
             "new_value": new_decision,
             "actor": "egg",
             "reason": f"Created HITL decision: {args.question[:50]}{'...' if len(args.question) > 50 else ''}",
-            "container_id": get_container_id(),
+            **_container_id_field(),
         },
     )
 
@@ -721,7 +732,7 @@ def cmd_agent_start(args: argparse.Namespace) -> int:
             "new_value": "running",
             "actor": "egg",
             "reason": f"Started {role} agent",
-            "container_id": get_container_id(),
+            **_container_id_field(),
         },
     )
 
@@ -812,7 +823,7 @@ def cmd_agent_complete(args: argparse.Namespace) -> int:
                 "new_value": update["new_value"],
                 "actor": "egg",
                 "reason": f"Completed {role} agent",
-                "container_id": get_container_id(),
+                **_container_id_field(),
             },
         )
 
@@ -893,7 +904,7 @@ def cmd_agent_fail(args: argparse.Namespace) -> int:
                 "new_value": update["new_value"],
                 "actor": "egg",
                 "reason": f"Failed {role} agent: {args.error[:50]}",
-                "container_id": get_container_id(),
+                **_container_id_field(),
             },
         )
 
@@ -1095,7 +1106,7 @@ def cmd_add_feedback(args: argparse.Namespace) -> int:
             "new_value": new_feedback,
             "actor": "egg",
             "reason": f"Created feedback request with {len(questions)} question(s)",
-            "container_id": get_container_id(),
+            **_container_id_field(),
         },
     )
 

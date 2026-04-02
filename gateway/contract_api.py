@@ -59,6 +59,15 @@ logger = get_logger("gateway.contract")
 contract_bp = Blueprint("contract", __name__, url_prefix="/api/v1/contract")
 
 
+_cached_worktree_helpers: (
+    tuple[
+        Callable[[str, str | None, str], str | None],
+        Callable[[str], tuple[Response, int]],
+    ]
+    | None
+) = None
+
+
 def _get_worktree_helpers() -> tuple[
     Callable[[str, str | None, str], str | None],
     Callable[[str], tuple[Response, int]],
@@ -67,7 +76,11 @@ def _get_worktree_helpers() -> tuple[
 
     The gateway module is large and loaded after contract_api in the test
     harness, so we import on first use instead of at module load time.
+    Results are cached at module level to avoid per-request import overhead.
     """
+    global _cached_worktree_helpers  # noqa: PLW0603
+    if _cached_worktree_helpers is not None:
+        return _cached_worktree_helpers
     try:
         from .gateway import make_worktree_not_found_error, map_container_path_to_worktree
     except ImportError:
@@ -75,7 +88,8 @@ def _get_worktree_helpers() -> tuple[
             make_worktree_not_found_error,
             map_container_path_to_worktree,
         )
-    return map_container_path_to_worktree, make_worktree_not_found_error
+    _cached_worktree_helpers = (map_container_path_to_worktree, make_worktree_not_found_error)
+    return _cached_worktree_helpers
 
 
 def get_role_from_context() -> Role | None:
@@ -287,6 +301,9 @@ def mutate_contract() -> tuple[Response, int]:
         repo_path = Path(data["repo_path"])
     else:
         repo_path = Path.cwd()
+    # NOTE: This duplicates the container_id extraction + session fallback
+    # from get_repo_path_from_request(). mutate_contract doesn't use that
+    # helper (pre-existing design), so keep these in sync if the logic changes.
     container_id = data.get("container_id")
     if not container_id and hasattr(g, "session") and g.session:
         container_id = getattr(g.session, "container_id", None)
@@ -295,7 +312,7 @@ def mutate_contract() -> tuple[Response, int]:
     _map_path, _worktree_err = _get_worktree_helpers()
     mapped_path = _map_path(str(repo_path), container_id, "contract")
     if mapped_path is None:
-        return _worktree_err(container_id)
+        return _worktree_err(container_id or "")
     repo_path = Path(mapped_path)
 
     actor = data.get("actor", "agent")
