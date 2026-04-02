@@ -84,6 +84,22 @@ def get_session_token() -> str | None:
     return None
 
 
+def get_container_id() -> str:
+    """Get the container ID from environment."""
+    return os.environ.get("CONTAINER_ID", "")
+
+
+def _container_id_field() -> dict[str, str]:
+    """Return a dict with container_id only when the env var is set.
+
+    Used with ``**`` unpacking in POST data dicts so that an empty
+    container_id is never sent over the wire, matching the conditional
+    GET-parameter pattern used elsewhere in this module.
+    """
+    cid = get_container_id()
+    return {"container_id": cid} if cid else {}
+
+
 def parse_task_id(task_id: str) -> tuple[int, int]:
     """Parse task ID and return (phase_idx, task_idx).
 
@@ -225,6 +241,9 @@ def cmd_show(args: argparse.Namespace) -> int:
         params["repo_path"] = args.repo_path
     if args.audit:
         params["include_audit_log"] = "true"
+    container_id = get_container_id()
+    if container_id:
+        params["container_id"] = container_id
 
     endpoint = f"/api/v1/contract/{issue_number}"
     if params:
@@ -333,6 +352,7 @@ def cmd_add_commit(args: argparse.Namespace) -> int:
             "new_value": args.commit,
             "actor": "egg",
             "reason": f"Linked commit {args.commit[:7]} to {args.task}",
+            **_container_id_field(),
         },
     )
 
@@ -369,6 +389,7 @@ def cmd_update_notes(args: argparse.Namespace) -> int:
             "new_value": args.notes,
             "actor": "egg",
             "reason": f"Updated notes for {args.task}",
+            **_container_id_field(),
         },
     )
 
@@ -462,6 +483,7 @@ def cmd_verify_criterion(args: argparse.Namespace) -> int:
             "new_value": True,
             "actor": "egg",
             "reason": f"Verified criterion {args.criterion}",
+            **_container_id_field(),
         },
     )
 
@@ -491,8 +513,14 @@ def cmd_add_decision(args: argparse.Namespace) -> int:
     # NOTE: TOCTOU race condition exists here - concurrent calls may get same ID.
     # The gateway should handle conflicts appropriately.
     endpoint = f"/api/v1/contract/{issue_number}"
+    params = {}
     if args.repo_path:
-        endpoint += "?" + urlencode({"repo_path": args.repo_path})
+        params["repo_path"] = args.repo_path
+    container_id = get_container_id()
+    if container_id:
+        params["container_id"] = container_id
+    if params:
+        endpoint += "?" + urlencode(params)
 
     contract_result = make_gateway_request(endpoint)
     if not contract_result.get("success"):
@@ -541,6 +569,7 @@ def cmd_add_decision(args: argparse.Namespace) -> int:
             "new_value": new_decision,
             "actor": "egg",
             "reason": f"Created HITL decision: {args.question[:50]}{'...' if len(args.question) > 50 else ''}",
+            **_container_id_field(),
         },
     )
 
@@ -574,8 +603,14 @@ def cmd_agent_status(args: argparse.Namespace) -> int:
         return 1
 
     endpoint = f"/api/v1/contract/{issue_number}"
+    params = {}
     if args.repo_path:
-        endpoint += "?" + urlencode({"repo_path": args.repo_path})
+        params["repo_path"] = args.repo_path
+    container_id = get_container_id()
+    if container_id:
+        params["container_id"] = container_id
+    if params:
+        endpoint += "?" + urlencode(params)
 
     result = make_gateway_request(endpoint)
 
@@ -658,8 +693,14 @@ def cmd_agent_start(args: argparse.Namespace) -> int:
 
     # Get current contract to find agent execution index
     endpoint = f"/api/v1/contract/{issue_number}"
+    params = {}
     if args.repo_path:
-        endpoint += "?" + urlencode({"repo_path": args.repo_path})
+        params["repo_path"] = args.repo_path
+    container_id = get_container_id()
+    if container_id:
+        params["container_id"] = container_id
+    if params:
+        endpoint += "?" + urlencode(params)
 
     contract_result = make_gateway_request(endpoint)
     if not contract_result.get("success"):
@@ -691,6 +732,7 @@ def cmd_agent_start(args: argparse.Namespace) -> int:
             "new_value": "running",
             "actor": "egg",
             "reason": f"Started {role} agent",
+            **_container_id_field(),
         },
     )
 
@@ -719,8 +761,14 @@ def cmd_agent_complete(args: argparse.Namespace) -> int:
 
     # Get current contract to find agent execution index
     endpoint = f"/api/v1/contract/{issue_number}"
+    params = {}
     if args.repo_path:
-        endpoint += "?" + urlencode({"repo_path": args.repo_path})
+        params["repo_path"] = args.repo_path
+    container_id = get_container_id()
+    if container_id:
+        params["container_id"] = container_id
+    if params:
+        endpoint += "?" + urlencode(params)
 
     contract_result = make_gateway_request(endpoint)
     if not contract_result.get("success"):
@@ -775,6 +823,7 @@ def cmd_agent_complete(args: argparse.Namespace) -> int:
                 "new_value": update["new_value"],
                 "actor": "egg",
                 "reason": f"Completed {role} agent",
+                **_container_id_field(),
             },
         )
 
@@ -804,8 +853,14 @@ def cmd_agent_fail(args: argparse.Namespace) -> int:
 
     # Get current contract to find agent execution index
     endpoint = f"/api/v1/contract/{issue_number}"
+    params = {}
     if args.repo_path:
-        endpoint += "?" + urlencode({"repo_path": args.repo_path})
+        params["repo_path"] = args.repo_path
+    container_id = get_container_id()
+    if container_id:
+        params["container_id"] = container_id
+    if params:
+        endpoint += "?" + urlencode(params)
 
     contract_result = make_gateway_request(endpoint)
     if not contract_result.get("success"):
@@ -849,6 +904,7 @@ def cmd_agent_fail(args: argparse.Namespace) -> int:
                 "new_value": update["new_value"],
                 "actor": "egg",
                 "reason": f"Failed {role} agent: {args.error[:50]}",
+                **_container_id_field(),
             },
         )
 
@@ -869,8 +925,14 @@ def cmd_agent_next(args: argparse.Namespace) -> int:
         return 1
 
     endpoint = f"/api/v1/contract/{issue_number}"
+    params = {}
     if args.repo_path:
-        endpoint += "?" + urlencode({"repo_path": args.repo_path})
+        params["repo_path"] = args.repo_path
+    container_id = get_container_id()
+    if container_id:
+        params["container_id"] = container_id
+    if params:
+        endpoint += "?" + urlencode(params)
 
     contract_result = make_gateway_request(endpoint)
     if not contract_result.get("success"):
@@ -985,8 +1047,14 @@ def cmd_add_feedback(args: argparse.Namespace) -> int:
 
     # Get the current contract to check for existing feedback
     endpoint = f"/api/v1/contract/{issue_number}"
+    params = {}
     if args.repo_path:
-        endpoint += "?" + urlencode({"repo_path": args.repo_path})
+        params["repo_path"] = args.repo_path
+    container_id = get_container_id()
+    if container_id:
+        params["container_id"] = container_id
+    if params:
+        endpoint += "?" + urlencode(params)
 
     contract_result = make_gateway_request(endpoint)
     if not contract_result.get("success"):
@@ -1038,6 +1106,7 @@ def cmd_add_feedback(args: argparse.Namespace) -> int:
             "new_value": new_feedback,
             "actor": "egg",
             "reason": f"Created feedback request with {len(questions)} question(s)",
+            **_container_id_field(),
         },
     )
 

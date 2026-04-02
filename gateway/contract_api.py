@@ -7,6 +7,7 @@ Role is determined from GitHub Actions workflow context, not agent environment.
 
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,39 @@ logger = get_logger("gateway.contract")
 contract_bp = Blueprint("contract", __name__, url_prefix="/api/v1/contract")
 
 
+_cached_worktree_helpers: (
+    tuple[
+        Callable[[str, str | None, str], str | None],
+        Callable[[str], tuple[Response, int]],
+    ]
+    | None
+) = None
+
+
+def _get_worktree_helpers() -> tuple[
+    Callable[[str, str | None, str], str | None],
+    Callable[[str], tuple[Response, int]],
+]:
+    """Lazy import of worktree helpers to avoid circular import issues.
+
+    The gateway module is large and loaded after contract_api in the test
+    harness, so we import on first use instead of at module load time.
+    Results are cached at module level to avoid per-request import overhead.
+    """
+    global _cached_worktree_helpers  # noqa: PLW0603
+    if _cached_worktree_helpers is not None:
+        return _cached_worktree_helpers
+    try:
+        from .gateway import make_worktree_not_found_error, map_container_path_to_worktree
+    except ImportError:
+        from gateway import (  # type: ignore[no-redef, attr-defined]
+            make_worktree_not_found_error,
+            map_container_path_to_worktree,
+        )
+    _cached_worktree_helpers = (map_container_path_to_worktree, make_worktree_not_found_error)
+    return _cached_worktree_helpers
+
+
 def get_role_from_context() -> Role | None:
     """
     Get the agent role from workflow context.
@@ -107,7 +141,9 @@ def get_role_from_context() -> Role | None:
     return None
 
 
-def get_repo_path_from_request(from_query: bool = False) -> tuple[Path | None, str | None]:
+def get_repo_path_from_request(
+    from_query: bool = False,
+) -> tuple[Path | None, str | None, str | None]:
     """Get the repository path from the request with validation.
 
     Args:
@@ -115,22 +151,28 @@ def get_repo_path_from_request(from_query: bool = False) -> tuple[Path | None, s
                    If False, look in JSON body (for POST requests).
 
     Returns:
-        Tuple of (path, error_message). If error_message is set, path validation failed.
+        Tuple of (path, error_message, container_id). If error_message is set, path validation failed.
     """
     if from_query:
         # For GET requests, use query parameters
         repo_path = request.args.get("repo_path")
+        container_id = request.args.get("container_id")
     else:
         # For POST requests, use JSON body
         data = request.get_json() or {}
         repo_path = data.get("repo_path")
+        container_id = data.get("container_id")
+
+    # Fall back to session container_id if not provided
+    if not container_id and hasattr(g, "session") and g.session:
+        container_id = getattr(g.session, "container_id", None)
 
     if repo_path:
         # Validate path to prevent path traversal attacks
         is_valid, error = validate_repo_path(repo_path)
         if not is_valid:
-            return None, error
-        return Path(repo_path), None
+            return None, error, container_id
+        return Path(repo_path), None, container_id
 
     # Try to get from session
     if hasattr(g, "session") and g.session:
@@ -139,10 +181,10 @@ def get_repo_path_from_request(from_query: bool = False) -> tuple[Path | None, s
             # Session paths are trusted (set by launcher), but validate anyway
             is_valid, error = validate_repo_path(session_repo)
             if not is_valid:
-                return None, error
-            return Path(session_repo), None
+                return None, error, container_id
+            return Path(session_repo), None, container_id
 
-    return None, None
+    return None, None, container_id
 
 
 def make_contract_error(
@@ -181,11 +223,18 @@ def get_contract(issue_number: int) -> tuple[Response, int]:
         repo_path: Path to the repository (optional)
         include_audit_log: Whether to include audit log (default: false)
     """
-    repo_path, path_error = get_repo_path_from_request(from_query=True)
+    repo_path, path_error, container_id = get_repo_path_from_request(from_query=True)
     if path_error:
         return make_contract_error(path_error, status_code=400)
     if not repo_path:
         repo_path = Path.cwd()
+
+    # Map container path to worktree path if container_id is provided
+    _map_path, _worktree_err = _get_worktree_helpers()
+    mapped_path = _map_path(str(repo_path), container_id, "contract")
+    if mapped_path is None:
+        return _worktree_err(container_id or "")
+    repo_path = Path(mapped_path)
 
     include_audit = request.args.get("include_audit_log", "false").lower() == "true"
 
@@ -252,6 +301,20 @@ def mutate_contract() -> tuple[Response, int]:
         repo_path = Path(data["repo_path"])
     else:
         repo_path = Path.cwd()
+    # NOTE: This duplicates the container_id extraction + session fallback
+    # from get_repo_path_from_request(). mutate_contract doesn't use that
+    # helper (pre-existing design), so keep these in sync if the logic changes.
+    container_id = data.get("container_id")
+    if not container_id and hasattr(g, "session") and g.session:
+        container_id = getattr(g.session, "container_id", None)
+
+    # Map container path to worktree path if container_id is provided
+    _map_path, _worktree_err = _get_worktree_helpers()
+    mapped_path = _map_path(str(repo_path), container_id, "contract")
+    if mapped_path is None:
+        return _worktree_err(container_id or "")
+    repo_path = Path(mapped_path)
+
     actor = data.get("actor", "agent")
     reason = data.get("reason")
 
@@ -399,11 +462,18 @@ def check_contract_exists(issue_number: int) -> tuple[Response, int]:
     Query params:
         repo_path: Path to the repository (optional)
     """
-    repo_path, path_error = get_repo_path_from_request(from_query=True)
+    repo_path, path_error, container_id = get_repo_path_from_request(from_query=True)
     if path_error:
         return make_contract_error(path_error, status_code=400)
     if not repo_path:
         repo_path = Path.cwd()
+
+    # Map container path to worktree path if container_id is provided
+    _map_path, _worktree_err = _get_worktree_helpers()
+    mapped_path = _map_path(str(repo_path), container_id, "contract")
+    if mapped_path is None:
+        return _worktree_err(container_id or "")
+    repo_path = Path(mapped_path)
 
     exists = contract_exists(issue_number, repo_path)
     return make_contract_success(

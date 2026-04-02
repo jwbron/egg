@@ -19,6 +19,7 @@ from egg_config import GATEWAY_PORT
 from egg_lib.contract_cli import (
     create_parser,
     format_decision_markdown,
+    get_container_id,
     get_gateway_url,
     get_issue_number,
     get_repo_path,
@@ -184,6 +185,25 @@ class TestEnvironmentHelpers:
         with patch.dict("os.environ", {"EGG_REPO_PATH": "/home/test/repo"}):
             path = get_repo_path()
             assert path == "/home/test/repo"
+
+
+class TestGetContainerId:
+    """Tests for get_container_id() helper."""
+
+    def test_returns_container_id_from_env(self):
+        """Returns CONTAINER_ID environment variable value."""
+        with patch.dict("os.environ", {"CONTAINER_ID": "my-container-123"}):
+            assert get_container_id() == "my-container-123"
+
+    def test_returns_empty_string_when_not_set(self):
+        """Returns empty string when CONTAINER_ID is not set."""
+        with patch.dict("os.environ", {}, clear=True):
+            assert get_container_id() == ""
+
+    def test_returns_empty_string_for_empty_env(self):
+        """Returns empty string when CONTAINER_ID is set to empty."""
+        with patch.dict("os.environ", {"CONTAINER_ID": ""}):
+            assert get_container_id() == ""
 
 
 class TestTaskIdParsing:
@@ -366,7 +386,7 @@ class TestWithMockGateway:
         }
         mock_gateway = mock_gateway_factory(responses)
 
-        with patch.dict("os.environ", {"GATEWAY_URL": mock_gateway}):
+        with patch.dict("os.environ", {"GATEWAY_URL": mock_gateway, "CONTAINER_ID": ""}):
             result = main(["--issue", "123", "show"])
 
         assert result == 0
@@ -388,6 +408,7 @@ class TestWithMockGateway:
             {
                 "GATEWAY_URL": mock_gateway,
                 "EGG_ISSUE_NUMBER": "123",
+                "CONTAINER_ID": "",
             },
         ):
             result = main(["add-commit", "--task", "task-1", "--commit", "abc1234def"])
@@ -671,7 +692,7 @@ class TestAddDecisionWithMockGateway:
 
         with patch.dict(
             "os.environ",
-            {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123"},
+            {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123", "CONTAINER_ID": ""},
         ):
             result = main(
                 [
@@ -707,7 +728,7 @@ class TestAddDecisionWithMockGateway:
 
         with patch.dict(
             "os.environ",
-            {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123"},
+            {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123", "CONTAINER_ID": ""},
         ):
             result = main(
                 [
@@ -751,7 +772,7 @@ class TestAddDecisionWithMockGateway:
 
         with patch.dict(
             "os.environ",
-            {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123"},
+            {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123", "CONTAINER_ID": ""},
         ):
             result = main(
                 [
@@ -798,7 +819,7 @@ class TestAddDecisionWithMockGateway:
         with (
             patch.dict(
                 "os.environ",
-                {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123"},
+                {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123", "CONTAINER_ID": ""},
             ),
             patch("egg_lib.contract_cli.make_gateway_request", side_effect=capturing_make_request),
         ):
@@ -840,7 +861,7 @@ class TestAddDecisionWithMockGateway:
         with (
             patch.dict(
                 "os.environ",
-                {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123"},
+                {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123", "CONTAINER_ID": ""},
             ),
             patch("egg_lib.contract_cli.make_gateway_request", side_effect=capturing_make_request),
         ):
@@ -920,3 +941,139 @@ class TestMakeGatewayRequestAuthHeader:
             make_gateway_request("/api/v1/test")
 
         assert "Authorization" not in captured_headers
+
+
+class TestContainerIdInGatewayRequests:
+    """Tests for container_id being included in gateway requests."""
+
+    @pytest.fixture
+    def mock_gateway_with_body_capture(self):
+        """Create a mock gateway that captures request bodies and query params."""
+        captured = {"bodies": [], "paths": []}
+
+        class BodyCapturingHandler(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                pass
+
+            def do_GET(self):
+                captured["paths"].append(self.path)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(
+                    json.dumps(
+                        {
+                            "success": True,
+                            "data": {
+                                "issue": {"number": 123, "title": "Test"},
+                                "current_phase": "implement",
+                                "phases": [],
+                                "decisions": [],
+                            },
+                        }
+                    ).encode()
+                )
+
+            def do_POST(self):
+                content_length = int(self.headers.get("Content-Length", 0))
+                if content_length:
+                    body = self.rfile.read(content_length)
+                    captured["bodies"].append(json.loads(body.decode()))
+                captured["paths"].append(self.path)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "message": "OK"}).encode())
+
+        server = HTTPServer(("127.0.0.1", 0), BodyCapturingHandler)
+        port = server.server_address[1]
+        # Handle multiple requests
+        for _ in range(5):
+            t = Thread(target=server.handle_request)
+            t.daemon = True
+            t.start()
+
+        yield f"http://127.0.0.1:{port}", captured
+
+        server.server_close()
+
+    def test_show_includes_container_id_in_query(self, mock_gateway_with_body_capture, capsys):
+        """show command includes container_id query param when CONTAINER_ID is set."""
+        gateway_url, captured = mock_gateway_with_body_capture
+
+        with patch.dict(
+            "os.environ",
+            {
+                "GATEWAY_URL": gateway_url,
+                "EGG_ISSUE_NUMBER": "123",
+                "CONTAINER_ID": "test-container-abc",
+            },
+        ):
+            main(["show"])
+
+        # The GET request path should contain container_id
+        assert any("container_id=test-container-abc" in path for path in captured["paths"])
+
+    def test_add_commit_includes_container_id_in_body(self, mock_gateway_with_body_capture, capsys):
+        """add-commit command includes container_id in POST body."""
+        gateway_url, captured = mock_gateway_with_body_capture
+
+        with patch.dict(
+            "os.environ",
+            {
+                "GATEWAY_URL": gateway_url,
+                "EGG_ISSUE_NUMBER": "123",
+                "CONTAINER_ID": "test-container-abc",
+            },
+        ):
+            main(["add-commit", "--task", "task-1", "--commit", "abc1234def"])
+
+        # Check POST body contains container_id
+        post_bodies = captured["bodies"]
+        assert len(post_bodies) >= 1
+        assert post_bodies[0].get("container_id") == "test-container-abc"
+
+    def test_show_omits_container_id_when_not_set(self, mock_gateway_with_body_capture, capsys):
+        """show command omits container_id query param when CONTAINER_ID is not set."""
+        gateway_url, captured = mock_gateway_with_body_capture
+
+        with patch.dict(
+            "os.environ",
+            {
+                "GATEWAY_URL": gateway_url,
+                "EGG_ISSUE_NUMBER": "123",
+            },
+            clear=False,
+        ):
+            # Remove CONTAINER_ID if present
+            import os
+
+            os.environ.pop("CONTAINER_ID", None)
+            main(["show"])
+
+        # None of the paths should contain container_id
+        assert not any("container_id" in path for path in captured["paths"])
+
+    def test_add_commit_omits_container_id_when_not_set(
+        self, mock_gateway_with_body_capture, capsys
+    ):
+        """add-commit omits container_id from POST body when CONTAINER_ID not set."""
+        gateway_url, captured = mock_gateway_with_body_capture
+
+        with patch.dict(
+            "os.environ",
+            {
+                "GATEWAY_URL": gateway_url,
+                "EGG_ISSUE_NUMBER": "123",
+            },
+            clear=False,
+        ):
+            import os
+
+            os.environ.pop("CONTAINER_ID", None)
+            main(["add-commit", "--task", "task-1", "--commit", "abc1234def"])
+
+        # POST body should not contain container_id when env var is unset
+        post_bodies = captured["bodies"]
+        assert len(post_bodies) >= 1
+        assert "container_id" not in post_bodies[0]
