@@ -150,6 +150,7 @@ async def run_agent_async(
                         "Tool blocked by role restrictions",
                         event_type="tool_intercepted",
                         tool_name=tool_name,
+                        tool_use_id=getattr(context, "tool_use_id", None),
                         agent_role=role,
                         error=error,
                     )

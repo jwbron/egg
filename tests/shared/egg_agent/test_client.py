@@ -750,6 +750,29 @@ class TestToolInterception:
 
     @patch.dict(os.environ, {"EGG_AGENT_ROLE": "tester"})
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_intercept_tools_logs_tool_use_id(self, mock_query):
+        """Blocked tool calls should log tool_use_id from context."""
+        _run_async(run_agent_async("test prompt"))
+        callback = mock_query.call_args.kwargs["options"].can_use_tool
+        # Create a context with tool_use_id
+        from claude_agent_sdk import ToolPermissionContext
+
+        ctx = ToolPermissionContext(tool_use_id="toolu_abc123")
+        with patch("egg_agent.client.logger") as mock_logger:
+            result = _run_async(
+                callback(
+                    "Write",
+                    {"file_path": "/home/egg/repos/egg/src/main.py"},
+                    ctx,
+                )
+            )
+            assert result.behavior == "deny"
+            mock_logger.warning.assert_called_once()
+            call_kwargs = mock_logger.warning.call_args.kwargs
+            assert call_kwargs["tool_use_id"] == "toolu_abc123"
+
+    @patch.dict(os.environ, {"EGG_AGENT_ROLE": "tester"})
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
     def test_intercept_tools_disabled_no_callback(self, mock_query):
         """When intercept_tools=False, can_use_tool should be None."""
         _run_async(run_agent_async("test prompt", intercept_tools=False))
