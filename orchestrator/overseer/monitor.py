@@ -9,6 +9,7 @@ classifier tier, and executes corrective actions via the decision tier.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -48,6 +49,7 @@ class _DefaultConfig:
     overseer_decision_maker_model: str = "sonnet"
     overseer_rerun_min_work_seconds: int = 60
     overseer_hitl_propagation_timeout_seconds: int = 300
+    overseer_infra_error_dedup_window_seconds: int = 300
 
 
 class OverseerMonitor:
@@ -107,6 +109,10 @@ class OverseerMonitor:
         # Orchestrator unreachability tracking
         self._consecutive_orch_failures: int = 0
         self._orch_unreachable_threshold: int = 3  # escalate after N consecutive failures
+
+        # Infrastructure error deduplication between Tier 1 and Tier 2 (#1489)
+        # Maps (agent_id, error_hash) -> timestamp of first escalation
+        self._infra_error_dedup: dict[tuple[str, str], float] = {}
 
         # Cross-phase consistency: track phase transitions and deduplication
         self._last_phase_name: str | None = None
@@ -313,17 +319,62 @@ class OverseerMonitor:
             # 6 & 7. Process any anomalies (with consensus context)
             for alert in alerts:
                 agent_role = alert.get("agent_role", alert.get("agent_id", "unknown"))
-                classification = await self._classify_stall(
-                    logs=alert.get("logs", []),
-                    progress=progress_events,
-                    consensus=consensus or None,
-                )
+                alert_type = alert.get("alert_type", "")
+
+                if alert_type == "infrastructure_error":
+                    # Tier 1 infrastructure_error alerts: skip LLM classification,
+                    # route directly to decision maker with pre-set classification
+                    error_msg = alert.get("message", "Infrastructure error detected by Tier 1")
+
+                    # Dedup: skip if already escalated within the dedup window
+                    if self._is_infra_error_deduped(agent_role, error_msg):
+                        logger.debug(
+                            "Dedup: skipping duplicate infra error escalation for %s",
+                            agent_role,
+                        )
+                        await self._resolve_alert(
+                            agent_id=alert.get("agent_id", agent_role),
+                            alert_type="infrastructure_error",
+                        )
+                        continue
+
+                    logger.info(
+                        "Infrastructure error alert for %s — bypassing classifier",
+                        agent_role,
+                    )
+                    classification = {
+                        "classification": "infrastructure_error",
+                        "confidence": 1.0,
+                        "reasoning": error_msg,
+                    }
+                    self._record_infra_error_escalation(agent_role, error_msg)
+                else:
+                    classification = await self._classify_stall(
+                        logs=alert.get("logs", []),
+                        progress=progress_events,
+                        consensus=consensus or None,
+                    )
+
+                    # Dedup: if classifier detected infra error, check dedup window
+                    if classification.get("classification") == "infrastructure_error":
+                        reasoning = classification.get("reasoning", "")
+                        if self._is_infra_error_deduped(agent_role, reasoning):
+                            logger.debug(
+                                "Dedup: skipping classifier-detected infra error for %s",
+                                agent_role,
+                            )
+                            await self._resolve_alert(
+                                agent_id=alert.get("agent_id", agent_role),
+                                alert_type=alert.get("alert_type", "unknown"),
+                            )
+                            continue
+                        self._record_infra_error_escalation(agent_role, reasoning)
+
                 decision = await self._decide_corrective_action(
                     classification,
                     {"alert": alert, "pipeline_id": self.pipeline_id},
                 )
                 await self._execute_action(decision, agent_role)
-                # Resolve the alert so it doesn't accumulate (#1428)
                 await self._resolve_alert(
                     agent_id=alert.get("agent_id", agent_role),
                     alert_type=alert.get("alert_type", "unknown"),
@@ -1265,6 +1316,40 @@ class OverseerMonitor:
             await self._broadcast_alert("cross_phase_inconsistency", "overseer", message, "high")
             await self._create_hitl_decision("overseer", message)
             await self._send_slack_notification("overseer", message)
+
+    # -----------------------------------------------------------------
+    # Infrastructure error deduplication (#1489)
+    # -----------------------------------------------------------------
+
+    def _infra_error_hash(self, error_msg: str) -> str:
+        """Compute a hash for an infrastructure error message for dedup."""
+        return hashlib.sha256(error_msg.encode()).hexdigest()[:16]
+
+    def _is_infra_error_deduped(self, agent_id: str, error_msg: str) -> bool:
+        """Check if an infrastructure error for this agent is within the dedup window.
+
+        Returns True if the same error (by hash) for the same agent was
+        already escalated within the configurable dedup window.
+        """
+        error_hash = self._infra_error_hash(error_msg)
+        key = (agent_id, error_hash)
+        if key not in self._infra_error_dedup:
+            return False
+
+        window = getattr(self.config, "overseer_infra_error_dedup_window_seconds", 300)
+        elapsed = time.time() - self._infra_error_dedup[key]
+        if elapsed < window:
+            return True
+
+        # Outside window — allow re-escalation
+        del self._infra_error_dedup[key]
+        return False
+
+    def _record_infra_error_escalation(self, agent_id: str, error_msg: str) -> None:
+        """Record an infrastructure error escalation for dedup tracking."""
+        error_hash = self._infra_error_hash(error_msg)
+        key = (agent_id, error_hash)
+        self._infra_error_dedup[key] = time.time()
 
     async def _broadcast_alert(
         self, anomaly_type: str, agent_role: str, message: str, priority: str = "medium"

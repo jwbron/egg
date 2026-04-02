@@ -56,6 +56,15 @@ async def decide_corrective_action(
             message: str with the message or action description
             priority: ``"low"`` | ``"medium"`` | ``"high"`` | ``"critical"``
     """
+    # Fast-path: infrastructure errors bypass LLM and go directly to HITL
+    if classification.get("classification") == "infrastructure_error":
+        error_details = classification.get("reasoning", "Infrastructure error detected")
+        return {
+            "action": "hitl",
+            "message": f"Infrastructure error requiring human intervention: {error_details}",
+            "priority": "critical",
+        }
+
     prompt = (
         "You are a pipeline health decision maker. Based on the following "
         "classification result and context, decide what corrective action "
@@ -128,6 +137,14 @@ async def decide_escalation_level(
             level: ``"redirect"`` | ``"hitl"`` | ``"issue"``
             reasoning: str explaining the decision
     """
+    # Fast-path: infrastructure errors always require HITL
+    if classification.get("classification") == "infrastructure_error":
+        return {
+            "escalate": True,
+            "level": "hitl",
+            "reasoning": f"Infrastructure error: {classification.get('reasoning', 'requires human intervention')}",
+        }
+
     prompt = (
         "You are a pipeline health escalation decision maker. Based on the "
         "latest classification and the history of prior redirect attempts, "

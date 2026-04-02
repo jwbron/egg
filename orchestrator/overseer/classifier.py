@@ -93,7 +93,7 @@ async def classify_stall(
 
     Returns:
         A dict with keys:
-            classification: ``"stuck"`` | ``"working"`` | ``"needs_help"``
+            classification: ``"stuck"`` | ``"working"`` | ``"needs_help"`` | ``"infrastructure_error"``
             confidence: float between 0.0 and 1.0
             reasoning: str explaining the classification
     """
@@ -115,8 +115,12 @@ async def classify_stall(
         "logs and progress events to determine if the agent is stuck, doing "
         "legitimate work, or needs help.\n\n"
         f"{consensus_instruction}"
+        "Use 'infrastructure_error' when the agent is blocked by an infrastructure "
+        "issue it cannot resolve itself (e.g., git failures, permission denied, "
+        "EROFS, gateway errors, .gitignore blocking files, 403/500 HTTP errors). "
+        "These require human intervention, not agent nudges.\n\n"
         "Respond with ONLY a JSON object (no markdown fences) with these keys:\n"
-        '  "classification": one of "stuck", "working", "needs_help"\n'
+        '  "classification": one of "stuck", "working", "needs_help", "infrastructure_error"\n'
         '  "confidence": float between 0.0 and 1.0\n'
         '  "reasoning": brief explanation\n'
     )
@@ -154,8 +158,13 @@ async def classify_error(error_context: dict) -> dict:
     prompt = (
         "You are a pipeline error classifier. Analyze the following error "
         "context and classify its severity and type.\n\n"
+        "Classify as 'infrastructure_error' when the error is caused by "
+        "infrastructure the agent cannot fix (git failures, permission denied, "
+        "EROFS, gateway errors, .gitignore issues, 403/500 HTTP errors). "
+        "For infrastructure errors, recommended_action should be 'escalate_hitl'.\n\n"
         "Respond with ONLY a JSON object (no markdown fences) with these keys:\n"
-        '  "error_type": string category (e.g. "timeout", "oom", "auth_failure", "test_failure")\n'
+        '  "error_type": string category (e.g. "timeout", "oom", "auth_failure", '
+        '"test_failure", "infrastructure_error")\n'
         '  "severity": one of "low", "medium", "high", "critical"\n'
         '  "recommended_action": brief suggestion for remediation\n'
     )

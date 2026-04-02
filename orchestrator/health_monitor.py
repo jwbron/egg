@@ -1,12 +1,13 @@
 """
 Deterministic tripwire processor for pipeline health monitoring.
 
-Implements five rules:
+Implements six rules:
 1. Heartbeat timeout - escalate to overseer/HITL when no heartbeat within threshold
 2. Container exit - immediate HITL escalation
 3. Repeated identical errors - escalate after threshold
 4. Message volume spike - auto-throttle above rate limit
 5. Progress stall - escalate to overseer/HITL on stall detection
+6. Infrastructure error - escalate on blocked progress with infra error keywords
 
 The HealthMonitor subscribes to EventBus events and maintains per-agent
 state. It does NOT use LLM classifiers — those belong to the overseer.
@@ -14,6 +15,7 @@ Nudge messages are only sent by the Tier 2 overseer after classifying
 the alert; Tier 1 raises alerts and escalates but never nudges directly.
 """
 
+import re
 import sys
 import threading
 import time
@@ -44,6 +46,21 @@ from models import PipelineConfig
 
 logger = get_logger("orchestrator.health_monitor")
 
+INFRA_ERROR_PATTERNS = [
+    re.compile(r"git\s+(add|push|commit|checkout)\s+failed", re.IGNORECASE),
+    re.compile(r"permission\s+denied", re.IGNORECASE),
+    re.compile(r"\bERO?FS\b", re.IGNORECASE),
+    re.compile(r"403\s+Forbidden", re.IGNORECASE),
+    re.compile(r"gateway.*error", re.IGNORECASE),
+    re.compile(r"\.gitignore", re.IGNORECASE),
+    re.compile(r"500\s+Internal\s+Server\s+Error", re.IGNORECASE),
+    re.compile(r"read-only\s+file\s*system", re.IGNORECASE),
+    re.compile(r"docker\s+socket", re.IGNORECASE),
+    re.compile(r"DNS\s+resolution\s+fail", re.IGNORECASE),
+    re.compile(r"disk\s+space", re.IGNORECASE),
+    re.compile(r"connection\s+refused.*gateway", re.IGNORECASE),
+]
+
 
 # Type alias for callbacks
 EscalationCallback = Callable[[dict[str, Any]], None]
@@ -61,6 +78,8 @@ class AgentState:
     message_timestamps: list[float] = field(default_factory=list)
     heartbeat_escalated: bool = False
     progress_escalated: bool = False
+    infra_error_escalated: bool = False
+    last_progress_data: dict = field(default_factory=dict)
 
 
 class HealthMonitor:
@@ -155,9 +174,11 @@ class HealthMonitor:
                 agent.last_progress = now
                 agent.last_heartbeat = now
                 self._last_heartbeat[agent_id] = now
+                agent.last_progress_data = event.data
                 # Reset escalation state on new progress
                 agent.heartbeat_escalated = False
                 agent.progress_escalated = False
+                agent.infra_error_escalated = False
 
     def _on_error(self, event: Event) -> None:
         """Handle ERROR event — track repeated identical errors."""
@@ -497,6 +518,85 @@ class HealthMonitor:
         self._event_bus.unsubscribe(EventType.CONTAINER_STOPPED, self._on_container_stopped)
         self._event_bus.unsubscribe(EventType.MESSAGE_SENT, self._on_message_sent)
 
+    def _check_infra_errors(self) -> list[dict[str, Any]]:
+        """Detect blocked progress events with infrastructure error keywords.
+
+        Inspects each agent's latest progress event for state=blocked with
+        blocker text matching INFRA_ERROR_PATTERNS. Creates a critical alert
+        and fires escalation callbacks when detected.
+
+        Returns:
+            List of action dicts for agents with infrastructure errors.
+        """
+        actions: list[dict[str, Any]] = []
+
+        with self._lock:
+            snapshot = [
+                (
+                    agent.agent_id,
+                    agent.last_progress_data.copy(),
+                    agent.infra_error_escalated,
+                )
+                for agent in self._agents.values()
+            ]
+
+        for agent_id, progress_data, already_escalated in snapshot:
+            if already_escalated:
+                continue
+
+            state = progress_data.get("state", "")
+            if state != "blocked":
+                continue
+
+            blocker = progress_data.get("blocker", "")
+            if not blocker:
+                continue
+
+            # Check if blocker matches any infrastructure error pattern
+            if not any(pattern.search(blocker) for pattern in INFRA_ERROR_PATTERNS):
+                continue
+
+            action = {
+                "action": "escalate",
+                "agent_id": agent_id,
+                "reason": f"Infrastructure error detected: {blocker[:200]}",
+                "blocker": blocker,
+                "alert_type": "infrastructure_error",
+            }
+            actions.append(action)
+
+            escalation = {
+                "type": "hitl",
+                "agent_id": agent_id,
+                "reason": action["reason"],
+                "blocker": blocker,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+            with self._lock:
+                agent_state = self._agents.get(agent_id)
+                if agent_state:
+                    agent_state.infra_error_escalated = True
+                self._active_alerts.append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "pipeline_id": self._pipeline_id,
+                        "agent_id": agent_id,
+                        "alert_type": "infrastructure_error",
+                        "message": action["reason"],
+                        "severity": "critical",
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                )
+
+            for cb in self._escalation_callbacks:
+                try:
+                    cb(escalation)
+                except Exception as e:
+                    logger.error("Escalation callback error", error=str(e))
+
+        return actions
+
     def check_tripwires(self, pipeline_id: str | None = None) -> list[dict[str, Any]]:
         """Evaluate all tripwire rules and return combined actions.
 
@@ -506,6 +606,7 @@ class HealthMonitor:
         actions: list[dict[str, Any]] = []
         actions.extend(self.check_heartbeats())
         actions.extend(self.check_progress())
+        actions.extend(self._check_infra_errors())
         return actions
 
 
