@@ -8,7 +8,7 @@ Role is determined from GitHub Actions workflow context, not agent environment.
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from flask import Blueprint, Response, g, jsonify, request
 
@@ -58,7 +58,10 @@ logger = get_logger("gateway.contract")
 contract_bp = Blueprint("contract", __name__, url_prefix="/api/v1/contract")
 
 
-def _get_worktree_helpers():
+def _get_worktree_helpers() -> tuple[
+    Callable[[str, str | None, str], str | None],
+    Callable[[str], tuple[Response, int]],
+]:
     """Lazy import of worktree helpers to avoid circular import issues.
 
     The gateway module is large and loaded after contract_api in the test
@@ -67,7 +70,7 @@ def _get_worktree_helpers():
     try:
         from .gateway import make_worktree_not_found_error, map_container_path_to_worktree
     except ImportError:
-        from gateway import (  # type: ignore[no-redef, import-untyped]
+        from gateway import (  # type: ignore[no-redef, attr-defined]
             make_worktree_not_found_error,
             map_container_path_to_worktree,
         )
