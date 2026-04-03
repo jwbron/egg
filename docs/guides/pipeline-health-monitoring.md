@@ -103,6 +103,38 @@ The orchestrator processes structured progress events with deterministic rules. 
 | **Repeated errors** | Same error N times consecutively | Escalate to overseer (or HITL if no overseer) |
 | **Message volume spike** | Agent sending > N messages/minute | Auto-throttle |
 | **Progress stall** | No structured progress update within threshold | Escalate to overseer/HITL (overseer decides whether to nudge) |
+| **Infrastructure error** | Agent reports `blocked` state with infrastructure-related blocker (git failures, gateway errors, permission denied) | Critical alert → overseer routes to HITL fast-path (bypasses nudge/redirect ladder) |
+
+### Infrastructure Error Detection
+
+When agents emit `blocked` progress events with infrastructure-related blocker text, the orchestrator detects these as infrastructure errors requiring immediate human attention — distinct from normal stalls where an agent is simply slow.
+
+**Detection mechanism:**
+- The `HealthMonitor._check_infra_errors()` method scans recent progress events for `state=blocked` entries
+- Blocker text is matched against `INFRA_ERROR_PATTERNS` — regex patterns covering common infrastructure failures:
+  - Git operation failures (`git add failed`, `git push rejected`)
+  - Gateway errors (`gateway.*error`, `403 Forbidden`)
+  - Permission/filesystem errors (`permission denied`, `EROFS`, `read-only filesystem`)
+  - `.gitignore` conflicts
+  - HTTP 500 errors from infrastructure services
+- Matching events produce a `critical` severity alert with `type=infrastructure_error`
+
+**Deduplication:**
+- Each `AgentState` tracks an `infra_error_escalated` flag (similar to `heartbeat_escalated`)
+- After an infrastructure error alert fires for an agent, the flag prevents duplicate alerts
+- The flag resets when the agent emits a non-`blocked` progress event (e.g., `working` or `complete`), allowing re-detection if the agent hits a different infrastructure error later
+
+**Example:**
+```bash
+# Agent emits a blocked progress event due to .gitignore conflict
+egg-orch progress emit --step "committing review" --state blocked \
+  --blocker "git add failed: .gitignore excludes .egg-state/reviews/"
+
+# The orchestrator's Tier 1 tripwire:
+#   1. Matches "git add failed" against INFRA_ERROR_PATTERNS
+#   2. Creates a critical infrastructure_error alert
+#   3. Overseer routes alert directly to HITL (no nudge/redirect)
+```
 
 ### Viewing and Resolving Alerts
 
@@ -144,6 +176,7 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `overseer_max_respawns` | `3` | Max times to auto-respawn the overseer if it exits mid-pipeline (0 disables respawning) |
 | `overseer_rerun_min_work_seconds` | `60` | Minimum work duration required after a `request_changes` phase-gate decision; completions faster than this with `content_changed=False` are flagged as re-run anomalies |
 | `overseer_hitl_propagation_timeout_seconds` | `300` | Seconds to wait for a resolved phase-gate decision to appear in the SDLC contract before raising a propagation-failure alert |
+| `overseer_infra_error_dedup_window_seconds` | `300` | Time window for deduplicating infrastructure error escalations between Tier 1 and Tier 2 (same agent + same error pattern) |
 
 ## Tier 2: Overseer Agent
 
@@ -167,9 +200,9 @@ Lightweight Haiku agents handle classification tasks. They run only when the orc
 
 | Task | Prompt Pattern |
 |------|---------------|
-| **Stall classification** | "Is this agent stuck, or doing legitimate long-running work?" |
+| **Stall classification** | "Is this agent stuck, doing legitimate long-running work, or hitting an infrastructure error?" |
 | **Loop detection** | "Is this agent repeating the same actions in a cycle?" |
-| **Error triage** | "Is this error recoverable or fatal?" |
+| **Error triage** | "Is this error recoverable or fatal? Is it an infrastructure error?" |
 | **Off-track detection** | "Is this agent's work aligned with the contract?" |
 | **Decision consistency** | "Does this phase's output respect prior resolved HITL decisions?" |
 
@@ -187,6 +220,7 @@ A Sonnet or Opus agent handles corrective decision-making when Haiku monitors es
 
 Responsibilities:
 - Decide corrective action: nudge, redirect, HITL escalation, or issue filing
+- **Infrastructure error fast-path**: When classification is `infrastructure_error`, bypass the nudge/redirect ladder and return `hitl` action with high priority immediately, including the original error details in the escalation message
 - Compose redirect messages with actionable guidance
 - Determine whether a pattern warrants an issue vs. HITL escalation
 - Produce pipeline health summary at completion
@@ -204,17 +238,25 @@ All LLM calls use `shared/egg_agent/` (`run_agent_async`) — no direct API call
 Orchestrator detects anomaly via structured logs (deterministic)
   → Clear-cut (heartbeat timeout, container exit, error repeat)
     → Orchestrator escalates directly to overseer/HITL
+  → Infrastructure error (blocked + infra keyword match)
+    → Critical alert → Overseer routes to HITL fast-path (no nudge/redirect)
   → Ambiguous
     → Escalate to overseer
 
 Overseer receives escalation (or detects anomaly in own polling)
-  → Haiku classifies (stall / loop / error / off-track)
-    → Simple action needed (e.g., nudge)
-      → Haiku handles directly
-    → Decision needed (redirect content, escalation level)
-      → Escalate to Sonnet/Opus
-        → Sonnet/Opus decides corrective action
-          → Execute action (nudge / redirect / HITL / file issue / Slack)
+  → Infrastructure error alert (from Tier 1)
+    → Route directly to decision maker (skip LLM classification)
+      → Decision maker fast-path → HITL escalation with error details
+  → Other alert
+    → Haiku classifies (stall / loop / error / infrastructure_error / off-track)
+      → infrastructure_error classification
+        → Decision maker fast-path → HITL escalation
+      → Simple action needed (e.g., nudge)
+        → Haiku handles directly
+      → Decision needed (redirect content, escalation level)
+        → Escalate to Sonnet/Opus
+          → Sonnet/Opus decides corrective action
+            → Execute action (nudge / redirect / HITL / file issue / Slack)
 ```
 
 **Phase-scoped alert processing**: Health alerts are filtered to only include agents in the current pipeline phase. Alerts for agents from completed phases (e.g., a coder alert during the test phase) are excluded to prevent false stall diagnoses.
@@ -226,6 +268,7 @@ The system follows a progressive escalation ladder:
 | Step | Action | When |
 |------|--------|------|
 | 1 | **Escalate to overseer/HITL** | Orchestrator detects heartbeat/progress timeout; immediately escalates to overseer (or HITL if overseer disabled) |
+| 1a | **Infrastructure error → HITL fast-path** | Orchestrator detects infrastructure error (blocked + infra keyword); bypasses steps 2-3 and escalates directly to HITL with error details |
 | 2 | **Nudge / Redirect message** | Overseer classifies the alert and sends a nudge or actionable guidance to the agent |
 | 3 | **HITL escalation** | Agent still stuck after max redirects |
 | 4 | **File GitHub issue** | Structured diagnostic report for persistent problems |
@@ -259,6 +302,17 @@ Each poll cycle the overseer evaluates six targeted health checks (the fourth tr
 | **PR phase no PR** | Pipeline reaches `complete` with `current_phase=pr` but no `pr_url` in phase artifacts — defense-in-depth for edge cases where primary PR creation failure handling was bypassed, so stranded branch work is not silently lost | HITL decision + Slack notification + message bus broadcast |
 | **Orchestrator unreachability** | Both pipeline status and phase queries return empty for 3 consecutive poll cycles — likely orchestrator container crash or network partition | Slack notification + oversight event + message bus broadcast (re-alerts every 3 cycles until recovered; oversight event also logged on recovery) |
 | **Incomplete consensus stall** | Consensus is incomplete and the same agents are blocking for ~5 minutes — likely stuck in a heartbeat loop after a re-review cycle cleared their confirmed status | Targeted nudge to each blocking agent; HITL + Slack if stall persists for ~5 more minutes |
+| **Infrastructure error (Tier 1)** | Agent emits `blocked` progress event with infrastructure-related blocker text (git failures, gateway errors, permission denied, EROFS) | Critical alert → overseer routes to decision maker HITL fast-path, bypassing nudge/redirect ladder. Deduplicated: same agent + same error pattern within `overseer_infra_error_dedup_window_seconds` produces only one HITL escalation across both tiers |
+
+### Infrastructure Error Cross-Tier Deduplication
+
+Infrastructure errors can be detected by both Tier 1 (deterministic pattern matching on progress events) and Tier 2 (LLM classification of stall context). To prevent duplicate HITL escalations:
+
+1. When the overseer processes a Tier 1 `infrastructure_error` alert, it records the escalation in a per-agent deduplication set (agent ID + error hash + timestamp)
+2. If the Tier 2 classifier independently detects an `infrastructure_error` for the same agent within the dedup window (default 5 minutes, configurable via `overseer_infra_error_dedup_window_seconds`), the duplicate HITL escalation is suppressed
+3. Distinct errors for the same agent (different error text) are **not** deduplicated — each unique infrastructure error gets its own HITL escalation
+
+When a Tier 1 `infrastructure_error` alert reaches the overseer monitor, it is routed directly to the decision maker with the infrastructure error classification pre-set, avoiding a redundant LLM classification call. This saves both latency and LLM cost.
 
 ### Autonomous Issue Filing
 
