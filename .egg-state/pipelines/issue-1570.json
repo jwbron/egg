@@ -141,10 +141,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-08T20:56:21.758113Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-08T21:04:11.386301Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Raw httpx (full control, no vendor SDK) — specifically: custom thin provider abstraction wrapping the anthropic and openai Python SDKs directly. Two ~150-line provider classes (AnthropicProvider, OpenAICompatProvider) implementing a shared Provider interface. No third-party abstraction layer (no LiteLLM, mirascope, etc.). The anthropic and openai SDKs handle streaming/types/retries for their respective APIs, and the thin adapter translates to egg's internal event format.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -333,7 +333,7 @@
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T20:59:25.227586Z",
+  "updated_at": "2026-04-08T21:04:11.393524Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -341,5 +341,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 23
+  "version": 24
 }
