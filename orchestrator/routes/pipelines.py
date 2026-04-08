@@ -2928,7 +2928,7 @@ BRC_MESSAGE_TYPES = frozenset(
 
 
 def _get_message_store():
-    """Import and return the message store instance, or None if unavailable."""
+    """Import and return the message store factory function, or None if unavailable."""
     try:
         from message_store import get_message_store
     except ImportError:
