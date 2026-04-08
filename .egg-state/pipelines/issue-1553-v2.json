@@ -290,10 +290,10 @@
         {
           "container_id": "359023afc9d66da63cf583bd5bab088d2c4202b44f6d10ccbff73e5cc96e89f1",
           "container_name": "issue-1553-v2-reviewer_code",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-08T21:19:27.881602Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-08T21:59:45.503306Z",
+          "exit_code": 1,
           "agent_role": "reviewer_code",
           "session_token": null
         }
@@ -349,13 +349,13 @@
         },
         {
           "role": "reviewer_code",
-          "status": "running",
+          "status": "failed",
           "container_id": "359023afc9d66da63cf583bd5bab088d2c4202b44f6d10ccbff73e5cc96e89f1",
           "started_at": "2026-04-08T21:19:27.881603Z",
-          "completed_at": null,
+          "completed_at": "2026-04-08T21:59:45.514314Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         }
@@ -413,7 +413,7 @@
     }
   ],
   "created_at": "2026-04-08T20:41:01.367785Z",
-  "updated_at": "2026-04-08T21:59:40.903259Z",
+  "updated_at": "2026-04-08T21:59:45.514390Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -421,5 +421,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 30
+  "version": 31
 }
