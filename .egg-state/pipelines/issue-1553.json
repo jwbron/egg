@@ -35,16 +35,33 @@
     "overseer_hitl_propagation_timeout_seconds": 300,
     "start_phase": null
   },
-  "phases": {},
+  "phases": {
+    "refine": {
+      "phase": "refine",
+      "status": "running",
+      "started_at": "2026-04-08T14:31:10.436226Z",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": "87d2fafbdae34ace9afdb505f04047bc67696259"
+    }
+  },
   "decisions": [],
   "created_at": "2026-04-08T14:30:41.767647Z",
-  "updated_at": "2026-04-08T14:30:41.847958Z",
-  "contract_synced": false,
+  "updated_at": "2026-04-08T14:31:10.436302Z",
+  "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 3
+  "version": 5
 }
