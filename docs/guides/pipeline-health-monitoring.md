@@ -173,21 +173,21 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `overseer_poll_interval_seconds` | `30` | How often the overseer checks health |
 | `overseer_max_redirects_before_escalation` | `2` | Redirect attempts before HITL escalation |
 | `overseer_decision_maker_model` | `"sonnet"` | LLM model for overseer decision-making tier |
-| `overseer_max_respawns` | `3` | Max times to auto-respawn the overseer if it exits mid-pipeline (0 disables respawning) |
+| `overseer_max_respawns` | `3` | Max times to auto-respawn the overseer if it exits mid-phase (0 disables respawning). The respawn counter resets at each phase boundary since each phase spawns a fresh overseer instance. |
 | `overseer_rerun_min_work_seconds` | `60` | Minimum work duration required after a `request_changes` phase-gate decision; completions faster than this with `content_changed=False` are flagged as re-run anomalies |
 | `overseer_hitl_propagation_timeout_seconds` | `300` | Seconds to wait for a resolved phase-gate decision to appear in the SDLC contract before raising a propagation-failure alert |
 | `overseer_infra_error_dedup_window_seconds` | `300` | Time window for deduplicating infrastructure error escalations between Tier 1 and Tier 2 (same agent + same error pattern) |
 
 ## Tier 2: Overseer Agent
 
-The overseer is a continuously running, read-only agent that handles cases the orchestrator's deterministic rules can't resolve. It runs as a separate container with no git repository access.
+The overseer is a phase-scoped, read-only agent that handles cases the orchestrator's deterministic rules can't resolve. It is spawned at the start of each pipeline phase and torn down when the phase completes, advances, or fails — giving each phase a fresh instance with no accumulated state. It runs as a separate container with no git repository access.
 
 ### Lifecycle
 
+- **Phase-scoped** — the overseer is spawned at the start of each pipeline phase and torn down when that phase completes, advances, or fails. Each phase gets a fresh overseer instance with no accumulated state from prior phases.
 - **Auto-spawned** on every pipeline (when `overseer_enabled` is true)
-- **Runs across all phases** — spawned at pipeline start, persists until pipeline completion
-- **Auto-respawned** if the overseer exits before the pipeline reaches a terminal state (up to `overseer_max_respawns` attempts, checked every 30 seconds by the orchestrator's health monitor thread)
-- **One overseer per pipeline**
+- **Auto-respawned** if the overseer exits before the current phase reaches a terminal state (up to `overseer_max_respawns` attempts, checked every 30 seconds by the orchestrator's health monitor thread). The respawn logic is gated by a `phase_overseer_active` flag — the health monitor thread will not attempt to respawn the overseer between phases when it has been intentionally stopped.
+- **One overseer per pipeline phase** — only one overseer container runs at a time
 - **No code access** — cannot clone, checkout, or modify code
 
 ### Internal Architecture
@@ -407,7 +407,7 @@ Pipeline health monitoring extends the existing [health check framework](../../o
 | **Tier 1 health checks** (existing) | Structural invariant checks (container liveness, state consistency, consensus stall detection) | At lifecycle triggers (STARTUP, RUNTIME_TICK, etc.) |
 | **Tier 2 health checks** (existing) | LLM-powered semantic analysis of agent progress | At WAVE_COMPLETE (if Tier 1 degraded), PHASE_COMPLETE, ON_DEMAND |
 | **Orchestrator tripwires** (new) | Deterministic real-time monitoring of structured progress events | Continuously, event-driven |
-| **Overseer agent** (new) | LLM-powered analysis of ambiguous failures, corrective action | Continuously, poll-based + escalation-driven |
+| **Overseer agent** (new) | LLM-powered analysis of ambiguous failures, corrective action | Per-phase, poll-based + escalation-driven (spawned/torn down at phase boundaries) |
 
 The orchestrator tripwires process structured agent logs in real-time (event-driven), while the existing health check framework runs at discrete lifecycle points. The overseer agent provides deeper semantic analysis than Tier 2 health checks, with the ability to take corrective action (redirects, issue filing) rather than just reporting status.
 
