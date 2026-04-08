@@ -377,78 +377,112 @@ class TestNoSpawnWhenDisabled:
 
 
 # ---------------------------------------------------------------------------
-# Scenario 5: Persists across phase transitions
+# Scenario 5: Phase-scoped lifecycle (issue #1560)
 # ---------------------------------------------------------------------------
 
 
-class TestPersistsAcrossPhases:
-    """Verify overseer is NOT stopped/restarted on phase transitions."""
+class TestPhaseScopedLifecycle:
+    """Verify overseer is phase-scoped: spawned per phase, torn down at phase end.
 
-    def test_overseer_not_stopped_on_phase_transition(self, spawner, mock_docker_client):
-        """Overseer container should persist across phase changes (not stopped/restarted)."""
-        # Spawn the overseer at pipeline start
-        result = spawner.spawn_overseer_container(
+    Replaced the previous TestPersistsAcrossPhases tests because the overseer
+    is now intentionally stopped and respawned at phase boundaries (issue #1560).
+    """
+
+    def test_overseer_spawned_per_phase(self, spawner, mock_docker_client):
+        """Each phase gets its own overseer instance via spawn_overseer_container."""
+        # Phase 1: spawn overseer
+        result_p1 = spawner.spawn_overseer_container(
             pipeline_id="issue-700",
             issue_number=700,
         )
-        overseer_container_id = result.container_info.container_id
+        p1_container_id = result_p1.container_info.container_id
 
-        # Simulate phase transitions by listing containers with overseer label
-        # The orchestrator should NOT stop the overseer on phase change
-        mock_docker_client.stop_container.reset_mock()
+        # Phase 1 ends: stop the overseer
+        mock_docker_client.stop_container.return_value = ContainerInfo(
+            container_id=p1_container_id,
+            container_name="egg-issue-700-overseer",
+            status=ContainerStatus.EXITED,
+        )
+        spawner.stop_agent_container(p1_container_id)
+        mock_docker_client.stop_container.assert_called_with(p1_container_id, timeout=10)
 
-        # Simulate phase change: refine -> plan -> implement
-        # During each transition, verify stop is NOT called for overseer
-        phases = ["refine", "plan", "implement"]
-        for phase in phases:
-            # The orchestrator might stop/restart agent containers on phase change,
-            # but should leave the overseer alone. Verify by checking that
-            # stop_container was not called for the overseer ID.
-            overseer_stop_calls = [
-                c
-                for c in mock_docker_client.stop_container.call_args_list
-                if c.args and c.args[0] == overseer_container_id
-            ]
-            assert len(overseer_stop_calls) == 0, (
-                f"Overseer should not be stopped during phase transition to {phase}"
-            )
+        # Phase 2: spawn a new overseer (reuses container name)
+        mock_docker_client.create_container.return_value = ContainerInfo(
+            container_id="overseer-phase2-789",
+            container_name="egg-issue-700-overseer",
+            status=ContainerStatus.PENDING,
+        )
+        mock_docker_client.start_container.return_value = ContainerInfo(
+            container_id="overseer-phase2-789",
+            container_name="egg-issue-700-overseer",
+            status=ContainerStatus.RUNNING,
+            started_at=datetime.now(UTC),
+        )
+        result_p2 = spawner.spawn_overseer_container(
+            pipeline_id="issue-700",
+            issue_number=700,
+        )
+        p2_container_id = result_p2.container_info.container_id
 
-    def test_overseer_survives_agent_restart(
-        self, spawner, mock_docker_client, mock_gateway_client
-    ):
-        """Overseer persists even when agent containers are stopped/restarted."""
-        # Spawn overseer
-        overseer = spawner.spawn_overseer_container(
+        # Different container instances across phases
+        assert p1_container_id != p2_container_id, (
+            "Each phase should get a fresh overseer container"
+        )
+
+    def test_overseer_stopped_at_phase_end(self, spawner, mock_docker_client):
+        """Overseer is stopped via stop_agent_container at phase end."""
+        result = spawner.spawn_overseer_container(
             pipeline_id="issue-710",
             issue_number=710,
         )
+        overseer_id = result.container_info.container_id
 
-        # Spawn and stop an agent container (simulating phase transition)
+        mock_docker_client.stop_container.return_value = ContainerInfo(
+            container_id=overseer_id,
+            container_name="egg-issue-710-overseer",
+            status=ContainerStatus.EXITED,
+        )
+
+        # Simulate phase-end teardown
+        stop_result = spawner.stop_agent_container(overseer_id, cleanup_session=True, timeout=10)
+
+        assert stop_result.status == ContainerStatus.EXITED
+        mock_docker_client.stop_container.assert_called_with(overseer_id, timeout=10)
+
+    def test_overseer_not_stopped_when_agent_container_stopped(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Stopping a non-overseer agent container does not affect the overseer."""
+        # Spawn overseer
+        overseer = spawner.spawn_overseer_container(
+            pipeline_id="issue-720",
+            issue_number=720,
+        )
+
+        # Spawn and stop an agent container
         mock_docker_client.create_container.return_value = ContainerInfo(
             container_id="agent-abc123",
-            container_name="egg-issue-710-coder",
+            container_name="egg-issue-720-coder",
             status=ContainerStatus.PENDING,
         )
         mock_docker_client.start_container.return_value = ContainerInfo(
             container_id="agent-abc123",
-            container_name="egg-issue-710-coder",
+            container_name="egg-issue-720-coder",
             status=ContainerStatus.RUNNING,
             started_at=datetime.now(UTC),
         )
         mock_docker_client.stop_container.return_value = ContainerInfo(
             container_id="agent-abc123",
-            container_name="egg-issue-710-coder",
+            container_name="egg-issue-720-coder",
             status=ContainerStatus.EXITED,
         )
 
-        # Stop the agent, not the overseer
         spawner.stop_agent_container("agent-abc123")
 
-        # Verify overseer was NOT stopped
         stop_calls = mock_docker_client.stop_container.call_args_list
         stopped_ids = [c.args[0] if c.args else c.kwargs.get("container_id") for c in stop_calls]
         assert overseer.container_info.container_id not in stopped_ids, (
-            "Overseer should not be stopped when an agent container is stopped"
+            "Overseer should not be stopped when a non-overseer agent container is stopped"
         )
 
 
