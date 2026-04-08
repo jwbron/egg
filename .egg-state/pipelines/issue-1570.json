@@ -201,10 +201,24 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Are NotebookEdit, WebFetch, WebSearch all required for MVP? Are there unlisted Claude Code tools agents rely on?",
+      "context": "",
+      "options": [],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-08T20:56:45.288506Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T20:56:21.913268Z",
+  "updated_at": "2026-04-08T20:56:45.290505Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -212,5 +226,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 11
+  "version": 12
 }
