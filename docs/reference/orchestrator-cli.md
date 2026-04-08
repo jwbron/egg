@@ -31,8 +31,8 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch container spawn [<id>] --role <role>` | Spawn a container |
 | `egg-orch container logs [<id>] <cid>` | Get container logs |
 | `egg-orch container stop [<id>] <cid>` | Stop a container |
-| `egg-orch agent restart [<id>] <role> [--reason "..."]` | Restart a single stuck agent (stop, reset consensus, respawn) |
-| `egg-orch phase restart [<id>] <phase> [--reason "..."] [--context "..."]` | Restart an entire phase (stop all containers, reset consensus, respawn all) |
+| `egg-orch agent restart [<id>] <role> [--reason "..."]` | Restart a single stuck agent (stop, reset consensus, respawn). *CLI pending — use the REST API directly for now* |
+| `egg-orch phase restart [<id>] <phase> [--reason "..."] [--context "..."]` | Restart an entire phase (stop all containers, reset consensus, respawn all). *CLI pending — use the REST API directly for now* |
 | `egg-orch gateway health` | Check gateway health |
 | `egg-orch gateway phase --issue <n>` | Get current phase from gateway |
 | `egg-orch gateway permissions <phase>` | Get allowed ops for a phase |
@@ -127,6 +127,17 @@ egg-orch phase restart implement \
 ```
 
 Agent restart preserves the agent's existing worktree (including committed work on the branch) and resets only that agent's consensus state (proposals, ACKs, NACKs, confirmations). Phase restart resets all consensus state and review cycle counters for the phase, then respawns all agents from scratch while preserving prior phase artifacts and branch commits.
+
+> **Note:** CLI commands for restart are pending implementation. In the meantime, use the REST API directly or the MCP tools:
+> ```bash
+> # Agent restart via REST API
+> curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/agents/<role>/restart \
+>   -H "Content-Type: application/json" -d '{"reason": "Agent hung"}'
+>
+> # Phase restart via REST API
+> curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/phases/<phase>/restart \
+>   -H "Content-Type: application/json" -d '{"reason": "Phase stalled", "context": "Focus on X"}'
+> ```
 
 **Manage agent anchors (post-compaction recovery):**
 ```bash
