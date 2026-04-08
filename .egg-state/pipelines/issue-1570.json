@@ -209,10 +209,10 @@
       "options": [],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-08T20:56:45.288506Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-08T21:15:48.020911Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Include WebFetch and WebSearch in MVP (simple HTTP wrappers, already conditionally disabled in private mode). Defer NotebookEdit — rarely used by pipeline agents. No unlisted Claude Code tools needed — Agent tool delegation is explicitly out of scope per the issue.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -333,7 +333,7 @@
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T21:06:56.815405Z",
+  "updated_at": "2026-04-08T21:15:48.022420Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -341,5 +341,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 27
+  "version": 28
 }
