@@ -262,10 +262,24 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Are there resource limits/quotas for agent pods? Currently no limits on agents (only devserver has limits).",
+      "context": "",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-08T14:44:04.588015Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-08T14:30:41.767647Z",
-  "updated_at": "2026-04-08T14:44:04.560648Z",
+  "updated_at": "2026-04-08T14:44:04.589643Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -273,5 +287,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 15
+  "version": 16
 }
