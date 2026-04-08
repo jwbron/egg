@@ -992,10 +992,10 @@ def setup_claude(config: Config, logger: Logger) -> None:
 
     if config.anthropic_api_key:
         logger.success("Anthropic API key configured")
-    elif config.anthropic_auth_method == "oauth":
+    elif config.anthropic_auth_method == "oauth" or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
         logger.success("Anthropic OAuth authentication enabled")
     else:
-        logger.warn("ANTHROPIC_API_KEY not set")
+        logger.warn("ANTHROPIC_API_KEY not set and no OAuth token found")
         logger.info("  Set via: export ANTHROPIC_API_KEY=sk-ant-...")
         logger.info("  Or use OAuth: export ANTHROPIC_AUTH_METHOD=oauth")
 
