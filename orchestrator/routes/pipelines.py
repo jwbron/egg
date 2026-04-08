@@ -204,6 +204,38 @@ def _check_and_respawn_overseer(
     return overseer_container_id, overseer_respawn_count
 
 
+def _teardown_phase_overseer(
+    spawner: "ContainerSpawner",
+    container_id: str,
+    pipeline_id: str,
+    phase_label: str,
+    reason: str,
+) -> None:
+    """Stop the phase-scoped overseer container.
+
+    Caller is responsible for holding ``overseer_lock`` and clearing
+    ``phase_overseer_active`` after this call returns.
+    """
+    try:
+        spawner.stop_agent_container(
+            container_id,
+            cleanup_session=True,
+            timeout=10,
+        )
+        logger.info(
+            f"Overseer container stopped ({reason})",
+            pipeline_id=pipeline_id,
+            phase=phase_label,
+            container_id=container_id[:12],
+        )
+    except Exception as overseer_err:
+        logger.debug(
+            f"Failed to stop overseer container ({reason})",
+            pipeline_id=pipeline_id,
+            error=str(overseer_err),
+        )
+
+
 # Base directory where the gateway creates per-pipeline worktrees.
 # Must match the gateway's WORKTREE_BASE_DIR and docker-compose volume mounts.
 WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
@@ -5740,6 +5772,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     run_created_at: datetime | None = None
     overseer_container_id: str | None = None
     phase_overseer_active: bool = False
+    overseer_lock = threading.Lock()
     health_monitor_instance = None
     health_monitor_timer: threading.Event | None = None
     poll_thread: threading.Thread | None = None
@@ -6175,7 +6208,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             max_overseer_respawns = pipeline.config.overseer_max_respawns
 
             def _health_monitor_poll(monitor, stop_event: threading.Event, interval: float = 30.0):
-                nonlocal overseer_container_id, overseer_respawn_count
+                nonlocal overseer_container_id, overseer_respawn_count, phase_overseer_active
                 while not stop_event.is_set():
                     try:
                         # Tier 1 no longer sends nudges directly — it raises
@@ -6193,19 +6226,26 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     # Only check when phase_overseer_active is True — the overseer
                     # is intentionally absent between phases, and respawning it
                     # there would waste resources.
-                    if phase_overseer_active:
-                        overseer_container_id, overseer_respawn_count = _check_and_respawn_overseer(
-                            spawner=spawner,
-                            store=store,
-                            pipeline_id=pipeline_id,
-                            pipeline=pipeline,
-                            overseer_container_id=overseer_container_id,
-                            overseer_respawn_count=overseer_respawn_count,
-                            max_overseer_respawns=max_overseer_respawns,
-                            gateway_mode=gateway_mode,
-                            pipeline_repos=pipeline_repos,
-                            certs_volume=certs_volume,
-                        )
+                    # The lock prevents a race with the main thread's phase-boundary
+                    # teardown: without it, the poll thread could see the container
+                    # as EXITED (because the main thread just stopped it) and respawn
+                    # an orphaned overseer that nobody will clean up.
+                    with overseer_lock:
+                        if phase_overseer_active:
+                            overseer_container_id, overseer_respawn_count = (
+                                _check_and_respawn_overseer(
+                                    spawner=spawner,
+                                    store=store,
+                                    pipeline_id=pipeline_id,
+                                    pipeline=pipeline,
+                                    overseer_container_id=overseer_container_id,
+                                    overseer_respawn_count=overseer_respawn_count,
+                                    max_overseer_respawns=max_overseer_respawns,
+                                    gateway_mode=gateway_mode,
+                                    pipeline_repos=pipeline_repos,
+                                    certs_volume=certs_volume,
+                                )
+                            )
 
                     stop_event.wait(interval)
 
@@ -6594,26 +6634,19 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # If the phase failed, emit the failure event so the SSE stream
             # terminates, then break out of the outer loop.
             if phase_failed:
-                # Stop the phase-scoped overseer on failure
-                if overseer_container_id and phase_overseer_active:
-                    try:
-                        spawner.stop_agent_container(
+                # Stop the phase-scoped overseer on failure.
+                # Hold the lock to prevent the poll thread from seeing the
+                # container as EXITED and respawning it.
+                with overseer_lock:
+                    if overseer_container_id and phase_overseer_active:
+                        phase_overseer_active = False
+                        _teardown_phase_overseer(
+                            spawner,
                             overseer_container_id,
-                            cleanup_session=True,
-                            timeout=10,
+                            pipeline_id,
+                            phase_label=str(current_phase),
+                            reason="phase failed",
                         )
-                        logger.info(
-                            "Overseer container stopped (phase failed)",
-                            pipeline_id=pipeline_id,
-                            container_id=overseer_container_id[:12],
-                        )
-                    except Exception as overseer_err:
-                        logger.debug(
-                            "Failed to stop overseer container on phase failure",
-                            pipeline_id=pipeline_id,
-                            error=str(overseer_err),
-                        )
-                    phase_overseer_active = False
 
                 # report_pipeline_status is a stub (no-op) unless status_reporter
                 # is installed.  The actual SSE emission is _emit_pipeline_event
@@ -7074,26 +7107,18 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # Tear down the phase-scoped overseer before advancing.
             # Each phase gets a fresh overseer instance — no state carries
             # over between phases.
-            if overseer_container_id and phase_overseer_active:
-                try:
-                    spawner.stop_agent_container(
+            # Hold the lock to prevent the poll thread from seeing the
+            # container as EXITED and respawning it.
+            with overseer_lock:
+                if overseer_container_id and phase_overseer_active:
+                    phase_overseer_active = False
+                    _teardown_phase_overseer(
+                        spawner,
                         overseer_container_id,
-                        cleanup_session=True,
-                        timeout=10,
+                        pipeline_id,
+                        phase_label=current_phase.value,
+                        reason="phase ended",
                     )
-                    logger.info(
-                        "Overseer container stopped (phase ended)",
-                        pipeline_id=pipeline_id,
-                        phase=current_phase.value,
-                        container_id=overseer_container_id[:12],
-                    )
-                except Exception as overseer_err:
-                    logger.debug(
-                        "Failed to stop overseer container at phase end",
-                        pipeline_id=pipeline_id,
-                        error=str(overseer_err),
-                    )
-                phase_overseer_active = False
 
             # Determine next phase
             next_phases = transitions.get(current_phase, [])

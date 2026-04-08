@@ -237,21 +237,39 @@ class TestPhaseOverseerActiveGating:
         mock_spawner.spawn_overseer_container.assert_not_called()
         mock_docker_client.get_container_info.assert_not_called()
 
-    def test_phase_active_false_prevents_respawn_at_caller_level(self):
-        """Verify the gating pattern: phase_overseer_active=False means the caller
-        should NOT invoke _check_and_respawn_overseer at all.
+    def test_respawn_skipped_when_max_respawns_reached(
+        self, mock_spawner, mock_docker_client, mock_store, running_pipeline
+    ):
+        """_check_and_respawn_overseer returns early when respawn budget is exhausted.
 
-        This tests the contract that the health-monitor poll thread must
-        check the flag before calling the function.
+        This exercises the guard inside the production function that prevents
+        respawn when overseer_respawn_count >= max_overseer_respawns.
         """
-        phase_overseer_active = False
+        original_id = "overseer-exhausted-001"
+        # Container exited, but respawn count already at max
+        mock_docker_client.get_container_info.return_value = ContainerInfo(
+            container_id=original_id,
+            container_name="egg-issue-1560-overseer",
+            status=ContainerStatus.EXITED,
+            exit_code=1,
+        )
 
-        # Simulate the gating pattern from _health_monitor_poll
-        respawn_called = False
-        if phase_overseer_active:
-            respawn_called = True
+        same_id, same_count = _check_and_respawn_overseer(
+            spawner=mock_spawner,
+            store=mock_store,
+            pipeline_id="issue-1560",
+            pipeline=running_pipeline,
+            overseer_container_id=original_id,
+            overseer_respawn_count=3,
+            max_overseer_respawns=3,
+            gateway_mode="public",
+            pipeline_repos=None,
+            certs_volume=None,
+        )
 
-        assert not respawn_called, "When phase_overseer_active=False, respawn should not be called"
+        assert same_id == original_id, "Container ID should be unchanged"
+        assert same_count == 3, "Respawn count should not increase"
+        mock_spawner.spawn_overseer_container.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -355,21 +373,19 @@ class TestOverseerSpawnedAtPhaseStart:
             assert result.agent_role == AgentRole.OVERSEER
             assert result.container_info.container_id == "overseer123def456"
 
-    def test_spawn_not_called_when_disabled(self, spawner, mock_docker_client):
-        """No spawn when overseer_enabled=False — phase_overseer_active stays False."""
-        config = _make_config(overseer_enabled=False)
-        phase_overseer_active = False
+    def test_config_disabled_flag(self):
+        """PipelineConfig(overseer_enabled=False) correctly stores the flag.
 
-        if config.overseer_enabled:
-            spawner.spawn_overseer_container(
-                pipeline_id="issue-1560",
-                issue_number=1560,
-            )
-            phase_overseer_active = True
+        Note: the gating logic (``if config.overseer_enabled``) lives in the
+        pipeline loop, not in a standalone function we can unit-test here.
+        This test verifies that the config flag round-trips correctly, which
+        is what the guard condition depends on.
+        """
+        config_off = _make_config(overseer_enabled=False)
+        config_on = _make_config(overseer_enabled=True)
 
-        assert not phase_overseer_active, (
-            "phase_overseer_active should remain False when overseer is disabled"
-        )
+        assert not config_off.overseer_enabled
+        assert config_on.overseer_enabled
 
     def test_spawn_failure_leaves_phase_overseer_inactive(self, spawner, mock_docker_client):
         """If spawn_overseer_container raises, phase_overseer_active stays False.
@@ -473,17 +489,31 @@ class TestOverseerTeardownBeforePhaseAdvance:
         assert not phase_overseer_active
         mock_docker_client.stop_container.assert_called_with(overseer_id, timeout=10)
 
-    def test_advance_with_no_overseer_is_safe(self):
-        """Phase advance when overseer was never spawned (disabled config)."""
-        overseer_container_id = None
-        phase_overseer_active = False
+    def test_advance_with_no_container_skips_respawn(
+        self, mock_spawner, mock_docker_client, mock_store, running_pipeline
+    ):
+        """_check_and_respawn_overseer returns early when container_id is None.
 
-        # This mirrors the guard ``if overseer_container_id and phase_overseer_active``
-        teardown_called = False
-        if overseer_container_id and phase_overseer_active:
-            teardown_called = True
+        This exercises the production guard ``if not overseer_container_id``
+        rather than replicating a conditional in the test.
+        """
+        same_id, same_count = _check_and_respawn_overseer(
+            spawner=mock_spawner,
+            store=mock_store,
+            pipeline_id="issue-1560",
+            pipeline=running_pipeline,
+            overseer_container_id=None,
+            overseer_respawn_count=0,
+            max_overseer_respawns=3,
+            gateway_mode="public",
+            pipeline_repos=None,
+            certs_volume=None,
+        )
 
-        assert not teardown_called, "No teardown should happen when overseer was never spawned"
+        assert same_id is None
+        assert same_count == 0
+        mock_docker_client.get_container_info.assert_not_called()
+        mock_spawner.spawn_overseer_container.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
