@@ -242,10 +242,10 @@
       "options": [],
       "decision_type": "feedback",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-08T14:44:04.524420Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-08T14:56:29.414554Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"q-1\": \"Local dev only (k3s) for this migration. GKE deployment will be done as follow-up work later. Kustomize overlays should be structured with base/ and overlays/local/ so adding overlays/gke/ later is straightforward.\"}}",
       "phase": "refine",
       "content_changed": null
     },
@@ -338,7 +338,7 @@
     }
   ],
   "created_at": "2026-04-08T14:30:41.767647Z",
-  "updated_at": "2026-04-08T14:56:22.799343Z",
+  "updated_at": "2026-04-08T14:56:29.416390Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -346,5 +346,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 29
+  "version": 30
 }
