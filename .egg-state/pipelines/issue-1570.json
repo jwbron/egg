@@ -251,10 +251,10 @@
       "options": [],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-08T20:56:45.403262Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-08T21:15:49.347613Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Leave the full restart-on-exit and BRC recovery logic in the consensus wrapper for MVP, but the harness itself should implement basic retries with exponential backoff for transient API failures (rate limits, 5xx errors, connection resets). This keeps the harness resilient to common API issues without internalizing the full consensus restart semantics.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -333,7 +333,7 @@
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T21:15:49.041625Z",
+  "updated_at": "2026-04-08T21:15:49.349415Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -341,5 +341,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 30
+  "version": 31
 }
