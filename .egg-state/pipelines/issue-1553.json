@@ -234,10 +234,24 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-7",
+      "question": "What is the target deployment environment? Local dev only (k3s), or also cloud k8s (EKS/GKE/AKS)?",
+      "context": "",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-08T14:44:04.524420Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-08T14:30:41.767647Z",
-  "updated_at": "2026-04-08T14:43:51.875753Z",
+  "updated_at": "2026-04-08T14:44:04.530423Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -245,5 +259,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 13
+  "version": 14
 }
