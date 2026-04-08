@@ -372,11 +372,23 @@ A complementary check, `IncompleteConsensusStallCheck`, handles the inverse scen
 
 ### All-Container-Exit Consensus Recovery
 
-A race condition exists between the orchestrator's consensus polling (step 2 in `_run_concurrent_phase`) and the all-container-exit fallback (step 5). When all containers exit with non-zero codes (e.g., after a withdrawal/re-proposal cascade causes agents to exit code 1), the step-2 consensus check may read stale tracker state — missing that consensus actually completed — and step 5 immediately returns `exit_code=1` without rechecking.
+Step 5 of `_run_concurrent_phase` handles the terminal path where all agent containers have exited. It has two branches — one for when failures occurred (non-zero exit codes) and one for clean exits (all exit code 0). **Both branches now perform a final consensus recheck** via `executor.check_consensus()` before deciding the phase outcome.
 
-To close this race window, step 5 now performs a **final consensus recheck** (`executor.check_consensus()`) before returning failure. If consensus is complete on this second check, the orchestrator recovers: it calls `_update_agents_complete()` and `_stop_running_containers()`, restores the pipeline from `FAILED` to `RUNNING` status if needed (same recovery logic as step 2), and returns `exit_code=0` — the successful outcome.
+**Has-failures branch** (at least one non-zero exit code):
+
+A race condition exists between the orchestrator's consensus polling (step 2) and this all-container-exit fallback (step 5). When all containers exit with non-zero codes (e.g., after a withdrawal/re-proposal cascade causes agents to exit code 1), the step-2 consensus check may read stale tracker state — missing that consensus actually completed — and step 5 would immediately return `exit_code=1` without rechecking.
+
+To close this race window, step 5 performs a **final consensus recheck**. If consensus is complete on this second check, the orchestrator recovers: it calls `_update_agents_complete()` and `_stop_running_containers()`, restores the pipeline from `FAILED` to `RUNNING` status if needed (same recovery logic as step 2), and returns `exit_code=0` — the successful outcome.
 
 This scenario was observed in issue #1564, where an overseer restart triggered a coder withdrawal cascade. All 5 agents sent `CONSENSUS_CONFIRMED` and exited within seconds, but the orchestrator returned failure because the step-2 check read stale consensus state and step 5 returned immediately without a recheck.
+
+**No-failures branch** (all containers exit code 0):
+
+Even when all containers exit cleanly, consensus may not have been reached — agents can exit code 0 without completing the full BRC lifecycle (e.g., exiting before reaching `CONFIRMED` state). Previously, this branch returned success unconditionally (after checking for unresolved NACKs), which allowed the pipeline to advance and open a PR despite consensus never being reached.
+
+To close this gap, the no-failures branch now performs the same **final consensus recheck**. If `is_complete` is False, it logs a warning ("All containers exited cleanly but consensus not reached") and returns `exit_code=1` — preventing phase advancement. This ensures BRC consensus is a hard gate for phase completion regardless of exit codes.
+
+This scenario was observed in issue #1581, where a PR was opened with code changes despite the BRC Consensus Summary showing "Consensus not reached" for all phases.
 
 The additional API call in step 5 is negligible — it only runs on the terminal path where all containers have already exited.
 
@@ -434,6 +446,7 @@ The 60-second window is tracked via the `_failure_times` list, filtered to recen
 | Consensus timeout (advisory only) | *(no HITL — proceeds automatically)* |
 | Agent objection | Resolve then advance, Override, Abort |
 | All agents exited with failures, consensus complete | *(no HITL — recovered automatically via final recheck)* |
+| All agents exited cleanly, consensus incomplete | *(phase fails with exit code 1 — no advancement)* |
 | All agents exited with unresolved NACKs | Retry phase, Accept current state, Abort phase |
 
 ## Per-Agent Worktree Isolation
