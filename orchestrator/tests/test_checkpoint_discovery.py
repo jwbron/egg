@@ -62,7 +62,7 @@ class TestRoleContextCheckpointPointer:
     def test_checkpoint_pointer_among_other_context_pointers(self):
         """Checkpoint pointer coexists with other context pointers (git diff, handoff)."""
         result = _build_role_context("tester", "# Issue\n\nBody.", issue_number=42)
-        assert "git diff HEAD~10..HEAD" in result
+        assert "origin/main...HEAD" in result
         assert "EGG_HANDOFF_DATA" in result
         assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID" in result
         assert "gh issue view 42" in result
