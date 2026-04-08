@@ -10,10 +10,7 @@ from unittest.mock import patch
 import pytest
 from mcp_tools import PipelineToolHandler
 
-try:
-    from egg_config.constants import TEST_GATEWAY_PORT
-except ImportError:
-    TEST_GATEWAY_PORT = 9848
+from egg_config.constants import TEST_GATEWAY_PORT
 
 
 @pytest.fixture
