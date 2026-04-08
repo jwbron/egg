@@ -453,10 +453,13 @@ class KubernetesClient:
         k8s_volumes: list[client.V1Volume] = []
         k8s_volume_mounts: list[client.V1VolumeMount] = []
         if volumes:
-            for idx, (host_path, mount_config) in enumerate(volumes.items()):
+            for idx, (vol_key, mount_config) in enumerate(volumes.items()):
                 vol_name = f"vol-{idx}"
                 bind = mount_config.get("bind", f"/mnt/vol-{idx}")
                 mode = mount_config.get("mode", "rw")
+                # Support explicit "source" key for unique-keyed volumes,
+                # falling back to the dict key for backward compatibility.
+                host_path = mount_config.get("source", vol_key)
                 k8s_volumes.append(
                     client.V1Volume(
                         name=vol_name,

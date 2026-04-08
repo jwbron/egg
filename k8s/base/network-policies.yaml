@@ -100,7 +100,7 @@ spec:
               kubernetes.io/metadata.name: egg-system
           podSelector:
             matchLabels:
-              app: orchestrator
+              app.kubernetes.io/name: orchestrator
       ports:
         - protocol: TCP
           port: 9849

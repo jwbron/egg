@@ -311,13 +311,19 @@ class KubernetesSpawner:
                     )
                 )
 
-        # Convert MountSpec objects to k8s volume dict format
+        # Convert MountSpec objects to k8s volume dict format.
+        # Use destination-based unique keys to avoid collisions when
+        # multiple mounts share the same source (e.g., /dev/null for
+        # .git shadow mounts across multiple repos).
         for mount in mounts:
             source = mount.source or "/dev/null"
             mode = "ro" if mount.readonly else "rw"
-            volumes[source] = {
+            # Use a unique key derived from the destination path
+            unique_key = f"{source}::{mount.destination}"
+            volumes[unique_key] = {
                 "bind": mount.destination,
                 "mode": mode,
+                "source": source,
             }
 
         session_info = None
