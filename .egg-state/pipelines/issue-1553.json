@@ -276,10 +276,24 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-10",
+      "question": "Should the DevserverManager also be migrated to Kubernetes? It currently uses Docker Compose for validation stacks.",
+      "context": "",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-08T14:44:04.619017Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-08T14:30:41.767647Z",
-  "updated_at": "2026-04-08T14:44:04.589643Z",
+  "updated_at": "2026-04-08T14:44:04.620717Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -287,5 +301,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 16
+  "version": 17
 }
