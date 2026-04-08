@@ -224,6 +224,8 @@ class TestFailurePathPushesWorktreeBranch:
         ):
             _run_pipeline("issue-42", Path("/repo"))
 
+        # push_worktree_branch should be called once for the failure-path push.
+        # Stale draft cleanup does not trigger a push (no drafts dir in test worktree).
         mock_gateway.push_worktree_branch.assert_called_once_with(
             pipeline_id="issue-42",
             repo_path=str(worktree_dir),
@@ -485,6 +487,7 @@ class TestSuccessPathPushesStatefiles:
         # push_worktree_branch should have been called:
         # - once for auto-PR pre-push (pushes commits before PR creation)
         # - once after phase completion (pushes statefiles)
+        # (stale draft cleanup does not push — no drafts dir in test worktree)
         calls = mock_gateway.push_worktree_branch.call_args_list
         assert len(calls) == 2, (
             f"Expected push_worktree_branch to be called twice "
@@ -572,6 +575,7 @@ class TestSuccessPathPushesStatefiles:
         # push_worktree_branch should be called exactly three times:
         # once after contract initialization, once for auto-PR pre-push,
         # and once after phase completion.
+        # (stale draft cleanup does not push — no drafts dir in test worktree)
         calls = mock_gateway.push_worktree_branch.call_args_list
         assert len(calls) == 3, (
             f"Expected push_worktree_branch to be called three times "
@@ -766,7 +770,8 @@ class TestContractPushHardGate:
             "Pipeline should be marked FAILED when contract push fails after retry"
         )
 
-        # push_worktree_branch should be called twice (initial + retry)
+        # push_worktree_branch should be called twice (initial + retry).
+        # Stale draft cleanup does not push (no drafts dir in test worktree).
         push_calls = mock_gateway.push_worktree_branch.call_args_list
         assert len(push_calls) == 2, (
             f"Expected 2 push attempts (initial + retry), got {len(push_calls)}"

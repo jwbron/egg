@@ -1648,6 +1648,83 @@ def _get_draft_path(
         return f".egg-state/drafts/{prefix}-{phase}.md"
 
 
+def _cleanup_stale_generic_drafts(worktree_path: Path) -> bool:
+    """Remove unprefixed generic draft files from a worktree.
+
+    Legacy pipelines left behind ``analysis.md`` and ``plan.md`` (without
+    an issue-number or pipeline-id prefix) in ``.egg-state/drafts/``.
+    These stale files can confuse downstream draft-reading logic.  This
+    helper deletes only the exact unprefixed filenames; prefixed files
+    (e.g. ``1553-analysis.md``) are left untouched.
+
+    Uses ``git rm`` so the deletions are staged and can be committed
+    immediately.  Falls back to ``os.unlink`` if the file is untracked.
+
+    Safe to call when the drafts directory does not exist (no-op).
+
+    Returns ``True`` if a commit was made (i.e. tracked files were removed
+    and committed), ``False`` otherwise.
+    """
+    drafts_dir = worktree_path / ".egg-state" / "drafts"
+    if not drafts_dir.is_dir():
+        return False
+
+    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_path)]
+    removed = False
+
+    stale_names = ("analysis.md", "plan.md")
+    for name in stale_names:
+        stale = drafts_dir / name
+        if stale.exists():
+            logger.info(
+                "Removing stale generic draft",
+                path=str(stale),
+            )
+            try:
+                subprocess.run(
+                    [*git_base, "rm", "-f", str(stale.relative_to(worktree_path))],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=10,
+                )
+                removed = True
+            except subprocess.CalledProcessError as exc:
+                # File may be untracked — just delete it from disk.
+                # Warn so that unexpected git rm failures (e.g. index
+                # lock) are diagnosable.
+                logger.warning(
+                    "git rm failed for stale draft, falling back to unlink",
+                    path=str(stale),
+                    error=str(exc),
+                )
+                stale.unlink(missing_ok=True)
+
+    if removed:
+        try:
+            subprocess.run(
+                [
+                    *git_base,
+                    "commit",
+                    "--no-verify",
+                    "-m",
+                    "Remove stale generic draft files",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=30,
+            )
+            return True
+        except subprocess.CalledProcessError as commit_err:
+            logger.debug(
+                "No changes to commit after stale draft cleanup",
+                error=str(commit_err),
+            )
+
+    return False
+
+
 def _read_phase_draft(
     repo_path: Path,
     phase: str,
@@ -1665,6 +1742,13 @@ def _read_phase_draft(
         return None
     draft_path = repo_path / draft_rel
     if not draft_path.exists():
+        logger.debug(
+            "Draft file not found",
+            path=str(draft_path),
+            phase=phase,
+            issue_number=issue_number,
+            pipeline_id=pipeline_id,
+        )
         return None
     content = draft_path.read_text(encoding="utf-8")
     if len(content) > max_chars:
@@ -5966,6 +6050,24 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 prior_phase_succeeded=prior_phase_succeeded,
                 gateway_mode=gateway_mode,
             )
+
+            # Remove legacy unprefixed draft files (analysis.md, plan.md)
+            # that may have been left by earlier pipelines on this branch.
+            # Uses git rm so deletions are committed directly.  See #1559.
+            cleanup_committed = _cleanup_stale_generic_drafts(worktree_repo_path)
+            if cleanup_committed and pipeline.branch:
+                try:
+                    spawner.gateway.push_worktree_branch(
+                        pipeline_id=pipeline_id,
+                        repo_path=str(worktree_repo_path),
+                        branch=pipeline.branch,
+                        mode=gateway_mode,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to push stale draft cleanup (continuing)",
+                        pipeline_id=pipeline_id,
+                    )
 
         # Resolve the certs named volume for gateway CA trust.
         # The docker-compose stack creates ${COMPOSE_PROJECT_NAME:-egg}-certs.
