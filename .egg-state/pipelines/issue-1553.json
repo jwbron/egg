@@ -304,10 +304,24 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-12",
+      "question": "How should the CI pipeline change? k3s in GitHub Actions requires installation steps. Should we use kind for CI and k3s for local dev?",
+      "context": "",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-08T14:44:04.673743Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-08T14:30:41.767647Z",
-  "updated_at": "2026-04-08T14:44:04.653446Z",
+  "updated_at": "2026-04-08T14:44:04.677613Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -315,5 +329,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 18
+  "version": 19
 }
