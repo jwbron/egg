@@ -378,7 +378,7 @@ The `health_monitor.py` module subscribes to EventBus events and evaluates five 
 
 ### Overseer Agent
 
-Auto-spawned on every pipeline (when `overseer_enabled` is true). Uses Haiku for anomaly classification and Sonnet/Opus for corrective decisions via `shared/egg_agent/`. No code access. All CLI operations (alert broadcasting, message sending, alert resolution, HITL decisions) pass the pipeline ID explicitly to prevent cross-pipeline alert leakage. See `orchestrator/overseer/` for server-side logic.
+Phase-scoped: spawned at the start of each pipeline phase and torn down when the phase completes, advances, or fails (when `overseer_enabled` is true). Each phase gets a fresh overseer instance with no accumulated state. Uses Haiku for anomaly classification and Sonnet/Opus for corrective decisions via `shared/egg_agent/`. No code access. The health monitor thread auto-respawns the overseer if it exits mid-phase, gated by a `phase_overseer_active` flag to prevent respawn between phases. All CLI operations (alert broadcasting, message sending, alert resolution, HITL decisions) pass the pipeline ID explicitly to prevent cross-pipeline alert leakage. See `orchestrator/overseer/` for server-side logic.
 
 See the [Pipeline Health Monitoring Guide](../docs/guides/pipeline-health-monitoring.md) for the full reference.
 
