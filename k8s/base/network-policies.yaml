@@ -79,6 +79,32 @@ spec:
             matchLabels:
               app.kubernetes.io/name: orchestrator
 ---
+# Allow agent pods to reach orchestrator API for heartbeats and signals
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-agent-to-orchestrator
+  namespace: egg-agents
+  labels:
+    app.kubernetes.io/part-of: egg
+spec:
+  podSelector:
+    matchLabels:
+      egg.orchestrator: "true"
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: egg-system
+          podSelector:
+            matchLabels:
+              app: orchestrator
+      ports:
+        - protocol: TCP
+          port: 9849
+---
 # Allow DNS egress for service name resolution
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

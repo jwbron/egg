@@ -71,8 +71,12 @@ jobs:
 
       - name: Build and import images into k3s
         run: |
-          docker build -t egg-gateway -f gateway/Dockerfile .
+          docker build -t egg:latest -f sandbox/Dockerfile .
+          docker build -t egg-gateway:latest -f gateway/Dockerfile .
+          docker build -t egg-orchestrator:latest -f orchestrator/Dockerfile .
+          docker save egg:latest | sudo k3s ctr images import -
           docker save egg-gateway:latest | sudo k3s ctr images import -
+          docker save egg-orchestrator:latest | sudo k3s ctr images import -
 
       - name: Deploy egg to k3s
         run: |

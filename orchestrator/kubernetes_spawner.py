@@ -47,6 +47,11 @@ from container_backend import (
     PodNotFoundError,
 )
 from egg_agent import build_agent_command
+from egg_container import (
+    ensure_egg_state_dirs,
+    git_shadow_mounts,
+    phase_readonly_mounts,
+)
 from gateway_client import (
     GatewayClient,
     GatewayError,
@@ -61,6 +66,24 @@ from kubernetes_client import (
 from models import AgentRole, ContainerInfo
 
 logger = get_logger("orchestrator.kubernetes_spawner")
+
+
+def _host_to_local_volumes(repo_volumes: dict[str, str]) -> dict[str, str]:
+    """Translate host paths to orchestrator-local paths for filesystem ops.
+
+    The gateway returns worktree paths relative to the Docker host
+    (e.g. ``/home/jwies/.egg-worktrees/...``), but the orchestrator
+    container only sees these via a volume mount at ``/home/egg/...``.
+    Uses the ``HOST_HOME`` env var to perform the translation.
+    """
+    host_home = os.environ.get("HOST_HOME", "").rstrip("/")
+    container_home = "/home/egg"
+    if not host_home or host_home == container_home:
+        return repo_volumes
+    return {
+        name: path.replace(host_home, container_home, 1) if path.startswith(host_home) else path
+        for name, path in repo_volumes.items()
+    }
 
 
 @dataclass
@@ -253,6 +276,7 @@ class KubernetesSpawner:
                 ) from e
 
         # Build k8s volumes: repo volumes as hostPath mounts
+        mounts: list = []
         volumes: dict[str, dict[str, str]] = {}
         if repo_volumes:
             for name, host_path in repo_volumes.items():
@@ -260,6 +284,41 @@ class KubernetesSpawner:
                     "bind": f"/home/egg/repos/{name}",
                     "mode": "rw",
                 }
+
+            # Shadow .git in each mounted repo to force gateway git operations.
+            # Orchestrator can't stat host paths, so assume_worktree=True (/dev/null bind).
+            mounts.extend(git_shadow_mounts(repo_volumes, assume_worktree=True))
+
+            # Phase-based readonly mounts: make .egg-state/ subdirectories
+            # readonly during implement phase to prevent direct modifications.
+            # Translate host paths to orchestrator-local paths for filesystem ops
+            # (the orchestrator can't access host paths like /home/jwies/...).
+            if phase:
+                local_volumes = _host_to_local_volumes(repo_volumes)
+                ensure_egg_state_dirs(
+                    local_volumes,
+                    uid=host_uid,
+                    gid=host_gid,
+                    phase=phase,
+                    agent_role=agent_role.value,
+                )
+                mounts.extend(
+                    phase_readonly_mounts(
+                        repo_volumes,
+                        phase,
+                        local_volumes=local_volumes,
+                        agent_role=agent_role.value,
+                    )
+                )
+
+        # Convert MountSpec objects to k8s volume dict format
+        for mount in mounts:
+            source = mount.source or "/dev/null"
+            mode = "ro" if mount.readonly else "rw"
+            volumes[source] = {
+                "bind": mount.destination,
+                "mode": mode,
+            }
 
         session_info = None
 
