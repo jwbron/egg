@@ -1344,8 +1344,7 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
 
     Request body (optional):
         {
-            "reason": "Human-readable reason for the restart",
-            "context": "Additional context for agents on respawn"
+            "reason": "Human-readable reason for the restart"
         }
 
     Response:
@@ -1409,6 +1408,16 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
         # Re-load pipeline under the lock so agent_roles reflects the
         # latest state (guards against concurrent modifications).
         pipeline = store.load_pipeline(pipeline_id)
+
+        # Re-check current phase under the lock to prevent TOCTOU race:
+        # the pipeline could have advanced between the earlier check and
+        # lock acquisition.
+        if phase != pipeline.current_phase.value:
+            return make_error_response(
+                f"Phase {phase} is not the current phase (current: {pipeline.current_phase.value})",
+                status_code=409,
+            )
+
         phase_exec = pipeline.phases.get(phase)
         if phase_exec is None:
             return make_error_response(
@@ -1557,6 +1566,7 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
                 phase=phase,
                 command=agent_commands.get(role),
                 branch=pipeline.branch,
+                preserve_worktree_on_failure=True,
             )
 
             # Update state with new container/agent

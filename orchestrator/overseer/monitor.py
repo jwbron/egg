@@ -571,11 +571,13 @@ class OverseerMonitor:
         elif action == "restart_phase":
             # Phase restarts require HITL approval — the human must
             # manually call the phase restart API after reviewing.
+            from urllib.parse import quote
+
             current_phase = os.environ.get("EGG_CURRENT_PHASE", "implement")
             orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://localhost:9849")
             restart_api = (
                 f"POST {orchestrator_url}/api/v1/pipelines/"
-                f"{self.pipeline_id}/phases/{current_phase}/restart"
+                f"{quote(self.pipeline_id, safe='')}/phases/{quote(current_phase, safe='')}/restart"
             )
             await self._create_phase_restart_decision(
                 agent_role,
@@ -1588,7 +1590,9 @@ class OverseerMonitor:
 
         Unlike agent-level restarts (which the overseer executes
         automatically), phase restarts surface a decision so a human can
-        review before calling the phase restart API endpoint.
+        review and then **manually call the phase restart API endpoint**.
+        The HITL decision options are advisory — no automated execution
+        occurs after the human selects an option.
         """
         try:
             await self._run_cli(
