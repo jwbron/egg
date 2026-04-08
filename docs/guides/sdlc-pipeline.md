@@ -1191,6 +1191,7 @@ Phase completion in concurrent mode uses a consensus-based approach:
    - Options: **Continue waiting**, **Accept current state**, **Abort phase**
    - Phase falls back to exit-code-based completion while awaiting the decision
 6. If a container exits cleanly without signaling `READY`, the consensus wrapper restarts it with a recovery prompt (up to `MAX_CONSENSUS_RESTARTS`, default 2). After exhausting restarts, the wrapper performs a final consensus check — if consensus has already been reached (`is_complete=True`), it exits with code 0 (success). Only if consensus is genuinely incomplete does it exit with code 1, triggering the single-agent failure path (HITL decision: retry, abort, or continue without). See [Concurrent Execution: Consensus Wrapper](concurrent-execution.md#consensus-wrapper).
+7. **Consensus gates phase advancement unconditionally.** When all containers have exited — whether with failures or cleanly — the orchestrator performs a final consensus recheck before returning success. If BRC consensus is incomplete, the phase fails (exit code 1) regardless of individual container exit codes. This prevents a PR from being opened when agents exit code 0 without completing the full BRC lifecycle. See [Concurrent Execution: All-Container-Exit Consensus Recovery](concurrent-execution.md#all-container-exit-consensus-recovery).
 
 **Readiness states**:
 
