@@ -1,0 +1,151 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1558,
+    "title": "Issue #1558",
+    "url": "https://github.com/jwbron/egg/issues/1558"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Delete `orchestrator/devserver.py` and `orchestrator/tests/test_devserver.py` \u2014 core DevserverManager module and its unit tests",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Files no longer exist",
+          "files_affected": [
+            "orchestrator/devserver.py",
+            "orchestrator/tests/test_devserver.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Delete `orchestrator/routes/checks.py` and `orchestrator/tests/test_routes_checks.py` \u2014 deployment check REST endpoints and their tests",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Files no longer exist",
+          "files_affected": [
+            "orchestrator/routes/checks.py",
+            "orchestrator/tests/test_routes_checks.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In `orchestrator/api.py`, remove the `checks_bp` import lines (`from routes.checks import checks_bp` and `from .routes.checks import checks_bp`) and both `app.register_blueprint(checks_bp)` registration lines",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No references to checks_bp in api.py",
+          "files_affected": [
+            "orchestrator/api.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "In `orchestrator/routes/phases.py`, remove the `from routes.checks import teardown_devserver` import (line 81) and all 3 `teardown_devserver(pipeline_id)` call sites (lines 335, 481, 557) along with their associated comments",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No references to teardown_devserver in phases.py",
+          "files_affected": [
+            "orchestrator/routes/phases.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "In `shared/egg_config/constants.py`, remove the `EGG_CHECK_NETWORK_PREFIX`, `DEVSERVER_CPU_LIMIT`, `DEVSERVER_MEMORY_LIMIT`, `DEVSERVER_PIDS_LIMIT`, `DEVSERVER_HARD_TIMEOUT_SECONDS` constant definitions and their entries in the `__all__` list",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No DEVSERVER_* or EGG_CHECK_NETWORK references in constants.py",
+          "files_affected": [
+            "shared/egg_config/constants.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-6",
+          "description": "Delete `shared/egg_contracts/deployment.py` and `tests/shared/egg_contracts/test_deployment_config.py` \u2014 deployment config models only used by DevserverManager",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Files no longer exist",
+          "files_affected": [
+            "shared/egg_contracts/deployment.py",
+            "tests/shared/egg_contracts/test_deployment_config.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-7",
+          "description": "Delete the `integration_tests/deployment_validation/` directory containing `test_deployment_check_e2e.py` and `__init__.py`",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Directory no longer exists",
+          "files_affected": [
+            "integration_tests/deployment_validation/test_deployment_check_e2e.py",
+            "integration_tests/deployment_validation/__init__.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Remove DevserverManager and Docker Compose deployment validation",
+    "description": "Remove the unused DevserverManager component and all associated code.\nFollow-up from #1553 (Kubernetes migration) \u2014 this feature was never\nused and its Docker Compose runtime is being fully removed.",
+    "test_plan": "- Automated: Existing test suite passes with removed tests excluded\n- Manual: Verify no remaining references to DevserverManager, checks_bp, teardown_devserver, or deployment_check in Python source",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
