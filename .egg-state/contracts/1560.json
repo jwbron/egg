@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1560,
+    "title": "Issue #1560",
+    "url": "https://github.com/jwbron/egg/issues/1560"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/routes/pipelines.py`, remove the pre-loop overseer spawn (lines 6157-6184) and move it into the phase-start block (after phase.started event emission). Add a `phase_overseer_active` flag gating `_check_and_respawn_overseer` in the health monitor poll thread.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Overseer is spawned at each phase start, not once before the loop",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `orchestrator/routes/pipelines.py`, add overseer teardown (stop_agent_container + set phase_overseer_active=False) before phase advance, before pipeline-complete break, and in the phase-failed path.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Overseer is stopped at phase completion, advance, and failure \u2014 not left running between phases",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In `orchestrator/container_spawner.py:spawn_overseer_container()`, update docstring and BASH_COMMAND_TIMEOUT comment to reference phase-scoped lifecycle instead of 'entire pipeline lifetime'.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Comments accurately describe the phase-scoped overseer lifecycle",
+          "files_affected": [
+            "orchestrator/container_spawner.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Update test_overseer_spawn.py and test_pipeline_failure_path.py to assert per-phase spawn. Add a test verifying _check_and_respawn_overseer is skipped when phase_overseer_active is False.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All tests pass; new test covers respawn-gating behavior",
+          "files_affected": [
+            "orchestrator/tests/test_overseer_spawn.py",
+            "orchestrator/tests/test_pipeline_failure_path.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Phase-scope the overseer lifecycle instead of full pipeline",
+    "description": "Make the overseer container phase-scoped: spawn at phase start, tear down\nat phase completion. Saves resources during idle periods between phases and\nHITL review windows. Each phase gets a fresh overseer instance.",
+    "test_plan": "- Automated: Updated test_overseer_spawn.py and test_pipeline_failure_path.py\n- Manual: Run a multi-phase pipeline with overseer_enabled=True and verify overseer container is created/destroyed at phase boundaries (check `docker ps` between phases)",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
