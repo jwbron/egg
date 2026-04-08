@@ -5739,6 +5739,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     # this guard, our finally block would delete the *new* run's worktrees.
     run_created_at: datetime | None = None
     overseer_container_id: str | None = None
+    phase_overseer_active: bool = False
     health_monitor_instance = None
     health_monitor_timer: threading.Event | None = None
     poll_thread: threading.Thread | None = None
@@ -6154,35 +6155,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         except Exception as e:
             logger.debug("Failed to read hitl_feedback from recovery path", error=str(e))
 
-        # Spawn overseer container for pipeline health monitoring.
-        # The overseer runs without repo access and monitors health via
-        # the orchestrator API.  Spawned early (before first phase) so it
-        # can observe the entire pipeline lifecycle.
-        if pipeline.config.overseer_enabled:
-            try:
-                overseer_result = spawner.spawn_overseer_container(
-                    pipeline_id=pipeline_id,
-                    issue_number=pipeline.issue_number,
-                    mode=gateway_mode,
-                    poll_interval=pipeline.config.overseer_poll_interval_seconds,
-                    decision_model=pipeline.config.overseer_decision_maker_model,
-                    repos=pipeline_repos if pipeline_repos else None,
-                    certs_volume=certs_volume,
-                )
-                overseer_container_id = overseer_result.container_info.container_id
-                logger.info(
-                    "Overseer container spawned",
-                    pipeline_id=pipeline_id,
-                    container_id=overseer_container_id[:12],
-                )
-            except ContainerSpawnError as e:
-                # Non-fatal: pipeline can run without overseer monitoring
-                logger.warning(
-                    "Failed to spawn overseer container (continuing without monitoring)",
-                    pipeline_id=pipeline_id,
-                    error=str(e),
-                )
-
         # Initialize the Tier 1 health monitor so deterministic tripwires
         # (heartbeat timeout, container exit, repeated errors, message rate,
         # progress stall) fire during pipeline execution.  The monitor
@@ -6217,22 +6189,23 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             error=str(poll_err),
                         )
 
-                    # Check overseer liveness and respawn if it exited mid-pipeline.
-                    # Note: `pipeline` is captured from initial load — config values
-                    # (poll_interval, decision_model, etc.) won't reflect mid-run changes.
-                    # This is fine because pipeline config is immutable after start.
-                    overseer_container_id, overseer_respawn_count = _check_and_respawn_overseer(
-                        spawner=spawner,
-                        store=store,
-                        pipeline_id=pipeline_id,
-                        pipeline=pipeline,
-                        overseer_container_id=overseer_container_id,
-                        overseer_respawn_count=overseer_respawn_count,
-                        max_overseer_respawns=max_overseer_respawns,
-                        gateway_mode=gateway_mode,
-                        pipeline_repos=pipeline_repos,
-                        certs_volume=certs_volume,
-                    )
+                    # Check overseer liveness and respawn if it exited mid-phase.
+                    # Only check when phase_overseer_active is True — the overseer
+                    # is intentionally absent between phases, and respawning it
+                    # there would waste resources.
+                    if phase_overseer_active:
+                        overseer_container_id, overseer_respawn_count = _check_and_respawn_overseer(
+                            spawner=spawner,
+                            store=store,
+                            pipeline_id=pipeline_id,
+                            pipeline=pipeline,
+                            overseer_container_id=overseer_container_id,
+                            overseer_respawn_count=overseer_respawn_count,
+                            max_overseer_respawns=max_overseer_respawns,
+                            gateway_mode=gateway_mode,
+                            pipeline_repos=pipeline_repos,
+                            certs_volume=certs_volume,
+                        )
 
                     stop_event.wait(interval)
 
@@ -6324,6 +6297,39 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     message=f"Phase {current_phase.value} started",
                 )
                 _emit_pipeline_event(pipeline, "phase.started")
+
+            # Spawn overseer container for this phase's health monitoring.
+            # The overseer is phase-scoped: spawned at phase start and torn
+            # down at phase completion/advance/failure.  Each phase gets a
+            # fresh overseer instance with no accumulated state.
+            if pipeline.config.overseer_enabled:
+                try:
+                    overseer_result = spawner.spawn_overseer_container(
+                        pipeline_id=pipeline_id,
+                        issue_number=pipeline.issue_number,
+                        mode=gateway_mode,
+                        poll_interval=pipeline.config.overseer_poll_interval_seconds,
+                        decision_model=pipeline.config.overseer_decision_maker_model,
+                        repos=pipeline_repos if pipeline_repos else None,
+                        certs_volume=certs_volume,
+                    )
+                    overseer_container_id = overseer_result.container_info.container_id
+                    phase_overseer_active = True
+                    overseer_respawn_count = 0
+                    logger.info(
+                        "Overseer container spawned for phase",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        container_id=overseer_container_id[:12],
+                    )
+                except ContainerSpawnError as e:
+                    # Non-fatal: pipeline can run without overseer monitoring
+                    logger.warning(
+                        "Failed to spawn overseer container (continuing without monitoring)",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        error=str(e),
+                    )
 
             # Common sandbox environment for all containers in this phase.
             # GATEWAY_URL, RUNTIME_UID/GID, proxy vars, DNS lockdown, and
@@ -6588,6 +6594,27 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # If the phase failed, emit the failure event so the SSE stream
             # terminates, then break out of the outer loop.
             if phase_failed:
+                # Stop the phase-scoped overseer on failure
+                if overseer_container_id and phase_overseer_active:
+                    try:
+                        spawner.stop_agent_container(
+                            overseer_container_id,
+                            cleanup_session=True,
+                            timeout=10,
+                        )
+                        logger.info(
+                            "Overseer container stopped (phase failed)",
+                            pipeline_id=pipeline_id,
+                            container_id=overseer_container_id[:12],
+                        )
+                    except Exception as overseer_err:
+                        logger.debug(
+                            "Failed to stop overseer container on phase failure",
+                            pipeline_id=pipeline_id,
+                            error=str(overseer_err),
+                        )
+                    phase_overseer_active = False
+
                 # report_pipeline_status is a stub (no-op) unless status_reporter
                 # is installed.  The actual SSE emission is _emit_pipeline_event
                 # below.  Kept for consistency with the except block at the
@@ -7043,6 +7070,30 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_id=pipeline_id,
                             error=str(push_err),
                         )
+
+            # Tear down the phase-scoped overseer before advancing.
+            # Each phase gets a fresh overseer instance — no state carries
+            # over between phases.
+            if overseer_container_id and phase_overseer_active:
+                try:
+                    spawner.stop_agent_container(
+                        overseer_container_id,
+                        cleanup_session=True,
+                        timeout=10,
+                    )
+                    logger.info(
+                        "Overseer container stopped (phase ended)",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        container_id=overseer_container_id[:12],
+                    )
+                except Exception as overseer_err:
+                    logger.debug(
+                        "Failed to stop overseer container at phase end",
+                        pipeline_id=pipeline_id,
+                        error=str(overseer_err),
+                    )
+                phase_overseer_active = False
 
             # Determine next phase
             next_phases = transitions.get(current_phase, [])
