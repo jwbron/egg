@@ -229,10 +229,24 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Cost tracking approach: exact via pricing API or approximate with hardcoded per-model rates?",
+      "context": "",
+      "options": [],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-08T20:56:45.362713Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T20:56:45.329325Z",
+  "updated_at": "2026-04-08T20:56:45.364412Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -240,5 +254,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 13
+  "version": 14
 }
