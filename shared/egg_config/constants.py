@@ -33,20 +33,6 @@ MCP_SERVER_PORT = 9850
 ORCHESTRATOR_ISOLATED_IP = "172.32.0.3"  # Orchestrator IP in isolated network
 ORCHESTRATOR_EXTERNAL_IP = "172.33.0.3"  # Orchestrator IP in external network
 
-# Deployment validation (DinD) network configuration
-# Third network for devserver containers during check phase deployment validation.
-# Internal-only (no gateway, no DNS, no internet) — services communicate within
-# the bridge but cannot reach external networks.
-# Docker auto-assigns subnets to avoid collisions with concurrent pipelines.
-EGG_CHECK_NETWORK_PREFIX = "egg-check"  # Actual name: egg-check-{pipeline_id}
-
-# Resource limits for devserver containers during deployment validation.
-# These prevent agent-modified code from exhausting host resources.
-DEVSERVER_CPU_LIMIT = "1.0"  # CPU quota per container (1 full core)
-DEVSERVER_MEMORY_LIMIT = "512m"  # Memory limit per container
-DEVSERVER_PIDS_LIMIT = 256  # Max PIDs per container (prevents fork bombs)
-DEVSERVER_HARD_TIMEOUT_SECONDS = 300  # Hard time cap for entire devserver lifecycle
-
 # Infrastructure branch names — used by both the gateway (push bypass) and the
 # orchestrator (state persistence).  Keep these in sync via this shared module.
 CHECKPOINT_BRANCH = "egg/checkpoints/v2"
@@ -87,11 +73,6 @@ __all__ = [
     "ANCHOR_TEAM_HARD_LIMIT_BYTES",
     "ANCHOR_TEAM_SOFT_LIMIT_BYTES",
     "CHECKPOINT_BRANCH",
-    "DEVSERVER_CPU_LIMIT",
-    "DEVSERVER_HARD_TIMEOUT_SECONDS",
-    "DEVSERVER_MEMORY_LIMIT",
-    "DEVSERVER_PIDS_LIMIT",
-    "EGG_CHECK_NETWORK_PREFIX",
     "EGG_CONTAINER_IP",
     "EGG_EXTERNAL_NETWORK",
     "EGG_EXTERNAL_SUBNET",

@@ -64,7 +64,7 @@ class TestPytestConfigConsolidation:
         docker_deps = [d for d in dev_deps if d.startswith("docker")]
         assert len(docker_deps) > 0, (
             "docker package not found in dev dependencies — "
-            "required by orchestrator/tests/test_devserver.py and test_docker_client.py"
+            "required by orchestrator/tests/test_docker_client.py"
         )
 
 
