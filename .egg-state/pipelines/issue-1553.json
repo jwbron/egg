@@ -256,10 +256,10 @@
       "options": [],
       "decision_type": "feedback",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-08T14:44:04.559059Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-08T14:56:30.651840Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"q-1\": \"k3s local image import (k3s ctr images import) for local dev. No remote registry setup needed for this PR. GHCR will be added later when GKE deployment work is done.\"}}",
       "phase": "refine",
       "content_changed": null
     },
@@ -338,7 +338,7 @@
     }
   ],
   "created_at": "2026-04-08T14:30:41.767647Z",
-  "updated_at": "2026-04-08T14:56:29.416390Z",
+  "updated_at": "2026-04-08T14:56:30.654161Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -346,5 +346,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 30
+  "version": 31
 }
