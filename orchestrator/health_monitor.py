@@ -106,6 +106,9 @@ class HealthMonitor:
         self._config = config
         self._lock = threading.Lock()
 
+        # Phase-aware threshold support
+        self._current_phase: str | None = None
+
         # Per-agent state
         self._agents: dict[str, AgentState] = {}
 
@@ -136,6 +139,74 @@ class HealthMonitor:
     def on_throttle(self, callback: ThrottleCallback) -> None:
         """Register a callback for throttle events."""
         self._throttle_callbacks.append(callback)
+
+    # -----------------------------------------------------------------
+    # Phase-aware threshold and BRC-idle suppression
+    # -----------------------------------------------------------------
+
+    def set_current_phase(self, phase: str) -> None:
+        """Set the current pipeline phase for threshold selection.
+
+        Must be called before agents are spawned for each phase so that
+        the correct heartbeat/progress timeout is used.
+
+        Args:
+            phase: The pipeline phase name (e.g. "implement", "plan").
+        """
+        self._current_phase = phase
+
+    def _get_heartbeat_threshold(self) -> int:
+        """Return the heartbeat timeout threshold for the current phase.
+
+        During the implement phase, uses
+        ``orchestrator_implement_heartbeat_timeout_seconds`` (default 600s).
+        All other phases use ``orchestrator_heartbeat_timeout_seconds``
+        (default 120s).
+        """
+        if self._current_phase == "implement":
+            return self._config.orchestrator_implement_heartbeat_timeout_seconds
+        return self._config.orchestrator_heartbeat_timeout_seconds
+
+    def _is_brc_idle(self, agent_id: str) -> bool:
+        """Check if an agent is idle waiting for BRC upstream producers.
+
+        A reviewer-only agent whose upstream producers are all still in
+        WORKING phase is legitimately idle — it has nothing to review yet.
+        Such agents should be excluded from heartbeat/progress alerts.
+
+        Returns True if the agent should be suppressed from alerts.
+        """
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+            from review_graph import ReviewGraph
+        except ImportError:
+            return False
+
+        tracker = get_peer_consensus_tracker(self._pipeline_id)
+        if tracker is None:
+            return False
+
+        graph: ReviewGraph = tracker.graph
+
+        # Only suppress reviewer-only roles (not dual-role producers)
+        if not graph.is_reviewer(agent_id) or graph.is_producer(agent_id):
+            return False
+
+        # Check if all upstream producers are still in WORKING phase
+        producers = graph.producers_for(agent_id)
+        if not producers:
+            return False
+
+        from egg_orchestrator.types import ConsensusPhase
+
+        with tracker._lock:
+            for producer in producers:
+                phase = tracker._producer_phases.get(producer)
+                if phase != ConsensusPhase.WORKING:
+                    # At least one producer has proposed — reviewer should be active
+                    return False
+
+        return True
 
     # -----------------------------------------------------------------
     # Event handlers
@@ -308,11 +379,15 @@ class HealthMonitor:
         The ``heartbeat_escalated`` flag prevents duplicate escalations
         on subsequent poll cycles.
 
+        Phase-aware: uses a higher threshold during the implement phase.
+        BRC-idle suppression: skips reviewer-only agents whose upstream
+        producers have not yet proposed.
+
         Returns:
             List of action dicts for agents that have timed out.
         """
         actions: list[dict[str, Any]] = []
-        threshold = self._config.orchestrator_heartbeat_timeout_seconds
+        threshold = self._get_heartbeat_threshold()
         now = time.time()
 
         with self._lock:
@@ -333,6 +408,11 @@ class HealthMonitor:
 
             if already_escalated:
                 continue  # already escalated — don't re-escalate
+
+            # BRC-idle suppression: skip reviewer-only agents waiting for
+            # upstream producers to propose
+            if self._is_brc_idle(agent_id):
+                continue
 
             action = {
                 "action": "escalate",
@@ -382,11 +462,15 @@ class HealthMonitor:
         The ``progress_escalated`` flag prevents duplicate escalations
         on subsequent poll cycles.
 
+        Phase-aware: uses a higher threshold during the implement phase.
+        BRC-idle suppression: skips reviewer-only agents whose upstream
+        producers have not yet proposed.
+
         Returns:
             List of action dicts.
         """
         actions: list[dict[str, Any]] = []
-        threshold = self._config.orchestrator_heartbeat_timeout_seconds
+        threshold = self._get_heartbeat_threshold()
         now = time.time()
 
         with self._lock:
@@ -407,6 +491,11 @@ class HealthMonitor:
 
             if already_escalated:
                 continue  # already escalated — don't re-escalate
+
+            # BRC-idle suppression: skip reviewer-only agents waiting for
+            # upstream producers to propose
+            if self._is_brc_idle(agent_id):
+                continue
 
             action = {
                 "action": "escalate",

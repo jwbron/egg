@@ -6586,6 +6586,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             health_monitor_instance = init_health_monitor(
                 get_event_bus(), pipeline_id, pipeline.config
             )
+            # Sync the phase-aware threshold with the current pipeline phase
+            health_monitor_instance.set_current_phase(pipeline.current_phase.value)
 
             # Start a background polling thread for time-based tripwires
             health_monitor_timer = threading.Event()
@@ -7554,6 +7556,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 pipeline.current_phase = next_phase
                 store.save_pipeline(pipeline, force_commit=(pipeline.issue_number is None))
 
+            # Update health monitor phase threshold before agents spawn
+            if health_monitor_instance is not None:
+                health_monitor_instance.set_current_phase(next_phase.value)
+
             logger.info(
                 "Phase advanced",
                 pipeline_id=pipeline_id,
@@ -7899,6 +7905,16 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     # Advance to next phase
                     next_phase = next_phases[0]
                     pipeline.current_phase = next_phase
+
+                    # Update health monitor phase threshold before agents spawn
+                    try:
+                        from health_monitor import get_health_monitor
+
+                        _hm_instance = get_health_monitor()
+                        if _hm_instance is not None:
+                            _hm_instance.set_current_phase(next_phase.value)
+                    except ImportError:
+                        pass
 
                 else:
                     # request_changes/change_approach — reset phase for re-run

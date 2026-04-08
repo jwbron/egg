@@ -299,6 +299,11 @@ class PipelineConfig(BaseModel):
     orchestrator_heartbeat_timeout_seconds: int = Field(
         default=120, ge=10, description="Seconds without heartbeat/progress before auto-nudge"
     )
+    orchestrator_implement_heartbeat_timeout_seconds: int = Field(
+        default=600,
+        ge=10,
+        description="Seconds without heartbeat/progress before auto-nudge during implement phase",
+    )
     orchestrator_error_repeat_threshold: int = Field(
         default=3, ge=1, description="Identical error count before escalation"
     )
