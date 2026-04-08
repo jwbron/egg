@@ -5,7 +5,7 @@
   "branch": "egg/issue-1570",
   "base_branch": null,
   "prompt": null,
-  "status": "cancelled",
+  "status": "failed",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -129,10 +129,10 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-04-08T21:19:01.503457Z",
       "work_started_at": "2026-04-08T21:19:05.389553Z",
-      "completed_at": null,
+      "completed_at": "2026-04-08T21:56:27.020289Z",
       "containers": [
         {
           "container_id": "bbba141b45050388d36f121e23f6e09e971c0079d5c2913abb561d2ca43451e9",
@@ -231,12 +231,12 @@
         {
           "cycle": 0,
           "started_at": "2026-04-08T21:19:05.389553Z",
-          "completed_at": null,
+          "completed_at": "2026-04-08T21:56:27.020243Z",
           "commit_sha": "53b778d7ef09e23ec86c06a339f288d7a4d34a6c"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-08T21:51:36.770279014Z Signaled error to orchestrator\n2026-04-08T21:51:36.770281306Z \n2026-04-08T21:51:36.770283431Z Cleaning up on container exit...\n2026-04-08T21:51:36.770285806Z ✓ Cleanup complete\n\n--- task_planner (exit=137) ---\n\n--- reviewer_plan (exit=137) ---\n\n--- risk_analyst (exit=137) ---",
       "hitl_feedback": null,
       "phase_start_sha": "bad0c71986ef123990c848f4ee90f73ef4f8ee66"
     }
@@ -446,13 +446,13 @@
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T21:56:26.999365Z",
+  "updated_at": "2026-04-08T21:56:27.020473Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-08T21:51:36.770279014Z Signaled error to orchestrator\n2026-04-08T21:51:36.770281306Z \n2026-04-08T21:51:36.770283431Z Cleaning up on container exit...\n2026-04-08T21:51:36.770285806Z ✓ Cleanup complete\n\n--- task_planner (exit=137) ---\n\n--- reviewer_plan (exit=137) ---\n\n--- risk_analyst (exit=137) ---",
   "analysis": null,
   "plan": null,
-  "version": 47
+  "version": 48
 }
