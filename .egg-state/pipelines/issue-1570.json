@@ -265,10 +265,10 @@
       "options": [],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-08T20:56:45.444669Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-08T21:15:49.465428Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Replicate the exact rule-merging from sandbox/agent-config/rules/. Agents depend on the combined rule files and simplifying risks behavioral differences.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -333,7 +333,7 @@
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T21:15:49.349415Z",
+  "updated_at": "2026-04-08T21:15:49.471599Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -341,5 +341,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 31
+  "version": 32
 }
