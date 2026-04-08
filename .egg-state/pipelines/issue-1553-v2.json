@@ -137,40 +137,40 @@
         {
           "container_id": "653e7bc4b1bec04d4f9b66fbb6c93f8daf3d2f8ac689dc394874b53969890073",
           "container_name": "issue-1553-v2-task_planner",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-08T21:02:34.060973Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-08T21:15:05.362178Z",
+          "exit_code": 0,
           "agent_role": "task_planner",
           "session_token": null
         },
         {
           "container_id": "b55b90addb5699da4077cb1738e7d2dc56ee05644ff085a0dca5612885067745",
           "container_name": "issue-1553-v2-risk_analyst",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-08T21:02:34.060993Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-08T21:15:05.362180Z",
+          "exit_code": 0,
           "agent_role": "risk_analyst",
           "session_token": null
         },
         {
           "container_id": "9785af4b1fb9feac30cdfdc43b5c47b4a873dfcc4783f6a680338f9b2000978d",
           "container_name": "issue-1553-v2-architect",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-08T21:02:34.061004Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-08T21:15:05.362181Z",
+          "exit_code": 0,
           "agent_role": "architect",
           "session_token": null
         },
         {
           "container_id": "512b37cf24781d7939d8f4ae32283fe30e5ee7f59d6eef0cdc47a759c61b74f2",
           "container_name": "issue-1553-v2-reviewer_plan",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-08T21:02:34.061014Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-08T21:15:05.362183Z",
+          "exit_code": 0,
           "agent_role": "reviewer_plan",
           "session_token": null
         }
@@ -178,10 +178,10 @@
       "agents": [
         {
           "role": "task_planner",
-          "status": "running",
+          "status": "complete",
           "container_id": "653e7bc4b1bec04d4f9b66fbb6c93f8daf3d2f8ac689dc394874b53969890073",
           "started_at": "2026-04-08T21:02:34.060985Z",
-          "completed_at": null,
+          "completed_at": "2026-04-08T21:15:05.362168Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -190,10 +190,10 @@
         },
         {
           "role": "risk_analyst",
-          "status": "running",
+          "status": "complete",
           "container_id": "b55b90addb5699da4077cb1738e7d2dc56ee05644ff085a0dca5612885067745",
           "started_at": "2026-04-08T21:02:34.060998Z",
-          "completed_at": null,
+          "completed_at": "2026-04-08T21:15:05.362171Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -202,10 +202,10 @@
         },
         {
           "role": "architect",
-          "status": "running",
+          "status": "complete",
           "container_id": "9785af4b1fb9feac30cdfdc43b5c47b4a873dfcc4783f6a680338f9b2000978d",
           "started_at": "2026-04-08T21:02:34.061009Z",
-          "completed_at": null,
+          "completed_at": "2026-04-08T21:15:05.362173Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -214,10 +214,10 @@
         },
         {
           "role": "reviewer_plan",
-          "status": "running",
+          "status": "complete",
           "container_id": "512b37cf24781d7939d8f4ae32283fe30e5ee7f59d6eef0cdc47a759c61b74f2",
           "started_at": "2026-04-08T21:02:34.061018Z",
-          "completed_at": null,
+          "completed_at": "2026-04-08T21:15:05.362174Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -261,7 +261,7 @@
     }
   ],
   "created_at": "2026-04-08T20:41:01.367785Z",
-  "updated_at": "2026-04-08T21:02:34.061198Z",
+  "updated_at": "2026-04-08T21:15:05.362289Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -269,5 +269,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 17
+  "version": 18
 }
