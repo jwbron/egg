@@ -130,7 +130,7 @@ The key risk is the size of the changeset. The plan phase should decompose this 
 
 ## Open Questions
 
-> **Note**: `egg-contract add-decision` / `egg-contract add-feedback` commands fail with "Worktree not found for container" — the gateway cannot resolve this agent's worktree for contract mutations. Questions are documented below and should be registered by the orchestrator or manually once the worktree mapping is resolved.
+> **Contract CLI Blocker**: `egg-contract add-decision` / `egg-contract add-feedback` are non-functional in this environment. Root cause: the gateway's contract mutate endpoint at `/api/v1/contract/mutate` returns HTTP 403 "Cannot determine agent role" because this container's gateway session lacks `agent_role` metadata (see `gateway/contract_api.py:get_role_from_context()`). Additionally, the contract GET endpoint returns 404 because the gateway cannot resolve the worktree for this container's IP (returns 500 "Worktree not found for container 8b8eea4d182b..."). This appears to be an infrastructure issue with session provisioning for this pipeline run. **All questions below should be registered as HITL decisions/feedback by the orchestrator or pipeline operator before proceeding to the plan phase.**
 
 ### Decision 1: ContainerBackend interface type
 
