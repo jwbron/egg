@@ -1847,6 +1847,7 @@ def _build_role_context(
     issue_number: int | None = None,
     phase_obj=None,
     all_phases=None,
+    base_branch: str | None = None,
 ) -> str:
     """Build role-appropriate context to replace raw issue body embedding.
 
@@ -1918,7 +1919,8 @@ def _build_role_context(
     lines.append("## For More Context\n")
     if issue_number:
         lines.append(f"- Full issue: `gh issue view {issue_number}`")
-    lines.append("- Changed files: `git diff HEAD~10..HEAD` or check handoff data")
+    _rc_base_ref = f"origin/{base_branch}" if base_branch else "origin/main"
+    lines.append(f"- Changed files: `git diff {_rc_base_ref}...HEAD` or check handoff data")
     lines.append("- Coder output: check `EGG_HANDOFF_DATA` environment variable")
     lines.append(
         "- Prior agent sessions: `egg-checkpoint context --pipeline $EGG_PIPELINE_ID` "
@@ -1983,6 +1985,7 @@ def _build_review_prompt(
     prior_feedback: str | None = None,
     repo_path: str | None = None,
     last_reviewed_commit: str | None = None,
+    base_branch: str | None = None,
 ) -> str:
     """Build a review prompt for the reviewer agent.
 
@@ -2016,8 +2019,11 @@ def _build_review_prompt(
     # Delta review: for re-reviews with a known last-reviewed commit,
     # instruct the reviewer to focus on the delta.
     is_delta_review = review_cycle > 1 and last_reviewed_commit and not draft_path
+    _base_ref = f"origin/{base_branch}" if base_branch else "origin/main"
     diff_command = (
-        f"git diff {last_reviewed_commit}..HEAD" if is_delta_review else "git diff HEAD~10..HEAD"
+        f"git diff {last_reviewed_commit}..HEAD"
+        if is_delta_review
+        else f"git diff {_base_ref}...HEAD"
     )
 
     if draft_path:
@@ -2050,6 +2056,12 @@ def _build_review_prompt(
         lines.append("8. Evaluate against the criteria below")
         lines.append(f"9. Write your verdict to `{verdict_path}` as JSON")
         lines.append("10. Commit the verdict file")
+        lines.append("")
+        lines.append(
+            "**Find ALL issues on the first pass** — do not stop after identifying "
+            "a few problems. You are the last line of defense before code reaches "
+            "production."
+        )
     elif draft_path:
         # Expanded procedural steps for draft-based (non-code) reviewers
         lines.append("2. Read the draft thoroughly — do not skim")
@@ -3531,7 +3543,13 @@ def _build_phase_prompt(
 # ---------------------------------------------------------------------------
 
 
-def _build_brc_preamble(role_value: str, phase: str, repo: str | None = None) -> str:
+def _build_brc_preamble(
+    role_value: str,
+    phase: str,
+    repo: str | None = None,
+    branch: str | None = None,
+    base_branch: str | None = None,
+) -> str:
     """Build the BRC consensus lifecycle preamble for an agent.
 
     Returns a formatted string block that can be appended to any agent prompt
@@ -3608,7 +3626,7 @@ def _build_brc_preamble(role_value: str, phase: str, repo: str | None = None) ->
             [
                 "### Producer Lifecycle",
                 "1. **ORIENT**: Before starting work, "
-                + _build_producer_orientation(role_value, phase, reviewers),
+                + _build_producer_orientation(role_value, phase, reviewers, branch=branch),
                 "2. **WORK**: Complete your assigned task (see Your Task below).",
                 "3. **PROPOSE**: When done, run: "
                 '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2" --commit-sha $(git rev-parse HEAD)`',
@@ -3633,16 +3651,20 @@ def _build_brc_preamble(role_value: str, phase: str, repo: str | None = None) ->
                 "2. **POLL**: Wait for `CONSENSUS_PROPOSE` from assigned producers "
                 "(`egg-orch message poll --wait 30`). Do NOT inspect producer "
                 "artifacts or form judgments before the proposal arrives.",
-                "3. **REVIEW**: Once a proposal arrives, form independent judgment from "
+                "3. **SYNC**: Before reviewing, sync your worktree so you have the "
+                "producer's commits: `git fetch origin && git merge origin/"
+                + (branch or base_branch or "main")
+                + " --no-edit`",
+                "4. **REVIEW**: Once a proposal arrives, form independent judgment from "
                 "the referenced code artifacts. Read the actual files — do not rely "
                 "solely on the proposal summary.",
-                '4. **ACK/NACK**: `egg-orch consensus ack <role> --files-reviewed "f1" "f2"` or '
+                '5. **ACK/NACK**: `egg-orch consensus ack <role> --files-reviewed "f1" "f2"` or '
                 '`egg-orch consensus nack <role> --reason "..." --files-reviewed "f1" "f2"`',
-                "5. **CONFIRM**: When all assigned producers reviewed: "
+                "6. **CONFIRM**: When all assigned producers reviewed: "
                 "`egg-orch consensus confirmed`",
-                "6. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
+                "7. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
                 "until the orchestrator stops you.",
-                "7. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
+                "8. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
                 "while staying alive, you MUST act on it — failure to do so will stall "
                 "the entire pipeline. Re-review the re-proposing producer's new proposal "
                 "and ACK/NACK it, then re-confirm via `egg-orch consensus confirmed`. "
@@ -3821,7 +3843,9 @@ def _build_reviewer_preparation(role_value: str, phase: str) -> str:
     )
 
 
-def _build_producer_orientation(role_value: str, phase: str, reviewers: list[str]) -> str:
+def _build_producer_orientation(
+    role_value: str, phase: str, reviewers: list[str], branch: str | None = None
+) -> str:
     """Build orientation instructions for producer agents.
 
     Tells producers what to research before starting work — understanding
@@ -3846,20 +3870,33 @@ def _build_producer_orientation(role_value: str, phase: str, reviewers: list[str
                 "break them." + reviewer_awareness
             )
         elif role_value == "tester":
+            sync_note = ""
+            if branch:
+                sync_note = (
+                    f" Before starting work, sync your worktree: "
+                    f"`git fetch origin && git merge origin/{branch} --no-edit`."
+                )
             return (
                 "read the contract (`egg-contract show`) to understand what is "
                 "being implemented. Check the existing test infrastructure — "
                 "test frameworks, fixtures, conftest files, and naming conventions. "
                 "Identify edge cases from the requirements before writing tests."
+                + sync_note
                 + reviewer_awareness
             )
         elif role_value == "documenter":
+            sync_note = ""
+            if branch:
+                sync_note = (
+                    f" Before starting work, sync your worktree: "
+                    f"`git fetch origin && git merge origin/{branch} --no-edit`."
+                )
             return (
                 "read the contract (`egg-contract show`) to understand what is "
                 "being implemented. Check existing documentation structure — "
                 "README files, doc directories, inline documentation patterns. "
                 "Identify which docs will need updating once the implementation "
-                "is complete." + reviewer_awareness
+                "is complete." + sync_note + reviewer_awareness
             )
     elif phase == "plan":
         if role_value == "architect":
@@ -3945,6 +3982,7 @@ def _build_agent_prompt(
     issue_number: int | None = None,
     repo: str | None = None,
     branch: str | None = None,
+    base_branch: str | None = None,
     review_feedback: str | None = None,
     review_cycle: int = 0,
     repo_path: str | None = None,
@@ -4013,7 +4051,9 @@ def _build_agent_prompt(
         # In concurrent mode, inject BRC consensus preamble so the coder/refiner
         # knows to propose, respond to reviews, confirm, and stay alive.
         if concurrent:
-            base_prompt += _build_brc_preamble(role_value, phase, repo=repo)
+            base_prompt += _build_brc_preamble(
+                role_value, phase, repo=repo, branch=branch, base_branch=base_branch
+            )
         return base_prompt
 
     # Build context header (shared across all roles)
@@ -4034,7 +4074,11 @@ def _build_agent_prompt(
     # Concurrent mode: add BRC consensus lifecycle preamble so agents understand
     # they must stay alive and participate in Broadcast-Review-Converge consensus.
     if concurrent:
-        lines.append(_build_brc_preamble(role_value, phase, repo=repo))
+        lines.append(
+            _build_brc_preamble(
+                role_value, phase, repo=repo, branch=branch, base_branch=base_branch
+            )
+        )
 
     # Include role-appropriate context instead of the raw issue body.
     # Analysis roles (architect, task_planner, risk_analyst) receive the full
@@ -4046,6 +4090,7 @@ def _build_agent_prompt(
         issue_number=issue_number,
         phase_obj=phase_obj,
         all_phases=all_phases,
+        base_branch=base_branch,
     )
     if role_context:
         lines.append(role_context)
@@ -4378,9 +4423,12 @@ def _build_agent_prompt(
             review_cycle=review_cycle + 1,
             prior_feedback=review_feedback,
             repo_path=repo_path,
+            base_branch=base_branch,
         )
         if concurrent:
-            review_prompt += "\n" + _build_brc_preamble(role_value, phase, repo=repo)
+            review_prompt += "\n" + _build_brc_preamble(
+                role_value, phase, repo=repo, branch=branch, base_branch=base_branch
+            )
         return review_prompt
     else:
         lines.extend(
@@ -4562,6 +4610,14 @@ def _run_concurrent_phase(
     ]
     filtered_graph = ReviewGraph(filtered_edges)
 
+    # Resolve base branch for diff commands in agent prompts.
+    _resolved_base_branch = pipeline.base_branch
+    if not _resolved_base_branch:
+        try:
+            _resolved_base_branch = get_default_branch(worktree_repo_path)
+        except Exception:
+            _resolved_base_branch = None
+
     agent_prompts: dict[AgentRole, str] = {}
     for role in roles:
         prompt = _build_agent_prompt(
@@ -4573,6 +4629,7 @@ def _run_concurrent_phase(
             issue_number=pipeline.issue_number,
             repo=pipeline.repo,
             branch=pipeline.branch,
+            base_branch=_resolved_base_branch,
             repo_path=str(worktree_repo_path),
             concurrent=True,
             review_feedback=review_feedback,

@@ -2749,3 +2749,347 @@ class TestFileBoundarySection:
             issue_number=1,
         )
         assert "File Boundaries" in result
+
+
+class TestReviewPromptBaseBranch:
+    """Tests for base_branch parameter in _build_review_prompt (issue #1565)."""
+
+    def test_base_branch_produces_correct_diff_command(self):
+        """With base_branch='main', diff command uses 'origin/main...HEAD'."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+            base_branch="main",
+        )
+        assert "origin/main...HEAD" in prompt
+        assert "HEAD~10" not in prompt
+
+    def test_base_branch_custom_branch(self):
+        """With a custom base_branch, diff command uses that branch name."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+            base_branch="develop",
+        )
+        assert "origin/develop...HEAD" in prompt
+        assert "HEAD~10" not in prompt
+
+    def test_no_base_branch_falls_back_to_origin_main(self):
+        """Without base_branch, diff command falls back to 'origin/main...HEAD'."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+        )
+        assert "origin/main...HEAD" in prompt
+        assert "HEAD~10" not in prompt
+
+    def test_none_base_branch_falls_back_to_origin_main(self):
+        """Explicit None base_branch falls back to 'origin/main...HEAD'."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+            base_branch=None,
+        )
+        assert "origin/main...HEAD" in prompt
+        assert "HEAD~10" not in prompt
+
+    def test_delta_review_still_uses_commit_sha(self):
+        """Delta review (cycle > 1 with last_reviewed_commit) still uses commit SHA."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+            review_cycle=2,
+            last_reviewed_commit="abc123def",
+            base_branch="main",
+        )
+        assert "git diff abc123def..HEAD" in prompt
+        # base_branch diff should NOT be the primary diff command for delta reviews
+        assert "origin/main...HEAD" not in prompt
+
+    def test_contract_reviewer_uses_base_branch(self):
+        """Contract reviewer also uses base_branch for diff command."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="contract",
+            issue_number=100,
+            base_branch="main",
+        )
+        assert "origin/main...HEAD" in prompt
+        assert "HEAD~10" not in prompt
+
+    def test_code_reviewer_find_all_issues_emphasis(self):
+        """Code reviewer prompt includes 'Find ALL issues' emphasis."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+        )
+        assert "Find ALL issues on the first pass" in prompt
+
+    def test_non_code_reviewer_no_find_all_issues(self):
+        """Non-code reviewers do NOT get 'Find ALL issues' emphasis."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="contract",
+            issue_number=100,
+        )
+        assert "Find ALL issues on the first pass" not in prompt
+
+    def test_no_head_tilde_10_remains(self):
+        """HEAD~10 should not appear in any review prompt path."""
+        for reviewer_type in ("code", "contract"):
+            for base_branch in (None, "main", "develop"):
+                prompt = _build_review_prompt(
+                    phase="implement",
+                    pipeline_id="test-pipe",
+                    pipeline_mode="issue",
+                    reviewer_type=reviewer_type,
+                    issue_number=100,
+                    base_branch=base_branch,
+                )
+                assert "HEAD~10" not in prompt, (
+                    f"HEAD~10 found with reviewer_type={reviewer_type}, base_branch={base_branch}"
+                )
+
+
+class TestRoleContextBaseBranch:
+    """Tests for base_branch parameter in _build_role_context (issue #1565)."""
+
+    def test_base_branch_produces_correct_diff_pointer(self):
+        """With base_branch='main', context pointer uses 'origin/main...HEAD'."""
+        result = _build_role_context(
+            "tester", "# Issue\n\nBody.", issue_number=1, base_branch="main"
+        )
+        assert "origin/main...HEAD" in result
+        assert "HEAD~10" not in result
+
+    def test_custom_base_branch(self):
+        """With custom base_branch, context pointer uses that branch name."""
+        result = _build_role_context(
+            "documenter", "# Issue\n\nBody.", issue_number=1, base_branch="release/v2"
+        )
+        assert "origin/release/v2...HEAD" in result
+        assert "HEAD~10" not in result
+
+    def test_no_base_branch_falls_back_to_origin_main(self):
+        """Without base_branch, falls back to 'origin/main...HEAD'."""
+        result = _build_role_context("tester", "# Issue\n\nBody.", issue_number=1)
+        assert "origin/main...HEAD" in result
+        assert "HEAD~10" not in result
+
+    def test_none_base_branch_falls_back(self):
+        """Explicit None base_branch falls back to origin/main."""
+        result = _build_role_context("tester", "# Issue\n\nBody.", issue_number=1, base_branch=None)
+        assert "origin/main...HEAD" in result
+        assert "HEAD~10" not in result
+
+    def test_analysis_roles_unaffected(self):
+        """Analysis roles (architect, task_planner) don't have context pointers at all."""
+        result = _build_role_context("architect", "Full body", issue_number=1, base_branch="main")
+        # Analysis roles return just the task description, no context pointers
+        assert "origin/main...HEAD" not in result
+        assert "HEAD~10" not in result
+
+    def test_no_head_tilde_10_remains_in_any_role(self):
+        """HEAD~10 should not appear for any execution role."""
+        for role in ("tester", "documenter", "some_new_role"):
+            for base_branch in (None, "main", "develop"):
+                result = _build_role_context(
+                    role, "# Issue\n\nBody.", issue_number=1, base_branch=base_branch
+                )
+                assert "HEAD~10" not in result, (
+                    f"HEAD~10 found for role={role}, base_branch={base_branch}"
+                )
+
+
+class TestBrcPreambleSyncStep:
+    """Tests for SYNC step in BRC reviewer lifecycle (issue #1565)."""
+
+    def test_reviewer_lifecycle_includes_sync_step(self):
+        """Reviewer lifecycle includes SYNC step with fetch+merge."""
+        preamble = _build_brc_preamble("reviewer_code", "implement", branch="egg/issue-123")
+        assert "**SYNC**" in preamble
+        assert "git fetch origin" in preamble
+        assert "git merge origin/egg/issue-123" in preamble
+
+    def test_reviewer_sync_step_before_review(self):
+        """SYNC step comes before REVIEW step in reviewer lifecycle."""
+        preamble = _build_brc_preamble("reviewer_code", "implement", branch="egg/issue-123")
+        sync_pos = preamble.index("**SYNC**")
+        review_pos = preamble.index("**REVIEW**")
+        assert sync_pos < review_pos, "SYNC must come before REVIEW"
+
+    def test_reviewer_sync_step_after_poll(self):
+        """SYNC step comes after POLL step in reviewer lifecycle."""
+        preamble = _build_brc_preamble("reviewer_code", "implement", branch="egg/issue-123")
+        poll_pos = preamble.index("**POLL**")
+        sync_pos = preamble.index("**SYNC**")
+        assert poll_pos < sync_pos, "POLL must come before SYNC"
+
+    def test_reviewer_lifecycle_renumbered(self):
+        """Reviewer lifecycle steps are renumbered after SYNC insertion."""
+        preamble = _build_brc_preamble("reviewer_code", "implement", branch="egg/issue-123")
+        # After SYNC insertion, REVIEW should be step 4, ACK/NACK step 5
+        assert "4. **REVIEW**" in preamble
+        assert "5. **ACK/NACK**" in preamble
+        assert "6. **CONFIRM**" in preamble
+        assert "7. **STAY ALIVE**" in preamble
+        assert "8. **HANDLE RE-REVIEW**" in preamble
+
+    def test_sync_without_branch_uses_base_branch_fallback(self):
+        """Without branch parameter, SYNC falls back to base_branch."""
+        preamble = _build_brc_preamble("reviewer_code", "implement", base_branch="develop")
+        assert "**SYNC**" in preamble
+        assert "origin/develop" in preamble
+
+    def test_sync_without_branch_or_base_branch_uses_main(self):
+        """Without branch or base_branch, SYNC falls back to main."""
+        preamble = _build_brc_preamble("reviewer_code", "implement")
+        assert "**SYNC**" in preamble
+        assert "origin/main" in preamble
+
+    def test_dual_role_producer_gets_sync_note(self):
+        """Dual-role agents (tester) get sync note in producer orientation."""
+        preamble = _build_brc_preamble("tester", "implement", branch="egg/feature-branch")
+        assert "git fetch origin" in preamble
+        assert "origin/egg/feature-branch" in preamble
+
+    def test_producer_only_no_sync_step(self):
+        """Pure producer (coder) does not get SYNC in reviewer lifecycle."""
+        preamble = _build_brc_preamble("coder", "implement", branch="egg/issue-123")
+        # Coder is producer only, so should not have reviewer lifecycle at all
+        assert "### Reviewer Lifecycle" not in preamble
+
+    def test_contract_reviewer_gets_sync(self):
+        """Contract reviewer also gets SYNC step."""
+        preamble = _build_brc_preamble("reviewer_contract", "implement", branch="egg/issue-456")
+        assert "**SYNC**" in preamble
+        assert "origin/egg/issue-456" in preamble
+
+
+class TestProducerOrientationSyncNote:
+    """Tests for sync note in _build_producer_orientation (issue #1565)."""
+
+    def test_tester_gets_sync_note_with_branch(self):
+        """Tester orientation includes sync note when branch is provided."""
+        orient = _build_producer_orientation("tester", "implement", [], branch="egg/issue-123")
+        assert "git fetch origin" in orient
+        assert "origin/egg/issue-123" in orient
+
+    def test_tester_no_sync_note_without_branch(self):
+        """Tester orientation omits sync note when branch is None."""
+        orient = _build_producer_orientation("tester", "implement", [])
+        assert "git fetch origin" not in orient
+
+    def test_documenter_gets_sync_note_with_branch(self):
+        """Documenter orientation includes sync note when branch is provided."""
+        orient = _build_producer_orientation("documenter", "implement", [], branch="egg/issue-123")
+        assert "git fetch origin" in orient
+        assert "origin/egg/issue-123" in orient
+
+    def test_documenter_no_sync_note_without_branch(self):
+        """Documenter orientation omits sync note when branch is None."""
+        orient = _build_producer_orientation("documenter", "implement", [])
+        assert "git fetch origin" not in orient
+
+    def test_coder_no_sync_note(self):
+        """Coder orientation does not get sync note regardless of branch."""
+        orient = _build_producer_orientation(
+            "coder", "implement", ["reviewer_code"], branch="egg/issue-123"
+        )
+        assert "git fetch origin && git merge" not in orient
+
+
+class TestAgentPromptBaseBranchPassthrough:
+    """Tests for base_branch passthrough in _build_agent_prompt (issue #1565)."""
+
+    def test_tester_prompt_uses_base_branch_in_context(self):
+        """Tester agent prompt passes base_branch to role context."""
+        result = _build_agent_prompt(
+            role_value="tester",
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="# Feature",
+            issue_number=42,
+            base_branch="main",
+        )
+        assert "origin/main...HEAD" in result
+        assert "HEAD~10" not in result
+
+    def test_tester_prompt_uses_branch_in_brc_preamble(self):
+        """Tester agent prompt passes branch to BRC preamble."""
+        result = _build_agent_prompt(
+            role_value="tester",
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="# Feature",
+            issue_number=42,
+            branch="egg/issue-42",
+            concurrent=True,
+        )
+        assert "origin/egg/issue-42" in result
+
+    def test_reviewer_prompt_passes_base_branch(self):
+        """Reviewer agent prompt passes base_branch to review prompt builder."""
+        result = _build_agent_prompt(
+            role_value="reviewer_code",
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            issue_number=42,
+            base_branch="develop",
+        )
+        assert "origin/develop...HEAD" in result
+        assert "HEAD~10" not in result
+
+    def test_reviewer_concurrent_gets_sync_step(self):
+        """Reviewer in concurrent mode gets SYNC step with branch."""
+        result = _build_agent_prompt(
+            role_value="reviewer_code",
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            issue_number=42,
+            branch="egg/issue-42",
+            concurrent=True,
+        )
+        assert "**SYNC**" in result
+        assert "origin/egg/issue-42" in result
+
+    def test_coder_prompt_unaffected_by_base_branch(self):
+        """Coder prompt (which delegates to _build_phase_prompt) accepts base_branch."""
+        # Should not raise even though coder uses _build_phase_prompt internally
+        result = _build_agent_prompt(
+            role_value="coder",
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="# Feature",
+            issue_number=42,
+            base_branch="main",
+        )
+        # Coder prompt uses _build_phase_prompt, not _build_role_context
+        assert result  # Just verify it doesn't crash

@@ -208,7 +208,7 @@ Each agent tracks two state machines (producer and reviewer) independently:
 ### BRC Protocol Flow
 
 1. **Propose**: Producer completes work, commits and pushes to the remote branch, then sends `CONSENSUS_PROPOSE` with a summary, artifact list, and the pushed commit SHA (`--commit-sha`). The orchestrator rejects proposals whose commit SHA is confirmed absent from the branch (verification failures due to network errors are non-blocking).
-2. **Review**: Assigned reviewers discover proposals via polling. Before a reviewer has submitted their own evaluation, the Delphi filter delivers a **redacted** version of the `CONSENSUS_PROPOSE` message (`body` cleared, `metadata.payload` stripped except `version` and `commit_sha`, `metadata.delphi_redacted=True`). This notifies the reviewer that a proposal exists without exposing the producer's self-assessment. After reviewing the git artifacts and submitting `CONSENSUS_ACK` or `CONSENSUS_NACK`, subsequent polls return the full unredacted message.
+2. **Review**: Assigned reviewers discover proposals via polling. Before a reviewer has submitted their own evaluation, the Delphi filter delivers a **redacted** version of the `CONSENSUS_PROPOSE` message (`body` cleared, `metadata.payload` stripped except `version` and `commit_sha`, `metadata.delphi_redacted=True`). This notifies the reviewer that a proposal exists without exposing the producer's self-assessment. Reviewers must **sync their worktree** before reviewing (`git fetch origin && git merge origin/{branch} --no-edit`) to pull in the producer's pushed commits. After reviewing the git artifacts and submitting `CONSENSUS_ACK` or `CONSENSUS_NACK`, subsequent polls return the full unredacted message.
 3. **Converge**: When all critical reviewers ACK, the producer sends `CONSENSUS_CONFIRMED`. When all agents are confirmed, the phase advances.
 4. **Re-propose**: If a NACK is received, the producer addresses the feedback and re-proposes (with `changed_artifacts` to scope re-evaluation). Flip-flop cycles are capped at `max_flip_flops` (default: 3). If any reviewer had already confirmed on a prior proposal version, they automatically receive a `CONSENSUS_RE_REVIEW` message and are un-confirmed so they re-enter the review loop — preventing a deadlock where a stale-confirmed reviewer can never see the new proposal.
 
@@ -246,6 +246,9 @@ Use `egg-orch consensus` commands to participate in the BRC protocol:
 # Producer: commit and push work, then propose for review (--commit-sha defaults to HEAD if omitted)
 git add src/feature.py && git commit -m "Implement feature X" && git push origin HEAD:egg/feature-x
 egg-orch consensus propose --summary "Implemented feature X" --artifacts src/feature.py --risk "No retry on transient failures" --commit-sha $(git rev-parse HEAD)
+
+# Reviewer: sync worktree before reviewing (fetch producer's commits)
+git fetch origin && git merge origin/egg/feature-x --no-edit
 
 # Reviewer: ACK after reviewing
 egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py
@@ -396,6 +399,20 @@ Each concurrent agent runs in its own isolated git worktree. This prevents agent
 This works because role restrictions guarantee non-overlapping file sets (coder writes source code, tester writes tests, documenter writes docs). No overlapping writes means no merge conflicts.
 
 **What changed:** Previously, all agents in a pipeline shared a single worktree. The orchestrator used the `pipeline_id` as the worktree key, forcing all containers to share one working directory. Now each container gets its own worktree, using the `container_id` as the key.
+
+### Reviewer Worktree Sync
+
+Per-agent worktrees are created at phase start from the pipeline branch. When a producer pushes commits and proposes, the reviewer's worktree does not automatically have those commits. To address this, the BRC preamble instructs reviewers to sync their worktree before reviewing:
+
+```bash
+git fetch origin && git merge origin/{branch} --no-edit
+```
+
+This explicit fetch+merge step ensures reviewers see the latest code (including the producer's pushed commits) when they start reviewing. Without it, reviewers would evaluate stale code and miss issues that appear in the actual changeset.
+
+The same sync instruction is included for dual-role agents (e.g., `tester`) in their producer ORIENT step, so they also have up-to-date code before beginning work.
+
+**Reviewer diff command:** Reviewers use `git diff origin/{base_branch}...HEAD` (three-dot merge-base syntax) to see the full changeset against the base branch, rather than an arbitrary truncated window. The `base_branch` is resolved from `pipeline.base_branch` or the repository's default branch. This matches the context available to PR review bots, which see the complete PR diff.
 
 ### Per-Agent Git Author
 
