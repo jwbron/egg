@@ -137,9 +137,9 @@
         {
           "container_id": "bbba141b45050388d36f121e23f6e09e971c0079d5c2913abb561d2ca43451e9",
           "container_name": "issue-1570-risk_analyst",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-04-08T21:19:11.098356Z",
-          "exited_at": null,
+          "exited_at": "2026-04-08T21:56:03.530686Z",
           "exit_code": null,
           "agent_role": "risk_analyst",
           "session_token": null
@@ -147,9 +147,9 @@
         {
           "container_id": "a3346ec80fe3e37c5a3cc98f2c54eb6cca01f07b180a65899c7da7df069f359f",
           "container_name": "issue-1570-reviewer_plan",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-04-08T21:19:11.098364Z",
-          "exited_at": null,
+          "exited_at": "2026-04-08T21:56:03.530686Z",
           "exit_code": null,
           "agent_role": "reviewer_plan",
           "session_token": null
@@ -167,9 +167,9 @@
         {
           "container_id": "be12cdadb429cd17f2b97a7197e90269641e975b234ab1139e384af1b29ed6e9",
           "container_name": "issue-1570-task_planner",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-04-08T21:19:11.098372Z",
-          "exited_at": null,
+          "exited_at": "2026-04-08T21:56:03.530686Z",
           "exit_code": null,
           "agent_role": "task_planner",
           "session_token": null
@@ -178,25 +178,25 @@
       "agents": [
         {
           "role": "risk_analyst",
-          "status": "running",
+          "status": "failed",
           "container_id": "bbba141b45050388d36f121e23f6e09e971c0079d5c2913abb561d2ca43451e9",
           "started_at": "2026-04-08T21:19:11.098360Z",
-          "completed_at": null,
+          "completed_at": "2026-04-08T21:56:03.530686Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pipeline cancelled",
           "retry_count": 0,
           "conflicts": []
         },
         {
           "role": "reviewer_plan",
-          "status": "running",
+          "status": "failed",
           "container_id": "a3346ec80fe3e37c5a3cc98f2c54eb6cca01f07b180a65899c7da7df069f359f",
           "started_at": "2026-04-08T21:19:11.098366Z",
-          "completed_at": null,
+          "completed_at": "2026-04-08T21:56:03.530686Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pipeline cancelled",
           "retry_count": 0,
           "conflicts": []
         },
@@ -214,13 +214,13 @@
         },
         {
           "role": "task_planner",
-          "status": "running",
+          "status": "failed",
           "container_id": "be12cdadb429cd17f2b97a7197e90269641e975b234ab1139e384af1b29ed6e9",
           "started_at": "2026-04-08T21:19:11.098373Z",
-          "completed_at": null,
+          "completed_at": "2026-04-08T21:56:03.530686Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pipeline cancelled",
           "retry_count": 0,
           "conflicts": []
         }
@@ -446,7 +446,7 @@
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T21:56:03.507361Z",
+  "updated_at": "2026-04-08T21:56:03.531011Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -454,5 +454,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 43
+  "version": 44
 }
