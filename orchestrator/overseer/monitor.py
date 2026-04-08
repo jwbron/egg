@@ -569,11 +569,17 @@ class OverseerMonitor:
             self.self_monitor.record_message_sent()
 
         elif action == "restart_phase":
-            # Phase restarts require HITL approval by default
-            await self._create_hitl_decision(
+            # Phase restarts require HITL approval — the human must
+            # manually call the phase restart API after reviewing.
+            current_phase = os.environ.get("EGG_CURRENT_PHASE", "implement")
+            orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://localhost:9849")
+            restart_api = (
+                f"POST {orchestrator_url}/api/v1/pipelines/"
+                f"{self.pipeline_id}/phases/{current_phase}/restart"
+            )
+            await self._create_phase_restart_decision(
                 agent_role,
-                f"Phase restart requested: {message}. "
-                "Approve to restart all agents in the current phase.",
+                f"Phase restart requested: {message}. To approve, call: {restart_api}",
             )
             self.self_monitor.record_message_sent()
 
@@ -625,10 +631,12 @@ class OverseerMonitor:
 
         # Call the restart REST API endpoint directly (no CLI subcommand exists)
         try:
+            from urllib.parse import quote
+
             orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://localhost:9849")
             restart_url = (
                 f"{orchestrator_url}/api/v1/pipelines/"
-                f"{self.pipeline_id}/agents/{agent_role}/restart"
+                f"{quote(self.pipeline_id, safe='')}/agents/{quote(agent_role, safe='')}/restart"
             )
             import urllib.request
 
@@ -1574,6 +1582,34 @@ class OverseerMonitor:
             )
         except Exception:
             logger.debug("Failed to create HITL decision for %s", agent_role, exc_info=True)
+
+    async def _create_phase_restart_decision(self, agent_role: str, message: str) -> None:
+        """Create a HITL decision for a phase restart request.
+
+        Unlike agent-level restarts (which the overseer executes
+        automatically), phase restarts surface a decision so a human can
+        review before calling the phase restart API endpoint.
+        """
+        try:
+            await self._run_cli(
+                "egg-orch",
+                "decision",
+                "create",
+                self.pipeline_id,
+                "--question",
+                f"Phase restart decision: {message}",
+                "--options",
+                "Restart phase",
+                "Restart individual agent",
+                "Continue monitoring",
+                "Cancel pipeline",
+            )
+        except Exception:
+            logger.debug(
+                "Failed to create phase restart HITL decision for %s",
+                agent_role,
+                exc_info=True,
+            )
 
     async def _send_slack_notification(self, agent_role: str, message: str) -> None:
         """Send a Slack notification about an agent issue."""

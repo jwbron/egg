@@ -363,6 +363,7 @@ class TestMonitorExecuteRestartPhase:
 
     def test_restart_phase_creates_hitl_by_default(self, monitor):
         """restart_phase action should create HITL decision (requires approval)."""
+        monitor._create_phase_restart_decision = AsyncMock()
         decision = {
             "action": "restart_phase",
             "message": "Phase restart needed — all agents stalled",
@@ -371,8 +372,8 @@ class TestMonitorExecuteRestartPhase:
 
         _run(monitor._execute_action(decision, "coder"))
 
-        monitor._create_hitl_decision.assert_called()
-        call_args = monitor._create_hitl_decision.call_args
+        monitor._create_phase_restart_decision.assert_called()
+        call_args = monitor._create_phase_restart_decision.call_args
         message = str(call_args)
         assert "restart" in message.lower() or "phase" in message.lower()
 

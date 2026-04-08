@@ -210,6 +210,7 @@ class ContainerSpawner:
         certs_volume: str | None = None,
         branch: str | None = None,
         extra_mounts: list[MountSpec] | None = None,
+        preserve_worktree_on_failure: bool = False,
     ) -> SpawnedContainer:
         """Spawn a container for an agent.
 
@@ -232,6 +233,10 @@ class ContainerSpawner:
             phase: SDLC pipeline phase for gateway session
             command: Command to execute in the container
             certs_volume: Docker named volume for gateway CA certs
+            preserve_worktree_on_failure: If True, do not delete the agent's
+                worktree when Docker spawn fails.  Used during restarts where
+                the existing worktree contains committed work that must not
+                be destroyed by a transient failure.
 
         Returns:
             SpawnedContainer with container and session info
@@ -299,6 +304,7 @@ class ContainerSpawner:
         # pipeline_id) is retained for orchestrator-side reads (contracts,
         # drafts); agents get their own worktree branched from the same ref.
         agent_worktree_id = f"{pipeline_id}-{agent_role.value}"
+        worktree_created_this_call = False
         if repo_volumes and repos:
             try:
                 wt_repos = repos
@@ -311,6 +317,7 @@ class ContainerSpawner:
                 )
                 if wt_result and wt_result.success and wt_result.worktrees:
                     repo_volumes = wt_result.worktrees
+                    worktree_created_this_call = True
                     logger.info(
                         "Per-agent worktree created",
                         agent_worktree_id=agent_worktree_id,
@@ -544,11 +551,15 @@ class ContainerSpawner:
                     self.gateway.delete_session(session_info.session_token)
                 except GatewayError:
                     pass  # Best effort cleanup
-            # Clean up per-agent worktree created before Docker spawn (#1494 review)
-            try:
-                self.gateway.delete_worktrees(container_id=agent_worktree_id, force=True)
-            except Exception:
-                pass  # Best effort cleanup
+            # Only clean up the worktree if we created it in this call and
+            # the caller hasn't asked to preserve it.  During restarts the
+            # existing worktree contains committed work that must not be
+            # destroyed on a transient Docker failure.
+            if worktree_created_this_call and not preserve_worktree_on_failure:
+                try:
+                    self.gateway.delete_worktrees(container_id=agent_worktree_id, force=True)
+                except Exception:
+                    pass  # Best effort cleanup
             raise ContainerSpawnError(f"Failed to spawn container: {e}") from e
 
     def stop_agent_container(
@@ -817,8 +828,10 @@ class ContainerSpawner:
                 container_name=full_container_name,
             )
 
-        # Respawn — spawn_agent_container handles existing container cleanup
-        # and reuses the per-agent worktree if it already exists on disk
+        # Respawn — the gateway's create_worktrees() is idempotent (returns
+        # the existing worktree if valid), so the agent's committed work is
+        # preserved.  preserve_worktree_on_failure=True ensures that a
+        # transient Docker failure does not delete the pre-existing worktree.
         spawned = self.spawn_agent_container(
             pipeline_id=pipeline_id,
             agent_role=agent_role,
@@ -834,6 +847,7 @@ class ContainerSpawner:
             certs_volume=certs_volume,
             branch=branch,
             extra_mounts=extra_mounts,
+            preserve_worktree_on_failure=True,
         )
 
         # Track restart count
