@@ -622,20 +622,27 @@ class OverseerMonitor:
                 )
             return
 
-        # Call the restart endpoint
+        # Call the restart REST API endpoint directly (no CLI subcommand exists)
         try:
-            rc, stdout, stderr = await self._run_cli(
-                "egg-orch",
-                "pipeline",
-                "restart-agent",
-                self.pipeline_id,
-                "--role",
-                agent_role,
-                "--reason",
-                message[:500],
-                timeout=60,
+            orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://localhost:9849")
+            restart_url = (
+                f"{orchestrator_url}/api/v1/pipelines/"
+                f"{self.pipeline_id}/agents/{agent_role}/restart"
             )
-            if rc == 0:
+            import urllib.request
+
+            req_data = json.dumps({"reason": message[:500]}).encode()
+            req = urllib.request.Request(
+                restart_url,
+                data=req_data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open(req, timeout=60) as resp:
+                result = json.loads(resp.read().decode())
+
+            if result.get("success"):
                 self._agent_restart_counts[agent_role] = restart_count + 1
                 logger.info(
                     "Agent %s restarted successfully (count: %d/%d)",
@@ -652,17 +659,17 @@ class OverseerMonitor:
                     }
                 )
             else:
+                error_msg = result.get("message", "Unknown error")
                 logger.error(
-                    "Failed to restart agent %s: rc=%d stderr=%s",
+                    "Failed to restart agent %s: %s",
                     agent_role,
-                    rc,
-                    stderr[:200],
+                    error_msg,
                 )
                 # Fall back to HITL on failure
                 await self._create_hitl_decision(
                     agent_role,
                     f"Attempted to restart agent {agent_role} but failed: "
-                    f"{stderr[:200]}. Original issue: {message}",
+                    f"{error_msg}. Original issue: {message}",
                 )
         except Exception as e:
             logger.error("Exception restarting agent %s: %s", agent_role, e)
