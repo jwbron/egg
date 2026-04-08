@@ -1616,6 +1616,32 @@ def _get_draft_path(
         return f".egg-state/drafts/{prefix}-{phase}.md"
 
 
+def _cleanup_stale_generic_drafts(worktree_path: Path) -> None:
+    """Remove unprefixed generic draft files from a worktree.
+
+    Legacy pipelines left behind ``analysis.md`` and ``plan.md`` (without
+    an issue-number or pipeline-id prefix) in ``.egg-state/drafts/``.
+    These stale files can confuse downstream draft-reading logic.  This
+    helper deletes only the exact unprefixed filenames; prefixed files
+    (e.g. ``1553-analysis.md``) are left untouched.
+
+    Safe to call when the drafts directory does not exist (no-op).
+    """
+    drafts_dir = worktree_path / ".egg-state" / "drafts"
+    if not drafts_dir.is_dir():
+        return
+
+    stale_names = ("analysis.md", "plan.md")
+    for name in stale_names:
+        stale = drafts_dir / name
+        if stale.exists():
+            logger.info(
+                "Removing stale generic draft",
+                path=str(stale),
+            )
+            stale.unlink()
+
+
 def _read_phase_draft(
     repo_path: Path,
     phase: str,
@@ -1633,6 +1659,13 @@ def _read_phase_draft(
         return None
     draft_path = repo_path / draft_rel
     if not draft_path.exists():
+        logger.debug(
+            "Draft file not found",
+            path=str(draft_path),
+            phase=phase,
+            issue_number=issue_number,
+            pipeline_id=pipeline_id,
+        )
         return None
     content = draft_path.read_text(encoding="utf-8")
     if len(content) > max_chars:
@@ -5932,6 +5965,21 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 prior_phase_succeeded=prior_phase_succeeded,
                 gateway_mode=gateway_mode,
             )
+
+            # Remove legacy unprefixed draft files (analysis.md, plan.md)
+            # that may have been left by earlier pipelines on this branch.
+            _cleanup_stale_generic_drafts(worktree_repo_path)
+            try:
+                _commit_statefiles_to_worktree(
+                    worktree_repo_path,
+                    "Remove stale generic draft files",
+                    pipeline_identifier=pipeline.issue_number or pipeline_id,
+                )
+            except subprocess.CalledProcessError:
+                logger.warning(
+                    "Failed to commit stale draft cleanup",
+                    pipeline_id=pipeline_id,
+                )
 
         # Resolve the certs named volume for gateway CA trust.
         # The docker-compose stack creates ${COMPOSE_PROJECT_NAME:-egg}-certs.
