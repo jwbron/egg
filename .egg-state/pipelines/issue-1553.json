@@ -270,10 +270,10 @@
       "options": [],
       "decision_type": "feedback",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-08T14:44:04.588015Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-08T14:56:33.194182Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"q-1\": \"No resource limits for now — match current behavior. Resource limits will be added when deploying to shared GKE clusters later.\"}}",
       "phase": "refine",
       "content_changed": null
     },
@@ -338,7 +338,7 @@
     }
   ],
   "created_at": "2026-04-08T14:30:41.767647Z",
-  "updated_at": "2026-04-08T14:56:30.654161Z",
+  "updated_at": "2026-04-08T14:56:33.195795Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -346,5 +346,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 31
+  "version": 32
 }
