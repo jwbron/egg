@@ -68,7 +68,7 @@ All concurrent agent containers are wrapped with a shell script defined in `orch
 2. If Claude exits non-zero, the wrapper first checks whether consensus is already complete or this agent is already confirmed (see step 6 for details on the confirmed check). If so, it exits cleanly — the non-zero exit is harmless. Otherwise, the wrapper classifies the exit code:
    - **Transient crash** (exit codes 134/SIGABRT, 136/SIGFPE, 137/SIGKILL/OOM, 139/SIGSEGV, 255/Bun segfault): The wrapper logs `"Transient crash (code $AGENT_EXIT). Will restart with backoff."` and falls through to the restart loop (step 4) with exponential backoff. The initial backoff is 5 seconds, doubling after each crash restart up to a 30-second cap.
    - **Non-transient failure** (all other non-zero codes, e.g., exit 1): The wrapper logs `"Agent failed (code $AGENT_EXIT). NOT restarting."` and exits immediately with the same code, triggering the orchestrator's agent failure path.
-3. If Claude exits cleanly (code 0), the wrapper checks whether this agent is already confirmed before restarting. It queries the pipeline status endpoint; if the consensus tracker state is empty (e.g., because the orchestrator restarted and the in-memory tracker was not yet reconstructed), the wrapper falls back to checking the message bus directly for a prior `CONSENSUS_CONFIRMED` message from this agent's role. If found, the agent is treated as already confirmed and enters the wait-for-consensus poll loop — no restart needed.
+3. If Claude exits cleanly (code 0), the wrapper checks whether this agent is already confirmed before restarting. It queries the pipeline status endpoint and falls back to the message bus in two scenarios: **(a)** the consensus tracker agents map is empty (e.g., orchestrator restarted and the in-memory tracker was not yet reconstructed), or **(b)** the tracker is populated but shows the agent as **not confirmed** (e.g., the tracker has stale state from a withdrawal/re-proposal cascade — see [#1564](https://github.com/jwbron/egg/issues/1564)). In either case, the wrapper checks the message bus directly for a prior `CONSENSUS_CONFIRMED` message from this agent's role. If found, the agent is treated as already confirmed and enters the wait-for-consensus poll loop — no restart needed.
 4. If not already confirmed, the wrapper restarts Claude with recovery instructions injected as the **system prompt** (not the user prompt). Using the system prompt prevents the Agent SDK from flagging the recovery context as prompt injection. The recovery system prompt explains that the agent was restarted, includes the current BRC state, and (for producers with unresolved NACKs) includes the NACK feedback so the agent knows exactly what to address before re-proposing. A short user prompt ("Continue the BRC consensus protocol…") accompanies it.
 5. Restarts are capped at `MAX_CONSENSUS_RESTARTS` (default: 2). After each restart, the wrapper checks if global consensus was reached (exit cleanly) or if this agent individually reached `CONFIRMED` state (enter the wait-for-consensus poll loop). This prevents a confirmed agent from consuming a restart slot while waiting for peers to finish.
 6. After exhausting all restarts, the wrapper performs a **final consensus check** before giving up. It polls the pipeline status endpoint for `is_complete`; if consensus has been reached (all agents confirmed), it logs "Consensus reached on final check" and exits with code 0 — avoiding a false failure. Only if consensus is genuinely incomplete does it exit with code 1, triggering the orchestrator's agent failure path (HITL decision with retry/abort/continue options).
@@ -323,6 +323,20 @@ Startup reconciliation also handles this: when tracker reconstruction succeeds o
 
 A complementary check, `IncompleteConsensusStallCheck`, handles the inverse scenario: consensus is **not yet complete** and the same blocking agents are not progressing (e.g., stuck in a heartbeat loop after a re-review cycle). After a 5-minute grace period, if the blocking set is unchanged for 10 consecutive `RUNTIME_TICK` events, the check reports `DEGRADED`. The overseer then sends targeted nudges and escalates to HITL if unresolved. See [Pipeline Health Monitoring](pipeline-health-monitoring.md#incomplete-consensus-stall-detection) for details.
 
+### All-Container-Exit Consensus Recovery
+
+A race condition can occur when all agent containers exit with non-zero codes (e.g., exit 1) but consensus was actually reached. This happens when the consensus tracker has stale state — for example, after a withdrawal/re-proposal cascade triggered by an overseer restart — causing the polling loop's step-2 consensus check to report `is_complete: false` even though all agents have confirmed via the message bus. By the time the orchestrator reaches step 5 (all containers exited), consensus is complete but was never detected.
+
+To close this race window, `_run_concurrent_phase` performs a **final consensus recheck** (via `executor.check_consensus()`) before returning failure when all containers have exited with non-zero codes. If the recheck finds `is_complete: true`, the orchestrator recovers the pipeline: it calls `_update_agents_complete()` and `_stop_running_containers()`, restores the pipeline from `FAILED` to `RUNNING` status if needed, and returns exit code 0 — the same success path as the normal consensus-detected completion in step 2.
+
+This recovery is complementary to the wrapper-level fallback (which catches stale tracker state inside the container) and the stall recovery health check (which catches missed completion events after a grace period). Together, they form a defense-in-depth chain:
+
+1. **Wrapper fallback** — agent-side: detects own `CONFIRMED` state even when tracker is stale
+2. **Final recheck** — orchestrator-side: detects consensus completion after all containers exit
+3. **Stall recovery** — health monitor: detects consensus completion that the polling loop missed
+
+See [#1564](https://github.com/jwbron/egg/issues/1564) for the incident that motivated this fix.
+
 ### Transient Crash Recovery
 
 Before an agent failure reaches the orchestrator's `handle_agent_crash()` path, the consensus wrapper attempts to recover from transient runtime crashes (segfaults, OOM kills, SIGABRT). Exit codes 134, 136, 137, 139, and 255 are classified as transient and trigger a restart with exponential backoff (starting at 5 s, doubling up to 30 s). If the transient crash restart succeeds and the agent reaches `CONFIRMED`, the failure is fully recovered at the wrapper level — the orchestrator never sees a failure event. Only when the agent crashes again after exhausting `MAX_CONSENSUS_RESTARTS` does the failure propagate to the orchestrator. See [Agent Recovery: Consensus Wrapper](../reference/agent-recovery.md#consensus-wrapper-transient-crash-recovery) for the full exit code classification.
@@ -377,6 +391,7 @@ The 60-second window is tracked via the `_failure_times` list, filtered to recen
 | Consensus timeout (advisory only) | *(no HITL — proceeds automatically)* |
 | Agent objection | Resolve then advance, Override, Abort |
 | All agents exited with unresolved NACKs | Retry phase, Accept current state, Abort phase |
+| All agents exited non-zero but consensus complete | *(no HITL — auto-recovered, returns success)* |
 
 ## Per-Agent Worktree Isolation
 

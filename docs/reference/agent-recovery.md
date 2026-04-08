@@ -156,6 +156,15 @@ Clean-exit restarts (exit code 0) do not incur any backoff delay.
 
 This addresses the scenario described in [issue #1512](https://github.com/jwbron/egg/issues/1512), where a Bun segfault permanently killed an agent and caused the entire pipeline to fail even though 4 of 5 agents were healthy.
 
+### Stale Tracker Fallback
+
+The wrapper's `check_agent_confirmed_with_fallback()` function uses a message bus fallback to detect confirmed state when the in-memory consensus tracker is unreliable. The fallback triggers in two scenarios:
+
+1. **Tracker empty** (original): The consensus agents map is empty, indicating the tracker was lost (e.g., orchestrator restart before reconstruction).
+2. **Tracker populated but stale** (added in [#1564](https://github.com/jwbron/egg/issues/1564)): The tracker has entries but shows the agent as not confirmed. This occurs after a withdrawal/re-proposal cascade where the tracker was populated during the cascade but never updated to reflect the final confirmed state.
+
+In both cases, the wrapper polls the message bus for the agent's own `CONSENSUS_CONFIRMED` message. If found, the agent is treated as already confirmed — avoiding unnecessary restarts.
+
 ## When Recovery Is Triggered vs. HITL Escalation
 
 | Scenario | Behavior |
@@ -170,6 +179,7 @@ This addresses the scenario described in [issue #1512](https://github.com/jwbron
 | Circuit breaker OPEN | Block new agent spawns; alert operators |
 | Agent failure during consensus | Remove from consensus; treat as single failure |
 | All agents exit with unresolved NACKs (concurrent mode) | Phase returns failure + HITL decision: retry phase / accept current state / abort phase |
+| All agents exit non-zero but consensus actually complete | Final consensus recheck recovers pipeline — returns success, no HITL needed |
 
 HITL escalation creates a decision in the pipeline's decision queue. Options presented to the human depend on the failure type (see [Concurrent Execution Guide](../guides/concurrent-execution.md) for concurrent-mode options).
 
