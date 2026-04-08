@@ -40,13 +40,20 @@
       "phase": "implement",
       "status": "running",
       "started_at": "2026-04-08T16:10:33.195414Z",
-      "work_started_at": null,
+      "work_started_at": "2026-04-08T16:10:33.207718Z",
       "completed_at": null,
       "containers": [],
       "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [],
+      "cycle_timings": [
+        {
+          "cycle": 0,
+          "started_at": "2026-04-08T16:10:33.207718Z",
+          "completed_at": null,
+          "commit_sha": "10cc4016246c9befadedf5adb42c18e0dfdca140"
+        }
+      ],
       "artifacts": {},
       "error": null,
       "hitl_feedback": null,
@@ -55,7 +62,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-08T16:10:05.270876Z",
-  "updated_at": "2026-04-08T16:10:33.195484Z",
+  "updated_at": "2026-04-08T16:10:33.209138Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -63,5 +70,5 @@
   "error": null,
   "analysis": "### Task Analysis\n\n**Problem statement**: When a pipeline starts on a branch that has prior `.egg-state/drafts/analysis.md` and `plan.md` from earlier pipeline runs, those stale generic files persist and cause confusion. In the `issue-1553` pipeline, the phase gate reported \"no analysis draft found\" despite `1553-analysis.md` existing on the branch — the stale generic `analysis.md` contained unrelated content from a markdown documentation audit.\n\n**Technical root cause**: Two issues compound:\n1. **Stale generic drafts**: Legacy `analysis.md` and `plan.md` (no issue prefix) persist on work branches from prior merges/pipelines. Nothing cleans them up.\n2. **Transient draft read failure**: `_read_phase_draft` returned `None` with no diagnostic logging of which path was tried.\n\n**Files affected**:\n- `orchestrator/routes/pipelines.py` — Add stale draft cleanup at pipeline start; improve diagnostic logging in `_read_phase_draft`\n- `orchestrator/tests/test_read_phase_draft.py` — Add tests for cleanup and logging",
   "plan": "# Plan: Clean up stale generic drafts and add diagnostic logging\n\n## Summary\n\nFix stale generic draft files (`analysis.md`, `plan.md`) persisting on work branches by removing them at pipeline start, and add diagnostic logging to `_read_phase_draft` so transient draft-not-found failures leave a trace for debugging.\n\n**Risks / edge cases**: Cleanup must only target the exact unprefixed filenames (`analysis.md`, `plan.md`) in `.egg-state/drafts/` — not any prefixed files.\n\n## Implementation\n\n### Phase 1: Implement\n\n**Tasks**:\n1. **[task-1-1]** In `orchestrator/routes/pipelines.py`, add `_cleanup_stale_generic_drafts(worktree_path)` that removes `.egg-state/drafts/analysis.md` and `.egg-state/drafts/plan.md`. **CRITICAL**: Use `git rm -f` to stage the deletions and then `git commit` directly inside the cleanup function — do NOT use `_commit_statefiles_to_worktree` because that function only stages files matching `{pid}.*` or `{pid}-*` patterns and will silently skip unprefixed file deletions. Fall back to `os.unlink` if the file is untracked. Call after `_sync_worktree_with_remote` at ~line 5934, then push via `spawner.gateway.push_worktree_branch`.\n2. **[task-1-2]** In `orchestrator/routes/pipelines.py:_read_phase_draft()`, add `logger.debug` when `draft_path.exists()` returns False, logging the attempted path, phase, issue_number, and pipeline_id.\n3. **[task-1-3]** In `orchestrator/tests/test_read_phase_draft.py`, add tests: (a) `_cleanup_stale_generic_drafts` removes `analysis.md` and `plan.md` but leaves prefixed files intact, (b) no-op when no drafts directory exists, (c) `_read_phase_draft` emits a debug log when the draft file is missing.\n\n```yaml\n# yaml-tasks\npr:\n  title: \"Fix stale generic drafts persisting on work branches\"\n  description: |\n    Clean up legacy unprefixed draft files (analysis.md, plan.md) at pipeline\n    start and add diagnostic logging when draft reads fail silently.\n  test_plan: |\n    - Automated: new tests in test_read_phase_draft.py for cleanup function and debug logging\n    - Manual: start a pipeline on a branch with stale analysis.md, verify it's removed before agents run\n  manual_steps: |\n    Pre-merge: none\n    Post-merge: none\nphases:\n  - id: 1\n    name: Implement\n    goal: \"Remove stale generic drafts at pipeline start and add diagnostic logging to draft reads\"\n    tasks:\n      - id: task-1-1\n        description: \"In `orchestrator/routes/pipelines.py`, add `_cleanup_stale_generic_drafts(worktree_path)` that removes `.egg-state/drafts/analysis.md` and `.egg-state/drafts/plan.md` using `git rm -f` + `git commit` directly (NOT _commit_statefiles_to_worktree, which only stages {pid}-prefixed files). Fall back to os.unlink for untracked files. Call after `_sync_worktree_with_remote` at ~line 5934, then push.\"\n        acceptance: \"When a pipeline starts on a branch with stale .egg-state/drafts/analysis.md, the generic file is removed and the deletion is committed; prefixed files like 1553-analysis.md are untouched.\"\n        files:\n          - orchestrator/routes/pipelines.py\n      - id: task-1-2\n        description: \"In `orchestrator/routes/pipelines.py:_read_phase_draft()`, add `logger.debug` when `draft_path.exists()` returns False, logging the attempted path, phase, issue_number, and pipeline_id.\"\n        acceptance: \"When _read_phase_draft can't find a draft, the debug log includes the full attempted path.\"\n        files:\n          - orchestrator/routes/pipelines.py\n      - id: task-1-3\n        description: \"In `orchestrator/tests/test_read_phase_draft.py`, add tests for _cleanup_stale_generic_drafts (removes generic files, preserves prefixed files, no-op when no drafts dir) and _read_phase_draft debug logging on missing files.\"\n        acceptance: \"All new tests pass and cover cleanup and logging behavior.\"\n        files:\n          - orchestrator/tests/test_read_phase_draft.py\n```",
-  "version": 5
+  "version": 6
 }
