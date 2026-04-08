@@ -128,9 +128,28 @@
       "phase_start_sha": "87d2fafbdae34ace9afdb505f04047bc67696259"
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Which Kubernetes manifest approach should be used for deploying orchestrator, gateway, and agent Jobs?",
+      "context": "",
+      "options": [
+        "Raw YAML manifests (simpler, no tooling dependency)",
+        "Helm charts (templated, parameterized, standard ecosystem tool)",
+        "Kustomize overlays (YAML-native, no templating language, built into kubectl)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-08T14:43:35.547948Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-04-08T14:30:41.767647Z",
-  "updated_at": "2026-04-08T14:31:13.217451Z",
+  "updated_at": "2026-04-08T14:43:35.550628Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -138,5 +157,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 7
+  "version": 8
 }
