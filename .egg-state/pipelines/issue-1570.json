@@ -223,10 +223,10 @@
       "options": [],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-08T20:56:45.327851Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-08T21:15:48.482540Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Keep transcript capture in the gateway for MVP — it already works and transcripts are not security-sensitive. Can migrate to harness later if needed.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -333,7 +333,7 @@
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T21:15:48.022420Z",
+  "updated_at": "2026-04-08T21:15:48.486028Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -341,5 +341,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 28
+  "version": 29
 }
