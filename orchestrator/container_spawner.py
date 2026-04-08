@@ -731,6 +731,7 @@ class ContainerSpawner:
         extra_env: dict[str, str] | None = None,
         repos: list[str] | None = None,
         phase: str | None = None,
+        command: list[str] | None = None,
         certs_volume: str | None = None,
         branch: str | None = None,
         extra_mounts: list["MountSpec"] | None = None,
@@ -753,6 +754,7 @@ class ContainerSpawner:
             extra_env: Additional environment variables.
             repos: Repositories for gateway session.
             phase: Current pipeline phase.
+            command: Command to execute in the container (e.g. consensus-wrapped prompt).
             certs_volume: Certs volume name.
             branch: Branch name.
             extra_mounts: Additional mount specs.
@@ -828,6 +830,7 @@ class ContainerSpawner:
             wait_for_gateway=True,
             repos=repos,
             phase=phase,
+            command=command,
             certs_volume=certs_volume,
             branch=branch,
             extra_mounts=extra_mounts,

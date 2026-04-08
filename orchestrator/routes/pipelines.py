@@ -1198,14 +1198,81 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     current_phase = pipeline.current_phase.value
     phase_exec = pipeline.phases.get(current_phase)
 
+    # Reconstruct command and extra_env for concurrent agents.
+    # In concurrent mode, agents need a consensus-wrapped prompt command
+    # and role-specific environment variables to function properly.
+    command = None
+    extra_env: dict[str, str] = {}
+    try:
+        from ..concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
+
+        if is_concurrent_execution(pipeline, phase=current_phase):
+            # Reconstruct extra_env via ConcurrentPhaseExecutor
+            executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=lambda **kw: None)  # type: ignore[arg-type]
+            extra_env = executor.get_agent_env(role)
+
+            # Reconstruct the agent prompt and wrap it for consensus
+            try:
+                env_path = os.environ.get("EGG_REPO_PATH", "/home/egg/repos")
+                base_path = Path(env_path)
+                repo_name = (pipeline.repo or "").split("/")[-1]
+                worktree_repo_path = (
+                    base_path / repo_name
+                    if not (base_path / ".git").exists()
+                    else base_path
+                )
+                _resolved_base = None
+                try:
+                    _resolved_base = get_default_branch(worktree_repo_path)
+                except Exception:
+                    pass
+
+                prompt_text = _build_agent_prompt(
+                    role_value=agent_role,
+                    phase=current_phase,
+                    pipeline_id=pipeline_id,
+                    pipeline_mode=pipeline.mode.value if pipeline.mode else "issue",
+                    prompt=pipeline.prompt,
+                    issue_number=pipeline.issue_number,
+                    repo=pipeline.repo,
+                    branch=pipeline.branch,
+                    base_branch=_resolved_base,
+                    repo_path=str(worktree_repo_path),
+                    concurrent=True,
+                    network_mode="public",
+                )
+                if prompt_text:
+                    from consensus_wrapper import build_consensus_wrapped_command
+
+                    command = build_consensus_wrapped_command(prompt_text)
+            except Exception as prompt_err:
+                logger.warning(
+                    "Failed to reconstruct agent prompt for restart "
+                    "(agent will start without a prompt command)",
+                    pipeline_id=pipeline_id,
+                    agent_role=agent_role,
+                    error=str(prompt_err),
+                )
+    except ImportError:
+        logger.debug("Concurrent executor not available for restart prompt reconstruction")
+    except Exception as e:
+        logger.warning(
+            "Failed to reconstruct concurrent env for restart",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            error=str(e),
+        )
+
     try:
         spawned = spawner.restart_agent_container(
             pipeline_id=pipeline_id,
             agent_role=role,
             issue_number=pipeline.issue_number,
             mode="public",
+            extra_env=extra_env or None,
             repos=[pipeline.repo] if pipeline.repo else None,
             phase=current_phase,
+            command=command,
             branch=pipeline.branch,
             reason=reason,
         )
@@ -1416,7 +1483,60 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
         pipeline.updated_at = datetime.now(UTC)
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
 
-    # 6. Respawn all agents
+    # 6. Reconstruct prompts/env for concurrent mode and respawn all agents
+    agent_commands: dict[AgentRole, list[str] | None] = {}
+    agent_envs: dict[AgentRole, dict[str, str]] = {}
+    try:
+        from ..concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
+
+        if is_concurrent_execution(pipeline, phase=phase):
+            executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=lambda **kw: None)  # type: ignore[arg-type]
+            env_path = os.environ.get("EGG_REPO_PATH", "/home/egg/repos")
+            base_path = Path(env_path)
+            repo_name = (pipeline.repo or "").split("/")[-1]
+            worktree_repo_path = (
+                base_path / repo_name
+                if not (base_path / ".git").exists()
+                else base_path
+            )
+            _resolved_base = None
+            try:
+                _resolved_base = get_default_branch(worktree_repo_path)
+            except Exception:
+                pass
+
+            for role in agent_roles:
+                try:
+                    agent_envs[role] = executor.get_agent_env(role)
+                    prompt_text = _build_agent_prompt(
+                        role_value=role.value,
+                        phase=phase,
+                        pipeline_id=pipeline_id,
+                        pipeline_mode=pipeline.mode.value if pipeline.mode else "issue",
+                        prompt=pipeline.prompt,
+                        issue_number=pipeline.issue_number,
+                        repo=pipeline.repo,
+                        branch=pipeline.branch,
+                        base_branch=_resolved_base,
+                        repo_path=str(worktree_repo_path),
+                        concurrent=True,
+                        network_mode="public",
+                    )
+                    if prompt_text:
+                        from consensus_wrapper import build_consensus_wrapped_command
+
+                        agent_commands[role] = build_consensus_wrapped_command(prompt_text)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to reconstruct prompt for %s during phase restart",
+                        role.value,
+                        error=str(e),
+                    )
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning("Failed to reconstruct concurrent env for phase restart", error=str(e))
+
     restarted_agents = []
     for role in agent_roles:
         try:
@@ -1425,8 +1545,10 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
                 agent_role=role,
                 issue_number=pipeline.issue_number,
                 mode="public",
+                extra_env=agent_envs.get(role) or None,
                 repos=[pipeline.repo] if pipeline.repo else None,
                 phase=phase,
+                command=agent_commands.get(role),
                 branch=pipeline.branch,
             )
 
