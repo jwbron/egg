@@ -3569,7 +3569,7 @@ def _build_brc_preamble(
                 "artifacts or form judgments before the proposal arrives.",
                 "3. **SYNC**: Before reviewing, sync your worktree so you have the "
                 "producer's commits: `git fetch origin && git merge origin/"
-                + (branch or "HEAD")
+                + (branch or base_branch or "main")
                 + " --no-edit`",
                 "4. **REVIEW**: Once a proposal arrives, form independent judgment from "
                 "the referenced code artifacts. Read the actual files — do not rely "
@@ -3801,12 +3801,18 @@ def _build_producer_orientation(
                 + reviewer_awareness
             )
         elif role_value == "documenter":
+            sync_note = ""
+            if branch:
+                sync_note = (
+                    f" Before starting work, sync your worktree: "
+                    f"`git fetch origin && git merge origin/{branch} --no-edit`."
+                )
             return (
                 "read the contract (`egg-contract show`) to understand what is "
                 "being implemented. Check existing documentation structure — "
                 "README files, doc directories, inline documentation patterns. "
                 "Identify which docs will need updating once the implementation "
-                "is complete." + reviewer_awareness
+                "is complete." + sync_note + reviewer_awareness
             )
     elif phase == "plan":
         if role_value == "architect":

@@ -2957,11 +2957,17 @@ class TestBrcPreambleSyncStep:
         assert "7. **STAY ALIVE**" in preamble
         assert "8. **HANDLE RE-REVIEW**" in preamble
 
-    def test_sync_without_branch_uses_head(self):
-        """Without branch parameter, SYNC uses HEAD as fallback."""
+    def test_sync_without_branch_uses_base_branch_fallback(self):
+        """Without branch parameter, SYNC falls back to base_branch."""
+        preamble = _build_brc_preamble("reviewer_code", "implement", base_branch="develop")
+        assert "**SYNC**" in preamble
+        assert "origin/develop" in preamble
+
+    def test_sync_without_branch_or_base_branch_uses_main(self):
+        """Without branch or base_branch, SYNC falls back to main."""
         preamble = _build_brc_preamble("reviewer_code", "implement")
         assert "**SYNC**" in preamble
-        assert "origin/HEAD" in preamble
+        assert "origin/main" in preamble
 
     def test_dual_role_producer_gets_sync_note(self):
         """Dual-role agents (tester) get sync note in producer orientation."""
@@ -2996,6 +3002,17 @@ class TestProducerOrientationSyncNote:
         orient = _build_producer_orientation("tester", "implement", [])
         assert "git fetch origin" not in orient
 
+    def test_documenter_gets_sync_note_with_branch(self):
+        """Documenter orientation includes sync note when branch is provided."""
+        orient = _build_producer_orientation("documenter", "implement", [], branch="egg/issue-123")
+        assert "git fetch origin" in orient
+        assert "origin/egg/issue-123" in orient
+
+    def test_documenter_no_sync_note_without_branch(self):
+        """Documenter orientation omits sync note when branch is None."""
+        orient = _build_producer_orientation("documenter", "implement", [])
+        assert "git fetch origin" not in orient
+
     def test_coder_no_sync_note(self):
         """Coder orientation does not get sync note regardless of branch."""
         orient = _build_producer_orientation(
@@ -3003,10 +3020,11 @@ class TestProducerOrientationSyncNote:
         )
         assert "git fetch origin && git merge" not in orient
 
-    def test_documenter_no_sync_note(self):
-        """Documenter orientation does not get sync note."""
+    def test_documenter_gets_sync_note(self):
+        """Documenter orientation gets sync note when branch is provided."""
         orient = _build_producer_orientation("documenter", "implement", [], branch="egg/issue-123")
-        assert "git fetch origin && git merge" not in orient
+        assert "git fetch origin" in orient
+        assert "origin/egg/issue-123" in orient
 
 
 class TestAgentPromptBaseBranchPassthrough:
