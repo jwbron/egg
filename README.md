@@ -84,7 +84,7 @@ Detect anomaly (stall, loop, error, off-track behavior)
 
 The overseer uses a lightweight model (Haiku) for continuous classification (is this agent stalled? looping? producing errors?) and escalates to a stronger model (Sonnet/Opus) only when corrective decisions are needed. It cannot restart agents on its own; restart requests go through the human-in-the-loop decision queue.
 
-If the overseer itself crashes, the orchestrator automatically respawns it (up to 3 times).
+The overseer is phase-scoped: it is spawned at the start of each pipeline phase and torn down when that phase completes, advances, or fails — giving each phase a fresh instance with no accumulated state. If the overseer crashes mid-phase, the orchestrator automatically respawns it (up to 3 times per phase).
 
 ### 4. The SDLC Pipeline: Humans at the Right Moments
 
