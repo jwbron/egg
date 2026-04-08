@@ -271,10 +271,24 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-10",
+      "question": "Model alias: support opus[1m] max-token suffix syntax or configure max_tokens separately?",
+      "context": "",
+      "options": [],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-08T20:56:45.481516Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T20:56:45.446142Z",
+  "updated_at": "2026-04-08T20:56:45.483332Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -282,5 +296,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 16
+  "version": 17
 }
