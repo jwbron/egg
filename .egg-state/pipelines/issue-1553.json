@@ -193,10 +193,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-08T14:43:51.827417Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-08T14:56:22.046002Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Complete cutover - remove Docker entirely, replace with k8s\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -338,7 +338,7 @@
     }
   ],
   "created_at": "2026-04-08T14:30:41.767647Z",
-  "updated_at": "2026-04-08T14:56:21.567928Z",
+  "updated_at": "2026-04-08T14:56:22.050070Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -346,5 +346,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 26
+  "version": 27
 }
