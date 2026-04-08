@@ -157,10 +157,10 @@
         {
           "container_id": "5640da981565246ffa41215f1328a5d2e4eb2e179cfea875cbb973e4cd7a6fae",
           "container_name": "issue-1570-architect",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-08T21:19:11.098368Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-08T21:51:36.978820Z",
+          "exit_code": 1,
           "agent_role": "architect",
           "session_token": null
         },
@@ -202,13 +202,13 @@
         },
         {
           "role": "architect",
-          "status": "running",
+          "status": "failed",
           "container_id": "5640da981565246ffa41215f1328a5d2e4eb2e179cfea875cbb973e4cd7a6fae",
           "started_at": "2026-04-08T21:19:11.098370Z",
-          "completed_at": null,
+          "completed_at": "2026-04-08T21:51:36.989537Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -446,7 +446,7 @@
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T21:19:11.098446Z",
+  "updated_at": "2026-04-08T21:51:36.989738Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -454,5 +454,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 41
+  "version": 42
 }
