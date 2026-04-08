@@ -58,3 +58,42 @@ except ImportError:
     sys.modules.setdefault("docker", _docker_mod)
     sys.modules.setdefault("docker.errors", _errors_mod)
     sys.modules.setdefault("docker.types", MagicMock())
+
+# ---- Kubernetes mock setup ----
+# Same pattern as Docker: create a mock with real exception classes
+# so that ``except ApiException`` works correctly in tests.
+try:
+    import kubernetes  # noqa: F401
+except ImportError:
+    class _ApiException(Exception):
+        """Mock ApiException matching kubernetes SDK."""
+
+        def __init__(self, status=None, reason=None, http_resp=None):
+            self.status = status
+            self.reason = reason or ""
+            self.http_resp = http_resp
+            super().__init__(f"({status}) Reason: {reason}")
+
+    class _ConfigException(Exception):
+        """Mock ConfigException."""
+
+    _k8s_exceptions_mod = types.ModuleType("kubernetes.client.exceptions")
+    _k8s_exceptions_mod.ApiException = _ApiException  # type: ignore[attr-defined]
+
+    _k8s_config_mod = types.ModuleType("kubernetes.config")
+    _k8s_config_mod.ConfigException = _ConfigException  # type: ignore[attr-defined]
+    _k8s_config_mod.load_incluster_config = MagicMock(side_effect=_ConfigException)  # type: ignore[attr-defined]
+    _k8s_config_mod.load_kube_config = MagicMock()  # type: ignore[attr-defined]
+
+    _k8s_client_mod = MagicMock()
+    _k8s_client_mod.exceptions = _k8s_exceptions_mod
+    _k8s_client_mod.exceptions.ApiException = _ApiException
+
+    _k8s_mod = MagicMock()
+    _k8s_mod.client = _k8s_client_mod
+    _k8s_mod.config = _k8s_config_mod
+
+    sys.modules.setdefault("kubernetes", _k8s_mod)
+    sys.modules.setdefault("kubernetes.client", _k8s_client_mod)
+    sys.modules.setdefault("kubernetes.client.exceptions", _k8s_exceptions_mod)
+    sys.modules.setdefault("kubernetes.config", _k8s_config_mod)
