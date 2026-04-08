@@ -258,10 +258,27 @@
       "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved Questions\\n\\n**Decision 1: ContainerBackend interface type**\\nAnswer: Python Protocol (structural typing) — easier mocking, more Pythonic, no inheritance required. Reviewer_agent_design also recommends this.\\n\\n**Decision 2: Shared filesystem for worktrees**\\nAnswer: PVCs with k3s local-path provisioner (already decided). For single-node k3s this uses local-path StorageClass. RWX can be added for GKE later.\\n\\n**Decision 3: Dockerfiles and image build strategy**\\nAnswer: Keep Dockerfiles unchanged (Option A). They produce OCI images regardless of runtime. Add make targets that do docker build + k3s ctr images import.\\n\\n**Decision 4: GHCR image publishing**\\nAnswer: Leave release-images.yml as-is (Option A). GHCR is Docker-registry-compatible regardless of runtime.\\n\\n**Decision 5: .git shadow mount in k8s**\\nAnswer: Init container creates the shadow mount (Option A). Agent pod init container sets up tmpfs overlay before main container starts. Cleanest k8s-native approach.\\n\\n**Decision 6: Integration test infrastructure**\\nAnswer: k3s in CI with dedicated test namespace (Option A). Same runtime as local dev. No kind, no docker-compose for tests.\\n\\n**Feedback 1: Scope and timeline**\\nAnswer: Timeline is flexible, multi-week is fine. No upcoming features depend on Docker stability. sandbox/egg_lib/runtime.py CLI code should be migrated in this PR — full Docker removal means no Docker dependencies remain.\\n\\n**Feedback 2: Developer experience**\\nAnswer: k3s only (confirmed). macOS/Windows users use Lima/Rancher Desktop/WSL2. make k3s-setup handles Calico CNI installation automatically.\\n\\n**Feedback 3: Gateway session binding**\\nAnswer: Token-only auth is part of this migration (confirmed). IP-based binding removed. No additional security review needed — tokens are already the primary auth mechanism, IP binding was defense-in-depth.\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.",
+      "context": "**Warning**: No plan draft was found on the work branch. The agent may not have written the output to the expected path.",
+      "options": [
+        "approve",
+        "request changes"
+      ],
+      "decision_type": "phase_gate",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-08T21:15:14.040943Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "plan",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-08T20:41:01.367785Z",
-  "updated_at": "2026-04-08T21:15:10.371512Z",
+  "updated_at": "2026-04-08T21:15:14.042641Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -269,5 +286,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 19
+  "version": 20
 }
