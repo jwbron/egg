@@ -284,10 +284,10 @@
       "options": [],
       "decision_type": "feedback",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-08T14:44:04.619017Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-08T14:56:33.742045Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"q-1\": \"Out of scope for this migration. DevserverManager was never actually used. Follow-up ticket created: #1558 to revisit whether to migrate or remove it.\"}}",
       "phase": "refine",
       "content_changed": null
     },
@@ -338,7 +338,7 @@
     }
   ],
   "created_at": "2026-04-08T14:30:41.767647Z",
-  "updated_at": "2026-04-08T14:56:33.195795Z",
+  "updated_at": "2026-04-08T14:56:33.743677Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -346,5 +346,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 32
+  "version": 33
 }
