@@ -824,9 +824,7 @@ class TestCleanExitWithoutConsensus:
                 exit_code=0,
             ),
         }
-        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(
-            executions, container_infos
-        )
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions, container_infos)
 
         # Consensus is never complete
         mock_executor_instance = MagicMock()
@@ -899,9 +897,7 @@ class TestCleanExitWithoutConsensus:
                 exit_code=0,
             ),
         }
-        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(
-            executions, container_infos
-        )
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions, container_infos)
 
         # First call: incomplete; final recheck: complete
         call_count = [0]
@@ -945,8 +941,7 @@ class TestCleanExitWithoutConsensus:
         )
         # Should have called check_consensus at least twice
         assert call_count[0] >= 2, (
-            f"Expected at least 2 consensus checks (initial + final recheck), "
-            f"got {call_count[0]}"
+            f"Expected at least 2 consensus checks (initial + final recheck), got {call_count[0]}"
         )
 
     @patch("routes.pipelines.time.sleep")
@@ -980,9 +975,7 @@ class TestCleanExitWithoutConsensus:
                 exit_code=0,
             ),
         }
-        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(
-            executions, container_infos
-        )
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions, container_infos)
 
         call_count = [0]
 
@@ -1015,8 +1008,7 @@ class TestCleanExitWithoutConsensus:
         )
 
         assert exit_code == 1, (
-            f"Expected exit code 1 (consensus recheck exception), "
-            f"got {exit_code}. Logs: {logs}"
+            f"Expected exit code 1 (consensus recheck exception), got {exit_code}. Logs: {logs}"
         )
 
     @patch("routes.pipelines.time.sleep")
@@ -1057,9 +1049,7 @@ class TestCleanExitWithoutConsensus:
                 exit_code=0,
             ),
         }
-        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(
-            executions, container_infos
-        )
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions, container_infos)
 
         # Consensus is always complete
         mock_executor_instance = MagicMock()
@@ -1085,8 +1075,7 @@ class TestCleanExitWithoutConsensus:
         )
 
         assert exit_code == 0, (
-            f"Expected exit code 0 (consensus already complete), "
-            f"got {exit_code}. Logs: {logs}"
+            f"Expected exit code 0 (consensus already complete), got {exit_code}. Logs: {logs}"
         )
 
     @patch("routes.pipelines.time.sleep")
@@ -1127,9 +1116,7 @@ class TestCleanExitWithoutConsensus:
                 exit_code=0,
             ),
         }
-        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(
-            executions, container_infos
-        )
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions, container_infos)
 
         call_count = [0]
 
@@ -1209,9 +1196,7 @@ class TestCleanExitWithoutConsensus:
                 exit_code=0,
             ),
         }
-        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(
-            executions, container_infos
-        )
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions, container_infos)
 
         # Consensus incomplete with unresolved NACKs
         mock_executor_instance = MagicMock()
@@ -1221,7 +1206,11 @@ class TestCleanExitWithoutConsensus:
             "has_objections": False,
             "has_unresolved_nacks": True,
             "unresolved_nacks": [
-                {"reviewer": "reviewer_code", "producer": "coder", "reason": "Missing error handling"}
+                {
+                    "reviewer": "reviewer_code",
+                    "producer": "coder",
+                    "reason": "Missing error handling",
+                }
             ],
             "blocking_agents": ["coder"],
         }

@@ -453,10 +453,10 @@ class TestContainerExitFallback:
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
-    def test_all_containers_exit_success(
+    def test_all_containers_exit_without_consensus_returns_failure(
         self, MockExecutor, mock_prompt, mock_lock, mock_monotonic, mock_sleep
     ):
-        """When all containers exit code 0 without consensus, returns (0, ...)."""
+        """When all containers exit code 0 without consensus, returns (1, ...)."""
         mock_monotonic.return_value = 0.0
 
         executions = [
@@ -506,7 +506,8 @@ class TestContainerExitFallback:
             **_CALL_ARGS,
         )
 
-        assert exit_code == 0
+        # Issue #1581: clean exit without consensus must return failure
+        assert exit_code == 1
         assert "coder" in logs
         assert "tester" in logs
 
@@ -851,8 +852,9 @@ class TestMixedScenarios:
             **_CALL_ARGS,
         )
 
-        # Should succeed via container-exit fallback despite first consensus error
-        assert exit_code == 0
+        # Issue #1581: clean exit without consensus must return failure
+        # (consensus error on first check, then is_complete=False on recheck)
+        assert exit_code == 1
 
 
 class TestFailedRecovery:
