@@ -2971,18 +2971,18 @@ def _write_brc_history(
     lines: list[str] = []
     now_str = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     lines.append(f"# BRC Consensus History — {phase} phase")
-    lines.append(f"")
+    lines.append("")
     lines.append(f"Generated: {now_str}")
     lines.append(f"Pipeline: {pipeline_id}")
-    lines.append(f"")
+    lines.append("")
 
     for msg in brc_messages:
         ts = msg.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if msg.timestamp else "unknown"
         lines.append(f"### [{ts}] {msg.from_role} ({msg.message_type}): {msg.subject}")
         if msg.body:
-            lines.append(f"")
+            lines.append("")
             lines.append(msg.body)
-        lines.append(f"")
+        lines.append("")
 
     history_dir = worktree_path / ".egg-state" / "brc-history"
     history_dir.mkdir(parents=True, exist_ok=True)
