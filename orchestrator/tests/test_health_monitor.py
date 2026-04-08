@@ -1,12 +1,13 @@
 """
 Tests for the deterministic health monitor (tripwire processor).
 
-Covers the five tripwire rules enforced by HealthMonitor:
+Covers the six tripwire rules enforced by HealthMonitor:
 1. Heartbeat timeout - escalate to overseer/HITL when no heartbeat within threshold
 2. Container exit - immediate HITL escalation
 3. Repeated identical errors - escalate after threshold
 4. Message volume spike - auto-throttle above rate limit
 5. Progress stall - escalate to overseer/HITL on stall detection
+6. Infrastructure error - escalate on blocked progress with infra error keywords
 
 Related: issue #1059, #1447
 """
