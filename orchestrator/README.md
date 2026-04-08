@@ -11,7 +11,6 @@ The orchestrator manages the end-to-end SDLC pipeline that turns GitHub issues i
 - **Coordinates multi-agent execution** — runs specialized agents across five categories (execution, analysis, review, utility, interface) in dependency-ordered waves or concurrently with message-based coordination
 - **Handles HITL decisions** — queues questions for human reviewers and blocks until resolved
 - **Streams real-time status** — provides SSE streams and DAG visualizations for pipeline monitoring
-- **Validates deployments** — manages Docker-in-Docker devserver stacks for pre-merge testing
 
 ## Architecture
 
@@ -168,14 +167,6 @@ All endpoints are prefixed with `/api/v1`.
 | `POST` | `/pipelines/{id}/phase/complete` | Complete current phase |
 | `POST` | `/pipelines/{id}/phase/fail` | Fail current phase |
 
-### Deployment Checks
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/pipelines/{id}/deployment-check/start` | Start devserver stack |
-| `GET` | `/pipelines/{id}/deployment-check/status` | Poll devserver status |
-| `POST` | `/pipelines/{id}/deployment-check/teardown` | Tear down devserver |
-
 ### Structured Progress
 
 | Method | Path | Description |
@@ -231,7 +222,6 @@ orchestrator/
 ├── container_monitor.py    # Container state monitoring and lifecycle tracking
 ├── decision_queue.py       # HITL decision queue management (supports typed decisions)
 ├── handoffs.py             # Agent-to-agent data handoff mechanism
-├── devserver.py            # Docker-in-Docker devserver management
 ├── gateway_client.py       # Gateway API client for session management
 ├── docker_client.py        # Docker client wrapper
 ├── sandbox_template.py     # Sandbox container configuration templates
@@ -274,7 +264,6 @@ orchestrator/
 │   └── utils.py            # Utility functions
 ├── routes/
 │   ├── anchors.py          # Agent anchor CRUD and team anchor generation endpoints
-│   ├── checks.py           # Deployment check endpoints
 │   ├── containers.py       # Container lifecycle endpoints
 │   ├── decisions.py        # HITL decision endpoints
 │   ├── health.py           # Health check endpoints (includes /health/alerts)
@@ -421,7 +410,7 @@ Defined in `shared/egg_config/constants.py`:
 
 ## Related Documentation
 
-- [Orchestrator Architecture](../docs/architecture/orchestrator.md) — Deployment modes, state persistence, multi-agent roles, devserver management
+- [Orchestrator Architecture](../docs/architecture/orchestrator.md) — Deployment modes, state persistence, multi-agent roles
 - [Gateway README](../gateway/README.md) — Policy enforcement gateway
 - [Sandbox README](../sandbox/README.md) — Agent execution environment
 - [Shared README](../shared/README.md) — Shared packages (egg_contracts, egg_container, egg_config)
