@@ -199,10 +199,27 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "How should the egg CLI work for local developers after the migration?",
+      "context": "",
+      "options": [
+        "Require k3s for all local usage (via make k3s-setup)",
+        "Keep Docker-based egg CLI for interactive use, k8s for SDLC pipelines only"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-08T14:43:51.850176Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-08T14:30:41.767647Z",
-  "updated_at": "2026-04-08T14:43:51.828828Z",
+  "updated_at": "2026-04-08T14:43:51.851671Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -210,5 +227,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 11
+  "version": 12
 }
