@@ -160,6 +160,22 @@ POST /api/v1/pipelines/{id}/health/alerts/resolve
      Body: {"agent_id": "<role>", "alert_type": "<type>"}
 ```
 
+### Phase-Aware Thresholds
+
+The health monitor uses **phase-aware thresholds** for heartbeat and progress stall detection. Different pipeline phases have different workload characteristics — the implement phase involves deep code reading, multi-file changes, and test execution that routinely takes 15–30+ minutes, while refine and plan phases involve lighter-weight work.
+
+The `HealthMonitor` tracks the current pipeline phase via `set_current_phase()`, which is called at each phase transition before agents are spawned. During the **implement phase**, heartbeat and progress stall checks use the `orchestrator_implement_heartbeat_timeout_seconds` threshold (default 600s / 10 minutes). During all other phases, the standard `orchestrator_heartbeat_timeout_seconds` threshold (default 120s) applies.
+
+**Why this matters:** In pipelines `issue-1523-v2` and `issue-1527`, the default 120s threshold generated false-positive stall alerts against agents doing legitimate deep implementation work. A 10-minute threshold for the implement phase reduces noise while the Tier 2 overseer LLM classifier provides a secondary detection layer for genuinely stuck agents.
+
+### BRC-Idle Suppression
+
+In concurrent execution mode (BRC protocol), reviewer-only agents sit idle until upstream producers send a `CONSENSUS_PROPOSE` message. The health monitor recognizes this as a legitimate waiting state and **suppresses heartbeat and progress stall alerts** for reviewer-only agents whose upstream producers are all still in the `WORKING` phase. Dual-role agents (those that are both producers and reviewers) are **not** suppressed, since they have their own work to complete.
+
+The suppression logic queries the peer consensus tracker's review graph to determine each agent's role (producer, reviewer, or both) and checks the consensus phase of upstream producers. Once any upstream producer transitions out of `WORKING` (e.g., to `PROPOSED`), the downstream reviewer resumes normal monitoring.
+
+**Example:** During the implement phase, the coder is actively working while reviewer_code and reviewer_contract wait for proposals. Without BRC-idle suppression, both reviewers would trigger heartbeat timeout alerts after the threshold. With suppression enabled, only agents with their own work to complete are monitored — pure reviewers waiting for upstream proposals are recognized as legitimately idle.
+
 ### Configuration
 
 Tripwire thresholds are configurable in `PipelineConfig`:
@@ -167,7 +183,8 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | Field | Default | Description |
 |-------|---------|-------------|
 | `overseer_enabled` | `true` | Auto-spawn overseer on all pipelines |
-| `orchestrator_heartbeat_timeout_seconds` | `120` | Escalate to overseer/HITL after this many seconds without heartbeat |
+| `orchestrator_heartbeat_timeout_seconds` | `120` | Escalate to overseer/HITL after this many seconds without heartbeat (used for all phases except implement) |
+| `orchestrator_implement_heartbeat_timeout_seconds` | `600` | Escalate to overseer/HITL after this many seconds without heartbeat during the **implement phase** (must be ≥ 10) |
 | `orchestrator_error_repeat_threshold` | `3` | Escalate after N identical consecutive errors |
 | `orchestrator_message_rate_limit` | `20` | Auto-throttle above this many messages per minute |
 | `overseer_poll_interval_seconds` | `30` | How often the overseer checks health |

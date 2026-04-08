@@ -1,12 +1,13 @@
 """
 Tests for the deterministic health monitor (tripwire processor).
 
-Covers the five tripwire rules enforced by HealthMonitor:
+Covers the six tripwire rules enforced by HealthMonitor:
 1. Heartbeat timeout - escalate to overseer/HITL when no heartbeat within threshold
 2. Container exit - immediate HITL escalation
 3. Repeated identical errors - escalate after threshold
 4. Message volume spike - auto-throttle above rate limit
 5. Progress stall - escalate to overseer/HITL on stall detection
+6. Infrastructure error - escalate on blocked progress with infra error keywords
 
 Related: issue #1059, #1447
 """
@@ -780,3 +781,625 @@ class TestAlertResolution:
             if a["agent_id"] == AGENT_ID and a["alert_type"] == "heartbeat_timeout"
         ]
         assert len(matching) == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: Phase-aware stall detection (#1526)
+# ---------------------------------------------------------------------------
+
+REVIEWER_ID = "reviewer_code-abc123"
+REVIEWER_ID_2 = "reviewer_contract-abc123"
+PRODUCER_ID = "coder-abc123"
+
+
+def _make_mock_tracker(
+    *,
+    reviewer_roles: list[str] | None = None,
+    producer_roles: list[str] | None = None,
+    producer_phases: dict | None = None,
+    producers_for_reviewer: dict[str, list[str]] | None = None,
+):
+    """Create a mock PeerConsensusTracker with a ReviewGraph.
+
+    The mock supports ``are_all_producers_working()`` via the public API
+    (not private internals).  The returned mock exposes an ``_effective_phases``
+    dict that tests can mutate to simulate phase transitions.
+    """
+    from egg_orchestrator.types import ConsensusPhase
+
+    reviewer_roles = reviewer_roles or []
+    producer_roles = producer_roles or []
+    producer_phases = producer_phases or {}
+    producers_for_reviewer = producers_for_reviewer or {}
+
+    effective_phases: dict[str, ConsensusPhase] = dict.fromkeys(
+        producer_roles, ConsensusPhase.WORKING
+    )
+    effective_phases.update(producer_phases)
+
+    mock_tracker = MagicMock()
+
+    # Expose phases for mutation by phase-transition tests
+    mock_tracker._effective_phases = effective_phases
+
+    def _are_all_working(reviewer: str) -> bool:
+        producers = producers_for_reviewer.get(reviewer, [])
+        if not producers:
+            return False
+        return all(effective_phases.get(p) == ConsensusPhase.WORKING for p in producers)
+
+    mock_tracker.are_all_producers_working.side_effect = _are_all_working
+
+    # Create a mock graph
+    mock_graph = MagicMock()
+    mock_graph.is_reviewer.side_effect = lambda r: r in reviewer_roles
+    mock_graph.is_producer.side_effect = lambda r: r in producer_roles
+    mock_graph.producers_for.side_effect = lambda r: producers_for_reviewer.get(r, [])
+    mock_tracker.graph = mock_graph
+
+    return mock_tracker
+
+
+class TestImplementPhaseThreshold:
+    """Task-1-1 / Task-1-2: implement phase uses a higher heartbeat threshold."""
+
+    def test_implement_phase_uses_higher_threshold(self):
+        """During implement phase, threshold is orchestrator_implement_heartbeat_timeout_seconds."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=120,
+            orchestrator_implement_heartbeat_timeout_seconds=600,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.set_current_phase("implement")
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        # At 200s — beyond default 120s but within implement 600s
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 200
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 0, (
+            "Should NOT escalate at 200s during implement phase (threshold=600s)"
+        )
+
+    def test_implement_phase_escalates_beyond_threshold(self):
+        """During implement phase, escalation fires after implement threshold."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=120,
+            orchestrator_implement_heartbeat_timeout_seconds=600,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.set_current_phase("implement")
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 601
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1
+        assert actions[0]["action"] == "escalate"
+        assert actions[0]["agent_id"] == AGENT_ID
+
+    def test_non_implement_phase_uses_default_threshold(self):
+        """During non-implement phases, default threshold is used."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=120,
+            orchestrator_implement_heartbeat_timeout_seconds=600,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.set_current_phase("plan")
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 121
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1
+        assert actions[0]["action"] == "escalate"
+
+    def test_no_phase_set_uses_default_threshold(self):
+        """When no phase is set, default threshold is used."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=120,
+            orchestrator_implement_heartbeat_timeout_seconds=600,
+        )
+        monitor = _make_monitor(bus, config)
+        # No set_current_phase call
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 121
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1, "Should escalate at 121s with default threshold (120s)"
+
+    def test_implement_phase_progress_stall_uses_higher_threshold(self):
+        """Progress stall also respects phase-aware threshold during implement."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=120,
+            orchestrator_implement_heartbeat_timeout_seconds=600,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.set_current_phase("implement")
+
+        _emit_progress(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 200
+            actions = monitor.check_progress()
+
+        assert len(actions) == 0, "Progress stall should not fire at 200s during implement phase"
+
+    def test_implement_phase_progress_stall_escalates_beyond_threshold(self):
+        """Progress stall fires after implement threshold."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=120,
+            orchestrator_implement_heartbeat_timeout_seconds=600,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.set_current_phase("implement")
+
+        _emit_progress(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 601
+            actions = monitor.check_progress()
+
+        assert len(actions) == 1
+        assert actions[0]["action"] == "escalate"
+
+    def test_phase_transition_changes_threshold(self):
+        """Switching phase changes the effective threshold."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=120,
+            orchestrator_implement_heartbeat_timeout_seconds=600,
+        )
+        monitor = _make_monitor(bus, config)
+
+        # Start in implement phase - no escalation at 200s
+        monitor.set_current_phase("implement")
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 200
+            actions = monitor.check_heartbeats()
+        assert len(actions) == 0
+
+        # Switch to PR phase - should escalate at 200s
+        monitor.set_current_phase("pr")
+        _emit_heartbeat(bus, agent_id=AGENT_ID)  # Reset heartbeat
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 121
+            actions = monitor.check_heartbeats()
+        assert len(actions) == 1
+
+    def test_set_current_phase_method_exists(self):
+        """HealthMonitor has set_current_phase method."""
+        bus = _make_event_bus()
+        monitor = _make_monitor(bus)
+        assert hasattr(monitor, "set_current_phase")
+        assert callable(monitor.set_current_phase)
+
+    def test_get_heartbeat_threshold_private_method(self):
+        """_get_heartbeat_threshold returns correct value per phase."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=120,
+            orchestrator_implement_heartbeat_timeout_seconds=600,
+        )
+        monitor = _make_monitor(bus, config)
+
+        # No phase set - default
+        assert monitor._get_heartbeat_threshold() == 120
+
+        # Implement phase
+        monitor.set_current_phase("implement")
+        assert monitor._get_heartbeat_threshold() == 600
+
+        # Other phases
+        for phase in ["plan", "refine", "pr"]:
+            monitor.set_current_phase(phase)
+            assert monitor._get_heartbeat_threshold() == 120, f"Phase {phase} should use default"
+
+
+class TestPipelineConfigImplementThreshold:
+    """Task-1-1: PipelineConfig has orchestrator_implement_heartbeat_timeout_seconds."""
+
+    def test_field_exists_with_default_600(self):
+        """orchestrator_implement_heartbeat_timeout_seconds defaults to 600."""
+        config = PipelineConfig()
+        assert config.orchestrator_implement_heartbeat_timeout_seconds == 600
+
+    def test_field_accepts_custom_value(self):
+        """Custom values are accepted for implement threshold."""
+        config = PipelineConfig(orchestrator_implement_heartbeat_timeout_seconds=300)
+        assert config.orchestrator_implement_heartbeat_timeout_seconds == 300
+
+    def test_field_validation_minimum_10(self):
+        """Value must be >= 10."""
+        with pytest.raises(ValueError):
+            PipelineConfig(orchestrator_implement_heartbeat_timeout_seconds=5)
+
+    def test_field_validation_accepts_10(self):
+        """Value of exactly 10 is accepted."""
+        config = PipelineConfig(orchestrator_implement_heartbeat_timeout_seconds=10)
+        assert config.orchestrator_implement_heartbeat_timeout_seconds == 10
+
+
+class TestBRCIdleSuppression:
+    """Task-1-3: BRC-idle agents are excluded from heartbeat/progress alerts."""
+
+    def _make_mock_tracker(
+        self,
+        *,
+        reviewer_roles: list[str] | None = None,
+        producer_roles: list[str] | None = None,
+        producer_phases: dict | None = None,
+        producers_for_reviewer: dict[str, list[str]] | None = None,
+    ):
+        """Create a mock PeerConsensusTracker with a ReviewGraph."""
+        return _make_mock_tracker(
+            reviewer_roles=reviewer_roles,
+            producer_roles=producer_roles,
+            producer_phases=producer_phases,
+            producers_for_reviewer=producers_for_reviewer,
+        )
+
+    def test_reviewer_only_suppressed_when_producers_working(self):
+        """Reviewer-only agent with all producers in WORKING is suppressed."""
+        from egg_orchestrator.types import ConsensusPhase
+
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        mock_tracker = self._make_mock_tracker(
+            reviewer_roles=[REVIEWER_ID],
+            producer_roles=[PRODUCER_ID],
+            producer_phases={PRODUCER_ID: ConsensusPhase.WORKING},
+            producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID]},
+        )
+
+        _emit_heartbeat(bus, agent_id=REVIEWER_ID)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = time.time() + 61
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 0, "BRC-idle reviewer should be suppressed"
+
+    def test_reviewer_not_suppressed_when_producer_proposed(self):
+        """Reviewer is NOT suppressed when a producer has proposed."""
+        from egg_orchestrator.types import ConsensusPhase
+
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        mock_tracker = self._make_mock_tracker(
+            reviewer_roles=[REVIEWER_ID],
+            producer_roles=[PRODUCER_ID],
+            producer_phases={PRODUCER_ID: ConsensusPhase.PROPOSED},
+            producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID]},
+        )
+
+        _emit_heartbeat(bus, agent_id=REVIEWER_ID)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = time.time() + 61
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1, "Reviewer should escalate when producer has proposed"
+
+    def test_dual_role_agent_not_suppressed(self):
+        """Dual-role agent (producer + reviewer) is NOT suppressed."""
+        from egg_orchestrator.types import ConsensusPhase
+
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        dual_role_id = "tester-xyz"
+        mock_tracker = self._make_mock_tracker(
+            reviewer_roles=[dual_role_id],
+            producer_roles=[dual_role_id, PRODUCER_ID],
+            producer_phases={PRODUCER_ID: ConsensusPhase.WORKING},
+            producers_for_reviewer={dual_role_id: [PRODUCER_ID]},
+        )
+
+        _emit_heartbeat(bus, agent_id=dual_role_id)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = time.time() + 61
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1, "Dual-role agent should NOT be suppressed"
+
+    def test_brc_suppression_on_progress_check(self):
+        """BRC-idle suppression also applies to progress stall checks."""
+        from egg_orchestrator.types import ConsensusPhase
+
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        mock_tracker = self._make_mock_tracker(
+            reviewer_roles=[REVIEWER_ID],
+            producer_roles=[PRODUCER_ID],
+            producer_phases={PRODUCER_ID: ConsensusPhase.WORKING},
+            producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID]},
+        )
+
+        _emit_progress(bus, agent_id=REVIEWER_ID)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = time.time() + 61
+            actions = monitor.check_progress()
+
+        assert len(actions) == 0, "BRC-idle reviewer should be suppressed in progress check"
+
+    def test_no_tracker_means_no_suppression(self):
+        """When no peer consensus tracker exists, no suppression occurs."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        _emit_heartbeat(bus, agent_id=REVIEWER_ID)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=None,
+            ),
+        ):
+            mock_time.time.return_value = time.time() + 61
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1, "Without tracker, should escalate normally"
+
+    def test_reviewer_with_multiple_producers_partial_proposed(self):
+        """Reviewer with multiple producers — one proposed, one working — is NOT suppressed."""
+        from egg_orchestrator.types import ConsensusPhase
+
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        producer_2 = "documenter-xyz"
+        mock_tracker = self._make_mock_tracker(
+            reviewer_roles=[REVIEWER_ID],
+            producer_roles=[PRODUCER_ID, producer_2],
+            producer_phases={
+                PRODUCER_ID: ConsensusPhase.PROPOSED,
+                producer_2: ConsensusPhase.WORKING,
+            },
+            producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID, producer_2]},
+        )
+
+        _emit_heartbeat(bus, agent_id=REVIEWER_ID)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = time.time() + 61
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1, "Reviewer should escalate when at least one producer has proposed"
+
+    def test_reviewer_with_multiple_producers_all_working(self):
+        """Reviewer with multiple producers all working — IS suppressed."""
+        from egg_orchestrator.types import ConsensusPhase
+
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        producer_2 = "documenter-xyz"
+        mock_tracker = self._make_mock_tracker(
+            reviewer_roles=[REVIEWER_ID],
+            producer_roles=[PRODUCER_ID, producer_2],
+            producer_phases={
+                PRODUCER_ID: ConsensusPhase.WORKING,
+                producer_2: ConsensusPhase.WORKING,
+            },
+            producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID, producer_2]},
+        )
+
+        _emit_heartbeat(bus, agent_id=REVIEWER_ID)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = time.time() + 61
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 0, "Reviewer should be suppressed when all producers are working"
+
+    def test_producer_not_suppressed_even_when_working(self):
+        """A pure producer agent is never suppressed by BRC-idle logic."""
+        from egg_orchestrator.types import ConsensusPhase
+
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        mock_tracker = self._make_mock_tracker(
+            reviewer_roles=[REVIEWER_ID],
+            producer_roles=[PRODUCER_ID],
+            producer_phases={PRODUCER_ID: ConsensusPhase.WORKING},
+            producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID]},
+        )
+
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = time.time() + 61
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1, "Producer should never be suppressed by BRC-idle"
+
+    def test_brc_suppression_resumes_monitoring_after_proposal(self):
+        """After producer proposes, previously suppressed reviewer resumes monitoring."""
+        from egg_orchestrator.types import ConsensusPhase
+
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        # Phase 1: producer is WORKING — reviewer suppressed
+        mock_tracker = self._make_mock_tracker(
+            reviewer_roles=[REVIEWER_ID],
+            producer_roles=[PRODUCER_ID],
+            producer_phases={PRODUCER_ID: ConsensusPhase.WORKING},
+            producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID]},
+        )
+
+        _emit_heartbeat(bus, agent_id=REVIEWER_ID)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = time.time() + 61
+            actions = monitor.check_heartbeats()
+        assert len(actions) == 0, "Reviewer should be suppressed initially"
+
+        # Phase 2: producer transitions to PROPOSED — reviewer should be monitored
+        mock_tracker._effective_phases[PRODUCER_ID] = ConsensusPhase.PROPOSED
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = time.time() + 61
+            actions = monitor.check_heartbeats()
+        assert len(actions) == 1, "Reviewer should resume monitoring after proposal"
+
+
+class TestCombinedPhaseAndBRCSuppression:
+    """Test interaction between phase-aware thresholds and BRC-idle suppression."""
+
+    def test_implement_phase_with_brc_suppression(self):
+        """During implement phase, both features work together."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=120,
+            orchestrator_implement_heartbeat_timeout_seconds=600,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.set_current_phase("implement")
+
+        mock_tracker = _make_mock_tracker(
+            reviewer_roles=[REVIEWER_ID],
+            producer_roles=[PRODUCER_ID],
+            producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID]},
+        )
+
+        # Both agents emit heartbeats
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+        _emit_heartbeat(bus, agent_id=REVIEWER_ID)
+
+        # At 200s: producer within implement threshold, reviewer BRC-idle
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = time.time() + 200
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 0, "Producer within threshold, reviewer BRC-idle"
+
+    def test_implement_producer_exceeds_threshold_reviewer_idle(self):
+        """Producer exceeds implement threshold while reviewer is BRC-idle."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=120,
+            orchestrator_implement_heartbeat_timeout_seconds=600,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.set_current_phase("implement")
+
+        mock_tracker = _make_mock_tracker(
+            reviewer_roles=[REVIEWER_ID],
+            producer_roles=[PRODUCER_ID],
+            producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID]},
+        )
+
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+        _emit_heartbeat(bus, agent_id=REVIEWER_ID)
+
+        # At 601s: producer exceeds implement threshold, reviewer still suppressed
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = time.time() + 601
+            actions = monitor.check_heartbeats()
+
+        # Only producer should escalate — reviewer is BRC-idle
+        escalated_agents = {a["agent_id"] for a in actions}
+        assert PRODUCER_ID in escalated_agents, "Producer should escalate at 601s"
+        assert REVIEWER_ID not in escalated_agents, "BRC-idle reviewer should still be suppressed"

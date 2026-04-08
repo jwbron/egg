@@ -520,6 +520,10 @@ egg-orch progress emit --step "waiting for dependency" --state blocked --blocker
 
 Agents should emit progress at key milestones (starting/completing steps, encountering blockers, during long operations). See [Pipeline Health Monitoring](pipeline-health-monitoring.md) for the full structured progress API and health monitoring architecture.
 
+### BRC-Idle Suppression
+
+The health monitor is aware of BRC protocol state and **suppresses stall alerts for reviewer-only agents correctly idle in BRC protocol**. During concurrent execution, reviewer-only agents legitimately sit idle while waiting for upstream producers to send a `CONSENSUS_PROPOSE` message. The health monitor queries the peer consensus tracker's review graph and skips heartbeat/progress stall alerts for reviewer-only agents whose upstream producers are all still in the `WORKING` phase. Dual-role agents (those that are both producers and reviewers) are not suppressed, since they have their own work to complete. Once any upstream producer transitions to `PROPOSED`, downstream reviewers resume normal monitoring. This prevents the false-positive alerts observed when the implement phase takes longer than the standard stall threshold.
+
 ## Agent Anchors (Post-Compaction Recovery)
 
 In long-running concurrent sessions, agents may exhaust their context window. Rather than relying on lossy compaction, agents fully clear their context and reload from a structured **anchor file** that captures task progress, cross-agent decisions, BRC consensus state, and key context.
