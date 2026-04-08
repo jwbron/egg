@@ -8,7 +8,6 @@ Covers:
 from unittest.mock import patch
 
 import pytest
-
 from egg_config.constants import TEST_GATEWAY_PORT
 from mcp_tools import PipelineToolHandler
 
