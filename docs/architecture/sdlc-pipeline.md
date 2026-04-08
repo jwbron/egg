@@ -147,6 +147,10 @@ The local distributed orchestrator (`orchestrator/` package) manages the full li
 | Component | Location |
 |-----------|----------|
 | Contract schema | `.egg/schemas/contract.schema.json` |
+| Contract instances | `.egg-state/contracts/{identifier}.json` |
+| Phase drafts | `.egg-state/drafts/{identifier}-{analysis\|plan}.md` |
+| BRC consensus history | `.egg-state/brc-history/{identifier}-{phase}.md` |
+| Review verdicts | `.egg-state/reviews/{identifier}-{phase}-{reviewer}.json` |
 | Contract library | `shared/egg_contracts/` |
 | Gateway endpoints | `gateway/contract_api.py`, `gateway/phase_api.py` |
 | Orchestrator | `orchestrator/` |
