@@ -46,30 +46,30 @@
         {
           "container_id": "8b8eea4d182ba936e611b33f9613039a23f7237b45694dceb5c104c3636beba9",
           "container_name": "issue-1553-v2-refiner",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-08T20:41:56.750196Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-08T20:55:33.447124Z",
+          "exit_code": 0,
           "agent_role": "refiner",
           "session_token": null
         },
         {
           "container_id": "fdec3d9ebdabe87f2e1eec51e14fd761eb028d6e714b935e86e146b0af9edf80",
           "container_name": "issue-1553-v2-reviewer_refine",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-08T20:41:56.750212Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-08T20:55:33.447133Z",
+          "exit_code": 0,
           "agent_role": "reviewer_refine",
           "session_token": null
         },
         {
           "container_id": "e1f3328e9f576feef9a83ff9dc4a35e527f6e20dc8595f4934b0caddc90b874d",
           "container_name": "issue-1553-v2-reviewer_agent_design",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-08T20:41:56.750217Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-08T20:55:33.447136Z",
+          "exit_code": 0,
           "agent_role": "reviewer_agent_design",
           "session_token": null
         }
@@ -77,10 +77,10 @@
       "agents": [
         {
           "role": "refiner",
-          "status": "running",
+          "status": "complete",
           "container_id": "8b8eea4d182ba936e611b33f9613039a23f7237b45694dceb5c104c3636beba9",
           "started_at": "2026-04-08T20:41:56.750205Z",
-          "completed_at": null,
+          "completed_at": "2026-04-08T20:55:33.447087Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -89,10 +89,10 @@
         },
         {
           "role": "reviewer_refine",
-          "status": "running",
+          "status": "complete",
           "container_id": "fdec3d9ebdabe87f2e1eec51e14fd761eb028d6e714b935e86e146b0af9edf80",
           "started_at": "2026-04-08T20:41:56.750214Z",
-          "completed_at": null,
+          "completed_at": "2026-04-08T20:55:33.447100Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -101,10 +101,10 @@
         },
         {
           "role": "reviewer_agent_design",
-          "status": "running",
+          "status": "complete",
           "container_id": "e1f3328e9f576feef9a83ff9dc4a35e527f6e20dc8595f4934b0caddc90b874d",
           "started_at": "2026-04-08T20:41:56.750218Z",
-          "completed_at": null,
+          "completed_at": "2026-04-08T20:55:33.447104Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -130,7 +130,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-08T20:41:01.367785Z",
-  "updated_at": "2026-04-08T20:41:56.750285Z",
+  "updated_at": "2026-04-08T20:55:33.447306Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -138,5 +138,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 7
+  "version": 8
 }
