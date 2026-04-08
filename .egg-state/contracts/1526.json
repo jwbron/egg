@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1526,
+    "title": "Issue #1526",
+    "url": "https://github.com/jwbron/egg/issues/1526"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/models.py:PipelineConfig`, add `orchestrator_implement_heartbeat_timeout_seconds: int = Field(default=600, ge=10, description='Seconds without heartbeat/progress before auto-nudge during implement phase')`",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Field exists with default 600, validated >=10",
+          "files_affected": [
+            "orchestrator/models.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `orchestrator/health_monitor.py:HealthMonitor`, add `_current_phase` instance variable and `set_current_phase()` method. In `check_heartbeats()` and `check_progress()`, select `orchestrator_implement_heartbeat_timeout_seconds` when phase is 'implement', else use default threshold",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "During implement phase threshold is 600s; during other phases threshold remains 120s",
+          "files_affected": [
+            "orchestrator/health_monitor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In `orchestrator/health_monitor.py:check_heartbeats()` and `check_progress()`, before escalating, query peer_consensus tracker and skip alerts for reviewer-only agents whose upstream producers are all in WORKING phase (BRC-idle suppression). Import tracker lazily to avoid circular imports",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Agents waiting for upstream producer proposal do not trigger heartbeat/progress alerts",
+          "files_affected": [
+            "orchestrator/health_monitor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "In `orchestrator/routes/pipelines.py`, call `health_monitor_instance.set_current_phase(phase_name)` at each phase transition before agents are spawned",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "set_current_phase() is called before agents spawn for each phase",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "In `orchestrator/tests/test_health_monitor.py`, add tests for: (a) implement-phase uses higher threshold, (b) non-implement phases use default, (c) BRC-idle agents suppressed, (d) BRC agents resume monitoring after producer proposes",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All new tests pass",
+          "files_affected": [
+            "orchestrator/tests/test_health_monitor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Fix overseer stall detection false positives in implement phase",
+    "description": "Add phase-aware heartbeat/progress thresholds and BRC-idle suppression\nto the Tier 1 health monitor. The implement phase uses a 600s timeout\n(vs 120s default) and agents correctly idle in BRC protocol are excluded\nfrom stall alerts entirely.",
+    "test_plan": "- Automated: New tests in test_health_monitor.py for phase-aware thresholds and BRC suppression\n- Manual: Run a pipeline with implement phase and verify no false-positive alerts for idle BRC agents",
+    "manual_steps": "Pre-merge: None\nPost-merge: Monitor next few implement-phase pipelines for reduced false-positive alert count"
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
