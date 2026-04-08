@@ -599,7 +599,8 @@ class OverseerMonitor:
             )
             # Count agents that have hit their restart limit
             exhausted_agents = [
-                role for role, count in self._agent_restart_counts.items()
+                role
+                for role, count in self._agent_restart_counts.items()
                 if count >= self._max_agent_restarts
             ]
             if len(exhausted_agents) >= 2:
@@ -675,8 +676,7 @@ class OverseerMonitor:
             logger.error("Exception restarting agent %s: %s", agent_role, e)
             await self._create_hitl_decision(
                 agent_role,
-                f"Exception restarting agent {agent_role}: {e}. "
-                f"Original issue: {message}",
+                f"Exception restarting agent {agent_role}: {e}. Original issue: {message}",
             )
 
     # -----------------------------------------------------------------

@@ -320,9 +320,9 @@ class TestRestartPhaseEndpoint:
 
         assert response.status_code == 200
         # Review cycles should be reset and pipeline saved
-        assert (
-            pipeline.phases["implement"].review_cycles == 0 or mock_store.save_pipeline.called
-        ), "Expected review cycles to be reset to 0 or pipeline to be saved"
+        assert pipeline.phases["implement"].review_cycles == 0 or mock_store.save_pipeline.called, (
+            "Expected review cycles to be reset to 0 or pipeline to be saved"
+        )
 
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")

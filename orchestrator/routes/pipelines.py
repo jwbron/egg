@@ -1128,21 +1128,15 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     try:
         store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
     except InvalidPipelineIdError:
-        return make_error_response(
-            f"Invalid pipeline ID format: {pipeline_id}", status_code=400
-        )
+        return make_error_response(f"Invalid pipeline ID format: {pipeline_id}", status_code=400)
     except PipelineNotFoundError:
-        return make_error_response(
-            f"Pipeline {pipeline_id} not found", status_code=404
-        )
+        return make_error_response(f"Pipeline {pipeline_id} not found", status_code=404)
 
     # Validate agent role
     try:
         role = AgentRole(agent_role)
     except ValueError:
-        return make_error_response(
-            f"Invalid agent role: {agent_role}", status_code=400
-        )
+        return make_error_response(f"Invalid agent role: {agent_role}", status_code=400)
 
     # Validate pipeline is running
     if pipeline.status not in (PipelineStatus.RUNNING, PipelineStatus.AWAITING_HUMAN):
@@ -1217,9 +1211,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 base_path = Path(env_path)
                 repo_name = (pipeline.repo or "").split("/")[-1]
                 worktree_repo_path = (
-                    base_path / repo_name
-                    if not (base_path / ".git").exists()
-                    else base_path
+                    base_path / repo_name if not (base_path / ".git").exists() else base_path
                 )
                 _resolved_base = None
                 try:
@@ -1277,9 +1269,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             reason=reason,
         )
     except ContainerSpawnError as e:
-        return make_error_response(
-            f"Failed to restart agent: {e}", status_code=500
-        )
+        return make_error_response(f"Failed to restart agent: {e}", status_code=500)
 
     # Update pipeline state with new container/agent info
     lock = get_pipeline_state_lock(pipeline_id)
@@ -1369,21 +1359,15 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     try:
         store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
     except InvalidPipelineIdError:
-        return make_error_response(
-            f"Invalid pipeline ID format: {pipeline_id}", status_code=400
-        )
+        return make_error_response(f"Invalid pipeline ID format: {pipeline_id}", status_code=400)
     except PipelineNotFoundError:
-        return make_error_response(
-            f"Pipeline {pipeline_id} not found", status_code=404
-        )
+        return make_error_response(f"Pipeline {pipeline_id} not found", status_code=404)
 
     # Validate phase
     try:
         PipelinePhase(phase)
     except ValueError:
-        return make_error_response(
-            f"Invalid phase: {phase}", status_code=400
-        )
+        return make_error_response(f"Invalid phase: {phase}", status_code=400)
 
     # Validate pipeline is running
     if pipeline.status not in (PipelineStatus.RUNNING, PipelineStatus.AWAITING_HUMAN):
@@ -1466,9 +1450,7 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
             agent_roles.append(role)
 
     if not agent_roles:
-        return make_error_response(
-            f"No agents found in phase {phase} to restart", status_code=400
-        )
+        return make_error_response(f"No agents found in phase {phase} to restart", status_code=400)
 
     # 5. Reset phase execution state (preserve artifacts from prior phases)
     lock = get_pipeline_state_lock(pipeline_id)
@@ -1495,9 +1477,7 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
             base_path = Path(env_path)
             repo_name = (pipeline.repo or "").split("/")[-1]
             worktree_repo_path = (
-                base_path / repo_name
-                if not (base_path / ".git").exists()
-                else base_path
+                base_path / repo_name if not (base_path / ".git").exists() else base_path
             )
             _resolved_base = None
             try:
