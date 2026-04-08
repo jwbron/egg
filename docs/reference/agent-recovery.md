@@ -117,7 +117,7 @@ The `is_open()` method returns `True` only in the `OPEN` state. `can_execute()` 
 
 Source: `orchestrator/consensus_wrapper.py`
 
-In concurrent (BRC) mode, all agents are wrapped with a shell script that handles exit conditions. The wrapper distinguishes **transient runtime crashes** from application-level failures and restarts agents that crash due to infrastructure issues.
+In concurrent (BRC) mode, all agents are wrapped with a shell script that handles exit conditions. The wrapper distinguishes **transient runtime crashes** from application-level failures and restarts agents that crash due to infrastructure issues. The wrapper also detects stale consensus tracker state — where the tracker shows an agent as not confirmed despite a `CONSENSUS_CONFIRMED` message existing in the message bus — and falls back to the message bus to avoid false failures after withdrawal/re-proposal cascades.
 
 ### Transient Exit Codes
 
@@ -165,10 +165,12 @@ This addresses the scenario described in [issue #1512](https://github.com/jwbron
 | Agent fails, max retries exceeded | Escalate to HITL |
 | Transient crash in consensus wrapper (segfault, OOM) | Restart with exponential backoff (shares `MAX_CONSENSUS_RESTARTS` cap) |
 | Non-transient crash in consensus wrapper (exit 1) | Immediate failure, no restart |
+| Wrapper: tracker stale after withdrawal cascade | Message bus fallback detects `CONSENSUS_CONFIRMED`; agent exits cleanly |
 | Single agent failure in concurrent mode | HITL decision: retry / abort / continue without |
 | Multiple failures (2+ within 60s) in concurrent mode | Immediate phase abort + HITL decision |
 | Circuit breaker OPEN | Block new agent spawns; alert operators |
 | Agent failure during consensus | Remove from consensus; treat as single failure |
+| All containers exit non-zero, consensus actually complete | Final `check_consensus()` recheck recovers pipeline; returns success |
 | All agents exit with unresolved NACKs (concurrent mode) | Phase returns failure + HITL decision: retry phase / accept current state / abort phase |
 
 HITL escalation creates a decision in the pipeline's decision queue. Options presented to the human depend on the failure type (see [Concurrent Execution Guide](../guides/concurrent-execution.md) for concurrent-mode options).
