@@ -170,11 +170,11 @@ The `HealthMonitor` tracks the current pipeline phase via `set_current_phase()`,
 
 ### BRC-Idle Suppression
 
-In concurrent execution mode (BRC protocol), non-producer agents (reviewers, tester, documenter) sit idle until the producer (typically the coder) sends a `CONSENSUS_PROPOSE` message. The health monitor recognizes this as a legitimate waiting state and **suppresses heartbeat and progress stall alerts** for agents whose upstream producers are all still in the `WORKING` phase.
+In concurrent execution mode (BRC protocol), reviewer-only agents sit idle until upstream producers send a `CONSENSUS_PROPOSE` message. The health monitor recognizes this as a legitimate waiting state and **suppresses heartbeat and progress stall alerts** for reviewer-only agents whose upstream producers are all still in the `WORKING` phase. Dual-role agents (those that are both producers and reviewers) are **not** suppressed, since they have their own work to complete.
 
-The suppression logic queries the peer consensus tracker to determine each agent's relationship to upstream producers. Once a producer transitions out of `WORKING` (e.g., to `PROPOSED`), the downstream agents resume normal monitoring with the standard thresholds.
+The suppression logic queries the peer consensus tracker's review graph to determine each agent's role (producer, reviewer, or both) and checks the consensus phase of upstream producers. Once any upstream producer transitions out of `WORKING` (e.g., to `PROPOSED`), the downstream reviewer resumes normal monitoring.
 
-**Example:** During the implement phase, the coder is actively working while the tester, documenter, and reviewers wait for the coder's proposal. Without BRC-idle suppression, all four waiting agents would trigger heartbeat timeout alerts after 120s (or 600s in implement phase). With suppression enabled, only the coder is monitored for stalls — the others are recognized as legitimately idle.
+**Example:** During the implement phase, the coder is actively working while reviewer_code and reviewer_contract wait for proposals. Without BRC-idle suppression, both reviewers would trigger heartbeat timeout alerts after the threshold. With suppression enabled, only agents with their own work to complete are monitored — pure reviewers waiting for upstream proposals are recognized as legitimately idle.
 
 ### Configuration
 
