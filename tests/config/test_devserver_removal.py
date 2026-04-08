@@ -205,7 +205,7 @@ class TestContractsInitCleanup:
         """egg_contracts/__init__.py must not import from .deployment."""
         init_path = REPO_ROOT / "shared" / "egg_contracts" / "__init__.py"
         content = init_path.read_text(encoding="utf-8")
-        assert "deployment" not in content.lower() or "deployment" not in content, (
+        assert "deployment" not in content.lower(), (
             "egg_contracts/__init__.py still references 'deployment'"
         )
 
