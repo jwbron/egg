@@ -126,6 +126,22 @@
       "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "48108e87dba970a8aecb55ea17d621f54c6c5cf2"
+    },
+    "plan": {
+      "phase": "plan",
+      "status": "running",
+      "started_at": "2026-04-08T21:02:27.470882Z",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": "db88a2cf8ad7ad0f009ee57041027ab9d353053d"
     }
   },
   "decisions": [
@@ -148,7 +164,7 @@
     }
   ],
   "created_at": "2026-04-08T20:41:01.367785Z",
-  "updated_at": "2026-04-08T21:02:27.456788Z",
+  "updated_at": "2026-04-08T21:02:27.470949Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -156,5 +172,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 14
+  "version": 15
 }
