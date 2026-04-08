@@ -200,7 +200,7 @@ When agents work at different speeds, a faster reviewer (e.g., tester) may send 
 
 2. **Confirm-time guards**: When a reviewer attempts `CONSENSUS_CONFIRMED`, two checks are enforced:
    - **Version guard**: All of the reviewer's ACKs must match the current proposal versions. Stale ACKs return `pending_acks` (exit code 2) with instructions to re-ACK the listed producers.
-   - **Unresolved-NACK guard**: If the reviewer has NACKed a producer that hasn't re-proposed since, confirmation is blocked — the reviewer must wait for the producer to re-propose and be re-reviewed before confirming. Without this guard, a reviewer could enter terminal CONFIRMED state while still holding an open review obligation, causing a deadlock where the producer re-proposes but finds no active reviewer.
+   - **Unresolved-NACK guard**: If the reviewer has NACKed a producer that hasn't re-proposed since, confirmation returns `pending_acks` (exit code 2) — the reviewer must wait for the producer to re-propose and be re-reviewed before confirming. Without this guard, a reviewer could enter terminal CONFIRMED state while still holding an open review obligation, causing a deadlock where the producer re-proposes but finds no active reviewer.
 
 These two layers — proactive invalidation at propose time and defensive validation at confirm time — ensure that out-of-order ACKs and unresolved NACKs never create unrecoverable deadlocks, regardless of agent timing.
 
