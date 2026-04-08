@@ -42,8 +42,120 @@
       "started_at": "2026-04-08T16:32:23.547251Z",
       "work_started_at": "2026-04-08T16:32:23.559468Z",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "915f0be4482aa5280bcb860b4cb11c2973aad89f6986feeb7ccf0a0684311b07",
+          "container_name": "issue-1565-tester",
+          "status": "running",
+          "started_at": "2026-04-08T16:32:29.241594Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "tester",
+          "session_token": null
+        },
+        {
+          "container_id": "9841c6a3b65e1a0bef08b081e483e50428410e69c42deecdee87c6317909c813",
+          "container_name": "issue-1565-reviewer_contract",
+          "status": "running",
+          "started_at": "2026-04-08T16:32:29.241610Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_contract",
+          "session_token": null
+        },
+        {
+          "container_id": "4f74842d635ecbe8682bafab1e3a0d7ee7c220adc952848beb08c4e047cd325b",
+          "container_name": "issue-1565-reviewer_code",
+          "status": "running",
+          "started_at": "2026-04-08T16:32:29.241614Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_code",
+          "session_token": null
+        },
+        {
+          "container_id": "f41ebf046d16cfb905e2539b4973556c927a974c681cb958a7350a3ce62e528c",
+          "container_name": "issue-1565-documenter",
+          "status": "running",
+          "started_at": "2026-04-08T16:32:29.241618Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "documenter",
+          "session_token": null
+        },
+        {
+          "container_id": "e3ca37e33a1783776f1f35c9302602b20e8f5f2a8d21301264a635d5510b9dc5",
+          "container_name": "issue-1565-coder",
+          "status": "running",
+          "started_at": "2026-04-08T16:32:29.241622Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "coder",
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "tester",
+          "status": "running",
+          "container_id": "915f0be4482aa5280bcb860b4cb11c2973aad89f6986feeb7ccf0a0684311b07",
+          "started_at": "2026-04-08T16:32:29.241604Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_contract",
+          "status": "running",
+          "container_id": "9841c6a3b65e1a0bef08b081e483e50428410e69c42deecdee87c6317909c813",
+          "started_at": "2026-04-08T16:32:29.241612Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_code",
+          "status": "running",
+          "container_id": "4f74842d635ecbe8682bafab1e3a0d7ee7c220adc952848beb08c4e047cd325b",
+          "started_at": "2026-04-08T16:32:29.241615Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "documenter",
+          "status": "running",
+          "container_id": "f41ebf046d16cfb905e2539b4973556c927a974c681cb958a7350a3ce62e528c",
+          "started_at": "2026-04-08T16:32:29.241619Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "coder",
+          "status": "running",
+          "container_id": "e3ca37e33a1783776f1f35c9302602b20e8f5f2a8d21301264a635d5510b9dc5",
+          "started_at": "2026-04-08T16:32:29.241623Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -62,7 +174,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-08T16:31:52.832126Z",
-  "updated_at": "2026-04-08T16:32:23.560835Z",
+  "updated_at": "2026-04-08T16:32:29.241694Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -70,5 +182,5 @@
   "error": null,
   "analysis": "### Task Analysis\n\n**Problem statement**: SDLC pipeline reviewers miss issues that PR review bots catch because they have (1) a truncated diff view (`HEAD~10` instead of full changeset), (2) no explicit instruction to fetch producer commits into their worktree, and (3) weaker \"find all issues\" emphasis compared to PR bots.\n\n**Source context**: Observed in #1563 (assertion logic bug missed) and #1561 (threading data race missed). Both caught by PR bots but not SDLC reviewers despite same model (Opus) and same review criteria.\n\n**System context**: `_build_review_prompt()` (pipelines.py:1925) constructs reviewer instructions. For first reviews, it hardcodes `git diff HEAD~10..HEAD` (line 1969). The orchestrator knows the base branch (`pipeline.base_branch` or `get_default_branch()`). Per-agent worktrees (#1481) are created at phase start from the pipeline branch. When a producer pushes and proposes, other agents' worktrees don't have those commits — agents must fetch/merge themselves (implicitly). The BRC preamble (`_build_brc_preamble()`, line 3515) tells reviewers to \"Read the actual files\" but never to fetch first. The PR review bot (action/build-review-prompt.sh) gets `gh pr diff` (complete changeset) and \"Find ALL issues on the first pass\" emphasis.\n\n**Technical root cause**:\n1. Line 1969: `\"git diff HEAD~10..HEAD\"` — arbitrary truncated window instead of `origin/{base_branch}...HEAD`\n2. BRC reviewer lifecycle (lines 3609-3631): no fetch+merge step before review\n3. Missing \"Find ALL issues\" emphasis that PR bot gets at line 165 of build-review-prompt.sh\n\n**Files affected**:\n- `orchestrator/routes/pipelines.py` — thread `base_branch` and `branch` through call chain; fix diff command; add fetch+merge to BRC preamble; add \"Find ALL issues\" emphasis\n- `orchestrator/tests/test_pipeline_prompts.py` — tests for new behavior\n\n**Risks / edge cases**: None significant. All changes are prompt-level. `base_branch` is always available. Agents already fetch implicitly — we're making it explicit.",
   "plan": "# Plan: Give SDLC reviewers full changeset context matching PR review bots\n\n## Summary\n\nClose the context gap between SDLC reviewers and PR review bots by fixing three things: (1) explicit fetch+merge step in BRC lifecycle so reviewers have the producer's commits, (2) correct diff command using `origin/{base_branch}...HEAD` for the full changeset, (3) stronger \"find ALL issues\" emphasis matching the PR bot's prompt. All changes are prompt-level in `pipelines.py`.\n\n**Risks / edge cases**: None significant. All three changes are prompt-level. The `base_branch` is always available via `pipeline.base_branch` or `get_default_branch()`. Agents already fetch implicitly — we're making it explicit.\n\n## Implementation\n\n### Phase 1: Implement\n\nFix reviewer context to match PR review bot thoroughness.\n\n**Tasks**:\n1. **[task-1-1]** In `_build_brc_preamble()` (pipelines.py:3515), add a sync step to the reviewer lifecycle between POLL (step 2) and REVIEW (step 3): \"Before reviewing, sync your worktree: `git fetch origin && git merge origin/{branch} --no-edit`\". Thread `branch` (the pipeline branch, e.g. `egg/issue-1565`) into this function via a new parameter. Add the same sync step to the producer lifecycle for dual-role agents (like tester) that also review other producers — add it before step 4 \"RESPOND TO REVIEWS\" isn't right; instead add a note in the ORIENT step that they should sync before reviewing proposals. Acceptance: BRC preamble for reviewers includes fetch+merge with the actual branch name.\n\n2. **[task-1-2]** Thread `base_branch` and `branch` through the call chain. In `_run_concurrent_phase()` (line 4443), add `base_branch: str | None = None` and `branch: str | None = None` parameters. Pass them through to `_build_agent_prompt()` (line 3888) which passes them to `_build_review_prompt()` (line 1925) and `_build_brc_preamble()` (line 3515). At the call site in `_run_pipeline()` (line 6590), pass `base_branch=pipeline.base_branch or get_default_branch(worktree_repo_path)` and `branch=pipeline.branch`. Acceptance: Parameters flow through the entire call chain.\n\n3. **[task-1-3]** In `_build_review_prompt()`, replace `\"git diff HEAD~10..HEAD\"` (line 1969) with `f\"git diff origin/{base_branch}...HEAD\"` (three-dot syntax for merge-base diff). When `base_branch` is None, fall back to `\"origin/main\"`. In the producer context pointer `_build_role_context()` (line 1870), replace `\"git diff HEAD~10..HEAD\"` with the same `origin/{base_branch}...HEAD` pattern. Add \"**Find ALL issues on the first pass** — do not stop after identifying a few problems.\" to the code reviewer's task preamble (near line 1981, before the systematic review steps), matching the emphasis from `action/build-review-prompt.sh:165`. Acceptance: No `HEAD~10` remains in any prompt; code reviewer gets \"Find ALL issues\" emphasis.\n\n4. **[task-1-4]** Add tests in `orchestrator/tests/test_pipeline_prompts.py`: (a) `_build_review_prompt` with `base_branch=\"main\"` produces `origin/main...HEAD` and does not contain `HEAD~10`, (b) `_build_review_prompt` without `base_branch` falls back to `origin/main`, (c) `_build_brc_preamble` with reviewer role and `branch=\"egg/issue-123\"` includes `git fetch origin && git merge origin/egg/issue-123`, (d) code reviewer prompt includes \"Find ALL issues\". Acceptance: All tests pass.\n\n```yaml\n# yaml-tasks\npr:\n  title: \"Give SDLC reviewers full changeset context matching PR bots\"\n  description: |\n    Fix three context gaps causing SDLC reviewers to miss issues PR bots catch:\n    explicit fetch+merge in BRC lifecycle, full changeset diff command, and\n    stronger thoroughness emphasis.\n  test_plan: |\n    - Automated: New tests in test_pipeline_prompts.py verify diff command, fetch step, and emphasis\n    - Manual: Run a short-flow pipeline and verify reviewer prompt contains origin/{base}...HEAD\n  manual_steps: |\n    Pre-merge: None\n    Post-merge: None\nphases:\n  - id: 1\n    name: Implement\n    goal: \"Fix reviewer context to match PR review bot thoroughness\"\n    tasks:\n      - id: task-1-1\n        description: \"In `_build_brc_preamble()` (pipelines.py:3515), add a sync step to the reviewer lifecycle between POLL and REVIEW: 'Before reviewing, sync your worktree: git fetch origin && git merge origin/{branch} --no-edit'. Thread `branch` (pipeline branch) into this function via a new parameter. For dual-role agents (like tester), add a similar sync note in the producer ORIENT step.\"\n        acceptance: \"BRC preamble for reviewers includes fetch+merge with the actual pipeline branch name; dual-role producers also get sync instruction\"\n        files:\n          - orchestrator/routes/pipelines.py\n      - id: task-1-2\n        description: \"Thread `base_branch` and `branch` through the call chain: add parameters to `_run_concurrent_phase()` (line 4443), `_build_agent_prompt()` (line 3888), `_build_review_prompt()` (line 1925), and `_build_brc_preamble()` (line 3515). At the call site in `_run_pipeline()` (line 6590), pass `base_branch=pipeline.base_branch or get_default_branch(worktree_repo_path)` and `branch=pipeline.branch`.\"\n        acceptance: \"Parameters flow through the entire call chain; no hardcoded branch names\"\n        files:\n          - orchestrator/routes/pipelines.py\n      - id: task-1-3\n        description: \"In `_build_review_prompt()` line 1969, replace `git diff HEAD~10..HEAD` with `git diff origin/{base_branch}...HEAD` (three-dot merge-base syntax). Fall back to `origin/main` when base_branch is None. In `_build_role_context()` line 1870, make the same replacement. Add 'Find ALL issues on the first pass — do not stop after identifying a few problems.' to the code reviewer task section near line 1981, matching action/build-review-prompt.sh emphasis.\"\n        acceptance: \"No HEAD~10 remains in any prompt path; code reviewer gets 'Find ALL issues' emphasis\"\n        files:\n          - orchestrator/routes/pipelines.py\n      - id: task-1-4\n        description: \"Add tests in test_pipeline_prompts.py: (a) _build_review_prompt with base_branch='main' produces 'origin/main...HEAD' not HEAD~10, (b) without base_branch falls back to origin/main, (c) _build_brc_preamble with reviewer role and branch='egg/issue-123' includes fetch+merge command, (d) code reviewer prompt includes 'Find ALL issues'.\"\n        acceptance: \"All new tests pass; no existing tests broken\"\n        files:\n          - orchestrator/tests/test_pipeline_prompts.py\n```",
-  "version": 6
+  "version": 7
 }
