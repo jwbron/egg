@@ -4981,6 +4981,58 @@ def _run_concurrent_phase(
         if len(exited_containers) >= len(active_executions):
             combined_logs = "\n".join(all_logs)
             if has_failures[0]:
+                # Final consensus recheck: consensus may have completed between
+                # the step-2 check and now (race window while containers were
+                # shutting down).  Re-query before giving up.
+                try:
+                    final_consensus = executor.check_consensus()
+                except Exception as e:
+                    logger.warning(
+                        "Final consensus recheck failed, treating as incomplete",
+                        pipeline_id=pipeline_id,
+                        error=str(e),
+                    )
+                    final_consensus = {"is_complete": False}
+
+                if final_consensus.get("is_complete"):
+                    # Consensus reached after all — recover pipeline if needed
+                    if store is not None:
+                        try:
+                            _current_pip = store.load_pipeline(pipeline_id)
+                            if _current_pip.status == PipelineStatus.FAILED:
+                                logger.warning(
+                                    "Pipeline externally marked FAILED but consensus is complete — recovering",
+                                    pipeline_id=pipeline_id,
+                                )
+                                with get_pipeline_state_lock(pipeline_id):
+                                    _current_pip = store.load_pipeline(pipeline_id)
+                                    if _current_pip.status == PipelineStatus.FAILED:
+                                        _current_pip.status = PipelineStatus.RUNNING
+                                        _current_pip.error = None
+                                        store.save_pipeline(_current_pip)
+                        except Exception as recovery_err:
+                            logger.warning(
+                                "External FAILED recovery check failed",
+                                pipeline_id=pipeline_id,
+                                error=str(recovery_err),
+                            )
+
+                    if _emit_event is not None:
+                        _emit_event(
+                            EventType.CONSENSUS_REACHED,
+                            pipeline_id,
+                            data={"elapsed_seconds": elapsed},
+                        )
+                    logger.info(
+                        "Consensus reached on final recheck, stopping containers",
+                        pipeline_id=pipeline_id,
+                        elapsed_seconds=round(elapsed, 1),
+                        has_failures=has_failures[0],
+                    )
+                    _update_agents_complete()
+                    _stop_running_containers()
+                    return 0, combined_logs
+
                 return 1, combined_logs
 
             # Before returning success, check the BRC approval matrix for

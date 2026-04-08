@@ -182,6 +182,28 @@ except Exception:
         if [ "$confirmed" = "True" ]; then
             cw_log "Found own CONSENSUS_CONFIRMED in message bus. Already confirmed."
         fi
+    elif [ "$agents_empty" = "False" ]; then
+        cw_log "Tracker shows not confirmed (stale?). Checking message bus..."
+        local msg_response
+        msg_response=$(egg-orch message poll --json --limit 1000 2>/dev/null || echo "[]")
+        confirmed=$(echo "$msg_response" | python3 -c "
+import sys, json
+role = sys.argv[1]
+try:
+    msgs = json.load(sys.stdin)
+    if isinstance(msgs, dict):
+        msgs = msgs.get('data', msgs.get('messages', []))
+    found = any(
+        m.get('message_type') == 'CONSENSUS_CONFIRMED' and m.get('from_role') == role
+        for m in msgs
+    )
+    print('True' if found else 'False')
+except Exception:
+    print('False')
+" "$role" 2>/dev/null || echo "False")
+        if [ "$confirmed" = "True" ]; then
+            cw_log "Found own CONSENSUS_CONFIRMED in message bus. Already confirmed."
+        fi
     fi
     echo "$confirmed"
 }}
