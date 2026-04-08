@@ -3961,7 +3961,9 @@ def _build_agent_prompt(
         # In concurrent mode, inject BRC consensus preamble so the coder/refiner
         # knows to propose, respond to reviews, confirm, and stay alive.
         if concurrent:
-            base_prompt += _build_brc_preamble(role_value, phase, repo=repo, branch=branch, base_branch=base_branch)
+            base_prompt += _build_brc_preamble(
+                role_value, phase, repo=repo, branch=branch, base_branch=base_branch
+            )
         return base_prompt
 
     # Build context header (shared across all roles)
@@ -3982,7 +3984,11 @@ def _build_agent_prompt(
     # Concurrent mode: add BRC consensus lifecycle preamble so agents understand
     # they must stay alive and participate in Broadcast-Review-Converge consensus.
     if concurrent:
-        lines.append(_build_brc_preamble(role_value, phase, repo=repo, branch=branch, base_branch=base_branch))
+        lines.append(
+            _build_brc_preamble(
+                role_value, phase, repo=repo, branch=branch, base_branch=base_branch
+            )
+        )
 
     # Include role-appropriate context instead of the raw issue body.
     # Analysis roles (architect, task_planner, risk_analyst) receive the full
@@ -4330,7 +4336,9 @@ def _build_agent_prompt(
             base_branch=base_branch,
         )
         if concurrent:
-            review_prompt += "\n" + _build_brc_preamble(role_value, phase, repo=repo, branch=branch, base_branch=base_branch)
+            review_prompt += "\n" + _build_brc_preamble(
+                role_value, phase, repo=repo, branch=branch, base_branch=base_branch
+            )
         return review_prompt
     else:
         lines.extend(
