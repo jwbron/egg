@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1552,
+    "title": "Issue #1552",
+    "url": "https://github.com/jwbron/egg/issues/1552"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/routes/pipelines.py`, add `_write_brc_history(worktree_path, pipeline_id, phase, identifier)` that retrieves BRC messages from `get_message_store().get_messages(pipeline_id, limit=10000)`, filters to CONSENSUS_* types, formats as chronological markdown, writes to `.egg-state/brc-history/{identifier}-{phase}.md`. Call at line ~6734 (before existing _commit_statefiles_to_worktree) and at line ~6433 (PR phase block). No-op when store is empty.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "After each phase with BRC activity, `.egg-state/brc-history/{identifier}-{phase}.md` exists with chronological BRC messages. Empty store produces no file.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `orchestrator/routes/pipelines.py:_build_pr_body()`, add '## BRC Consensus Summary' section. Retrieve messages via `get_message_store().get_messages(pipeline.id, limit=10000)`, filter to CONSENSUS_* types, group by phase, show per-phase agent roles, proposal/ACK/NACK/confirmation counts, and whether consensus was reached. Cap at ~2000 chars. Omit section when no BRC messages. Insert before 'Authored-by: egg' footer.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "PR body includes BRC Consensus Summary when BRC messages exist, omitted when none. Summary stays under 2000 chars.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add tests in `orchestrator/tests/test_auto_pr.py` for `_write_brc_history` (messages present \u2192 correct file path and content; empty store \u2192 no file) and `_build_pr_body` (messages present \u2192 BRC summary section in body; empty store \u2192 no BRC section). Mock `get_message_store` with `unittest.mock.patch`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All new tests pass covering normal, empty store, and PR body scenarios.",
+          "files_affected": [
+            "orchestrator/tests/test_auto_pr.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Include BRC consensus context in git history and PR body",
+    "description": "Writes per-phase BRC message history to `.egg-state/brc-history/{identifier}-{phase}.md`\nat phase boundaries, and adds a concise BRC Consensus Summary section to the PR body.\nThis deterministically preserves agent communication context for code review reference,\nreplacing the non-deterministic pattern where agent-committed review files sometimes\nappeared in `.egg-state/agent-outputs/`.",
+    "test_plan": "- Automated: test_auto_pr.py tests for _write_brc_history file creation, content format, and empty store handling\n- Automated: test_auto_pr.py tests for _build_pr_body with/without BRC messages\n- Manual: Run a pipeline with concurrent agents and verify .egg-state/brc-history/ files appear on the branch and PR body has BRC summary",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
