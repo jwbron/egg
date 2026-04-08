@@ -154,14 +154,22 @@ check_agent_confirmed_with_fallback() {{
         echo "True"
         return
     fi
-    # Fallback: if consensus agents map is empty, the tracker was lost.
-    # Check the message bus for our own CONSENSUS_CONFIRMED message.
+    # Fallback: check the message bus when the tracker state is unreliable.
+    # Two cases:
+    #   1. agents map is empty — tracker was lost (e.g. orchestrator restart)
+    #   2. agents map is non-empty but shows us as NOT confirmed — tracker may
+    #      be stale after a withdrawal/re-proposal cascade (issue #1564)
+    # In either case, poll the message bus for our own CONSENSUS_CONFIRMED.
     local agents_empty
     agents_empty=$(echo "$response" | python3 -c \
         "import sys,json; d=json.load(sys.stdin); agents=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}); print('True' if not agents else 'False')" \
         2>/dev/null || echo "False")
-    if [ "$agents_empty" = "True" ]; then
-        cw_log "Consensus state empty (tracker lost?). Checking message bus..."
+    if [ "$agents_empty" = "True" ] || [ "$confirmed" = "False" ]; then
+        if [ "$agents_empty" = "True" ]; then
+            cw_log "Consensus state empty (tracker lost?). Checking message bus..."
+        else
+            cw_log "Tracker shows not confirmed (may be stale). Checking message bus..."
+        fi
         local msg_response
         msg_response=$(egg-orch message poll --json --limit 1000 2>/dev/null || echo "[]")
         confirmed=$(echo "$msg_response" | python3 -c "

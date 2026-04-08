@@ -4897,6 +4897,59 @@ def _run_concurrent_phase(
         if len(exited_containers) >= len(active_executions):
             combined_logs = "\n".join(all_logs)
             if has_failures[0]:
+                # Race condition fix (issue #1564): consensus may have
+                # completed between the step-1 check and here (e.g. the
+                # last CONSENSUS_CONFIRMED arrived while we were iterating
+                # over exited containers).  Re-check before giving up.
+                try:
+                    final_consensus = executor.check_consensus()
+                except Exception:
+                    logger.warning(
+                        "Final consensus re-check failed on all-exit path",
+                        pipeline_id=pipeline_id,
+                        exc_info=True,
+                    )
+                    final_consensus = {"is_complete": False}
+
+                if final_consensus.get("is_complete"):
+                    # Same recovery logic as step 2.
+                    if store is not None:
+                        try:
+                            _current_pip = store.load_pipeline(pipeline_id)
+                            if _current_pip.status == PipelineStatus.FAILED:
+                                logger.warning(
+                                    "Pipeline externally marked FAILED but consensus is complete on exit path — recovering",
+                                    pipeline_id=pipeline_id,
+                                )
+                                with get_pipeline_state_lock(pipeline_id):
+                                    _current_pip = store.load_pipeline(pipeline_id)
+                                    if _current_pip.status == PipelineStatus.FAILED:
+                                        _current_pip.status = PipelineStatus.RUNNING
+                                        _current_pip.error = None
+                                        store.save_pipeline(_current_pip)
+                        except Exception as recovery_err:
+                            logger.warning(
+                                "External FAILED recovery on exit path failed",
+                                pipeline_id=pipeline_id,
+                                error=str(recovery_err),
+                            )
+
+                    if _emit_event is not None:
+                        _emit_event(
+                            EventType.CONSENSUS_REACHED,
+                            pipeline_id,
+                            data={"elapsed_seconds": elapsed},
+                        )
+                    logger.info(
+                        "Consensus reached on final exit-path recheck",
+                        pipeline_id=pipeline_id,
+                        elapsed_seconds=round(elapsed, 1),
+                        has_failures=True,
+                    )
+                    _update_agents_complete()
+                    _stop_running_containers()
+                    return 0, combined_logs
+
                 return 1, combined_logs
 
             # Before returning success, check the BRC approval matrix for
