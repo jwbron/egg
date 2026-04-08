@@ -333,6 +333,8 @@ The refine and plan phases include an automated internal review step before huma
     └── {identifier}-implement-contract-review.json    # Contract review verdict
 ```
 
+**Draft file naming:** All draft files use the `{identifier}-` prefix (e.g., `1553-analysis.md`). Legacy unprefixed files (`analysis.md`, `plan.md`) are cleaned up automatically at pipeline start — see [Stale Draft Cleanup](#stale-draft-cleanup) below.
+
 **Review Verdict JSON Schema:**
 ```json
 {
@@ -701,6 +703,21 @@ The local orchestrator's decision queue (`orchestrator/decision_queue.py`):
 3. Validates debounce period
 4. Updates contract with resolution
 5. Resumes pipeline from paused state
+
+## Stale Draft Cleanup
+
+When a pipeline starts on a branch that was used by prior pipelines, the `.egg-state/drafts/` directory may contain legacy unprefixed draft files (`analysis.md`, `plan.md`) from earlier runs. These stale generic files can cause confusion: the phase gate reads the prefixed draft (e.g., `1553-analysis.md`) but the presence of an outdated `analysis.md` creates ambiguity if the prefixed file is temporarily unavailable.
+
+**Automatic cleanup:** At pipeline start, after syncing the worktree with the remote branch, the orchestrator removes unprefixed generic draft files:
+
+- `.egg-state/drafts/analysis.md`
+- `.egg-state/drafts/plan.md`
+
+Only the exact unprefixed filenames are removed. Prefixed files from prior issues (e.g., `1234-analysis.md`) are left untouched — they are harmless historical artifacts. If the drafts directory does not exist, the cleanup is a no-op.
+
+**Diagnostic logging:** When the phase gate reads a draft file and the file is not found at the expected path, a debug log entry is emitted with the full attempted path, phase, issue number, and pipeline ID. This makes transient draft-not-found failures diagnosable without being noisy in production logs.
+
+**Implementation:** See `_cleanup_stale_generic_drafts()` and `_read_phase_draft()` in `orchestrator/routes/pipelines.py`.
 
 ## Worktree State Synchronization
 
@@ -1400,6 +1417,7 @@ Tier 1 (orchestrator) escalates directly to the overseer/HITL on heartbeat/progr
 - **Query progress events**: `egg-orch progress query --agent <role>`
 - **View oversight logs**: Check `.egg-state/oversight/` in the pipeline branch
 - **Override thresholds**: Set fields on `PipelineConfig` (e.g., `orchestrator_heartbeat_timeout_seconds`, `overseer_max_redirects_before_escalation`)
+- **Draft not found in phase gate**: If the phase gate reports "no analysis draft found" despite the agent having written one, check debug logs for the attempted draft path. Common causes: (1) the worktree sync failed silently before the phase gate read the draft, or (2) a stale unprefixed `analysis.md` was present instead of the expected `{identifier}-analysis.md`. The orchestrator now cleans up stale generic drafts at pipeline start and logs the full path on read failures — see [Stale Draft Cleanup](#stale-draft-cleanup).
 
 ---
 
