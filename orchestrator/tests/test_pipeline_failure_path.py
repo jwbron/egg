@@ -224,20 +224,14 @@ class TestFailurePathPushesWorktreeBranch:
         ):
             _run_pipeline("issue-42", Path("/repo"))
 
-        # push_worktree_branch should be called twice:
-        # once for stale draft cleanup push, once for failure-path push
-        push_calls = mock_gateway.push_worktree_branch.call_args_list
-        assert len(push_calls) == 2, (
-            f"Expected push_worktree_branch to be called twice "
-            f"(stale draft cleanup + failure path), got {len(push_calls)} calls"
+        # push_worktree_branch should be called once for the failure-path push.
+        # Stale draft cleanup does not trigger a push (no drafts dir in test worktree).
+        mock_gateway.push_worktree_branch.assert_called_once_with(
+            pipeline_id="issue-42",
+            repo_path=str(worktree_dir),
+            branch="egg/issue-42",
+            mode="public",
         )
-        for c in push_calls:
-            assert c.kwargs == {
-                "pipeline_id": "issue-42",
-                "repo_path": str(worktree_dir),
-                "branch": "egg/issue-42",
-                "mode": "public",
-            }
 
     @patch(_COMMON_PATCHES[7])
     @patch(_COMMON_PATCHES[6])
@@ -491,13 +485,13 @@ class TestSuccessPathPushesStatefiles:
         assert pipeline.status == PipelineStatus.COMPLETE
 
         # push_worktree_branch should have been called:
-        # - once for stale draft cleanup push
         # - once for auto-PR pre-push (pushes commits before PR creation)
         # - once after phase completion (pushes statefiles)
+        # (stale draft cleanup does not push — no drafts dir in test worktree)
         calls = mock_gateway.push_worktree_branch.call_args_list
-        assert len(calls) == 3, (
-            f"Expected push_worktree_branch to be called 3 times "
-            f"(stale draft cleanup + auto-PR pre-push + phase completion), got {len(calls)} calls"
+        assert len(calls) == 2, (
+            f"Expected push_worktree_branch to be called twice "
+            f"(auto-PR pre-push + phase completion), got {len(calls)} calls"
         )
         for c in calls:
             assert c.kwargs == {
@@ -578,14 +572,14 @@ class TestSuccessPathPushesStatefiles:
         ):
             _run_pipeline("issue-42", Path("/repo"))
 
-        # push_worktree_branch should be called exactly four times:
-        # once for stale draft cleanup, once after contract initialization,
-        # once for auto-PR pre-push, and once after phase completion.
+        # push_worktree_branch should be called exactly three times:
+        # once after contract initialization, once for auto-PR pre-push,
+        # and once after phase completion.
+        # (stale draft cleanup does not push — no drafts dir in test worktree)
         calls = mock_gateway.push_worktree_branch.call_args_list
-        assert len(calls) == 4, (
-            f"Expected push_worktree_branch to be called 4 times "
-            f"(stale draft cleanup + contract init + auto-PR pre-push + phase completion), "
-            f"got {len(calls)} calls"
+        assert len(calls) == 3, (
+            f"Expected push_worktree_branch to be called three times "
+            f"(contract init + auto-PR pre-push + phase completion), got {len(calls)} calls"
         )
         # Verify arguments match for every call
         for c in calls:
@@ -776,13 +770,11 @@ class TestContractPushHardGate:
             "Pipeline should be marked FAILED when contract push fails after retry"
         )
 
-        # push_worktree_branch should be called 3 times:
-        # once for stale draft cleanup (returns False, ignored),
-        # then initial contract push + retry (both return False → pipeline fails)
+        # push_worktree_branch should be called twice (initial + retry).
+        # Stale draft cleanup does not push (no drafts dir in test worktree).
         push_calls = mock_gateway.push_worktree_branch.call_args_list
-        assert len(push_calls) == 3, (
-            f"Expected 3 push attempts (stale draft cleanup + initial + retry), "
-            f"got {len(push_calls)}"
+        assert len(push_calls) == 2, (
+            f"Expected 2 push attempts (initial + retry), got {len(push_calls)}"
         )
 
         # No agents should be spawned after push failure

@@ -76,8 +76,6 @@ class TestReadPhaseDraft:
 
     def test_logs_debug_when_file_missing(self, tmp_path: Path, monkeypatch):
         """Debug log is emitted when the draft file does not exist."""
-        from unittest.mock import MagicMock
-
         import routes.pipelines as mod
 
         mock_logger = MagicMock()
@@ -95,16 +93,18 @@ class TestCleanupStaleGenericDrafts:
     """Tests for _cleanup_stale_generic_drafts."""
 
     def test_removes_generic_analysis_and_plan(self, tmp_path: Path):
-        """Unprefixed analysis.md and plan.md are removed."""
+        """Unprefixed analysis.md and plan.md are removed (untracked fallback)."""
         drafts = tmp_path / ".egg-state" / "drafts"
         drafts.mkdir(parents=True)
         (drafts / "analysis.md").write_text("stale analysis", encoding="utf-8")
         (drafts / "plan.md").write_text("stale plan", encoding="utf-8")
 
-        _cleanup_stale_generic_drafts(tmp_path)
+        result = _cleanup_stale_generic_drafts(tmp_path)
 
         assert not (drafts / "analysis.md").exists()
         assert not (drafts / "plan.md").exists()
+        # Untracked files use os.unlink fallback — no commit is made
+        assert result is False
 
     def test_preserves_prefixed_files(self, tmp_path: Path):
         """Prefixed files like 1553-analysis.md are untouched."""
@@ -122,7 +122,8 @@ class TestCleanupStaleGenericDrafts:
 
     def test_noop_when_no_drafts_dir(self, tmp_path: Path):
         """No error when .egg-state/drafts/ does not exist."""
-        _cleanup_stale_generic_drafts(tmp_path)  # Should not raise
+        result = _cleanup_stale_generic_drafts(tmp_path)
+        assert result is False
 
     def test_noop_when_no_stale_files(self, tmp_path: Path):
         """No error when drafts dir exists but has no generic files."""
@@ -130,6 +131,57 @@ class TestCleanupStaleGenericDrafts:
         drafts.mkdir(parents=True)
         (drafts / "42-analysis.md").write_text("ok", encoding="utf-8")
 
-        _cleanup_stale_generic_drafts(tmp_path)
+        result = _cleanup_stale_generic_drafts(tmp_path)
 
+        assert result is False
         assert (drafts / "42-analysis.md").exists()
+
+    def test_git_rm_success_returns_true(self, tmp_path: Path, monkeypatch):
+        """When git rm succeeds, function commits and returns True."""
+        import routes.pipelines as mod
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "analysis.md").write_text("stale", encoding="utf-8")
+
+        call_log: list[list[str]] = []
+
+        def fake_run(cmd, **kwargs):
+            call_log.append(cmd)
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = ""
+            result.stderr = ""
+            return result
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        result = _cleanup_stale_generic_drafts(tmp_path)
+
+        assert result is True
+        # Should have called git rm then git commit
+        assert any("rm" in c for c in call_log[0])
+        assert any("commit" in c for c in call_log[1])
+        # commit should include --no-verify
+        assert "--no-verify" in call_log[1]
+
+    def test_git_rm_failure_logs_warning(self, tmp_path: Path, monkeypatch):
+        """When git rm fails, a warning is logged and unlink is used."""
+        import routes.pipelines as mod
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "plan.md").write_text("stale", encoding="utf-8")
+
+        mock_logger = MagicMock()
+        monkeypatch.setattr(mod, "logger", mock_logger)
+
+        # Let subprocess.run raise (git rm fails) — default behavior in
+        # non-git tmp_path already does this, but be explicit:
+        result = _cleanup_stale_generic_drafts(tmp_path)
+
+        assert result is False
+        assert not (drafts / "plan.md").exists()
+        # Should have logged a warning about git rm failure
+        mock_logger.warning.assert_called_once()
+        assert "git rm failed" in mock_logger.warning.call_args[0][0]
