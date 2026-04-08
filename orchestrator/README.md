@@ -7,7 +7,7 @@ Central coordination engine for egg's SDLC pipeline execution, container lifecyc
 The orchestrator manages the end-to-end SDLC pipeline that turns GitHub issues into reviewed pull requests. It:
 
 - **Manages pipeline state** — persists phase transitions, agent executions, and decisions on a git-backed state branch
-- **Spawns and monitors containers** — creates sandbox containers with proper configuration via the gateway sidecar
+- **Spawns and monitors agent Jobs** — creates Kubernetes Jobs in the `egg-agents` namespace with proper configuration
 - **Coordinates multi-agent execution** — runs specialized agents across five categories (execution, analysis, review, utility, interface) in dependency-ordered waves or concurrently with message-based coordination
 - **Handles HITL decisions** — queues questions for human reviewers and blocks until resolved
 - **Streams real-time status** — provides SSE streams and DAG visualizations for pipeline monitoring
@@ -15,26 +15,21 @@ The orchestrator manages the end-to-end SDLC pipeline that turns GitHub issues i
 ## Architecture
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                         Host Machine                           │
-│                                                                │
-│  ┌──────────────┐    ┌──────────────┐                          │
-│  │ Orchestrator │───►│   Gateway    │                          │
-│  │   :9849      │    │   Sidecar    │                          │
-│  │              │◄───│   :9848      │                          │
-│  │ - Pipeline   │    │              │                          │
-│  │ - Dispatch   │    │ - Sessions   │                          │
-│  │ - State      │    │ - Policy     │                          │
-│  │ - HITL       │    │ - Creds      │                          │
-│  └──────┬───────┘    └──────┬───────┘                          │
-│         │                   │                                  │
-│         │    ┌──────────────┼──────────────┐                   │
-│         ▼    ▼              ▼              ▼                   │
-│   ┌──────────┐  ┌──────────┐  ┌─────────────┐  ┌───────────┐   │
-│   │ Sandbox  │  │ Sandbox  │  │ Sandbox     │  │ Sandbox   │   │
-│   │ (Coder)  │  │ (Tester) │  │(Documenter) │  │ (Reviewer │   │
-│   └──────────┘  └──────────┘  └─────────────┘  └───────────┘   │
-└────────────────────────────────────────────────────────────────┘
+Namespace: egg-system                    Namespace: egg-agents
+┌─────────────────────────────────────┐  ┌──────────────────────────────┐
+│  ┌──────────────┐  ┌─────────────┐  │  │  ┌──────┐ ┌──────┐ ┌─────┐ │
+│  │ Orchestrator │  │   Gateway   │  │  │  │Coder │ │Tester│ │Doc. │ │
+│  │   :9849      │  │   :9848     │  │  │  │ Job  │ │ Job  │ │ Job │ │
+│  │              │  │   :3129     │  │  │  └──┬───┘ └──┬───┘ └──┬──┘ │
+│  │ - Pipeline   │  │   :9851    │  │  │     │        │        │    │
+│  │ - State      │  │            │  │  │     └────────┴────────┘    │
+│  │ - HITL       │  │ - Sessions │  │  │              │             │
+│  └──────┬───────┘  │ - Policy   │◄─┼──┼──────────────┘             │
+│         │          │ - Proxy    │  │  │  (egress only to gateway)  │
+│         │ k8s API  └────────────┘  │  └──────────────────────────────┘
+│         └─────────────────────────►│
+│           (create/delete Jobs)     │
+└─────────────────────────────────────┘
 ```
 
 ## Key Concepts
@@ -218,12 +213,14 @@ orchestrator/
 ├── cli.py                  # CLI interface (serve, health, pipelines commands)
 ├── models.py               # Pydantic models (Pipeline, AgentExecution, HITLDecision, ReviewVerdict, etc.)
 ├── state_store.py          # Git-backed persistent state storage
-├── container_spawner.py    # Container spawning with gateway session integration
-├── container_monitor.py    # Container state monitoring and lifecycle tracking
+├── container_backend.py    # ContainerBackend Protocol (abstract interface for container runtimes)
+├── kubernetes_client.py    # Kubernetes client wrapper (implements ContainerBackend)
+├── kubernetes_spawner.py   # Kubernetes Job spawning with gateway session integration
+├── kubernetes_monitor.py   # Kubernetes Job/Pod state monitoring and lifecycle tracking
 ├── decision_queue.py       # HITL decision queue management (supports typed decisions)
 ├── handoffs.py             # Agent-to-agent data handoff mechanism
 ├── gateway_client.py       # Gateway API client for session management
-├── docker_client.py        # Docker client wrapper
+├── docker_client.py        # Docker client wrapper (deprecated — replaced by kubernetes_client.py)
 ├── sandbox_template.py     # Sandbox container configuration templates
 ├── mcp_server.py           # SSE-based MCP server for pipeline management tools (port 9850)
 ├── mcp_tools.py            # MCP tool definitions and handlers (submit_task, get_status, checkpoints, contracts, etc.)
@@ -392,11 +389,11 @@ Defined in `shared/egg_config/constants.py`:
 
 | Constant | Value |
 |----------|-------|
-| Container name | `egg-orchestrator` |
+| Deployment name | `orchestrator` |
+| Namespace | `egg-system` |
 | Port | `9849` |
 | MCP server port | `9850` |
-| Isolated network IP | `172.32.0.3` |
-| External network IP | `172.33.0.3` |
+| Agent namespace | `egg-agents` |
 
 ## Testing
 

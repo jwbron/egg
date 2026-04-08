@@ -4,10 +4,10 @@ This document describes the orchestrator component and the three deployment mode
 
 ## Overview
 
-The orchestrator manages SDLC pipeline execution, container lifecycle, and agent coordination. It provides:
+The orchestrator manages SDLC pipeline execution, agent lifecycle, and agent coordination. It provides:
 
 - Pipeline state management (phases, tasks, decisions)
-- Container spawning and monitoring
+- Agent Job spawning and monitoring via Kubernetes API
 - Multi-agent coordination (for parallel execution)
 - Human-in-the-loop (HITL) decision handling
 - Completion signaling and handoff management
@@ -53,9 +53,9 @@ This prevents pipelines from being stuck in `RUNNING` or `AWAITING_HUMAN` states
 
 See `orchestrator/state_store.py` and `orchestrator/startup_reconciliation.py` for implementation details.
 
-**Runtime container monitoring:**
+**Runtime agent monitoring:**
 
-A background `ContainerMonitor` thread runs continuously after orchestrator startup to detect container failures during execution. The monitor periodically checks container status and invokes registered handlers when state changes occur (container exits, fails, or becomes unhealthy).
+A background `KubernetesMonitor` thread (replacing the previous `ContainerMonitor`) runs continuously after orchestrator startup to detect agent failures during execution. The monitor watches Kubernetes Job/Pod status and invokes registered handlers when state changes occur (pod exits, fails, or becomes unhealthy).
 
 A pipeline reconciliation handler detects when agent containers exit or fail during runtime and updates pipeline state accordingly. The handler scans **all phases** within each `RUNNING` pipeline (including completed phases) to find the exited container, as reviewer agents may continue running after their phase has transitioned to `COMPLETE`.
 
@@ -339,27 +339,18 @@ EGG_AGENT_ROLE=coder
 ### 3. Distributed Mode
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Host Machine                         │
-│  ┌────────────┐    ┌─────────────┐                     │
-│  │Orchestrator│───►│   Gateway   │                     │
-│  │            │    │   Sidecar   │                     │
-│  │ - Pipeline │◄───│             │                     │
-│  │ - Dispatch │    │             │                     │
-│  │ - Handoffs │    │             │                     │
-│  └────────────┘    └──────┬──────┘                     │
-│        │                  │                             │
-│        │    ┌─────────────┼─────────────┐              │
-│        │    │             │             │              │
-│        ▼    ▼             ▼             ▼              │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐             │
-│  │ Sandbox  │  │ Sandbox  │  │ Sandbox  │             │
-│  │ (Coder)  │  │ (Tester) │  │(Docmter) │             │
-│  │          │  │          │  │          │             │
-│  │ Signals  │  │ Signals  │  │ Signals  │             │
-│  │   back   │  │   back   │  │   back   │             │
-│  └──────────┘  └──────────┘  └──────────┘             │
-└─────────────────────────────────────────────────────────┘
+Namespace: egg-system                  Namespace: egg-agents
+┌────────────────────────────────┐     ┌──────────────────────────┐
+│  ┌────────────┐  ┌───────────┐ │     │  ┌────────┐ ┌────────┐  │
+│  │Orchestrator│  │  Gateway  │ │     │  │ Coder  │ │ Tester │  │
+│  │            │  │  Service  │◄┼─────┼──│  Job   │ │  Job   │  │
+│  │ - Pipeline │  │           │ │     │  └────────┘ └────────┘  │
+│  │ - Dispatch │  └───────────┘ │     │  ┌────────┐             │
+│  │ - Handoffs │                │     │  │Docmter │  ...        │
+│  └─────┬──────┘                │     │  │  Job   │             │
+│        │  k8s API              │     │  └────────┘             │
+│        └───────────────────────┼─────►  (egress only to gw)   │
+└────────────────────────────────┘     └──────────────────────────┘
 ```
 
 **Characteristics:**
@@ -381,17 +372,19 @@ EGG_AGENT_ROLE=coder  # or tester, documenter
 
 ### Network Architecture
 
-All components communicate over Docker networks with controlled access:
+All components communicate over Kubernetes networking with Calico NetworkPolicy enforcement:
 
-| Network | Purpose | Components |
-|---------|---------|------------|
-| `egg-isolated` | Internal communication | Gateway, Orchestrator, Sandboxes |
-| `egg-external` | Internet access | Gateway only (proxies for sandboxes) |
+| Namespace | Purpose | Components |
+|-----------|---------|------------|
+| `egg-system` | Trusted infrastructure | Gateway (Deployment + Service), Orchestrator (Deployment + Service) |
+| `egg-agents` | Untrusted agent workloads | Agent Jobs (default-deny, egress only to gateway) |
 
-Fixed IPs:
-- Gateway: `172.32.0.2` (isolated), `172.33.0.2` (external)
-- Orchestrator: `172.32.0.3` (isolated), `172.33.0.3` (external)
-- Sandboxes: Dynamic allocation in `172.32.0.128/25` (.128–.254), keeping .2–.127 reserved for static assignments
+Service discovery uses Kubernetes DNS:
+- Gateway: `gateway.egg-system.svc.cluster.local:9848` (API), `:3129` (proxy), `:9851` (health)
+- Orchestrator: `orchestrator.egg-system.svc.cluster.local:9849`
+- Agent pods: Dynamic IPs assigned by Calico CNI
+
+See [Kubernetes Architecture](kubernetes.md) for the full network isolation model.
 
 ### API Endpoints
 
@@ -529,10 +522,10 @@ if is_orchestrator_mode():
 Defined in `shared/egg_config/constants.py`:
 
 ```python
-ORCHESTRATOR_CONTAINER_NAME = "egg-orchestrator"
+ORCHESTRATOR_DEPLOYMENT_NAME = "orchestrator"
+ORCHESTRATOR_NAMESPACE = "egg-system"
 ORCHESTRATOR_PORT = 9849
-ORCHESTRATOR_ISOLATED_IP = "172.32.0.3"
-ORCHESTRATOR_EXTERNAL_IP = "172.33.0.3"
+AGENT_NAMESPACE = "egg-agents"
 ```
 
 ## Related Documentation

@@ -38,34 +38,32 @@ Specific threats:
 
 ## Architecture Overview
 
+> **Note**: egg has migrated from Docker Compose to Kubernetes (k3s). The isolation model described below is now enforced via Kubernetes namespaces and Calico NetworkPolicies instead of Docker networks. See [Kubernetes Architecture](kubernetes.md) for the k8s-specific implementation. The security properties remain identical.
+
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            Docker Compose Network                             │
-│                                                                               │
-│  ┌───────────────────────────────┐      ┌───────────────────────────────┐  │
-│  │        egg container          │      │       gateway          │  │
-│  │                               │      │                               │  │
-│  │  - Claude Code agent          │      │  - GITHUB_TOKEN               │  │
-│  │  - No GITHUB_TOKEN            │      │  - git push capability        │  │
-│  │  - No git push capability     │ REST │  - gh CLI                     │  │
-│  │  - Full internet via proxy ───┼──────►  - HTTP/HTTPS proxy          │  │
-│  │  - git (no auth)              │      │  - Ownership checks           │  │
-│  │                               │      │  - Audit logging              │  │
-│  │  HTTP_PROXY=gateway:3128     │      │  - Policy enforcement         │  │
-│  │                               │      │                               │  │
-│  └───────────────────────────────┘      └───────────────────────────────┘  │
-│                                                     │                        │
-│                                                     │ All traffic proxied    │
-│                                                     ▼                        │
-│                                              ┌─────────────┐                │
-│                                              │  Internet   │                │
-│                                              │  - GitHub   │                │
-│                                              │  - Claude   │                │
-│                                              │  - PyPI     │                │
-│                                              │  - etc      │                │
-│                                              └─────────────┘                │
-│                                                                               │
-└───────────────────────────────────────────────────────────────────────────────┘
+Namespace: egg-agents                   Namespace: egg-system
+┌───────────────────────────────┐      ┌───────────────────────────────┐
+│      agent pod (untrusted)    │      │       gateway                │
+│                               │      │                               │
+│  - Claude Code agent          │      │  - GITHUB_TOKEN               │
+│  - No GITHUB_TOKEN            │      │  - git push capability        │
+│  - No git push capability     │ REST │  - gh CLI                     │
+│  - Egress only to gateway ────┼──────►  - HTTP/HTTPS proxy          │
+│  - git (no auth)              │      │  - Ownership checks           │
+│                               │      │  - Audit logging              │
+│  HTTP_PROXY=gateway:3129     │      │  - Policy enforcement         │
+│                               │      │                               │
+└───────────────────────────────┘      └───────────────────────────────┘
+                                                      │
+                                                      │ All traffic proxied
+                                                      ▼
+                                               ┌─────────────┐
+                                               │  Internet   │
+                                               │  - GitHub   │
+                                               │  - Claude   │
+                                               │  - PyPI     │
+                                               │  - etc      │
+                                               └─────────────┘
 ```
 
 ### Component Summary
@@ -223,27 +221,45 @@ For truly unsupervised operation with `--dangerously-skip-permissions`, infrastr
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Docker Network Configuration
+### Kubernetes Network Configuration
+
+Network isolation is now enforced by Calico NetworkPolicies in Kubernetes:
 
 ```yaml
-networks:
-  egg-isolated:
-    internal: true  # No external connectivity
-  external:
-    # Standard bridge network with internet access
+# Default deny all egress in egg-agents namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: egg-agents
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
 
-services:
-  egg:
-    networks:
-      - egg-isolated  # ONLY internal network
-
-  gateway:
-    networks:
-      - egg-isolated  # Can receive from egg
-      - external      # Can reach internet
+# Allow egress only to gateway Service in egg-system
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-egress
+  namespace: egg-agents
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: egg-system
+          podSelector:
+            matchLabels:
+              app: gateway
 ```
 
-Docker's `internal: true` network has no gateway to the outside world. egg physically cannot route packets to the internet — there is no route in its network namespace.
+Calico enforces these policies at the kernel level. Agent pods physically cannot route packets to the internet — only to the gateway Service.
+
+> **Previous implementation**: Before the k8s migration (#1553), isolation used Docker's `internal: true` network with dual-network architecture (`egg-isolated` + `egg-external`). The security properties are identical; only the enforcement mechanism changed.
 
 ### Network Topology
 
