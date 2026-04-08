@@ -41,7 +41,7 @@ egg currently depends on two Anthropic-controlled runtimes — the Claude Agent 
 
 ### Key Dependencies
 
-- `claude-agent-sdk==0.1.56` (requires `anyio`, `mcp`)
+- `claude-agent-sdk` (requires `anyio`, `mcp`) — version unpinned in `pyproject.toml`, currently installed as 0.1.56 in the container image
 - No `anthropic` Python package installed (all API calls go through the SDK or gateway proxy)
 - No usage of extended thinking or prompt caching features currently
 
@@ -163,7 +163,7 @@ The `anthropic` SDK's `base_url` parameter routes seamlessly through the gateway
 
 ## Open Questions
 
-All questions are registered in the contract (`egg-contract`). Each must be resolved before implementation planning.
+All questions are registered as HITL decisions via the orchestrator API. Each must be resolved before implementation planning.
 
 ### Decisions (multiple-choice)
 
