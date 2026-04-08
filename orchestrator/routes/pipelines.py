@@ -3049,7 +3049,9 @@ def _build_brc_consensus_summary(pipeline_id: str) -> str:
         acks = sum(1 for m in phase_msgs if m.message_type == "CONSENSUS_ACK")
         nacks = sum(1 for m in phase_msgs if m.message_type == "CONSENSUS_NACK")
         confirmations = sum(1 for m in phase_msgs if m.message_type == "CONSENSUS_CONFIRMED")
-        confirmed_roles = {m.from_role for m in phase_msgs if m.message_type == "CONSENSUS_CONFIRMED"}
+        confirmed_roles = {
+            m.from_role for m in phase_msgs if m.message_type == "CONSENSUS_CONFIRMED"
+        }
         all_confirmed = confirmed_roles == set(roles) and len(confirmed_roles) > 0
 
         lines.append(f"**{phase_name}**: {', '.join(roles)}")
