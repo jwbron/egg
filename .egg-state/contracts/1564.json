@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1564,
+    "title": "Issue #1564",
+    "url": "https://github.com/jwbron/egg/issues/1564"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/routes/pipelines.py:4896-4900`, add a final `executor.check_consensus()` call before returning exit_code=1 when all containers exited with failures. If consensus is complete, recover pipeline status, call _update_agents_complete() and _stop_running_containers(), and return 0 \u2014 same success path as step 2.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "When all containers exit with non-zero codes but check_consensus() returns is_complete=True on the final check, _run_concurrent_phase returns exit code 0",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `orchestrator/consensus_wrapper.py:148-186`, modify check_agent_confirmed_with_fallback to also check the message bus when the tracker shows the agent as NOT confirmed (not just when tracker agents map is empty). Add a second branch: if confirmed='False' and tracker is non-empty, poll message bus for own CONSENSUS_CONFIRMED.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Wrapper exits cleanly (code 0) when tracker is non-empty but shows agent not confirmed, and message bus contains the agent's CONSENSUS_CONFIRMED message",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add test for the race condition: mock check_consensus to return is_complete=False first, then is_complete=True on second call. All containers exit with code 1. Verify _run_concurrent_phase returns 0.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes, covering the race condition where consensus completes after containers exit",
+          "files_affected": [
+            "orchestrator/tests/test_consensus_complete_with_failures.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add test for wrapper fallback: tracker non-empty, agent not confirmed in tracker, but CONSENSUS_CONFIRMED exists in message bus. Verify check_agent_confirmed_with_fallback returns True.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes, covering the stale-tracker fallback scenario",
+          "files_affected": [
+            "orchestrator/tests/test_consensus_complete_with_failures.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Fix consensus race on all-container-exit path",
+    "description": "Fixes a race condition where _run_concurrent_phase returns failure when all\ncontainers exit with non-zero codes, without rechecking consensus. Also\nimproves the consensus wrapper's confirmation detection to check the message\nbus when the tracker has stale state from withdrawal/re-proposal cascades.\nCloses #1564.",
+    "test_plan": "- Automated: test_consensus_complete_with_failures.py covers the race condition\n- Automated: wrapper fallback test covers stale-tracker scenario\n- Manual: Run a pipeline with concurrent agents, verify consensus detection works when containers exit before orchestrator detects consensus",
+    "manual_steps": "Pre-merge: None\nPost-merge: Monitor next few pipelines for consensus detection regressions"
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
