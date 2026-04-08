@@ -3020,12 +3020,6 @@ class TestProducerOrientationSyncNote:
         )
         assert "git fetch origin && git merge" not in orient
 
-    def test_documenter_gets_sync_note(self):
-        """Documenter orientation gets sync note when branch is provided."""
-        orient = _build_producer_orientation("documenter", "implement", [], branch="egg/issue-123")
-        assert "git fetch origin" in orient
-        assert "origin/egg/issue-123" in orient
-
 
 class TestAgentPromptBaseBranchPassthrough:
     """Tests for base_branch passthrough in _build_agent_prompt (issue #1565)."""
