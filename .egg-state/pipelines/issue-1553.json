@@ -248,10 +248,24 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-8",
+      "question": "What is the image registry strategy? Push to GHCR, use k3s local image import, or set up a local registry?",
+      "context": "",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-08T14:44:04.559059Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-08T14:30:41.767647Z",
-  "updated_at": "2026-04-08T14:44:04.530423Z",
+  "updated_at": "2026-04-08T14:44:04.560648Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -259,5 +273,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 14
+  "version": 15
 }
