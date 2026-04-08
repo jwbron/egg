@@ -1,4 +1,4 @@
-"""Tests for _read_phase_draft and _get_draft_path helper functions."""
+"""Tests for _read_phase_draft, _get_draft_path, and _cleanup_stale_generic_drafts."""
 
 import sys
 from pathlib import Path
@@ -10,7 +10,7 @@ sys.modules.setdefault("docker", _docker_mock)
 sys.modules.setdefault("docker.errors", _docker_mock.errors)
 sys.modules.setdefault("docker.types", _docker_mock.types)
 
-from routes.pipelines import _read_phase_draft
+from routes.pipelines import _cleanup_stale_generic_drafts, _read_phase_draft
 
 
 class TestReadPhaseDraft:
@@ -73,3 +73,63 @@ class TestReadPhaseDraft:
 
         result = _read_phase_draft(tmp_path, "plan", issue_number=7, max_chars=10)
         assert result == "a" * 10 + "\n\n... (truncated, 500 chars total)"
+
+    def test_logs_debug_when_file_missing(self, tmp_path: Path, monkeypatch):
+        """Debug log is emitted when the draft file does not exist."""
+        from unittest.mock import MagicMock
+
+        import routes.pipelines as mod
+
+        mock_logger = MagicMock()
+        monkeypatch.setattr(mod, "logger", mock_logger)
+
+        result = _read_phase_draft(tmp_path, "refine", issue_number=99)
+
+        assert result is None
+        mock_logger.debug.assert_called_once()
+        call_args = mock_logger.debug.call_args
+        assert "Draft file not found" in call_args[0][0]
+
+
+class TestCleanupStaleGenericDrafts:
+    """Tests for _cleanup_stale_generic_drafts."""
+
+    def test_removes_generic_analysis_and_plan(self, tmp_path: Path):
+        """Unprefixed analysis.md and plan.md are removed."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "analysis.md").write_text("stale analysis", encoding="utf-8")
+        (drafts / "plan.md").write_text("stale plan", encoding="utf-8")
+
+        _cleanup_stale_generic_drafts(tmp_path)
+
+        assert not (drafts / "analysis.md").exists()
+        assert not (drafts / "plan.md").exists()
+
+    def test_preserves_prefixed_files(self, tmp_path: Path):
+        """Prefixed files like 1553-analysis.md are untouched."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "analysis.md").write_text("stale", encoding="utf-8")
+        (drafts / "1553-analysis.md").write_text("correct", encoding="utf-8")
+        (drafts / "1553-plan.md").write_text("correct plan", encoding="utf-8")
+
+        _cleanup_stale_generic_drafts(tmp_path)
+
+        assert not (drafts / "analysis.md").exists()
+        assert (drafts / "1553-analysis.md").exists()
+        assert (drafts / "1553-plan.md").exists()
+
+    def test_noop_when_no_drafts_dir(self, tmp_path: Path):
+        """No error when .egg-state/drafts/ does not exist."""
+        _cleanup_stale_generic_drafts(tmp_path)  # Should not raise
+
+    def test_noop_when_no_stale_files(self, tmp_path: Path):
+        """No error when drafts dir exists but has no generic files."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "42-analysis.md").write_text("ok", encoding="utf-8")
+
+        _cleanup_stale_generic_drafts(tmp_path)
+
+        assert (drafts / "42-analysis.md").exists()
