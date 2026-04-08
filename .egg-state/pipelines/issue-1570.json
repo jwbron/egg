@@ -165,10 +165,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Should egg-native tools (EggOrch, EggContract, etc.) be included in MVP, or shell out to CLIs initially?",
+      "context": "",
+      "options": [
+        "Shell out to CLIs initially (lower risk, faster MVP)",
+        "Native Python tool implementations from the start",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-08T20:56:21.860362Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T20:56:21.814452Z",
+  "updated_at": "2026-04-08T20:56:21.863092Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -176,5 +194,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 9
+  "version": 10
 }
