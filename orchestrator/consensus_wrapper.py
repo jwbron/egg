@@ -141,10 +141,11 @@ get_agent_confirmed() {{
 }}
 
 # Check if an agent is confirmed, with message bus fallback for when the
-# in-memory consensus tracker was lost (e.g. orchestrator restart).
+# in-memory consensus tracker was lost or stale (e.g. orchestrator restart,
+# withdrawal cascade leaving stale state).
 # Prints "True" or "False".
 # NOTE: The --limit 1000 fallback pulls all messages, which is expensive.
-# This only runs when the tracker state is empty, so it should be rare.
+# This only runs when the tracker does not show confirmed, so it should be rare.
 check_agent_confirmed_with_fallback() {{
     local response="$1"
     local role="$2"
@@ -154,39 +155,22 @@ check_agent_confirmed_with_fallback() {{
         echo "True"
         return
     fi
-    # Fallback: if consensus agents map is empty, the tracker was lost.
-    # Check the message bus for our own CONSENSUS_CONFIRMED message.
+    # Fallback: tracker does not show confirmed. This can happen when:
+    # 1. The agents map is empty (tracker was lost, e.g. orchestrator restart)
+    # 2. The agents map is stale (e.g. withdrawal cascade left outdated state)
+    # In either case, check the message bus for our own CONSENSUS_CONFIRMED message.
     local agents_empty
     agents_empty=$(echo "$response" | python3 -c \
         "import sys,json; d=json.load(sys.stdin); agents=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}); print('True' if not agents else 'False')" \
         2>/dev/null || echo "False")
     if [ "$agents_empty" = "True" ]; then
         cw_log "Consensus state empty (tracker lost?). Checking message bus..."
-        local msg_response
-        msg_response=$(egg-orch message poll --json --limit 1000 2>/dev/null || echo "[]")
-        confirmed=$(echo "$msg_response" | python3 -c "
-import sys, json
-role = sys.argv[1]
-try:
-    msgs = json.load(sys.stdin)
-    if isinstance(msgs, dict):
-        msgs = msgs.get('data', msgs.get('messages', []))
-    found = any(
-        m.get('message_type') == 'CONSENSUS_CONFIRMED' and m.get('from_role') == role
-        for m in msgs
-    )
-    print('True' if found else 'False')
-except Exception:
-    print('False')
-" "$role" 2>/dev/null || echo "False")
-        if [ "$confirmed" = "True" ]; then
-            cw_log "Found own CONSENSUS_CONFIRMED in message bus. Already confirmed."
-        fi
-    elif [ "$agents_empty" = "False" ]; then
+    else
         cw_log "Tracker shows not confirmed (stale?). Checking message bus..."
-        local msg_response
-        msg_response=$(egg-orch message poll --json --limit 1000 2>/dev/null || echo "[]")
-        confirmed=$(echo "$msg_response" | python3 -c "
+    fi
+    local msg_response
+    msg_response=$(egg-orch message poll --json --limit 1000 2>/dev/null || echo "[]")
+    confirmed=$(echo "$msg_response" | python3 -c "
 import sys, json
 role = sys.argv[1]
 try:
@@ -201,9 +185,8 @@ try:
 except Exception:
     print('False')
 " "$role" 2>/dev/null || echo "False")
-        if [ "$confirmed" = "True" ]; then
-            cw_log "Found own CONSENSUS_CONFIRMED in message bus. Already confirmed."
-        fi
+    if [ "$confirmed" = "True" ]; then
+        cw_log "Found own CONSENSUS_CONFIRMED in message bus. Already confirmed."
     fi
     echo "$confirmed"
 }}
