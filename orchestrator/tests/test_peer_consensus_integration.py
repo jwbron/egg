@@ -1096,13 +1096,14 @@ class TestWithdrawReProposalDeadlock:
         t.handle_ack("reviewer_refine", "refiner", {"artifact_references": ["design.md"]})
         t.handle_confirmed("refiner")
 
-    def test_nacked_then_confirmed_reviewer_is_unconfirmed_on_reproposal(self, refine_tracker):
-        """A reviewer who NACKed and then confirmed must be un-confirmed
-        when the producer withdraws and re-proposes.
+    def test_nacked_then_confirmed_reviewer_blocked_by_guard(self, refine_tracker):
+        """A reviewer who NACKed a producer cannot confirm until the
+        producer re-proposes and the reviewer re-reviews.
 
-        Regression test for: NACKED entries were not caught by
-        _un_confirm_stale_reviewers, leaving the reviewer in _confirmed
-        with a stale NACK and causing a deadlock.
+        Updated for #1576 fix: the unresolved-NACK guard now prevents
+        the reviewer from entering CONFIRMED state in the first place,
+        rather than relying on the _un_confirm_stale_reviewers recovery
+        path. This is the primary deadlock prevention mechanism.
         """
         t = refine_tracker
 
@@ -1115,14 +1116,17 @@ class TestWithdrawReProposalDeadlock:
         t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
         t.handle_confirmed("reviewer_agent_design")
 
-        # reviewer_refine NACKs v1 and confirms (has_reviewed returns True for NACK)
+        # reviewer_refine NACKs v1
         t.handle_nack(
             "reviewer_refine",
             "refiner",
             {"artifact_references": ["design.md"], "reason": "Needs rework"},
         )
-        t.handle_confirmed("reviewer_refine")
-        assert "reviewer_refine" in t._confirmed
+
+        # reviewer_refine tries to confirm — BLOCKED by unresolved-NACK guard (#1576)
+        result = t.handle_confirmed("reviewer_refine")
+        assert result["status"] == "pending_acks"
+        assert "reviewer_refine" not in t._confirmed
 
         # refiner withdraws and re-proposes v2
         t.handle_withdraw("refiner", "Addressing NACK feedback")
@@ -1130,12 +1134,11 @@ class TestWithdrawReProposalDeadlock:
             "refiner", {"summary": "v2", "artifacts": ["design.md"], "commit_sha": "abc123"}
         )
 
-        # Both reviewers must be un-confirmed — reviewer_refine had a stale NACK
-        assert "reviewer_refine" not in t._confirmed, (
-            "Reviewer with stale NACK should have been un-confirmed"
-        )
-        assert "reviewer_refine" in result["stale_reviewers"]
+        # reviewer_agent_design was confirmed on v1, now stale on v2
         assert "reviewer_agent_design" not in t._confirmed
+        assert "reviewer_agent_design" in result["stale_reviewers"]
+        # reviewer_refine was blocked by the guard (never confirmed), so not stale
+        assert "reviewer_refine" not in result["stale_reviewers"]
 
         # Both re-review, ACK, and confirm — no deadlock
         t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
@@ -2200,3 +2203,385 @@ class TestCommitShaRequirement:
             changed_artifacts=["a.py"],
         )
         assert tracker.get_proposal_commit_sha("coder") == "sha2"
+
+
+class TestUnresolvedNackGuard:
+    """Test fix for issue #1576: BRC deadlock when reviewer confirms with
+    unresolved NACKs before the NACKed producer re-proposes.
+
+    The guard in handle_confirmed() prevents a reviewer from entering
+    terminal CONFIRMED state when it has NACKed a producer that hasn't
+    re-proposed since. This blocks the deadlock at its source.
+    """
+
+    @pytest.fixture
+    def nack_guard_graph(self):
+        """Graph matching the #1576 scenario: tester is producer + reviewer."""
+        return ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_code", "tester", ReviewCriticality.ADVISORY),
+            ]
+        )
+
+    @pytest.fixture
+    def nack_guard_tracker(self, nack_guard_graph):
+        t = PeerConsensusTracker("issue-1576", nack_guard_graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("tester")
+        t.register_agent("reviewer_code")
+        t.register_agent("reviewer_contract")
+        return t
+
+    def test_reviewer_cannot_confirm_with_unresolved_nack(self, nack_guard_tracker):
+        """Core guard: reviewer who NACKed a producer cannot confirm until
+        that producer re-proposes and the reviewer re-reviews.
+
+        This is the exact sequence from issue #1576:
+        1. reviewer_code NACKs tester
+        2. reviewer_code tries to confirm -> should be rejected
+        """
+        t = nack_guard_tracker
+
+        # Both producers propose
+        t.handle_propose(
+            "coder",
+            {"summary": "Implementation", "artifacts": ["src/main.py"], "commit_sha": "abc123"},
+        )
+        t.handle_propose(
+            "tester",
+            {
+                "summary": "Tests v1",
+                "artifacts": ["tests/test_main.py"],
+                "commit_sha": "abc123",
+                "attestation": {"tests_run": 5, "checks_passed": ["test"]},
+            },
+        )
+
+        # reviewer_code ACKs coder
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/main.py"]})
+
+        # reviewer_code NACKs tester (the key step)
+        t.handle_nack(
+            "reviewer_code",
+            "tester",
+            {"artifact_references": ["tests/test_main.py"], "reason": "Tests miss blocking issues"},
+        )
+
+        # reviewer_code tries to confirm — should be REJECTED because it has
+        # an unresolved NACK against tester (who hasn't re-proposed)
+        result = t.handle_confirmed("reviewer_code")
+        assert result["status"] == "pending_acks"
+        assert "unresolved" in result["message"].lower() or "nack" in result["message"].lower()
+
+        # reviewer_code should NOT be in the confirmed set
+        assert "reviewer_code" not in t._confirmed
+
+    def test_confirm_succeeds_after_re_propose_and_re_ack(self, nack_guard_tracker):
+        """After the NACKed producer re-proposes and reviewer re-ACKs,
+        confirmation should succeed.
+
+        Full recovery path:
+        1. reviewer_code NACKs tester
+        2. reviewer_code tries to confirm -> rejected
+        3. tester re-proposes
+        4. reviewer_code ACKs tester v2
+        5. reviewer_code confirms -> succeeds
+        """
+        t = nack_guard_tracker
+
+        # Setup: both propose
+        t.handle_propose(
+            "coder",
+            {"summary": "Impl", "artifacts": ["src/main.py"], "commit_sha": "abc123"},
+        )
+        t.handle_propose(
+            "tester",
+            {
+                "summary": "Tests v1",
+                "artifacts": ["tests/test_main.py"],
+                "commit_sha": "abc123",
+                "attestation": {"tests_run": 5, "checks_passed": ["test"]},
+            },
+        )
+
+        # reviewer_code ACKs coder, NACKs tester
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/main.py"]})
+        t.handle_nack(
+            "reviewer_code",
+            "tester",
+            {"artifact_references": ["tests/test_main.py"], "reason": "Missing edge cases"},
+        )
+
+        # Confirm blocked
+        result = t.handle_confirmed("reviewer_code")
+        assert result["status"] == "pending_acks"
+
+        # tester re-proposes with fixes
+        t.handle_re_propose(
+            "tester",
+            {
+                "summary": "Tests v2 - added edge cases",
+                "artifacts": ["tests/test_main.py"],
+                "commit_sha": "def456",
+                "attestation": {"tests_run": 10, "checks_passed": ["test"]},
+            },
+            changed_artifacts=["tests/test_main.py"],
+        )
+
+        # reviewer_code ACKs tester v2
+        t.handle_ack("reviewer_code", "tester", {"artifact_references": ["tests/test_main.py"]})
+
+        # Now confirmation should succeed
+        result = t.handle_confirmed("reviewer_code")
+        assert result["status"] in ("confirmed", "partially_confirmed")
+
+    def test_full_1576_scenario_reaches_consensus(self, nack_guard_tracker):
+        """End-to-end #1576 scenario: 5 agents, reviewer NACKs tester,
+        tester re-proposes, all reach consensus without deadlock.
+
+        Reproduces the exact timeline from the issue but with the fix applied.
+        """
+        t = nack_guard_tracker
+
+        # All producers propose
+        t.handle_propose(
+            "coder",
+            {"summary": "Implementation", "artifacts": ["src/main.py"], "commit_sha": "abc123"},
+        )
+        t.handle_propose(
+            "tester",
+            {
+                "summary": "Tests v1",
+                "artifacts": ["tests/test_main.py"],
+                "commit_sha": "abc123",
+                "attestation": {"tests_run": 5, "checks_passed": ["test"]},
+            },
+        )
+
+        # reviewer_contract ACKs coder
+        t.handle_ack("reviewer_contract", "coder", {"artifact_references": ["src/main.py"]})
+
+        # reviewer_code ACKs coder
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/main.py"]})
+
+        # reviewer_code NACKs tester (the trigger for #1576)
+        t.handle_nack(
+            "reviewer_code",
+            "tester",
+            {"artifact_references": ["tests/test_main.py"], "reason": "Tests have gaps"},
+        )
+
+        # reviewer_code tries to confirm — BLOCKED by unresolved NACK guard
+        result = t.handle_confirmed("reviewer_code")
+        assert result["status"] == "pending_acks"
+
+        # tester re-proposes with updated tests
+        t.handle_re_propose(
+            "tester",
+            {
+                "summary": "Tests v2 - addressed reviewer feedback",
+                "artifacts": ["tests/test_main.py"],
+                "commit_sha": "def456",
+                "attestation": {"tests_run": 10, "checks_passed": ["test"]},
+            },
+            changed_artifacts=["tests/test_main.py"],
+        )
+
+        # reviewer_code ACKs tester v2
+        t.handle_ack("reviewer_code", "tester", {"artifact_references": ["tests/test_main.py"]})
+
+        # Now everyone can confirm — no deadlock
+        t.handle_confirmed("coder")
+
+        # tester is dual-role — confirm as both producer and reviewer
+        # tester hasn't reviewed anyone (no producer assigned), but the
+        # simple_graph fixture only has tester as producer, not reviewer.
+        # In this nack_guard_graph, tester is only a producer.
+        t.handle_confirmed("tester")
+
+        t.handle_confirmed("reviewer_code")
+        result = t.handle_confirmed("reviewer_contract")
+
+        assert result["consensus_reached"] is True
+
+    def test_nack_guard_does_not_block_when_all_nacks_resolved(self):
+        """Guard should not trigger when all NACKs have been resolved
+        (producer re-proposed and reviewer re-ACKed)."""
+        graph = ReviewGraph([ReviewEdge("reviewer_code", "tester", ReviewCriticality.ADVISORY)])
+        t = PeerConsensusTracker("test-resolved", graph, cooldown_seconds=0)
+        t.register_agent("tester")
+        t.register_agent("reviewer_code")
+
+        t.handle_propose(
+            "tester",
+            {
+                "summary": "Tests v1",
+                "artifacts": ["tests/test_main.py"],
+                "commit_sha": "abc123",
+                "attestation": {"tests_run": 5, "checks_passed": ["test"]},
+            },
+        )
+
+        # reviewer_code NACKs tester
+        t.handle_nack(
+            "reviewer_code",
+            "tester",
+            {"artifact_references": ["tests/test_main.py"], "reason": "bugs"},
+        )
+
+        # tester re-proposes, reviewer_code ACKs — NACK is now resolved
+        t.handle_re_propose(
+            "tester",
+            {
+                "summary": "Tests v2",
+                "artifacts": ["tests/test_main.py"],
+                "commit_sha": "def456",
+                "attestation": {"tests_run": 8, "checks_passed": ["test"]},
+            },
+            changed_artifacts=["tests/test_main.py"],
+        )
+        t.handle_ack("reviewer_code", "tester", {"artifact_references": ["tests/test_main.py"]})
+
+        # Now confirmation should succeed (no unresolved NACKs)
+        result = t.handle_confirmed("reviewer_code")
+        assert result["status"] in ("confirmed", "partially_confirmed")
+
+    def test_nack_guard_with_multiple_producers(self):
+        """Reviewer NACKs one of two producers — guard should only block
+        for the NACKed producer, not the ACKed one."""
+        graph = ReviewGraph(
+            [
+                ReviewEdge("rev", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("rev", "tester", ReviewCriticality.CRITICAL),
+            ]
+        )
+        t = PeerConsensusTracker("test-multi", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("tester")
+        t.register_agent("rev")
+
+        # Both propose
+        t.handle_propose(
+            "coder", {"summary": "code", "artifacts": ["a.py"], "commit_sha": "abc123"}
+        )
+        t.handle_propose(
+            "tester",
+            {
+                "summary": "tests",
+                "artifacts": ["t.py"],
+                "commit_sha": "abc123",
+                "attestation": {"tests_run": 5, "checks_passed": ["test"]},
+            },
+        )
+
+        # rev ACKs coder, NACKs tester
+        t.handle_ack("rev", "coder", {"artifact_references": ["a.py"]})
+        t.handle_nack("rev", "tester", {"artifact_references": ["t.py"], "reason": "incomplete"})
+
+        # Confirm should be blocked — unresolved NACK against tester
+        result = t.handle_confirmed("rev")
+        assert result["status"] == "pending_acks"
+        assert "rev" not in t._confirmed
+
+    def test_nack_guard_with_version_zero_nack(self):
+        """NACK at version 0 (before proposal) should not trigger the guard
+        because current_version == 0 means no proposal has been made yet.
+
+        The guard condition requires current_version > 0 to avoid false
+        positives when reviewers NACK before any proposal exists.
+        """
+        graph = ReviewGraph([ReviewEdge("rev", "coder", ReviewCriticality.CRITICAL)])
+        t = PeerConsensusTracker("test-v0", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("rev")
+
+        # rev NACKs coder before coder proposes (version 0)
+        t.handle_nack("rev", "coder", {"artifact_references": ["a.py"], "reason": "preemptive"})
+
+        # has_reviewed returns True for NACK, so the has_reviewed guard passes.
+        # The NACK guard requires current_version > 0, which is 0 here, so it
+        # doesn't fire. Confirm succeeds.
+        result = t.handle_confirmed("rev")
+        assert result["status"] in ("confirmed", "partially_confirmed")
+
+    def test_nack_guard_response_includes_nacked_producers(self):
+        """The rejection response should identify which producers have
+        unresolved NACKs so the reviewer knows what to wait for."""
+        graph = ReviewGraph([ReviewEdge("reviewer_code", "tester", ReviewCriticality.ADVISORY)])
+        t = PeerConsensusTracker("test-response", graph, cooldown_seconds=0)
+        t.register_agent("tester")
+        t.register_agent("reviewer_code")
+
+        t.handle_propose(
+            "tester",
+            {
+                "summary": "Tests v1",
+                "artifacts": ["tests/test_main.py"],
+                "commit_sha": "abc123",
+                "attestation": {"tests_run": 5, "checks_passed": ["test"]},
+            },
+        )
+
+        t.handle_nack(
+            "reviewer_code",
+            "tester",
+            {"artifact_references": ["tests/test_main.py"], "reason": "gaps"},
+        )
+
+        result = t.handle_confirmed("reviewer_code")
+        assert result["status"] == "pending_acks"
+        # The response should mention the producer with the unresolved NACK
+        assert "tester" in result["message"]
+        # Should include structured data about the unresolved NACKs
+        assert "unresolved_nacks" in result
+        nacked_producers = [n["producer"] for n in result["unresolved_nacks"]]
+        assert "tester" in nacked_producers
+
+    def test_dual_role_producer_side_unaffected_by_nack_guard(self):
+        """Dual-role agent (tester) confirming as producer should not be
+        affected by the reviewer NACK guard — the guard only applies to
+        the reviewer branch in handle_confirmed().
+        """
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("tester", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_code", "tester", ReviewCriticality.ADVISORY),
+            ]
+        )
+        t = PeerConsensusTracker("test-dual", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("tester")
+        t.register_agent("reviewer_code")
+
+        # coder and tester propose
+        t.handle_propose(
+            "coder", {"summary": "code", "artifacts": ["a.py"], "commit_sha": "abc123"}
+        )
+        t.handle_propose(
+            "tester",
+            {
+                "summary": "tests",
+                "artifacts": ["t.py"],
+                "commit_sha": "abc123",
+                "attestation": {"tests_run": 5, "checks_passed": ["test"]},
+            },
+        )
+
+        # tester (dual-role reviewer) NACKs coder
+        t.handle_nack("tester", "coder", {"artifact_references": ["a.py"], "reason": "bugs"})
+
+        # reviewer_code ACKs tester (so tester is fully ACKed as producer)
+        t.handle_ack("reviewer_code", "tester", {"artifact_references": ["t.py"]})
+
+        # tester confirms — as producer it's fully ACKed, but as reviewer
+        # it has an unresolved NACK against coder. The confirm should be
+        # partially_confirmed (producer side confirmed, reviewer side blocked).
+        result = t.handle_confirmed("tester")
+        # Tester's producer side is fully ACKed -> producer confirms
+        # But reviewer side has unresolved NACK -> reviewer doesn't confirm
+        assert result["status"] == "pending_acks"
+        # tester should NOT be fully confirmed
+        assert "tester" not in t._confirmed

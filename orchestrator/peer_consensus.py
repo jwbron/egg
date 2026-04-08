@@ -438,6 +438,39 @@ class PeerConsensusTracker:
                         "stale_acks": stale_acks,
                     }
 
+                # Unresolved-NACK guard: reject confirmation when the reviewer
+                # has NACKed a producer that hasn't re-proposed since.  Without
+                # this, the reviewer enters terminal CONFIRMED state while still
+                # holding an open review obligation, causing a deadlock where
+                # the producer re-proposes but the reviewer never re-reviews.
+                unresolved_nacks: list[dict[str, Any]] = []
+                for producer in producers:
+                    entry = self.matrix.get_entry(agent_role, producer)
+                    current_version = self.matrix.get_proposal_version(producer)
+                    if (
+                        entry is not None
+                        and entry.state == ApprovalState.NACKED
+                        and current_version > 0
+                    ):
+                        unresolved_nacks.append(
+                            {
+                                "producer": producer,
+                                "nack_version": entry.version,
+                                "current_version": current_version,
+                            }
+                        )
+                if unresolved_nacks:
+                    nacked_producers = [n["producer"] for n in unresolved_nacks]
+                    return {
+                        "status": "pending_acks",
+                        "message": (
+                            f"Reviewer {agent_role} cannot confirm: unresolved NACKs. "
+                            f"Wait for these producers to re-propose before confirming: "
+                            f"{nacked_producers}"
+                        ),
+                        "unresolved_nacks": unresolved_nacks,
+                    }
+
                 self._reviewer_phases[agent_role] = ConsensusPhase.CONFIRMED
 
             # For dual-role agents (tester), both must be CONFIRMED

@@ -211,14 +211,14 @@ Each agent tracks two state machines (producer and reviewer) independently:
 
 1. **Propose**: Producer completes work, commits and pushes to the remote branch, then sends `CONSENSUS_PROPOSE` with a summary, artifact list, and the pushed commit SHA (`--commit-sha`). The orchestrator rejects proposals whose commit SHA is confirmed absent from the branch (verification failures due to network errors are non-blocking).
 2. **Review**: Assigned reviewers discover proposals via polling. Before a reviewer has submitted their own evaluation, the Delphi filter delivers a **redacted** version of the `CONSENSUS_PROPOSE` message (`body` cleared, `metadata.payload` stripped except `version` and `commit_sha`, `metadata.delphi_redacted=True`). This notifies the reviewer that a proposal exists without exposing the producer's self-assessment. Reviewers must **sync their worktree** before reviewing (`git fetch origin && git merge origin/{branch} --no-edit`) to pull in the producer's pushed commits. After reviewing the git artifacts and submitting `CONSENSUS_ACK` or `CONSENSUS_NACK`, subsequent polls return the full unredacted message.
-3. **Converge**: When all critical reviewers ACK, the producer sends `CONSENSUS_CONFIRMED`. When all agents are confirmed, the phase advances.
+3. **Converge**: When all critical reviewers ACK, the producer sends `CONSENSUS_CONFIRMED`. When all agents are confirmed, the phase advances. Reviewers also call `CONSENSUS_CONFIRMED` after completing all reviews; the protocol enforces two guards in the reviewer confirmation path before allowing a reviewer to confirm (see [Deadlock Prevention Guards](#deadlock-prevention-guards) below).
 4. **Re-propose**: If a NACK is received, the producer addresses the feedback and re-proposes (with `changed_artifacts` to scope re-evaluation). Flip-flop cycles are capped at `max_flip_flops` (default: 3). If any reviewer had already confirmed on a prior proposal version, they automatically receive a `CONSENSUS_RE_REVIEW` message and are un-confirmed so they re-enter the review loop — preventing a deadlock where a stale-confirmed reviewer can never see the new proposal.
 
    > **Note — `CONSENSUS_RE_REVIEW` handling:** Agents that receive a `CONSENSUS_RE_REVIEW` while staying alive **must** act on it immediately: reviewers of the re-proposing producer must re-review and ACK/NACK; all other agents must re-confirm via `egg-orch consensus confirmed`. Ignoring this message stalls the pipeline.
 
 > **Note — `pending_acks` (exit code 2):** After a re-proposal, previously-confirmed reviewers are un-confirmed and must re-ACK. If the producer calls `confirmed` before those re-ACKs arrive, the command returns exit code **2** (`pending_acks`) — this is transient, not an error. The producer should poll for messages and retry `confirmed` until it exits 0.
 >
-> **Note — Reviewer `pending_acks`:** Reviewers can also receive exit code 2 from `confirmed` when they have stale ACKs (e.g., an ACK recorded before the producer proposed). The reviewer must re-ACK the listed producers at their current proposal version before confirming.
+> **Note — Reviewer `pending_acks`:** Reviewers can also receive exit code 2 from `confirmed` when they have stale ACKs (e.g., an ACK recorded before the producer proposed) **or unresolved NACKs** (a NACK issued against a producer that has not yet re-proposed). In the stale-ACK case, the reviewer must re-ACK the listed producers at their current proposal version before confirming. In the unresolved-NACK case, the reviewer must wait for the NACKed producer to re-propose, then re-review and ACK/NACK the new version before confirming.
 
 ### Pre-Proposal ACK Protection
 
@@ -229,6 +229,17 @@ When agents work at different speeds, a faster reviewer may ACK a producer befor
 2. **On confirm**: A version-match guard prevents reviewers from confirming with stale ACKs. If a reviewer's ACK version does not match the producer's current proposal version, `CONSENSUS_CONFIRMED` returns `pending_acks` (exit code 2) with a message listing which producers need re-ACKing.
 
 These protections prevent a deadlock that previously occurred when a reviewer's stale version-0 ACK could never satisfy `is_fully_acked()`, permanently blocking the producer from confirming.
+
+### Deadlock Prevention Guards
+
+The `handle_confirmed()` method enforces two guards on the reviewer confirmation path that prevent different classes of BRC deadlock. Both guards return `pending_acks` (exit code 2) when triggered — the reviewer must resolve the condition before confirming.
+
+| Guard | Trigger | Resolution |
+|-------|---------|------------|
+| **Stale-ACK version-match** | Reviewer's ACK version does not match the producer's current proposal version (e.g., ACK recorded before the producer proposed) | Re-ACK the listed producers at their current proposal version |
+| **Unresolved-NACK** | Reviewer has NACKed a producer that has not yet re-proposed since the NACK | Wait for the NACKed producer to re-propose, then re-review and ACK/NACK the new version |
+
+**Why the unresolved-NACK guard is needed:** Without this guard, a reviewer can enter terminal CONFIRMED state while still holding an open NACK against a producer. When that producer later re-proposes, the reviewer — already confirmed and only sending heartbeats — never re-reviews the new proposal. The producer is permanently blocked waiting for a re-ACK that never comes. The `_un_confirm_stale_reviewers()` mechanism handles the inverse ordering (reviewer confirms *after* re-proposal with a stale ACK), but cannot catch the case where the reviewer confirms *before* the re-proposal. The unresolved-NACK guard blocks this at the source by preventing the reviewer from confirming in the first place. See [#1576](https://github.com/jwbron/egg/issues/1576) for the original deadlock scenario.
 
 ### Delphi Redaction
 
