@@ -522,7 +522,7 @@ Agents should emit progress at key milestones (starting/completing steps, encoun
 
 ### BRC-Idle Suppression
 
-The health monitor is aware of BRC protocol state and **suppresses stall alerts for agents correctly idle in BRC protocol**. During concurrent execution, non-producer agents (reviewers, tester, documenter) legitimately sit idle while waiting for the producer (typically the coder) to send a `CONSENSUS_PROPOSE` message. The health monitor queries the peer consensus tracker and skips heartbeat/progress stall alerts for agents whose upstream producers are all still in the `WORKING` phase. Once a producer transitions to `PROPOSED`, downstream agents resume normal monitoring. This prevents the false-positive alerts observed when the implement phase takes longer than the standard stall threshold.
+The health monitor is aware of BRC protocol state and **suppresses stall alerts for reviewer-only agents correctly idle in BRC protocol**. During concurrent execution, reviewer-only agents legitimately sit idle while waiting for upstream producers to send a `CONSENSUS_PROPOSE` message. The health monitor queries the peer consensus tracker's review graph and skips heartbeat/progress stall alerts for reviewer-only agents whose upstream producers are all still in the `WORKING` phase. Dual-role agents (those that are both producers and reviewers) are not suppressed, since they have their own work to complete. Once any upstream producer transitions to `PROPOSED`, downstream reviewers resume normal monitoring. This prevents the false-positive alerts observed when the implement phase takes longer than the standard stall threshold.
 
 ## Agent Anchors (Post-Compaction Recovery)
 
