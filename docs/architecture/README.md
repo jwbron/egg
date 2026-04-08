@@ -153,7 +153,6 @@ Each SDLC phase can have configurable automated checks that run before completio
 - `merge-conflict`: Detects merge conflicts with base branch
 - `draft-validation`: Validates refine phase draft documents
 - `plan-yaml`: Validates plan phase YAML appendix
-- `deployment`: Validates changes against locally running devserver (DinD)
 - `fixer`: Auto-fixes certain check failures when possible
 
 **Phase defaults:**

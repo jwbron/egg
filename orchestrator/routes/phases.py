@@ -78,7 +78,6 @@ def make_success_response(
 
 
 from routes import get_state_store_for_pipeline  # noqa: E402 — shared helper
-from routes.checks import teardown_devserver  # noqa: E402
 
 
 def _clear_concurrent_state(pipeline_id: str) -> None:
@@ -331,9 +330,6 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         # Save updated pipeline with optimistic locking
         store.save_pipeline(pipeline, expected_version=original_version)
 
-        # Tear down any active devserver for the previous phase
-        teardown_devserver(pipeline_id)
-
         # Clear ephemeral inter-agent messaging and consensus state
         _clear_concurrent_state(pipeline_id)
 
@@ -477,9 +473,6 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
 
         store.save_pipeline(pipeline, expected_version=original_version)
 
-        # Tear down any active devserver for this pipeline
-        teardown_devserver(pipeline_id)
-
         # Clear ephemeral inter-agent messaging and consensus state
         _clear_concurrent_state(pipeline_id)
 
@@ -552,9 +545,6 @@ def fail_phase(pipeline_id: str) -> tuple[Response, int]:
         pipeline.error = error_message
 
         store.save_pipeline(pipeline, expected_version=original_version)
-
-        # Tear down any active devserver for this pipeline
-        teardown_devserver(pipeline_id)
 
         # Clear ephemeral inter-agent messaging and consensus state
         _clear_concurrent_state(pipeline_id)

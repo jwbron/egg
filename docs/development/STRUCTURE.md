@@ -92,7 +92,6 @@ orchestrator/
 ├── consensus_wrapper.py    # Shell wrapper that keeps containers alive polling for consensus after Claude exits
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status
 ├── decision_queue.py       # HITL decision queue
-├── devserver.py            # Devserver lifecycle manager for deployment validation (DinD)
 ├── docker_client.py        # Docker API client
 ├── events.py               # Event bus for pipeline events
 ├── gateway_client.py       # Gateway API client (sessions, worktrees, config)
@@ -136,7 +135,6 @@ orchestrator/
 │       └── agent_inspector.py   # Claude-powered agent progress analysis
 ├── routes/                 # API route handlers
 │   ├── anchors.py          # Agent anchor CRUD and team anchor generation endpoints
-│   ├── checks.py           # Deployment validation check endpoints
 │   ├── containers.py       # Container management endpoints
 │   ├── decisions.py        # HITL decision endpoints
 │   ├── health.py           # Health check endpoints
@@ -249,7 +247,7 @@ shared/
 │   ├── constants.py        # Re-exports anchor constants from egg_config
 │   └── tests/              # Unit tests for models, loader, validator
 ├── egg_config/             # Configuration utilities
-│   ├── constants.py        # Centralized constants (ports, networks, container names, devserver resource limits, infrastructure branch names, anchor size limits)
+│   ├── constants.py        # Centralized constants (ports, networks, container names, infrastructure branch names, anchor size limits)
 │   ├── compose_config.py   # Bridges config.yaml settings to docker-compose environment variables
 │   └── validators.py       # Validation functions (URLs, emails, tokens, check commands)
 ├── egg_restrictions/        # Shared agent file restriction patterns and checking logic
@@ -261,7 +259,6 @@ shared/
 ├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration, checkpoints
 │   ├── models.py           # Pydantic models including CheckDefinition, CheckResult, PhaseConfig, AgentExecutionModel
 │   ├── phase_defaults.py   # Default check configurations per SDLC phase
-│   ├── deployment.py       # Deployment validation configuration models (.egg/deployment.yml)
 │   ├── agent_roles.py      # Multi-agent role definitions (all agent and reviewer roles)
 │   ├── orchestrator.py     # Multi-agent orchestration dispatch logic
 │   ├── orchestration.py    # Agent execution state management
@@ -318,9 +315,6 @@ integration_tests/
 │   ├── test_escalation.py         # HITL escalation flow tests
 │   ├── test_gateway.py            # Gateway interaction tests
 │   └── test_pipeline.py           # End-to-end babysit loop pipeline tests
-├── deployment_validation/         # Deployment validation integration tests
-│   ├── __init__.py
-│   └── test_deployment_check_e2e.py  # End-to-end devserver lifecycle tests
 ├── local_pipeline/                # Orchestrator pipeline integration tests
 │   ├── conftest.py                # Pipeline test fixtures
 │   ├── docker-compose.yml         # Orchestrator test environment
@@ -354,12 +348,10 @@ tests/
 │   └── ...
 ├── scripts/
 │   ├── test_checks.py             # Check script framework tests
-│   └── test_deployment_check.py   # Deployment check unit tests
 ├── shared/
 │   └── egg_contracts/
 │       ├── test_models.py         # Contract model tests including check models
 │       ├── test_phase_defaults.py # Phase default configuration tests
-│       ├── test_deployment_config.py # Deployment configuration tests
 │       ├── test_agent_recovery.py # Agent recovery and circuit breaker tests
 │       ├── test_redactor.py       # Redactor tests for sensitive data masking
 │       └── test_transcript_extractor.py # Transcript extraction tests
@@ -420,7 +412,6 @@ Key workflows for PR automation (see `.github/workflows/` for complete list):
 │   │   ├── __init__.py
 │   │   ├── base.py                        # CheckRunner base class
 │   │   ├── check_fixer.py                 # Auto-fix check (runs make fix)
-│   │   ├── deployment_check.py            # Deployment validation (DinD devserver)
 │   │   ├── draft_validation_check.py      # Draft document validation
 │   │   ├── lint_check.py                  # Lint check (runs make lint)
 │   │   ├── merge_conflict_check.py        # Merge conflict marker detection
