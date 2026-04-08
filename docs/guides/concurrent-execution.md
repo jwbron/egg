@@ -165,6 +165,8 @@ The message store uses Redis Streams when Redis is available, falling back to an
 
 The message store is cleared when the phase transitions. Each new phase execution starts with an empty message bus for the pipeline. This prevents stale messages from a prior phase from being delivered to agents in the next phase.
 
+**Note:** BRC consensus messages are persisted to `.egg-state/brc-history/{identifier}-{phase}.md` at phase completion. Messages are filtered by phase, so each history file contains only that phase's BRC activity. See [BRC History Persistence](#brc-history-persistence) below.
+
 ## Readiness Signaling Protocol
 
 Agents signal their readiness for phase completion using the `readiness` signal type via the pipeline signal endpoint:
@@ -266,6 +268,48 @@ egg-orch consensus confirmed
 # Check overall consensus status
 egg-orch consensus status
 ```
+
+### BRC History Persistence
+
+At each phase boundary, the orchestrator writes a chronological log of all BRC consensus messages to `.egg-state/brc-history/{identifier}-{phase}.md` (where `{identifier}` is the issue number or pipeline ID). This deterministically preserves agent communication context in git history for code review reference.
+
+**How it works:**
+
+1. After a phase completes (before `_commit_statefiles_to_worktree`), the orchestrator retrieves all messages from the message store for the pipeline
+2. Messages are filtered to `CONSENSUS_*` types (`CONSENSUS_PROPOSE`, `CONSENSUS_ACK`, `CONSENSUS_NACK`, `CONSENSUS_WITHDRAW`, `CONSENSUS_CONFIRMED`, `CONSENSUS_RE_REVIEW`) **and** by phase, so each file contains only that phase's BRC activity
+3. If matching BRC messages exist, they are formatted as chronological markdown entries and written to `.egg-state/brc-history/{identifier}-{phase}.md`
+4. If no BRC messages exist for that phase, no file is created (graceful no-op)
+
+**File format:**
+
+```markdown
+# BRC History: {phase} phase
+
+Generated at: {timestamp}
+
+---
+
+[2026-04-08T12:00:00Z] coder (CONSENSUS_PROPOSE): Implemented feature X
+  Summary of proposal and artifacts...
+
+[2026-04-08T12:05:00Z] reviewer_code (CONSENSUS_ACK): Reviewed coder proposal
+  ACK with file-level feedback...
+
+[2026-04-08T12:10:00Z] coder (CONSENSUS_CONFIRMED): All reviewers ACKed
+```
+
+**Design rationale:** BRC messages live in the in-memory/Redis `MessageStore` and are cleared at phase transitions. Without persistence, this valuable communication context is lost. Previously, some agents would commit review files to `.egg-state/agent-outputs/`, but this was non-deterministic — it depended on whether the LLM agent happened to `git add` those files. Writing BRC history from the orchestrator at phase boundaries makes persistence deterministic.
+
+### BRC Consensus Summary in PR Body
+
+When the orchestrator auto-creates the PR (during the PR phase), it includes a **## BRC Consensus Summary** section in the PR body if BRC messages exist. This gives human reviewers a quick overview of how agents communicated and reached consensus.
+
+The summary is grouped by phase and includes:
+- Agent roles involved in each phase
+- Counts of proposals, ACKs, NACKs, and confirmations
+- Whether consensus was reached for that phase
+
+The section is capped at ~2000 characters and is omitted entirely when no BRC messages exist. It appears before the `Authored-by: egg` footer.
 
 ### Consensus Check
 

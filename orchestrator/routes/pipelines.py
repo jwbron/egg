@@ -2927,6 +2927,176 @@ def _handle_pr_creation_failure(
         store.save_pipeline(pipeline)
 
 
+BRC_MESSAGE_TYPES = frozenset(
+    {
+        "CONSENSUS_PROPOSE",
+        "CONSENSUS_ACK",
+        "CONSENSUS_NACK",
+        "CONSENSUS_WITHDRAW",
+        "CONSENSUS_CONFIRMED",
+        "CONSENSUS_RE_REVIEW",
+    }
+)
+
+
+def _get_message_store():
+    """Import and return the message store factory function, or None if unavailable."""
+    try:
+        from message_store import get_message_store
+    except ImportError:
+        try:
+            from ..message_store import get_message_store  # type: ignore[import-not-found]
+        except ImportError:
+            return None
+    return get_message_store
+
+
+def _write_brc_history(
+    worktree_path: Path,
+    pipeline_id: str,
+    phase: str,
+    identifier: int | str,
+) -> None:
+    """Write BRC consensus message history for a phase to .egg-state.
+
+    Retrieves BRC-related messages for the given phase from the message store
+    and writes them as a chronological markdown log to
+    ``.egg-state/brc-history/{identifier}-{phase}.md``.
+    No-ops gracefully when the message store is unavailable or contains no
+    BRC messages for the pipeline and phase.
+
+    Args:
+        worktree_path: Path to the worktree repo directory
+        pipeline_id: The pipeline ID to retrieve messages for
+        phase: The pipeline phase name (e.g. "implement", "plan")
+        identifier: The pipeline identifier for file naming
+    """
+    store_fn = _get_message_store()
+    if store_fn is None:
+        logger.debug("Message store not available for BRC history")
+        return
+
+    try:
+        store = store_fn()
+        messages = store.get_messages(pipeline_id, limit=10000)
+    except Exception as e:
+        logger.debug(
+            "Failed to retrieve messages for BRC history",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+        return
+
+    brc_messages = [m for m in messages if m.message_type in BRC_MESSAGE_TYPES and m.phase == phase]
+    if not brc_messages:
+        return
+
+    # Format as markdown
+    lines: list[str] = []
+    now_str = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    lines.append(f"# BRC Consensus History — {phase} phase")
+    lines.append("")
+    lines.append(f"Generated: {now_str}")
+    lines.append(f"Pipeline: {pipeline_id}")
+    lines.append("")
+
+    for msg in brc_messages:
+        ts = msg.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if msg.timestamp else "unknown"
+        lines.append(f"### [{ts}] {msg.from_role} ({msg.message_type}): {msg.subject}")
+        if msg.body:
+            lines.append("")
+            lines.append(msg.body)
+        lines.append("")
+
+    history_dir = worktree_path / ".egg-state" / "brc-history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    history_file = history_dir / f"{identifier}-{phase}.md"
+    history_file.write_text("\n".join(lines))
+
+    logger.info(
+        "Wrote BRC history file",
+        pipeline_id=pipeline_id,
+        phase=phase,
+        path=str(history_file),
+        message_count=len(brc_messages),
+    )
+
+
+def _build_brc_consensus_summary(pipeline_id: str) -> str:
+    """Build a concise BRC consensus summary for the PR body.
+
+    Retrieves BRC messages from the message store, groups by phase, and
+    produces a summary showing agent roles, message counts, and whether
+    consensus was reached per phase.
+
+    Returns an empty string if no BRC messages exist or the message store
+    is unavailable.  Output is capped at ~2000 characters by truncating
+    at phase-block boundaries to avoid broken markdown.
+    """
+    store_fn = _get_message_store()
+    if store_fn is None:
+        return ""
+
+    try:
+        store = store_fn()
+        messages = store.get_messages(pipeline_id, limit=10000)
+    except Exception:
+        return ""
+
+    brc_messages = [m for m in messages if m.message_type in BRC_MESSAGE_TYPES]
+    if not brc_messages:
+        return ""
+
+    # Group by phase
+    by_phase: dict[str, list] = {}
+    for msg in brc_messages:
+        phase_key = msg.phase or "unknown"
+        by_phase.setdefault(phase_key, []).append(msg)
+
+    header = "## BRC Consensus Summary\n"
+    phase_blocks: list[str] = []
+
+    for phase_name, phase_msgs in by_phase.items():
+        roles = sorted({m.from_role for m in phase_msgs})
+        proposals = sum(1 for m in phase_msgs if m.message_type == "CONSENSUS_PROPOSE")
+        acks = sum(1 for m in phase_msgs if m.message_type == "CONSENSUS_ACK")
+        nacks = sum(1 for m in phase_msgs if m.message_type == "CONSENSUS_NACK")
+        confirmations = sum(1 for m in phase_msgs if m.message_type == "CONSENSUS_CONFIRMED")
+        confirmed_roles = {
+            m.from_role for m in phase_msgs if m.message_type == "CONSENSUS_CONFIRMED"
+        }
+        # Consensus = every role that sent a BRC message also sent CONFIRMED
+        all_confirmed = confirmed_roles == set(roles) and len(confirmed_roles) > 0
+
+        block_lines: list[str] = []
+        block_lines.append(f"**{phase_name}**: {', '.join(roles)}")
+        counts = []
+        if proposals:
+            counts.append(f"{proposals} proposal(s)")
+        if acks:
+            counts.append(f"{acks} ACK(s)")
+        if nacks:
+            counts.append(f"{nacks} NACK(s)")
+        if confirmations:
+            counts.append(f"{confirmations} confirmation(s)")
+        if counts:
+            block_lines.append(f"  {' · '.join(counts)}")
+        consensus_str = "✅ Consensus reached" if all_confirmed else "⏳ Consensus not reached"
+        block_lines.append(f"  {consensus_str}")
+        block_lines.append("")
+        phase_blocks.append("\n".join(block_lines))
+
+    # Assemble with truncation at phase-block boundaries to keep markdown intact
+    summary = header
+    for block in phase_blocks:
+        candidate = summary + "\n" + block
+        if len(candidate) > 2000:
+            break
+        summary = candidate
+
+    return summary
+
+
 def _build_pr_body(
     pipeline: Pipeline,
     worktree_repo_path: Path,
@@ -3002,6 +3172,11 @@ def _build_pr_body(
         if pipeline.issue_number:
             context_parts.append(f"Issue: #{pipeline.issue_number}")
         body_parts.append("\n".join(context_parts))
+
+    # BRC consensus summary (omitted when no BRC messages exist)
+    brc_summary = _build_brc_consensus_summary(pipeline.id)
+    if brc_summary:
+        body_parts.append(brc_summary)
 
     body_parts.append("Authored-by: egg")
 
@@ -6650,6 +6825,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline_id=pipeline_id,
                     )
 
+                # BRC history files are written per-phase at phase completion,
+                # so they are already on the branch before PR creation.
+
                 # Push latest commits before creating PR
                 if pipeline.branch and worktree_repo_path != repo_path:
                     try:
@@ -6940,6 +7118,23 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             if current_phase.value in _HITL_GATE_PHASES:
                 _sync_pipeline_decisions_to_contract(
                     worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
+                )
+
+            # Write BRC consensus history for this phase before committing
+            # statefiles so the history file is included in the commit.
+            try:
+                _write_brc_history(
+                    worktree_repo_path,
+                    pipeline_id,
+                    current_phase.value,
+                    _pipeline_identifier(pipeline.issue_number, pipeline_id),
+                )
+            except Exception as brc_err:
+                logger.debug(
+                    "Failed to write BRC history (continuing)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase,
+                    error=str(brc_err),
                 )
 
             # Commit any .egg-state/ files produced during this phase
