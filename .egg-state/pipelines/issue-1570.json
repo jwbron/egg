@@ -237,10 +237,10 @@
       "options": [],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-08T20:56:45.362713Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-08T21:15:49.038939Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hardcoded per-model rates for MVP. Anthropic SDK returns token counts; multiply by known rates. No external pricing API dependency.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -333,7 +333,7 @@
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T21:15:48.486028Z",
+  "updated_at": "2026-04-08T21:15:49.041625Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -341,5 +341,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 29
+  "version": 30
 }
