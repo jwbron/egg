@@ -35,7 +35,7 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | `autofixer` | Utility | Any | Yes | — |
 | `conflict_resolver` | Utility | Any | Yes | — |
 | `inspector` | Interface | Any | — | — (health checks) |
-| `overseer` | Interface | All phases | — | — (pipeline health monitoring) |
+| `overseer` | Interface | Per-phase (spawned/torn down at phase boundaries) | — | — (pipeline health monitoring) |
 
 All agents within a phase run concurrently via BRC consensus. Concurrency is enabled by default for the refine, plan, and implement phases, and can be extended to additional phases via the `concurrent_phases` config.
 

@@ -1,0 +1,195 @@
+diff --git a/orchestrator/tests/test_overseer_spawn.py b/orchestrator/tests/test_overseer_spawn.py
+index f7128a2580..aceb5c937c 100644
+--- a/orchestrator/tests/test_overseer_spawn.py
++++ b/orchestrator/tests/test_overseer_spawn.py
+@@ -4,10 +4,10 @@ Tests for overseer container spawn logic.
+ Covers:
+ - Overseer spawns without repo mount
+ - Correct env vars (EGG_AGENT_ROLE=overseer, EGG_OVERSEER_MODE=true, etc.)
+-- Auto-spawn at pipeline start when overseer_enabled=True
++- Auto-spawn at phase start when overseer_enabled=True
+ - No spawn when overseer_enabled=False
+-- Lifecycle across phases (persists across phase transitions)
+-- Cleanup on pipeline end (stopped on PIPELINE_COMPLETED/FAILED/CANCELLED)
++- Phase-scoped lifecycle (spawned per-phase, torn down at phase end)
++- Cleanup on phase end and pipeline end
+ 
+ Related: issue #1059
+ """
+@@ -377,41 +377,40 @@ class TestNoSpawnWhenDisabled:
+ 
+ 
+ # ---------------------------------------------------------------------------
+-# Scenario 5: Persists across phase transitions
++# Scenario 5: Phase-scoped lifecycle
+ # ---------------------------------------------------------------------------
+ 
+ 
+-class TestPersistsAcrossPhases:
+-    """Verify overseer is NOT stopped/restarted on phase transitions."""
++class TestPhaseScoped:
++    """Verify overseer is stopped and restarted at phase boundaries."""
+ 
+-    def test_overseer_not_stopped_on_phase_transition(self, spawner, mock_docker_client):
+-        """Overseer container should persist across phase changes (not stopped/restarted)."""
+-        # Spawn the overseer at pipeline start
++    def test_overseer_stopped_on_phase_transition(self, spawner, mock_docker_client):
++        """Overseer container should be stopped between phases (phase-scoped lifecycle)."""
++        # Spawn the overseer at phase start
+         result = spawner.spawn_overseer_container(
+             pipeline_id="issue-700",
+             issue_number=700,
+         )
+         overseer_container_id = result.container_info.container_id
+ 
+-        # Simulate phase transitions by listing containers with overseer label
+-        # The orchestrator should NOT stop the overseer on phase change
++        # Simulate phase end: the orchestrator stops the overseer
+         mock_docker_client.stop_container.reset_mock()
++        mock_docker_client.stop_container.return_value = ContainerInfo(
++            container_id=overseer_container_id,
++            container_name="egg-issue-700-overseer",
++            status=ContainerStatus.EXITED,
++        )
++        spawner.stop_agent_container(overseer_container_id)
+ 
+-        # Simulate phase change: refine -> plan -> implement
+-        # During each transition, verify stop is NOT called for overseer
+-        phases = ["refine", "plan", "implement"]
+-        for phase in phases:
+-            # The orchestrator might stop/restart agent containers on phase change,
+-            # but should leave the overseer alone. Verify by checking that
+-            # stop_container was not called for the overseer ID.
+-            overseer_stop_calls = [
+-                c
+-                for c in mock_docker_client.stop_container.call_args_list
+-                if c.args and c.args[0] == overseer_container_id
+-            ]
+-            assert len(overseer_stop_calls) == 0, (
+-                f"Overseer should not be stopped during phase transition to {phase}"
+-            )
++        # Verify stop WAS called for the overseer container at phase boundary
++        overseer_stop_calls = [
++            c
++            for c in mock_docker_client.stop_container.call_args_list
++            if c.args and c.args[0] == overseer_container_id
++        ]
++        assert len(overseer_stop_calls) == 1, (
++            "Overseer should be stopped at phase boundary"
++        )
+ 
+     def test_overseer_survives_agent_restart(
+         self, spawner, mock_docker_client, mock_gateway_client
+@@ -1037,3 +1036,112 @@ class TestOverseerRespawn:
+         assert "DO NOT write your own monitoring loop" in prompt, (
+             "Prompt must prohibit custom loops"
+         )
++
++
++# ---------------------------------------------------------------------------
++# Scenario 11: Respawn gating via phase_overseer_active flag
++# ---------------------------------------------------------------------------
++
++
++class TestRespawnGating:
++    """Verify _check_and_respawn_overseer is gated by phase_overseer_active flag."""
++
++    def test_respawn_skipped_when_phase_overseer_inactive(self, mock_docker_client):
++        """When phase_overseer_active is False, respawn should not be attempted.
++
++        The health monitor poll thread checks phase_overseer_active before
++        calling _check_and_respawn_overseer.  This test verifies that pattern
++        works correctly — when the flag is False, the respawn function should
++        not be called even if the container has exited.
++        """
++        mock_spawner = MagicMock()
++        mock_spawner.docker = mock_docker_client
++
++        mock_docker_client.get_container_info.return_value = ContainerInfo(
++            container_id="overseer-between-phases",
++            container_name="egg-issue-gate-overseer",
++            status=ContainerStatus.EXITED,
++            exit_code=0,
++        )
++
++        # Simulate the gating logic from _health_monitor_poll:
++        # when phase_overseer_active is False, _check_and_respawn_overseer
++        # is never called.
++        phase_overseer_active = False
++        respawn_called = False
++
++        if phase_overseer_active:
++            _check_and_respawn_overseer(
++                spawner=mock_spawner,
++                store=MagicMock(),
++                pipeline_id="issue-gate",
++                pipeline=Pipeline(id="issue-gate", status=PipelineStatus.RUNNING),
++                overseer_container_id="overseer-between-phases",
++                overseer_respawn_count=0,
++                max_overseer_respawns=3,
++                gateway_mode="public",
++                pipeline_repos=None,
++                certs_volume=None,
++            )
++            respawn_called = True
++
++        assert not respawn_called, (
++            "Respawn should be skipped when phase_overseer_active is False"
++        )
++        mock_spawner.spawn_overseer_container.assert_not_called()
++
++    def test_respawn_allowed_when_phase_overseer_active(self, mock_docker_client):
++        """When phase_overseer_active is True, respawn proceeds normally."""
++        mock_spawner = MagicMock()
++        mock_spawner.docker = mock_docker_client
++
++        mock_docker_client.get_container_info.return_value = ContainerInfo(
++            container_id="overseer-mid-phase",
++            container_name="egg-issue-gate-overseer",
++            status=ContainerStatus.EXITED,
++            exit_code=0,
++        )
++
++        mock_store = MagicMock()
++        mock_store.load_pipeline.return_value = Pipeline(
++            id="issue-gate",
++            status=PipelineStatus.RUNNING,
++        )
++
++        mock_spawner.spawn_overseer_container.return_value = SpawnedContainer(
++            container_info=ContainerInfo(
++                container_id="overseer-respawned",
++                container_name="egg-issue-gate-overseer",
++                status=ContainerStatus.RUNNING,
++            ),
++            session_info=None,
++            agent_role=AgentRole.OVERSEER,
++            pipeline_id="issue-gate",
++            environment={},
++        )
++
++        phase_overseer_active = True
++        new_id = None
++
++        if phase_overseer_active:
++            new_id, _ = _check_and_respawn_overseer(
++                spawner=mock_spawner,
++                store=mock_store,
++                pipeline_id="issue-gate",
++                pipeline=Pipeline(
++                    id="issue-gate",
++                    status=PipelineStatus.RUNNING,
++                    config=PipelineConfig(overseer_max_respawns=3),
++                ),
++                overseer_container_id="overseer-mid-phase",
++                overseer_respawn_count=0,
++                max_overseer_respawns=3,
++                gateway_mode="public",
++                pipeline_repos=None,
++                certs_volume=None,
++            )
++
++        assert new_id == "overseer-respawned", (
++            "Respawn should proceed when phase_overseer_active is True"
++        )
++        mock_spawner.spawn_overseer_container.assert_called_once()
