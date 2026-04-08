@@ -156,6 +156,60 @@ Clean-exit restarts (exit code 0) do not incur any backoff delay.
 
 This addresses the scenario described in [issue #1512](https://github.com/jwbron/egg/issues/1512), where a Bun segfault permanently killed an agent and caused the entire pipeline to fail even though 4 of 5 agents were healthy.
 
+## Agent-Level Restart
+
+Source: `orchestrator/container_spawner.py`, `orchestrator/routes/pipelines.py`
+
+When an agent becomes unresponsive (e.g., hung after a tool error, context window exhaustion, dropped API connection), an **agent-level restart** stops the stuck container and respawns a replacement — without affecting other agents in the same phase.
+
+### How It Works
+
+1. The orchestrator stops the existing container via `stop_agent_container()` and removes it via `remove_agent_container()`
+2. The agent's consensus state is reset — `PeerConsensusTracker.remove_agent()` and `ConsensusEvaluator.remove_agent()` withdraw any proposals, ACKs, or confirmations
+3. A new container is spawned via `spawn_agent_container()` with the **same role, phase, and environment** — reusing the existing worktree rather than creating a new one
+4. Recovery context is injected into the respawned agent (e.g., "You are being restarted after a stall. Resume from where your predecessor left off.")
+5. The pipeline's `PhaseExecution` state is updated with the new container/agent entries
+6. Restart count is tracked per agent per phase — configurable maximum (default: 2) prevents infinite restart loops
+
+### Triggering a Restart
+
+| Method | How |
+|--------|-----|
+| **CLI** | `egg-orch agent restart <role> [--reason "..."]` |
+| **API** | `POST /api/v1/pipelines/{id}/agents/{role}/restart` with optional `{"reason": "..."}` body |
+| **MCP tool** | `restart_agent(task_id, agent_role, reason)` via the orchestrator MCP server |
+| **Overseer** | Automatic — after consecutive heartbeat failures or unresponsive nudges (see below) |
+
+### Worktree Preservation
+
+Agent restart preserves the agent's git worktree, including any committed work on the branch. The respawned agent starts with the full commit history intact. This is critical for agents (like coders) that may have pushed partial work before becoming stuck.
+
+## Phase-Level Restart
+
+Source: `orchestrator/routes/pipelines.py`
+
+When agent-level restarts are insufficient (e.g., multiple agents stuck, consensus state corrupted, or the phase needs a fresh start), a **phase-level restart** kills all containers for the phase and respawns all agents from scratch.
+
+### How It Works
+
+1. All running containers for the specified phase are stopped and removed
+2. `PeerConsensusTracker.clear()` resets all consensus state (proposals, ACKs, NACKs, confirmations)
+3. The phase's review cycle counter in `PhaseExecution` is reset
+4. All prior phase artifacts and HITL decisions are preserved (e.g., refine output carries into a restarted plan phase)
+5. All commits on the branch are preserved
+6. All agents for the phase are respawned from scratch
+
+### Triggering a Phase Restart
+
+| Method | How |
+|--------|-----|
+| **CLI** | `egg-orch phase restart <phase> [--reason "..."] [--context "..."]` |
+| **API** | `POST /api/v1/pipelines/{id}/phases/{phase}/restart` with optional `{"reason": "...", "context": "..."}` body |
+| **MCP tool** | `restart_phase(task_id, phase, reason, context)` via the orchestrator MCP server |
+| **Overseer** | Via HITL decision — phase restarts require human approval by default |
+
+The optional `context` parameter injects additional guidance into the respawned agents (e.g., "Previous attempt stalled during BRC convergence — focus on completing reviews first").
+
 ## When Recovery Is Triggered vs. HITL Escalation
 
 | Scenario | Behavior |
@@ -166,6 +220,11 @@ This addresses the scenario described in [issue #1512](https://github.com/jwbron
 | Transient crash in consensus wrapper (segfault, OOM) | Restart with exponential backoff (shares `MAX_CONSENSUS_RESTARTS` cap) |
 | Non-transient crash in consensus wrapper (exit 1) | Immediate failure, no restart |
 | Wrapper: tracker stale after withdrawal cascade | Message bus fallback detects `CONSENSUS_CONFIRMED`; agent exits cleanly |
+| Overseer detects agent stall (N heartbeat failures) | `RESTART_AGENT` action — auto-restart via API (up to max restarts per phase) |
+| Overseer detects agent stall (restarts exhausted) | Escalate to HITL |
+| Overseer detects multiple stuck agents (2+) | `RESTART_PHASE` action — creates HITL decision for phase restart approval |
+| Manual agent restart (CLI/MCP/API) | Stop container, reset consensus, respawn with same config |
+| Manual phase restart (CLI/MCP/API) | Stop all containers, reset all consensus + review cycles, respawn all agents |
 | Single agent failure in concurrent mode | HITL decision: retry / abort / continue without |
 | Multiple failures (2+ within 60s) in concurrent mode | Immediate phase abort + HITL decision |
 | Circuit breaker OPEN | Block new agent spawns; alert operators |
