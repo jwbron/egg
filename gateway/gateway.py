@@ -4887,6 +4887,21 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     # Look up session by IP to determine mode (Claude Code doesn't send session tokens)
     session_manager = get_session_manager()
     session = session_manager.get_session_by_ip(request.remote_addr or "")
+    # TODO(k8s-migration): IP-based session lookup does not work reliably in k8s
+    # because pod IPs are ephemeral and sessions may be created with placeholder
+    # IP 0.0.0.0.  A future fix should add token-based auth for the Anthropic
+    # proxy (e.g. via X-Egg-Session-Token header) so Claude Code can identify
+    # itself without relying on source IP.  For now, when K8S_MODE is true and
+    # the IP lookup fails, we log a warning and proceed without session context.
+    from session_manager import K8S_MODE
+
+    if session is None and K8S_MODE:
+        logger.warning(
+            "Anthropic proxy: no session found by IP in k8s mode, "
+            "proceeding without session context",
+            event_type="proxy_no_session_k8s",
+            remote_addr=request.remote_addr,
+        )
     session_mode = session.mode if session else None
     container_id = session.container_id if session else None
     request_body = _filter_blocked_tools(

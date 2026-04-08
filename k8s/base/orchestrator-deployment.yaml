@@ -18,6 +18,10 @@ spec:
         app.kubernetes.io/part-of: egg
     spec:
       serviceAccountName: orchestrator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
       containers:
         - name: orchestrator
           image: egg-orchestrator:latest

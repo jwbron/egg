@@ -17,6 +17,10 @@ spec:
         app.kubernetes.io/name: gateway
         app.kubernetes.io/part-of: egg
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
       containers:
         - name: gateway
           image: egg-gateway:latest

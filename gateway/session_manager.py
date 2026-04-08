@@ -738,6 +738,10 @@ class SessionManager:
         Returns:
             Session if found and not expired, None otherwise
         """
+        # In k8s mode, 0.0.0.0 is a placeholder - skip it for IP lookups
+        # to avoid all k8s sessions matching ambiguously
+        if ip_address == "0.0.0.0":
+            return None
         with self._lock:
             for session in self._sessions.values():
                 if session.container_ip == ip_address and not session.is_expired():

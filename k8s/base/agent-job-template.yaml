@@ -32,6 +32,15 @@ data:
             egg.agent.role: "{{AGENT_ROLE}}"
         spec:
           restartPolicy: Never
+          # NOTE: Sensitive values (EGG_SESSION_TOKEN, API keys) are injected
+          # at runtime by KubernetesSpawner via the k8s API, not stored in
+          # this static template. For any static secrets, use k8s Secret
+          # resources with secretKeyRef.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
           initContainers:
             - name: git-shadow-mount
               image: busybox:latest

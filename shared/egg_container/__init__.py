@@ -586,7 +586,10 @@ def _config_to_job_spec(
         pod_spec["volumes"] = volumes
     if host_aliases:
         pod_spec["hostAliases"] = host_aliases
-    if config.dns:
+    # In k8s, don't override DNS to 0.0.0.0 - service discovery needs cluster DNS.
+    # Private mode network isolation is handled by NetworkPolicies instead of
+    # DNS lockdown.  Only set custom DNS if it's not the Docker-specific lockdown.
+    if config.dns and config.dns != ("0.0.0.0",):
         pod_spec["dnsConfig"] = {
             "nameservers": list(config.dns),
         }
