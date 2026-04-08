@@ -214,6 +214,8 @@ The orchestrator calls `ensure_egg_state_dirs()` before spawning containers to c
 
 See `orchestrator/routes/pipelines.py` for implementation details.
 
+4. **Agent-initiated sync (on review)**: During concurrent phases, each agent's worktree is frozen at the phase-start SHA. When a producer pushes commits and proposes via `CONSENSUS_PROPOSE`, reviewer worktrees do not automatically receive those commits. To address this, the BRC preamble (`_build_brc_preamble()`) instructs reviewers to sync their worktree before reviewing: `git fetch origin && git merge origin/{branch} --no-edit`. This prompt-level approach avoids orchestrator-side worktree manipulation while ensuring reviewers evaluate up-to-date code. See [Concurrent Execution: Reviewer Worktree Sync](../guides/concurrent-execution.md#reviewer-worktree-sync) for details.
+
 This architecture ensures the orchestrator reads artifacts from the correct isolated workspace rather than the main repository, preventing cross-contamination between pipelines.
 
 ## Multi-Agent Roles
@@ -259,7 +261,7 @@ The orchestrator coordinates specialized agent roles across pipeline phases. Eac
 
 ### Prompt Context Scoping
 
-Agent prompts are scoped to role-relevant context. Analysis roles (architect, task_planner, risk_analyst) receive the full issue body for problem understanding. Execution roles (tester, documenter) receive a summarized background with pointers to full context on demand. See [SDLC Pipeline Guide: Role-Specific Prompt Context](../guides/sdlc-pipeline.md#role-specific-prompt-context) for details.
+Agent prompts are scoped to role-relevant context. Analysis roles (architect, task_planner, risk_analyst) receive the full issue body for problem understanding. Execution roles (tester, documenter) receive a summarized background with pointers to full context on demand. Reviewer prompts include the full changeset diff command (`git diff origin/{base_branch}...HEAD`) using the pipeline's base branch, ensuring reviewers see the complete set of changes rather than an arbitrary truncated window. The `base_branch` and pipeline `branch` are threaded through the prompt-building call chain (`_run_concurrent_phase` → `_build_agent_prompt` → `_build_review_prompt` / `_build_brc_preamble`). See [SDLC Pipeline Guide: Role-Specific Prompt Context](../guides/sdlc-pipeline.md#role-specific-prompt-context) for details.
 
 ## Deployment Modes
 
