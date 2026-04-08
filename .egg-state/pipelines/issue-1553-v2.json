@@ -5,7 +5,7 @@
   "branch": "egg/issue-1553-v2",
   "base_branch": null,
   "prompt": null,
-  "status": "cancelled",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -242,10 +242,10 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-04-08T21:19:20.142749Z",
       "work_started_at": "2026-04-08T21:19:21.780525Z",
-      "completed_at": null,
+      "completed_at": "2026-04-08T22:07:02.614429Z",
       "containers": [
         {
           "container_id": "aa9903888afc9ec01ac652d8c849265ca3e3cd715cc3436f9c4648b8abb8cf73",
@@ -366,12 +366,12 @@
         {
           "cycle": 0,
           "started_at": "2026-04-08T21:19:21.780525Z",
-          "completed_at": null,
+          "completed_at": "2026-04-08T22:07:02.614415Z",
           "commit_sha": "e76755ecec0251fb80a9c7a0d6df01a30e1f57bc"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-08T21:59:43.404128805Z     Auth configured: True\n2026-04-08T21:59:43.404131097Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-08T21:59:43.404133597Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-08T21:59:43.404136055Z   Credentials injected by gateway (not in container)\n2026-04-08T21:59:43.404138472Z Signaled error to orchestrator\n2026-04-08T21:59:43.404140805Z \n2026-04-08T21:59:43.404144639Z Cleaning up on container exit...\n2026-04-08T21:59:43.404147014Z ✓ Cleanup complete\n\n--- reviewer_contract (exit=137) ---",
       "hitl_feedback": null,
       "phase_start_sha": "38d9020e6d6075aa8c6f2e3896720479443f0ac3"
     }
@@ -413,13 +413,13 @@
     }
   ],
   "created_at": "2026-04-08T20:41:01.367785Z",
-  "updated_at": "2026-04-08T22:07:02.593485Z",
+  "updated_at": "2026-04-08T22:07:02.614663Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-08T21:59:43.404128805Z     Auth configured: True\n2026-04-08T21:59:43.404131097Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-08T21:59:43.404133597Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-08T21:59:43.404136055Z   Credentials injected by gateway (not in container)\n2026-04-08T21:59:43.404138472Z Signaled error to orchestrator\n2026-04-08T21:59:43.404140805Z \n2026-04-08T21:59:43.404144639Z Cleaning up on container exit...\n2026-04-08T21:59:43.404147014Z ✓ Cleanup complete\n\n--- reviewer_contract (exit=137) ---",
   "analysis": null,
   "plan": null,
-  "version": 34
+  "version": 35
 }
