@@ -1096,6 +1096,389 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
         )
 
 
+@pipelines_bp.route("/<pipeline_id>/agents/<agent_role>/restart", methods=["POST"])
+def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
+    """Restart a single agent in a pipeline.
+
+    Stops the existing container, resets its consensus state, and respawns
+    it with the same configuration.  The agent's per-agent worktree is
+    preserved so committed work is retained.
+
+    URL params:
+        pipeline_id: Pipeline ID
+        agent_role: Agent role to restart (e.g. "coder", "tester")
+
+    Request body (optional):
+        {
+            "reason": "Human-readable reason for the restart"
+        }
+
+    Response:
+        {
+            "success": true,
+            "data": {
+                "container_id": "abc123...",
+                "agent_role": "coder",
+                "restart_count": 1
+            }
+        }
+    """
+    repo_path = get_repo_path()
+
+    try:
+        store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}", status_code=400
+        )
+    except PipelineNotFoundError:
+        return make_error_response(
+            f"Pipeline {pipeline_id} not found", status_code=404
+        )
+
+    # Validate agent role
+    try:
+        role = AgentRole(agent_role)
+    except ValueError:
+        return make_error_response(
+            f"Invalid agent role: {agent_role}", status_code=400
+        )
+
+    # Validate pipeline is running
+    if pipeline.status not in (PipelineStatus.RUNNING, PipelineStatus.AWAITING_HUMAN):
+        return make_error_response(
+            f"Pipeline {pipeline_id} is not running (status: {pipeline.status.value})",
+            status_code=409,
+        )
+
+    body = request.get_json(silent=True) or {}
+    reason = body.get("reason", "Manual restart via API")
+
+    # Reset consensus state for this agent
+    try:
+        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]
+
+        tracker = get_peer_consensus_tracker(pipeline_id)
+        if tracker:
+            tracker.remove_agent(agent_role)
+            logger.info(
+                "Reset consensus state for agent",
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+            )
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning(
+            "Failed to reset consensus state",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            error=str(e),
+        )
+
+    try:
+        from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
+
+        evaluator = get_consensus_evaluator()
+        evaluator.remove_agent(pipeline_id, agent_role)
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning(
+            "Failed to reset legacy consensus state",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            error=str(e),
+        )
+
+    # Restart the container via spawner
+    spawner = get_container_spawner()
+
+    # Gather spawn parameters from pipeline state
+    current_phase = pipeline.current_phase.value
+    phase_exec = pipeline.phases.get(current_phase)
+
+    try:
+        spawned = spawner.restart_agent_container(
+            pipeline_id=pipeline_id,
+            agent_role=role,
+            issue_number=pipeline.issue_number,
+            mode="public",
+            repos=[pipeline.repo] if pipeline.repo else None,
+            phase=current_phase,
+            branch=pipeline.branch,
+            reason=reason,
+        )
+    except ContainerSpawnError as e:
+        return make_error_response(
+            f"Failed to restart agent: {e}", status_code=500
+        )
+
+    # Update pipeline state with new container/agent info
+    lock = get_pipeline_state_lock(pipeline_id)
+    with lock:
+        pipeline = store.load_pipeline(pipeline_id)
+        if phase_exec is not None:
+            phase_exec = pipeline.phases.get(current_phase)
+            if phase_exec is not None:
+                # Add new container info
+                phase_exec.containers.append(spawned.container_info)
+
+                # Update or add agent execution entry
+                from models import AgentExecution  # type: ignore
+
+                found = False
+                for agent in phase_exec.agents:
+                    if hasattr(agent, "role") and (
+                        agent.role == role
+                        or (hasattr(agent.role, "value") and agent.role.value == role.value)
+                    ):
+                        agent.container_id = spawned.container_info.container_id
+                        agent.status = AgentExecutionStatus.RUNNING
+                        found = True
+                        break
+                if not found:
+                    phase_exec.agents.append(
+                        AgentExecution(
+                            role=role,
+                            container_id=spawned.container_info.container_id,
+                            status=AgentExecutionStatus.RUNNING,
+                        )
+                    )
+
+        pipeline.updated_at = datetime.now(UTC)
+        store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
+
+    restart_count = spawner.get_restart_count(pipeline_id, agent_role)
+
+    logger.info(
+        "Agent restarted",
+        pipeline_id=pipeline_id,
+        agent_role=agent_role,
+        container_id=spawned.container_info.container_id[:12],
+        restart_count=restart_count,
+        reason=reason,
+    )
+
+    return make_success_response(
+        f"Agent {agent_role} restarted",
+        data={
+            "container_id": spawned.container_info.container_id,
+            "agent_role": agent_role,
+            "restart_count": restart_count,
+        },
+    )
+
+
+@pipelines_bp.route("/<pipeline_id>/phases/<phase>/restart", methods=["POST"])
+def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
+    """Restart all agents in a pipeline phase.
+
+    Stops and removes all containers for the phase, resets consensus and
+    review cycle state, and respawns all agents.  Prior phase artifacts
+    (from earlier phases) are preserved.
+
+    URL params:
+        pipeline_id: Pipeline ID
+        phase: Phase name to restart (e.g. "implement")
+
+    Request body (optional):
+        {
+            "reason": "Human-readable reason for the restart",
+            "context": "Additional context for agents on respawn"
+        }
+
+    Response:
+        {
+            "success": true,
+            "data": {
+                "phase": "implement",
+                "agents_restarted": ["coder", "tester", "documenter", ...]
+            }
+        }
+    """
+    repo_path = get_repo_path()
+
+    try:
+        store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}", status_code=400
+        )
+    except PipelineNotFoundError:
+        return make_error_response(
+            f"Pipeline {pipeline_id} not found", status_code=404
+        )
+
+    # Validate phase
+    try:
+        PipelinePhase(phase)
+    except ValueError:
+        return make_error_response(
+            f"Invalid phase: {phase}", status_code=400
+        )
+
+    # Validate pipeline is running
+    if pipeline.status not in (PipelineStatus.RUNNING, PipelineStatus.AWAITING_HUMAN):
+        return make_error_response(
+            f"Pipeline {pipeline_id} is not running (status: {pipeline.status.value})",
+            status_code=409,
+        )
+
+    phase_exec = pipeline.phases.get(phase)
+    if phase_exec is None:
+        return make_error_response(
+            f"Phase {phase} not found in pipeline {pipeline_id}", status_code=404
+        )
+
+    body = request.get_json(silent=True) or {}
+    reason = body.get("reason", "Manual phase restart via API")
+
+    spawner = get_container_spawner()
+
+    # 1. Stop and remove all containers for this phase
+    for container in phase_exec.containers:
+        try:
+            spawner.stop_agent_container(container.container_id, cleanup_session=True)
+        except Exception as e:
+            logger.warning(
+                "Failed to stop container during phase restart",
+                container_id=container.container_id[:12] if container.container_id else "?",
+                error=str(e),
+            )
+        try:
+            spawner.remove_agent_container(
+                container.container_id, force=True, cleanup_session=False
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to remove container during phase restart",
+                container_id=container.container_id[:12] if container.container_id else "?",
+                error=str(e),
+            )
+
+    # 2. Reset consensus state
+    try:
+        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]
+
+        tracker = get_peer_consensus_tracker(pipeline_id)
+        if tracker:
+            tracker.clear()
+            logger.info("Cleared peer consensus tracker", pipeline_id=pipeline_id)
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning(
+            "Failed to clear peer consensus",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+
+    try:
+        from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
+
+        evaluator = get_consensus_evaluator()
+        evaluator.clear(pipeline_id)
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning(
+            "Failed to clear legacy consensus",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+
+    # 3. Reset restart counts for this pipeline
+    spawner.reset_restart_counts(pipeline_id)
+
+    # 4. Collect agent roles from the phase execution for respawning
+    agent_roles = []
+    for agent in phase_exec.agents:
+        if hasattr(agent, "role"):
+            role = agent.role if isinstance(agent.role, AgentRole) else AgentRole(agent.role)
+            agent_roles.append(role)
+
+    if not agent_roles:
+        return make_error_response(
+            f"No agents found in phase {phase} to restart", status_code=400
+        )
+
+    # 5. Reset phase execution state (preserve artifacts from prior phases)
+    lock = get_pipeline_state_lock(pipeline_id)
+    with lock:
+        pipeline = store.load_pipeline(pipeline_id)
+        phase_exec = pipeline.phases.get(phase)
+        if phase_exec is not None:
+            phase_exec.containers = []
+            phase_exec.agents = []
+            phase_exec.review_cycles = 0
+            phase_exec.status = PipelineStatus.RUNNING
+        pipeline.updated_at = datetime.now(UTC)
+        store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
+
+    # 6. Respawn all agents
+    restarted_agents = []
+    for role in agent_roles:
+        try:
+            spawned = spawner.spawn_agent_container(
+                pipeline_id=pipeline_id,
+                agent_role=role,
+                issue_number=pipeline.issue_number,
+                mode="public",
+                repos=[pipeline.repo] if pipeline.repo else None,
+                phase=phase,
+                branch=pipeline.branch,
+            )
+
+            # Update state with new container/agent
+            with lock:
+                pipeline = store.load_pipeline(pipeline_id)
+                phase_exec = pipeline.phases.get(phase)
+                if phase_exec is not None:
+                    phase_exec.containers.append(spawned.container_info)
+                    from models import AgentExecution  # type: ignore
+
+                    phase_exec.agents.append(
+                        AgentExecution(
+                            role=role,
+                            container_id=spawned.container_info.container_id,
+                            status=AgentExecutionStatus.RUNNING,
+                        )
+                    )
+                pipeline.updated_at = datetime.now(UTC)
+                store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
+
+            restarted_agents.append(role.value)
+        except (ContainerSpawnError, Exception) as e:
+            logger.error(
+                "Failed to respawn agent during phase restart",
+                pipeline_id=pipeline_id,
+                role=role.value,
+                error=str(e),
+            )
+
+    if not restarted_agents:
+        return make_error_response(
+            "Phase restart failed: no agents could be respawned", status_code=500
+        )
+
+    logger.info(
+        "Phase restarted",
+        pipeline_id=pipeline_id,
+        phase=phase,
+        agents_restarted=restarted_agents,
+        reason=reason,
+    )
+
+    return make_success_response(
+        f"Phase {phase} restarted with {len(restarted_agents)} agent(s)",
+        data={
+            "phase": phase,
+            "agents_restarted": restarted_agents,
+        },
+    )
+
+
 @pipelines_bp.route("/<pipeline_id>/status", methods=["GET"])
 def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
     """

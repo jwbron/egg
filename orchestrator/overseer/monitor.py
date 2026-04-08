@@ -114,6 +114,10 @@ class OverseerMonitor:
         # Maps (agent_id, error_hash) -> timestamp of first escalation
         self._infra_error_dedup: dict[tuple[str, str], float] = {}
 
+        # Agent restart tracking: (pipeline_id, agent_role) -> restart_count
+        self._agent_restart_counts: dict[str, int] = {}
+        self._max_agent_restarts: int = 2
+
         # Cross-phase consistency: track phase transitions and deduplication
         self._last_phase_name: str | None = None
         self._cross_phase_checked: set[tuple[str, str]] = set()
@@ -559,6 +563,114 @@ class OverseerMonitor:
 
         elif action == "slack":
             await self._send_slack_notification(agent_role, message)
+
+        elif action == "restart_agent":
+            await self._execute_restart_agent(agent_role, message)
+            self.self_monitor.record_message_sent()
+
+        elif action == "restart_phase":
+            # Phase restarts require HITL approval by default
+            await self._create_hitl_decision(
+                agent_role,
+                f"Phase restart requested: {message}. "
+                "Approve to restart all agents in the current phase.",
+            )
+            self.self_monitor.record_message_sent()
+
+    async def _execute_restart_agent(self, agent_role: str, message: str) -> None:
+        """Execute an agent restart via the orchestrator API.
+
+        Tracks restart counts per agent. When an agent's restart limit is
+        exhausted, checks if 2+ agents have hit their limits and escalates
+        to a phase restart (via HITL decision) if so.
+
+        Args:
+            agent_role: The agent role to restart.
+            message: Reason for the restart.
+        """
+        restart_count = self._agent_restart_counts.get(agent_role, 0)
+
+        if restart_count >= self._max_agent_restarts:
+            logger.info(
+                "Agent %s restart limit reached (%d/%d) — checking for phase escalation",
+                agent_role,
+                restart_count,
+                self._max_agent_restarts,
+            )
+            # Count agents that have hit their restart limit
+            exhausted_agents = [
+                role for role, count in self._agent_restart_counts.items()
+                if count >= self._max_agent_restarts
+            ]
+            if len(exhausted_agents) >= 2:
+                logger.warning(
+                    "Multiple agents exhausted restart limits (%s) — escalating to phase restart",
+                    exhausted_agents,
+                )
+                await self._create_hitl_decision(
+                    "orchestrator",
+                    f"Multiple agents have exhausted restart limits "
+                    f"({', '.join(exhausted_agents)}). Consider restarting the "
+                    f"entire phase. Original issue: {message}",
+                )
+            else:
+                await self._create_hitl_decision(
+                    agent_role,
+                    f"Agent {agent_role} has exhausted its restart limit "
+                    f"({restart_count}/{self._max_agent_restarts}). "
+                    f"Requires human intervention: {message}",
+                )
+            return
+
+        # Call the restart endpoint
+        try:
+            rc, stdout, stderr = await self._run_cli(
+                "egg-orch",
+                "pipeline",
+                "restart-agent",
+                self.pipeline_id,
+                "--role",
+                agent_role,
+                "--reason",
+                message[:500],
+                timeout=60,
+            )
+            if rc == 0:
+                self._agent_restart_counts[agent_role] = restart_count + 1
+                logger.info(
+                    "Agent %s restarted successfully (count: %d/%d)",
+                    agent_role,
+                    restart_count + 1,
+                    self._max_agent_restarts,
+                )
+                self._log_oversight_event(
+                    {
+                        "event": "agent_restarted",
+                        "agent_role": agent_role,
+                        "restart_count": restart_count + 1,
+                        "reason": message[:500],
+                    }
+                )
+            else:
+                logger.error(
+                    "Failed to restart agent %s: rc=%d stderr=%s",
+                    agent_role,
+                    rc,
+                    stderr[:200],
+                )
+                # Fall back to HITL on failure
+                await self._create_hitl_decision(
+                    agent_role,
+                    f"Attempted to restart agent {agent_role} but failed: "
+                    f"{stderr[:200]}. Original issue: {message}",
+                )
+        except Exception as e:
+            logger.error("Exception restarting agent %s: %s", agent_role, e)
+            await self._create_hitl_decision(
+                agent_role,
+                f"Exception restarting agent {agent_role}: {e}. "
+                f"Original issue: {message}",
+            )
 
     # -----------------------------------------------------------------
     # CLI wrappers

@@ -52,7 +52,7 @@ async def decide_corrective_action(
 
     Returns:
         A dict with keys:
-            action: ``"nudge"`` | ``"redirect"`` | ``"hitl"`` | ``"issue"`` | ``"slack"``
+            action: ``"nudge"`` | ``"redirect"`` | ``"restart_agent"`` | ``"hitl"`` | ``"restart_phase"`` | ``"issue"`` | ``"slack"``
             message: str with the message or action description
             priority: ``"low"`` | ``"medium"`` | ``"high"`` | ``"critical"``
     """
@@ -72,7 +72,9 @@ async def decide_corrective_action(
         "Available actions (in escalating order):\n"
         '  "nudge" - Send a gentle reminder to the agent\n'
         '  "redirect" - Send directive instructions to change course\n'
+        '  "restart_agent" - Restart the stuck/failed agent (preserves worktree)\n'
         '  "hitl" - Escalate to human-in-the-loop decision\n'
+        '  "restart_phase" - Restart all agents in the current phase (requires HITL approval)\n'
         '  "issue" - File a diagnostic GitHub issue\n'
         '  "slack" - Send urgent Slack notification\n\n'
         "Respond with ONLY a JSON object (no markdown fences) with these keys:\n"
