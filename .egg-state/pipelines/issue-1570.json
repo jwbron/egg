@@ -167,10 +167,10 @@
         {
           "container_id": "be12cdadb429cd17f2b97a7197e90269641e975b234ab1139e384af1b29ed6e9",
           "container_name": "issue-1570-task_planner",
-          "status": "removed",
+          "status": "exited",
           "started_at": "2026-04-08T21:19:11.098372Z",
-          "exited_at": "2026-04-08T21:56:03.530686Z",
-          "exit_code": null,
+          "exited_at": "2026-04-08T21:56:03.809273Z",
+          "exit_code": 137,
           "agent_role": "task_planner",
           "session_token": null
         }
@@ -217,10 +217,10 @@
           "status": "failed",
           "container_id": "be12cdadb429cd17f2b97a7197e90269641e975b234ab1139e384af1b29ed6e9",
           "started_at": "2026-04-08T21:19:11.098373Z",
-          "completed_at": "2026-04-08T21:56:03.530686Z",
+          "completed_at": "2026-04-08T21:56:03.817052Z",
           "commit": null,
           "outputs": {},
-          "error": "Pipeline cancelled",
+          "error": "Container exited with code 137",
           "retry_count": 0,
           "conflicts": []
         }
@@ -446,7 +446,7 @@
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T21:56:03.531011Z",
+  "updated_at": "2026-04-08T21:56:03.817121Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -454,5 +454,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 44
+  "version": 45
 }
