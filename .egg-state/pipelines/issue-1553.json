@@ -298,10 +298,10 @@
       "options": [],
       "decision_type": "feedback",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-08T14:44:04.651906Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-08T14:56:36.199946Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"q-1\": \"One complete local delivery. The PR should result in a fully working egg pipeline on k3s — no partial milestones or incremental delivery. make k3s-setup && make deploy (or similar) should give a working system.\"}}",
       "phase": "refine",
       "content_changed": null
     },
@@ -338,7 +338,7 @@
     }
   ],
   "created_at": "2026-04-08T14:30:41.767647Z",
-  "updated_at": "2026-04-08T14:56:33.743677Z",
+  "updated_at": "2026-04-08T14:56:36.201784Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -346,5 +346,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 33
+  "version": 34
 }
