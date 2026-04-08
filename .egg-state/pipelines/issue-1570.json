@@ -279,10 +279,10 @@
       "options": [],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-08T20:56:45.481516Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-08T21:15:50.036541Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Support the opus[1m] max-token suffix syntax for backwards compatibility — it is used throughout the codebase. Also support a separate max_tokens config option. The suffix parser takes precedence when present.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -333,7 +333,7 @@
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T21:15:49.471599Z",
+  "updated_at": "2026-04-08T21:15:50.039721Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -341,5 +341,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 32
+  "version": 33
 }
