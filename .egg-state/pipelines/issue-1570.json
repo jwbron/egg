@@ -324,16 +324,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-08T20:59:25.209869Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-08T21:18:33.642349Z",
+      "resolution": "{\"action\": \"approve\", \"context\": \"All 12 design decisions resolved. Key choices: custom thin adapter (anthropic + openai SDKs), both headless and interactive in MVP, shell out to CLIs for egg-native tools initially, default claude-sdk with configurable opt-in to egg harness (with TOS warning for subscription accounts). Reviewer suggestion noted: plan phase should address error handling semantics for the agent loop (API errors, malformed tool responses, tool execution crashes).\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T21:15:50.882992Z",
+  "updated_at": "2026-04-08T21:18:33.645878Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -341,5 +341,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 35
+  "version": 36
 }
