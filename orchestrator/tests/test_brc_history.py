@@ -396,6 +396,67 @@ class TestWriteBrcHistory:
         assert "CONSENSUS_RE_REVIEW" in content
         assert "CONSENSUS_WITHDRAW" in content
 
+    def test_filters_messages_by_phase(self, tmp_path):
+        """Only messages matching the requested phase are included."""
+        from routes.pipelines import _write_brc_history
+
+        messages = [
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="coder",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject="Plan proposal",
+                body="Planning done",
+                phase="plan",
+                timestamp=datetime(2026, 4, 8, 11, 0, 0, tzinfo=UTC),
+            ),
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="coder",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject="Implement proposal",
+                body="Implementation done",
+                phase="implement",
+                timestamp=datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
+            ),
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="reviewer_code",
+                message_type=MessageType.CONSENSUS_ACK,
+                subject="ACK for implement",
+                body="Looks good",
+                phase="implement",
+                timestamp=datetime(2026, 4, 8, 12, 5, 0, tzinfo=UTC),
+            ),
+        ]
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        # Should contain implement-phase messages
+        assert "Implement proposal" in content
+        assert "ACK for implement" in content
+        # Should NOT contain plan-phase messages
+        assert "Plan proposal" not in content
+
+    def test_no_file_when_no_messages_for_requested_phase(self, tmp_path):
+        """No file created when BRC messages exist but none match the phase."""
+        from routes.pipelines import _write_brc_history
+
+        messages = _make_brc_messages(pipeline_id="issue-42", phase="plan")
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        if history_dir.exists():
+            assert list(history_dir.iterdir()) == [], "No file when no messages match phase"
+
 
 class TestBuildPrBodyBrcSummary:
     """Tests for BRC Consensus Summary in _build_pr_body."""
@@ -517,8 +578,8 @@ class TestBuildPrBodyBrcSummary:
                     if idx < next_section:
                         next_section = idx
             brc_section = rest[:next_section].strip()
-            assert len(brc_section) <= 2200, (
-                f"BRC summary section is {len(brc_section)} chars, should be ~2000 or under"
+            assert len(brc_section) <= 2000, (
+                f"BRC summary section is {len(brc_section)} chars, should be <=2000"
             )
 
     def test_brc_summary_shows_phase_grouping(self, tmp_path):
@@ -644,13 +705,17 @@ class TestWriteBrcHistoryEdgeCases:
             assert list(history_dir.iterdir()) == []
 
     def test_multiple_phases_create_separate_files(self, tmp_path):
-        """Each phase gets its own history file."""
+        """Each phase gets its own history file with only that phase's messages."""
         from routes.pipelines import _write_brc_history
 
+        # All messages in the store (accumulated across phases)
+        all_messages = []
         for phase in ["refine", "plan", "implement"]:
-            messages = _make_brc_messages(pipeline_id="issue-42", phase=phase)
+            all_messages.extend(_make_brc_messages(pipeline_id="issue-42", phase=phase))
+
+        for phase in ["refine", "plan", "implement"]:
             mock_store = MagicMock(spec=MessageStore)
-            mock_store.get_messages.return_value = messages
+            mock_store.get_messages.return_value = all_messages
 
             with patch("message_store.get_message_store", return_value=mock_store):
                 _write_brc_history(tmp_path, "issue-42", phase, 42)
@@ -803,7 +868,7 @@ class TestBuildBrcConsensusSummary:
         assert "Consensus reached" in result or "consensus reached" in result.lower()
 
     def test_capped_at_2000_chars(self):
-        """Summary is capped at approximately 2000 characters."""
+        """Summary is capped at approximately 2000 characters (truncated at phase-block boundaries)."""
         from routes.pipelines import _build_brc_consensus_summary
 
         # Create many messages to exceed the cap
@@ -829,8 +894,8 @@ class TestBuildBrcConsensusSummary:
         with patch("message_store.get_message_store", return_value=mock_store):
             result = _build_brc_consensus_summary("issue-42")
 
-        # Should be capped — allow a small buffer for the truncation marker
-        assert len(result) <= 2010
+        # Truncated at phase-block boundary — must be under 2000 chars
+        assert len(result) <= 2000
 
     def test_groups_by_phase(self):
         """Messages from different phases appear in separate groups."""

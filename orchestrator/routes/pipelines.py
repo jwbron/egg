@@ -2915,6 +2915,30 @@ def _handle_pr_creation_failure(
         store.save_pipeline(pipeline)
 
 
+BRC_MESSAGE_TYPES = frozenset(
+    {
+        "CONSENSUS_PROPOSE",
+        "CONSENSUS_ACK",
+        "CONSENSUS_NACK",
+        "CONSENSUS_WITHDRAW",
+        "CONSENSUS_CONFIRMED",
+        "CONSENSUS_RE_REVIEW",
+    }
+)
+
+
+def _get_message_store():
+    """Import and return the message store instance, or None if unavailable."""
+    try:
+        from message_store import get_message_store
+    except ImportError:
+        try:
+            from ..message_store import get_message_store  # type: ignore[import-not-found]
+        except ImportError:
+            return None
+    return get_message_store
+
+
 def _write_brc_history(
     worktree_path: Path,
     pipeline_id: str,
@@ -2923,10 +2947,11 @@ def _write_brc_history(
 ) -> None:
     """Write BRC consensus message history for a phase to .egg-state.
 
-    Retrieves all BRC-related messages from the message store and writes them
-    as a chronological markdown log to ``.egg-state/brc-history/{identifier}-{phase}.md``.
+    Retrieves BRC-related messages for the given phase from the message store
+    and writes them as a chronological markdown log to
+    ``.egg-state/brc-history/{identifier}-{phase}.md``.
     No-ops gracefully when the message store is unavailable or contains no
-    BRC messages for the pipeline.
+    BRC messages for the pipeline and phase.
 
     Args:
         worktree_path: Path to the worktree repo directory
@@ -2934,26 +2959,13 @@ def _write_brc_history(
         phase: The pipeline phase name (e.g. "implement", "plan")
         identifier: The pipeline identifier for file naming
     """
-    BRC_MESSAGE_TYPES = {
-        "CONSENSUS_PROPOSE",
-        "CONSENSUS_ACK",
-        "CONSENSUS_NACK",
-        "CONSENSUS_WITHDRAW",
-        "CONSENSUS_CONFIRMED",
-        "CONSENSUS_RE_REVIEW",
-    }
+    store_fn = _get_message_store()
+    if store_fn is None:
+        logger.debug("Message store not available for BRC history")
+        return
 
     try:
-        from message_store import get_message_store
-    except ImportError:
-        try:
-            from ..message_store import get_message_store  # type: ignore[import-not-found]
-        except ImportError:
-            logger.debug("Message store not available for BRC history")
-            return
-
-    try:
-        store = get_message_store()
+        store = store_fn()
         messages = store.get_messages(pipeline_id, limit=10000)
     except Exception as e:
         logger.debug(
@@ -2963,7 +2975,7 @@ def _write_brc_history(
         )
         return
 
-    brc_messages = [m for m in messages if m.message_type in BRC_MESSAGE_TYPES]
+    brc_messages = [m for m in messages if m.message_type in BRC_MESSAGE_TYPES and m.phase == phase]
     if not brc_messages:
         return
 
@@ -3006,27 +3018,15 @@ def _build_brc_consensus_summary(pipeline_id: str) -> str:
     consensus was reached per phase.
 
     Returns an empty string if no BRC messages exist or the message store
-    is unavailable.  Output is capped at ~2000 characters.
+    is unavailable.  Output is capped at ~2000 characters by truncating
+    at phase-block boundaries to avoid broken markdown.
     """
-    BRC_MESSAGE_TYPES = {
-        "CONSENSUS_PROPOSE",
-        "CONSENSUS_ACK",
-        "CONSENSUS_NACK",
-        "CONSENSUS_WITHDRAW",
-        "CONSENSUS_CONFIRMED",
-        "CONSENSUS_RE_REVIEW",
-    }
+    store_fn = _get_message_store()
+    if store_fn is None:
+        return ""
 
     try:
-        from message_store import get_message_store
-    except ImportError:
-        try:
-            from ..message_store import get_message_store  # type: ignore[import-not-found]
-        except ImportError:
-            return ""
-
-    try:
-        store = get_message_store()
+        store = store_fn()
         messages = store.get_messages(pipeline_id, limit=10000)
     except Exception:
         return ""
@@ -3041,7 +3041,8 @@ def _build_brc_consensus_summary(pipeline_id: str) -> str:
         phase_key = msg.phase or "unknown"
         by_phase.setdefault(phase_key, []).append(msg)
 
-    lines: list[str] = ["## BRC Consensus Summary\n"]
+    header = "## BRC Consensus Summary\n"
+    phase_blocks: list[str] = []
 
     for phase_name, phase_msgs in by_phase.items():
         roles = sorted({m.from_role for m in phase_msgs})
@@ -3052,9 +3053,11 @@ def _build_brc_consensus_summary(pipeline_id: str) -> str:
         confirmed_roles = {
             m.from_role for m in phase_msgs if m.message_type == "CONSENSUS_CONFIRMED"
         }
+        # Consensus = every role that sent a BRC message also sent CONFIRMED
         all_confirmed = confirmed_roles == set(roles) and len(confirmed_roles) > 0
 
-        lines.append(f"**{phase_name}**: {', '.join(roles)}")
+        block_lines: list[str] = []
+        block_lines.append(f"**{phase_name}**: {', '.join(roles)}")
         counts = []
         if proposals:
             counts.append(f"{proposals} proposal(s)")
@@ -3065,15 +3068,19 @@ def _build_brc_consensus_summary(pipeline_id: str) -> str:
         if confirmations:
             counts.append(f"{confirmations} confirmation(s)")
         if counts:
-            lines.append(f"  {' · '.join(counts)}")
+            block_lines.append(f"  {' · '.join(counts)}")
         consensus_str = "✅ Consensus reached" if all_confirmed else "⏳ Consensus not reached"
-        lines.append(f"  {consensus_str}")
-        lines.append("")
+        block_lines.append(f"  {consensus_str}")
+        block_lines.append("")
+        phase_blocks.append("\n".join(block_lines))
 
-    summary = "\n".join(lines)
-    # Cap at ~2000 chars
-    if len(summary) > 2000:
-        summary = summary[:1997] + "…"
+    # Assemble with truncation at phase-block boundaries to keep markdown intact
+    summary = header
+    for block in phase_blocks:
+        candidate = summary + "\n" + block
+        if len(candidate) > 2000:
+            break
+        summary = candidate
 
     return summary
 
@@ -6709,21 +6716,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline_id=pipeline_id,
                     )
 
-                # Write BRC history for all prior phases so it's included
-                # in the PR branch before the PR is created.
-                try:
-                    _write_brc_history(
-                        worktree_repo_path,
-                        pipeline_id,
-                        "pr",
-                        _pipeline_identifier(pipeline.issue_number, pipeline_id),
-                    )
-                except Exception as brc_err:
-                    logger.debug(
-                        "Failed to write BRC history for PR phase (continuing)",
-                        pipeline_id=pipeline_id,
-                        error=str(brc_err),
-                    )
+                # BRC history files are written per-phase at phase completion,
+                # so they are already on the branch before PR creation.
 
                 # Push latest commits before creating PR
                 if pipeline.branch and worktree_repo_path != repo_path:

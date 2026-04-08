@@ -165,7 +165,7 @@ The message store uses Redis Streams when Redis is available, falling back to an
 
 The message store is cleared when the phase transitions. Each new phase execution starts with an empty message bus for the pipeline. This prevents stale messages from a prior phase from being delivered to agents in the next phase.
 
-**Note:** BRC consensus messages are persisted to `.egg-state/brc-history/{identifier}-{phase}.md` *before* the message store is cleared at phase transition. This ensures the communication history survives the cleanup. See [BRC History Persistence](#brc-history-persistence) below.
+**Note:** BRC consensus messages are persisted to `.egg-state/brc-history/{identifier}-{phase}.md` at phase completion. Messages are filtered by phase, so each history file contains only that phase's BRC activity. See [BRC History Persistence](#brc-history-persistence) below.
 
 ## Readiness Signaling Protocol
 
@@ -273,11 +273,9 @@ At each phase boundary, the orchestrator writes a chronological log of all BRC c
 **How it works:**
 
 1. After a phase completes (before `_commit_statefiles_to_worktree`), the orchestrator retrieves all messages from the message store for the pipeline
-2. Messages are filtered to `CONSENSUS_*` types (`CONSENSUS_PROPOSE`, `CONSENSUS_ACK`, `CONSENSUS_NACK`, `CONSENSUS_WITHDRAW`, `CONSENSUS_CONFIRMED`, `CONSENSUS_RE_REVIEW`)
-3. If BRC messages exist, they are formatted as chronological markdown entries and written to `.egg-state/brc-history/{identifier}-{phase}.md`
+2. Messages are filtered to `CONSENSUS_*` types (`CONSENSUS_PROPOSE`, `CONSENSUS_ACK`, `CONSENSUS_NACK`, `CONSENSUS_WITHDRAW`, `CONSENSUS_CONFIRMED`, `CONSENSUS_RE_REVIEW`) **and** by phase, so each file contains only that phase's BRC activity
+3. If matching BRC messages exist, they are formatted as chronological markdown entries and written to `.egg-state/brc-history/{identifier}-{phase}.md`
 4. If no BRC messages exist for that phase, no file is created (graceful no-op)
-
-The same write also occurs during the PR phase block (before `_ensure_statefiles_on_branch`) to capture the final implement-phase consensus before PR creation.
 
 **File format:**
 
