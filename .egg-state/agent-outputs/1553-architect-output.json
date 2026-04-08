@@ -1,0 +1,681 @@
+{
+  "issue": 1553,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 1,
+  "title": "Docker to Kubernetes (k3s) Migration Architecture",
+  "summary": "Complete cutover from Docker Compose and Docker SDK-based container management to Kubernetes, using k3s for local development and CI. Replaces DockerClient, ContainerSpawner, and ContainerMonitor with Kubernetes equivalents, Docker Compose files with Kustomize manifests, and Docker networks with Calico-enforced NetworkPolicies.",
+
+  "problem_statement": {
+    "description": "The current Docker-based architecture (DockerClient, ContainerSpawner, ContainerMonitor, docker-compose.yml) is single-host bound, lacks native scheduling, has no fault tolerance, and suffers from resource contention when running multiple concurrent agent containers. The Docker socket dependency means all containers run on one machine with no path to multi-node scaling.",
+    "root_causes": [
+      {
+        "id": "RC-1",
+        "title": "Single-host Docker socket dependency",
+        "description": "Orchestrator uses the Docker SDK via unix:///var/run/docker.sock to spawn agent containers. This socket is local-only, binding all containers to a single host.",
+        "location": "orchestrator/docker_client.py, docker-compose.yml (volume: /var/run/docker.sock)"
+      },
+      {
+        "id": "RC-2",
+        "title": "No scheduling or resource management",
+        "description": "Container placement, resource quotas, and auto-scaling are manual. ContainerSpawner creates containers with no awareness of host capacity.",
+        "location": "orchestrator/container_spawner.py"
+      },
+      {
+        "id": "RC-3",
+        "title": "No fault tolerance",
+        "description": "If the host goes down, all agents die with no automatic recovery. ContainerMonitor detects failures but cannot reschedule to another host.",
+        "location": "orchestrator/container_monitor.py"
+      }
+    ],
+    "affected_files": [
+      "orchestrator/docker_client.py",
+      "orchestrator/container_spawner.py",
+      "orchestrator/container_monitor.py",
+      "docker-compose.yml",
+      "docker-compose.override.yml",
+      "integration_tests/docker-compose.yml",
+      "integration_tests/local_pipeline/docker-compose.yml",
+      "shared/egg_container/__init__.py",
+      "shared/egg_config/constants.py",
+      "sandbox/egg_lib/runtime.py",
+      "orchestrator/routes/containers.py",
+      "orchestrator/routes/pipelines.py",
+      "orchestrator/concurrent_executor.py",
+      "sandbox/Dockerfile",
+      "orchestrator/Dockerfile",
+      "gateway/Dockerfile"
+    ]
+  },
+
+  "current_architecture": {
+    "description": "Three-tier Docker architecture: gateway (policy enforcement), orchestrator (pipeline engine), and sandboxes (agent containers). Gateway and orchestrator run as long-lived Docker Compose services. Sandboxes are spawned dynamically via the Docker SDK.",
+    "components": [
+      {
+        "name": "DockerClient",
+        "file": "orchestrator/docker_client.py",
+        "lines": 535,
+        "purpose": "Docker SDK wrapper: container CRUD, label-based listing, log retrieval, orphan cleanup. Singleton via get_docker_client().",
+        "key_methods": ["create_container", "start_container", "stop_container", "remove_container", "get_container_info", "list_containers", "get_container_logs", "wait_for_container", "cleanup_orphaned_containers"],
+        "docker_dependencies": ["docker.DockerClient", "docker.containers", "docker.images", "docker.networks", "ImageNotFound", "NotFound", "APIError", "DockerException"]
+      },
+      {
+        "name": "ContainerSpawner",
+        "file": "orchestrator/container_spawner.py",
+        "lines": 988,
+        "purpose": "Full agent lifecycle: gateway session registration, per-agent worktree creation, repo volume mounts with .git shadow binding, phase-based readonly enforcement, dual-network attachment, 30+ env vars per agent, post-exit uncommitted change detection.",
+        "key_methods": ["spawn_agent_container", "stop_agent_container", "remove_agent_container", "list_pipeline_containers", "cleanup_pipeline", "detect_uncommitted_changes", "spawn_overseer_container", "create_concurrent_spawn_fn"],
+        "docker_dependencies": ["DockerClient (composition)", "to_dockerpy_kwargs (config adapter)"]
+      },
+      {
+        "name": "ContainerMonitor",
+        "file": "orchestrator/container_monitor.py",
+        "purpose": "Background health polling (10s interval), event-driven state callbacks (STARTED/STOPPED/EXITED/FAILED/UNHEALTHY/REMOVED), orphan cleanup, periodic reconciliation with pipeline state.",
+        "key_methods": ["start", "stop", "add_handler", "check_container_health", "get_container_status", "start_periodic_reconciliation"],
+        "docker_dependencies": ["DockerClient.list_containers (polling)", "ContainerStatus mapping from Docker state"]
+      },
+      {
+        "name": "SandboxContainerConfig",
+        "file": "shared/egg_container/__init__.py",
+        "purpose": "Framework-agnostic container configuration builder. Already decoupled from Docker — this is the config layer that both CLI and orchestrator use.",
+        "key_classes": ["ContainerNetworkConfig", "MountSpec", "SandboxContainerConfig"],
+        "key_functions": ["build_sandbox_config", "build_sandbox_docker_cmd", "to_dockerpy_kwargs", "git_shadow_mounts", "phase_readonly_mounts"],
+        "note": "build_sandbox_config() is framework-agnostic. Only build_sandbox_docker_cmd() and to_dockerpy_kwargs() are Docker-specific adapters."
+      },
+      {
+        "name": "Docker Compose Stack",
+        "file": "docker-compose.yml",
+        "purpose": "Runs gateway and orchestrator as long-lived services on dual Docker networks (egg-isolated, egg-external).",
+        "docker_dependencies": ["Docker Compose networking", "Named volumes (state, certs)", "Docker socket mount"]
+      }
+    ],
+    "integration_points": [
+      {"consumer": "routes/pipelines.py", "method": "spawner.spawn_agent_container()", "purpose": "Phase execution"},
+      {"consumer": "routes/pipelines.py", "method": "spawner.spawn_overseer_container()", "purpose": "Health monitoring agent"},
+      {"consumer": "routes/pipelines.py", "method": "spawner.cleanup_pipeline()", "purpose": "Pipeline teardown"},
+      {"consumer": "routes/containers.py", "method": "docker_client.*", "purpose": "REST API for container ops"},
+      {"consumer": "concurrent_executor.py", "method": "spawner.create_concurrent_spawn_fn()", "purpose": "Parallel agent spawning"},
+      {"consumer": "sandbox/egg_lib/runtime.py", "method": "docker run subprocess", "purpose": "CLI interactive sessions"}
+    ],
+    "network_model": {
+      "egg_isolated": {
+        "subnet": "172.32.0.0/24",
+        "internal": true,
+        "purpose": "Sandbox-to-gateway traffic only. No external routing.",
+        "static_ips": {"gateway": "172.32.0.2", "orchestrator": "172.32.0.3"}
+      },
+      "egg_external": {
+        "subnet": "172.33.0.0/24",
+        "internal": false,
+        "purpose": "Public internet access via gateway proxy.",
+        "static_ips": {"gateway": "172.33.0.2", "orchestrator": "172.33.0.3"}
+      }
+    },
+    "storage_model": {
+      "named_volumes": ["state (gateway + orchestrator session persistence)", "certs (CA certificate for SSL trust)"],
+      "bind_mounts": ["worktrees (/home/egg/.egg-worktrees)", "repository paths", ".git shadow mounts (security)"],
+      "phase_readonly": [".egg-state/drafts/", ".egg-state/contracts/", ".egg-state/pipelines/", ".egg-state/reviews/"]
+    }
+  },
+
+  "approaches_considered": [
+    {
+      "id": "A",
+      "name": "Full Cutover — Replace Docker with Kubernetes Entirely",
+      "description": "Remove all Docker Compose files and Docker client code. Replace with k8s manifests (Kustomize), KubernetesClient replacing DockerClient, and KubernetesSpawner replacing ContainerSpawner. Local dev and CI use k3s with Calico CNI.",
+      "pros": [
+        "Clean architecture with one deployment model",
+        "No conditional Docker/k8s paths to maintain",
+        "Simpler long-term maintenance",
+        "Enables multi-node scaling",
+        "k3s is lightweight enough for local dev and CI"
+      ],
+      "cons": [
+        "Big-bang migration with higher immediate risk",
+        "All tests rewritten simultaneously",
+        "No rollback to Docker path",
+        "Developers must install k3s locally"
+      ],
+      "risk": "High (mitigated by clean interface design and comprehensive testing)",
+      "selected": true
+    },
+    {
+      "id": "B",
+      "name": "Abstraction Layer with Dual Backend (Docker + Kubernetes)",
+      "description": "Introduce a ContainerBackend protocol implemented by both DockerBackend and KubernetesBackend. Select backend via config.",
+      "pros": [
+        "Incremental migration with lower risk",
+        "Rollback trivial — switch config flag",
+        "Can validate k8s backend against Docker behavior"
+      ],
+      "cons": [
+        "Two backends to maintain indefinitely",
+        "Abstraction adds complexity",
+        "Risk of Docker backend never being removed",
+        "Testing matrix doubles"
+      ],
+      "risk": "Medium",
+      "rejected_reason": "Adds permanent complexity for a temporary benefit. The Docker backend would likely never be removed, creating maintenance burden."
+    },
+    {
+      "id": "C",
+      "name": "Kubernetes for Orch/Gateway Only, Keep Docker for Agents",
+      "description": "Deploy orchestrator and gateway as k8s Deployments but keep spawning agents via Docker socket mounted into the orchestrator pod.",
+      "pros": [
+        "Smallest scope of change",
+        "Agent spawning code unchanged"
+      ],
+      "cons": [
+        "Does not solve core scalability problem",
+        "Docker socket in k8s pod is a security concern (privileged access)",
+        "Hybrid model is harder to reason about",
+        "Agents still single-host bound"
+      ],
+      "risk": "Low for implementation, but does not achieve goals",
+      "rejected_reason": "Does not solve the scalability and fault tolerance problems that motivated this migration."
+    }
+  ],
+
+  "recommended_approach": {
+    "id": "A",
+    "name": "Full Cutover with Clean ContainerBackend Protocol",
+    "strategy": "Complete replacement of Docker with Kubernetes, but define a clean ContainerBackend protocol for testability and future extensibility. Use k3s with Calico CNI for local development and CI. Kustomize overlays for manifest management.",
+    "rationale": "Option A is the only approach that fully addresses the scalability, scheduling, and fault tolerance limitations. The existing SandboxContainerConfig in shared/egg_container/ is already framework-agnostic, providing a natural seam for the migration. Defining a ContainerBackend protocol (even with a single k8s implementation) maintains testability without the burden of dual backends.",
+    "justification": "The issue explicitly selects Option A. The codebase has good separation — SandboxContainerConfig is framework-agnostic, and the Docker-specific code (DockerClient, to_dockerpy_kwargs, build_sandbox_docker_cmd) is cleanly isolated. This makes a full cutover feasible without the intermediate abstraction layer."
+  },
+
+  "architecture_decisions": [
+    {
+      "id": "AD-1",
+      "decision": "Use Kustomize overlays for manifest management",
+      "rationale": "YAML-native, built into kubectl, no Helm templating complexity. base/ + overlays/local/ structure allows easy addition of overlays/gke/ later.",
+      "alternatives_considered": "Helm charts (more complex templating, overkill for this use case), raw YAML (no overlay/patching support)"
+    },
+    {
+      "id": "AD-2",
+      "decision": "Separate namespaces for isolation: egg-system (orch + gateway) and egg-agents (Jobs)",
+      "rationale": "Maps directly to current Docker network model. Default-deny ingress in egg-agents, egress only to gateway. Namespace-level NetworkPolicies provide the same isolation as Docker internal networks.",
+      "alternatives_considered": "Single namespace with pod-level NetworkPolicies (less clean separation, harder to reason about)"
+    },
+    {
+      "id": "AD-3",
+      "decision": "Use Calico CNI, replacing k3s default Flannel",
+      "rationale": "Flannel does NOT support NetworkPolicies, which are required for agent isolation. Calico is mature, well-documented for k3s, supports both standard k8s NetworkPolicies and Calico-specific GlobalNetworkPolicies. Install via: k3s --flannel-backend=none --disable-network-policy + Calico manifest.",
+      "alternatives_considered": "Cilium (more features but heavier, eBPF requirement may cause issues on some hosts), Flannel + kube-router (less mature NetworkPolicy support)"
+    },
+    {
+      "id": "AD-4",
+      "decision": "Use PVCs with k3s local-path provisioner for persistent storage",
+      "rationale": "Standard k8s abstraction, works out of box with k3s. StorageClass swap for GKE later. Covers state volume and certs volume.",
+      "alternatives_considered": "HostPath volumes (not portable, no lifecycle management), NFS (extra infrastructure)"
+    },
+    {
+      "id": "AD-5",
+      "decision": "Agent containers as k8s Jobs (not Pods or Deployments)",
+      "rationale": "Jobs are the correct primitive — agents run to completion, exit codes matter for lifecycle management. activeDeadlineSeconds replaces current timeout mechanism. backoffLimit: 0 prevents unwanted restarts (orchestrator manages retries).",
+      "alternatives_considered": "Bare Pods (no completion tracking), Deployments (wrong semantic — agents are not long-running services)"
+    },
+    {
+      "id": "AD-6",
+      "decision": "Remove IP-based session binding, use token-only auth",
+      "rationale": "Pod IPs are ephemeral and unpredictable in k8s. The existing session token mechanism is sufficient for authentication. IP binding was defense-in-depth but adds complexity without k8s-native IP guarantees.",
+      "alternatives_considered": "mTLS with per-pod certificates (more secure but significant complexity), Pod identity via ServiceAccount tokens (ties auth to k8s infra)"
+    },
+    {
+      "id": "AD-7",
+      "decision": "Use k3s local image import (k3s ctr images import) for local dev",
+      "rationale": "No remote registry needed for local development. Images are built locally and imported directly into k3s. GHCR integration deferred to GKE work.",
+      "alternatives_considered": "Local registry (extra infrastructure), k3d with registry (adds wrapper complexity)"
+    },
+    {
+      "id": "AD-8",
+      "decision": "Define ContainerBackend protocol even for single k8s implementation",
+      "rationale": "Enables clean unit testing with mock backends. Provides clear interface contract. Leaves door open for future backends without dual-backend maintenance burden.",
+      "alternatives_considered": "Direct kubernetes-client usage without protocol (harder to test, tighter coupling)"
+    },
+    {
+      "id": "AD-9",
+      "decision": "Use kubernetes Python client (official) for k8s API interactions",
+      "rationale": "Official, well-maintained, full API coverage. BatchV1Api for Job creation, CoreV1Api for Pod/Service operations, NetworkingV1Api for NetworkPolicy. In-cluster config via ServiceAccount.",
+      "alternatives_considered": "kr8s (lighter but less mature), subprocess kubectl calls (fragile, harder to test)"
+    },
+    {
+      "id": "AD-10",
+      "decision": "Worktree storage via ReadWriteMany PVC shared between gateway and agent pods",
+      "rationale": "Gateway creates per-agent worktrees that agent pods must access. This requires ReadWriteMany (RWX) access mode. k3s local-path provisioner supports this for single-node. Multi-node requires NFS or similar (deferred to GKE work).",
+      "alternatives_considered": "InitContainer that creates worktrees inside the pod (breaks gateway-managed worktree model), hostPath with nodeAffinity (not portable)"
+    },
+    {
+      "id": "AD-11",
+      "decision": "Use jupyterhub/action-k3s-helm GitHub Action for CI",
+      "rationale": "Purpose-built for k3s + Calico in GitHub Actions. Handles k3s installation with Calico CNI and NetworkPolicy support. Well-maintained and widely used.",
+      "alternatives_considered": "Manual k3s install script in CI (more maintenance), k3d-action (adds docker wrapper layer), nolar/setup-k3d-k3s (less Calico support)"
+    },
+    {
+      "id": "AD-12",
+      "decision": "No resource limits initially — match current Docker behavior",
+      "rationale": "Current Docker setup has no resource limits on pipeline agents. Adding limits is a separate concern for GKE deployment.",
+      "alternatives_considered": "Default resource requests/limits (could cause scheduling failures on small dev machines)"
+    },
+    {
+      "id": "AD-13",
+      "decision": "Gateway dual-network replaced by single k8s Service with NetworkPolicy enforcement",
+      "rationale": "In k8s, the dual-network model maps to: (1) Default-deny egress in egg-agents namespace, (2) Allow egress only to gateway Service on ports 9848/3129, (3) Gateway has unrestricted egress for internet access via Squid. This achieves equivalent isolation without dual networks.",
+      "alternatives_considered": "Multus CNI for actual dual-network (unnecessary complexity in k8s), Istio service mesh (overkill for this use case)"
+    }
+  ],
+
+  "implementation_plan": {
+    "summary": "Seven-phase implementation replacing Docker infrastructure with Kubernetes equivalents. Phases are ordered by dependency: protocol definition first, then core k8s client/spawner, manifests, network policies, storage, CLI/sandbox updates, and finally CI/test migration.",
+    "phases": [
+      {
+        "id": "phase-1",
+        "name": "ContainerBackend Protocol and Data Models",
+        "goal": "Define the clean protocol interface that KubernetesClient will implement, and adapt existing data models for k8s.",
+        "tasks": [
+          {
+            "id": "TASK-1-1",
+            "description": "Define ContainerBackend Protocol with methods: create_container, start_container, stop_container, remove_container, get_container_info, list_containers, get_container_logs, wait_for_container, cleanup_orphaned_containers, is_connected",
+            "acceptance": "Protocol class defined with full type annotations. All DockerClient public methods represented.",
+            "files": ["orchestrator/container_backend.py"]
+          },
+          {
+            "id": "TASK-1-2",
+            "description": "Define SpawnerBackend Protocol with methods: spawn_agent_job, stop_agent, remove_agent, list_pipeline_agents, cleanup_pipeline, detect_uncommitted_changes, spawn_overseer, create_concurrent_spawn_fn",
+            "acceptance": "Protocol class defined. All ContainerSpawner public methods represented with k8s-appropriate naming.",
+            "files": ["orchestrator/spawner_backend.py"]
+          },
+          {
+            "id": "TASK-1-3",
+            "description": "Extend ContainerInfo and ContainerStatus models to support k8s Pod/Job metadata (pod_name, job_name, namespace, node_name) while maintaining backward compatibility",
+            "acceptance": "Models support both Docker and k8s metadata. Existing serialization unchanged.",
+            "files": ["orchestrator/models.py"]
+          },
+          {
+            "id": "TASK-1-4",
+            "description": "Add to_k8s_job_spec() adapter function to shared/egg_container/ that converts SandboxContainerConfig to a k8s Job spec dict",
+            "acceptance": "Function converts all SandboxContainerConfig fields to k8s equivalents. Unit tests verify mapping.",
+            "files": ["shared/egg_container/__init__.py"]
+          }
+        ],
+        "dependencies": []
+      },
+      {
+        "id": "phase-2",
+        "name": "KubernetesClient and KubernetesSpawner",
+        "goal": "Implement the core k8s container management classes that replace DockerClient and ContainerSpawner.",
+        "tasks": [
+          {
+            "id": "TASK-2-1",
+            "description": "Implement KubernetesClient implementing ContainerBackend protocol. Use kubernetes Python client (BatchV1Api for Jobs, CoreV1Api for Pods). In-cluster config via ServiceAccount. Label-based listing (same labels as Docker: egg.pipeline.id, egg.agent.role, etc.).",
+            "acceptance": "All ContainerBackend methods implemented. Container CRUD operations work against k8s API. Label filtering returns correct results.",
+            "files": ["orchestrator/kubernetes_client.py"]
+          },
+          {
+            "id": "TASK-2-2",
+            "description": "Implement KubernetesSpawner implementing SpawnerBackend protocol. Creates k8s Jobs with: correct env vars (30+), volume mounts (worktrees, .git shadows, certs, phase-readonly), labels, backoffLimit: 0, activeDeadlineSeconds. Gateway session registration/cleanup preserved.",
+            "acceptance": "spawn_agent_job creates a valid k8s Job that an agent can execute in. All environment variables injected. Gateway session lifecycle preserved.",
+            "files": ["orchestrator/kubernetes_spawner.py"]
+          },
+          {
+            "id": "TASK-2-3",
+            "description": "Implement KubernetesMonitor replacing ContainerMonitor. Use k8s Watch API (watch.Watch on Jobs/Pods) instead of polling. Map Pod phases to ContainerStatus enum. Preserve EventHandler callback interface.",
+            "acceptance": "Monitor detects Job/Pod state changes and emits same events as ContainerMonitor. Reconciliation loop works with k8s state.",
+            "files": ["orchestrator/kubernetes_monitor.py"]
+          },
+          {
+            "id": "TASK-2-4",
+            "description": "Update get_docker_client() and get_container_spawner() singletons to return KubernetesClient and KubernetesSpawner respectively. Remove Docker SDK dependency from orchestrator requirements.",
+            "acceptance": "Orchestrator uses k8s client exclusively. docker-py removed from dependencies.",
+            "files": ["orchestrator/docker_client.py", "orchestrator/container_spawner.py", "orchestrator/container_monitor.py", "orchestrator/requirements.txt"]
+          }
+        ],
+        "dependencies": ["phase-1"]
+      },
+      {
+        "id": "phase-3",
+        "name": "Kustomize Manifests",
+        "goal": "Create k8s manifests for all services (gateway, orchestrator) and the agent Job template.",
+        "tasks": [
+          {
+            "id": "TASK-3-1",
+            "description": "Create k8s/base/ directory with: gateway Deployment + Service (ports 9848, 3129), orchestrator Deployment + Service (ports 9849, 9850), Namespace definitions (egg-system, egg-agents), ServiceAccount + RBAC for orchestrator (Job create/delete/get/list/watch in egg-agents namespace)",
+            "acceptance": "kubectl apply -k k8s/base/ creates all resources. Gateway and orchestrator pods start and pass health checks.",
+            "files": ["k8s/base/kustomization.yaml", "k8s/base/gateway-deployment.yaml", "k8s/base/gateway-service.yaml", "k8s/base/orchestrator-deployment.yaml", "k8s/base/orchestrator-service.yaml", "k8s/base/namespaces.yaml", "k8s/base/rbac.yaml"]
+          },
+          {
+            "id": "TASK-3-2",
+            "description": "Create agent Job template in k8s/base/ that KubernetesSpawner uses as a base for dynamic Job creation. Include: container spec with resource placeholders, volume mount templates, label templates, restartPolicy: Never, backoffLimit: 0",
+            "acceptance": "Template can be loaded and customized by KubernetesSpawner for each agent.",
+            "files": ["k8s/base/agent-job-template.yaml"]
+          },
+          {
+            "id": "TASK-3-3",
+            "description": "Create k8s/overlays/local/ with k3s-specific patches: local-path StorageClass, node tolerations, image pull policy IfNotPresent (for locally imported images)",
+            "acceptance": "kubectl apply -k k8s/overlays/local/ works on a k3s cluster.",
+            "files": ["k8s/overlays/local/kustomization.yaml", "k8s/overlays/local/patches/"]
+          }
+        ],
+        "dependencies": ["phase-1"]
+      },
+      {
+        "id": "phase-4",
+        "name": "Network Policies and Security",
+        "goal": "Implement Calico-enforced network isolation equivalent to the current Docker dual-network model.",
+        "tasks": [
+          {
+            "id": "TASK-4-1",
+            "description": "Create NetworkPolicy: default-deny-all in egg-agents namespace. Denies all ingress and all egress by default.",
+            "acceptance": "Pods in egg-agents cannot communicate with anything by default.",
+            "files": ["k8s/base/network-policies/default-deny.yaml"]
+          },
+          {
+            "id": "TASK-4-2",
+            "description": "Create NetworkPolicy: allow-gateway-egress in egg-agents namespace. Allows egress only to gateway Service in egg-system on ports 9848 (API) and 3129 (Squid proxy). Allows DNS egress to kube-system for service discovery.",
+            "acceptance": "Agent pods can reach gateway but nothing else. DNS resolution works for gateway service name.",
+            "files": ["k8s/base/network-policies/allow-gateway-egress.yaml"]
+          },
+          {
+            "id": "TASK-4-3",
+            "description": "Create NetworkPolicy: allow-orchestrator-to-agents in egg-agents namespace. Allows ingress from orchestrator pods (for log retrieval and health checks).",
+            "acceptance": "Orchestrator can query agent pod status and logs.",
+            "files": ["k8s/base/network-policies/allow-orchestrator-ingress.yaml"]
+          },
+          {
+            "id": "TASK-4-4",
+            "description": "Update gateway auth to remove IP-based session validation. Session token becomes sole authentication factor for sandbox requests.",
+            "acceptance": "Gateway validates session tokens without checking source IP. All existing auth tests updated.",
+            "files": ["gateway/auth.py", "gateway/session_manager.py", "gateway/tests/"]
+          },
+          {
+            "id": "TASK-4-5",
+            "description": "Create Calico installation script and Makefile target (make calico-install) for k3s clusters",
+            "acceptance": "Script installs Calico on a k3s cluster with --flannel-backend=none.",
+            "files": ["scripts/install-calico.sh", "Makefile"]
+          }
+        ],
+        "dependencies": ["phase-3"]
+      },
+      {
+        "id": "phase-5",
+        "name": "Storage Migration",
+        "goal": "Replace Docker named volumes and bind mounts with k8s PVCs and volume mounts.",
+        "tasks": [
+          {
+            "id": "TASK-5-1",
+            "description": "Create PVC definitions: egg-state (ReadWriteMany, for gateway + orchestrator shared state), egg-certs (ReadWriteMany, for CA certificates), egg-worktrees (ReadWriteMany, for per-agent worktrees shared between gateway and agent pods)",
+            "acceptance": "PVCs are created and can be mounted by multiple pods simultaneously.",
+            "files": ["k8s/base/pvcs.yaml"]
+          },
+          {
+            "id": "TASK-5-2",
+            "description": "Update KubernetesSpawner to mount PVCs in agent Jobs: worktree PVC with per-agent subPath, certs PVC as readonly, .git shadow mounts as emptyDir with initContainer setup",
+            "acceptance": "Agent pods have correct filesystem layout matching current Docker mounts.",
+            "files": ["orchestrator/kubernetes_spawner.py"]
+          },
+          {
+            "id": "TASK-5-3",
+            "description": "Update gateway and orchestrator Deployment manifests to mount PVCs for state and certs volumes",
+            "acceptance": "Gateway and orchestrator can read/write shared state and certificates.",
+            "files": ["k8s/base/gateway-deployment.yaml", "k8s/base/orchestrator-deployment.yaml"]
+          }
+        ],
+        "dependencies": ["phase-3"]
+      },
+      {
+        "id": "phase-6",
+        "name": "CLI, Sandbox, and Integration Updates",
+        "goal": "Update the egg CLI, sandbox runtime, and integration points to work with k8s instead of Docker.",
+        "tasks": [
+          {
+            "id": "TASK-6-1",
+            "description": "Update sandbox/egg_lib/runtime.py: replace docker run subprocess calls with kubectl run or k8s Job creation. Remove IP pre-allocation logic (k8s handles this). Preserve session/worktree lifecycle.",
+            "acceptance": "egg CLI can launch interactive sessions via k8s. Session lifecycle works correctly.",
+            "files": ["sandbox/egg_lib/runtime.py"]
+          },
+          {
+            "id": "TASK-6-2",
+            "description": "Update orchestrator/routes/containers.py: replace DockerClient calls with KubernetesClient. Map REST API responses to same ContainerInfo format.",
+            "acceptance": "Container REST API returns same response shape. All existing API consumers work.",
+            "files": ["orchestrator/routes/containers.py"]
+          },
+          {
+            "id": "TASK-6-3",
+            "description": "Update orchestrator/routes/pipelines.py: replace ContainerSpawner calls with KubernetesSpawner. Overseer spawning uses k8s Jobs.",
+            "acceptance": "Pipeline phase execution creates k8s Jobs. Overseer runs as a k8s Job.",
+            "files": ["orchestrator/routes/pipelines.py"]
+          },
+          {
+            "id": "TASK-6-4",
+            "description": "Update concurrent_executor.py: spawn_fn creates k8s Jobs. Thread pool still used for parallel submission. Failure detection uses Job status instead of container exit.",
+            "acceptance": "Concurrent phase execution spawns multiple k8s Jobs. Failure handling works correctly.",
+            "files": ["orchestrator/concurrent_executor.py"]
+          },
+          {
+            "id": "TASK-6-5",
+            "description": "Update shared/egg_container/__init__.py: add to_k8s_job_spec() alongside existing to_dockerpy_kwargs(). Mark Docker-specific functions as deprecated.",
+            "acceptance": "SandboxContainerConfig can be converted to k8s Job spec. Docker adapters marked deprecated.",
+            "files": ["shared/egg_container/__init__.py"]
+          },
+          {
+            "id": "TASK-6-6",
+            "description": "Update shared/egg_config/constants.py: replace Docker network names and IPs with k8s namespace and service names. Add k8s-specific constants (namespace names, service names, label keys).",
+            "acceptance": "Constants reflect k8s naming. No Docker network references remain.",
+            "files": ["shared/egg_config/constants.py"]
+          },
+          {
+            "id": "TASK-6-7",
+            "description": "Create make k3s-setup target: installs k3s with --flannel-backend=none --disable-network-policy, installs Calico, creates namespaces, builds and imports images via k3s ctr images import",
+            "acceptance": "make k3s-setup on a fresh machine produces a working k3s cluster with egg deployed.",
+            "files": ["Makefile", "scripts/k3s-setup.sh"]
+          },
+          {
+            "id": "TASK-6-8",
+            "description": "Remove Docker Compose files and Docker SDK dependencies: docker-compose.yml, docker-compose.override.yml, docker-py from requirements",
+            "acceptance": "No Docker Compose files remain. docker-py is not a dependency.",
+            "files": ["docker-compose.yml", "docker-compose.override.yml", "orchestrator/requirements.txt", "shared/requirements.txt"]
+          }
+        ],
+        "dependencies": ["phase-2", "phase-4", "phase-5"]
+      },
+      {
+        "id": "phase-7",
+        "name": "Test and CI Migration",
+        "goal": "Migrate all tests and CI workflows to use k3s instead of Docker.",
+        "tasks": [
+          {
+            "id": "TASK-7-1",
+            "description": "Rewrite orchestrator unit tests: test_docker_client.py → test_kubernetes_client.py, test_container_spawner.py → test_kubernetes_spawner.py, test_container_monitor.py → test_kubernetes_monitor.py. Mock kubernetes Python client.",
+            "acceptance": "All unit tests pass with mocked k8s client. Coverage matches or exceeds Docker test coverage.",
+            "files": ["orchestrator/tests/test_kubernetes_client.py", "orchestrator/tests/test_kubernetes_spawner.py", "orchestrator/tests/test_kubernetes_monitor.py"]
+          },
+          {
+            "id": "TASK-7-2",
+            "description": "Migrate integration tests: replace integration_tests/docker-compose.yml with k8s test manifests. Use k3s for integration test environment. Update test_network_isolation.py, test_network_security.py, test_per_agent_enforcement.py to verify NetworkPolicy enforcement.",
+            "acceptance": "Integration tests run on k3s and verify network isolation, security, and per-agent enforcement.",
+            "files": ["integration_tests/k8s/", "integration_tests/test_network_isolation.py", "integration_tests/test_network_security.py", "integration_tests/test_per_agent_enforcement.py"]
+          },
+          {
+            "id": "TASK-7-3",
+            "description": "Migrate local pipeline tests: replace integration_tests/local_pipeline/docker-compose.yml with k8s-based test infrastructure. Mock sandbox as k8s Job.",
+            "acceptance": "Local pipeline tests run on k3s. Full pipeline lifecycle verified.",
+            "files": ["integration_tests/local_pipeline/"]
+          },
+          {
+            "id": "TASK-7-4",
+            "description": "Update GitHub Actions CI workflows: use jupyterhub/action-k3s-helm for k3s + Calico setup. Replace docker build/compose steps with k3s image import. Update test execution to run on k3s.",
+            "acceptance": "CI runs on k3s. All tests pass in GitHub Actions.",
+            "files": [".github/workflows/"]
+          },
+          {
+            "id": "TASK-7-5",
+            "description": "Remove old Docker test files: integration_tests/docker-compose.yml, integration_tests/local_pipeline/docker-compose.yml, orchestrator/tests/test_docker_client.py, orchestrator/tests/test_container_spawner.py",
+            "acceptance": "No Docker-specific test files remain.",
+            "files": ["integration_tests/docker-compose.yml", "integration_tests/local_pipeline/docker-compose.yml", "orchestrator/tests/test_docker_client.py", "orchestrator/tests/test_container_spawner.py"]
+          }
+        ],
+        "dependencies": ["phase-6"]
+      }
+    ]
+  },
+
+  "files_modified": [
+    {"file": "orchestrator/container_backend.py", "phase": "phase-1", "change": "NEW — ContainerBackend protocol definition"},
+    {"file": "orchestrator/spawner_backend.py", "phase": "phase-1", "change": "NEW — SpawnerBackend protocol definition"},
+    {"file": "orchestrator/models.py", "phase": "phase-1", "change": "Extend ContainerInfo/ContainerStatus for k8s metadata"},
+    {"file": "shared/egg_container/__init__.py", "phase": "phase-1, phase-6", "change": "Add to_k8s_job_spec() adapter, deprecate Docker adapters"},
+    {"file": "orchestrator/kubernetes_client.py", "phase": "phase-2", "change": "NEW — KubernetesClient implementing ContainerBackend"},
+    {"file": "orchestrator/kubernetes_spawner.py", "phase": "phase-2, phase-5", "change": "NEW — KubernetesSpawner implementing SpawnerBackend"},
+    {"file": "orchestrator/kubernetes_monitor.py", "phase": "phase-2", "change": "NEW — KubernetesMonitor using Watch API"},
+    {"file": "orchestrator/docker_client.py", "phase": "phase-2", "change": "REMOVE — replaced by kubernetes_client.py"},
+    {"file": "orchestrator/container_spawner.py", "phase": "phase-2", "change": "REMOVE — replaced by kubernetes_spawner.py"},
+    {"file": "orchestrator/container_monitor.py", "phase": "phase-2", "change": "REMOVE — replaced by kubernetes_monitor.py"},
+    {"file": "k8s/base/", "phase": "phase-3", "change": "NEW — Kustomize base manifests (gateway, orchestrator, agent Job template, namespaces, RBAC)"},
+    {"file": "k8s/overlays/local/", "phase": "phase-3", "change": "NEW — k3s-specific overlay patches"},
+    {"file": "k8s/base/network-policies/", "phase": "phase-4", "change": "NEW — NetworkPolicy manifests (default-deny, gateway-egress, orchestrator-ingress)"},
+    {"file": "gateway/auth.py", "phase": "phase-4", "change": "Remove IP-based session validation"},
+    {"file": "gateway/session_manager.py", "phase": "phase-4", "change": "Remove container_ip binding from session lifecycle"},
+    {"file": "scripts/install-calico.sh", "phase": "phase-4", "change": "NEW — Calico installation script for k3s"},
+    {"file": "k8s/base/pvcs.yaml", "phase": "phase-5", "change": "NEW — PVC definitions for state, certs, worktrees"},
+    {"file": "sandbox/egg_lib/runtime.py", "phase": "phase-6", "change": "Replace docker run with kubectl/k8s Job creation"},
+    {"file": "orchestrator/routes/containers.py", "phase": "phase-6", "change": "Replace DockerClient with KubernetesClient"},
+    {"file": "orchestrator/routes/pipelines.py", "phase": "phase-6", "change": "Replace ContainerSpawner with KubernetesSpawner"},
+    {"file": "orchestrator/concurrent_executor.py", "phase": "phase-6", "change": "Update spawn_fn for k8s Jobs"},
+    {"file": "shared/egg_config/constants.py", "phase": "phase-6", "change": "Replace Docker network constants with k8s namespace/service names"},
+    {"file": "docker-compose.yml", "phase": "phase-6", "change": "REMOVE"},
+    {"file": "docker-compose.override.yml", "phase": "phase-6", "change": "REMOVE"},
+    {"file": "Makefile", "phase": "phase-6", "change": "Add k3s-setup, deploy, calico-install targets. Remove docker-compose targets."},
+    {"file": "scripts/k3s-setup.sh", "phase": "phase-6", "change": "NEW — k3s installation and setup script"},
+    {"file": ".github/workflows/", "phase": "phase-7", "change": "Update CI to use k3s via jupyterhub/action-k3s-helm"},
+    {"file": "integration_tests/", "phase": "phase-7", "change": "Replace docker-compose test infra with k8s manifests"},
+    {"file": "orchestrator/tests/", "phase": "phase-7", "change": "Rewrite unit tests for k8s client/spawner/monitor"}
+  ],
+
+  "no_changes_needed": [
+    {"component": "Gateway core logic (git proxy, domain filtering, Squid proxy)", "reason": "Gateway's core functionality is HTTP-based and container-runtime agnostic. Only auth/session changes needed."},
+    {"component": "Shared prompts and agent configuration", "reason": "Agent prompts, slash commands, and CLAUDE.md are runtime-agnostic."},
+    {"component": "SDLC contract system (egg-contract)", "reason": "Contract management is file-based and runtime-agnostic."},
+    {"component": "Orchestrator CLI (egg-orch)", "reason": "CLI communicates via HTTP to orchestrator API, not directly with containers."},
+    {"component": "Checkpoint browser (egg-checkpoint)", "reason": "Reads from git branches, no container dependency."},
+    {"component": "Health check framework logic", "reason": "Health checks consume ContainerInfo/status — protocol-level abstraction handles this."},
+    {"component": "Message bus and consensus system", "reason": "Redis-based inter-agent communication, no container dependency."},
+    {"component": "Sandbox Dockerfile", "reason": "Container image build is unchanged — only how it's deployed changes."},
+    {"component": "Gateway Dockerfile", "reason": "Image build unchanged."},
+    {"component": "Orchestrator Dockerfile", "reason": "Image build unchanged (remove Docker socket mount from compose, but Dockerfile itself unchanged)."}
+  ],
+
+  "risks": [
+    {
+      "id": "R-1",
+      "title": "ReadWriteMany PVC not supported by k3s local-path provisioner",
+      "likelihood": "HIGH",
+      "impact": "HIGH",
+      "description": "k3s default local-path provisioner only supports ReadWriteOnce. Worktree sharing between gateway pod and agent pods requires RWX. On single-node k3s this works because all pods are on the same node, but the PVC access mode may be rejected.",
+      "mitigation": "Use hostPath volumes for local k3s (single-node guaranteed). Define PVCs with RWX access mode for future GKE/NFS migration. Alternatively, use NFS provisioner even for local dev (nfs-subdir-external-provisioner).",
+      "status": "IDENTIFIED"
+    },
+    {
+      "id": "R-2",
+      "title": "Calico CNI instability on k3s",
+      "likelihood": "LOW",
+      "impact": "HIGH",
+      "description": "Calico replaces k3s's default Flannel. Misconfiguration can leave cluster without any networking. Pod CIDR mismatch between k3s and Calico causes all pods to fail.",
+      "mitigation": "Script the installation with verified Calico version (v3.27.0+). Include pod CIDR verification step. Provide make k3s-reset target for recovery. Test on multiple OS versions in CI.",
+      "status": "MITIGATED"
+    },
+    {
+      "id": "R-3",
+      "title": "IP-based auth removal weakens defense-in-depth",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "Current Docker model validates both session token AND source IP. Removing IP validation means a stolen token has no additional barrier.",
+      "mitigation": "NetworkPolicies prevent cross-namespace traffic, limiting token theft surface. Session tokens are 256-bit random. Add token rotation (short TTL with refresh). Consider mTLS as future enhancement.",
+      "status": "MITIGATED"
+    },
+    {
+      "id": "R-4",
+      "title": "Big-bang migration risk — no rollback to Docker",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "Full cutover means if k8s migration has issues, there's no quick fallback to Docker. All tests must pass before merge.",
+      "mitigation": "Keep Docker files on main branch until k8s PR is fully validated. Comprehensive test coverage in the PR. Manual testing checklist for full pipeline lifecycle. Feature branch allows reverting the entire PR.",
+      "status": "MITIGATED"
+    },
+    {
+      "id": "R-5",
+      "title": "k3s not available on all developer machines",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "description": "k3s is Linux-only. macOS/Windows developers need alternative (k3d, kind, or VM).",
+      "mitigation": "egg is primarily pipeline-driven in Docker/k8s environments. Interactive development already happens inside containers. Document k3d as macOS/Windows alternative in setup guide.",
+      "status": "IDENTIFIED"
+    },
+    {
+      "id": "R-6",
+      "title": "Job cleanup race conditions",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "k8s Jobs and their Pods have different lifecycles. Deleting a Job may leave orphaned Pods. Pod termination during log retrieval can lose final output.",
+      "mitigation": "Use propagationPolicy: Foreground when deleting Jobs (waits for Pod deletion). Buffer logs before Job deletion. TTLSecondsAfterFinished on Jobs for automatic cleanup of completed Jobs.",
+      "status": "MITIGATED"
+    },
+    {
+      "id": "R-7",
+      "title": "GitHub Actions k3s setup time impacts CI performance",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "description": "k3s + Calico installation in CI adds 20-40 seconds to pipeline startup. Current Docker setup has near-zero overhead.",
+      "mitigation": "Cache k3s binary and Calico images in GitHub Actions cache. jupyterhub/action-k3s-helm is optimized for CI. Acceptable tradeoff for production parity.",
+      "status": "MITIGATED"
+    }
+  ],
+
+  "backward_compatibility": {
+    "strategy": "Complete cutover — no backward compatibility with Docker deployment. This is intentional per issue requirements.",
+    "recommendation": "Docker Compose files should remain on main until the k8s PR is fully validated and merged. The PR itself removes Docker artifacts.",
+    "applies_to": ["docker-compose.yml", "docker-compose.override.yml", "orchestrator/docker_client.py", "orchestrator/container_spawner.py", "orchestrator/container_monitor.py"]
+  },
+
+  "acceptance_criteria": [
+    "make k3s-setup on a fresh machine produces a working k3s cluster with Calico CNI",
+    "make deploy deploys gateway and orchestrator to k3s cluster",
+    "Full SDLC pipeline (plan → implement → review) executes successfully on k3s",
+    "Concurrent agent execution works with k8s Jobs",
+    "Network isolation verified: agent pods cannot reach internet directly, only via gateway",
+    "Agent pods cannot communicate with each other (same isolation as Docker model)",
+    "Per-agent worktree isolation works with k8s volume mounts",
+    "Phase-based readonly enforcement works in k8s",
+    "Gateway session lifecycle (register, validate, cleanup) works without IP binding",
+    "Container REST API returns same response format",
+    "All unit tests pass with mocked k8s client",
+    "Integration tests pass on k3s (network isolation, security, per-agent enforcement)",
+    "CI pipeline runs on k3s via GitHub Actions",
+    "No Docker Compose files or docker-py dependencies remain",
+    "egg CLI can launch interactive sessions via k8s"
+  ],
+
+  "scope": {
+    "production_code_files": 18,
+    "test_files": 8,
+    "integration_test_files": 5,
+    "manifest_files": 15,
+    "script_files": 3,
+    "documentation_files": 2,
+    "total_files": 51,
+    "complexity": "high",
+    "note": "This is the largest architectural change in the project's history. 7 implementation phases with dependencies. Estimated 3000+ lines of new code, 2000+ lines removed."
+  },
+
+  "revision_changelog": [
+    {
+      "revision": 1,
+      "changes": [
+        "Initial architecture analysis for Docker-to-Kubernetes migration",
+        "Defined 13 architecture decisions aligned with issue requirements",
+        "7-phase implementation plan with task breakdown",
+        "Identified 7 risks with mitigations",
+        "Documented all affected files and integration points"
+      ]
+    }
+  ]
+}

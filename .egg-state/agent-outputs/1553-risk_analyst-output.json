@@ -1,0 +1,382 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1553,
+    "title": "migrate to kubernetes",
+    "url": "https://github.com/jwbron/egg/issues/1553"
+  },
+  "pipeline_id": "issue-1553-v2",
+  "agent_role": "risk_analyst",
+  "phase": "plan",
+  "overall_risk_level": "HIGH",
+  "summary": "This migration replaces the entire container lifecycle infrastructure (~4,000+ lines of Docker code) with Kubernetes equivalents. The change is high-risk due to: (1) security-critical network isolation that must be faithfully replicated, (2) complex storage/worktree patterns that rely on Docker-specific primitives, (3) no rollback path after merge (Option A full cutover), and (4) broad blast radius across CI, CLI, tests, and deployment. The risks are manageable with proper phasing, but several areas require human review before implementation begins.",
+
+  "risks": [
+    {
+      "id": "RISK-001",
+      "title": "Network isolation regression — agent sandbox escape",
+      "category": "security",
+      "severity": "CRITICAL",
+      "likelihood": "MEDIUM",
+      "impact": "CRITICAL",
+      "description": "The current Docker network model enforces fail-closed isolation: the `egg-isolated` network uses Docker's `internal: true` flag, physically preventing containers from reaching the internet. DNS is locked to 0.0.0.0 for private-mode agents. All traffic must route through gateway's Squid proxy. The k8s replacement uses Calico NetworkPolicies, which are a software-level enforcement mechanism — misconfigurations silently fail open. A single missing or misconfigured NetworkPolicy could allow agent pods to bypass the gateway and reach the internet directly, breaking the entire security model.",
+      "affected_files": [
+        "orchestrator/container_spawner.py (lines 404-419, network attachment)",
+        "shared/egg_container/__init__.py (lines 336-349, proxy/DNS lockdown)",
+        "docker-compose.yml (lines 177-198, network definitions)",
+        "integration_tests/test_network_isolation.py (434 lines of isolation tests)"
+      ],
+      "mitigation": [
+        "Implement default-deny ingress AND egress NetworkPolicies in egg-agents namespace before deploying any agent pods",
+        "Add explicit egress whitelist: agents can ONLY reach the gateway Service on specific ports (9848, 3129)",
+        "Port the full integration_tests/test_network_isolation.py suite to k8s — these tests MUST pass before merge",
+        "Add a 'canary' integration test that spawns an agent pod and verifies it CANNOT reach an external endpoint (e.g., httpbin.org)",
+        "Document the NetworkPolicy manifests with comments explaining the security model they enforce",
+        "Consider adding a Calico GlobalNetworkPolicy as a backstop that denies all egress from the egg-agents namespace to any IP outside the cluster"
+      ],
+      "rollback_plan": "If network isolation is broken post-deploy, immediately delete all agent Jobs in egg-agents namespace (`kubectl delete jobs -n egg-agents --all`). Apply emergency default-deny NetworkPolicy. No data is at risk — agents only have access to repo worktrees.",
+      "requires_human_review": true,
+      "human_review_reason": "Security-critical change. The network isolation model is the primary defense against agent sandbox escape. A security engineer should review the NetworkPolicy manifests and validate they enforce equivalent isolation to the Docker model."
+    },
+    {
+      "id": "RISK-002",
+      "title": "Calico CNI installation and compatibility with k3s",
+      "category": "compatibility",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "k3s ships with Flannel as default CNI, which does NOT support NetworkPolicies. The migration requires installing k3s with `--flannel-backend=none --disable-network-policy` and then installing Calico separately. This is a well-documented but non-trivial setup. Known issues include: (1) dual-stack IPv6 DNS resolution failures with Calico on k3s (k3s-io/k3s#5743), (2) cross-node service access issues after applying NetworkPolicies in multi-node clusters (projectcalico/calico#4919), (3) Calico must be installed before any pods are scheduled — ordering matters. Additionally, Calico adds operational complexity (Felix agent, BIRD BGP daemon, etcd or KDD datastore).",
+      "affected_files": [
+        "New: k8s/base/ Calico manifests",
+        "New: Makefile k3s-setup target",
+        "New: scripts/k3s-setup.sh or equivalent"
+      ],
+      "mitigation": [
+        "Pin Calico to a specific tested version (e.g., v3.27.x) — do not use 'latest'",
+        "Create an automated `make k3s-setup` target that handles the full sequence: k3s install with correct flags, Calico apply, readiness wait",
+        "Add a smoke test that verifies NetworkPolicies are enforced before proceeding (`kubectl apply` a test deny-all policy, verify a test pod cannot egress)",
+        "Document the exact k3s + Calico versions tested and any known incompatibilities",
+        "Consider Cilium as an alternative CNI — it also supports NetworkPolicies and has better eBPF-based enforcement, but adds more complexity"
+      ],
+      "rollback_plan": "If Calico fails to install or causes networking issues, the entire k3s cluster can be destroyed and recreated (`k3s-uninstall.sh`). This is a local-only deployment, so blast radius is limited to the developer's machine.",
+      "requires_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-003",
+      "title": "Shared filesystem / worktree isolation breaks in k8s",
+      "category": "compatibility",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "HIGH",
+      "description": "The current architecture relies heavily on Docker bind mounts for worktree isolation. Gateway manages worktrees at `/home/egg/.egg-worktrees/<container_id>/<repo_name>` on the host, and agent containers mount them directly. In k8s, this requires shared filesystem access between gateway pods and agent pods. The k3s local-path-provisioner only supports ReadWriteOnce (RWO) by default — NOT ReadWriteMany (RWX). Worktree sharing requires either: hostPath volumes (not portable), NFS provisioner (added complexity), or the local-path-provisioner's `sharedFileSystemPath` option (non-standard). Additionally, the per-agent worktree lifecycle (create on spawn, detect uncommitted changes on exit, cleanup) must be replicated with k8s primitives.",
+      "affected_files": [
+        "orchestrator/container_spawner.py (lines 294-342, worktree creation/mount)",
+        "orchestrator/container_spawner.py (lines 669-711, post-exit change detection)",
+        "gateway/worktree_manager.py (lines 44-138, worktree lifecycle)",
+        "shared/egg_container/__init__.py (lines 192-252, phase-based readonly mounts)",
+        "docker-compose.yml (lines 73-79, 144-145, volume definitions)"
+      ],
+      "mitigation": [
+        "For local k3s (single-node): use hostPath volumes initially — both gateway and agent pods see the same host filesystem. This matches current Docker behavior.",
+        "Define a clear `StorageBackend` interface so the hostPath implementation can be swapped for NFS/Longhorn when moving to multi-node GKE",
+        "Replicate phase-based readonly enforcement using k8s volume mount `readOnly: true` on specific subpaths",
+        "Implement worktree lifecycle as a sidecar or init container pattern: init container requests worktree from gateway API, main container uses it, cleanup sidecar handles post-exit detection",
+        "Add integration tests that verify: (a) agent pod can read/write its worktree, (b) agent pod CANNOT access another agent's worktree, (c) readonly phase mounts are enforced"
+      ],
+      "rollback_plan": "Worktree isolation is per-pipeline. If broken, affected pipelines can be re-run. No persistent data loss — worktrees are ephemeral copies of git branches.",
+      "requires_human_review": true,
+      "human_review_reason": "The worktree sharing model is architecturally significant. The chosen approach (hostPath vs NFS vs API-based) has long-term implications for multi-node scalability. Decision 2 from the analysis should be resolved before implementation."
+    },
+    {
+      "id": "RISK-004",
+      "title": ".git shadow mount pattern not directly portable to k8s",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "MEDIUM",
+      "description": "The current sandbox uses a .git shadow mount (tmpfs overlay or /dev/null bind mount on the .git directory/file) to force all git operations through the gateway API. This prevents agents from running native git commands that bypass policy enforcement. In Docker, this is done with `tmpfs` mounts on specific paths inside the container. Kubernetes doesn't natively support overlaying tmpfs on arbitrary paths within a volume — it uses volume mounts at the pod level. The .git file (gitdir link in worktrees) is shadowed with a /dev/null bind mount (container_spawner.py), which requires `hostPath` type `CharDevice` or a custom init container.",
+      "affected_files": [
+        "shared/egg_container/__init__.py (lines 72-126, shadow mount logic)",
+        "orchestrator/container_spawner.py (lines 96-125, worktree .git shadowing)"
+      ],
+      "mitigation": [
+        "Use an init container that prepares the worktree filesystem: copy worktree contents into an emptyDir volume, replace .git with a non-functional stub, then start the main container with the prepared volume",
+        "Alternatively, mount the .git path as an emptyDir volume (which overlays the parent volume at that path), effectively hiding the real .git",
+        "Test that `git status`, `git push`, `git commit` all fail or route through gateway wrapper scripts when the shadow mount is active",
+        "Document the shadow mount k8s implementation clearly — this is a non-obvious security mechanism"
+      ],
+      "rollback_plan": "If shadow mount fails, agents gain direct git access but the gateway wrapper scripts still intercept common git commands. This is a defense-in-depth layer, not the sole control.",
+      "requires_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-005",
+      "title": "IP-based gateway session binding removal weakens auth model",
+      "category": "security",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "The current gateway binds each session token to a specific container IP address (session_manager.py lines 273-310, 649-656). This provides defense-in-depth: even if a session token leaks, it can only be used from the specific container it was issued to. The migration proposes removing IP-based binding since pod IPs are ephemeral in k8s. Moving to token-only auth means a leaked token can be used from ANY pod. The session token is passed via environment variable (EGG_SESSION_TOKEN), which is visible in k8s pod specs and potentially in logs.",
+      "affected_files": [
+        "gateway/session_manager.py (lines 273-310, session creation with IP binding)",
+        "gateway/session_manager.py (lines 649-656, constant-time IP verification)",
+        "sandbox/egg_lib/runtime.py (lines 178-269, IP allocation and session setup)"
+      ],
+      "mitigation": [
+        "Use Kubernetes Secrets (not env vars) for session tokens — prevents exposure in pod specs and `kubectl describe pod` output",
+        "Implement short-lived tokens with automatic rotation (e.g., 1-hour TTL with refresh)",
+        "Add pod identity binding: bind session tokens to the pod's ServiceAccount token or UID instead of IP. The k8s downward API can inject pod UID.",
+        "Implement session scoping: each token should only permit operations on the specific pipeline/repo/branch assigned to that agent",
+        "Add audit logging for all gateway API calls with the session token, source pod identity, and operation performed",
+        "Consider mutual TLS between agent pods and gateway for stronger authentication"
+      ],
+      "rollback_plan": "If token-based auth is compromised, invalidate all active sessions via gateway API. Gateway already supports session invalidation on cleanup.",
+      "requires_human_review": true,
+      "human_review_reason": "Security model change. Removing IP-based binding is a deliberate weakening of one authentication factor. A security engineer should validate the replacement mechanism provides equivalent or better protection."
+    },
+    {
+      "id": "RISK-006",
+      "title": "Big-bang cutover with no rollback path",
+      "category": "operational",
+      "severity": "HIGH",
+      "likelihood": "LOW",
+      "impact": "CRITICAL",
+      "description": "Option A (full cutover) removes ALL Docker code simultaneously. Once merged, there is no rollback to the Docker-based system. If critical issues are discovered post-merge (e.g., k3s doesn't work on a team member's machine, Calico causes networking issues, k8s Jobs have unexpected behavior differences from Docker containers), the team is stuck with a broken system until fixes land. The changeset is estimated at 4,000+ lines of code replaced, affecting 6+ core modules.",
+      "affected_files": [
+        "orchestrator/docker_client.py (534 lines — deleted)",
+        "orchestrator/container_spawner.py (988 lines — deleted)",
+        "orchestrator/container_monitor.py (884 lines — deleted)",
+        "docker-compose.yml (199 lines — deleted)",
+        "integration_tests/docker-compose.yml (76 lines — deleted)",
+        "integration_tests/local_pipeline/docker-compose.yml (126 lines — deleted)",
+        "sandbox/egg_lib/runtime.py (1197 lines — major refactor)"
+      ],
+      "mitigation": [
+        "Even though Option A was selected, implement the `ContainerBackend` protocol (as noted in the issue) and keep the Docker implementation in a `_deprecated/` directory or separate branch for 2-4 weeks post-merge",
+        "Create a comprehensive acceptance test suite that validates the full pipeline lifecycle (spawn → execute → monitor → cleanup) on k8s BEFORE removing Docker code",
+        "Merge in phases via stacked PRs: (1) add k8s code + ContainerBackend protocol, (2) switch default to k8s, (3) remove Docker code — this gives escape hatches between each phase",
+        "Ensure `make k3s-setup` works on all team members' environments BEFORE merging the cutover",
+        "Tag the last Docker-based commit for easy revert: `git tag docker-last-v1`"
+      ],
+      "rollback_plan": "If critical issues found immediately post-merge: `git revert` the merge commit to restore Docker code. If issues found later: `git checkout docker-last-v1` to create a hotfix branch. The stacked-PR approach (mitigation) provides cleaner rollback points.",
+      "requires_human_review": true,
+      "human_review_reason": "Migration strategy decision. The team should confirm they are comfortable with full cutover vs. a phased approach. The stacked-PR mitigation should be discussed before implementation begins."
+    },
+    {
+      "id": "RISK-007",
+      "title": "CI pipeline breakage during migration",
+      "category": "operational",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "MEDIUM",
+      "description": "GitHub Actions workflows (test-integration.yml, test-e2e.yml, release-images.yml) currently use `docker build` and `docker compose`. The migration requires k3s to be available in CI runners. GitHub Actions runners DO support k3s installation, but it adds ~60-90 seconds to workflow startup, changes the test execution model entirely, and introduces a new failure mode (k3s installation failures in CI). The release-images.yml workflow pushes to GHCR — this should remain Docker-based since image building and image runtime are independent concerns.",
+      "affected_files": [
+        ".github/workflows/test-integration.yml",
+        ".github/workflows/test-e2e.yml",
+        ".github/workflows/release-images.yml"
+      ],
+      "mitigation": [
+        "Keep release-images.yml using Docker buildx for image building — GHCR is Docker-registry-compatible regardless of runtime",
+        "Create a reusable GitHub Actions step for k3s setup (install k3s, install Calico, wait for ready) to share across workflows",
+        "Add k3s installation caching in CI to reduce setup time",
+        "Run integration tests in a dedicated k3s namespace per workflow run to prevent cross-run interference",
+        "Add a CI-specific overlay in Kustomize: `overlays/ci/` with appropriate resource limits and timeouts for GitHub Actions runners",
+        "Keep old CI workflows on a branch until new ones are validated for at least 1 week"
+      ],
+      "rollback_plan": "CI workflows are independently deployable via workflow_dispatch. Keep the old workflow files in a `ci-backup` branch. If new CI breaks, restore old workflows and revert the infrastructure PR.",
+      "requires_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-008",
+      "title": "Container monitoring behavior changes with k8s Jobs",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The current ContainerMonitor (884 lines) uses Docker events API for real-time container state changes (STARTED/STOPPED/EXITED/FAILED/UNHEALTHY) with 10-second polling as fallback. k8s Job monitoring uses the Watch API or polling via the k8s Python client, which has different semantics: pod phase transitions (Pending→Running→Succeeded/Failed), container restart events, and OOMKilled signals. The orchestrator's concurrent_executor.py relies on specific callback patterns (spawn_fn returns container_id, monitor detects exit) that must be faithfully replicated. Subtle behavior differences (e.g., k8s Job `backoffLimit` vs Docker restart policy, pod eviction vs container OOM) could cause agent lifecycle bugs.",
+      "affected_files": [
+        "orchestrator/container_monitor.py (884 lines)",
+        "orchestrator/concurrent_executor.py (457 lines, spawn_fn callbacks)"
+      ],
+      "mitigation": [
+        "Map Docker container states to k8s pod/Job states explicitly in documentation",
+        "Use k8s Watch API for real-time events (equivalent to Docker events), with polling fallback",
+        "Set `backoffLimit: 0` on all agent Jobs to prevent k8s from auto-restarting failed agents (orchestrator manages retries)",
+        "Set `activeDeadlineSeconds` to match current timeout mechanisms",
+        "Add comprehensive unit tests for the KubernetesMonitor that verify all state transition callbacks fire correctly",
+        "Test OOMKilled handling explicitly — k8s reports this differently than Docker"
+      ],
+      "rollback_plan": "Monitor issues are observable and debuggable. The ContainerBackend protocol allows swapping implementations. Monitor bugs don't cause data loss — at worst, agents need to be re-spawned.",
+      "requires_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-009",
+      "title": "Developer experience regression — k3s as new prerequisite",
+      "category": "operational",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The migration replaces Docker (ubiquitous, well-understood) with k3s as a prerequisite for local development. k3s is Linux-native — macOS and Windows users need a Linux VM (Lima, Rancher Desktop, or WSL2). This adds friction for developers. Additionally, Calico CNI installation, NetworkPolicy debugging, and k8s-specific troubleshooting (kubectl logs, describe pod, events) require different skillsets than Docker troubleshooting.",
+      "affected_files": [
+        "New: Makefile k3s-setup target",
+        "docs/ (developer setup guides)"
+      ],
+      "mitigation": [
+        "Create a comprehensive `make k3s-setup` that handles the full setup automatically (k3s install, Calico, image import, readiness check)",
+        "Add a `make k3s-status` target for diagnosing common issues",
+        "Document the setup for macOS (Lima or Rancher Desktop) and Windows (WSL2) explicitly",
+        "Add a troubleshooting guide covering common k3s/Calico issues",
+        "Consider providing a `Vagrantfile` or `lima.yaml` for macOS/Windows users"
+      ],
+      "rollback_plan": "Developer experience issues are not blocking — they can be iteratively improved post-merge.",
+      "requires_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-010",
+      "title": "kubernetes Python client — new dependency with large surface area",
+      "category": "security",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "description": "Adding the `kubernetes` Python client introduces a significant new dependency tree. The k8s Python client is maintained by the Kubernetes SIG and is generally well-maintained. No specific CVEs were found for the Python client in 2025-2026, though the broader k8s ecosystem has had critical vulnerabilities (e.g., Ingress NGINX CVE-2025-1974, runc CVE-2025-31133). The client requires RBAC configuration (ServiceAccount + ClusterRole/ClusterRoleBinding) for the orchestrator pod — over-permissioned RBAC is a common k8s security anti-pattern.",
+      "affected_files": [
+        "New: orchestrator/kubernetes_client.py",
+        "New: k8s/base/rbac.yaml",
+        "requirements.txt or pyproject.toml"
+      ],
+      "mitigation": [
+        "Pin the kubernetes Python client to a specific version and add to dependency scanning (safety/bandit)",
+        "Follow least-privilege RBAC: orchestrator ServiceAccount should only have permissions for Jobs, Pods, and Logs in the egg-agents namespace — NOT cluster-admin",
+        "Deny access to Secrets, ConfigMaps, and other sensitive resources unless explicitly needed",
+        "Add RBAC manifests to code review with a comment explaining each permission",
+        "Run `safety check` against the new dependency before merging"
+      ],
+      "rollback_plan": "Dependency can be removed if migration is reverted. RBAC roles are namespace-scoped and can be deleted with `kubectl delete`.",
+      "requires_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-011",
+      "title": "File-based locking (fcntl) incompatible with k8s multi-pod model",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "LOW",
+      "description": "The current code uses `fcntl.flock()` for IP allocation locking (runtime.py lines 216-268) to prevent concurrent IP conflicts. While this is only relevant for the CLI runtime (not pipeline-spawned agents), any code that relies on file-based locking will break if multiple orchestrator replicas are running. For the initial single-node k3s deployment this is low-impact, but it creates technical debt for multi-node scaling.",
+      "affected_files": [
+        "sandbox/egg_lib/runtime.py (lines 216-268, fcntl lock)"
+      ],
+      "mitigation": [
+        "For single-node k3s (initial target): hostPath volumes preserve file-lock semantics — this works unchanged",
+        "For future multi-node: replace fcntl locks with k8s Lease objects or ConfigMap-based optimistic locking",
+        "Document the single-node assumption in the code with a TODO for multi-node migration"
+      ],
+      "rollback_plan": "N/A — low impact for initial deployment. Address when scaling to multi-node.",
+      "requires_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-012",
+      "title": "Integration test rewrite scope and coverage gap risk",
+      "category": "quality",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "The integration test suite includes critical security tests (test_network_isolation.py — 434 lines, test_network_security.py — 95 lines) and pipeline lifecycle tests that use docker-compose and `docker exec`. These tests MUST be rewritten for k8s (`kubectl exec`, k8s Job assertions). During the rewrite, there is a risk that test coverage is reduced — either by accidentally omitting test cases or by the k8s test equivalents not testing the same security properties. The local_pipeline integration tests (docker-compose.yml — 126 lines) test the full spawn→execute→cleanup lifecycle with a mock sandbox.",
+      "affected_files": [
+        "integration_tests/test_network_isolation.py (434 lines)",
+        "integration_tests/test_network_security.py (95 lines)",
+        "integration_tests/docker-compose.yml (76 lines)",
+        "integration_tests/local_pipeline/docker-compose.yml (126 lines)",
+        "integration_tests/conftest.py"
+      ],
+      "mitigation": [
+        "Create a test coverage checklist mapping every existing integration test to its k8s equivalent BEFORE starting the rewrite",
+        "Require that ALL existing test_network_isolation.py test cases have k8s equivalents before merging",
+        "Add new k8s-specific tests: NetworkPolicy enforcement, pod-to-pod isolation, namespace isolation",
+        "Run both old (Docker) and new (k8s) test suites in parallel during development to catch coverage gaps",
+        "Mark any test cases that cannot be ported with a TODO and justification"
+      ],
+      "rollback_plan": "Test infrastructure is independent of production code. Old tests can be restored from git history if needed.",
+      "requires_human_review": true,
+      "human_review_reason": "The security integration tests are critical safety nets. A reviewer should verify that the k8s test suite provides equivalent coverage to the Docker test suite, particularly for network isolation properties."
+    }
+  ],
+
+  "items_requiring_human_review": [
+    {
+      "risk_id": "RISK-001",
+      "topic": "NetworkPolicy manifests for agent sandbox isolation",
+      "reason": "Security-critical: network isolation is the primary defense against agent sandbox escape. Misconfigured NetworkPolicies fail open, not closed.",
+      "recommended_reviewer": "Security engineer or infrastructure lead"
+    },
+    {
+      "risk_id": "RISK-003",
+      "topic": "Shared filesystem approach for worktree isolation",
+      "reason": "Architectural decision with long-term implications. The open question (Decision 2 in analysis) about hostPath vs NFS vs API-based worktree access must be resolved.",
+      "recommended_reviewer": "Infrastructure architect"
+    },
+    {
+      "risk_id": "RISK-005",
+      "topic": "Gateway auth model change (IP-binding removal)",
+      "reason": "Removing IP-based session binding is a deliberate reduction in authentication factors. Replacement mechanism must provide equivalent protection.",
+      "recommended_reviewer": "Security engineer"
+    },
+    {
+      "risk_id": "RISK-006",
+      "topic": "Full cutover migration strategy vs phased approach",
+      "reason": "High-impact decision. The team should explicitly confirm comfort level with no rollback path, or agree on the stacked-PR mitigation.",
+      "recommended_reviewer": "Tech lead / team consensus"
+    },
+    {
+      "risk_id": "RISK-012",
+      "topic": "Integration test coverage parity during rewrite",
+      "reason": "Security test coverage must not regress. Explicit sign-off that k8s tests cover all Docker test scenarios.",
+      "recommended_reviewer": "QA lead or security engineer"
+    }
+  ],
+
+  "open_decisions_blocking_implementation": [
+    {
+      "id": "DECISION-RISK-1",
+      "question": "Should the migration use stacked PRs (add k8s → switch default → remove Docker) for rollback safety, or a single big-bang PR as implied by Option A?",
+      "recommendation": "Stacked PRs. The risk of a single PR with 4,000+ lines of infrastructure changes is too high. Even within Option A (full cutover), the implementation can be phased across PRs.",
+      "impact_if_deferred": "If deferred and a single PR is used, any issues post-merge require full revert of all changes."
+    },
+    {
+      "id": "DECISION-RISK-2",
+      "question": "What replaces IP-based session binding for defense-in-depth authentication?",
+      "recommendation": "Kubernetes pod UID binding via downward API + short-lived rotating tokens stored in k8s Secrets.",
+      "impact_if_deferred": "If deferred, the initial k8s deployment will have weaker auth than the Docker version. Acceptable for local-only k3s, but must be resolved before any multi-tenant deployment."
+    },
+    {
+      "id": "DECISION-RISK-3",
+      "question": "For the initial k3s deployment, is hostPath sufficient for worktree sharing, or should NFS/Longhorn be set up from the start?",
+      "recommendation": "hostPath for initial k3s (single-node). Define a StorageBackend interface to swap later. This matches current Docker behavior most closely.",
+      "impact_if_deferred": "N/A — this decision is needed before implementation begins."
+    }
+  ],
+
+  "risk_matrix_summary": {
+    "critical_severity": 1,
+    "high_severity": 5,
+    "medium_severity": 6,
+    "low_severity": 0,
+    "total_risks": 12,
+    "risks_requiring_human_review": 5,
+    "blocking_decisions": 3
+  },
+
+  "recommendations": [
+    "Phase the implementation via stacked PRs even within Option A's full-cutover scope — this provides rollback points without maintaining dual backends",
+    "Prioritize NetworkPolicy implementation and testing above all other work — this is the security-critical path",
+    "Resolve the 6 open decisions from the analysis (ContainerBackend type, storage approach, Dockerfiles, GHCR, .git shadow, integration tests) before implementation begins",
+    "Create a test coverage mapping document before rewriting integration tests",
+    "Tag the last Docker-based commit for emergency rollback",
+    "Run k3s + Calico setup on all team members' machines to validate developer experience before merging"
+  ]
+}
