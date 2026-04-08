@@ -325,6 +325,10 @@ The refine and plan phases include an automated internal review step before huma
 ├── drafts/
 │   ├── {identifier}-analysis.md     # Refine phase draft
 │   └── {identifier}-plan.md         # Plan phase draft
+├── brc-history/
+│   ├── {identifier}-refine.md       # BRC consensus messages from refine phase
+│   ├── {identifier}-plan.md         # BRC consensus messages from plan phase
+│   └── {identifier}-implement.md    # BRC consensus messages from implement phase
 └── reviews/
     ├── {identifier}-refine-refine-review.json        # Refine review verdict
     ├── {identifier}-refine-agent-design-review.json   # Agent-design review verdict
@@ -407,6 +411,7 @@ This structural enforcement prevents incidents where agents push code during pla
 | `.egg/phase-permissions.json` | Phase operation restrictions | `main` |
 | `.egg-state/contracts/` | Per-issue contract instances | Feature branches only |
 | `.egg-state/drafts/` | Draft analysis and plan documents | Feature branches only |
+| `.egg-state/brc-history/` | Per-phase BRC consensus message logs (markdown) | Feature branches only |
 | `.egg-state/reviews/` | Internal review verdicts (JSON) | Feature branches only |
 
 ### Conflict-Resistant Contract Updates
@@ -709,7 +714,7 @@ The orchestrator pushes worktree state (including `.egg-state/` files) to the re
 **Push points:**
 
 1. **After contract initialization** — Pushes initial contract and analysis/plan drafts so the first agents in the next phase see them
-2. **After phase completion** — Pushes statefiles (drafts, reviews, check results, contract updates) so the next phase's agents don't have unpushed `.egg-state/` files in their diff
+2. **After phase completion** — Pushes statefiles (drafts, reviews, BRC history, check results, contract updates) so the next phase's agents don't have unpushed `.egg-state/` files in their diff
 3. **On pipeline failure** — Best-effort failsafe push to preserve in-progress work
 
 All pushes use `GatewayClient.push_worktree_branch()`, which registers a temporary session token, pushes the branch, and cleans up the session.
@@ -874,7 +879,7 @@ Default checks for each phase are defined in `shared/egg_contracts/phase_default
 
 **PR phase:**
 - No checks
-- PR is auto-created by the orchestrator (no agent spawned). The PR title and description are sourced from the contract's `pr` field (populated by the plan agent), with commit log and diff stats appended automatically.
+- PR is auto-created by the orchestrator (no agent spawned). The PR title and description are sourced from the contract's `pr` field (populated by the plan agent), with commit log and diff stats appended automatically. When BRC consensus was active, a **BRC Consensus Summary** section is included in the PR body showing per-phase agent participation, proposal/ACK/NACK counts, and consensus outcomes.
 - If PR creation returns no URL, the pipeline is marked **FAILED** immediately. The overseer also runs a safety-net check at pipeline completion: if `current_phase=pr` but no `pr_url` is in the phase artifacts, it creates a HITL decision and Slack notification to prevent stranded branch work from going unnoticed.
 
 ### Customizing Phase Checks
