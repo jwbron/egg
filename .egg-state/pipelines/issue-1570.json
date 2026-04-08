@@ -299,10 +299,24 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-12",
+      "question": "Does this MVP need to account for multi-model routing (#1571) or is that post-MVP?",
+      "context": "",
+      "options": [],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-08T20:56:45.566869Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T20:56:45.529107Z",
+  "updated_at": "2026-04-08T20:56:45.569000Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -310,5 +324,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 18
+  "version": 19
 }
