@@ -239,7 +239,8 @@ class TestMonitorExecuteRestartAgent:
         call_args = monitor._run_cli.call_args
         args = call_args[0] if call_args[0] else []
         cli_str = " ".join(str(a) for a in args)
-        assert "restart" in cli_str.lower() or monitor._run_cli.called
+        assert "restart-agent" in cli_str.lower(), f"Expected 'restart-agent' in CLI args: {cli_str}"
+        assert "coder" in cli_str.lower(), f"Expected agent role 'coder' in CLI args: {cli_str}"
 
     def test_restart_agent_increments_count_on_success(self, monitor):
         """Successful restart should increment the agent's restart count."""
@@ -305,11 +306,13 @@ class TestMonitorExecuteRestartAgent:
         monitor._create_hitl_decision.assert_called()
         call_args = monitor._create_hitl_decision.call_args
         message = str(call_args)
-        # Should mention multiple agents or phase restart
-        assert (
-            "exhausted" in message.lower()
-            or "phase" in message.lower()
-            or "limit" in message.lower()
+        # Should mention multiple agents exhausting restart limits
+        assert "exhausted" in message.lower() or "limit" in message.lower(), (
+            f"Expected 'exhausted' or 'limit' in HITL message: {message}"
+        )
+        # Should reference specific exhausted agents
+        assert "coder" in message.lower() or "tester" in message.lower(), (
+            f"Expected exhausted agent names in HITL message: {message}"
         )
 
 

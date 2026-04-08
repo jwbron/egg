@@ -160,8 +160,8 @@ class TestRestartAgentContainer:
             issue_number=100,
         )
 
-        assert mock_docker_client.create_container.called
-        assert mock_docker_client.start_container.called
+        mock_docker_client.create_container.assert_called()
+        mock_docker_client.start_container.assert_called()
 
     def test_restart_tracks_count(self, spawner, mock_docker_client, mock_gateway_client):
         """Restart should increment the restart count."""

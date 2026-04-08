@@ -236,13 +236,13 @@ class TestRestartPhaseEndpoint:
             json={},
         )
 
-        if response.status_code == 200:
-            # All 3 containers should be stopped/removed
-            assert (
-                mock_spawner.stop_agent_container.call_count >= 3
-                or mock_spawner.remove_agent_container.call_count >= 3
-                or mock_spawner.cleanup_pipeline.called
-            )
+        assert response.status_code == 200
+        # All 3 containers should be stopped/removed via cleanup or individual stops
+        assert (
+            mock_spawner.cleanup_pipeline.called
+            or mock_spawner.stop_agent_container.call_count >= 3
+            or mock_spawner.remove_agent_container.call_count >= 3
+        ), "Expected cleanup_pipeline or 3+ stop/remove calls for phase restart"
 
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
@@ -318,11 +318,11 @@ class TestRestartPhaseEndpoint:
             json={},
         )
 
-        if response.status_code == 200:
-            # Review cycles should be reset
-            assert (
-                pipeline.phases["implement"].review_cycles == 0 or mock_store.save_pipeline.called
-            )
+        assert response.status_code == 200
+        # Review cycles should be reset and pipeline saved
+        assert (
+            pipeline.phases["implement"].review_cycles == 0 or mock_store.save_pipeline.called
+        ), "Expected review cycles to be reset to 0 or pipeline to be saved"
 
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
@@ -363,9 +363,9 @@ class TestRestartPhaseEndpoint:
             json={},
         )
 
-        if response.status_code == 200:
-            # Prior phase artifacts should be preserved
-            assert pipeline.phases["refine"].artifacts == {"analysis": "analysis.md"}
+        assert response.status_code == 200
+        # Prior phase artifacts should be preserved
+        assert pipeline.phases["refine"].artifacts == {"analysis": "analysis.md"}
 
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
@@ -444,6 +444,6 @@ class TestRestartPhaseEndpoint:
             json={},
         )
 
-        if response.status_code == 200:
-            # All 3 agents should be respawned
-            assert mock_spawner.spawn_agent_container.call_count >= 3 or spawn_count >= 3
+        assert response.status_code == 200
+        # All 3 agents should be respawned
+        assert spawn_count >= 3, f"Expected 3+ agent respawns, got {spawn_count}"
