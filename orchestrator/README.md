@@ -79,7 +79,7 @@ By default, agents within the refine, plan, and implement phases run simultaneou
 - **Readiness consensus** — Each agent signals its readiness state (WORKING, READY, BLOCKED, OBJECTING). The phase advances only when all agents reach READY. Any OBJECTING agent blocks phase completion.
 - **Shared pipeline branch** — All concurrent agents operate on the pipeline's shared branch (e.g., `egg/issue-999`). Agents coordinate commits via the message bus.
 
-The `GET /pipelines/{id}/status` endpoint includes a `concurrent` section when this mode is active, showing message counts, consensus state, and agent lifecycle info. See [SDLC Pipeline Guide — Concurrent Execution](../docs/guides/sdlc-pipeline.md#concurrent-execution-mode) for full details.
+The `GET /pipelines/{id}/status` endpoint includes a `concurrent` section when this mode is active, showing message counts, consensus state, and agent lifecycle info. When all containers exit with non-zero codes, the orchestrator performs a final consensus recheck before returning failure — recovering automatically if consensus was actually reached despite stale tracker state (e.g., after a withdrawal/re-proposal cascade). See [Concurrent Execution Guide](../docs/guides/concurrent-execution.md) for full details.
 
 ### Worktree Sync
 
@@ -244,7 +244,7 @@ orchestrator/
 ├── sse.py                  # Server-Sent Events for real-time status
 ├── unified_sse.py          # Unified SSE stream for multiple pipelines
 ├── dag_visualizer.py       # Pipeline DAG visualization
-├── consensus_wrapper.py    # BRC consensus wrapper script builder (transient crash detection and restart with backoff)
+├── consensus_wrapper.py    # BRC consensus wrapper script builder (transient crash detection, restart with backoff, stale-tracker fallback)
 ├── concurrent_executor.py  # Concurrent phase execution with BRC consensus
 ├── peer_consensus.py       # Peer consensus tracker for BRC protocol
 ├── resilience.py           # Retry, circuit breaker, and resilience patterns
