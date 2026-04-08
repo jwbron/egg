@@ -213,8 +213,8 @@ def _teardown_phase_overseer(
 ) -> None:
     """Stop the phase-scoped overseer container.
 
-    Caller is responsible for holding ``overseer_lock`` and clearing
-    ``phase_overseer_active`` after this call returns.
+    Caller is responsible for holding ``overseer_lock`` and setting
+    ``phase_overseer_active = False`` before this call.
     """
     try:
         spawner.stop_agent_container(
@@ -6353,9 +6353,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         repos=pipeline_repos if pipeline_repos else None,
                         certs_volume=certs_volume,
                     )
-                    overseer_container_id = overseer_result.container_info.container_id
-                    phase_overseer_active = True
-                    overseer_respawn_count = 0
+                    with overseer_lock:
+                        overseer_container_id = overseer_result.container_info.container_id
+                        phase_overseer_active = True
+                        overseer_respawn_count = 0
                     logger.info(
                         "Overseer container spawned for phase",
                         pipeline_id=pipeline_id,
