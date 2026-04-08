@@ -137,10 +137,10 @@
         {
           "container_id": "bbba141b45050388d36f121e23f6e09e971c0079d5c2913abb561d2ca43451e9",
           "container_name": "issue-1570-risk_analyst",
-          "status": "removed",
+          "status": "exited",
           "started_at": "2026-04-08T21:19:11.098356Z",
-          "exited_at": "2026-04-08T21:56:03.530686Z",
-          "exit_code": null,
+          "exited_at": "2026-04-08T21:56:26.975882Z",
+          "exit_code": 137,
           "agent_role": "risk_analyst",
           "session_token": null
         },
@@ -181,10 +181,10 @@
           "status": "failed",
           "container_id": "bbba141b45050388d36f121e23f6e09e971c0079d5c2913abb561d2ca43451e9",
           "started_at": "2026-04-08T21:19:11.098360Z",
-          "completed_at": "2026-04-08T21:56:03.530686Z",
+          "completed_at": "2026-04-08T21:56:26.999128Z",
           "commit": null,
           "outputs": {},
-          "error": "Pipeline cancelled",
+          "error": "Container exited with code 137",
           "retry_count": 0,
           "conflicts": []
         },
@@ -446,7 +446,7 @@
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T21:56:26.185325Z",
+  "updated_at": "2026-04-08T21:56:26.999365Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -454,5 +454,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 46
+  "version": 47
 }
