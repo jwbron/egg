@@ -427,6 +427,231 @@ def to_dockerpy_kwargs(config: SandboxContainerConfig) -> dict[str, Any]:
     return kwargs
 
 
+def _mount_spec_to_k8s(
+    mount: MountSpec, volume_index: int
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Convert a MountSpec to a Kubernetes volume and volumeMount pair.
+
+    Args:
+        mount: The mount specification to convert.
+        volume_index: Unique index used to generate volume names.
+
+    Returns:
+        Tuple of (volume_dict, volume_mount_dict) for k8s pod spec.
+    """
+    vol_name = f"vol-{volume_index}"
+    volume_mount: dict[str, Any] = {
+        "name": vol_name,
+        "mountPath": mount.destination,
+    }
+    if mount.readonly:
+        volume_mount["readOnly"] = True
+
+    if mount.mount_type == "bind" and mount.source is not None:
+        volume: dict[str, Any] = {
+            "name": vol_name,
+            "hostPath": {
+                "path": mount.source,
+            },
+        }
+    elif mount.mount_type == "tmpfs":
+        volume = {
+            "name": vol_name,
+            "emptyDir": {
+                "medium": "Memory",
+            },
+        }
+    elif mount.mount_type == "volume" and mount.source is not None:
+        volume = {
+            "name": vol_name,
+            "persistentVolumeClaim": {
+                "claimName": mount.source,
+                "readOnly": mount.readonly,
+            },
+        }
+    else:
+        raise ValueError(f"Unsupported mount type for k8s conversion: {mount.mount_type!r}")
+
+    return volume, volume_mount
+
+
+def build_sandbox_job_spec(
+    *,
+    job_name: str,
+    namespace: str = "egg-agents",
+    image: str,
+    network: ContainerNetworkConfig,
+    session_token: str | None = None,
+    runtime_uid: int | None = None,
+    runtime_gid: int | None = None,
+    extra_env: dict[str, str] | None = None,
+    mounts: list[MountSpec] | None = None,
+    labels: dict[str, str] | None = None,
+    command: list[str] | None = None,
+    active_deadline_seconds: int = 7200,
+) -> dict[str, Any]:
+    """Build a Kubernetes Job spec dict for a sandbox container.
+
+    Uses build_sandbox_config() internally to ensure the CLI and
+    orchestrator share identical configuration logic, then converts
+    the config into a k8s Job manifest dict.
+
+    Args:
+        job_name: Name for the Kubernetes Job resource.
+        namespace: Kubernetes namespace (default: ``egg-agents``).
+        image: Container image reference.
+        network: Network wiring parameters.
+        session_token: If set, passed as ``EGG_SESSION_TOKEN``.
+        runtime_uid: Host UID forwarded to the container entry-point.
+        runtime_gid: Host GID forwarded to the container entry-point.
+        extra_env: Caller-specific env vars (applied last, can override).
+        mounts: Additional mount specifications.
+        labels: Job labels.
+        command: Command to execute in the container.
+        active_deadline_seconds: Maximum time the Job may run (default 7200s / 2h).
+
+    Returns:
+        A dict representing a Kubernetes ``batch/v1`` Job manifest.
+    """
+    config = build_sandbox_config(
+        container_name=job_name,
+        image=image,
+        network=network,
+        session_token=session_token,
+        runtime_uid=runtime_uid,
+        runtime_gid=runtime_gid,
+        extra_env=extra_env,
+        mounts=list(mounts) if mounts else None,
+        labels=labels,
+        command=command,
+    )
+
+    return _config_to_job_spec(
+        config=config,
+        job_name=job_name,
+        namespace=namespace,
+        labels=dict(labels) if labels else {},
+        active_deadline_seconds=active_deadline_seconds,
+    )
+
+
+def _config_to_job_spec(
+    *,
+    config: SandboxContainerConfig,
+    job_name: str,
+    namespace: str,
+    labels: dict[str, str],
+    active_deadline_seconds: int,
+) -> dict[str, Any]:
+    """Convert a SandboxContainerConfig into a k8s Job manifest dict.
+
+    Internal helper shared by ``build_sandbox_job_spec`` and
+    ``to_k8s_job_kwargs``.
+    """
+    # Convert environment dict to k8s env var format
+    env_list: list[dict[str, str]] = [
+        {"name": k, "value": v} for k, v in config.environment.items()
+    ]
+
+    # Convert mounts to k8s volumes and volumeMounts
+    volumes: list[dict[str, Any]] = []
+    volume_mounts: list[dict[str, Any]] = []
+    for idx, mount in enumerate(config.mounts):
+        vol, vol_mount = _mount_spec_to_k8s(mount, idx)
+        volumes.append(vol)
+        volume_mounts.append(vol_mount)
+
+    # Convert extra_hosts to hostAliases
+    host_aliases: list[dict[str, Any]] = []
+    for hostname, ip in config.extra_hosts.items():
+        host_aliases.append({"ip": ip, "hostnames": [hostname]})
+
+    # Build container spec
+    container_spec: dict[str, Any] = {
+        "name": "sandbox",
+        "image": config.image,
+        "env": env_list,
+    }
+    if volume_mounts:
+        container_spec["volumeMounts"] = volume_mounts
+    if config.command:
+        container_spec["command"] = list(config.command)
+
+    # Build pod spec
+    pod_spec: dict[str, Any] = {
+        "restartPolicy": "Never",
+        "containers": [container_spec],
+    }
+    if volumes:
+        pod_spec["volumes"] = volumes
+    if host_aliases:
+        pod_spec["hostAliases"] = host_aliases
+    if config.dns:
+        pod_spec["dnsConfig"] = {
+            "nameservers": list(config.dns),
+        }
+        pod_spec["dnsPolicy"] = "None"
+
+    # Merge standard labels with component label
+    all_labels = {"app.kubernetes.io/component": "sandbox"}
+    all_labels.update(labels)
+
+    return {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": job_name,
+            "namespace": namespace,
+            "labels": all_labels,
+        },
+        "spec": {
+            "backoffLimit": 0,
+            "activeDeadlineSeconds": active_deadline_seconds,
+            "template": {
+                "metadata": {
+                    "labels": all_labels,
+                },
+                "spec": pod_spec,
+            },
+        },
+    }
+
+
+def to_k8s_job_kwargs(config: SandboxContainerConfig) -> dict[str, Any]:
+    """Convert SandboxContainerConfig to kubernetes client Job creation kwargs.
+
+    Returns a dict with keys matching a ``KubernetesClient.create_job()``
+    style interface:
+
+    * ``namespace`` — target namespace
+    * ``job_manifest`` — the full Job manifest dict
+
+    The caller is responsible for supplying the namespace and job_name
+    via the config's ``container_name`` and labels.
+    """
+    namespace = config.labels.get("k8s.egg.io/namespace", "egg-agents")
+    job_name = config.container_name
+    user_labels = {
+        k: v for k, v in config.labels.items() if not k.startswith("k8s.egg.io/")
+    }
+
+    manifest = _config_to_job_spec(
+        config=config,
+        job_name=job_name,
+        namespace=namespace,
+        labels=user_labels,
+        active_deadline_seconds=int(
+            config.labels.get("k8s.egg.io/active-deadline-seconds", "7200")
+        ),
+    )
+
+    return {
+        "namespace": namespace,
+        "job_name": job_name,
+        "job_manifest": manifest,
+    }
+
+
 def build_sandbox_docker_cmd(
     *,
     container_name: str,

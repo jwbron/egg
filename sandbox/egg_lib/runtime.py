@@ -29,6 +29,7 @@ from egg_container import (
     LIFECYCLE_FLAGS_INDEX,
     ContainerNetworkConfig,
     build_sandbox_docker_cmd,
+    build_sandbox_job_spec,
     git_shadow_mounts,
     mount_spec_to_cli_args,
 )
@@ -62,6 +63,13 @@ from .timing import _host_timer
 
 # Valid repo_mode values
 VALID_REPO_MODES = ("private", "public")
+
+# Kubernetes mode flag — when True, containers run as k8s Jobs instead of
+# docker run.  Controlled by the EGG_K8S_MODE environment variable.
+K8S_MODE = os.environ.get("EGG_K8S_MODE", "false").lower() == "true"
+
+# Default namespace for k8s sandbox Jobs
+_K8S_NAMESPACE = os.environ.get("EGG_K8S_NAMESPACE", "egg-agents")
 
 
 def _get_repos_config_file() -> Path:
@@ -443,6 +451,163 @@ def _setup_session_repos(
     return session_token, repos, filtered_repos
 
 
+def _wait_for_k8s_pod(
+    job_name: str,
+    namespace: str,
+    timeout_seconds: int = 300,
+) -> str | None:
+    """Wait for a pod to be created by a k8s Job and return its name.
+
+    Polls ``kubectl get pods`` until a pod matching the job label appears
+    and reaches the Running (or Succeeded/Failed) phase.
+
+    Args:
+        job_name: Name of the Kubernetes Job.
+        namespace: Kubernetes namespace.
+        timeout_seconds: Maximum time to wait for the pod to appear.
+
+    Returns:
+        Pod name if found, or None on timeout.
+    """
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            result = subprocess.run(
+                [
+                    "kubectl", "get", "pods",
+                    "-n", namespace,
+                    "-l", f"job-name={job_name}",
+                    "-o", "jsonpath={.items[0].metadata.name}",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            pod_name = result.stdout.strip()
+            if pod_name:
+                return pod_name
+        except Exception:
+            pass
+        time.sleep(2)
+    return None
+
+
+def _execute_via_k8s(
+    job_spec: dict,
+    namespace: str,
+    interactive: bool = True,
+    timeout_minutes: int = 120,
+) -> int:
+    """Execute an agent via Kubernetes Job creation.
+
+    Creates a k8s Job by piping the manifest YAML to ``kubectl apply``,
+    then attaches to the resulting pod's logs (streaming).
+
+    Args:
+        job_spec: Full Kubernetes Job manifest dict.
+        namespace: Target namespace.
+        interactive: If True, attach to pod logs and stream output.
+        timeout_minutes: Maximum execution time in minutes.
+
+    Returns:
+        Exit code (0 for success, non-zero for failure).
+    """
+    import yaml  # type: ignore[import-untyped]
+
+    job_name = job_spec["metadata"]["name"]
+
+    # Create the Job
+    job_yaml = yaml.dump(job_spec, default_flow_style=False)
+    result = subprocess.run(
+        ["kubectl", "apply", "-f", "-", "-n", namespace],
+        input=job_yaml,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        error(f"Failed to create k8s Job: {result.stderr.strip()}")
+        return 1
+
+    info(f"Created k8s Job: {job_name} in namespace {namespace}")
+
+    # Wait for pod to be scheduled
+    pod_name = _wait_for_k8s_pod(job_name, namespace)
+    if not pod_name:
+        error(f"Timed out waiting for pod from Job {job_name}")
+        _cleanup_k8s_job(job_name, namespace)
+        return 1
+
+    info(f"Pod started: {pod_name}")
+
+    if not interactive:
+        # Non-interactive: wait for Job completion
+        try:
+            result = subprocess.run(
+                [
+                    "kubectl", "wait", "--for=condition=complete",
+                    f"job/{job_name}", "-n", namespace,
+                    f"--timeout={timeout_minutes}m",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0:
+                return 0
+            # Check if it failed rather than timed out
+            warn(f"Job did not complete successfully: {result.stderr.strip()}")
+            return 1
+        except KeyboardInterrupt:
+            warn("Interrupted by user")
+            _cleanup_k8s_job(job_name, namespace)
+            return 130
+
+    # Interactive: stream pod logs
+    try:
+        log_proc = subprocess.run(
+            [
+                "kubectl", "logs", "-f",
+                pod_name, "-n", namespace,
+                "-c", "sandbox",
+            ],
+            check=False,
+            timeout=timeout_minutes * 60,
+        )
+        return log_proc.returncode
+    except subprocess.TimeoutExpired:
+        error(f"Pod log streaming timed out after {timeout_minutes} minutes")
+        _cleanup_k8s_job(job_name, namespace)
+        return 1
+    except KeyboardInterrupt:
+        warn("Interrupted by user")
+        _cleanup_k8s_job(job_name, namespace)
+        return 130
+
+
+def _cleanup_k8s_job(job_name: str, namespace: str) -> None:
+    """Delete a Kubernetes Job and its pods.
+
+    Args:
+        job_name: Name of the Job to delete.
+        namespace: Kubernetes namespace.
+    """
+    try:
+        subprocess.run(
+            [
+                "kubectl", "delete", "job", job_name,
+                "-n", namespace,
+                "--cascade=foreground",
+                "--ignore-not-found",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception as e:
+        warn(f"Failed to clean up k8s Job {job_name}: {e}")
+
+
 def run_claude(
     repo_mode: str | None = None,
 ) -> bool:
@@ -600,18 +765,6 @@ def run_claude(
         print()
     _host_timer.end_phase()  # configure_mounts
 
-    # Remove old container if exists (cleanup any previous runs)
-    with _host_timer.phase("cleanup_old_container"):
-        subprocess.run(
-            ["docker", "rm", "-f", container_id],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-
-    # Build docker run command
-    _host_timer.start_phase("build_docker_cmd")
-
     # Caller-specific env vars that don't belong in the shared builder
     caller_env: dict[str, str] = {
         "EGG_QUIET": "1" if quiet else "0",
@@ -623,6 +776,102 @@ def run_claude(
     caller_env["ANTHROPIC_AUTH_METHOD"] = anthropic_auth_method
     if api_key:
         caller_env["ANTHROPIC_API_KEY"] = api_key
+
+    # --- Kubernetes execution path ---
+    if K8S_MODE:
+        _host_timer.start_phase("build_k8s_job")
+
+        # In k8s mode, use service DNS for gateway URL instead of static IPs
+        caller_env["GATEWAY_URL"] = (
+            f"http://egg-gateway.{_K8S_NAMESPACE}.svc.cluster.local"
+            f":{net_config.gateway_port}"
+        )
+
+        from egg_container import MountSpec as _MountSpec  # noqa: F811
+
+        # Convert mount_args (docker CLI flags) to MountSpec list for k8s.
+        # mount_args are pairs of ["-v", "host:container:opts"] generated by
+        # _setup_session_repos and add_standard_mounts.
+        k8s_mounts: list[_MountSpec] = []
+        i = 0
+        while i < len(mount_args):
+            flag = mount_args[i]
+            if flag == "-v" and i + 1 < len(mount_args):
+                parts = mount_args[i + 1].split(":")
+                host_path = parts[0]
+                container_path = parts[1] if len(parts) > 1 else parts[0]
+                readonly = len(parts) > 2 and "ro" in parts[2]
+                k8s_mounts.append(
+                    _MountSpec(
+                        mount_type="bind",
+                        source=host_path,
+                        destination=container_path,
+                        readonly=readonly,
+                    )
+                )
+                i += 2
+            elif flag == "--mount" and i + 1 < len(mount_args):
+                # Skip --mount args; they come from git_shadow_mounts and are
+                # already included via the shared config builder
+                i += 2
+            else:
+                i += 1
+
+        job_labels = {
+            "egg.io/container-id": container_id,
+            "egg.io/repo-mode": repo_mode or "unknown",
+        }
+
+        job_spec = build_sandbox_job_spec(
+            job_name=container_id,
+            namespace=_K8S_NAMESPACE,
+            image=ctx.sandbox_image,
+            network=net_config,
+            session_token=session_token,
+            runtime_uid=os.getuid(),
+            runtime_gid=os.getgid(),
+            extra_env=caller_env,
+            mounts=k8s_mounts,
+            labels=job_labels,
+        )
+
+        _host_timer.end_phase()  # build_k8s_job
+
+        if not quiet:
+            info(f"Launching via Kubernetes Job: {container_id}")
+            info(f"Namespace: {_K8S_NAMESPACE}")
+            if session_token:
+                print(f"  Session: Active ({repo_mode} mode)")
+            print()
+
+        # Final status update before launching
+        if quiet:
+            status_finish("Launching Claude Code (k8s)...")
+
+        try:
+            exit_code = _execute_via_k8s(
+                job_spec=job_spec,
+                namespace=_K8S_NAMESPACE,
+                interactive=True,
+            )
+            return exit_code == 0
+        finally:
+            if repos:
+                _cleanup_session(session_token, container_id)
+
+    # --- Docker execution path (default) ---
+
+    # Remove old container if exists (cleanup any previous runs)
+    with _host_timer.phase("cleanup_old_container"):
+        subprocess.run(
+            ["docker", "rm", "-f", container_id],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+
+    # Build docker run command
+    _host_timer.start_phase("build_docker_cmd")
 
     cmd = build_sandbox_docker_cmd(
         container_name=container_id,
@@ -972,9 +1221,6 @@ def exec_in_new_container(
     if not quiet:
         print()
 
-    # Build docker run command
-    # Note: We don't use --rm so we can save logs before cleanup
-
     # Caller-specific env vars
     caller_env: dict[str, str] = {
         "PYTHONUNBUFFERED": "1",
@@ -1007,6 +1253,94 @@ def exec_in_new_container(
     # Merge in any extra environment variables from caller
     if extra_env:
         caller_env.update(extra_env)
+
+    # --- Kubernetes execution path ---
+    if K8S_MODE:
+        # In k8s mode, use service DNS for gateway URL
+        caller_env["GATEWAY_URL"] = (
+            f"http://egg-gateway.{_K8S_NAMESPACE}.svc.cluster.local"
+            f":{net_config.gateway_port}"
+        )
+
+        from egg_container import MountSpec as _MountSpec  # noqa: F811
+
+        # Convert mount_args (docker CLI flags) to MountSpec list for k8s
+        k8s_mounts: list[_MountSpec] = []
+        i = 0
+        while i < len(mount_args):
+            flag = mount_args[i]
+            if flag == "-v" and i + 1 < len(mount_args):
+                parts = mount_args[i + 1].split(":")
+                host_path = parts[0]
+                container_path = parts[1] if len(parts) > 1 else parts[0]
+                readonly = len(parts) > 2 and "ro" in parts[2]
+                k8s_mounts.append(
+                    _MountSpec(
+                        mount_type="bind",
+                        source=host_path,
+                        destination=container_path,
+                        readonly=readonly,
+                    )
+                )
+                i += 2
+            elif flag == "--mount" and i + 1 < len(mount_args):
+                i += 2
+            else:
+                i += 1
+
+        job_labels = {
+            "egg.io/container-id": container_id,
+            "egg.io/repo-mode": repo_mode or "unknown",
+        }
+        if task_id:
+            job_labels["egg.io/task-id"] = task_id
+
+        job_spec = build_sandbox_job_spec(
+            job_name=container_id,
+            namespace=_K8S_NAMESPACE,
+            image=ctx.sandbox_image,
+            network=net_config,
+            session_token=session_token,
+            runtime_uid=os.getuid(),
+            runtime_gid=os.getgid(),
+            extra_env=caller_env,
+            mounts=k8s_mounts,
+            labels=job_labels,
+            command=command,
+            active_deadline_seconds=timeout_minutes * 60,
+        )
+
+        info(f"Launching via Kubernetes Job: {container_id}")
+        if not quiet:
+            info(f"Namespace: {_K8S_NAMESPACE}")
+            print(f"Command: {' '.join(command)}")
+            print(f"Timeout: {timeout_minutes} minutes")
+            print()
+
+        if quiet:
+            status_finish(f"Launching {command[0]} (k8s)...")
+
+        try:
+            exit_code = _execute_via_k8s(
+                job_spec=job_spec,
+                namespace=_K8S_NAMESPACE,
+                interactive=sys.stdin.isatty(),
+                timeout_minutes=timeout_minutes,
+            )
+            return exit_code == 0
+        finally:
+            _cleanup_k8s_job(container_id, _K8S_NAMESPACE)
+            if repos:
+                _cleanup_session(session_token, container_id)
+            if ctx.ephemeral:
+                from .gateway import cleanup_gateway
+
+                try:
+                    cleanup_gateway()
+                except Exception as e:
+                    error(f"Ephemeral gateway cleanup failed: {e}")
+
+    # --- Docker execution path (default) ---
 
     # Add logging configuration for log persistence
     log_config = get_docker_log_config(container_id, task_id)

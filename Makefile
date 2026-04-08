@@ -26,7 +26,8 @@ PYTHON := $(if $(wildcard $(VENV_BIN)/python),$(VENV_BIN)/python,python3)
         test security \
         test-integration test-e2e test-security \
         lint-fix lint-python-fix lint-shell-fix lint-yaml-fix \
-        build
+        build build-k3s \
+        k3s-setup k3s-teardown deploy k3s-status
 
 # Default target
 help:
@@ -53,7 +54,7 @@ help:
 	@echo "  make lint-actions       - Actionlint (requires actionlint)"
 	@echo "  make lint-custom        - Project-specific check scripts"
 	@echo ""
-	@echo "Integration tests (requires Docker):"
+	@echo "Integration tests (requires Docker or k3s):"
 	@echo "  make test-integration   - Run integration tests"
 	@echo "  make test-e2e           - Run E2E tests (requires API keys)"
 	@echo "  make test-security      - Run security/pentesting tests"
@@ -63,6 +64,13 @@ help:
 	@echo ""
 	@echo "Build:"
 	@echo "  make build              - Build Docker images"
+	@echo "  make build-k3s          - Build and import images into k3s"
+	@echo ""
+	@echo "Kubernetes (local k3s):"
+	@echo "  make k3s-setup          - Install k3s with Calico CNI"
+	@echo "  make k3s-teardown       - Remove k3s installation"
+	@echo "  make deploy             - Deploy egg to local k3s cluster"
+	@echo "  make k3s-status         - Show k3s cluster status"
 
 # ============================================================================
 # Setup
@@ -327,3 +335,47 @@ build:
 	docker build -t egg-gateway -f gateway/Dockerfile .
 	@echo "==> Building sandbox container..."
 	docker build -t egg-sandbox -f sandbox/Dockerfile .
+
+build-k3s: build ## Build and import images into k3s
+	@echo "Importing images into k3s..."
+	docker save egg-gateway:latest | sudo k3s ctr images import -
+	docker save egg-sandbox:latest | sudo k3s ctr images import -
+	@if docker image inspect egg-orchestrator:latest >/dev/null 2>&1; then \
+		docker save egg-orchestrator:latest | sudo k3s ctr images import -; \
+	fi
+	@echo "Images imported into k3s"
+
+# ============================================================================
+# Kubernetes (local k3s)
+# ============================================================================
+
+k3s-setup: ## Install k3s with Calico CNI for local development
+	@echo "Installing k3s..."
+	curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --disable=traefik" sh -
+	@echo "Waiting for k3s to be ready..."
+	sudo kubectl wait --for=condition=Ready node --all --timeout=120s
+	@echo "Installing Calico CNI..."
+	bash scripts/install-calico.sh
+	@echo "Creating namespaces..."
+	sudo kubectl apply -f k8s/base/namespaces.yaml
+	@echo "k3s setup complete!"
+
+k3s-teardown: ## Remove k3s installation
+	@echo "Removing k3s..."
+	/usr/local/bin/k3s-uninstall.sh || true
+	@echo "k3s removed"
+
+deploy: ## Deploy egg to local k3s cluster
+	@echo "Deploying egg to k3s..."
+	sudo kubectl apply -k k8s/overlays/local/
+	@echo "Waiting for deployments..."
+	sudo kubectl -n egg-system wait --for=condition=Available deployment --all --timeout=120s
+	@echo "Deploy complete!"
+	@sudo kubectl -n egg-system get pods
+
+k3s-status: ## Show k3s cluster status
+	@sudo kubectl get nodes
+	@echo "---"
+	@sudo kubectl -n egg-system get pods
+	@echo "---"
+	@sudo kubectl -n egg-agents get pods 2>/dev/null || echo "No agent pods"

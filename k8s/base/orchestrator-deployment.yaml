@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: egg-system
+  labels:
+    app.kubernetes.io/name: orchestrator
+    app.kubernetes.io/part-of: egg
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orchestrator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orchestrator
+        app.kubernetes.io/part-of: egg
+    spec:
+      serviceAccountName: orchestrator
+      containers:
+        - name: orchestrator
+          image: egg-orchestrator:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: api
+              containerPort: 9849
+              protocol: TCP
+          env:
+            - name: EGG_AGENT_NAMESPACE
+              value: egg-agents
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 9849
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 9849
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: worktrees
+              mountPath: /home/egg/.egg-worktrees
+            - name: state
+              mountPath: /home/egg/.egg-state
+      volumes:
+        - name: worktrees
+          hostPath:
+            path: /home/egg/.egg-worktrees
+            type: DirectoryOrCreate
+        - name: state
+          hostPath:
+            path: /home/egg/.egg-state
+            type: DirectoryOrCreate

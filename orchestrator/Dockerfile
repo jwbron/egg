@@ -32,7 +32,7 @@ COPY .egg/schemas/ ./.egg/schemas/
 # Copy shared prompt criteria files
 COPY shared/prompts/ ./prompts/
 
-# Install dependencies
+# Install dependencies (includes both docker and kubernetes SDKs during migration)
 COPY orchestrator/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 

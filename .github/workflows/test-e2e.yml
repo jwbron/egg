@@ -10,6 +10,10 @@ jobs:
   e2e-deterministic:
     name: E2E Deterministic Tests
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [docker, k3s]
     steps:
       - uses: actions/checkout@v4
 
@@ -29,27 +33,55 @@ jobs:
           docker build -t egg-gateway -f gateway/Dockerfile .
           docker build -t egg-sandbox -f sandbox/Dockerfile .
 
+      - name: Install k3s
+        if: matrix.runtime == 'k3s'
+        run: |
+          curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --disable=traefik" sh -
+          sudo kubectl wait --for=condition=Ready node --all --timeout=120s
+          bash scripts/install-calico.sh
+          sudo kubectl apply -f k8s/base/namespaces.yaml
+
+      - name: Import images into k3s
+        if: matrix.runtime == 'k3s'
+        run: |
+          docker save egg-gateway:latest | sudo k3s ctr images import -
+          docker save egg-sandbox:latest | sudo k3s ctr images import -
+
+      - name: Deploy to k3s
+        if: matrix.runtime == 'k3s'
+        run: |
+          sudo kubectl apply -k k8s/overlays/local/
+          sudo kubectl -n egg-system wait --for=condition=Available deployment --all --timeout=120s
+
       - name: Run deterministic E2E tests
         env:
           ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          EGG_K8S_MODE: ${{ matrix.runtime == 'k3s' && 'true' || 'false' }}
         run: |
           PYTHONPATH=shared .venv/bin/pytest integration_tests -v \
             -m "e2e and not agent_flaky" \
             --timeout=600 \
-            --junitxml=e2e-deterministic-results.xml
+            --junitxml=e2e-deterministic-results-${{ matrix.runtime }}.xml
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-deterministic-results
-          path: e2e-deterministic-results.xml
+          name: e2e-deterministic-results-${{ matrix.runtime }}
+          path: e2e-deterministic-results-${{ matrix.runtime }}.xml
 
-      - name: Cleanup
-        if: always()
+      - name: Cleanup (Docker)
+        if: always() && matrix.runtime == 'docker'
         run: |
           docker compose -f integration_tests/docker-compose.yml down -v --remove-orphans 2>/dev/null || true
           docker network prune -f 2>/dev/null || true
+
+      - name: Cleanup (k3s)
+        if: always() && matrix.runtime == 'k3s'
+        run: |
+          sudo kubectl delete namespace egg-system --ignore-not-found 2>/dev/null || true
+          sudo kubectl delete namespace egg-agents --ignore-not-found 2>/dev/null || true
+          /usr/local/bin/k3s-uninstall.sh 2>/dev/null || true
 
   e2e-agent-fuzz:
     name: E2E Agent Fuzz Tests

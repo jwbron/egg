@@ -29,15 +29,14 @@ except ImportError:
         return logging.getLogger(name)
 
 
-from container_monitor import get_container_monitor
-from docker_client import (
-    ContainerNotFoundError,
-    ContainerOperationError,
-    DockerClientError,
-    ImageNotFoundError,
-    InvalidContainerIdError,
-    get_docker_client,
+from container_backend import (
+    ImagePullError,
+    JobOperationError,
+    KubernetesClientError,
+    PodNotFoundError,
 )
+from kubernetes_client import get_kubernetes_client
+from kubernetes_monitor import get_kubernetes_monitor
 from models import AgentRole
 from sandbox_template import SandboxTemplate, create_sandbox_config
 
@@ -128,14 +127,14 @@ def spawn_container(pipeline_id: str) -> tuple[Response, int]:
     docker_config = template.to_docker_config()
 
     try:
-        docker_client = get_docker_client()
-        info = docker_client.create_container(
+        k8s_client = get_kubernetes_client()
+        info = k8s_client.create_container(
             name=template.get_container_name(),
             **docker_config,
         )
 
-        # Start container
-        info = docker_client.start_container(info.container_id)
+        # K8s Jobs auto-start; fetch current status
+        info = k8s_client.start_container(info.container_id)
 
         logger.info(
             "Container spawned",
@@ -153,14 +152,26 @@ def spawn_container(pipeline_id: str) -> tuple[Response, int]:
             },
         )
 
-    except ImageNotFoundError as e:
+    except ImagePullError as e:
         return make_error_response(str(e), status_code=404)
-    except ContainerOperationError as e:
-        logger.error("Container spawn failed", pipeline_id=pipeline_id, error=str(e))
-        return make_error_response(f"Failed to spawn container: {e}", status_code=500)
-    except DockerClientError as e:
-        logger.error("Docker error", pipeline_id=pipeline_id, error=str(e))
-        return make_error_response(f"Docker error: {e}", status_code=500)
+    except JobOperationError as e:
+        logger.error(
+            "Container spawn failed",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+        return make_error_response(
+            f"Failed to spawn container: {e}", status_code=500
+        )
+    except KubernetesClientError as e:
+        logger.error(
+            "Kubernetes error",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+        return make_error_response(
+            f"Kubernetes error: {e}", status_code=500
+        )
 
 
 @containers_bp.route("/<pipeline_id>/containers", methods=["GET"])
@@ -191,8 +202,8 @@ def list_pipeline_containers(pipeline_id: str) -> tuple[Response, int]:
     include_all = request.args.get("all", "true").lower() == "true"
 
     try:
-        docker_client = get_docker_client()
-        containers = docker_client.list_containers(
+        k8s_client = get_kubernetes_client()
+        containers = k8s_client.list_containers(
             all=include_all,
             labels={"egg.pipeline.id": pipeline_id},
         )
@@ -203,8 +214,12 @@ def list_pipeline_containers(pipeline_id: str) -> tuple[Response, int]:
                 "container_name": c.container_name,
                 "status": c.status.value,
                 "agent_role": c.agent_role.value if c.agent_role else None,
-                "started_at": c.started_at.isoformat() if c.started_at else None,
-                "exited_at": c.exited_at.isoformat() if c.exited_at else None,
+                "started_at": (
+                    c.started_at.isoformat() if c.started_at else None
+                ),
+                "exited_at": (
+                    c.exited_at.isoformat() if c.exited_at else None
+                ),
                 "exit_code": c.exit_code,
             }
             for c in containers
@@ -215,8 +230,10 @@ def list_pipeline_containers(pipeline_id: str) -> tuple[Response, int]:
             data={"containers": container_data},
         )
 
-    except DockerClientError as e:
-        return make_error_response(f"Docker error: {e}", status_code=500)
+    except KubernetesClientError as e:
+        return make_error_response(
+            f"Kubernetes error: {e}", status_code=500
+        )
 
 
 @containers_bp.route("/<pipeline_id>/containers/<container_id>", methods=["GET"])
@@ -237,8 +254,8 @@ def get_container(pipeline_id: str, container_id: str) -> tuple[Response, int]:
         }
     """
     try:
-        docker_client = get_docker_client()
-        info = docker_client.get_container_info(container_id)
+        k8s_client = get_kubernetes_client()
+        info = k8s_client.get_container_info(container_id)
 
         return make_success_response(
             "Container retrieved",
@@ -247,26 +264,35 @@ def get_container(pipeline_id: str, container_id: str) -> tuple[Response, int]:
                     "container_id": info.container_id,
                     "container_name": info.container_name,
                     "status": info.status.value,
-                    "agent_role": info.agent_role.value if info.agent_role else None,
-                    "started_at": info.started_at.isoformat() if info.started_at else None,
-                    "exited_at": info.exited_at.isoformat() if info.exited_at else None,
+                    "agent_role": (
+                        info.agent_role.value
+                        if info.agent_role
+                        else None
+                    ),
+                    "started_at": (
+                        info.started_at.isoformat()
+                        if info.started_at
+                        else None
+                    ),
+                    "exited_at": (
+                        info.exited_at.isoformat()
+                        if info.exited_at
+                        else None
+                    ),
                     "exit_code": info.exit_code,
                 }
             },
         )
 
-    except InvalidContainerIdError:
-        return make_error_response(
-            f"Invalid container ID format: {container_id}",
-            status_code=400,
-        )
-    except ContainerNotFoundError:
+    except PodNotFoundError:
         return make_error_response(
             f"Container {container_id} not found",
             status_code=404,
         )
-    except DockerClientError as e:
-        return make_error_response(f"Docker error: {e}", status_code=500)
+    except KubernetesClientError as e:
+        return make_error_response(
+            f"Kubernetes error: {e}", status_code=500
+        )
 
 
 @containers_bp.route("/<pipeline_id>/containers/<container_id>", methods=["DELETE"])
@@ -290,8 +316,8 @@ def remove_container(pipeline_id: str, container_id: str) -> tuple[Response, int
     force = request.args.get("force", "false").lower() == "true"
 
     try:
-        docker_client = get_docker_client()
-        docker_client.remove_container(container_id, force=force)
+        k8s_client = get_kubernetes_client()
+        k8s_client.remove_container(container_id, force=force)
 
         logger.info(
             "Container removed",
@@ -301,20 +327,17 @@ def remove_container(pipeline_id: str, container_id: str) -> tuple[Response, int
 
         return make_success_response("Container removed")
 
-    except InvalidContainerIdError:
-        return make_error_response(
-            f"Invalid container ID format: {container_id}",
-            status_code=400,
-        )
-    except ContainerNotFoundError:
+    except PodNotFoundError:
         return make_error_response(
             f"Container {container_id} not found",
             status_code=404,
         )
-    except ContainerOperationError as e:
+    except JobOperationError as e:
         return make_error_response(str(e), status_code=400)
-    except DockerClientError as e:
-        return make_error_response(f"Docker error: {e}", status_code=500)
+    except KubernetesClientError as e:
+        return make_error_response(
+            f"Kubernetes error: {e}", status_code=500
+        )
 
 
 @containers_bp.route("/<pipeline_id>/containers/<container_id>/stop", methods=["POST"])
@@ -344,8 +367,8 @@ def stop_container(pipeline_id: str, container_id: str) -> tuple[Response, int]:
     timeout = data.get("timeout", 10)
 
     try:
-        docker_client = get_docker_client()
-        info = docker_client.stop_container(container_id, timeout=timeout)
+        k8s_client = get_kubernetes_client()
+        info = k8s_client.stop_container(container_id, timeout=timeout)
 
         logger.info(
             "Container stopped",
@@ -362,20 +385,17 @@ def stop_container(pipeline_id: str, container_id: str) -> tuple[Response, int]:
             },
         )
 
-    except InvalidContainerIdError:
-        return make_error_response(
-            f"Invalid container ID format: {container_id}",
-            status_code=400,
-        )
-    except ContainerNotFoundError:
+    except PodNotFoundError:
         return make_error_response(
             f"Container {container_id} not found",
             status_code=404,
         )
-    except ContainerOperationError as e:
+    except JobOperationError as e:
         return make_error_response(str(e), status_code=400)
-    except DockerClientError as e:
-        return make_error_response(f"Docker error: {e}", status_code=500)
+    except KubernetesClientError as e:
+        return make_error_response(
+            f"Kubernetes error: {e}", status_code=500
+        )
 
 
 @containers_bp.route("/<pipeline_id>/containers/<container_id>/logs", methods=["GET"])
@@ -401,26 +421,23 @@ def get_container_logs(pipeline_id: str, container_id: str) -> tuple[Response, i
     tail = int(request.args.get("tail", 100))
 
     try:
-        docker_client = get_docker_client()
-        logs = docker_client.get_container_logs(container_id, tail=tail)
+        k8s_client = get_kubernetes_client()
+        logs = k8s_client.get_container_logs(container_id, tail=tail)
 
         return make_success_response(
             "Logs retrieved",
             data={"logs": logs},
         )
 
-    except InvalidContainerIdError:
-        return make_error_response(
-            f"Invalid container ID format: {container_id}",
-            status_code=400,
-        )
-    except ContainerNotFoundError:
+    except PodNotFoundError:
         return make_error_response(
             f"Container {container_id} not found",
             status_code=404,
         )
-    except DockerClientError as e:
-        return make_error_response(f"Docker error: {e}", status_code=500)
+    except KubernetesClientError as e:
+        return make_error_response(
+            f"Kubernetes error: {e}", status_code=500
+        )
 
 
 @containers_bp.route("/<pipeline_id>/containers/<container_id>/health", methods=["GET"])
@@ -442,13 +459,12 @@ def check_container_health(pipeline_id: str, container_id: str) -> tuple[Respons
         }
     """
     try:
-        monitor = get_container_monitor()
+        monitor = get_kubernetes_monitor()
         health = monitor.check_container_health(container_id)
 
         return make_success_response("Health checked", data=health)
 
-    except InvalidContainerIdError:
+    except KubernetesClientError as e:
         return make_error_response(
-            f"Invalid container ID format: {container_id}",
-            status_code=400,
+            f"Kubernetes error: {e}", status_code=500
         )

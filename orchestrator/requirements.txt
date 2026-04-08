@@ -8,8 +8,11 @@ pydantic>=2.0.0
 # HTTP client for gateway communication
 httpx>=0.27.0
 
-# Docker SDK for container management
+# Docker SDK for container management (kept for backward compat, will be removed)
 docker>=7.0.0
+
+# Kubernetes SDK for k8s-based container management
+kubernetes>=31.0.0,<33.0.0
 
 # YAML configuration
 pyyaml>=6.0.0

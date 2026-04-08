@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-job-template
+  namespace: egg-system
+  labels:
+    app.kubernetes.io/name: agent-job-template
+    app.kubernetes.io/part-of: egg
+data:
+  job-template.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: "{{JOB_NAME}}"
+      namespace: egg-agents
+      labels:
+        app.kubernetes.io/part-of: egg
+        app.kubernetes.io/managed-by: orchestrator
+        egg.orchestrator: "true"
+        egg.pipeline.id: "{{PIPELINE_ID}}"
+        egg.agent.role: "{{AGENT_ROLE}}"
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 7200
+      ttlSecondsAfterFinished: 300
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: egg
+            egg.orchestrator: "true"
+            egg.pipeline.id: "{{PIPELINE_ID}}"
+            egg.agent.role: "{{AGENT_ROLE}}"
+        spec:
+          restartPolicy: Never
+          initContainers:
+            - name: git-shadow-mount
+              image: busybox:latest
+              command:
+                - sh
+                - -c
+                - |
+                  # Copy .git directory from host mount to tmpfs for isolation
+                  cp -a /mnt/worktree/.git /workspace/.git || true
+              volumeMounts:
+                - name: worktree
+                  mountPath: /mnt/worktree
+                  readOnly: true
+                - name: git-shadow
+                  mountPath: /workspace
+          containers:
+            - name: agent
+              image: "{{AGENT_IMAGE}}"
+              env:
+                - name: EGG_PIPELINE_ID
+                  value: "{{PIPELINE_ID}}"
+                - name: EGG_AGENT_ROLE
+                  value: "{{AGENT_ROLE}}"
+                - name: EGG_ORCHESTRATOR_URL
+                  value: "http://orchestrator.egg-system.svc.cluster.local:9849"
+                - name: GATEWAY_URL
+                  value: "http://gateway.egg-system.svc.cluster.local:9848"
+                - name: HTTPS_PROXY
+                  value: "http://gateway.egg-system.svc.cluster.local:3129"
+                - name: HTTP_PROXY
+                  value: "http://gateway.egg-system.svc.cluster.local:3129"
+                - name: EGG_REPO_PATH
+                  value: "/home/egg/repos/{{REPO_NAME}}"
+                - name: EGG_BRANCH
+                  value: "{{BRANCH}}"
+                - name: EGG_ISSUE_NUMBER
+                  value: "{{ISSUE_NUMBER}}"
+              volumeMounts:
+                - name: worktree
+                  mountPath: /home/egg/repos
+                - name: git-shadow
+                  mountPath: /home/egg/repos/{{REPO_NAME}}/.git
+                - name: certs
+                  mountPath: /etc/egg/certs
+                  readOnly: true
+              resources:
+                requests:
+                  memory: "512Mi"
+                  cpu: "500m"
+                limits:
+                  memory: "2Gi"
+                  cpu: "2000m"
+          volumes:
+            - name: worktree
+              hostPath:
+                path: "{{WORKTREE_HOST_PATH}}"
+                type: Directory
+            - name: git-shadow
+              emptyDir:
+                medium: Memory
+            - name: certs
+              secret:
+                secretName: agent-certs
+                optional: true

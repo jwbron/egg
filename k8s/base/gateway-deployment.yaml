@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: egg-system
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/part-of: egg
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gateway
+        app.kubernetes.io/part-of: egg
+    spec:
+      containers:
+        - name: gateway
+          image: egg-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: api
+              containerPort: 9848
+              protocol: TCP
+            - name: proxy
+              containerPort: 3129
+              protocol: TCP
+            - name: health
+              containerPort: 9851
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 9851
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 9851
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/egg-gateway/config
+              readOnly: true
+            - name: secrets
+              mountPath: /etc/egg-gateway/secrets
+              readOnly: true
+            - name: worktrees
+              mountPath: /home/egg/.egg-worktrees
+            - name: state
+              mountPath: /home/egg/.egg-state
+            - name: certs
+              mountPath: /etc/egg-gateway/certs
+      volumes:
+        - name: config
+          configMap:
+            name: gateway-config
+            optional: true
+        - name: secrets
+          secret:
+            secretName: gateway-secrets
+            optional: true
+        - name: worktrees
+          hostPath:
+            path: /home/egg/.egg-worktrees
+            type: DirectoryOrCreate
+        - name: state
+          hostPath:
+            path: /home/egg/.egg-state
+            type: DirectoryOrCreate
+        - name: certs
+          emptyDir: {}

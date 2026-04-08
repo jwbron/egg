@@ -3770,7 +3770,12 @@ def session_create() -> tuple[Response, int] | Response:
     if not container_id:
         return make_error("Missing container_id")
     if not container_ip:
-        return make_error("Missing container_ip")
+        # In k8s mode, pod IPs are ephemeral and may not be known at creation time
+        from session_manager import K8S_MODE
+
+        if not K8S_MODE:
+            return make_error("Missing container_ip")
+        container_ip = "0.0.0.0"
     if mode not in ("private", "public"):
         return make_error("Invalid mode: must be 'private' or 'public'")
     # repos can be omitted for orchestrator-internal sessions that have a pipeline_id

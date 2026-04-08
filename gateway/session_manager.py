@@ -34,6 +34,10 @@ from egg_logging import get_logger
 
 logger = get_logger("gateway.session-manager")
 
+# In Kubernetes, pod IPs are ephemeral and cannot be used for session binding.
+# When enabled, IP mismatches are logged as warnings but do not block authentication.
+K8S_MODE = os.environ.get("EGG_K8S_MODE", "false").lower() == "true"
+
 
 # Import transcript buffer cleanup (lazy to avoid circular imports)
 def _cleanup_transcript_buffer(container_id: str) -> None:
@@ -361,7 +365,7 @@ class Session:
             session_token=None,  # Raw token not persisted
             session_token_hash=data["session_token_hash"],
             container_id=data["container_id"],
-            container_ip=data["container_ip"],
+            container_ip=data.get("container_ip", ""),
             mode=data["mode"],
             created_at=datetime.fromisoformat(data["created_at"]),
             last_seen=datetime.fromisoformat(data["last_seen"]),
@@ -517,8 +521,8 @@ class SessionManager:
     def register_session(
         self,
         container_id: str,
-        container_ip: str,
-        mode: ModeType,
+        container_ip: str = "",
+        mode: ModeType = "private",
         phase: str | None = None,
         issue_number: int | None = None,
         pr_number: int | None = None,
@@ -550,6 +554,10 @@ class SessionManager:
         # Generate cryptographically secure token
         token = secrets.token_urlsafe(SESSION_TOKEN_BYTES)
         token_hash = _hash_token(token)
+
+        # In k8s mode, pod IPs may not be known at session creation time
+        if not container_ip and K8S_MODE:
+            container_ip = "0.0.0.0"
 
         now = datetime.now(UTC)
         session = Session(
@@ -647,19 +655,30 @@ class SessionManager:
                 )
 
             # Verify source IP if provided
+            # In k8s mode, pod IPs are ephemeral - skip IP binding validation
             if source_ip and session.container_ip != source_ip:
-                logger.warning(
-                    "Session validation failed - IP mismatch",
-                    event_type="session_ip_mismatch",
-                    session_token_hash=token_hash[:16],
-                    container_id=session.container_id,
-                    expected_ip=session.container_ip,
-                    actual_ip=source_ip,
-                )
-                return SessionValidationResult(
-                    valid=False,
-                    error="Session-container binding verification failed",
-                )
+                if K8S_MODE:
+                    logger.info(
+                        "Session IP mismatch (allowed in k8s mode)",
+                        event_type="session_ip_mismatch_k8s",
+                        session_token_hash=token_hash[:16],
+                        container_id=session.container_id,
+                        expected_ip=session.container_ip,
+                        actual_ip=source_ip,
+                    )
+                else:
+                    logger.warning(
+                        "Session validation failed - IP mismatch",
+                        event_type="session_ip_mismatch",
+                        session_token_hash=token_hash[:16],
+                        container_id=session.container_id,
+                        expected_ip=session.container_ip,
+                        actual_ip=source_ip,
+                    )
+                    return SessionValidationResult(
+                        valid=False,
+                        error="Session-container binding verification failed",
+                    )
 
             # Extend session TTL (heartbeat on successful validation)
             session.extend_ttl(self._ttl_hours)

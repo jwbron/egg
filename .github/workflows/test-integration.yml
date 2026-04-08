@@ -9,8 +9,8 @@ on:
   workflow_dispatch:  # Allow manual testing
 
 jobs:
-  integration:
-    name: Integration Tests
+  integration-docker:
+    name: Integration Tests (Docker)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,21 +41,79 @@ jobs:
           docker compose -f integration_tests/docker-compose.yml down -v --remove-orphans 2>/dev/null || true
           docker network prune -f 2>/dev/null || true
 
+  integration-k3s:
+    name: Integration Tests (k3s)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Install k3s
+        run: |
+          curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --disable=traefik" sh -
+          sudo kubectl wait --for=condition=Ready node --all --timeout=120s
+
+      - name: Install Calico CNI
+        run: bash scripts/install-calico.sh
+
+      - name: Create namespaces
+        run: sudo kubectl apply -f k8s/base/namespaces.yaml
+
+      - name: Build and import images into k3s
+        run: |
+          docker build -t egg-gateway -f gateway/Dockerfile .
+          docker save egg-gateway:latest | sudo k3s ctr images import -
+
+      - name: Deploy egg to k3s
+        run: |
+          sudo kubectl apply -k k8s/overlays/local/
+          sudo kubectl -n egg-system wait --for=condition=Available deployment --all --timeout=120s
+
+      - name: Run integration and security tests (k3s)
+        run: |
+          EGG_K8S_MODE=true PYTHONPATH=shared .venv/bin/pytest integration_tests -v \
+            -m "integration or security" \
+            --timeout=300
+
+      - name: Cleanup
+        if: always()
+        run: |
+          sudo kubectl delete namespace egg-system --ignore-not-found 2>/dev/null || true
+          sudo kubectl delete namespace egg-agents --ignore-not-found 2>/dev/null || true
+          /usr/local/bin/k3s-uninstall.sh 2>/dev/null || true
+
   aggregate:
     name: Aggregate Integration Test Results
     runs-on: ubuntu-latest
     if: always()
-    needs: [integration]
+    needs: [integration-docker, integration-k3s]
     outputs:
       passed: ${{ steps.check.outputs.passed }}
     steps:
       - name: Check all jobs passed
         id: check
         run: |
-          if [[ "${{ needs.integration.result }}" != "success" ]]; then
+          failed=false
+          if [[ "${{ needs.integration-docker.result }}" != "success" ]]; then
+            echo "Docker integration tests failed: ${{ needs.integration-docker.result }}"
+            failed=true
+          fi
+          if [[ "${{ needs.integration-k3s.result }}" != "success" ]]; then
+            echo "k3s integration tests failed: ${{ needs.integration-k3s.result }}"
+            failed=true
+          fi
+          if [[ "$failed" == "true" ]]; then
             echo "passed=false" >> "$GITHUB_OUTPUT"
-            echo "Integration tests failed"
-            echo "  integration: ${{ needs.integration.result }}"
           else
             echo "passed=true" >> "$GITHUB_OUTPUT"
             echo "All integration tests passed"

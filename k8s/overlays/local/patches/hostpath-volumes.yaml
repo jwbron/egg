@@ -1,0 +1,21 @@
+# Strategic merge patch for orchestrator deployment
+# Local-specific configuration: hostPath volumes pointing to local dev paths.
+# In production, these would be replaced with PersistentVolumeClaims or
+# cloud-native storage backends.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: egg-system
+spec:
+  template:
+    spec:
+      volumes:
+        - name: worktrees
+          hostPath:
+            path: /home/egg/.egg-worktrees
+            type: DirectoryOrCreate
+        - name: state
+          hostPath:
+            path: /home/egg/.egg-state
+            type: DirectoryOrCreate
