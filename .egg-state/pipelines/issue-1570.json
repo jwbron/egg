@@ -128,9 +128,29 @@
       "phase_start_sha": "489a62713916837ce7fcb5df55758045c901fd65"
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Which LLM client approach should the harness use for the Anthropic provider?",
+      "context": "",
+      "options": [
+        "anthropic Python SDK (handles streaming, types, retries)",
+        "Raw httpx (full control, no vendor SDK)",
+        "LiteLLM (multi-provider abstraction)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-08T20:56:21.758113Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T20:42:46.989641Z",
+  "updated_at": "2026-04-08T20:56:21.763156Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -138,5 +158,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 7
+  "version": 8
 }
