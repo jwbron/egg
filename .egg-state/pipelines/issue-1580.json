@@ -43,8 +43,120 @@
       "started_at": "2026-04-08T23:39:32.405340Z",
       "work_started_at": "2026-04-08T23:39:32.957294Z",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "417e1f4c9a16119188db25cf0fab29be3cbbcf41cd00947058df110f5107ba47",
+          "container_name": "issue-1580-documenter",
+          "status": "running",
+          "started_at": "2026-04-08T23:39:37.522052Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "documenter",
+          "session_token": null
+        },
+        {
+          "container_id": "7d7a0e705217cb072500107d321f060a8a7af93693073793553af3e122fb42d5",
+          "container_name": "issue-1580-reviewer_contract",
+          "status": "running",
+          "started_at": "2026-04-08T23:39:37.522064Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_contract",
+          "session_token": null
+        },
+        {
+          "container_id": "99c66a87272069a90d68634e4501be7e23049263d9a88f6c2b431f2b14bbdbb6",
+          "container_name": "issue-1580-tester",
+          "status": "running",
+          "started_at": "2026-04-08T23:39:37.522068Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "tester",
+          "session_token": null
+        },
+        {
+          "container_id": "be5b4a780c8094cabe21cb4315f269f80f1830189099c96d53a962dc3b5cd7c7",
+          "container_name": "issue-1580-reviewer_code",
+          "status": "running",
+          "started_at": "2026-04-08T23:39:37.522072Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_code",
+          "session_token": null
+        },
+        {
+          "container_id": "57f8b2cd66bc5a3bf9a206087d3d12d7866fd7c031c4fdb023974ca89da417e0",
+          "container_name": "issue-1580-coder",
+          "status": "running",
+          "started_at": "2026-04-08T23:39:37.522076Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "coder",
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "documenter",
+          "status": "running",
+          "container_id": "417e1f4c9a16119188db25cf0fab29be3cbbcf41cd00947058df110f5107ba47",
+          "started_at": "2026-04-08T23:39:37.522060Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_contract",
+          "status": "running",
+          "container_id": "7d7a0e705217cb072500107d321f060a8a7af93693073793553af3e122fb42d5",
+          "started_at": "2026-04-08T23:39:37.522066Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "tester",
+          "status": "running",
+          "container_id": "99c66a87272069a90d68634e4501be7e23049263d9a88f6c2b431f2b14bbdbb6",
+          "started_at": "2026-04-08T23:39:37.522070Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_code",
+          "status": "running",
+          "container_id": "be5b4a780c8094cabe21cb4315f269f80f1830189099c96d53a962dc3b5cd7c7",
+          "started_at": "2026-04-08T23:39:37.522074Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "coder",
+          "status": "running",
+          "container_id": "57f8b2cd66bc5a3bf9a206087d3d12d7866fd7c031c4fdb023974ca89da417e0",
+          "started_at": "2026-04-08T23:39:37.522077Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -63,7 +175,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-08T23:38:45.795440Z",
-  "updated_at": "2026-04-08T23:39:32.959075Z",
+  "updated_at": "2026-04-08T23:39:37.522144Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -71,5 +183,5 @@
   "error": null,
   "analysis": "### Task Analysis\n\n**Problem statement**: Pipeline PRs show a phantom \"unknown\" phase in the BRC consensus summary, and `.egg-state/brc-history/` files are missing from the branch — they're never written because no messages match the phase filter.\n\n**Source context**: Issue #1580 reports two bugs surfaced by PR #1578 (the first pipeline after #1572 introduced BRC consensus context). Pipeline `issue-1526` ran only the implement phase, but the BRC summary attributes messages to \"unknown\" instead.\n\n**System context**: BRC (Broadcast-Review-Confirm) messages are created in two paths:\n1. **`routes/messages.py:97`** — general message REST endpoint, sets `phase=pipeline.current_phase.value` correctly\n2. **`routes/signals.py`** — consensus signal handlers (`propose`, `ack`, `nack`, `withdraw`, `confirmed`), which create `Message` objects **without setting the `phase` field** — it defaults to `None`\n\nDownstream, two consumers rely on message phase:\n- `_build_brc_consensus_summary()` (line 3053) groups by `msg.phase or \"unknown\"` → produces the phantom phase\n- `_write_brc_history()` (line 2990) filters by `m.phase == phase` → `None != \"implement\"` → no messages match → no file written → nothing to commit\n\n**Technical root cause**: All 8 `Message()` creations across the 5 consensus signal handlers in `signals.py` (lines 916, 936, 1000, 1014, 1072, 1124, 1233, 1277) omit `phase=`. The `Message` model defaults `phase` to `None`. This is the single root cause of both bugs.\n\n**Files affected**:\n- `orchestrator/routes/signals.py` — Add `phase=` to all 8 BRC message creations across 5 handlers\n- `orchestrator/tests/test_brc_history.py` — Add regression test for `phase=None` messages\n\n**Risks / edge cases**: \n- The `handle_consensus_propose_signal` already loads the pipeline conditionally (for commit verification). All other handlers would need to load it. A helper function keeps this DRY.\n- The fallback path in `handle_consensus_confirmed_signal` (line 1233) has `_phase` already resolved to \"implement\" or the actual phase — it just doesn't pass it to the `Message`.",
   "plan": "# Plan: Fix missing phase on BRC consensus messages\n\n## Summary\n\nAll 8 `Message()` creations in the consensus signal handlers (`orchestrator/routes/signals.py`) omit the `phase` field, which defaults to `None`. This causes both the phantom \"unknown\" phase in the BRC summary and the empty BRC history files. The fix adds a small helper to resolve the current pipeline phase and passes it to every BRC message creation.\n\n**Risks / edge cases**: Each consensus handler already has access to `pipeline_id` and `repo_path`. The `handle_consensus_confirmed_signal` fallback path already resolves `_phase` locally but doesn't pass it to the Message — we'll use that existing value. If pipeline loading fails (shouldn't happen since the pipeline must exist for signals to arrive), the helper falls back to `\"implement\"` which is the most common phase for BRC.\n\n## Implementation\n\n### Phase 1: Implement\n\nFix the missing phase field on BRC consensus messages and add regression tests.\n\n**Tasks**:\n1. **[task-1-1]** In `orchestrator/routes/signals.py`, add a helper `_resolve_pipeline_phase(pipeline_id, repo_path)` that loads the pipeline via `get_state_store(repo_path).load_pipeline(pipeline_id)` and returns `pipeline.current_phase.value`, with `\"implement\"` fallback on any exception. Place it near the other consensus helpers (around line 839). Acceptance: helper exists, returns phase string, handles errors gracefully.\n2. **[task-1-2]** In `orchestrator/routes/signals.py`, add `phase=_resolve_pipeline_phase(pipeline_id, repo_path)` to all 8 `Message()` creations across the 5 consensus signal handlers: `handle_consensus_propose_signal` (lines 916, 936), `handle_consensus_ack_signal` (lines 1000, 1014), `handle_consensus_nack_signal` (line 1072), `handle_consensus_withdraw_signal` (line 1124), `handle_consensus_confirmed_signal` (lines 1233, 1277). For the confirmed handler's fallback path (line 1233), use the already-resolved `_phase` local variable instead of calling the helper again. Acceptance: every BRC Message creation includes a non-None phase value.\n3. **[task-1-3]** In `orchestrator/tests/test_brc_history.py`, add regression tests: (a) `test_write_brc_history_skips_none_phase` — verifies `_write_brc_history` writes no file when messages have `phase=None` (documents the pre-fix behavior), (b) `test_build_brc_summary_no_unknown_phase` — verifies `_build_brc_consensus_summary` does not produce \"unknown\" when all messages have a valid phase set. Acceptance: both tests pass and would have caught the original bug.\n\n```yaml\n# yaml-tasks\npr:\n  title: \"Fix missing phase on BRC consensus messages (#1580)\"\n  description: |\n    BRC consensus signal handlers in signals.py created Message objects without\n    setting the phase field, causing phantom \"unknown\" phases in PR summaries\n    and empty BRC history files. Adds phase= to all 8 message creations and\n    a helper to resolve the current pipeline phase.\n  test_plan: |\n    - Automated: orchestrator/tests/test_brc_history.py covers _write_brc_history phase filtering and _build_brc_consensus_summary phase grouping\n    - Manual: Run a pipeline and verify .egg-state/brc-history/ files appear in commits and BRC summary shows correct phase names\n  manual_steps: |\n    Pre-merge: Run `make test` from repo root\n    Post-merge: Monitor next pipeline PR for correct BRC summary and history files\nphases:\n  - id: 1\n    name: Implement\n    goal: \"Fix missing phase field on BRC consensus messages and add regression tests\"\n    tasks:\n      - id: task-1-1\n        description: \"In `orchestrator/routes/signals.py`, add helper `_resolve_pipeline_phase(pipeline_id, repo_path)` that loads pipeline and returns `current_phase.value` with 'implement' fallback on error\"\n        acceptance: \"Helper function exists, returns phase string, handles exceptions gracefully with fallback\"\n        files:\n          - orchestrator/routes/signals.py\n      - id: task-1-2\n        description: \"Add `phase=_resolve_pipeline_phase(pipeline_id, repo_path)` to all 8 Message() creations in the 5 consensus signal handlers (propose lines 916/936, ack lines 1000/1014, nack line 1072, withdraw line 1124, confirmed lines 1233/1277). For confirmed fallback path use existing `_phase` variable.\"\n        acceptance: \"Every BRC Message creation in signals.py includes a non-None phase value\"\n        files:\n          - orchestrator/routes/signals.py\n      - id: task-1-3\n        description: \"Add regression tests in test_brc_history.py: test_write_brc_history_skips_none_phase (no file when phase=None) and test_build_brc_summary_no_unknown_phase (no 'unknown' when phases set correctly)\"\n        acceptance: \"Both tests pass and would have caught the original bug\"\n        files:\n          - orchestrator/tests/test_brc_history.py\n```",
-  "version": 6
+  "version": 7
 }
