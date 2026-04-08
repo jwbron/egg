@@ -147,10 +147,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Should the MVP include the interactive terminal mode, or focus solely on headless (pipeline) mode first?",
+      "context": "",
+      "options": [
+        "Headless only for MVP (interactive later)",
+        "Both headless and interactive in MVP",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-08T20:56:21.811858Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T20:56:21.763156Z",
+  "updated_at": "2026-04-08T20:56:21.814452Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -158,5 +176,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 8
+  "version": 9
 }
