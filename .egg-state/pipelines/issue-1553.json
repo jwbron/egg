@@ -164,10 +164,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "How should persistent storage (worktrees, state, certs) be handled in Kubernetes?",
+      "context": "",
+      "options": [
+        "hostPath volumes (simplest for k3s, not portable)",
+        "PersistentVolumeClaims with k3s local-path provisioner",
+        "NFS or shared filesystem PVCs (fully portable)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-08T14:43:51.806265Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-08T14:30:41.767647Z",
-  "updated_at": "2026-04-08T14:43:51.785073Z",
+  "updated_at": "2026-04-08T14:43:51.807970Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -175,5 +193,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 9
+  "version": 10
 }
