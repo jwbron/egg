@@ -4,12 +4,13 @@ Technical design and system architecture.
 
 ## System Overview
 
-egg is a structurally enforced SDLC pipeline that turns GitHub issues into reviewed pull requests. The system runs as two Docker containers working together:
+egg is a structurally enforced SDLC pipeline that turns GitHub issues into reviewed pull requests. The system runs on Kubernetes (k3s for local development) with two trusted services and ephemeral agent workloads:
 
-- **Gateway sidecar** (trusted) - Enforces SDLC phases, validates role permissions, injects credentials, proxies all external access
-- **Sandbox container** (untrusted) - Where the LLM agent runs with no credentials and restricted network
+- **Gateway sidecar** (trusted, `egg-system` namespace) - Enforces SDLC phases, validates role permissions, injects credentials, proxies all external access
+- **Orchestrator** (trusted, `egg-system` namespace) - Manages pipeline state, spawns agent Jobs, coordinates multi-agent execution
+- **Agent containers** (untrusted, `egg-agents` namespace) - Where LLM agents run as Kubernetes Jobs with no credentials and restricted network
 
-The gateway acts as the enforcement engine for both process controls (SDLC phases) and security controls (credential isolation).
+The gateway acts as the enforcement engine for both process controls (SDLC phases) and security controls (credential isolation). Calico NetworkPolicies enforce that agent pods can only communicate with the gateway — no internet access, no inter-agent communication. See [Kubernetes Architecture](kubernetes.md) for the full runtime details.
 
 See the [main README](../../README.md) for the architecture diagram.
 
@@ -53,7 +54,7 @@ See the [main README](../../README.md) for the architecture diagram.
 | **Shared Libraries** | Config, logging, git utilities, orchestrator types | [Shared README](../../shared/README.md) |
 | **egg_contracts** | SDLC contract models, role-based mutation validation, multi-agent orchestration | `shared/egg_contracts/` |
 | **egg_orchestrator** | Shared orchestrator types and sandbox-to-orchestrator communication | `shared/egg_orchestrator/` |
-| **Multi-Agent Orchestration** | Concurrent agent execution (Coder, Tester, Documenter, Reviewers) | `orchestrator/concurrent_executor.py`, `orchestrator/container_spawner.py` |
+| **Multi-Agent Orchestration** | Concurrent agent execution (Coder, Tester, Documenter, Reviewers) | `orchestrator/concurrent_executor.py`, `orchestrator/kubernetes_spawner.py` |
 
 ## SDLC Contracts
 
@@ -168,7 +169,7 @@ Contracts can override phase defaults via the `phase_configs` field, allowing pe
 The SDLC pipeline orchestrates agent-based development with structurally enforced checkpoints through the local orchestrator:
 
 **Core components:**
-- `orchestrator/container_spawner.py` - Agent container lifecycle management
+- `orchestrator/kubernetes_spawner.py` - Agent Job lifecycle management (replaced `container_spawner.py`)
 - `orchestrator/decision_queue.py` - Human-in-the-loop decision handling with debounce
 - `orchestrator/state_store.py` - Git-backed pipeline state management
 - `orchestrator/routes/pipelines.py` - Pipeline API, prompt building, and visualization
@@ -181,6 +182,7 @@ The SDLC pipeline orchestrates agent-based development with structurally enforce
 
 ## Key Architectural Decisions
 
+- [Kubernetes Architecture](kubernetes.md) - k3s runtime, Kustomize manifests, Calico NetworkPolicies
 - [Git Isolation](git-isolation.md) - Worktree isolation via gateway
 - [Credential Injection](credential-injection.md) - Zero-credential sandbox with API key proxy
 - [Network Isolation](network-isolation.md) - Public/private network modes
