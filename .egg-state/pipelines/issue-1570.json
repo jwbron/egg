@@ -293,10 +293,10 @@
       "options": [],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-08T20:56:45.527062Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-08T21:15:50.438096Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Compare cost_usd, num_turns, duration_ms, and task success rate. Use a known-good small bug fix issue as the test pipeline. Exact test pipeline TBD when ready for A/B validation.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -333,7 +333,7 @@
     }
   ],
   "created_at": "2026-04-08T20:41:52.792216Z",
-  "updated_at": "2026-04-08T21:15:50.039721Z",
+  "updated_at": "2026-04-08T21:15:50.439704Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -341,5 +341,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 33
+  "version": 34
 }
