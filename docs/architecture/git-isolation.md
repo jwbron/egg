@@ -241,7 +241,7 @@ Each agent works on its own isolated worktree with its own staging area. This ap
 - All agents share commit history and git objects (efficient storage)
 - Gateway manages worktree metadata---agents never touch it
 
-**Pipeline agents:** In concurrent pipeline execution, all agents push to the same shared branch (e.g., `egg/issue-{N}`) but each agent has its own worktree. Since each role has mutually exclusive file write permissions (coder → source code, tester → tests, documenter → docs), push rebases cannot conflict. See [Concurrent Execution Guide](../guides/concurrent-execution.md#per-agent-worktree-isolation) for details.
+**Pipeline agents:** In concurrent pipeline execution, all agents push to the same shared branch (e.g., `egg/issue-{N}`) but each agent has its own worktree. Since each role has mutually exclusive file write permissions (coder → source code, tester → tests, documenter → docs), push rebases cannot conflict. Reviewer agents sync their worktrees before reviewing by fetching and merging the pipeline branch, ensuring they evaluate up-to-date code from producers. See [Concurrent Execution Guide](../guides/concurrent-execution.md#per-agent-worktree-isolation) for details.
 
 **Worktree-aware APIs:** All gateway APIs that access the filesystem use `map_container_path_to_worktree()` to resolve container repo paths to worktree paths. This includes git operations, contract operations (`egg-contract show`, `add-commit`, `add-decision`, etc.), and checkpoint operations. The mapping is transparent to agents --- they use their normal repo path and the gateway resolves it to the correct worktree.
 

@@ -54,6 +54,8 @@ When updating review behavior, ensure both surfaces reflect the change:
 | Quality standards (be comprehensive, specific, etc.) | `action/review-conventions.md` "Comment Quality" section | `_build_review_prompt()` inline conventions |
 | Verdict classification (what's blocking vs non-blocking) | `action/review-conventions.md` "When to Approve vs Request Changes" | `_build_review_prompt()` "When to Use needs_revision vs approved" |
 | Procedural review steps | `action/build-review-prompt.sh` "How to Proceed" / inline fallback "How to Review" | `_build_review_prompt()` procedural steps for code reviewer |
+| Diff command | `gh pr diff` (full PR changeset) | `git diff origin/{base_branch}...HEAD` (full changeset against base) |
+| Thoroughness emphasis | "Find ALL issues on the first pass" (build-review-prompt.sh) | "Find ALL issues on the first pass" (`_build_review_prompt()`) |
 | Severity classification | `shared/prompts/code-review-criteria.md` (shared) | Same file (shared) |
 
 ## Modification Checklist
