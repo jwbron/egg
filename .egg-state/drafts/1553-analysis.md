@@ -191,63 +191,25 @@ However, the implementation should be structured to minimize risk:
 
 ## Open Questions
 
-> **Note**: The `egg-contract` CLI is unable to register decisions due to a gateway session configuration issue (role not propagated to session). The decisions and feedback questions below need to be registered once this is resolved, or answered directly on the issue.
+All open questions have been registered as HITL decisions (decision-1 through decision-12) via the orchestrator API.
 
-### Decisions Needed
+### Decisions Registered (Multiple Choice)
 
-**Decision 1: Kubernetes manifest approach**
-Which approach should be used for deploying orchestrator, gateway, and agent Jobs?
-- [ ] Raw YAML manifests (simpler, no tooling dependency)
-- [ ] Helm charts (templated, parameterized, standard ecosystem tool)
-- [ ] Kustomize overlays (YAML-native, no templating language, built into kubectl)
-- [ ] Other (explain in reply)
+- **decision-1**: Which Kubernetes manifest approach should be used for deploying orchestrator, gateway, and agent Jobs? (Raw YAML / Helm charts / Kustomize overlays)
+- **decision-2**: How should network isolation (currently Docker networks with isolated/external) be implemented in Kubernetes? (Calico CNI / Cilium CNI / Separate namespaces)
+- **decision-3**: How should persistent storage (worktrees, state, certs) be handled in Kubernetes? (hostPath / PVCs with local-path provisioner / NFS/shared PVCs)
+- **decision-4**: Should both Docker and Kubernetes backends be supported during transition? (Complete cutover / Dual-backend)
+- **decision-5**: How should the `egg` CLI work for local developers after the migration? (Require k3s / Keep Docker for interactive use)
+- **decision-6**: The gateway currently binds sessions to container IPs. How should this change for Kubernetes? (Token-only auth / Pod names/UIDs / Keep IP-based)
 
-**Decision 2: Network isolation implementation**
-How should network isolation (currently Docker networks with isolated/external) be implemented in Kubernetes?
-- [ ] Kubernetes NetworkPolicies with Calico CNI (native k8s, widely supported)
-- [ ] Kubernetes NetworkPolicies with Cilium CNI (eBPF-based, more features, heavier)
-- [ ] Separate namespaces with NetworkPolicies (stronger isolation boundary)
-- [ ] Other (explain in reply)
+### Feedback Registered (Open-Ended)
 
-**Decision 3: Persistent storage strategy**
-How should persistent storage (worktrees, state, certs) be handled?
-- [ ] hostPath volumes (simplest for k3s local dev, not portable to multi-node)
-- [ ] PersistentVolumeClaims with k3s local-path provisioner (semi-portable)
-- [ ] NFS or shared filesystem PVCs (fully portable, more infrastructure)
-- [ ] Other (explain in reply)
-
-**Decision 4: Migration strategy**
-Should both Docker and Kubernetes backends be supported during transition?
-- [ ] Complete cutover — remove Docker entirely, replace with k8s
-- [ ] Dual-backend during transition — keep Docker working while adding k8s
-- [ ] Other (explain in reply)
-
-**Decision 5: `egg` CLI local experience**
-How should the `egg` CLI work for local developers after the migration?
-- [ ] Require k3s for all local usage (via `make k3s-setup`)
-- [ ] Keep Docker-based `egg` CLI for interactive use, k8s for SDLC pipelines only
-- [ ] Other (explain in reply)
-
-**Decision 6: Gateway IP-based session binding**
-The gateway currently binds sessions to container IPs. How should this change?
-- [ ] Switch to token-only authentication (remove IP binding entirely)
-- [ ] Use k8s pod names/UIDs instead of IPs
-- [ ] Keep IP-based binding (pod IPs are stable for the pod's lifetime in k8s)
-- [ ] Other (explain in reply)
-
-### Feedback Needed
-
-1. **What is the target deployment environment?** Is this intended for local dev only (k3s), or also for cloud k8s (EKS/GKE/AKS)? This affects storage, networking, and registry decisions significantly.
-
-2. **What is the image registry strategy?** Currently images are built locally. Should we push to GHCR and pull in k8s, use k3s's local image import (`k3s ctr images import`), or set up a local registry?
-
-3. **Are there resource limits/quotas for agent pods?** The current setup has no resource limits on agent containers (only devserver has limits). Should agent Jobs have CPU/memory limits in k8s?
-
-4. **Should the DevserverManager also be migrated?** It currently uses Docker Compose to spin up validation stacks. Migrating it to k8s adds significant scope.
-
-5. **What is the timeline expectation?** This is a major architectural change. Is there a deadline, or is incremental delivery acceptable?
-
-6. **How should the CI pipeline change?** GitHub Actions currently uses Docker natively. k3s in CI requires either a k3s installation step in the workflow or a different CI approach (e.g., kind for CI, k3s for local dev).
+- **decision-7**: What is the target deployment environment? Local dev only (k3s), or also cloud k8s (EKS/GKE/AKS)?
+- **decision-8**: What is the image registry strategy? Push to GHCR, use k3s local image import, or set up a local registry?
+- **decision-9**: Are there resource limits/quotas for agent pods? Currently no limits on agents (only devserver has limits).
+- **decision-10**: Should the DevserverManager also be migrated to Kubernetes? It currently uses Docker Compose for validation stacks.
+- **decision-11**: What is the timeline expectation for this migration? Is incremental delivery acceptable?
+- **decision-12**: How should the CI pipeline change? k3s in GitHub Actions requires installation steps. Should we use kind for CI and k3s for local dev?
 
 ## Complexity Assessment
 
