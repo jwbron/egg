@@ -424,11 +424,34 @@ The abort path does not create individual HITL decisions per failure — it trea
 
 The 60-second window is tracked via the `_failure_times` list, filtered to recent entries on each failure.
 
+### Agent and Phase Restart
+
+Beyond the automatic retry-on-failure path above, the orchestrator supports explicit **restart** operations that can be triggered by the overseer, HITL operators, or the CLI/API:
+
+**Agent-level restart** (`POST /api/v1/pipelines/{id}/agents/{role}/restart`):
+- Stops the stuck container and removes it
+- Resets the agent's BRC consensus state (withdraws proposals, ACKs, NACKs, confirmations)
+- Respawns the agent with the same role/phase/env, **reusing the existing worktree** (committed work is preserved)
+- Injects recovery context so the new agent can resume from where its predecessor left off
+- Tracked per agent per phase; the overseer auto-restarts up to 2 times (configurable) before escalating to HITL
+
+**Phase-level restart** (`POST /api/v1/pipelines/{id}/phases/{phase}/restart`):
+- Stops and removes all containers for the phase
+- Resets all BRC consensus state (`PeerConsensusTracker.clear()`) and review cycle counters
+- Preserves all prior phase artifacts, HITL decisions, and branch commits
+- Respawns all agents from scratch with optional additional context
+- Requires HITL approval by default when triggered by the overseer
+
+Both are also available as MCP tools (`restart_agent`, `restart_phase`) and CLI commands (`egg-orch agent restart`, `egg-orch phase restart`). See [Agent Recovery Reference](../reference/agent-recovery.md) for detailed mechanics.
+
 ### HITL Escalation Paths
 
 | Scenario | HITL Options |
 |----------|-------------|
 | Single agent failure | Retry (respawn), Abort phase, Continue without |
+| Agent stall (overseer-detected) | *(auto-restarted by overseer, up to max restarts)* |
+| Agent stall (restarts exhausted) | Restart agent, Abort phase, Continue without |
+| Multiple agent stalls (2+ restarts exhausted) | Restart phase, Cancel pipeline |
 | Multiple failures (2+ / 60s) | Retry phase, Cancel pipeline |
 | Consensus timeout (critical blockers) | Continue waiting, Accept current state, Abort phase |
 | Consensus timeout (advisory only) | *(no HITL — proceeds automatically)* |
