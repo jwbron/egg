@@ -223,8 +223,18 @@ class TestMonitorExecuteRestartAgent:
         monitor._max_agent_restarts = 2
         return monitor
 
-    def test_restart_agent_calls_cli(self, monitor):
-        """restart_agent action should call the restart CLI."""
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_restart_agent_calls_rest_api(self, mock_request_cls, mock_build_opener, monitor):
+        """restart_agent action should POST to the REST API endpoint."""
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"success": true}'
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_opener = MagicMock()
+        mock_opener.open.return_value = mock_resp
+        mock_build_opener.return_value = mock_opener
+
         decision = {
             "action": "restart_agent",
             "message": "Agent stalled",
@@ -233,18 +243,26 @@ class TestMonitorExecuteRestartAgent:
 
         _run(monitor._execute_action(decision, "coder"))
 
-        # Should call _run_cli for the restart
-        monitor._run_cli.assert_called()
-        # Verify the CLI args contain restart-related arguments
-        call_args = monitor._run_cli.call_args
-        args = call_args[0] if call_args[0] else []
-        cli_str = " ".join(str(a) for a in args)
-        assert "restart-agent" in cli_str.lower(), f"Expected 'restart-agent' in CLI args: {cli_str}"
-        assert "coder" in cli_str.lower(), f"Expected agent role 'coder' in CLI args: {cli_str}"
+        # Should create a Request to the restart endpoint
+        mock_request_cls.assert_called_once()
+        call_args = mock_request_cls.call_args
+        url = call_args[0][0] if call_args[0] else call_args[1].get("url", "")
+        assert "/agents/coder/restart" in url, f"Expected restart URL, got: {url}"
+        assert "issue-100" in url, f"Expected pipeline_id in URL, got: {url}"
 
-    def test_restart_agent_increments_count_on_success(self, monitor):
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_restart_agent_increments_count_on_success(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
         """Successful restart should increment the agent's restart count."""
-        monitor._run_cli = AsyncMock(return_value=(0, '{"success": true}', ""))
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"success": true}'
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_opener = MagicMock()
+        mock_opener.open.return_value = mock_resp
+        mock_build_opener.return_value = mock_opener
 
         decision = {
             "action": "restart_agent",
@@ -256,9 +274,17 @@ class TestMonitorExecuteRestartAgent:
 
         assert monitor._agent_restart_counts.get("coder", 0) == 1
 
-    def test_restart_agent_creates_hitl_on_cli_failure(self, monitor):
-        """Failed CLI call should fall back to HITL decision."""
-        monitor._run_cli = AsyncMock(return_value=(1, "", "Error: container not found"))
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_restart_agent_creates_hitl_on_api_failure(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
+        """Failed API call should fall back to HITL decision."""
+        import urllib.error
+
+        mock_opener = MagicMock()
+        mock_opener.open.side_effect = urllib.error.URLError("connection refused")
+        mock_build_opener.return_value = mock_opener
 
         decision = {
             "action": "restart_agent",
