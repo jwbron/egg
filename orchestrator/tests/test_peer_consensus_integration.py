@@ -1137,6 +1137,8 @@ class TestWithdrawReProposalDeadlock:
         # reviewer_agent_design was confirmed on v1, now stale on v2
         assert "reviewer_agent_design" not in t._confirmed
         assert "reviewer_agent_design" in result["stale_reviewers"]
+        # reviewer_refine was blocked by the guard (never confirmed), so not stale
+        assert "reviewer_refine" not in result["stale_reviewers"]
 
         # Both re-review, ACK, and confirm — no deadlock
         t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
@@ -2498,17 +2500,10 @@ class TestUnresolvedNackGuard:
         # rev NACKs coder before coder proposes (version 0)
         t.handle_nack("rev", "coder", {"artifact_references": ["a.py"], "reason": "preemptive"})
 
-        # rev should be able to confirm — the NACK is at version 0
-        # (no real proposal to wait for re-proposal of)
-        # Note: this will raise ValueError because has_reviewed returns True (NACK is a review)
-        # but the behavior depends on implementation details. The key point is that the
-        # unresolved-NACK guard itself should not fire for version-0 NACKs.
-        # Whether the confirm succeeds depends on other guards.
+        # has_reviewed returns True for NACK, so the has_reviewed guard passes.
+        # The NACK guard requires current_version > 0, which is 0 here, so it
+        # doesn't fire. Confirm succeeds.
         result = t.handle_confirmed("rev")
-        # The result depends on whether has_reviewed considers NACK as reviewed.
-        # If yes, confirm succeeds. If no, ValueError. Either way, the NACK guard
-        # specifically should not be the blocker at version 0.
-        # Since has_reviewed returns True for NACK, this should succeed.
         assert result["status"] in ("confirmed", "partially_confirmed")
 
     def test_nack_guard_response_includes_nacked_producers(self):
@@ -2587,6 +2582,6 @@ class TestUnresolvedNackGuard:
         result = t.handle_confirmed("tester")
         # Tester's producer side is fully ACKed -> producer confirms
         # But reviewer side has unresolved NACK -> reviewer doesn't confirm
-        assert result["status"] in ("pending_acks", "partially_confirmed")
+        assert result["status"] == "pending_acks"
         # tester should NOT be fully confirmed
         assert "tester" not in t._confirmed
