@@ -778,6 +778,25 @@ class PeerConsensusTracker:
         """Alias for evaluate() -- compatibility with ConsensusEvaluator."""
         return self.evaluate()
 
+    def are_all_producers_working(self, reviewer: str) -> bool:
+        """Check if all upstream producers for a reviewer are still in WORKING phase.
+
+        Used by the health monitor to determine if a reviewer-only agent is
+        legitimately idle waiting for upstream proposals (BRC-idle suppression).
+
+        Args:
+            reviewer: The agent role to check.
+
+        Returns:
+            True if the reviewer has upstream producers and all are in WORKING phase.
+            False if the agent has no upstream producers or any has advanced past WORKING.
+        """
+        producers = self.graph.producers_for(reviewer)
+        if not producers:
+            return False
+        with self._lock:
+            return all(self._producer_phases.get(p) == ConsensusPhase.WORKING for p in producers)
+
     def get_agent_phase(self, role: str) -> dict[str, str]:
         """Get the BRC phase(s) for an agent."""
         with self._lock:

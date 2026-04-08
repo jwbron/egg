@@ -153,7 +153,8 @@ class HealthMonitor:
         Args:
             phase: The pipeline phase name (e.g. "implement", "plan").
         """
-        self._current_phase = phase
+        with self._lock:
+            self._current_phase = phase
 
     def _get_heartbeat_threshold(self) -> int:
         """Return the heartbeat timeout threshold for the current phase.
@@ -163,7 +164,9 @@ class HealthMonitor:
         All other phases use ``orchestrator_heartbeat_timeout_seconds``
         (default 120s).
         """
-        if self._current_phase == "implement":
+        with self._lock:
+            phase = self._current_phase
+        if phase == "implement":
             return self._config.orchestrator_implement_heartbeat_timeout_seconds
         return self._config.orchestrator_heartbeat_timeout_seconds
 
@@ -178,7 +181,6 @@ class HealthMonitor:
         """
         try:
             from peer_consensus import get_peer_consensus_tracker
-            from review_graph import ReviewGraph
         except ImportError:
             return False
 
@@ -186,27 +188,13 @@ class HealthMonitor:
         if tracker is None:
             return False
 
-        graph: ReviewGraph = tracker.graph
+        graph = tracker.graph
 
         # Only suppress reviewer-only roles (not dual-role producers)
         if not graph.is_reviewer(agent_id) or graph.is_producer(agent_id):
             return False
 
-        # Check if all upstream producers are still in WORKING phase
-        producers = graph.producers_for(agent_id)
-        if not producers:
-            return False
-
-        from egg_orchestrator.types import ConsensusPhase
-
-        with tracker._lock:
-            for producer in producers:
-                phase = tracker._producer_phases.get(producer)
-                if phase != ConsensusPhase.WORKING:
-                    # At least one producer has proposed — reviewer should be active
-                    return False
-
-        return True
+        return tracker.are_all_producers_working(agent_id)
 
     # -----------------------------------------------------------------
     # Event handlers

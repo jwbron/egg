@@ -791,6 +791,54 @@ REVIEWER_ID_2 = "reviewer_contract-abc123"
 PRODUCER_ID = "coder-abc123"
 
 
+def _make_mock_tracker(
+    *,
+    reviewer_roles: list[str] | None = None,
+    producer_roles: list[str] | None = None,
+    producer_phases: dict | None = None,
+    producers_for_reviewer: dict[str, list[str]] | None = None,
+):
+    """Create a mock PeerConsensusTracker with a ReviewGraph.
+
+    The mock supports ``are_all_producers_working()`` via the public API
+    (not private internals).  The returned mock exposes an ``_effective_phases``
+    dict that tests can mutate to simulate phase transitions.
+    """
+    from egg_orchestrator.types import ConsensusPhase
+
+    reviewer_roles = reviewer_roles or []
+    producer_roles = producer_roles or []
+    producer_phases = producer_phases or {}
+    producers_for_reviewer = producers_for_reviewer or {}
+
+    effective_phases: dict[str, ConsensusPhase] = dict.fromkeys(
+        producer_roles, ConsensusPhase.WORKING
+    )
+    effective_phases.update(producer_phases)
+
+    mock_tracker = MagicMock()
+
+    # Expose phases for mutation by phase-transition tests
+    mock_tracker._effective_phases = effective_phases
+
+    def _are_all_working(reviewer: str) -> bool:
+        producers = producers_for_reviewer.get(reviewer, [])
+        if not producers:
+            return False
+        return all(effective_phases.get(p) == ConsensusPhase.WORKING for p in producers)
+
+    mock_tracker.are_all_producers_working.side_effect = _are_all_working
+
+    # Create a mock graph
+    mock_graph = MagicMock()
+    mock_graph.is_reviewer.side_effect = lambda r: r in reviewer_roles
+    mock_graph.is_producer.side_effect = lambda r: r in producer_roles
+    mock_graph.producers_for.side_effect = lambda r: producers_for_reviewer.get(r, [])
+    mock_tracker.graph = mock_graph
+
+    return mock_tracker
+
+
 class TestImplementPhaseThreshold:
     """Task-1-1 / Task-1-2: implement phase uses a higher heartbeat threshold."""
 
@@ -1001,28 +1049,12 @@ class TestBRCIdleSuppression:
         producers_for_reviewer: dict[str, list[str]] | None = None,
     ):
         """Create a mock PeerConsensusTracker with a ReviewGraph."""
-        import threading
-
-        from egg_orchestrator.types import ConsensusPhase
-
-        reviewer_roles = reviewer_roles or []
-        producer_roles = producer_roles or []
-        producer_phases = producer_phases or {}
-        producers_for_reviewer = producers_for_reviewer or {}
-
-        mock_tracker = MagicMock()
-        mock_tracker._lock = threading.RLock()
-        mock_tracker._producer_phases = dict.fromkeys(producer_roles, ConsensusPhase.WORKING)
-        mock_tracker._producer_phases.update(producer_phases)
-
-        # Create a mock graph
-        mock_graph = MagicMock()
-        mock_graph.is_reviewer.side_effect = lambda r: r in reviewer_roles
-        mock_graph.is_producer.side_effect = lambda r: r in producer_roles
-        mock_graph.producers_for.side_effect = lambda r: producers_for_reviewer.get(r, [])
-        mock_tracker.graph = mock_graph
-
-        return mock_tracker
+        return _make_mock_tracker(
+            reviewer_roles=reviewer_roles,
+            producer_roles=producer_roles,
+            producer_phases=producer_phases,
+            producers_for_reviewer=producers_for_reviewer,
+        )
 
     def test_reviewer_only_suppressed_when_producers_working(self):
         """Reviewer-only agent with all producers in WORKING is suppressed."""
@@ -1286,7 +1318,7 @@ class TestBRCIdleSuppression:
         assert len(actions) == 0, "Reviewer should be suppressed initially"
 
         # Phase 2: producer transitions to PROPOSED — reviewer should be monitored
-        mock_tracker._producer_phases[PRODUCER_ID] = ConsensusPhase.PROPOSED
+        mock_tracker._effective_phases[PRODUCER_ID] = ConsensusPhase.PROPOSED
 
         with (
             patch("health_monitor.time") as mock_time,
@@ -1305,8 +1337,6 @@ class TestCombinedPhaseAndBRCSuppression:
 
     def test_implement_phase_with_brc_suppression(self):
         """During implement phase, both features work together."""
-        from egg_orchestrator.types import ConsensusPhase
-
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=120,
@@ -1315,15 +1345,11 @@ class TestCombinedPhaseAndBRCSuppression:
         monitor = _make_monitor(bus, config)
         monitor.set_current_phase("implement")
 
-        # Setup BRC tracker
-        mock_tracker = MagicMock()
-        mock_tracker._lock = __import__("threading").RLock()
-        mock_tracker._producer_phases = {PRODUCER_ID: ConsensusPhase.WORKING}
-        mock_graph = MagicMock()
-        mock_graph.is_reviewer.side_effect = lambda r: r == REVIEWER_ID
-        mock_graph.is_producer.side_effect = lambda r: r == PRODUCER_ID
-        mock_graph.producers_for.side_effect = lambda r: [PRODUCER_ID] if r == REVIEWER_ID else []
-        mock_tracker.graph = mock_graph
+        mock_tracker = _make_mock_tracker(
+            reviewer_roles=[REVIEWER_ID],
+            producer_roles=[PRODUCER_ID],
+            producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID]},
+        )
 
         # Both agents emit heartbeats
         _emit_heartbeat(bus, agent_id=PRODUCER_ID)
@@ -1344,8 +1370,6 @@ class TestCombinedPhaseAndBRCSuppression:
 
     def test_implement_producer_exceeds_threshold_reviewer_idle(self):
         """Producer exceeds implement threshold while reviewer is BRC-idle."""
-        from egg_orchestrator.types import ConsensusPhase
-
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=120,
@@ -1354,14 +1378,11 @@ class TestCombinedPhaseAndBRCSuppression:
         monitor = _make_monitor(bus, config)
         monitor.set_current_phase("implement")
 
-        mock_tracker = MagicMock()
-        mock_tracker._lock = __import__("threading").RLock()
-        mock_tracker._producer_phases = {PRODUCER_ID: ConsensusPhase.WORKING}
-        mock_graph = MagicMock()
-        mock_graph.is_reviewer.side_effect = lambda r: r == REVIEWER_ID
-        mock_graph.is_producer.side_effect = lambda r: r == PRODUCER_ID
-        mock_graph.producers_for.side_effect = lambda r: [PRODUCER_ID] if r == REVIEWER_ID else []
-        mock_tracker.graph = mock_graph
+        mock_tracker = _make_mock_tracker(
+            reviewer_roles=[REVIEWER_ID],
+            producer_roles=[PRODUCER_ID],
+            producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID]},
+        )
 
         _emit_heartbeat(bus, agent_id=PRODUCER_ID)
         _emit_heartbeat(bus, agent_id=REVIEWER_ID)
