@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1576,
+    "title": "Issue #1576",
+    "url": "https://github.com/jwbron/egg/issues/1576"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/peer_consensus.py:handle_confirmed()`, add an unresolved-NACK guard after the stale-ACK version-match guard (after line 439). For each assigned producer, check if entry.state == NACKED and current_version > 0. Return pending_acks with the list of NACKed producers.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Reviewer with unresolved NACK gets status: pending_acks naming the NACKed producer",
+          "files_affected": [
+            "orchestrator/peer_consensus.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add tests in orchestrator/tests/test_peer_consensus_integration.py: (a) reviewer cannot confirm with unresolved NACK, (b) confirm succeeds after producer re-proposes and reviewer ACKs, (c) full #1576 end-to-end scenario with multi-producer graph",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All new tests pass; existing tests unaffected",
+          "files_affected": [
+            "orchestrator/tests/test_peer_consensus_integration.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Fix BRC deadlock: block reviewer confirm with unresolved NACKs",
+    "description": "Adds an unresolved-NACK guard to handle_confirmed() that prevents reviewers\nfrom entering terminal CONFIRMED state while holding outstanding NACKs against\nproducers that haven't re-proposed. Fixes #1576.",
+    "test_plan": "- Automated: new tests in test_peer_consensus_integration.py cover the guard rejection, the recovery path (re-propose + re-ACK + confirm), and the full #1576 multi-agent scenario\n- Manual: verify existing BRC tests still pass with `pytest orchestrator/tests/`",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
