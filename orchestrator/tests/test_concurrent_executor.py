@@ -462,3 +462,112 @@ class TestFilePatternEnvVar:
         patterns = json.loads(env["EGG_AGENT_FILE_PATTERNS"])
         assert any("*.md" in p for p in patterns["allowed"])
         assert any("*.py" in p for p in patterns["blocked"])
+
+
+class TestCheckConsensusMessageBusFallback:
+    """Test the message-bus fallback in check_consensus (#1615).
+
+    When the tracker's evaluate() returns is_complete=False but all roles
+    have CONSENSUS_CONFIRMED messages in the store, check_consensus should
+    override and return is_complete=True.
+    """
+
+    def test_fallback_detects_consensus_from_messages(self):
+        """Message-bus fallback should detect consensus when tracker disagrees."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from message_store import Message, MessageType
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+
+        pipeline = _make_pipeline("KORE-1234")
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock(), review_graph=graph)
+
+        # Create a tracker that says consensus is NOT complete
+        from peer_consensus import (
+            create_peer_consensus_tracker,
+            remove_peer_consensus_tracker,
+        )
+
+        try:
+            tracker = create_peer_consensus_tracker("KORE-1234", graph)
+            tracker.register_agent("coder")
+            tracker.register_agent("reviewer_code")
+            # Don't call handle_propose/ack/confirmed — tracker thinks incomplete
+
+            # But the message store has CONFIRMED messages for all roles
+            confirmed_messages = [
+                Message(
+                    pipeline_id="KORE-1234",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="Confirmed by coder",
+                ),
+                Message(
+                    pipeline_id="KORE-1234",
+                    from_role="reviewer_code",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="Confirmed by reviewer_code",
+                ),
+            ]
+
+            mock_store = MagicMock()
+            mock_store.get_messages.return_value = confirmed_messages
+
+            with patch("message_store.get_message_store", return_value=mock_store):
+                result = executor.check_consensus()
+
+            assert result["is_complete"] is True
+            assert result.get("fallback") == "message_bus"
+        finally:
+            remove_peer_consensus_tracker("KORE-1234")
+
+    def test_fallback_does_not_fire_when_roles_missing(self):
+        """Message-bus fallback should not fire when not all roles confirmed."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from message_store import Message, MessageType
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+
+        pipeline = _make_pipeline("KORE-1234")
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock(), review_graph=graph)
+
+        from peer_consensus import create_peer_consensus_tracker, remove_peer_consensus_tracker
+
+        try:
+            tracker = create_peer_consensus_tracker("KORE-1234", graph)
+            tracker.register_agent("coder")
+            tracker.register_agent("reviewer_code")
+
+            # Only one role confirmed in messages
+            confirmed_messages = [
+                Message(
+                    pipeline_id="KORE-1234",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="Confirmed by coder",
+                ),
+            ]
+
+            mock_store = MagicMock()
+            mock_store.get_messages.return_value = confirmed_messages
+
+            with patch("message_store.get_message_store", return_value=mock_store):
+                result = executor.check_consensus()
+
+            assert result["is_complete"] is False
+            assert "fallback" not in result
+        finally:
+            remove_peer_consensus_tracker("KORE-1234")

@@ -387,6 +387,20 @@ class PeerConsensusTracker:
                 if not self.matrix.is_fully_acked(agent_role):
                     blocking = self.matrix.get_blocking_edges(agent_role)
                     pending_reviewers = [e.reviewer_role for e in blocking]
+                    logger.warning(
+                        "handle_confirmed rejected: producer not fully ACKed",
+                        pipeline_id=self.pipeline_id,
+                        role=agent_role,
+                        pending_reviewers=pending_reviewers,
+                        blocking_states=[
+                            {
+                                "reviewer": e.reviewer_role,
+                                "state": e.state.value,
+                                "version": e.version,
+                            }
+                            for e in blocking
+                        ],
+                    )
                     return {
                         "status": "pending_acks",
                         "message": (
@@ -428,6 +442,12 @@ class PeerConsensusTracker:
                         )
                 if stale_acks:
                     stale_producers = [s["producer"] for s in stale_acks]
+                    logger.warning(
+                        "handle_confirmed rejected: reviewer ACK version mismatch",
+                        pipeline_id=self.pipeline_id,
+                        role=agent_role,
+                        stale_acks=stale_acks,
+                    )
                     return {
                         "status": "pending_acks",
                         "message": (
@@ -461,6 +481,12 @@ class PeerConsensusTracker:
                         )
                 if unresolved_nacks:
                     nacked_producers = [n["producer"] for n in unresolved_nacks]
+                    logger.warning(
+                        "handle_confirmed rejected: reviewer has unresolved NACKs",
+                        pipeline_id=self.pipeline_id,
+                        role=agent_role,
+                        unresolved_nacks=unresolved_nacks,
+                    )
                     return {
                         "status": "pending_acks",
                         "message": (
