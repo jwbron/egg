@@ -5,7 +5,7 @@
   "branch": "egg/issue-1570-v2",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -77,10 +77,10 @@
         {
           "container_id": "0ff3994ecd3521c935276782a1c765216d930b2b86d2861a1700b19ca5390f5b",
           "container_name": "egg-sandbox-egg-issue-1570-v2-reviewer_plan",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-09T13:44:43.367551Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-09T13:54:10.669322Z",
+          "exit_code": 1,
           "agent_role": null,
           "session_token": null
         }
@@ -124,13 +124,13 @@
         },
         {
           "role": "reviewer_plan",
-          "status": "running",
+          "status": "failed",
           "container_id": "0ff3994ecd3521c935276782a1c765216d930b2b86d2861a1700b19ca5390f5b",
           "started_at": null,
-          "completed_at": null,
+          "completed_at": "2026-04-09T13:54:14.666427Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited unexpectedly during execution — detected by runtime container monitor",
           "retry_count": 0,
           "conflicts": []
         }
@@ -171,7 +171,7 @@
     }
   ],
   "created_at": "2026-04-09T01:16:37.974233Z",
-  "updated_at": "2026-04-09T13:44:43.374601Z",
+  "updated_at": "2026-04-09T13:54:14.666970Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -179,5 +179,5 @@
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "analysis": "See the full approved analysis at .egg-state/drafts/1570-analysis.md on branch egg/issue-1570. Key HITL decisions: (1) Custom thin adapter wrapping anthropic + openai SDKs, (2) Both headless and interactive in MVP, (3) Shell out to CLIs for egg-native tools initially, (4) Default claude-sdk with configurable opt-in to egg harness + TOS warning, (5) Include WebFetch/WebSearch, defer NotebookEdit, (6) Keep transcript capture in gateway, (7) Hardcoded per-model cost rates, (8) Basic retries with backoff in harness for transient API failures, (9) Replicate exact CLAUDE.md rule-merging, (10) Support opus[1m] suffix syntax, (11) Compare cost/turns/duration/success for validation, (12) Multi-model routing post-MVP but design provider abstraction to support it.",
   "plan": null,
-  "version": 25
+  "version": 26
 }
