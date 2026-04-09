@@ -571,9 +571,20 @@ egg-orch progress emit --step "waiting for dependency" --state blocked --blocker
 
 Agents should emit progress at key milestones (starting/completing steps, encountering blockers, during long operations). See [Pipeline Health Monitoring](pipeline-health-monitoring.md) for the full structured progress API and health monitoring architecture.
 
-### BRC-Idle Suppression
+### BRC-Aware Stall Suppression
 
-The health monitor is aware of BRC protocol state and **suppresses stall alerts for reviewer-only agents correctly idle in BRC protocol**. During concurrent execution, reviewer-only agents legitimately sit idle while waiting for upstream producers to send a `CONSENSUS_PROPOSE` message. The health monitor queries the peer consensus tracker's review graph and skips heartbeat/progress stall alerts for reviewer-only agents whose upstream producers are all still in the `WORKING` phase. Dual-role agents (those that are both producers and reviewers) are not suppressed, since they have their own work to complete. Once any upstream producer transitions to `PROPOSED`, downstream reviewers resume normal monitoring. This prevents the false-positive alerts observed when the implement phase takes longer than the standard stall threshold.
+The health monitor is aware of BRC protocol state and **suppresses stall alerts for reviewer-only agents correctly idle in BRC protocol**. During concurrent execution, reviewer-only agents legitimately sit idle while waiting for upstream producers to send a `CONSENSUS_PROPOSE` message. The health monitor queries the peer consensus tracker's review graph and skips heartbeat/progress stall alerts for reviewer-only agents whose upstream producers are all still in the `WORKING` phase. Dual-role agents (those that are both producers and reviewers) are not suppressed, since they have their own work to complete.
+
+**Two-phase suppression:** Stall suppression for reviewers now covers two distinct periods:
+
+1. **Pre-proposal idle**: Reviewer-only agents whose upstream producers are all still in `WORKING` phase are fully suppressed. This is the original BRC-idle suppression behavior.
+2. **Post-proposal grace**: After an upstream producer sends `CONSENSUS_PROPOSE`, the reviewer has a configurable grace period (`post_proposal_grace_seconds`, default 300s / 5 minutes) before heartbeat/progress stall checks apply. This covers the transition period where the reviewer is actively reading code, verifying claims, and preparing their review — showing tool call activity but no BRC messages yet.
+
+Once both conditions expire (all producers have proposed AND the grace period has elapsed), normal heartbeat/progress monitoring resumes.
+
+**Post-ACK confirmation timeout:** In the opposite direction, the health monitor also detects **producers stuck after being fully ACKed**. If all reviewers have ACKed a producer's proposal but the producer hasn't sent `CONSENSUS_CONFIRMED` within `orchestrator_post_ack_confirmation_timeout_seconds` (default 180s / 3 minutes), the health monitor escalates — regardless of whether the producer is still sending heartbeats. This catches the failure mode where a producer enters a tight heartbeat loop without ever confirming.
+
+See [Pipeline Health Monitoring](pipeline-health-monitoring.md#post-propose-grace-period-for-reviewers) for implementation details and configuration.
 
 ## Agent Anchors (Post-Compaction Recovery)
 

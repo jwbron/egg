@@ -837,6 +837,57 @@ class PeerConsensusTracker:
         with self._lock:
             return all(self._producer_phases.get(p) == ConsensusPhase.WORKING for p in producers)
 
+    def get_earliest_proposal_time(self, reviewer: str) -> float | None:
+        """Return the earliest proposal timestamp among the reviewer's upstream producers.
+
+        Used by the health monitor to determine if a reviewer-only agent is
+        within the post-propose grace period — the window after a producer
+        proposes during which the reviewer should not be flagged for inactivity.
+
+        Args:
+            reviewer: The reviewer role to check.
+
+        Returns:
+            Earliest proposal epoch float among upstream producers, or None if
+            no upstream producer has proposed.
+        """
+        producers = self.graph.producers_for(reviewer)
+        if not producers:
+            return None
+        with self._lock:
+            timestamps = [
+                self._proposal_timestamps[p].timestamp()
+                for p in producers
+                if p in self._proposal_timestamps
+            ]
+        if not timestamps:
+            return None
+        return min(timestamps)
+
+    def get_fully_acked_producers(self) -> dict[str, float]:
+        """Return producers that are fully ACKed but have not yet confirmed.
+
+        These producers have received all required ACKs and should be
+        transitioning to CONFIRMED. If they remain in this state for too
+        long, the health monitor should escalate.
+
+        Returns:
+            Dict mapping producer role to proposal timestamp (epoch float)
+            for producers where ``matrix.is_fully_acked(role)`` is True and
+            ``_producer_phases[role]`` is ``PROPOSED`` (not yet CONFIRMED).
+        """
+        result: dict[str, float] = {}
+        with self._lock:
+            for role, phase in self._producer_phases.items():
+                if phase != ConsensusPhase.PROPOSED:
+                    continue
+                if not self.matrix.is_fully_acked(role):
+                    continue
+                ts = self._proposal_timestamps.get(role)
+                if ts is not None:
+                    result[role] = ts.timestamp()
+        return result
+
     def get_agent_phase(self, role: str) -> dict[str, str]:
         """Get the BRC phase(s) for an agent."""
         with self._lock:
