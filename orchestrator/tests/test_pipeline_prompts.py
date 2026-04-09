@@ -860,6 +860,23 @@ class TestBuildRoleContext:
         assert "task-1-3" in result
         assert "Misc task" in result
 
+    def test_legacy_plan_all_roles_none_shows_all_tasks(self):
+        """Legacy plans (all role=None) show all tasks to all execution roles."""
+        task1 = self._make_task("task-1-1", "First task")
+        task1.role = None
+        task2 = self._make_task("task-1-2", "Second task")
+        task2.role = None
+        task3 = self._make_task("task-1-3", "Third task")
+        task3.role = None
+        phase = self._make_phase("phase-1", "Implement", [task1, task2, task3])
+
+        # Even though tester would normally be filtered, legacy plans show all
+        for role in ("coder", "tester", "documenter"):
+            result = _build_role_context(role, "# Issue", issue_number=1, phase_obj=phase)
+            assert "task-1-1" in result, f"{role} should see task-1-1 in legacy plan"
+            assert "task-1-2" in result, f"{role} should see task-1-2 in legacy plan"
+            assert "task-1-3" in result, f"{role} should see task-1-3 in legacy plan"
+
 
 class TestBuildAgentPromptRoleContext:
     """Tests for role-specific context in _build_agent_prompt()."""
