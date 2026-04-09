@@ -209,6 +209,7 @@ class ContainerSpawner:
         command: list[str] | None = None,
         certs_volume: str | None = None,
         branch: str | None = None,
+        base_branch: str | None = None,
         extra_mounts: list[MountSpec] | None = None,
         preserve_worktree_on_failure: bool = False,
     ) -> SpawnedContainer:
@@ -233,6 +234,10 @@ class ContainerSpawner:
             phase: SDLC pipeline phase for gateway session
             command: Command to execute in the container
             certs_volume: Docker named volume for gateway CA certs
+            base_branch: Branch to base worktrees on.  When None, the gateway
+                resolves the remote default branch.  Use the pipeline's
+                base_branch for initial creation and the pipeline's working
+                branch for restarts (where the worktree already exists).
             preserve_worktree_on_failure: If True, do not delete the agent's
                 worktree when Docker spawn fails.  Used during restarts where
                 the existing worktree contains committed work that must not
@@ -316,7 +321,7 @@ class ContainerSpawner:
                     repos=wt_repos,
                     uid=host_uid,
                     gid=host_gid,
-                    base_branch=branch,
+                    base_branch=base_branch,
                 )
                 if wt_result and wt_result.success and wt_result.worktrees:
                     repo_volumes = wt_result.worktrees
@@ -748,6 +753,7 @@ class ContainerSpawner:
         command: list[str] | None = None,
         certs_volume: str | None = None,
         branch: str | None = None,
+        base_branch: str | None = None,
         extra_mounts: list["MountSpec"] | None = None,
         max_restarts: int = 2,
         reason: str = "",
@@ -771,6 +777,9 @@ class ContainerSpawner:
             command: Command to execute in the container (e.g. consensus-wrapped prompt).
             certs_volume: Certs volume name.
             branch: Branch name.
+            base_branch: Branch to base worktrees on.  When None, the gateway
+                resolves the remote default branch.  For restarts, pass the
+                pipeline's working branch (the worktree already exists).
             extra_mounts: Additional mount specs.
             max_restarts: Maximum restart attempts per agent per phase (default 2).
             reason: Human-readable reason for the restart.
@@ -849,6 +858,7 @@ class ContainerSpawner:
             command=command,
             certs_volume=certs_volume,
             branch=branch,
+            base_branch=base_branch,
             extra_mounts=extra_mounts,
             preserve_worktree_on_failure=True,
         )
@@ -1092,6 +1102,7 @@ class ContainerSpawner:
         sandbox_env: dict[str, str] | None = None,
         image: str | None = None,
         certs_volume: str | None = None,
+        base_branch: str | None = None,
     ):
         """Create a spawn callable compatible with ConcurrentPhaseExecutor.
 
@@ -1108,6 +1119,9 @@ class ContainerSpawner:
             sandbox_env: Base environment variables.
             image: Docker image override.
             certs_volume: Certs volume name.
+            base_branch: Branch to base worktrees on.  When None, the gateway
+                resolves the remote default branch.  For initial creation, pass
+                the pipeline's base_branch.
 
         Returns:
             Callable suitable for ConcurrentPhaseExecutor.spawn_fn.
@@ -1132,6 +1146,7 @@ class ContainerSpawner:
                 phase=phase,
                 certs_volume=certs_volume,
                 branch=branch,
+                base_branch=base_branch,
                 command=command,
             )
 
