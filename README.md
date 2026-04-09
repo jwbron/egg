@@ -77,12 +77,14 @@ Detect anomaly (stall, loop, error, off-track behavior)
     │
     ├─→ Auto-nudge: send corrective message to the stuck agent
     ├─→ Redirect: send targeted instructions to change approach
+    ├─→ Restart agent: stop and respawn the stuck agent (preserves worktree, up to 2×)
     ├─→ HITL escalation: queue decision for human review
+    ├─→ Restart phase (HITL): restart all phase agents after human approval
     ├─→ File diagnostic GitHub issue with full context
     └─→ Slack notification to the team
 ```
 
-The overseer uses a lightweight model (Haiku) for continuous classification (is this agent stalled? looping? producing errors?) and escalates to a stronger model (Sonnet/Opus) only when corrective decisions are needed. It cannot restart agents on its own; restart requests go through the human-in-the-loop decision queue.
+The overseer uses a lightweight model (Haiku) for continuous classification (is this agent stalled? looping? producing errors?) and escalates to a stronger model (Sonnet/Opus) only when corrective decisions are needed. It can restart individual agents autonomously (up to 2 times per phase, preserving committed work); phase-level restarts require human-in-the-loop approval.
 
 The overseer is phase-scoped: it is spawned at the start of each pipeline phase and torn down when that phase completes, advances, or fails — giving each phase a fresh instance with no accumulated state. If the overseer crashes mid-phase, the orchestrator automatically respawns it (up to 3 times per phase).
 
