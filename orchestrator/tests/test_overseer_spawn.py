@@ -801,6 +801,7 @@ class TestOverseerRespawn:
             mode="public",
             poll_interval=running_pipeline.config.overseer_poll_interval_seconds,
             decision_model=running_pipeline.config.overseer_decision_maker_model,
+            max_turns=running_pipeline.config.overseer_max_turns,
             repos=None,
             certs_volume=None,
         )
