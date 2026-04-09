@@ -1326,7 +1326,7 @@ Pipeline health monitoring uses a **two-tier architecture** to detect and remedi
 
 The orchestrator runs five deterministic tripwire checks against live telemetry:
 
-- **Heartbeat timeout**: No heartbeat/progress within `orchestrator_heartbeat_timeout_seconds` (default 120s) triggers escalation to the overseer (or HITL if overseer disabled).
+- **Heartbeat timeout**: No heartbeat/progress within the phase-aware threshold triggers escalation to the overseer (or HITL if overseer disabled). The implement phase uses `orchestrator_implement_heartbeat_timeout_seconds` (default 600s); all other phases use `orchestrator_heartbeat_timeout_seconds` (default 120s). Reviewer-only agents correctly idle in BRC protocol (waiting for upstream producers to propose) are excluded from these checks.
 - **Container exit**: Unexpected container death triggers immediate HITL escalation.
 - **Repeated errors**: Identical error repeated `orchestrator_error_repeat_threshold` times (default 3) escalates.
 - **Message volume spike**: Messages exceeding `orchestrator_message_rate_limit` per minute (default 20) triggers auto-throttle.
@@ -1350,7 +1350,7 @@ Tier 1 (orchestrator) escalates directly to the overseer/HITL on heartbeat/progr
 - **Query health alerts**: `egg-orch health alerts`
 - **Query progress events**: `egg-orch progress query --agent <role>`
 - **View oversight logs**: Check `.egg-state/oversight/` in the pipeline branch
-- **Override thresholds**: Set fields on `PipelineConfig` (e.g., `orchestrator_heartbeat_timeout_seconds`, `overseer_max_redirects_before_escalation`)
+- **Override thresholds**: Set fields on `PipelineConfig` (e.g., `orchestrator_heartbeat_timeout_seconds`, `orchestrator_implement_heartbeat_timeout_seconds`, `overseer_max_redirects_before_escalation`)
 
 ---
 
