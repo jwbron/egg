@@ -488,6 +488,24 @@ class TestRestartAgentEndpoint:
 
         assert response.status_code == 409
 
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_agent_cancelled_pipeline_returns_409(self, mock_repo, mock_resolve, client):
+        """Restart returns 409 for cancelled pipelines."""
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_running_agent()
+        pipeline.status = PipelineStatus.CANCELLED
+
+        mock_store = MagicMock()
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart",
+            json={},
+        )
+
+        assert response.status_code == 409
+
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")

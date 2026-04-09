@@ -1145,7 +1145,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         PipelineStatus.FAILED,
     ):
         return make_error_response(
-            f"Pipeline {pipeline_id} is not running (status: {pipeline.status.value})",
+            f"Pipeline {pipeline_id} is not in a restartable state (status: {pipeline.status.value})",
             status_code=409,
         )
 
@@ -1154,7 +1154,12 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
 
     # Reset consensus state for this agent
     try:
-        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+        except ImportError:
+            from ..peer_consensus import (
+                get_peer_consensus_tracker,  # type: ignore[import-not-found]
+            )
 
         tracker = get_peer_consensus_tracker(pipeline_id)
         if tracker:
@@ -1175,7 +1180,10 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         )
 
     try:
-        from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
+        try:
+            from consensus import get_consensus_evaluator
+        except ImportError:
+            from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
 
         evaluator = get_consensus_evaluator()
         evaluator.remove_agent(pipeline_id, agent_role)
@@ -1391,7 +1399,7 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
         PipelineStatus.FAILED,
     ):
         return make_error_response(
-            f"Pipeline {pipeline_id} is not running (status: {pipeline.status.value})",
+            f"Pipeline {pipeline_id} is not in a restartable state (status: {pipeline.status.value})",
             status_code=409,
         )
 
@@ -1464,9 +1472,12 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
 
         # 2. Reset consensus state
         try:
-            from ..peer_consensus import (
-                get_peer_consensus_tracker,  # type: ignore[import-not-found]
-            )
+            try:
+                from peer_consensus import get_peer_consensus_tracker
+            except ImportError:
+                from ..peer_consensus import (
+                    get_peer_consensus_tracker,  # type: ignore[import-not-found]
+                )
 
             tracker = get_peer_consensus_tracker(pipeline_id)
             if tracker:
@@ -1482,7 +1493,10 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
             )
 
         try:
-            from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
+            try:
+                from consensus import get_consensus_evaluator
+            except ImportError:
+                from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
 
             evaluator = get_consensus_evaluator()
             evaluator.clear(pipeline_id)
