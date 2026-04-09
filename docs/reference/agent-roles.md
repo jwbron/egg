@@ -291,6 +291,10 @@ Tasks are assigned based on the files they modify:
 | `docs/`, `**/*.md`, `**/README.md` | `documenter` |
 | Mixed (spans multiple roles) | Split into sub-tasks per role |
 
+### Validation
+
+The YAML schema restricts the `role` field to the enum values `coder`, `tester`, and `documenter`. The plan parser also validates role values at parse time — invalid roles generate a parse warning and are treated as unassigned (`null`).
+
 ### Backward Compatibility
 
 The `role` field is optional. Plans generated before this feature (without `role` assignments) continue to work: all tasks default to showing for all agents, preserving the prior behavior. Unassigned tasks (`role: null`) fall through to the coder as the default execution role.
