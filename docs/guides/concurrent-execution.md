@@ -112,7 +112,7 @@ Request body:
 }
 ```
 
-The pipeline's current phase is automatically attached to each message.
+The pipeline's current phase is automatically attached to each message. This applies to both the general message endpoint and the consensus signal handlers — all `CONSENSUS_*` messages (propose, ACK, NACK, withdraw, confirmed, re-review) include the phase field so that downstream consumers like BRC history persistence and PR summary generation can correctly group messages by phase.
 
 ### Polling Messages
 
@@ -291,6 +291,8 @@ At each phase boundary, the orchestrator writes a chronological log of all BRC c
 3. If matching BRC messages exist, they are formatted as chronological markdown entries and written to `.egg-state/brc-history/{identifier}-{phase}.md`
 4. If no BRC messages exist for that phase, no file is created (graceful no-op)
 
+**Phase tracking requirement:** The phase filter in step 2 (`m.phase == phase`) means that every BRC message must have its `phase` field set at creation time. The consensus signal handlers in `orchestrator/routes/signals.py` resolve the phase via `_resolve_pipeline_phase()`, which loads the pipeline state and returns the current phase name (falling back to `"implement"` on error). Without a phase value, messages would be invisible to the phase filter and the history file would be empty.
+
 **File format:**
 
 ```markdown
@@ -315,12 +317,12 @@ Generated at: {timestamp}
 
 When the orchestrator auto-creates the PR (during the PR phase), it includes a **## BRC Consensus Summary** section in the PR body if BRC messages exist. This gives human reviewers a quick overview of how agents communicated and reached consensus.
 
-The summary is grouped by phase and includes:
+The summary is grouped by phase (using each message's `phase` field) and includes:
 - Agent roles involved in each phase
 - Counts of proposals, ACKs, NACKs, and confirmations
 - Whether consensus was reached for that phase
 
-The section is capped at ~2000 characters and is omitted entirely when no BRC messages exist. It appears before the `Authored-by: egg` footer.
+Messages without a `phase` value are grouped under `"unknown"` — if this appears in a PR summary, it indicates a bug where consensus messages were created without their phase field set. The section is capped at ~2000 characters and is omitted entirely when no BRC messages exist. It appears before the `Authored-by: egg` footer.
 
 ### Consensus Check
 

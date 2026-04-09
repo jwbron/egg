@@ -836,6 +836,22 @@ def _validate_tester_check_coverage(pipeline_id: str, payload: dict[str, Any]) -
         )
 
 
+def _resolve_pipeline_phase(pipeline_id: str, repo_path: Path) -> str:
+    """Resolve the current phase for a pipeline, with graceful fallback.
+
+    Loads the pipeline from the state store and returns the current phase
+    name as a string.  Falls back to ``"implement"`` (the most common BRC
+    phase) if loading fails for any reason — this keeps Message creation
+    from silently dropping the phase field.
+    """
+    try:
+        store = get_state_store(repo_path)
+        pipeline = store.load_pipeline(pipeline_id)
+        return pipeline.current_phase.value
+    except Exception:
+        return "implement"
+
+
 def handle_consensus_propose_signal(
     pipeline_id: str,
     data: dict[str, Any],
@@ -913,6 +929,7 @@ def handle_consensus_propose_signal(
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
+        phase = _resolve_pipeline_phase(pipeline_id, repo_path)
         store.add_message(
             Message(
                 pipeline_id=pipeline_id,
@@ -921,6 +938,7 @@ def handle_consensus_propose_signal(
                 message_type=MessageType.CONSENSUS_PROPOSE,
                 subject=f"Proposal from {agent_role}",
                 body=payload.get("summary", ""),
+                phase=phase,
                 metadata={
                     "payload": payload,
                     "version": result.get("version"),
@@ -946,6 +964,7 @@ def handle_consensus_propose_signal(
                         f"Your previous confirmation was on an earlier version. "
                         f"Please re-review and ACK/NACK the new proposal."
                     ),
+                    phase=phase,
                     metadata={
                         "producer_role": agent_role,
                         "version": result.get("version"),
@@ -997,6 +1016,7 @@ def handle_consensus_ack_signal(
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
+        phase = _resolve_pipeline_phase(pipeline_id, repo_path)
         store.add_message(
             Message(
                 pipeline_id=pipeline_id,
@@ -1005,6 +1025,7 @@ def handle_consensus_ack_signal(
                 message_type=MessageType.CONSENSUS_ACK,
                 subject=f"ACK from {reviewer_role} for {producer_role}",
                 body=payload.get("reason", ""),
+                phase=phase,
                 metadata={"payload": payload, "version": result.get("version")},
             )
         )
@@ -1020,6 +1041,7 @@ def handle_consensus_ack_signal(
                     subject="All reviewers have ACKed — ready to confirm",
                     body=f"All assigned reviewers have ACKed your proposal (version {result.get('version')}). "
                     "Run `egg-orch consensus confirmed` to confirm.",
+                    phase=phase,
                     metadata={"fully_acked": True, "version": result.get("version")},
                 )
             )
@@ -1077,6 +1099,7 @@ def handle_consensus_nack_signal(
                 message_type=MessageType.CONSENSUS_NACK,
                 subject=f"NACK from {reviewer_role} for {producer_role}",
                 body=payload.get("reason", ""),
+                phase=_resolve_pipeline_phase(pipeline_id, repo_path),
                 metadata={
                     "payload": payload,
                     "reason": result.get("reason"),
@@ -1129,6 +1152,7 @@ def handle_consensus_withdraw_signal(
                 message_type=MessageType.CONSENSUS_WITHDRAW,
                 subject=f"Withdrawal by {agent_role}",
                 body=reason,
+                phase=_resolve_pipeline_phase(pipeline_id, repo_path),
             )
         )
 
@@ -1238,6 +1262,7 @@ def handle_consensus_confirmed_signal(
                             message_type=MessageType.CONSENSUS_CONFIRMED,
                             subject=f"Confirmed by {agent_role}",
                             body="",
+                            phase=_phase,
                             metadata={"consensus_reached": True, "fallback": "message_bus"},
                         )
                     )
@@ -1282,6 +1307,7 @@ def handle_consensus_confirmed_signal(
                 message_type=MessageType.CONSENSUS_CONFIRMED,
                 subject=f"Confirmed by {agent_role}",
                 body="",
+                phase=_resolve_pipeline_phase(pipeline_id, repo_path),
                 metadata={"consensus_reached": result.get("consensus_reached", False)},
             )
         )
