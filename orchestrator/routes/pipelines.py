@@ -3754,6 +3754,55 @@ def _write_brc_history(
     )
 
 
+def _rewrite_brc_history_for_pr(
+    worktree_path: Path,
+    pipeline_id: str,
+    pipeline_phases: dict,
+    identifier: int | str,
+) -> None:
+    """Re-write BRC history for all completed phases before PR creation.
+
+    Iterates ``pipeline_phases`` (a mapping of phase name → phase execution
+    objects with a ``.status`` attribute) and calls :func:`_write_brc_history`
+    for each phase whose status is ``PipelineStatus.COMPLETE``.
+
+    Errors from individual phase writes are logged at warning level and
+    do not prevent other phases from being processed.
+
+    After re-writing history files, commits the results via
+    :func:`_commit_statefiles_to_worktree`.  Commit failures are also
+    logged and swallowed so the PR creation can proceed.
+    """
+    for phase_name, phase_exec in pipeline_phases.items():
+        if phase_exec.status == PipelineStatus.COMPLETE:
+            try:
+                _write_brc_history(
+                    worktree_path,
+                    pipeline_id,
+                    phase_name,
+                    identifier,
+                )
+            except Exception as brc_err:
+                logger.warning(
+                    "Failed to re-write BRC history for PR (continuing)",
+                    pipeline_id=pipeline_id,
+                    phase=phase_name,
+                    error=str(brc_err),
+                )
+    try:
+        _commit_statefiles_to_worktree(
+            worktree_path,
+            "Persist BRC history files for PR",
+            pipeline_identifier=identifier,
+        )
+    except subprocess.CalledProcessError as git_err:
+        logger.warning(
+            "Failed to commit BRC history for PR (continuing)",
+            pipeline_id=pipeline_id,
+            error=str(git_err),
+        )
+
+
 def _build_brc_consensus_summary(pipeline_id: str) -> str:
     """Build a concise BRC consensus summary for the PR body.
 
@@ -7603,34 +7652,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # can fail silently — re-writing here guarantees the files
                 # are on the branch before the PR is created.
                 identifier = _pipeline_identifier(pipeline.issue_number, pipeline_id)
-                for phase_name, phase_exec in pipeline.phases.items():
-                    if phase_exec.status == PipelineStatus.COMPLETE:
-                        try:
-                            _write_brc_history(
-                                worktree_repo_path,
-                                pipeline_id,
-                                phase_name,
-                                identifier,
-                            )
-                        except Exception as brc_err:
-                            logger.warning(
-                                "Failed to re-write BRC history for PR (continuing)",
-                                pipeline_id=pipeline_id,
-                                phase=phase_name,
-                                error=str(brc_err),
-                            )
-                try:
-                    _commit_statefiles_to_worktree(
-                        worktree_repo_path,
-                        "Persist BRC history files for PR",
-                        pipeline_identifier=identifier,
-                    )
-                except subprocess.CalledProcessError as git_err:
-                    logger.warning(
-                        "Failed to commit BRC history for PR (continuing)",
-                        pipeline_id=pipeline_id,
-                        error=str(git_err),
-                    )
+                _rewrite_brc_history_for_pr(
+                    worktree_repo_path,
+                    pipeline_id,
+                    pipeline.phases,
+                    identifier,
+                )
 
                 # Clean up pipeline draft files so PR diffs stay focused
                 _cleanup_drafts_for_pr(worktree_repo_path, identifier)
