@@ -922,3 +922,75 @@ class TestSubmitTaskErrorPropagation:
 
         assert "error" in result
         assert "HTTP 500" in result["error"]
+
+
+class TestGetStatus:
+    """Tests for the get_status tool's wait parameter."""
+
+    def _pipeline_response(self):
+        return {
+            "data": {
+                "pipeline": {
+                    "id": "issue-42",
+                    "current_phase": "implement",
+                    "status": "running",
+                    "repo": "org/repo",
+                    "issue_number": 42,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "phases": {
+                        "implement": {
+                            "agents": [
+                                {"role": "coder", "status": "running"},
+                                {"role": "tester", "status": "complete"},
+                            ]
+                        }
+                    },
+                    "decisions": [],
+                }
+            }
+        }
+
+    def _messages_response(self):
+        return {"data": {"messages": []}}
+
+    def _mock_requests(self, handler):
+        return patch.object(
+            handler,
+            "_make_request",
+            side_effect=[self._pipeline_response(), self._messages_response()],
+        )
+
+    @patch("mcp_tools.time")
+    def test_wait_parameter_sleeps(self, mock_time, handler):
+        """wait parameter triggers time.sleep before fetching status."""
+        with self._mock_requests(handler):
+            handler.handle_tool_call("get_status", {"task_id": "issue-42", "wait": 60})
+        mock_time.sleep.assert_called_once_with(60)
+
+    @patch("mcp_tools.time")
+    def test_wait_capped_at_300(self, mock_time, handler):
+        """wait values above 300 are capped."""
+        with self._mock_requests(handler):
+            handler.handle_tool_call("get_status", {"task_id": "issue-42", "wait": 600})
+        mock_time.sleep.assert_called_once_with(300)
+
+    @patch("mcp_tools.time")
+    def test_wait_zero_no_sleep(self, mock_time, handler):
+        """wait=0 (default) does not call time.sleep."""
+        with self._mock_requests(handler):
+            handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+        mock_time.sleep.assert_not_called()
+
+    @patch("mcp_tools.time")
+    def test_wait_negative_no_sleep(self, mock_time, handler):
+        """Negative wait values do not trigger sleep."""
+        with self._mock_requests(handler):
+            handler.handle_tool_call("get_status", {"task_id": "issue-42", "wait": -10})
+        mock_time.sleep.assert_not_called()
+
+    @patch("mcp_tools.time")
+    def test_wait_string_no_sleep(self, mock_time, handler):
+        """Non-numeric wait values (e.g. string) are ignored — no sleep."""
+        with self._mock_requests(handler):
+            handler.handle_tool_call("get_status", {"task_id": "issue-42", "wait": "60"})
+        mock_time.sleep.assert_not_called()
