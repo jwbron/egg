@@ -201,6 +201,142 @@ class TestRestartPhaseEndpoint:
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_failed_pipeline(self, mock_repo, mock_resolve, mock_spawner_fn, client):
+        """Phase restart succeeds on a failed pipeline and resets status to running."""
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+        pipeline.status = PipelineStatus.FAILED
+        pipeline.phases["implement"].status = PipelineStatus.FAILED
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.cleanup_pipeline.return_value = 3
+        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-coder-xyz",
+                container_name="egg-issue-200-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-200",
+            environment={},
+        )
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={"reason": "Usage limit hit"},
+        )
+
+        assert response.status_code == 200
+        assert pipeline.status == PipelineStatus.RUNNING
+        assert pipeline.phases["implement"].status == PipelineStatus.RUNNING
+
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_running_pipeline_status_unchanged(
+        self, mock_repo, mock_resolve, mock_spawner_fn, client
+    ):
+        """Phase restart on a running pipeline does not change pipeline status."""
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+        assert pipeline.status == PipelineStatus.RUNNING  # precondition
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.cleanup_pipeline.return_value = 3
+        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-coder-xyz",
+                container_name="egg-issue-200-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-200",
+            environment={},
+        )
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={"reason": "Agent stalled"},
+        )
+
+        assert response.status_code == 200
+        assert pipeline.status == PipelineStatus.RUNNING
+
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_awaiting_human_pipeline_status_unchanged(
+        self, mock_repo, mock_resolve, mock_spawner_fn, client
+    ):
+        """Phase restart on an AWAITING_HUMAN pipeline does not change pipeline status."""
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+        pipeline.status = PipelineStatus.AWAITING_HUMAN
+        assert pipeline.status == PipelineStatus.AWAITING_HUMAN  # precondition
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.cleanup_pipeline.return_value = 3
+        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-coder-xyz",
+                container_name="egg-issue-200-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-200",
+            environment={},
+        )
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={"reason": "Agent stalled"},
+        )
+
+        assert response.status_code == 200
+        assert pipeline.status == PipelineStatus.AWAITING_HUMAN
+
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_cancelled_pipeline_returns_409(
+        self, mock_repo, mock_resolve, mock_spawner_fn, client
+    ):
+        """Phase restart returns 409 for cancelled pipelines."""
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+        pipeline.status = PipelineStatus.CANCELLED
+
+        mock_store = MagicMock()
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 409
+
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_stops_all_containers(
         self, mock_repo, mock_resolve, mock_spawner_fn, client
     ):

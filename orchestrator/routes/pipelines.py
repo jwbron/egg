@@ -1138,10 +1138,14 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     except ValueError:
         return make_error_response(f"Invalid agent role: {agent_role}", status_code=400)
 
-    # Validate pipeline is running
-    if pipeline.status not in (PipelineStatus.RUNNING, PipelineStatus.AWAITING_HUMAN):
+    # Validate pipeline is in a restartable state
+    if pipeline.status not in (
+        PipelineStatus.RUNNING,
+        PipelineStatus.AWAITING_HUMAN,
+        PipelineStatus.FAILED,
+    ):
         return make_error_response(
-            f"Pipeline {pipeline_id} is not running (status: {pipeline.status.value})",
+            f"Pipeline {pipeline_id} is not in a restartable state (status: {pipeline.status.value})",
             status_code=409,
         )
 
@@ -1150,7 +1154,12 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
 
     # Reset consensus state for this agent
     try:
-        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+        except ImportError:
+            from ..peer_consensus import (
+                get_peer_consensus_tracker,  # type: ignore[import-not-found]
+            )
 
         tracker = get_peer_consensus_tracker(pipeline_id)
         if tracker:
@@ -1171,7 +1180,10 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         )
 
     try:
-        from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
+        try:
+            from consensus import get_consensus_evaluator
+        except ImportError:
+            from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
 
         evaluator = get_consensus_evaluator()
         evaluator.remove_agent(pipeline_id, agent_role)
@@ -1201,7 +1213,10 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     command = None
     extra_env: dict[str, str] = {}
     try:
-        from ..concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
+        try:
+            from concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
+        except ImportError:
+            from ..concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
 
         if is_concurrent_execution(pipeline, phase=current_phase):
             # Reconstruct extra_env via ConcurrentPhaseExecutor
@@ -1306,6 +1321,12 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                         )
                     )
 
+        # Reset pipeline/phase status if restarting from failed state
+        if pipeline.status == PipelineStatus.FAILED:
+            pipeline.status = PipelineStatus.RUNNING
+            if phase_exec is not None:
+                phase_exec.status = PipelineStatus.RUNNING
+
         pipeline.updated_at = datetime.now(UTC)
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
 
@@ -1371,10 +1392,14 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     except ValueError:
         return make_error_response(f"Invalid phase: {phase}", status_code=400)
 
-    # Validate pipeline is running
-    if pipeline.status not in (PipelineStatus.RUNNING, PipelineStatus.AWAITING_HUMAN):
+    # Validate pipeline is in a restartable state
+    if pipeline.status not in (
+        PipelineStatus.RUNNING,
+        PipelineStatus.AWAITING_HUMAN,
+        PipelineStatus.FAILED,
+    ):
         return make_error_response(
-            f"Pipeline {pipeline_id} is not running (status: {pipeline.status.value})",
+            f"Pipeline {pipeline_id} is not in a restartable state (status: {pipeline.status.value})",
             status_code=409,
         )
 
@@ -1447,9 +1472,12 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
 
         # 2. Reset consensus state
         try:
-            from ..peer_consensus import (
-                get_peer_consensus_tracker,  # type: ignore[import-not-found]
-            )
+            try:
+                from peer_consensus import get_peer_consensus_tracker
+            except ImportError:
+                from ..peer_consensus import (
+                    get_peer_consensus_tracker,  # type: ignore[import-not-found]
+                )
 
             tracker = get_peer_consensus_tracker(pipeline_id)
             if tracker:
@@ -1465,7 +1493,10 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
             )
 
         try:
-            from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
+            try:
+                from consensus import get_consensus_evaluator
+            except ImportError:
+                from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
 
             evaluator = get_consensus_evaluator()
             evaluator.clear(pipeline_id)
@@ -1498,6 +1529,8 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
         phase_exec.agents = []
         phase_exec.review_cycles = 0
         phase_exec.status = PipelineStatus.RUNNING
+        if pipeline.status == PipelineStatus.FAILED:
+            pipeline.status = PipelineStatus.RUNNING
         pipeline.updated_at = datetime.now(UTC)
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
 
@@ -1505,7 +1538,10 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     agent_commands: dict[AgentRole, list[str] | None] = {}
     agent_envs: dict[AgentRole, dict[str, str]] = {}
     try:
-        from ..concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
+        try:
+            from concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
+        except ImportError:
+            from ..concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
 
         if is_concurrent_execution(pipeline, phase=phase):
             executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=lambda **kw: None)  # type: ignore[arg-type]
