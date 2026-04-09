@@ -44,6 +44,22 @@ except ImportError:
 logger = get_logger("orchestrator.mcp_tools")
 
 
+def _is_timeout_error(exc: BaseException) -> bool:
+    """Check if an OSError/URLError is a timeout.
+
+    Handles both Python 3.11 (socket.timeout is OSError subclass) and
+    Python 3.12+ (socket.timeout is TimeoutError alias).  urllib wraps
+    the real timeout in URLError.reason.
+    """
+    import socket
+
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return True
+    if hasattr(exc, "reason") and isinstance(exc.reason, (TimeoutError, socket.timeout)):
+        return True
+    return False
+
+
 # Tool definitions following MCP protocol schema
 PIPELINE_TOOLS = [
     {
@@ -1042,29 +1058,37 @@ class PipelineToolHandler:
         )
 
         if args.get("cleanup"):
-            # Delete pipeline state so the issue can be resubmitted.
-            # The DELETE endpoint cleans up containers, remote branches,
-            # Redis messages, and the state file.
-            cleaned_up: list[str] = []
-            try:
-                self._make_request(
-                    f"/api/v1/pipelines/{task_id}",
-                    method="DELETE",
-                    timeout=120,
-                )
-                cleaned_up = ["pipeline_state", "containers", "worktrees", "messages"]
-            except Exception as e:
-                logger.warning(
-                    "Cleanup after cancel failed",
-                    task_id=task_id,
-                    error=str(e),
-                )
+            # Fire DELETE in a background thread so the MCP call returns
+            # immediately.  The DELETE endpoint cleans up containers,
+            # remote branches, Redis messages, and the state file.  The
+            # PATCH handler already runs container cleanup in its own
+            # background thread, so DELETE acts as a safety net.  See #1594.
+            import threading
+
+            def _background_delete() -> None:
+                try:
+                    self._make_request(
+                        f"/api/v1/pipelines/{task_id}",
+                        method="DELETE",
+                        timeout=120,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Background cleanup DELETE failed",
+                        task_id=task_id,
+                        error=str(e),
+                    )
+
+            threading.Thread(
+                target=_background_delete,
+                daemon=True,
+                name=f"mcp-cleanup-{task_id}",
+            ).start()
+
             return {
                 "cancelled": True,
-                "cleaned_up": cleaned_up,
-                "message": "Pipeline cancelled and cleaned up"
-                if cleaned_up
-                else "Pipeline cancelled but cleanup failed",
+                "cleanup_started": True,
+                "message": "Pipeline cancelled; cleanup running in background",
             }
 
         return result
@@ -1494,6 +1518,19 @@ class PipelineToolHandler:
                 "container_id": result.get("data", {}).get("container_id", ""),
                 "message": f"Agent {args['agent_role']} restarted successfully",
             }
+        except (TimeoutError, OSError) as e:
+            if isinstance(e, OSError) and not _is_timeout_error(e):
+                return {"error": f"Failed to restart agent: {e}"}
+            # Server-side restart is likely still in progress (#1594).
+            return {
+                "restarted": "pending",
+                "agent_role": args["agent_role"],
+                "message": (
+                    f"Restart of agent {args['agent_role']} accepted but timed out "
+                    "waiting for confirmation. The restart is likely still in "
+                    "progress. Use get_status to check."
+                ),
+            }
         except Exception as e:
             return {"error": f"Failed to restart agent: {e}"}
 
@@ -1516,6 +1553,19 @@ class PipelineToolHandler:
                 "phase": args["phase"],
                 "agents_restarted": result.get("data", {}).get("agents_restarted", []),
                 "message": f"Phase {args['phase']} restarted successfully",
+            }
+        except (TimeoutError, OSError) as e:
+            if isinstance(e, OSError) and not _is_timeout_error(e):
+                return {"error": f"Failed to restart phase: {e}"}
+            # Server-side restart is likely still in progress (#1594).
+            return {
+                "restarted": "pending",
+                "phase": args["phase"],
+                "message": (
+                    f"Restart of phase {args['phase']} accepted but timed out "
+                    "waiting for confirmation. The restart is likely still in "
+                    "progress. Use get_status to check."
+                ),
             }
         except Exception as e:
             return {"error": f"Failed to restart phase: {e}"}

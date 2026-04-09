@@ -1252,6 +1252,21 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     current_phase = pipeline.current_phase.value
     phase_exec = pipeline.phases.get(current_phase)
 
+    # Early status update: transition FAILED -> RUNNING before the slow
+    # container restart so that get_status returns "running" immediately,
+    # even if the MCP call times out (see #1594).
+    if pipeline.status == PipelineStatus.FAILED:
+        early_lock = get_pipeline_state_lock(pipeline_id)
+        with early_lock:
+            pipeline = store.load_pipeline(pipeline_id)
+            if pipeline.status == PipelineStatus.FAILED:
+                pipeline.status = PipelineStatus.RUNNING
+                _phase_exec = pipeline.phases.get(current_phase)
+                if _phase_exec is not None:
+                    _phase_exec.status = PipelineStatus.RUNNING
+                pipeline.updated_at = datetime.now(UTC)
+                store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
+
     # Compute gateway mode from pipeline config (not hardcoded "public")
     gateway_mode, _ = _compute_gateway_mode(pipeline)
 
@@ -1336,6 +1351,16 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             reason=reason,
         )
     except ContainerSpawnError as e:
+        # Revert early status update — the agent is not actually running.
+        revert_lock = get_pipeline_state_lock(pipeline_id)
+        with revert_lock:
+            pipeline = store.load_pipeline(pipeline_id)
+            pipeline.status = PipelineStatus.FAILED
+            _phase_exec = pipeline.phases.get(current_phase)
+            if _phase_exec is not None:
+                _phase_exec.status = PipelineStatus.FAILED
+            pipeline.updated_at = datetime.now(UTC)
+            store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
         return make_error_response(f"Failed to restart agent: {e}", status_code=500)
 
     # Update pipeline state with new container/agent info
@@ -1369,12 +1394,6 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                             status=AgentExecutionStatus.RUNNING,
                         )
                     )
-
-        # Reset pipeline/phase status if restarting from failed state
-        if pipeline.status == PipelineStatus.FAILED:
-            pipeline.status = PipelineStatus.RUNNING
-            if phase_exec is not None:
-                phase_exec.status = PipelineStatus.RUNNING
 
         pipeline.updated_at = datetime.now(UTC)
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
@@ -1474,9 +1493,11 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
 
     spawner = get_container_spawner()
 
-    # Acquire the pipeline state lock before any mutations to prevent a
-    # concurrent request from observing a partially-torn-down state
-    # (containers gone but pipeline state still showing them as running).
+    # Acquire the pipeline state lock to collect agent roles, snapshot
+    # container IDs, and update pipeline status to RUNNING *before* the
+    # slow container teardown.  This ensures that ``get_status`` returns
+    # ``running`` immediately, even if the MCP call times out during
+    # container stop/remove (see #1594).
     lock = get_pipeline_state_lock(pipeline_id)
     with lock:
         # Re-load pipeline under the lock so agent_roles reflects the
@@ -1498,70 +1519,7 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
                 f"Phase {phase} not found in pipeline {pipeline_id}", status_code=404
             )
 
-        # 1. Stop and remove all containers for this phase
-        for container in phase_exec.containers:
-            try:
-                spawner.stop_agent_container(container.container_id, cleanup_session=True)
-            except Exception as e:
-                logger.warning(
-                    "Failed to stop container during phase restart",
-                    container_id=container.container_id[:12] if container.container_id else "?",
-                    error=str(e),
-                )
-            try:
-                spawner.remove_agent_container(
-                    container.container_id, force=True, cleanup_session=False
-                )
-            except Exception as e:
-                logger.warning(
-                    "Failed to remove container during phase restart",
-                    container_id=container.container_id[:12] if container.container_id else "?",
-                    error=str(e),
-                )
-
-        # 2. Reset consensus state
-        try:
-            try:
-                from peer_consensus import get_peer_consensus_tracker
-            except ImportError:
-                from ..peer_consensus import (
-                    get_peer_consensus_tracker,  # type: ignore[import-not-found]
-                )
-
-            tracker = get_peer_consensus_tracker(pipeline_id)
-            if tracker:
-                tracker.clear()
-                logger.info("Cleared peer consensus tracker", pipeline_id=pipeline_id)
-        except ImportError:
-            pass
-        except Exception as e:
-            logger.warning(
-                "Failed to clear peer consensus",
-                pipeline_id=pipeline_id,
-                error=str(e),
-            )
-
-        try:
-            try:
-                from consensus import get_consensus_evaluator
-            except ImportError:
-                from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
-
-            evaluator = get_consensus_evaluator()
-            evaluator.clear(pipeline_id)
-        except ImportError:
-            pass
-        except Exception as e:
-            logger.warning(
-                "Failed to clear legacy consensus",
-                pipeline_id=pipeline_id,
-                error=str(e),
-            )
-
-        # 3. Reset restart counts for this pipeline
-        spawner.reset_restart_counts(pipeline_id)
-
-        # 4. Collect agent roles from the phase execution for respawning
+        # 1. Collect agent roles from the phase execution for respawning
         agent_roles = []
         for agent in phase_exec.agents:
             if hasattr(agent, "role"):
@@ -1573,7 +1531,11 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
                 f"No agents found in phase {phase} to restart", status_code=400
             )
 
-        # 5. Reset phase execution state (preserve artifacts from prior phases)
+        # 2. Snapshot container IDs for teardown outside the lock
+        old_container_ids = [c.container_id for c in phase_exec.containers]
+
+        # 3. Reset phase execution state and pipeline status EARLY so
+        #    get_status returns "running" before slow container teardown.
         phase_exec.containers = []
         phase_exec.agents = []
         phase_exec.review_cycles = 0
@@ -1583,7 +1545,70 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
         pipeline.updated_at = datetime.now(UTC)
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
 
-    # 6. Reconstruct prompts/env for concurrent mode and respawn all agents
+    # --- Outside the lock: slow, idempotent, best-effort operations ---
+
+    # 4. Stop and remove old containers
+    for container_id in old_container_ids:
+        try:
+            spawner.stop_agent_container(container_id, cleanup_session=True)
+        except Exception as e:
+            logger.warning(
+                "Failed to stop container during phase restart",
+                container_id=container_id[:12] if container_id else "?",
+                error=str(e),
+            )
+        try:
+            spawner.remove_agent_container(container_id, force=True, cleanup_session=False)
+        except Exception as e:
+            logger.warning(
+                "Failed to remove container during phase restart",
+                container_id=container_id[:12] if container_id else "?",
+                error=str(e),
+            )
+
+    # 5. Reset consensus state
+    try:
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+        except ImportError:
+            from ..peer_consensus import (
+                get_peer_consensus_tracker,  # type: ignore[import-not-found]
+            )
+
+        tracker = get_peer_consensus_tracker(pipeline_id)
+        if tracker:
+            tracker.clear()
+            logger.info("Cleared peer consensus tracker", pipeline_id=pipeline_id)
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning(
+            "Failed to clear peer consensus",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+
+    try:
+        try:
+            from consensus import get_consensus_evaluator
+        except ImportError:
+            from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
+
+        evaluator = get_consensus_evaluator()
+        evaluator.clear(pipeline_id)
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning(
+            "Failed to clear legacy consensus",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+
+    # 6. Reset restart counts for this pipeline
+    spawner.reset_restart_counts(pipeline_id)
+
+    # 7. Reconstruct prompts/env for concurrent mode and respawn all agents
     agent_commands: dict[AgentRole, list[str] | None] = {}
     agent_envs: dict[AgentRole, dict[str, str]] = {}
     try:
@@ -1683,6 +1708,15 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
             )
 
     if not restarted_agents:
+        # Revert early status update — no agents are actually running.
+        with lock:
+            pipeline = store.load_pipeline(pipeline_id)
+            pipeline.status = PipelineStatus.FAILED
+            phase_exec = pipeline.phases.get(phase)
+            if phase_exec is not None:
+                phase_exec.status = PipelineStatus.FAILED
+            pipeline.updated_at = datetime.now(UTC)
+            store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
         return make_error_response(
             "Phase restart failed: no agents could be respawned", status_code=500
         )

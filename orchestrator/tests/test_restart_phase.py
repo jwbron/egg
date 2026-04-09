@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from container_spawner import (
+    ContainerSpawnError,
     SpawnedContainer,
 )
 from models import (
@@ -698,3 +699,105 @@ class TestRestartPhaseEndpoint:
                 "Phase restart must pass preserve_worktree_on_failure=True to "
                 "protect existing worktrees from transient Docker failures"
             )
+
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_updates_status_before_container_teardown(
+        self, mock_repo, mock_resolve, mock_spawner_fn, client
+    ):
+        """Status should be set to RUNNING before slow container stop/remove calls.
+
+        Regression test for #1594: MCP lifecycle operations time out but
+        succeed server-side.  If get_status is called during container
+        teardown, it must already show 'running', not stale 'failed'.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+        pipeline.status = PipelineStatus.FAILED
+        pipeline.phases["implement"].status = PipelineStatus.FAILED
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        # Track the order of update_pipeline vs stop_agent_container calls
+        call_order: list[str] = []
+
+        def track_update(*args, **kwargs):
+            call_order.append("update_pipeline")
+
+        def track_stop(*args, **kwargs):
+            call_order.append("stop_container")
+
+        mock_store.update_pipeline.side_effect = track_update
+
+        mock_spawner = MagicMock()
+        mock_spawner.stop_agent_container.side_effect = track_stop
+        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-coder-xyz",
+                container_name="egg-issue-200-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-200",
+            environment={},
+        )
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={"reason": "Fix stall"},
+        )
+
+        assert response.status_code == 200
+        # The FIRST update_pipeline must come BEFORE any stop_container
+        assert "update_pipeline" in call_order, "Expected at least one update_pipeline call"
+        assert "stop_container" in call_order, "Expected at least one stop_container call"
+        first_update = call_order.index("update_pipeline")
+        first_stop = call_order.index("stop_container")
+        assert first_update < first_stop, (
+            f"Expected status update before container stop. Call order: {call_order}"
+        )
+
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_reverts_status_when_all_spawns_fail(
+        self, mock_repo, mock_resolve, mock_spawner_fn, client
+    ):
+        """Total spawn failure must revert pipeline status back to FAILED.
+
+        Regression test for review feedback on #1594: the early status update
+        sets RUNNING before container teardown and respawn. If every agent
+        spawn fails, the status must be reverted so monitoring doesn't see a
+        'running' pipeline with no running containers.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+        pipeline.status = PipelineStatus.FAILED
+        pipeline.phases["implement"].status = PipelineStatus.FAILED
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        # All spawn attempts fail
+        mock_spawner.spawn_agent_container.side_effect = ContainerSpawnError("Failed to spawn")
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 500
+        # Verify status was reverted to FAILED after total spawn failure
+        assert pipeline.status == PipelineStatus.FAILED
+        assert pipeline.phases["implement"].status == PipelineStatus.FAILED
+        # Verify update_pipeline was called at least twice:
+        # once for the early RUNNING update, once for the FAILED revert
+        assert mock_store.update_pipeline.call_count >= 2
