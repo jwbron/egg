@@ -162,6 +162,8 @@ Source: `orchestrator/container_spawner.py`, `orchestrator/routes/pipelines.py`
 
 When an agent becomes unresponsive (e.g., hung after a tool error, context window exhaustion, dropped API connection), an **agent-level restart** stops the stuck container and respawns a replacement — without affecting other agents in the same phase.
 
+Restarts are allowed when the pipeline is in `RUNNING`, `AWAITING_HUMAN`, or `FAILED` state. If the pipeline is in `FAILED` state, the restart automatically resets the pipeline and phase status to `RUNNING`.
+
 ### How It Works
 
 1. The orchestrator stops the existing container via `stop_agent_container()` and removes it via `remove_agent_container()`
@@ -189,6 +191,8 @@ Agent restart preserves the agent's git worktree, including any committed work o
 Source: `orchestrator/routes/pipelines.py`
 
 When agent-level restarts are insufficient (e.g., multiple agents stuck, consensus state corrupted, or the phase needs a fresh start), a **phase-level restart** kills all containers for the phase and respawns all agents from scratch.
+
+Restarts are allowed when the pipeline is in `RUNNING`, `AWAITING_HUMAN`, or `FAILED` state. If the pipeline is in `FAILED` state, the restart automatically resets both the pipeline and phase status to `RUNNING`.
 
 ### How It Works
 
@@ -223,8 +227,10 @@ The optional `context` parameter injects additional guidance into the respawned 
 | Overseer detects agent stall (N heartbeat failures) | `RESTART_AGENT` action — auto-restart via API (up to max restarts per phase) |
 | Overseer detects agent stall (restarts exhausted) | Escalate to HITL |
 | Overseer detects multiple stuck agents (2+) | `RESTART_PHASE` action — creates HITL decision for phase restart approval |
-| Manual agent restart (CLI/MCP/API) | Stop container, reset consensus, respawn with same config |
-| Manual phase restart (CLI/MCP/API) | Stop all containers, reset all consensus + review cycles, respawn all agents |
+| Manual agent restart (CLI/MCP/API) on running pipeline | Stop container, reset consensus, respawn with same config |
+| Manual agent restart (CLI/MCP/API) on failed pipeline | Same as above, plus reset pipeline + phase status to `RUNNING` |
+| Manual phase restart (CLI/MCP/API) on running pipeline | Stop all containers, reset all consensus + review cycles, respawn all agents |
+| Manual phase restart (CLI/MCP/API) on failed pipeline | Same as above, plus reset pipeline + phase status to `RUNNING` |
 | Single agent failure in concurrent mode | HITL decision: retry / abort / continue without |
 | Multiple failures (2+ within 60s) in concurrent mode | Immediate phase abort + HITL decision |
 | Circuit breaker OPEN | Block new agent spawns; alert operators |

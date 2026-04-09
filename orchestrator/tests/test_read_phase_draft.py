@@ -1,4 +1,4 @@
-"""Tests for _read_phase_draft, _get_draft_path, and _cleanup_stale_generic_drafts."""
+"""Tests for _read_phase_draft, _draft_filename, _get_draft_path, and _cleanup_stale_generic_drafts."""
 
 import sys
 from pathlib import Path
@@ -10,7 +10,12 @@ sys.modules.setdefault("docker", _docker_mock)
 sys.modules.setdefault("docker.errors", _docker_mock.errors)
 sys.modules.setdefault("docker.types", _docker_mock.types)
 
-from routes.pipelines import _cleanup_stale_generic_drafts, _read_phase_draft
+from routes.pipelines import (
+    _cleanup_stale_generic_drafts,
+    _draft_filename,
+    _get_generic_draft_path,
+    _read_phase_draft,
+)
 
 
 class TestReadPhaseDraft:
@@ -185,3 +190,168 @@ class TestCleanupStaleGenericDrafts:
         # Should have logged a warning about git rm failure
         mock_logger.warning.assert_called_once()
         assert "git rm failed" in mock_logger.warning.call_args[0][0]
+
+
+class TestDraftFilename:
+    """Tests for _draft_filename."""
+
+    def test_refine_returns_analysis_md(self):
+        assert _draft_filename("refine") == "analysis.md"
+
+    def test_implement_returns_none(self):
+        assert _draft_filename("implement") is None
+
+    def test_plan_returns_plan_md(self):
+        assert _draft_filename("plan") == "plan.md"
+
+    def test_arbitrary_phase_returns_phase_md(self):
+        assert _draft_filename("review") == "review.md"
+
+
+class TestGetGenericDraftPath:
+    """Tests for _get_generic_draft_path."""
+
+    def test_refine_returns_analysis_md(self):
+        """Refine phase maps to the unprefixed analysis.md path."""
+        result = _get_generic_draft_path("refine")
+        assert result == ".egg-state/drafts/analysis.md"
+
+    def test_implement_returns_none(self):
+        """Implement phase has no draft; returns None."""
+        result = _get_generic_draft_path("implement")
+        assert result is None
+
+    def test_plan_returns_plan_md(self):
+        """Plan phase maps to the unprefixed plan.md path."""
+        result = _get_generic_draft_path("plan")
+        assert result == ".egg-state/drafts/plan.md"
+
+    def test_arbitrary_phase_returns_phase_md(self):
+        """Other phases use {phase}.md pattern."""
+        result = _get_generic_draft_path("design")
+        assert result == ".egg-state/drafts/design.md"
+
+
+class TestReadPhaseDraftFallback:
+    """Tests for _read_phase_draft generic fallback behavior (issue #1575)."""
+
+    def test_fallback_to_generic_when_issue_specific_missing(self, tmp_path: Path):
+        """When issue-specific draft is missing, falls back to generic path."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        # Only the generic path exists (no 42-analysis.md)
+        (drafts / "analysis.md").write_text("generic analysis content", encoding="utf-8")
+
+        result = _read_phase_draft(tmp_path, "refine", issue_number=42)
+        assert result == "generic analysis content"
+
+    def test_primary_path_preferred_over_generic(self, tmp_path: Path):
+        """When both issue-specific and generic exist, primary wins."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "42-analysis.md").write_text("primary content", encoding="utf-8")
+        (drafts / "analysis.md").write_text("generic content", encoding="utf-8")
+
+        result = _read_phase_draft(tmp_path, "refine", issue_number=42)
+        assert result == "primary content"
+
+    def test_returns_none_when_both_paths_missing(self, tmp_path: Path):
+        """Returns None when neither issue-specific nor generic path exists."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+
+        result = _read_phase_draft(tmp_path, "refine", issue_number=42)
+        assert result is None
+
+    def test_fallback_for_plan_phase(self, tmp_path: Path):
+        """Fallback works for the plan phase (plan.md)."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "plan.md").write_text("generic plan", encoding="utf-8")
+
+        result = _read_phase_draft(tmp_path, "plan", issue_number=99)
+        assert result == "generic plan"
+
+    def test_fallback_with_pipeline_id_prefix(self, tmp_path: Path):
+        """Fallback works when pipeline_id is used as prefix (no issue_number)."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        # pipeline-specific path doesn't exist, only generic
+        (drafts / "analysis.md").write_text("fallback analysis", encoding="utf-8")
+
+        result = _read_phase_draft(tmp_path, "refine", pipeline_id="pid-abc")
+        assert result == "fallback analysis"
+
+    def test_fallback_respects_truncation(self, tmp_path: Path):
+        """Generic fallback content is still truncated when over max_chars."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        content = "z" * 300
+        (drafts / "analysis.md").write_text(content, encoding="utf-8")
+
+        result = _read_phase_draft(tmp_path, "refine", issue_number=42, max_chars=50)
+        assert result.startswith("z" * 50)
+        assert "... (truncated, 300 chars total)" in result
+
+    def test_implement_phase_still_returns_none_with_generic(self, tmp_path: Path):
+        """Implement phase returns None even if generic files exist."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "implement.md").write_text("should not be read", encoding="utf-8")
+
+        result = _read_phase_draft(tmp_path, "implement", issue_number=42)
+        assert result is None
+
+    def test_fallback_logs_debug_when_used(self, tmp_path: Path, monkeypatch):
+        """Debug log is emitted when the generic fallback path is used."""
+        import routes.pipelines as mod
+
+        mock_logger = MagicMock()
+        monkeypatch.setattr(mod, "logger", mock_logger)
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "analysis.md").write_text("fallback content", encoding="utf-8")
+
+        result = _read_phase_draft(tmp_path, "refine", issue_number=42)
+        assert result == "fallback content"
+
+        # Should have two debug calls: one for primary miss, one for fallback hit
+        debug_calls = mock_logger.debug.call_args_list
+        assert len(debug_calls) == 2
+
+        # First debug: primary path not found
+        assert "Draft file not found" in debug_calls[0][0][0]
+
+        # Second debug: using fallback
+        assert "Using generic fallback draft path" in debug_calls[1][0][0]
+
+    def test_no_fallback_log_when_primary_exists(self, tmp_path: Path, monkeypatch):
+        """No fallback debug log when the primary path is found directly."""
+        import routes.pipelines as mod
+
+        mock_logger = MagicMock()
+        monkeypatch.setattr(mod, "logger", mock_logger)
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "42-analysis.md").write_text("primary", encoding="utf-8")
+
+        result = _read_phase_draft(tmp_path, "refine", issue_number=42)
+        assert result == "primary"
+        # No debug logs should be emitted when primary path works
+        mock_logger.debug.assert_not_called()
+
+    def test_fallback_returns_none_when_no_drafts_dir(self, tmp_path: Path):
+        """Returns None when the drafts directory doesn't exist at all."""
+        result = _read_phase_draft(tmp_path, "refine", issue_number=42)
+        assert result is None
+
+    def test_fallback_for_unknown_prefix(self, tmp_path: Path):
+        """Fallback works even with the 'unknown' prefix (no identifiers)."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "plan.md").write_text("generic plan no prefix", encoding="utf-8")
+
+        result = _read_phase_draft(tmp_path, "plan")
+        assert result == "generic plan no prefix"

@@ -319,6 +319,12 @@ class PipelineConfig(BaseModel):
     overseer_decision_maker_model: str = Field(
         default="sonnet", description="LLM model for overseer decision-making tier"
     )
+    overseer_max_turns: int = Field(
+        default=2000,
+        ge=100,
+        le=10000,
+        description="Max Agent SDK turns for the overseer agent per phase",
+    )
     overseer_max_respawns: int = Field(
         default=3,
         ge=0,

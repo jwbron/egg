@@ -98,7 +98,7 @@ Building on the health check framework, a two-tier pipeline health monitoring sy
 
 Agents emit structured progress via `POST /api/v1/pipelines/{id}/progress` (CLI: `egg-orch progress emit`). Events include step name, state (working/blocked/complete), detail text, and optional blocker description. The orchestrator stores events in-memory with configurable retention and evaluates them against tripwire thresholds from `PipelineConfig`.
 
-**Overseer tier (LLM-powered):** A phase-scoped agent container (no code access) that handles ambiguous cases the deterministic tier can't resolve. Uses Haiku via `shared/egg_agent/` for lightweight classification (stall vs. legitimate work, loop detection, error triage including infrastructure error detection, off-track detection, cross-phase decision consistency) and Sonnet/Opus for corrective decision-making (composing redirect messages, deciding escalation level, filing diagnostic GitHub issues). Auto-spawned at the start of each pipeline phase when `overseer_enabled` is true, and torn down when the phase completes, advances, or fails — each phase gets a fresh instance with no accumulated state. If the overseer exits before the current phase completes, the orchestrator's health monitor thread automatically respawns it (up to `overseer_max_respawns` times, default 3), gated by a `phase_overseer_active` flag to avoid respawning between phases.
+**Overseer tier (LLM-powered):** A phase-scoped agent container (no code access) that handles ambiguous cases the deterministic tier can't resolve. Uses Haiku via `shared/egg_agent/` for lightweight classification (stall vs. legitimate work, loop detection, error triage including infrastructure error detection, off-track detection, cross-phase decision consistency) and Sonnet/Opus for corrective decision-making (composing redirect messages, deciding escalation level, filing diagnostic GitHub issues). Auto-spawned at the start of each pipeline phase when `overseer_enabled` is true, and torn down when the phase completes, advances, or fails — each phase gets a fresh instance with no accumulated state. The overseer runs with a configurable Agent SDK turn budget (`overseer_max_turns`, default 2000) rather than a hardcoded limit, ensuring it can sustain its continuous monitoring loop throughout long-running phases with active consensus negotiation. If the overseer exits before the current phase completes, the orchestrator's health monitor thread automatically respawns it (up to `overseer_max_respawns` times, default 3), gated by a `phase_overseer_active` flag to avoid respawning between phases. On respawn, the orchestrator captures the exited container's last 20 log lines (best-effort) and broadcasts an `OVERSEER_ALERT` message to the pipeline's message bus with diagnostic metadata (`exit_code`, `old_container_id`, `new_container_id`, `log_tail`, `respawn_attempt`, `max_respawns`), ensuring respawn events are visible to monitoring tools and the `/sdlc` session.
 
 The overseer follows a corrective action ladder: auto-nudge → redirect message → agent restart → HITL escalation → phase restart (HITL) → GitHub issue filing → Slack notification. **Infrastructure errors bypass the ladder** — when the Tier 1 tripwire detects an infrastructure error (or the Tier 2 classifier identifies one), the decision maker fast-paths directly to HITL escalation with the error details. Cross-tier deduplication prevents duplicate escalations when both tiers detect the same error. The overseer can restart individual agents autonomously (up to 2 times per phase, preserving the agent's worktree); phase-level restarts require HITL approval.
 
@@ -173,6 +173,19 @@ The orchestrator reads pipeline artifacts (verdict files, draft documents, check
 - `.egg-state/reviews/{identifier}-{phase}-{reviewer_type}-review.json` — Review verdict files
 - `.egg-state/agent-outputs/{identifier}-{role}-output.json` — Agent handoff data (e.g., `871-coder-output.json`). Falls back to `{role}-output.json` for backward compatibility.
 - `.egg-state/checks/{identifier}-implement-results.json` — *(Deprecated)* Previously written by the checker role. The checker has been absorbed into the tester, which reports results via its handoff output instead.
+
+**Draft path resolution with generic fallback:**
+
+When reading draft files (e.g., at phase gates), `_read_phase_draft` resolves the path in two steps:
+
+1. **Issue-specific path** (primary): `.egg-state/drafts/{identifier}-{type}.md` (e.g., `1553-analysis.md`)
+2. **Generic path** (fallback): `.egg-state/drafts/{type}.md` (e.g., `analysis.md`)
+
+The primary issue-specific path is always tried first. If the file is not found, the generic unprefixed path is tried as a fallback. This handles edge cases where the worktree sync didn't bring the issue-specific file into the local worktree, or where agents wrote to the generic path.
+
+> **Note:** The write path (`_get_draft_path`) always returns the issue-specific path — agents always write to the canonical prefixed location. Only the read path has fallback behavior. Additionally, `_cleanup_stale_generic_drafts` removes unprefixed `analysis.md`/`plan.md` at pipeline start, so the generic fallback only helps when stale files persist from prior runs or agents wrote to the wrong path.
+>
+> **Changed in issue #1575:** Previously, `_read_phase_draft` only checked the issue-specific path. If the file was missing, it returned `None` and the phase gate displayed "No draft was found on the work branch" even when a generic draft existed.
 
 **Volume mounts:**
 - Orchestrator: Bind mount from `${HOST_HOME}/.egg-worktrees` to `/home/egg/.egg-worktrees` (read container-written artifacts)
