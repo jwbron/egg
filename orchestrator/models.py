@@ -341,6 +341,16 @@ class PipelineConfig(BaseModel):
         ge=10,
         description="Seconds before raising HITL propagation failure alert",
     )
+    post_proposal_grace_seconds: int = Field(
+        default=300,
+        ge=30,
+        description="Grace period after CONSENSUS_PROPOSE before flagging blocking reviewers as stalled",
+    )
+    active_agent_stall_extension_seconds: int = Field(
+        default=120,
+        ge=30,
+        description="If a blocking agent has progress events within this window, suppress stall alerts",
+    )
     start_phase: str | None = Field(
         default=None,
         description="Phase to start execution from, skipping earlier phases. "

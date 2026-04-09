@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import sys
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 _shared_path = Path(__file__).parent.parent.parent.parent / "shared"
@@ -78,6 +79,8 @@ class IncompleteConsensusStallCheck:
         # instance variables would corrupt across pipelines.
         self._prev_blocking: dict[str, frozenset[str]] = {}
         self._consecutive_ticks: dict[str, int] = {}
+        # Track proposal timestamps to detect new proposals (#1609)
+        self._last_known_proposal_ts: dict[str, float] = {}
 
     def run(self, context: PipelineHealthContext) -> HealthResult:
         """Check for stuck incomplete consensus."""
@@ -108,8 +111,26 @@ class IncompleteConsensusStallCheck:
                     f"({self._grace_seconds}s); check skipped."
                 )
 
-        # Evaluate consensus state
+        # Post-proposal grace: give reviewers time after CONSENSUS_PROPOSE (#1609)
         pipeline_id = pipeline.id
+        post_proposal_grace = getattr(pipeline.config, "post_proposal_grace_seconds", 300)
+        latest_proposal_ts = self._get_latest_proposal_timestamp(pipeline_id)
+        if latest_proposal_ts is not None:
+            prev_known = self._last_known_proposal_ts.get(pipeline_id, 0.0)
+            if latest_proposal_ts > prev_known:
+                # New proposal arrived — reset stall tracking
+                self._last_known_proposal_ts[pipeline_id] = latest_proposal_ts
+                self._reset_tracking(pipeline_id)
+
+            time_since_proposal = time.time() - latest_proposal_ts
+            if time_since_proposal < post_proposal_grace:
+                return self._healthy(
+                    f"CONSENSUS_PROPOSE received {time_since_proposal:.0f}s ago, "
+                    f"within post-proposal grace period ({post_proposal_grace}s); "
+                    f"check skipped."
+                )
+
+        # Evaluate consensus state
         blocking_agents = self._get_blocking_agents(pipeline_id, pipeline)
         if blocking_agents is None:
             # Could not determine consensus state
@@ -139,6 +160,22 @@ class IncompleteConsensusStallCheck:
                 f"Blocking agents {sorted(blocking_agents)} unchanged for "
                 f"{ticks}/{self._stall_tick_threshold} ticks; "
                 f"not yet stalled."
+            )
+
+        # Activity-aware suppression: don't flag agents with recent progress (#1609)
+        active_window = getattr(pipeline.config, "active_agent_stall_extension_seconds", 120)
+        active_agents = [
+            agent
+            for agent in blocking_agents
+            if self._has_recent_activity(pipeline_id, agent, active_window)
+        ]
+        if active_agents:
+            self._consecutive_ticks[pipeline_id] = 0
+            return self._healthy(
+                f"Blocking agents {sorted(blocking_agents)} unchanged for "
+                f"{ticks} ticks (threshold {self._stall_tick_threshold}), "
+                f"but {sorted(active_agents)} have recent progress events; "
+                f"suppressing stall alert."
             )
 
         # Stall detected — same agents blocking for too many consecutive ticks
@@ -208,6 +245,66 @@ class IncompleteConsensusStallCheck:
                 exc_info=True,
             )
             return None
+
+    # ------------------------------------------------------------------
+    # Proposal and activity queries (#1609)
+    # ------------------------------------------------------------------
+
+    def _get_latest_proposal_timestamp(self, pipeline_id: str) -> float | None:
+        """Return the timestamp of the most recent CONSENSUS_PROPOSE, or None."""
+        # Strategy 1: message store
+        try:
+            from message_store import get_message_store
+
+            store = get_message_store()
+            messages = store.get_messages(pipeline_id, limit=1000)
+            proposals = [m for m in messages if m.message_type == "CONSENSUS_PROPOSE"]
+            if proposals:
+                return max(m.timestamp.timestamp() for m in proposals)
+        except Exception:
+            logger.debug(
+                "Message-based proposal timestamp query failed",
+                pipeline_id=pipeline_id,
+                exc_info=True,
+            )
+
+        # Strategy 2: peer consensus tracker
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+
+            tracker = get_peer_consensus_tracker(pipeline_id)
+            if tracker is not None and hasattr(tracker, "_proposal_timestamps"):
+                ts_values = tracker._proposal_timestamps.values()
+                if ts_values:
+                    return max(t.timestamp() for t in ts_values)
+        except Exception:
+            logger.debug(
+                "Tracker-based proposal timestamp query failed",
+                pipeline_id=pipeline_id,
+                exc_info=True,
+            )
+
+        return None
+
+    def _has_recent_activity(
+        self, pipeline_id: str, agent_role: str, window_seconds: float
+    ) -> bool:
+        """Check if an agent has recent progress events within the window."""
+        try:
+            from progress_store import get_progress_store
+
+            store = get_progress_store()
+            cutoff = datetime.now(UTC) - timedelta(seconds=window_seconds)
+            events = store.get_events(pipeline_id, agent_role=agent_role, since=cutoff)
+            return len(events) > 0
+        except Exception:
+            logger.debug(
+                "Progress activity check failed",
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+                exc_info=True,
+            )
+            return False
 
     # ------------------------------------------------------------------
     # Helpers

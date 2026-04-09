@@ -455,3 +455,253 @@ class TestIncompleteConsensusStallCheck:
         # Pipeline A restarts with new blocking — should be tick 1, not DEGRADED
         result_a = _run(ctx_a, ["reviewer"])
         assert result_a.status == HealthStatus.HEALTHY
+
+    # ===========================================================================
+    # Post-proposal grace period tests (#1609)
+    # ===========================================================================
+
+    def test_healthy_within_post_proposal_grace(self):
+        """After a CONSENSUS_PROPOSE, check returns HEALTHY within grace period."""
+        import time as _time
+
+        pipeline = _make_concurrent_pipeline()
+        ctx = _make_context(pipeline)
+        check = _make_check(stall_tick_threshold=2)
+
+        mock_ce = MagicMock()
+        mock_ce.is_concurrent_execution.return_value = True
+
+        # Tracker shows blocking agents
+        mock_tracker = MagicMock()
+        mock_tracker.evaluate.return_value = {
+            "is_complete": False,
+            "blocking_agents": ["reviewer_refine"],
+        }
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = mock_tracker
+
+        # Message store has a recent CONSENSUS_PROPOSE
+        mock_propose_msg = MagicMock()
+        mock_propose_msg.message_type = "CONSENSUS_PROPOSE"
+        mock_propose_msg.timestamp = MagicMock()
+        mock_propose_msg.timestamp.timestamp.return_value = _time.time() - 30  # 30s ago
+
+        mock_store = MagicMock()
+        mock_store.get_messages.return_value = [mock_propose_msg]
+        mock_ms = MagicMock()
+        mock_ms.get_message_store.return_value = mock_store
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "concurrent_executor": mock_ce,
+                "peer_consensus": mock_pc,
+                "message_store": mock_ms,
+            },
+        ):
+            # Run enough ticks to exceed threshold — should still be HEALTHY
+            for _ in range(3):
+                result = check.run(ctx)
+            assert result.status == HealthStatus.HEALTHY
+            assert "post-proposal grace" in result.reasoning
+
+    def test_post_proposal_grace_does_not_retrigger_on_same_proposal(self):
+        """After the grace period for a proposal expires, ticks accumulate normally."""
+        import time as _time
+
+        pipeline = _make_concurrent_pipeline()
+        ctx = _make_context(pipeline)
+        check = _make_check(stall_tick_threshold=2)
+
+        mock_ce = MagicMock()
+        mock_ce.is_concurrent_execution.return_value = True
+
+        mock_tracker = MagicMock()
+        mock_tracker.evaluate.return_value = {
+            "is_complete": False,
+            "blocking_agents": ["reviewer_refine"],
+        }
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = mock_tracker
+
+        # Old proposal — well past grace period (600s ago, grace is 300s)
+        mock_propose_msg = MagicMock()
+        mock_propose_msg.message_type = "CONSENSUS_PROPOSE"
+        mock_propose_msg.timestamp = MagicMock()
+        mock_propose_msg.timestamp.timestamp.return_value = _time.time() - 600
+
+        mock_store = MagicMock()
+        mock_store.get_messages.return_value = [mock_propose_msg]
+        mock_ms = MagicMock()
+        mock_ms.get_message_store.return_value = mock_store
+
+        # No recent progress events
+        mock_progress_store = MagicMock()
+        mock_progress_store.get_events.return_value = []
+        mock_ps = MagicMock()
+        mock_ps.get_progress_store.return_value = mock_progress_store
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "concurrent_executor": mock_ce,
+                "peer_consensus": mock_pc,
+                "message_store": mock_ms,
+                "progress_store": mock_ps,
+            },
+        ):
+            for _ in range(3):
+                result = check.run(ctx)
+
+        assert result.status == HealthStatus.DEGRADED
+        assert "reviewer_refine" in result.details["blocking_agents"]
+
+    # ===========================================================================
+    # Activity-aware suppression tests (#1609)
+    # ===========================================================================
+
+    def test_healthy_when_blocking_agent_has_recent_activity(self):
+        """Past threshold, but blocking agent has recent progress events — HEALTHY."""
+        pipeline = _make_concurrent_pipeline()
+        ctx = _make_context(pipeline)
+        check = _make_check(stall_tick_threshold=2)
+
+        mock_ce = MagicMock()
+        mock_ce.is_concurrent_execution.return_value = True
+
+        mock_tracker = MagicMock()
+        mock_tracker.evaluate.return_value = {
+            "is_complete": False,
+            "blocking_agents": ["reviewer_refine"],
+        }
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = mock_tracker
+
+        # No proposals (or expired)
+        mock_store = MagicMock()
+        mock_store.get_messages.return_value = []
+        mock_ms = MagicMock()
+        mock_ms.get_message_store.return_value = mock_store
+
+        # Recent progress events for the blocking agent
+        mock_event = MagicMock()
+        mock_progress_store = MagicMock()
+        mock_progress_store.get_events.return_value = [mock_event]
+        mock_ps = MagicMock()
+        mock_ps.get_progress_store.return_value = mock_progress_store
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "concurrent_executor": mock_ce,
+                "peer_consensus": mock_pc,
+                "message_store": mock_ms,
+                "progress_store": mock_ps,
+            },
+        ):
+            # Tick 1: first seen → HEALTHY (1/2)
+            check.run(ctx)
+            # Tick 2: threshold reached → activity check suppresses
+            result = check.run(ctx)
+
+        assert result.status == HealthStatus.HEALTHY
+        assert "recent progress events" in result.reasoning
+
+    def test_degraded_when_no_recent_activity(self):
+        """Past threshold and no recent progress events — DEGRADED fires."""
+        pipeline = _make_concurrent_pipeline()
+        ctx = _make_context(pipeline)
+        check = _make_check(stall_tick_threshold=2)
+
+        mock_ce = MagicMock()
+        mock_ce.is_concurrent_execution.return_value = True
+
+        mock_tracker = MagicMock()
+        mock_tracker.evaluate.return_value = {
+            "is_complete": False,
+            "blocking_agents": ["reviewer_refine"],
+        }
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = mock_tracker
+
+        # No proposals
+        mock_store = MagicMock()
+        mock_store.get_messages.return_value = []
+        mock_ms = MagicMock()
+        mock_ms.get_message_store.return_value = mock_store
+
+        # No recent progress events
+        mock_progress_store = MagicMock()
+        mock_progress_store.get_events.return_value = []
+        mock_ps = MagicMock()
+        mock_ps.get_progress_store.return_value = mock_progress_store
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "concurrent_executor": mock_ce,
+                "peer_consensus": mock_pc,
+                "message_store": mock_ms,
+                "progress_store": mock_ps,
+            },
+        ):
+            for _ in range(3):
+                result = check.run(ctx)
+
+        assert result.status == HealthStatus.DEGRADED
+        assert result.details["blocking_agents"] == ["reviewer_refine"]
+
+    def test_activity_check_resets_tick_counter(self):
+        """Activity suppression resets ticks; after activity stops, ticks restart."""
+        pipeline = _make_concurrent_pipeline()
+        ctx = _make_context(pipeline)
+        check = _make_check(stall_tick_threshold=2)
+
+        mock_ce = MagicMock()
+        mock_ce.is_concurrent_execution.return_value = True
+
+        mock_tracker = MagicMock()
+        mock_tracker.evaluate.return_value = {
+            "is_complete": False,
+            "blocking_agents": ["reviewer_refine"],
+        }
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = mock_tracker
+
+        # No proposals
+        mock_store = MagicMock()
+        mock_store.get_messages.return_value = []
+        mock_ms = MagicMock()
+        mock_ms.get_message_store.return_value = mock_store
+
+        mock_event = MagicMock()
+        mock_progress_store = MagicMock()
+        mock_ps = MagicMock()
+        mock_ps.get_progress_store.return_value = mock_progress_store
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "concurrent_executor": mock_ce,
+                "peer_consensus": mock_pc,
+                "message_store": mock_ms,
+                "progress_store": mock_ps,
+            },
+        ):
+            # Phase 1: 2 ticks with activity — suppressed at threshold
+            mock_progress_store.get_events.return_value = [mock_event]
+            for _ in range(2):
+                result = check.run(ctx)
+            assert result.status == HealthStatus.HEALTHY
+            assert "recent progress events" in result.reasoning
+
+            # Phase 2: activity stops — ticks restart from 0
+            mock_progress_store.get_events.return_value = []
+            result = check.run(ctx)
+            # Should be tick 1 after reset, not DEGRADED
+            assert result.status == HealthStatus.HEALTHY
+            assert "1/2 ticks" in result.reasoning
+
+            # Phase 3: second tick without activity — now DEGRADED
+            result = check.run(ctx)
+            assert result.status == HealthStatus.DEGRADED

@@ -15,6 +15,7 @@ import logging
 import os
 import time
 from collections import deque
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -971,6 +972,41 @@ class OverseerMonitor:
         )
 
     # -----------------------------------------------------------------
+    # Activity-aware helpers (#1609)
+    # -----------------------------------------------------------------
+
+    def _blocking_agents_are_active(self, blocking_agents: list[str]) -> bool:
+        """Check if any blocking agents have recent progress events."""
+        try:
+            from progress_store import get_progress_store
+
+            store = get_progress_store()
+            window = getattr(self.config, "active_agent_stall_extension_seconds", 120)
+            cutoff = datetime.now(UTC) - timedelta(seconds=window)
+            for agent in blocking_agents:
+                events = store.get_events(self.pipeline_id, agent_role=agent, since=cutoff)
+                if events:
+                    return True
+        except Exception:
+            logger.debug("Failed to check agent activity", exc_info=True)
+        return False
+
+    def _get_recent_proposal_age(self) -> float | None:
+        """Return seconds since the most recent CONSENSUS_PROPOSE, or None."""
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+
+            tracker = get_peer_consensus_tracker(self.pipeline_id)
+            if tracker is not None and hasattr(tracker, "_proposal_timestamps"):
+                ts_values = tracker._proposal_timestamps.values()
+                if ts_values:
+                    latest = max(ts_values)
+                    return (datetime.now(UTC) - latest).total_seconds()
+        except Exception:
+            logger.debug("Failed to query proposal age", exc_info=True)
+        return None
+
+    # -----------------------------------------------------------------
     # Incomplete consensus stall detection (issue #1471)
     # -----------------------------------------------------------------
 
@@ -1014,6 +1050,19 @@ class OverseerMonitor:
             self._incomplete_consensus_first_seen = now
             return
 
+        # Post-proposal grace: reset if a recent proposal arrived (#1609)
+        post_proposal_grace = getattr(self.config, "post_proposal_grace_seconds", 300)
+        proposal_age = self._get_recent_proposal_age()
+        if proposal_age is not None and proposal_age < post_proposal_grace:
+            logger.debug(
+                "Recent CONSENSUS_PROPOSE (%.0fs ago) — deferring incomplete consensus check",
+                proposal_age,
+            )
+            self._reset_incomplete_consensus_tracking()
+            self._incomplete_consensus_blocking = current_blocking
+            self._incomplete_consensus_first_seen = now
+            return
+
         elapsed = now - self._incomplete_consensus_first_seen
         poll_interval = getattr(self.config, "overseer_poll_interval_seconds", 30)
 
@@ -1023,6 +1072,15 @@ class OverseerMonitor:
         hitl_threshold = poll_interval * 20
 
         if elapsed >= hitl_threshold and not self._incomplete_consensus_hitl_created:
+            # Activity check: skip HITL escalation if agents are active (#1609)
+            if self._blocking_agents_are_active(sorted(blocking_agents)):
+                logger.info(
+                    "Incomplete consensus: blocking agents still active, deferring HITL",
+                    pipeline_id=self.pipeline_id,
+                    blocking_agents=sorted(blocking_agents),
+                )
+                return
+
             # Nudge didn't resolve — escalate to HITL
             logger.warning(
                 "Incomplete consensus stall persists after nudge — escalating to HITL",
@@ -1049,6 +1107,23 @@ class OverseerMonitor:
             )
 
         elif elapsed >= nudge_threshold and not self._incomplete_consensus_nudged:
+            # Activity check: defer nudge if agents are active (#1609)
+            if self._blocking_agents_are_active(sorted(blocking_agents)):
+                logger.info(
+                    "Incomplete consensus: blocking agents are active, deferring nudge",
+                    pipeline_id=self.pipeline_id,
+                    blocking_agents=sorted(blocking_agents),
+                )
+                # Reset first_seen to extend the window
+                self._incomplete_consensus_first_seen = now
+                self._log_oversight_event(
+                    {
+                        "event": "incomplete_consensus_activity_extension",
+                        "blocking_agents": sorted(blocking_agents),
+                    }
+                )
+                return
+
             # Send targeted nudge to each blocking agent
             logger.info(
                 "Incomplete consensus stall detected — nudging blocking agents",
