@@ -1,0 +1,527 @@
+"""Tests for the worktree creation guard in spawn_agent_container.
+
+Issue #1597: restart_phase and restart_agent call spawn_agent_container
+without repo_volumes, causing per-agent worktree creation to be skipped.
+The fix changes the guard from ``if repo_volumes and repos:`` to
+``if repos:`` so that worktrees are always created when repos are
+specified — even when repo_volumes is None (the restart path).
+
+These tests verify:
+- Worktree creation triggers when repos is provided but repo_volumes is None
+- Worktree creation still works when both repo_volumes and repos are provided
+- No worktree creation when repos is None/empty
+- Gateway worktree errors propagate correctly
+- The restart_agent_container path inherits the fix
+- Mounts are correctly populated from gateway worktree results
+"""
+
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock, patch
+
+import pytest
+from container_spawner import (
+    ContainerSpawner,
+    ContainerSpawnError,
+    SpawnedContainer,
+)
+from docker_client import ContainerNotFoundError
+from gateway_client import GatewayError, GatewayHealth, SessionInfo, WorktreeResult
+from models import AgentRole, ContainerInfo, ContainerStatus
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_docker_client():
+    """Create a mock Docker client."""
+    mock = MagicMock()
+    mock.is_connected.return_value = True
+    mock.CONTAINER_PREFIX = "egg-sandbox-"
+
+    mock.create_container.return_value = ContainerInfo(
+        container_id="abc123def456",
+        container_name="egg-issue-200-coder",
+        status=ContainerStatus.PENDING,
+    )
+    mock.start_container.return_value = ContainerInfo(
+        container_id="abc123def456",
+        container_name="egg-issue-200-coder",
+        status=ContainerStatus.RUNNING,
+        started_at=datetime.now(UTC),
+    )
+    mock.list_containers.return_value = []
+
+    return mock
+
+
+@pytest.fixture
+def mock_gateway_client():
+    """Create a mock Gateway client with worktree support."""
+    mock = MagicMock()
+
+    mock.check_health.return_value = GatewayHealth(
+        healthy=True,
+        status="healthy",
+        version="0.1.0",
+    )
+    mock.register_session.return_value = SessionInfo(
+        session_token="test-token-12345",
+        container_id="abc123def456",
+        container_ip="172.32.0.50",
+        mode="public",
+        created_at=datetime.now(UTC),
+        expires_at=datetime.now(UTC) + timedelta(hours=24),
+    )
+
+    # Default: successful worktree creation
+    mock.create_worktrees.return_value = WorktreeResult(
+        success=True,
+        worktrees={"my-repo": "/host/worktrees/issue-200-coder/my-repo"},
+        errors=[],
+    )
+
+    return mock
+
+
+@pytest.fixture
+def spawner(mock_docker_client, mock_gateway_client):
+    """Create a container spawner with mocked clients."""
+    return ContainerSpawner(
+        docker_client=mock_docker_client,
+        gateway_client=mock_gateway_client,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Core fix tests: repos without repo_volumes triggers worktree creation
+# ---------------------------------------------------------------------------
+
+
+class TestWorktreeCreationGuard:
+    """Tests for the worktree creation guard condition.
+
+    The fix changes ``if repo_volumes and repos:`` to ``if repos:`` so
+    that the restart path (which passes repos but not repo_volumes)
+    correctly creates/reuses worktrees.
+    """
+
+    def test_spawn_with_repos_but_no_repo_volumes_creates_worktrees(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Spawn with repos but no repo_volumes should call create_worktrees.
+
+        This is the primary scenario fixed by issue #1597: restart_phase
+        and restart_agent pass repos but not repo_volumes.
+        """
+        result = spawner.spawn_agent_container(
+            pipeline_id="issue-200",
+            agent_role=AgentRole.CODER,
+            issue_number=200,
+            repos=["owner/my-repo"],
+            repo_volumes=None,  # Explicitly None — the restart path
+        )
+
+        # Verify gateway.create_worktrees was called
+        mock_gateway_client.create_worktrees.assert_called_once()
+        call_kwargs = mock_gateway_client.create_worktrees.call_args.kwargs
+        assert call_kwargs["repos"] == ["owner/my-repo"]
+        assert call_kwargs["container_id"] == "issue-200-coder"
+
+        # Verify the result has mounts from the worktree
+        assert isinstance(result, SpawnedContainer)
+        create_call = mock_docker_client.create_container.call_args
+        mounts = create_call.kwargs.get("mounts", [])
+        repo_mounts = [
+            m
+            for m in mounts
+            if m.get("Target") == "/home/egg/repos/my-repo"
+            or m.get("Destination") == "/home/egg/repos/my-repo"
+        ]
+        assert len(repo_mounts) >= 1, (
+            "Repo volume mount must be present when worktree is created from repos-only path"
+        )
+
+    def test_spawn_with_both_repos_and_repo_volumes_creates_worktrees(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Spawn with both repos and repo_volumes should still create worktrees.
+
+        This is the existing behavior (initial spawn path via
+        create_concurrent_spawn_fn) and must not regress.
+        """
+        spawner.spawn_agent_container(
+            pipeline_id="issue-200",
+            agent_role=AgentRole.CODER,
+            issue_number=200,
+            repos=["owner/my-repo"],
+            repo_volumes={"my-repo": "/host/path/to/repo"},
+        )
+
+        # create_worktrees should be called (the original repo_volumes is overwritten)
+        mock_gateway_client.create_worktrees.assert_called_once()
+
+    def test_spawn_without_repos_does_not_create_worktrees(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Spawn without repos should not call create_worktrees.
+
+        When repos is None or empty, there is nothing to create.
+        """
+        spawner.spawn_agent_container(
+            pipeline_id="issue-200",
+            agent_role=AgentRole.CODER,
+            issue_number=200,
+            repos=None,
+            repo_volumes=None,
+        )
+
+        mock_gateway_client.create_worktrees.assert_not_called()
+
+    def test_spawn_with_empty_repos_does_not_create_worktrees(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Spawn with empty repos list should not call create_worktrees."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-200",
+            agent_role=AgentRole.CODER,
+            issue_number=200,
+            repos=[],
+            repo_volumes=None,
+        )
+
+        mock_gateway_client.create_worktrees.assert_not_called()
+
+    def test_spawn_repos_only_overwrites_repo_volumes(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """When repos is provided, gateway result should populate repo_volumes.
+
+        The gateway's create_worktrees returns host paths; these should
+        be used for volume mounts regardless of the input repo_volumes.
+        """
+        mock_gateway_client.create_worktrees.return_value = WorktreeResult(
+            success=True,
+            worktrees={"my-repo": "/host/worktrees/issue-200-coder/my-repo"},
+            errors=[],
+        )
+
+        spawner.spawn_agent_container(
+            pipeline_id="issue-200",
+            agent_role=AgentRole.CODER,
+            issue_number=200,
+            repos=["owner/my-repo"],
+            repo_volumes=None,
+        )
+
+        create_call = mock_docker_client.create_container.call_args
+        mounts = create_call.kwargs.get("mounts", [])
+
+        # The mount source should be the gateway-returned path
+        repo_mount = [
+            m
+            for m in mounts
+            if (m.get("Target") or m.get("Destination", "")) == "/home/egg/repos/my-repo"
+        ]
+        assert len(repo_mount) >= 1
+        source = repo_mount[0].get("Source")
+        assert source == "/host/worktrees/issue-200-coder/my-repo"
+
+    def test_spawn_repos_only_includes_git_shadow_mounts(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Git shadow mounts should be added when worktrees are created via repos-only path."""
+        mock_gateway_client.create_worktrees.return_value = WorktreeResult(
+            success=True,
+            worktrees={"my-repo": "/host/worktrees/issue-200-coder/my-repo"},
+            errors=[],
+        )
+
+        spawner.spawn_agent_container(
+            pipeline_id="issue-200",
+            agent_role=AgentRole.CODER,
+            issue_number=200,
+            repos=["owner/my-repo"],
+            repo_volumes=None,
+        )
+
+        create_call = mock_docker_client.create_container.call_args
+        mounts = create_call.kwargs.get("mounts", [])
+
+        # .git shadow mount should be present
+        git_shadows = [
+            m
+            for m in mounts
+            if (m.get("Target") or m.get("Destination", "")) == "/home/egg/repos/my-repo/.git"
+        ]
+        assert len(git_shadows) == 1, ".git shadow mount must be added for repos-only worktree path"
+        assert git_shadows[0].get("Source") == "/dev/null"
+        assert git_shadows[0].get("ReadOnly") is True
+
+    def test_spawn_repos_only_passes_branch_to_create_worktrees(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Branch should be passed as base_branch to create_worktrees."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-200",
+            agent_role=AgentRole.CODER,
+            issue_number=200,
+            repos=["owner/my-repo"],
+            repo_volumes=None,
+            branch="egg/issue-200",
+        )
+
+        call_kwargs = mock_gateway_client.create_worktrees.call_args.kwargs
+        assert call_kwargs.get("base_branch") == "egg/issue-200"
+
+
+# ---------------------------------------------------------------------------
+# Error handling
+# ---------------------------------------------------------------------------
+
+
+class TestWorktreeCreationErrors:
+    """Tests for error handling during worktree creation."""
+
+    def test_spawn_raises_on_gateway_worktree_error(self, spawner, mock_gateway_client):
+        """GatewayError during create_worktrees should propagate as ContainerSpawnError."""
+        mock_gateway_client.create_worktrees.side_effect = GatewayError(
+            "Worktree creation failed",
+            status_code=500,
+        )
+
+        with pytest.raises(ContainerSpawnError, match="worktree creation failed"):
+            spawner.spawn_agent_container(
+                pipeline_id="issue-200",
+                agent_role=AgentRole.CODER,
+                issue_number=200,
+                repos=["owner/my-repo"],
+                repo_volumes=None,
+            )
+
+    def test_spawn_raises_when_worktree_result_has_no_worktrees(self, spawner, mock_gateway_client):
+        """Empty worktree result should raise ContainerSpawnError."""
+        mock_gateway_client.create_worktrees.return_value = WorktreeResult(
+            success=True,
+            worktrees={},
+            errors=[],
+        )
+
+        with pytest.raises(ContainerSpawnError, match="no worktrees"):
+            spawner.spawn_agent_container(
+                pipeline_id="issue-200",
+                agent_role=AgentRole.CODER,
+                issue_number=200,
+                repos=["owner/my-repo"],
+                repo_volumes=None,
+            )
+
+    def test_spawn_raises_when_worktree_result_is_failure(self, spawner, mock_gateway_client):
+        """Failed worktree result should raise ContainerSpawnError."""
+        mock_gateway_client.create_worktrees.return_value = WorktreeResult(
+            success=False,
+            worktrees={},
+            errors=["Repo not found"],
+        )
+
+        with pytest.raises(ContainerSpawnError, match="no worktrees"):
+            spawner.spawn_agent_container(
+                pipeline_id="issue-200",
+                agent_role=AgentRole.CODER,
+                issue_number=200,
+                repos=["owner/my-repo"],
+                repo_volumes=None,
+            )
+
+    def test_spawn_raises_on_unexpected_exception_during_worktree_creation(
+        self, spawner, mock_gateway_client
+    ):
+        """Unexpected exceptions during create_worktrees should raise ContainerSpawnError."""
+        mock_gateway_client.create_worktrees.side_effect = RuntimeError("Unexpected error")
+
+        with pytest.raises(ContainerSpawnError, match="Unexpected error"):
+            spawner.spawn_agent_container(
+                pipeline_id="issue-200",
+                agent_role=AgentRole.CODER,
+                issue_number=200,
+                repos=["owner/my-repo"],
+                repo_volumes=None,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Integration with restart paths
+# ---------------------------------------------------------------------------
+
+
+class TestRestartWorktreeIntegration:
+    """Tests verifying restart paths trigger worktree creation.
+
+    These tests verify that restart_agent_container (which passes repos
+    but not repo_volumes) correctly triggers worktree creation via the
+    fixed guard condition.
+    """
+
+    def test_restart_agent_container_creates_worktrees_from_repos(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """restart_agent_container with repos should create worktrees.
+
+        restart_agent_container calls spawn_agent_container internally
+        without repo_volumes. After the fix, the spawn should still
+        create worktrees because repos is provided.
+        """
+        # Setup: get_container_info for cleanup phase
+        mock_docker_client.get_container_info.return_value = ContainerInfo(
+            container_id="old-container-abc",
+            container_name="egg-sandbox-egg-issue-200-coder",
+            status=ContainerStatus.RUNNING,
+        )
+        mock_docker_client.stop_container.return_value = ContainerInfo(
+            container_id="old-container-abc",
+            container_name="egg-issue-200-coder",
+            status=ContainerStatus.EXITED,
+        )
+
+        result = spawner.restart_agent_container(
+            pipeline_id="issue-200",
+            agent_role=AgentRole.CODER,
+            issue_number=200,
+            repos=["owner/my-repo"],
+            # repo_volumes intentionally omitted — this is the restart path
+        )
+
+        # Verify gateway.create_worktrees was called
+        mock_gateway_client.create_worktrees.assert_called_once()
+        assert isinstance(result, SpawnedContainer)
+
+        # Verify mounts were created
+        create_call = mock_docker_client.create_container.call_args
+        mounts = create_call.kwargs.get("mounts", [])
+        repo_mounts = [
+            m
+            for m in mounts
+            if "/home/egg/repos/my-repo" in (m.get("Target", "") + m.get("Destination", ""))
+        ]
+        assert len(repo_mounts) >= 1, (
+            "Restart path must create repo volume mounts via worktree creation"
+        )
+
+    def test_restart_container_not_found_still_creates_worktrees(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """restart_agent_container should create worktrees even if old container is gone.
+
+        This covers the case where the container already exited/was removed
+        before the restart — worktree creation should still happen.
+        """
+        mock_docker_client.get_container_info.side_effect = ContainerNotFoundError(
+            "already removed"
+        )
+
+        result = spawner.restart_agent_container(
+            pipeline_id="issue-200",
+            agent_role=AgentRole.CODER,
+            issue_number=200,
+            repos=["owner/my-repo"],
+        )
+
+        mock_gateway_client.create_worktrees.assert_called_once()
+        assert isinstance(result, SpawnedContainer)
+
+    def test_restart_passes_preserve_worktree_on_failure(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """restart_agent_container should pass preserve_worktree_on_failure=True.
+
+        This ensures a transient Docker failure doesn't delete the
+        pre-existing worktree containing committed work.
+        """
+        mock_docker_client.get_container_info.side_effect = ContainerNotFoundError(
+            "already removed"
+        )
+
+        with patch.object(
+            spawner, "spawn_agent_container", wraps=spawner.spawn_agent_container
+        ) as mock_spawn:
+            spawner.restart_agent_container(
+                pipeline_id="issue-200",
+                agent_role=AgentRole.CODER,
+                issue_number=200,
+                repos=["owner/my-repo"],
+            )
+
+            mock_spawn.assert_called_once()
+            call_kwargs = mock_spawn.call_args.kwargs
+            assert call_kwargs.get("preserve_worktree_on_failure") is True
+
+
+# ---------------------------------------------------------------------------
+# Multiple repos
+# ---------------------------------------------------------------------------
+
+
+class TestWorktreeMultipleRepos:
+    """Tests for worktree creation with multiple repositories."""
+
+    def test_spawn_with_multiple_repos_creates_all_worktrees(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Multiple repos should all get worktree mounts."""
+        mock_gateway_client.create_worktrees.return_value = WorktreeResult(
+            success=True,
+            worktrees={
+                "repo-a": "/host/worktrees/issue-200-coder/repo-a",
+                "repo-b": "/host/worktrees/issue-200-coder/repo-b",
+            },
+            errors=[],
+        )
+
+        spawner.spawn_agent_container(
+            pipeline_id="issue-200",
+            agent_role=AgentRole.CODER,
+            issue_number=200,
+            repos=["owner/repo-a", "owner/repo-b"],
+            repo_volumes=None,
+        )
+
+        create_call = mock_docker_client.create_container.call_args
+        mounts = create_call.kwargs.get("mounts", [])
+
+        # Both repos should have mounts
+        targets = [m.get("Target") or m.get("Destination", "") for m in mounts]
+        assert "/home/egg/repos/repo-a" in targets
+        assert "/home/egg/repos/repo-b" in targets
+
+
+# ---------------------------------------------------------------------------
+# Agent role in worktree ID
+# ---------------------------------------------------------------------------
+
+
+class TestWorktreeAgentRoleId:
+    """Tests that the per-agent worktree ID is correctly formed."""
+
+    @pytest.mark.parametrize(
+        "role,expected_wt_id",
+        [
+            (AgentRole.CODER, "issue-200-coder"),
+            (AgentRole.TESTER, "issue-200-tester"),
+            (AgentRole.DOCUMENTER, "issue-200-documenter"),
+        ],
+    )
+    def test_worktree_id_includes_pipeline_and_role(
+        self, spawner, mock_gateway_client, role, expected_wt_id
+    ):
+        """Worktree container_id should be {pipeline_id}-{role}."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-200",
+            agent_role=role,
+            issue_number=200,
+            repos=["owner/my-repo"],
+            repo_volumes=None,
+        )
+
+        call_kwargs = mock_gateway_client.create_worktrees.call_args.kwargs
+        assert call_kwargs["container_id"] == expected_wt_id
