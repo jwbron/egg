@@ -104,6 +104,7 @@ fetch_review_rules() {
 - Style issues handled by linters (formatting, import order)
 - Type annotation completeness (type checkers handle this)
 - Auto-generated files (migrations, lock files)
+- \`.egg-state/\` pipeline artifacts (contracts, drafts, BRC history — managed by the orchestrator)
 EOF
     fi
 }

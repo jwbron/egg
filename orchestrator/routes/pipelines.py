@@ -2040,7 +2040,13 @@ def _get_code_review_criteria(repo_path: str | None = None) -> str:
         "completely different execution paths. If the existing pattern works "
         "via mechanism A but the new code relies on mechanism B that doesn't "
         "exist, the comparison is invalid — classify based on actual "
-        "functionality, not superficial similarity.\n"
+        "functionality, not superficial similarity.\n\n"
+        "### Skip\n\n"
+        "- Style issues handled by linters (formatting, import order)\n"
+        "- Type annotation completeness (type checkers handle this)\n"
+        "- Auto-generated files (migrations, lock files)\n"
+        "- `.egg-state/` pipeline artifacts (contracts, drafts, BRC history "
+        "— managed by the orchestrator)\n"
     )
 
 
