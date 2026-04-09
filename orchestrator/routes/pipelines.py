@@ -166,6 +166,16 @@ def _check_and_respawn_overseer(
         return overseer_container_id, overseer_respawn_count
 
     if needs_respawn:
+        # Capture log tail from the old container before respawning (best-effort).
+        log_tail = "unavailable"
+        try:
+            log_tail = spawner.docker.get_container_logs(
+                overseer_container_id, tail=20
+            )
+        except Exception:
+            # Container may already be purged — fall back to "unavailable".
+            pass
+
         try:
             pipeline_check = store.load_pipeline(pipeline_id)
             if pipeline_check.status in (PipelineStatus.RUNNING, PipelineStatus.AWAITING_HUMAN):
@@ -182,6 +192,7 @@ def _check_and_respawn_overseer(
                     mode=gateway_mode,
                     poll_interval=pipeline.config.overseer_poll_interval_seconds,
                     decision_model=pipeline.config.overseer_decision_maker_model,
+                    max_turns=pipeline.config.overseer_max_turns,
                     repos=pipeline_repos if pipeline_repos else None,
                     certs_volume=certs_volume,
                 )
@@ -193,6 +204,45 @@ def _check_and_respawn_overseer(
                     container_id=new_container_id[:12],
                     respawn_attempt=overseer_respawn_count,
                 )
+
+                # Broadcast OVERSEER_ALERT with respawn diagnostics (best-effort).
+                try:
+                    store_fn = _get_message_store()
+                    if store_fn is not None:
+                        from message_store import Message, MessageType
+
+                        msg_store = store_fn()
+                        msg_store.add_message(
+                            Message(
+                                pipeline_id=pipeline_id,
+                                from_role="orchestrator",
+                                to_role="all",
+                                message_type=MessageType.OVERSEER_ALERT,
+                                subject=f"overseer_restart: overseer [info]",
+                                body=(
+                                    f"Overseer container was respawned. "
+                                    f"Old container {overseer_container_id[:12]} exited "
+                                    f"with code {exit_code}. "
+                                    f"New container {new_container_id[:12]} is now running."
+                                ),
+                                metadata={
+                                    "exit_code": exit_code,
+                                    "old_container_id": overseer_container_id,
+                                    "new_container_id": new_container_id,
+                                    "log_tail": log_tail,
+                                    "respawn_attempt": overseer_respawn_count,
+                                    "max_respawns": max_overseer_respawns,
+                                },
+                                phase=pipeline.current_phase.value,
+                            )
+                        )
+                except Exception as broadcast_err:
+                    logger.warning(
+                        "Failed to broadcast overseer respawn alert (non-fatal)",
+                        pipeline_id=pipeline_id,
+                        error=str(broadcast_err),
+                    )
+
                 return new_container_id, overseer_respawn_count
         except Exception as respawn_err:
             logger.warning(
@@ -7260,6 +7310,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         mode=gateway_mode,
                         poll_interval=pipeline.config.overseer_poll_interval_seconds,
                         decision_model=pipeline.config.overseer_decision_maker_model,
+                        max_turns=pipeline.config.overseer_max_turns,
                         repos=pipeline_repos if pipeline_repos else None,
                         certs_volume=certs_volume,
                     )

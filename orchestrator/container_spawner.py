@@ -999,6 +999,7 @@ class ContainerSpawner:
         mode: str = "public",
         poll_interval: int = 30,
         decision_model: str = "sonnet",
+        max_turns: int = 2000,
         image: str | None = None,
         wait_for_gateway: bool = True,
         repos: list[str] | None = None,
@@ -1017,6 +1018,7 @@ class ContainerSpawner:
             mode: Gateway mode (public or private).
             poll_interval: Polling interval in seconds for health checks.
             decision_model: LLM model for overseer decision-making tier.
+            max_turns: Maximum Agent SDK turns for the overseer (default: 2000).
             image: Docker image override.
             wait_for_gateway: Wait for gateway health before spawning.
             repos: List of repositories for gateway session.
@@ -1059,7 +1061,7 @@ class ContainerSpawner:
         command = build_agent_command(
             prompt=overseer_prompt,
             model=decision_model,
-            max_turns=500,
+            max_turns=max_turns,
         )
 
         return self.spawn_agent_container(
