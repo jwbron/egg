@@ -252,16 +252,19 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-09T23:56:24.035018Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-09T23:57:45.326408Z",
+      "resolution": {
+        "action": "select",
+        "selected": "approve"
+      },
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-09T23:37:30.329498Z",
-  "updated_at": "2026-04-09T23:56:24.052592Z",
+  "updated_at": "2026-04-09T23:57:45.328824Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -269,5 +272,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 23
+  "version": 24
 }
