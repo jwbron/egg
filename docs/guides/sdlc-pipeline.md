@@ -298,7 +298,7 @@ The implement phase uses concurrent BRC execution, where specialized agents run 
 | **Reviewer (Contract)** | Verify task completion and acceptance criteria | Review verdicts only |
 
 **Role-Aware Task Assignment:**
-Tasks in the plan's YAML appendix can include an optional `role` field (`coder`, `tester`, or `documenter`) that assigns the task to a specific execution agent based on the files it modifies. During the implement phase, each agent only sees tasks assigned to its role — the coder also picks up any unassigned tasks as a fallback. This prevents agents from working on files outside their gateway-enforced boundaries. See [Agent Roles Reference](../reference/agent-roles.md#role-aware-task-assignment) for the file-to-role mapping and examples.
+Tasks in the plan's YAML appendix can include an optional `role` field (`coder`, `tester`, or `documenter`) that assigns the task to a specific execution agent based on the files it modifies. During the implement phase, each agent only sees tasks assigned to its role — the coder also picks up any unassigned tasks as a fallback. Role filtering only activates when at least one task has an explicit role, preserving backward compatibility with legacy plans. See [Agent Roles Reference](../reference/agent-roles.md#role-aware-task-assignment) for the file-to-role mapping and examples.
 
 **File Access Enforcement:**
 The gateway enforces file access patterns for each agent role via `gateway/agent_restrictions.py`. For example, the Coder agent cannot modify documentation files, and the Tester agent cannot modify source code. This prevents agents from overstepping their responsibilities.

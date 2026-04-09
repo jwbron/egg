@@ -297,7 +297,7 @@ The YAML schema restricts the `role` field to the enum values `coder`, `tester`,
 
 ### Backward Compatibility
 
-The `role` field is optional. Plans generated before this feature (without `role` assignments) continue to work: all tasks default to showing for all agents, preserving the prior behavior. Unassigned tasks (`role: null`) fall through to the coder as the default execution role.
+The `role` field is optional. Role-based task filtering only activates when **at least one task** in the phase has an explicit `role` assignment. Legacy plans (where all tasks have `role: null`) show all tasks to all agents, fully preserving prior behavior. When filtering is active, unassigned tasks (`role: null`) fall through to the coder as the default execution role.
 
 ### Example
 
