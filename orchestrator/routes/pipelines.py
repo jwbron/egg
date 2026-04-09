@@ -2247,6 +2247,19 @@ def _cleanup_stale_generic_drafts(worktree_path: Path) -> bool:
     return False
 
 
+def _get_generic_draft_path(phase: str) -> str | None:
+    """Return the generic (unprefixed) draft path for a phase.
+
+    Used as a fallback when the issue-specific draft file is missing.
+    """
+    if phase == "refine":
+        return ".egg-state/drafts/analysis.md"
+    elif phase == "implement":
+        return None
+    else:
+        return f".egg-state/drafts/{phase}.md"
+
+
 def _read_phase_draft(
     repo_path: Path,
     phase: str,
@@ -2258,11 +2271,20 @@ def _read_phase_draft(
 
     Returns None when the draft cannot be found (no path configured or
     file missing on disk).
+
+    When the primary issue-specific draft path does not exist, falls back
+    to the generic (unprefixed) path — e.g. ``analysis.md`` for refine,
+    ``plan.md`` for plan.  This handles cases where the agent wrote to the
+    generic path or the worktree contains stale generic files from a prior
+    run.
     """
     draft_rel = _get_draft_path(phase, issue_number=issue_number, pipeline_id=pipeline_id)
     if not draft_rel:
         return None
+
     draft_path = repo_path / draft_rel
+
+    # Try primary (issue-specific) path first.
     if not draft_path.exists():
         logger.debug(
             "Draft file not found",
@@ -2271,7 +2293,24 @@ def _read_phase_draft(
             issue_number=issue_number,
             pipeline_id=pipeline_id,
         )
-        return None
+
+        # Fallback: try the generic (unprefixed) path.
+        generic_rel = _get_generic_draft_path(phase)
+        if generic_rel:
+            generic_path = repo_path / generic_rel
+            if generic_path.exists():
+                logger.debug(
+                    "Using generic fallback draft path",
+                    primary_path=str(draft_path),
+                    fallback_path=str(generic_path),
+                    phase=phase,
+                )
+                draft_path = generic_path
+            else:
+                return None
+        else:
+            return None
+
     content = draft_path.read_text(encoding="utf-8")
     if len(content) > max_chars:
         return content[:max_chars] + f"\n\n... (truncated, {len(content)} chars total)"
