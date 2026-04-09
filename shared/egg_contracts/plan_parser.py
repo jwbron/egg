@@ -55,6 +55,7 @@ from typing import Any
 
 import yaml
 
+from .agent_roles import EXECUTION_ROLE_VALUES
 from .models import Phase, PhaseStatus, Task, TaskStatus
 
 # Placeholder acceptance criteria for tasks that couldn't be parsed.
@@ -523,13 +524,12 @@ def parse_phases_from_yaml(
                 )
 
             # Validate role if provided
-            valid_roles = {"coder", "tester", "documenter"}
-            if role is not None and role not in valid_roles:
+            if role is not None and role not in EXECUTION_ROLE_VALUES:
                 warnings.append(
                     ParseWarning(
                         line_number=None,
                         message=f"Task {task_id} has invalid role '{role}', ignoring",
-                        context=f"Valid roles: {', '.join(sorted(valid_roles))}",
+                        context=f"Valid roles: {', '.join(sorted(EXECUTION_ROLE_VALUES))}",
                     )
                 )
                 role = None

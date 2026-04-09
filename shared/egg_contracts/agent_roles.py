@@ -833,6 +833,11 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
 }
 
 
+# Canonical set of execution role string values — used by the schema,
+# plan parser, and orchestrator for role validation and filtering.
+EXECUTION_ROLE_VALUES = frozenset({AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER})
+
+
 def get_role_definition(
     role: AgentRole | str,
 ) -> AgentRoleDefinition:

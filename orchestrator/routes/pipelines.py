@@ -2575,9 +2575,6 @@ def _extract_plan_overview(plan_text: str) -> str:
     return "\n".join(overview_lines)
 
 
-_EXECUTION_ROLES = frozenset({"coder", "tester", "documenter"})
-
-
 def _build_role_context(
     role_value: str,
     prompt: str | None,
@@ -2604,6 +2601,8 @@ def _build_role_context(
     Returns:
         Role-appropriate context string to embed in the agent prompt
     """
+    from egg_contracts.agent_roles import EXECUTION_ROLE_VALUES
+
     # Analysis roles need the full issue body for problem understanding
     if role_value in ("architect", "task_planner", "risk_analyst"):
         if prompt:
@@ -2634,12 +2633,12 @@ def _build_role_context(
         else:
             lines.append("The following tasks were implemented in this phase:\n")
 
-        # Filter tasks by role for execution agents in the implement phase.
+        # Filter tasks by role for execution agents.
         # Only apply role-based filtering when at least one task has a role
         # assigned — legacy plans (all role=None) show all tasks to all agents,
         # preserving backward compatibility.
         _has_any_role = any(t.role is not None for t in phase_obj.tasks)
-        if role_value in _EXECUTION_ROLES and _has_any_role:
+        if role_value in EXECUTION_ROLE_VALUES and _has_any_role:
             # Unassigned tasks (role=None) default to coder.
             filtered_tasks = [
                 task
