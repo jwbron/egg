@@ -737,7 +737,8 @@ When a pipeline phase fails (container exit code non-zero), the orchestrator:
 **Restart behavior**:
 - `egg-sdlc` CLI detects failed pipelines and automatically restarts from the failed phase (preserving worktrees)
 - Orchestrator API `POST /api/v1/pipelines/{id}/start` resets the failed phase to pending and resumes execution
-- Worktrees remain intact across restarts, so agents can continue from their last commit
+- Worktrees remain intact across restarts — `spawn_agent_container()` calls the gateway's idempotent `create_worktrees` API which rediscovers existing worktrees keyed by `{pipeline_id}-{role}`, so agents resume with all prior committed work
+- Uncommitted changes from the previous container are not preserved in the restart flow; agents should commit work incrementally
 
 ### External Failure Handling
 
