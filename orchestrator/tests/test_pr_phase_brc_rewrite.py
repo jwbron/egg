@@ -193,8 +193,10 @@ class TestRewriteBrcHistoryForPr:
             "review": MagicMock(status=PipelineStatus.RUNNING),
         }
 
-        with patch("routes.pipelines._write_brc_history") as mock_write, \
-             patch("routes.pipelines._commit_statefiles_to_worktree"):
+        with (
+            patch("routes.pipelines._write_brc_history") as mock_write,
+            patch("routes.pipelines._commit_statefiles_to_worktree"),
+        ):
             _rewrite_brc_history_for_pr(tmp_path, "issue-42", phases, 42)
 
         # Should be called exactly for refine and plan (COMPLETE), not implement or review
@@ -210,8 +212,10 @@ class TestRewriteBrcHistoryForPr:
             "implement": MagicMock(status=PipelineStatus.COMPLETE),
         }
 
-        with patch("routes.pipelines._write_brc_history") as mock_write, \
-             patch("routes.pipelines._commit_statefiles_to_worktree"):
+        with (
+            patch("routes.pipelines._write_brc_history") as mock_write,
+            patch("routes.pipelines._commit_statefiles_to_worktree"),
+        ):
             _rewrite_brc_history_for_pr(tmp_path, "issue-99", phases, 1599)
 
         mock_write.assert_called_once_with(tmp_path, "issue-99", "implement", 1599)
@@ -224,8 +228,10 @@ class TestRewriteBrcHistoryForPr:
             "refine": MagicMock(status=PipelineStatus.COMPLETE),
         }
 
-        with patch("routes.pipelines._write_brc_history"), \
-             patch("routes.pipelines._commit_statefiles_to_worktree") as mock_commit:
+        with (
+            patch("routes.pipelines._write_brc_history"),
+            patch("routes.pipelines._commit_statefiles_to_worktree") as mock_commit,
+        ):
             _rewrite_brc_history_for_pr(tmp_path, "issue-42", phases, 42)
 
         mock_commit.assert_called_once_with(
@@ -255,9 +261,13 @@ class TestRewriteBrcHistoryForPr:
             if call_count["n"] == 1:
                 raise PermissionError("Read-only filesystem")
 
-        with patch("routes.pipelines._write_brc_history", side_effect=fail_on_first_phase) as mock_write, \
-             patch("routes.pipelines._commit_statefiles_to_worktree"), \
-             patch("routes.pipelines.logger") as mock_logger:
+        with (
+            patch(
+                "routes.pipelines._write_brc_history", side_effect=fail_on_first_phase
+            ) as mock_write,
+            patch("routes.pipelines._commit_statefiles_to_worktree"),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
             # Should not raise despite PermissionError
             _rewrite_brc_history_for_pr(tmp_path, "issue-42", phases, 42)
 
@@ -277,8 +287,10 @@ class TestRewriteBrcHistoryForPr:
             "plan": MagicMock(status=PipelineStatus.PENDING),
         }
 
-        with patch("routes.pipelines._write_brc_history") as mock_write, \
-             patch("routes.pipelines._commit_statefiles_to_worktree") as mock_commit:
+        with (
+            patch("routes.pipelines._write_brc_history") as mock_write,
+            patch("routes.pipelines._commit_statefiles_to_worktree") as mock_commit,
+        ):
             _rewrite_brc_history_for_pr(tmp_path, "issue-42", phases, 42)
 
         mock_write.assert_not_called()
