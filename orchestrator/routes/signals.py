@@ -1239,7 +1239,10 @@ def handle_consensus_confirmed_signal(
                 store = get_message_store()
                 messages = store.get_messages(pipeline_id, limit=10000)
                 confirmed_roles = {
-                    m.from_role for m in messages if m.message_type == "CONSENSUS_CONFIRMED"
+                    m.from_role
+                    for m in messages
+                    if m.message_type == "CONSENSUS_CONFIRMED"
+                    and not (m.metadata or {}).get("pending_acks")
                 }
                 # Agent sending this signal is also confirming
                 confirmed_roles.add(agent_role)
@@ -1290,10 +1293,26 @@ def handle_consensus_confirmed_signal(
         # If the producer is waiting for reviewer re-ACKs (e.g. after a
         # re-proposal invalidated stale ACKs), return 202 so the agent
         # knows to retry later instead of treating it as an error.
-        # Note: we intentionally skip writing a CONSENSUS_CONFIRMED message
-        # to the message store here — the agent hasn't actually confirmed,
-        # so peers polling for CONSENSUS_CONFIRMED won't see a premature one.
+        # We still write a CONSENSUS_CONFIRMED message to the store (with
+        # pending_acks=True metadata) so the message-bus fallback in
+        # check_consensus() can detect when all agents have *attempted*
+        # confirmation even if the tracker rejected some (#1615).
         if result.get("status") == "pending_acks":
+            from message_store import Message, MessageType, get_message_store
+
+            store = get_message_store()
+            store.add_message(
+                Message(
+                    pipeline_id=pipeline_id,
+                    from_role=agent_role,
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject=f"Confirmed by {agent_role} (pending_acks)",
+                    body=result.get("message", ""),
+                    phase=_resolve_pipeline_phase(pipeline_id, repo_path),
+                    metadata={"pending_acks": True},
+                )
+            )
             return make_success_response(result["message"], data=result, status_code=202)
 
         from message_store import Message, MessageType, get_message_store
