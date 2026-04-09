@@ -5,7 +5,7 @@
   "branch": "egg/issue-1570-v2",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -77,10 +77,10 @@
         {
           "container_id": "56b4ababcd85f50008a8e7738b23f31d36b7ee13d89bb57a063d076e142e6285",
           "container_name": "egg-sandbox-egg-issue-1570-v2-reviewer_plan",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-09T13:02:10.182311Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-09T13:02:10.856247Z",
+          "exit_code": 1,
           "agent_role": null,
           "session_token": null
         }
@@ -124,13 +124,13 @@
         },
         {
           "role": "reviewer_plan",
-          "status": "running",
+          "status": "failed",
           "container_id": "56b4ababcd85f50008a8e7738b23f31d36b7ee13d89bb57a063d076e142e6285",
           "started_at": null,
-          "completed_at": null,
+          "completed_at": "2026-04-09T13:02:11.928419Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited unexpectedly during execution — detected by runtime container monitor",
           "retry_count": 0,
           "conflicts": []
         }
@@ -171,13 +171,13 @@
     }
   ],
   "created_at": "2026-04-09T01:16:37.974233Z",
-  "updated_at": "2026-04-09T13:02:10.185774Z",
+  "updated_at": "2026-04-09T13:02:11.928973Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
-  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-09T01:37:24.001653608Z     Status: healthy\n2026-04-09T01:37:24.001655900Z     GitHub token valid: True\n2026-04-09T01:37:24.001658775Z     Auth configured: True\n2026-04-09T01:37:24.001661858Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-09T01:37:24.001664358Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-09T01:37:24.001666858Z   Credentials injected by gateway (not in container)\n2026-04-09T01:37:24.001671441Z Signaled error to orchestrator\n2026-04-09T01:37:24.001673816Z \n2026-04-09T01:37:24.001675941Z Cleaning up on container exit...\n2026-04-09T01:37:24.001680108Z ✓ Cleanup complete",
+  "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "analysis": "See the full approved analysis at .egg-state/drafts/1570-analysis.md on branch egg/issue-1570. Key HITL decisions: (1) Custom thin adapter wrapping anthropic + openai SDKs, (2) Both headless and interactive in MVP, (3) Shell out to CLIs for egg-native tools initially, (4) Default claude-sdk with configurable opt-in to egg harness + TOS warning, (5) Include WebFetch/WebSearch, defer NotebookEdit, (6) Keep transcript capture in gateway, (7) Hardcoded per-model cost rates, (8) Basic retries with backoff in harness for transient API failures, (9) Replicate exact CLAUDE.md rule-merging, (10) Support opus[1m] suffix syntax, (11) Compare cost/turns/duration/success for validation, (12) Multi-model routing post-MVP but design provider abstraction to support it.",
   "plan": null,
-  "version": 19
+  "version": 20
 }
