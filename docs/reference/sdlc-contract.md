@@ -62,8 +62,11 @@ No additional configuration is needed — the `CONTAINER_ID` env var is set auto
 
 ## Environment
 
-- `EGG_ISSUE_NUMBER` — current issue (auto-set)
+- `EGG_ISSUE_NUMBER` — current GitHub issue number (auto-set in issue-driven pipelines)
+- `EGG_PIPELINE_ID` — pipeline ID string for JIRA-ticket pipelines (auto-set)
 - `EGG_REPO_PATH` — repository path (auto-set)
 - `CONTAINER_ID` — container identifier for worktree path resolution (auto-set in pipeline containers)
+
+When neither `EGG_ISSUE_NUMBER` nor `EGG_PIPELINE_ID` is set, all commands require `--issue` or `--pipeline-id`.
 
 See contract schema docs at `.egg/schemas/contract.schema.json`.
