@@ -1,43 +1,48 @@
 # Deploy Migration Guide
 
-This guide helps you migrate from the legacy deployment scripts to the new Docker Compose-based deployment.
+This guide helps you migrate from the legacy Docker Compose deployment to the new Kubernetes (k3s) deployment.
+
+> **Note:** egg has migrated from Docker Compose to Kubernetes (k3s) for container runtime management. Docker is still used for building images, but all runtime orchestration now uses Kubernetes. See [Kubernetes Architecture](../architecture/kubernetes.md) for the full design.
 
 ## Why Migrate?
 
-The new deployment approach offers:
+The Kubernetes deployment offers:
 
-- **Simpler setup**: Single `docker compose up` vs. multiple manual steps
-- **Consistent configuration**: All settings in `~/.config/egg/config.yaml`
-- **Better health checking**: Built-in Docker Compose health checks
-- **Easier cleanup**: `docker compose down` removes everything
-- **Pre-built images**: Optional use of GHCR images instead of local builds
+- **Multi-node scalability**: Kubernetes scheduling replaces single-host Docker socket dependency
+- **Fault tolerance**: k8s Job restarts and pod rescheduling replace manual container recovery
+- **Native isolation**: Calico NetworkPolicies enforce agent isolation (replacing Docker `internal: true` networks)
+- **Declarative infrastructure**: Kustomize manifests replace Docker Compose YAML
+- **Standard tooling**: `kubectl` for debugging, monitoring, and management
 
 ## Migration Paths
 
-### From start-gateway.sh
+### From Docker Compose (`docker-compose.yml`)
 
 **Before (deprecated):**
 ```bash
-# Manual network creation
-./gateway/create-networks.sh
+# Start gateway + orchestrator via Docker Compose
+docker compose up -d
 
-# Manual gateway start
-./gateway/start-gateway.sh
+# Or via egg-deploy
+bin/egg-deploy up
 
-# Then run egg
-egg --public
+# Or via egg CLI
+egg --compose
 ```
 
 **After (recommended):**
 ```bash
-# Initialize configuration
-bin/egg-deploy init
+# One-time: install k3s with Calico CNI
+make k3s-setup
 
-# Start gateway
-bin/egg-deploy up
+# Build images and import into k3s
+make build
 
-# Run egg
-egg --public
+# Deploy to k3s
+make deploy
+
+# Verify
+kubectl get pods -n egg-system
 ```
 
 ### From Manual Docker Commands
@@ -48,180 +53,201 @@ egg --public
 docker network create --internal --subnet 172.32.0.0/24 egg-isolated
 docker network create --subnet 172.33.0.0/24 egg-external
 
-# Build gateway
+# Build and start gateway
 docker build -t egg-gateway gateway/
-
-# Start gateway with many flags
 docker run -d --name egg-gateway \
   --network egg-isolated --ip 172.32.0.2 \
   -v ~/.config/egg:/secrets:ro \
   ...many more flags...
   egg-gateway
-
-# Connect to external network
-docker network connect --ip 172.33.0.2 egg-external egg-gateway
 ```
 
 **After:**
 ```bash
-# One-time setup
-bin/egg-deploy init
-vim ~/.config/egg/secrets.env  # Set GITHUB_USER_TOKEN
-
-# Start
-docker compose up -d
-
-# Or
-bin/egg-deploy up
+make k3s-setup    # Install k3s + Calico (first time only)
+make build        # Build images and import into k3s
+make deploy       # Deploy via Kustomize overlays
 ```
 
-### From systemd Service
-
-If you had a systemd service running start-gateway.sh:
+### From egg --compose
 
 **Before:**
-```ini
-[Service]
-ExecStart=/path/to/egg/gateway/start-gateway.sh
+```bash
+egg --compose           # Start gateway + orchestrator, auto-rebuild on changes
+egg --compose --down    # Stop gateway + orchestrator
 ```
 
 **After:**
-```ini
-[Service]
-WorkingDirectory=/path/to/egg
-ExecStart=/usr/bin/docker compose up --no-build
-ExecStop=/usr/bin/docker compose down
+```bash
+make deploy             # Deploy/redeploy to k3s
+make k3s-teardown       # Remove k3s and all resources
 ```
 
-Or use Docker Compose's built-in restart policies:
-```yaml
-services:
-  gateway:
-    restart: unless-stopped
-```
+## What Changed
 
-## Configuration Migration
+### Architecture
 
-### Environment Variables
+| Aspect | Docker (Previous) | Kubernetes (Current) |
+|--------|-------------------|---------------------|
+| Runtime | Docker Engine + Compose | k3s (lightweight Kubernetes) |
+| Services | Docker containers | k8s Deployments (gateway, orchestrator) |
+| Agents | Docker containers | k8s Jobs (in `egg-agents` namespace) |
+| Network isolation | Docker networks (`egg-isolated`, `egg-external`) | Namespaces + Calico NetworkPolicies |
+| Scheduling | None (single host) | k8s scheduler |
+| Health checks | Docker Compose health checks | Kubernetes liveness/readiness probes |
+| Logs | `docker logs` | `kubectl logs` |
+| Cleanup | `docker compose down` | `make k3s-teardown` |
 
-`~/.config/egg/config.yaml` consolidates all configuration:
+### Removed Files
 
-| Old Location | New Location |
-|--------------|--------------|
-| `~/.config/egg/secrets.env` | `~/.config/egg/secrets.env` (GITHUB_USER_TOKEN, etc.) |
-| `gateway/start-gateway.sh` variables | `~/.config/egg/config.yaml` |
-| Command-line flags | `~/.config/egg/config.yaml` |
+The following Docker-specific files have been removed:
 
-### Secrets
+- `docker-compose.yml` — replaced by `k8s/base/` + `k8s/overlays/local/` Kustomize manifests
+- `docker-compose.override.yml` — replaced by Kustomize overlays
+- `orchestrator/docker_client.py` — replaced by `orchestrator/kubernetes_client.py`
+- `orchestrator/container_spawner.py` — replaced by `orchestrator/kubernetes_spawner.py`
+- `orchestrator/container_monitor.py` — replaced by `orchestrator/kubernetes_monitor.py`
+- `integration_tests/docker-compose.yml` — updated to k8s-based test infra
+- `integration_tests/local_pipeline/docker-compose.yml` — updated to k8s-based test infra
 
-1. **Launcher secret**: Auto-generated by `bin/egg-deploy init` at `~/.config/egg/launcher-secret`
-2. **GitHub token**: Set `GITHUB_USER_TOKEN` in `~/.config/egg/secrets.env`
-3. **Anthropic credentials**: Configure in Claude Code directly
+### New Files
 
-### Repositories
+- `k8s/base/` — Kustomize base manifests (namespaces, deployments, services, RBAC, NetworkPolicies)
+- `k8s/overlays/local/` — k3s-specific overlay (hostPath volumes)
+- `orchestrator/container_backend.py` — `ContainerBackend` protocol (abstract interface)
+- `orchestrator/kubernetes_client.py` — Kubernetes client (implements `ContainerBackend`)
+- `orchestrator/kubernetes_spawner.py` — Agent Job spawning
+- `orchestrator/kubernetes_monitor.py` — Job/Pod status monitoring
 
-The `repositories.yaml` file is still used. Set the `EGG_CONFIG_DIR` environment variable to point to its location, or place it in `~/.config/egg/`.
+### Gateway Authentication
+
+Gateway session authentication has changed from IP-based binding to **token-only auth**. Pod IPs are ephemeral in Kubernetes, making IP-based binding impractical. The session token is still required for all gateway API requests.
+
+### Commands Mapping
+
+| Old Command | New Command |
+|-------------|-------------|
+| `bin/egg-deploy init` | `make k3s-setup` |
+| `bin/egg-deploy up` | `make deploy` |
+| `bin/egg-deploy down` | `make k3s-teardown` |
+| `bin/egg-deploy status` | `kubectl get pods -n egg-system` |
+| `bin/egg-deploy logs` | `kubectl logs -n egg-system deploy/gateway` |
+| `bin/egg-deploy build` | `make build` |
+| `docker logs egg-gateway` | `kubectl logs -n egg-system deploy/gateway` |
+| `docker logs egg-orchestrator` | `kubectl logs -n egg-system deploy/orchestrator` |
+| `docker kill -s HUP egg-gateway` | `kubectl exec -n egg-system deploy/gateway -- kill -s HUP 1` |
 
 ## Step-by-Step Migration
 
 ### 1. Stop the Old Deployment
 
 ```bash
-# If using start-gateway.sh
-docker rm -f egg-gateway
-docker network rm egg-isolated egg-external
+# If using Docker Compose
+docker compose down
 
-# If using systemd
-systemctl stop egg-gateway
+# If using egg-deploy
+bin/egg-deploy down
+
+# If using egg --compose
+egg --compose --down
+
+# Clean up old Docker networks (optional)
+docker network rm egg-isolated egg-external 2>/dev/null
 ```
 
-### 2. Create New Configuration
+### 2. Install k3s
 
 ```bash
-cd /path/to/egg
-bin/egg-deploy init
+make k3s-setup
 ```
 
-This creates:
-- `~/.config/egg/config.yaml` with system defaults
-- Generates a new launcher secret at `~/.config/egg/launcher-secret`
-- Sets `host_uid`, `host_gid`, and `host_home` in config.yaml
+This installs k3s with Flannel disabled and Calico CNI for NetworkPolicy support. It also creates the `egg-system` and `egg-agents` namespaces.
 
-### 3. Migrate Secrets
-
-Add to `~/.config/egg/secrets.env`:
-```bash
-# From your old secrets.env
-GITHUB_USER_TOKEN=ghp_xxxxx
-```
-
-If you need a custom config directory for `repositories.yaml`, set `EGG_CONFIG_DIR` in your shell profile (see [Repositories](#repositories) above).
-
-Repos are auto-mounted from `local_repos.paths` in your `repositories.yaml`.
-
-### 4. Verify repositories.yaml
-
-Ensure your `repositories.yaml` exists in `EGG_CONFIG_DIR`:
-```bash
-ls -la $EGG_CONFIG_DIR/repositories.yaml
-```
-
-### 5. Start New Deployment
+### 3. Build and Import Images
 
 ```bash
-bin/egg-deploy up
+make build
 ```
 
-### 6. Verify Health
+This builds the Docker images and imports them into k3s via `k3s ctr images import`.
+
+### 4. Deploy
 
 ```bash
-bin/egg-deploy status
-curl http://localhost:9848/api/v1/health
+make deploy
 ```
 
-### 7. Test Sandbox
+### 5. Verify
 
 ```bash
-egg --public
+# Check services
+kubectl get pods -n egg-system
+
+# Check network policies
+kubectl get networkpolicies -n egg-agents
+
+# Check gateway health
+kubectl exec -n egg-system deploy/gateway -- curl -s http://localhost:9848/api/v1/health
 ```
+
+### 6. Test
+
+```bash
+egg   # Start a sandbox session
+```
+
+## Configuration
+
+Your existing `~/.config/egg/config.yaml` and `~/.config/egg/secrets.env` files are still used. No configuration migration is needed — the k8s manifests read from the same configuration paths.
 
 ## Rollback
 
-If you need to rollback to a previous version:
+To revert to Docker Compose (not recommended):
 
 ```bash
-# Stop compose
-bin/egg-deploy down
+# Stop k3s deployment
+make k3s-teardown
 
-# Checkout the previous version
+# Checkout a pre-migration version
 git checkout v<previous-version>
 
-# Restart
-bin/egg-deploy up
+# Start Docker Compose
+docker compose up -d
 ```
 
 ## Troubleshooting
 
-### Port Already in Use
+### k3s Not Running
 
-```
-Error: bind: address already in use
-```
-
-Stop any existing gateway:
 ```bash
-docker rm -f egg-gateway
+# Check k3s status
+systemctl status k3s    # Linux
+# or
+kubectl get nodes
 ```
 
-### Network Conflicts
+If k3s is not running, re-run `make k3s-setup`.
 
-```
-Error: network egg-isolated already exists with different subnet
-```
+### Calico Not Running
 
-Remove old networks:
 ```bash
-docker network rm egg-isolated egg-external
+kubectl get pods -n calico-system
+```
+
+If Calico pods are not running, re-install:
+```bash
+scripts/install-calico.sh
+```
+
+### Images Not Found
+
+If agent pods show `ImagePullBackOff`:
+```bash
+# Rebuild and reimport images
+make build
+
+# Verify images are available
+k3s ctr images ls | grep egg
 ```
 
 ### Permission Issues
@@ -236,36 +262,10 @@ host_uid: 1000  # output of id -u
 host_gid: 1000  # output of id -g
 ```
 
-### Missing repositories.yaml
-
-```
-Error: repositories.yaml not found
-```
-
-Create it in `~/.config/egg/`, or set the `EGG_CONFIG_DIR` environment variable to point to its location:
-```bash
-export EGG_CONFIG_DIR=/path/to/existing/config
-```
-
-## Pre-built Images
-
-To use pre-built images instead of building locally, add to `~/.config/egg/config.yaml`:
-
-```yaml
-gateway_image: ghcr.io/jwbron/egg-gateway:latest
-sandbox_image: ghcr.io/jwbron/egg-sandbox:latest
-```
-
-Then pull before starting:
-```bash
-docker pull ghcr.io/jwbron/egg-gateway:latest
-docker pull ghcr.io/jwbron/egg-sandbox:latest
-bin/egg-deploy up
-```
-
 ## Getting Help
 
-- Check `bin/egg-deploy status` for diagnostics
-- View logs: `bin/egg-deploy logs`
-- Gateway health: `curl localhost:9848/api/v1/health`
+- Check pod status: `kubectl get pods -n egg-system`
+- View logs: `kubectl logs -n egg-system deploy/gateway`
+- Gateway health: `kubectl exec -n egg-system deploy/gateway -- curl -s http://localhost:9848/api/v1/health`
 - See [Deployment Guide](deployment.md) for full documentation
+- See [Kubernetes Architecture](../architecture/kubernetes.md) for design details
