@@ -151,9 +151,27 @@
       "phase_start_sha": "f35f6529d829822792299093c0b6ad54c1524b20"
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "🚨 OVERSEER SECURITY ALERT — CVE-2026-35022 (CVSS 9.8): The risk_analyst identified a critical CVE published 3 days ago (2026-04-06) in Claude SDK auth helpers. This pipeline builds a harness that wraps the Anthropic SDK. Before approving the plan for implementation: (1) Verify CVE-2026-35022 patch availability, (2) Confirm planned credential flow does not touch the vulnerable path, (3) Ensure patched SDK version will be pinned in dependencies. See .egg-state/agent-outputs/1570-risk_analyst-output.json for full risk details (12 risks: 3 CRITICAL, 4 HIGH). Proceed with implementation after security review?",
+      "context": "",
+      "options": [
+        "Yes — security review confirms patch/mitigation in place",
+        "No — block implementation until CVE-2026-35022 is resolved"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-09T01:32:22.730310Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "plan",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-04-09T01:16:37.974233Z",
-  "updated_at": "2026-04-09T01:17:09.741379Z",
+  "updated_at": "2026-04-09T01:32:22.731874Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -161,5 +179,5 @@
   "error": null,
   "analysis": "See the full approved analysis at .egg-state/drafts/1570-analysis.md on branch egg/issue-1570. Key HITL decisions: (1) Custom thin adapter wrapping anthropic + openai SDKs, (2) Both headless and interactive in MVP, (3) Shell out to CLIs for egg-native tools initially, (4) Default claude-sdk with configurable opt-in to egg harness + TOS warning, (5) Include WebFetch/WebSearch, defer NotebookEdit, (6) Keep transcript capture in gateway, (7) Hardcoded per-model cost rates, (8) Basic retries with backoff in harness for transient API failures, (9) Replicate exact CLAUDE.md rule-merging, (10) Support opus[1m] suffix syntax, (11) Compare cost/turns/duration/success for validation, (12) Multi-model routing post-MVP but design provider abstraction to support it.",
   "plan": null,
-  "version": 7
+  "version": 8
 }
