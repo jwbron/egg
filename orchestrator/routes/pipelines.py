@@ -2631,7 +2631,20 @@ def _build_role_context(
         else:
             lines.append("The following tasks were implemented in this phase:\n")
 
-        for task in phase_obj.tasks:
+        # Filter tasks by role for execution agents in the implement phase.
+        # Unassigned tasks (role=None) default to coder.
+        _execution_roles = {"coder", "tester", "documenter"}
+        if role_value in _execution_roles:
+            filtered_tasks = [
+                task
+                for task in phase_obj.tasks
+                if getattr(task, "role", None) == role_value
+                or (getattr(task, "role", None) is None and role_value == "coder")
+            ]
+        else:
+            filtered_tasks = list(phase_obj.tasks)
+
+        for task in filtered_tasks:
             lines.append(f"- **{task.id}**: {task.description}")
             if getattr(task, "acceptance_criteria", None):
                 lines.append(f"  - Acceptance: {task.acceptance_criteria}")
@@ -2659,6 +2672,49 @@ def _build_role_context(
     lines.append(
         "- Prior agent sessions: `egg-checkpoint context --pipeline $EGG_PIPELINE_ID` "
         "(see checkpoint rule for details)"
+    )
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def _build_role_restrictions_section() -> str:
+    """Build a prompt section describing file access restrictions per execution role.
+
+    This section is injected into the task_planner prompt so that it can
+    assign each task to the correct execution role (coder, tester, documenter)
+    based on which files the task will modify.
+
+    Returns:
+        Formatted markdown string describing role file boundaries.
+    """
+    from egg_contracts.agent_roles import get_file_patterns
+
+    lines: list[str] = [
+        "## Execution Role File Restrictions",
+        "",
+        "Each task should include a `role` field (coder, tester, or documenter) "
+        "indicating which agent should execute it. Assign roles based on the file "
+        "access restrictions below. Tasks without a `role` field default to coder.",
+        "",
+    ]
+
+    for role_name in ("coder", "tester", "documenter"):
+        patterns = get_file_patterns(role_name)
+        if patterns is None:
+            continue
+        lines.append(f"### {role_name}")
+        if patterns.get("allowed"):
+            lines.append(f"- **Allowed**: {', '.join(f'`{p}`' for p in patterns['allowed'])}")
+        if patterns.get("blocked"):
+            lines.append(f"- **Blocked**: {', '.join(f'`{p}`' for p in patterns['blocked'])}")
+        lines.append("")
+
+    lines.append(
+        "Assign `role: tester` to tasks that only touch test files, "
+        "`role: documenter` to tasks that only touch docs/README files, "
+        "and `role: coder` (or omit the field) for everything else. "
+        "If a task spans multiple roles, split it into separate tasks per role."
     )
     lines.append("")
 
@@ -5334,6 +5390,7 @@ def _build_agent_prompt(
                 "      - id: TASK-1-1",
                 "        description: What to do",
                 "        acceptance: How to verify it is done",
+                "        role: coder  # optional: coder (default), tester, or documenter",
                 "        files:",
                 "          - path/to/file.py",
                 "```",
@@ -5350,6 +5407,8 @@ def _build_agent_prompt(
                 "",
             ]
         )
+        # Append role file restriction info so the planner assigns tasks correctly
+        lines.append(_build_role_restrictions_section())
     elif role_value == "risk_analyst":
         lines.extend(
             [

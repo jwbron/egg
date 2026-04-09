@@ -72,6 +72,7 @@ class ParsedTask:
     description: str
     acceptance_criteria: str
     files_affected: list[str] = field(default_factory=list)
+    role: str | None = None
 
     def to_contract_task(self) -> Task:
         """Convert to a contract Task model."""
@@ -81,6 +82,7 @@ class ParsedTask:
             status=TaskStatus.PENDING,
             acceptance_criteria=self.acceptance_criteria,
             files_affected=self.files_affected,
+            role=self.role,
         )
 
 
@@ -475,6 +477,7 @@ def parse_phases_from_yaml(
             description = task_data.get("description", "")
             acceptance = task_data.get("acceptance", "")
             files = task_data.get("files", [])
+            role = task_data.get("role")
 
             # Ensure files is a list
             if isinstance(files, str):
@@ -519,6 +522,18 @@ def parse_phases_from_yaml(
                     )
                 )
 
+            # Validate role if provided
+            valid_roles = {"coder", "tester", "documenter"}
+            if role is not None and role not in valid_roles:
+                warnings.append(
+                    ParseWarning(
+                        line_number=None,
+                        message=f"Task {task_id} has invalid role '{role}', ignoring",
+                        context=f"Valid roles: {', '.join(sorted(valid_roles))}",
+                    )
+                )
+                role = None
+
             parsed_tasks.append(
                 ParsedTask(
                     id=task_id.upper(),
@@ -527,6 +542,7 @@ def parse_phases_from_yaml(
                     description=description,
                     acceptance_criteria=acceptance,
                     files_affected=files,
+                    role=role,
                 )
             )
 

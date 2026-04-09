@@ -128,6 +128,10 @@ class Task(BaseModel):
     notes: str = Field(default="", description="Implementation notes")
     acceptance_criteria: str = Field(default="", description="Acceptance criteria")
     files_affected: list[str] = Field(default_factory=list, description="Files affected")
+    role: str | None = Field(
+        default=None,
+        description="Execution role assigned to this task (coder, tester, or documenter)",
+    )
     review_cycles: int = Field(default=0, ge=0, description="Number of review cycles")
     max_cycles: int = Field(default=3, ge=1, description="Max cycles before escalation")
     escalated: bool = Field(default=False, description="Whether escalated")
