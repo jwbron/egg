@@ -145,10 +145,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-09T23:47:18.999802Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-09T23:52:41.610496Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Orchestrator-level: auto-trigger re-propose on detected push\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -244,7 +244,7 @@
     }
   ],
   "created_at": "2026-04-09T23:37:30.329498Z",
-  "updated_at": "2026-04-09T23:47:33.300271Z",
+  "updated_at": "2026-04-09T23:52:41.620664Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -252,5 +252,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 13
+  "version": 14
 }
