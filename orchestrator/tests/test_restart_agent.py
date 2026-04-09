@@ -582,3 +582,27 @@ class TestRestartAgentEndpoint:
         assert restart_call[1].get("mode") == "private", (
             "Expected computed gateway mode 'private', not hardcoded 'public'"
         )
+
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_agent_not_in_current_phase_returns_404(self, mock_repo, mock_resolve, client):
+        """Restarting a role that is not part of the current phase returns 404.
+
+        Prevents silently injecting an unexpected agent into the phase, which
+        would corrupt BRC consensus state.
+        """
+        mock_repo.return_value = "/repo"
+        # Pipeline has only a "coder" agent in the implement phase
+        pipeline = _make_pipeline_with_running_agent(agent_role=AgentRole.CODER)
+        mock_store = MagicMock()
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        # Attempt to restart a "tester" role that does not exist in this phase
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/tester/restart",
+            json={},
+        )
+
+        assert response.status_code == 404
+        data = response.get_json()
+        assert "not part of the current phase" in data.get("message", "")

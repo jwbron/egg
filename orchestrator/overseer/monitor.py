@@ -631,7 +631,9 @@ class OverseerMonitor:
                 )
             return
 
-        # Call the restart REST API endpoint directly (no CLI subcommand exists)
+        # Call the restart REST API endpoint directly (no CLI subcommand exists).
+        # The HTTP call is synchronous (urllib), so we run it in a thread to
+        # avoid blocking the async event loop for up to 60 seconds.
         try:
             from urllib.parse import quote
 
@@ -640,18 +642,8 @@ class OverseerMonitor:
                 f"{orchestrator_url}/api/v1/pipelines/"
                 f"{quote(self.pipeline_id, safe='')}/agents/{quote(agent_role, safe='')}/restart"
             )
-            import urllib.request
 
-            req_data = json.dumps({"reason": message[:500]}).encode()
-            req = urllib.request.Request(
-                restart_url,
-                data=req_data,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-            with opener.open(req, timeout=60) as resp:
-                result = json.loads(resp.read().decode())
+            result = await asyncio.to_thread(self._sync_restart_request, restart_url, message)
 
             if result.get("success"):
                 self._agent_restart_counts[agent_role] = restart_count + 1
@@ -688,6 +680,25 @@ class OverseerMonitor:
                 agent_role,
                 f"Exception restarting agent {agent_role}: {e}. Original issue: {message}",
             )
+
+    def _sync_restart_request(self, restart_url: str, message: str) -> dict[str, Any]:
+        """Execute a synchronous HTTP POST to the restart endpoint.
+
+        This runs in a separate thread via ``asyncio.to_thread`` so the
+        blocking ``urllib`` call does not stall the async event loop.
+        """
+        import urllib.request
+
+        req_data = json.dumps({"reason": message[:500]}).encode()
+        req = urllib.request.Request(
+            restart_url,
+            data=req_data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=60) as resp:
+            return json.loads(resp.read().decode())
 
     # -----------------------------------------------------------------
     # CLI wrappers

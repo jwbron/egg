@@ -346,6 +346,28 @@ class TestMonitorExecuteRestartAgent:
             f"found {exhausted_mentioned}: {message}"
         )
 
+    def test_restart_agent_uses_async_to_thread(self, monitor):
+        """_execute_restart_agent must not block the event loop.
+
+        Verifies that the synchronous HTTP call runs via asyncio.to_thread
+        (i.e. _sync_restart_request is called, not inline urllib).
+        """
+        monitor._sync_restart_request = MagicMock(return_value={"success": True})
+
+        decision = {
+            "action": "restart_agent",
+            "message": "Agent stalled",
+            "priority": "high",
+        }
+
+        _run(monitor._execute_action(decision, "coder"))
+
+        monitor._sync_restart_request.assert_called_once()
+        call_args = monitor._sync_restart_request.call_args
+        url = call_args[0][0]
+        assert "/agents/coder/restart" in url
+        assert monitor._agent_restart_counts.get("coder", 0) == 1
+
 
 class TestMonitorExecuteRestartPhase:
     """Tests for _execute_action handling of restart_phase."""

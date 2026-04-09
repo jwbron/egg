@@ -1145,6 +1145,17 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             status_code=409,
         )
 
+    # Validate the agent role is part of the current phase
+    current_phase = pipeline.current_phase.value
+    phase_exec = pipeline.phases.get(current_phase)
+    if phase_exec and not any(
+        hasattr(a, "role") and a.role.value == agent_role for a in phase_exec.agents
+    ):
+        return make_error_response(
+            f"Agent {agent_role} is not part of the current phase ({current_phase})",
+            status_code=404,
+        )
+
     body = request.get_json(silent=True) or {}
     reason = body.get("reason", "Manual restart via API")
 
