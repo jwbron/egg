@@ -369,43 +369,6 @@ class TestRestartPhaseEndpoint:
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_restart_phase_accepts_context(self, mock_repo, mock_resolve, mock_spawner_fn, client):
-        """Phase restart should accept additional context for respawned agents."""
-        mock_repo.return_value = "/repo"
-        pipeline = _make_pipeline_with_phase_agents()
-
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_resolve.return_value = (mock_store, pipeline)
-
-        mock_spawner = MagicMock()
-        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-xyz",
-                container_name="egg-issue-200-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-200",
-            environment={},
-        )
-        mock_spawner_fn.return_value = mock_spawner
-
-        response = client.post(
-            "/api/v1/pipelines/issue-200/phases/implement/restart",
-            json={
-                "reason": "Stalled agents",
-                "context": "Focus on completing task-1-1 first",
-            },
-        )
-
-        # Should succeed with optional context
-        assert response.status_code == 200
-
-    @patch("routes.pipelines.get_container_spawner")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_respawns_all_agents(
         self, mock_repo, mock_resolve, mock_spawner_fn, client
     ):

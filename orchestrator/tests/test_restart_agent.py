@@ -212,7 +212,6 @@ class TestRestartAgentContainer:
         )
 
         # Should still succeed — the method handles stop failures gracefully
-        assert result is not None
         assert isinstance(result, SpawnedContainer)
 
     def test_restart_handles_container_not_found(
@@ -227,7 +226,6 @@ class TestRestartAgentContainer:
             issue_number=100,
         )
 
-        assert result is not None
         assert isinstance(result, SpawnedContainer)
 
     def test_restart_raises_on_spawn_failure(

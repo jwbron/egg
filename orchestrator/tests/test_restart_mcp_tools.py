@@ -73,15 +73,14 @@ class TestRestartToolDefinitions:
         assert "reason" in props
         assert "reason" not in tool["inputSchema"].get("required", [])
 
-    def test_restart_phase_has_optional_context(self):
-        """restart_phase should have an optional context field."""
+    def test_restart_phase_has_no_context_field(self):
+        """restart_phase should not have a context field (not implemented in endpoint)."""
         from mcp_tools import PIPELINE_TOOLS
 
         tool = next(t for t in PIPELINE_TOOLS if t["name"] == "restart_phase")
         props = tool["inputSchema"]["properties"]
 
-        assert "context" in props
-        assert "context" not in tool["inputSchema"].get("required", [])
+        assert "context" not in props
 
 
 # ---------------------------------------------------------------------------
@@ -203,8 +202,8 @@ class TestHandleRestartPhase:
 
         assert "error" in result
 
-    def test_passes_reason_and_context(self, handler):
-        """Reason and context should be passed in the POST body."""
+    def test_passes_reason(self, handler):
+        """Reason should be passed in the POST body."""
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {"success": True, "data": {}}
             handler.handle_tool_call(
@@ -213,11 +212,10 @@ class TestHandleRestartPhase:
                     "task_id": "issue-42",
                     "phase": "implement",
                     "reason": "multiple stalls",
-                    "context": "Focus on task-1 first",
                 },
             )
 
         call_args = mock_req.call_args
         data = call_args.kwargs.get("data", {})
         assert data.get("reason") == "multiple stalls"
-        assert data.get("context") == "Focus on task-1 first"
+        assert "context" not in data

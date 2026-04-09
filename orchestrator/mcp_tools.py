@@ -500,10 +500,6 @@ PIPELINE_TOOLS = [
                     "type": "string",
                     "description": "Reason for restarting the phase",
                 },
-                "context": {
-                    "type": "string",
-                    "description": "Additional context for agents on respawn",
-                },
             },
             "required": ["task_id", "phase"],
         },
@@ -1492,8 +1488,6 @@ class PipelineToolHandler:
         data: dict[str, Any] = {}
         if args.get("reason"):
             data["reason"] = args["reason"]
-        if args.get("context"):
-            data["context"] = args["context"]
         try:
             result = self._make_request(
                 f"/api/v1/pipelines/{task_id}/phases/{phase}/restart",
