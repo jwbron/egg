@@ -768,6 +768,21 @@ class PipelineToolHandler:
         pipeline_result = self._make_request(f"/api/v1/pipelines/{task_id}")
         pipeline_data = pipeline_result.get("data", {}).get("pipeline", {})
 
+        # Extract PR info from the PR phase artifacts (#1625). The PR phase
+        # writes the URL to ``phases["pr"].artifacts["pr_url"]`` after
+        # auto-creating the PR, so monitoring clients can pick it up here
+        # without a separate ``gh pr list`` call.
+        phases = pipeline_data.get("phases", {})
+        pr_url: str | None = None
+        pr_number: int | None = None
+        pr_artifacts = (phases.get("pr") or {}).get("artifacts") or {}
+        raw_pr_url = pr_artifacts.get("pr_url")
+        if raw_pr_url:
+            pr_url = raw_pr_url
+            match = re.search(r"/pull/(\d+)", raw_pr_url)
+            if match:
+                pr_number = int(match.group(1))
+
         # Build status from pipeline data
         status: dict[str, Any] = {
             "current_phase": pipeline_data.get("current_phase", ""),
@@ -777,11 +792,12 @@ class PipelineToolHandler:
                 "repo": pipeline_data.get("repo", ""),
                 "issue_number": pipeline_data.get("issue_number"),
                 "created_at": pipeline_data.get("created_at", ""),
+                "pr_url": pr_url,
+                "pr_number": pr_number,
             },
         }
 
         # Extract agent info from phases
-        phases = pipeline_data.get("phases", {})
         current_phase_key = pipeline_data.get("current_phase", "")
         phase_data = phases.get(current_phase_key, {})
         agents = phase_data.get("agents", [])

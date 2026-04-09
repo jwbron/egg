@@ -1784,6 +1784,14 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
                 "created_at": d.created_at.isoformat(),
             }
 
+        # Include PR info once the PR phase has created a PR (#1625) so
+        # monitoring clients don't need to scrape `gh pr list` by title.
+        pr_url, pr_number = _get_pr_info(pipeline)
+        if pr_url:
+            data["pr_url"] = pr_url
+            if pr_number is not None:
+                data["pr_number"] = pr_number
+
         # Include concurrent execution monitoring when enabled
         concurrent_data = _get_concurrent_status(pipeline)
         if concurrent_data:
@@ -1801,6 +1809,27 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
             f"Pipeline {pipeline_id} not found",
             status_code=404,
         )
+
+
+def _get_pr_info(pipeline: "Pipeline") -> tuple[str | None, int | None]:
+    """Extract PR URL and number from the PR phase artifacts.
+
+    Returns ``(pr_url, pr_number)`` or ``(None, None)`` when no PR has
+    been created. The single source of truth is
+    ``phases["pr"].artifacts["pr_url"]``, written after ``_auto_create_pr``
+    succeeds (see the PR phase completion path). ``pr_number`` is parsed
+    from the URL; callers get ``None`` for unusually shaped URLs but
+    ``pr_url`` is still returned so they can fall back gracefully.
+    """
+    pr_phase = pipeline.phases.get(PipelinePhase.PR.value)
+    if not pr_phase or not pr_phase.artifacts:
+        return None, None
+    pr_url = pr_phase.artifacts.get("pr_url")
+    if not pr_url:
+        return None, None
+    match = re.search(r"/pull/(\d+)", pr_url)
+    pr_number = int(match.group(1)) if match else None
+    return pr_url, pr_number
 
 
 def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
