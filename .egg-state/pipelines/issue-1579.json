@@ -235,16 +235,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-09T23:47:33.297102Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-09T23:52:43.471067Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hybrid: transition table for state, handlers for side effects\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-09T23:37:30.329498Z",
-  "updated_at": "2026-04-09T23:52:43.098235Z",
+  "updated_at": "2026-04-09T23:52:43.475501Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -252,5 +252,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 18
+  "version": 19
 }
