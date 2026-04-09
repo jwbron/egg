@@ -109,6 +109,11 @@
             "type": "string"
           },
           "default": []
+        },
+        "role": {
+          "type": "string",
+          "description": "Execution role assigned to this task (coder, tester, or documenter). When omitted, defaults to coder during prompt building.",
+          "enum": ["coder", "tester", "documenter"]
         }
       },
       "additionalProperties": false
