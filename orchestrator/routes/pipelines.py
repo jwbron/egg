@@ -1205,7 +1205,10 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     command = None
     extra_env: dict[str, str] = {}
     try:
-        from ..concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
+        try:
+            from concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
+        except ImportError:
+            from ..concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
 
         if is_concurrent_execution(pipeline, phase=current_phase):
             # Reconstruct extra_env via ConcurrentPhaseExecutor
@@ -1520,7 +1523,10 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     agent_commands: dict[AgentRole, list[str] | None] = {}
     agent_envs: dict[AgentRole, dict[str, str]] = {}
     try:
-        from ..concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
+        try:
+            from concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
+        except ImportError:
+            from ..concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
 
         if is_concurrent_execution(pipeline, phase=phase):
             executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=lambda **kw: None)  # type: ignore[arg-type]
