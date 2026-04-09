@@ -237,12 +237,13 @@ class TestRestartPhaseEndpoint:
         )
 
         assert response.status_code == 200
-        # All 3 containers should be stopped/removed via cleanup or individual stops
-        assert (
-            mock_spawner.cleanup_pipeline.called
-            or mock_spawner.stop_agent_container.call_count >= 3
-            or mock_spawner.remove_agent_container.call_count >= 3
-        ), "Expected cleanup_pipeline or 3+ stop/remove calls for phase restart"
+        # All 3 containers should be stopped and removed individually
+        assert mock_spawner.stop_agent_container.call_count >= 3, (
+            f"Expected 3+ stop calls for 3 containers, got {mock_spawner.stop_agent_container.call_count}"
+        )
+        assert mock_spawner.remove_agent_container.call_count >= 3, (
+            f"Expected 3+ remove calls for 3 containers, got {mock_spawner.remove_agent_container.call_count}"
+        )
 
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
@@ -319,10 +320,8 @@ class TestRestartPhaseEndpoint:
         )
 
         assert response.status_code == 200
-        # Review cycles should be reset and pipeline saved
-        assert pipeline.phases["implement"].review_cycles == 0 or mock_store.save_pipeline.called, (
-            "Expected review cycles to be reset to 0 or pipeline to be saved"
-        )
+        # Pipeline state should be saved after reset
+        assert mock_store.update_pipeline.called, "Expected pipeline state to be persisted"
 
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
@@ -447,3 +446,156 @@ class TestRestartPhaseEndpoint:
         assert response.status_code == 200
         # All 3 agents should be respawned
         assert spawn_count >= 3, f"Expected 3+ agent respawns, got {spawn_count}"
+
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_non_current_phase_returns_409(
+        self, mock_repo, mock_resolve, mock_spawner_fn, client
+    ):
+        """Restarting a phase that is not the current phase should return 409.
+
+        This prevents corruption of pipeline state by restarting a completed
+        or future phase.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents(phase=PipelinePhase.IMPLEMENT)
+
+        mock_store = MagicMock()
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/refine/restart",
+            json={},
+        )
+
+        assert response.status_code == 409
+        data = response.get_json()
+        assert "not the current phase" in data.get("message", "").lower()
+
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_toctou_guard_under_lock(
+        self, mock_repo, mock_resolve, mock_spawner_fn, client
+    ):
+        """Phase restart should re-check current phase under the lock.
+
+        If the pipeline advances between the initial check and lock acquisition,
+        the endpoint should return 409 rather than restarting the wrong phase.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents(phase=PipelinePhase.IMPLEMENT)
+
+        # The pipeline loaded under the lock has advanced to REFINE
+        advanced_pipeline = _make_pipeline_with_phase_agents(phase=PipelinePhase.REFINE)
+        # Also add an "implement" phase entry so the phase lookup doesn't fail early
+        advanced_pipeline.phases["implement"] = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            status=PipelineStatus.COMPLETE,
+        )
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = advanced_pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 409, (
+            "Expected 409 when pipeline advances between initial check and lock acquisition"
+        )
+
+    @patch("routes.pipelines._compute_gateway_mode")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_uses_computed_gateway_mode(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_gateway_mode, client
+    ):
+        """Phase restart should use _compute_gateway_mode, not hardcoded 'public'.
+
+        This ensures private-repo pipelines get the correct gateway mode on restart.
+        """
+        mock_repo.return_value = "/repo"
+        mock_gateway_mode.return_value = ("private", "private")
+
+        pipeline = _make_pipeline_with_phase_agents()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-xyz",
+                container_name="egg-issue-200-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-200",
+            environment={},
+        )
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 200
+        mock_gateway_mode.assert_called_once_with(pipeline)
+        # Verify spawn calls use the computed mode, not hardcoded "public"
+        for spawn_call in mock_spawner.spawn_agent_container.call_args_list:
+            assert spawn_call[1].get("mode") == "private", (
+                "Expected computed gateway mode 'private', not hardcoded 'public'"
+            )
+
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_passes_preserve_worktree_on_failure(
+        self, mock_repo, mock_resolve, mock_spawner_fn, client
+    ):
+        """Phase restart should pass preserve_worktree_on_failure=True to spawn.
+
+        This ensures that a transient Docker failure during phase restart does
+        not destroy agents' worktrees containing committed work.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-xyz",
+                container_name="egg-issue-200-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-200",
+            environment={},
+        )
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 200
+        # Every spawn call during phase restart must preserve worktrees on failure
+        for spawn_call in mock_spawner.spawn_agent_container.call_args_list:
+            assert spawn_call[1].get("preserve_worktree_on_failure") is True, (
+                "Phase restart must pass preserve_worktree_on_failure=True to "
+                "protect existing worktrees from transient Docker failures"
+            )

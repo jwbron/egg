@@ -244,7 +244,7 @@ class TestRestartAgentContainer:
             )
 
     def test_restart_with_extra_env(self, spawner, mock_docker_client, mock_gateway_client):
-        """Restart should pass extra environment variables."""
+        """Restart should pass extra environment variables to spawn."""
         result = spawner.restart_agent_container(
             pipeline_id="issue-100",
             agent_role=AgentRole.CODER,
@@ -252,10 +252,11 @@ class TestRestartAgentContainer:
             extra_env={"RESTART_REASON": "stall detected"},
         )
 
-        assert result is not None
+        assert isinstance(result, SpawnedContainer)
+        assert result.container_info.container_id == "new-container-123"
 
     def test_restart_with_reason(self, spawner, mock_docker_client, mock_gateway_client):
-        """Restart should accept and log a reason string."""
+        """Restart should accept a reason string and succeed."""
         result = spawner.restart_agent_container(
             pipeline_id="issue-100",
             agent_role=AgentRole.CODER,
@@ -263,7 +264,32 @@ class TestRestartAgentContainer:
             reason="Agent stalled after Edit tool error",
         )
 
-        assert result is not None
+        assert isinstance(result, SpawnedContainer)
+        assert result.agent_role == AgentRole.CODER
+
+    def test_restart_passes_preserve_worktree_on_failure(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Restart should pass preserve_worktree_on_failure=True to spawn_agent_container.
+
+        This ensures that a transient Docker failure during restart does not
+        destroy the agent's worktree containing committed work.
+        """
+        with patch.object(
+            spawner, "spawn_agent_container", wraps=spawner.spawn_agent_container
+        ) as mock_spawn:
+            spawner.restart_agent_container(
+                pipeline_id="issue-100",
+                agent_role=AgentRole.CODER,
+                issue_number=100,
+            )
+
+            mock_spawn.assert_called_once()
+            call_kwargs = mock_spawn.call_args[1]
+            assert call_kwargs.get("preserve_worktree_on_failure") is True, (
+                "restart_agent_container must pass preserve_worktree_on_failure=True "
+                "to protect existing worktree from transient Docker failures"
+            )
 
 
 class TestRestartCountManagement:
@@ -506,3 +532,55 @@ class TestRestartAgentEndpoint:
         )
 
         assert response.status_code == 400
+
+    @patch("routes.pipelines._compute_gateway_mode")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_agent_uses_computed_gateway_mode(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_gateway_mode, client
+    ):
+        """Agent restart should use _compute_gateway_mode, not hardcoded 'public'.
+
+        This ensures private-repo pipelines get the correct gateway mode on restart.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        mock_gateway_mode.return_value = ("private", "private")
+
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart",
+            json={},
+        )
+
+        assert response.status_code == 200
+        # Verify _compute_gateway_mode was called with the pipeline
+        mock_gateway_mode.assert_called_once_with(pipeline)
+        # Verify the computed mode was passed to the spawner
+        restart_call = mock_spawner.restart_agent_container.call_args
+        assert restart_call[1].get("mode") == "private", (
+            "Expected computed gateway mode 'private', not hardcoded 'public'"
+        )

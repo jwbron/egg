@@ -332,13 +332,18 @@ class TestMonitorExecuteRestartAgent:
         monitor._create_hitl_decision.assert_called()
         call_args = monitor._create_hitl_decision.call_args
         message = str(call_args)
-        # Should mention multiple agents exhausting restart limits
-        assert "exhausted" in message.lower() or "limit" in message.lower(), (
+        message_lower = message.lower()
+        # Should mention that restart limits were exhausted
+        assert "exhausted" in message_lower or "limit" in message_lower, (
             f"Expected 'exhausted' or 'limit' in HITL message: {message}"
         )
-        # Should reference specific exhausted agents
-        assert "coder" in message.lower() or "tester" in message.lower(), (
-            f"Expected exhausted agent names in HITL message: {message}"
+        # Should reference at least two of the exhausted agents by name
+        exhausted_mentioned = sum(
+            1 for agent in ("coder", "tester", "documenter") if agent in message_lower
+        )
+        assert exhausted_mentioned >= 2, (
+            f"Expected at least 2 exhausted agent names in HITL message, "
+            f"found {exhausted_mentioned}: {message}"
         )
 
 
