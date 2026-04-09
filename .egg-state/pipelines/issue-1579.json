@@ -169,10 +169,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "ACKed-but-never-confirms handling: Should orchestrator auto-confirm fully-ACKed producers after a timeout, only nudge agents, or nudge first then auto-confirm?",
+      "context": "",
+      "options": [
+        "Auto-confirm after grace period (e.g., 2 min)",
+        "Nudge only via OVERSEER_ALERT, escalate to HITL",
+        "Both: nudge first, auto-confirm after escalated timeout"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-09T23:47:23.313809Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-09T23:37:30.329498Z",
-  "updated_at": "2026-04-09T23:47:21.425765Z",
+  "updated_at": "2026-04-09T23:47:23.316668Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -180,5 +198,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 9
+  "version": 10
 }
