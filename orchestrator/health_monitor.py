@@ -207,10 +207,16 @@ class HealthMonitor:
             return True
 
         # Post-propose grace: suppress reviewers within the grace window
-        # after a producer proposes, giving them time to begin reviewing
-        earliest_proposal = tracker.get_earliest_proposal_time(agent_id)
-        if earliest_proposal is not None:
-            grace = self._config.orchestrator_post_propose_grace_seconds
+        # after a producer proposes, giving them time to begin reviewing.
+        # The try/except handles trackers that don't implement this method
+        # (e.g. test mocks without get_earliest_proposal_time configured).
+        try:
+            earliest_proposal = tracker.get_earliest_proposal_time(agent_id)
+        except (TypeError, AttributeError):
+            earliest_proposal = None
+
+        if isinstance(earliest_proposal, (int, float)) and earliest_proposal is not None:
+            grace = self._config.post_proposal_grace_seconds
             if time.time() - earliest_proposal < grace:
                 return True
 
