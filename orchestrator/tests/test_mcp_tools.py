@@ -987,3 +987,10 @@ class TestGetStatus:
         with self._mock_requests(handler):
             handler.handle_tool_call("get_status", {"task_id": "issue-42", "wait": -10})
         mock_time.sleep.assert_not_called()
+
+    @patch("mcp_tools.time")
+    def test_wait_string_no_sleep(self, mock_time, handler):
+        """Non-numeric wait values (e.g. string) are ignored — no sleep."""
+        with self._mock_requests(handler):
+            handler.handle_tool_call("get_status", {"task_id": "issue-42", "wait": "60"})
+        mock_time.sleep.assert_not_called()

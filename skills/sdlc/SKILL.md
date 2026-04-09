@@ -314,7 +314,9 @@ Store the returned `task_id`. Confirm submission to the user:
 
 Poll the pipeline status in a loop. On each poll:
 
-1. Call the `get_status` MCP tool with the `task_id` and `wait: 60` (the tool waits 60 seconds before fetching status). On the first poll after submission, omit `wait` (or use `wait: 0`) to get immediate feedback.
+1. Call the `get_status` MCP tool with the `task_id`:
+   - **First poll** after submission: `get_status(task_id)` — omit `wait` (or use `wait: 0`) for immediate feedback.
+   - **Subsequent polls**: `get_status(task_id, wait=60)` — the tool waits 60 seconds before fetching status.
 2. Display a compact status dashboard:
 
 ```
@@ -1114,7 +1116,9 @@ Store the returned `task_id`. Confirm submission to the user:
 
 Poll the pipeline status in a loop. On each poll:
 
-1. Call the `get_status` MCP tool with the `task_id` and `wait: 60` (the tool waits 60 seconds before fetching status). On the first poll after submission, omit `wait` (or use `wait: 0`) to get immediate feedback.
+1. Call the `get_status` MCP tool with the `task_id`:
+   - **First poll** after submission: `get_status(task_id)` — omit `wait` (or use `wait: 0`) for immediate feedback.
+   - **Subsequent polls**: `get_status(task_id, wait=60)` — the tool waits 60 seconds before fetching status.
 2. Display a compact status dashboard:
 
 ```
