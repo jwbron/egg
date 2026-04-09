@@ -187,10 +187,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Recovery mechanism disposition: Keep existing recovery mechanisms (_un_confirm_stale_reviewers, _invalidate_pre_proposal_acks) as defense-in-depth, remove if redundant, or retain with deprecation warnings?",
+      "context": "",
+      "options": [
+        "Retain all as defense-in-depth",
+        "Remove if guards make them redundant",
+        "Retain but deprecate: log warnings, remove in follow-up"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-09T23:47:25.220526Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-09T23:37:30.329498Z",
-  "updated_at": "2026-04-09T23:47:23.316668Z",
+  "updated_at": "2026-04-09T23:47:25.222005Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -198,5 +216,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 10
+  "version": 11
 }
