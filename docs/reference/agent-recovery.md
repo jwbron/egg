@@ -229,8 +229,8 @@ The optional `context` parameter injects additional guidance into the respawned 
 | Overseer detects multiple stuck agents (2+) | `RESTART_PHASE` action — creates HITL decision for phase restart approval |
 | Manual agent restart (CLI/MCP/API) on running pipeline | Stop container, reset consensus, respawn with same config |
 | Manual agent restart (CLI/MCP/API) on failed pipeline | Same as above, plus reset pipeline + phase status to `RUNNING` |
-| Manual phase restart (CLI/MPC/API) on running pipeline | Stop all containers, reset all consensus + review cycles, respawn all agents |
-| Manual phase restart (CLI/MCP/API) on failed pipeline | Same as above, plus reset pipeline status to `RUNNING` |
+| Manual phase restart (CLI/MCP/API) on running pipeline | Stop all containers, reset all consensus + review cycles, respawn all agents |
+| Manual phase restart (CLI/MCP/API) on failed pipeline | Same as above, plus reset pipeline + phase status to `RUNNING` |
 | Single agent failure in concurrent mode | HITL decision: retry / abort / continue without |
 | Multiple failures (2+ within 60s) in concurrent mode | Immediate phase abort + HITL decision |
 | Circuit breaker OPEN | Block new agent spawns; alert operators |
