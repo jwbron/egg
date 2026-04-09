@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1536,
+    "title": "Issue #1536",
+    "url": "https://github.com/jwbron/egg/issues/1536"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `.egg/schemas/yaml-tasks.schema.json`, add optional `role` property to the task $defs with enum [\"coder\", \"tester\", \"documenter\"] \u2014 enables schema validation of role assignments",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Schema validates tasks with and without role field; invalid role values rejected",
+          "files_affected": [
+            ".egg/schemas/yaml-tasks.schema.json"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `shared/egg_contracts/models.py:Task`, add `role: str | None = Field(default=None, description=\"Execution role assigned to this task\")` \u2014 backward compatible, existing contracts unaffected",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Existing contracts without role deserialize correctly; new contracts with role round-trip",
+          "files_affected": [
+            "shared/egg_contracts/models.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In `shared/egg_contracts/plan_parser.py`, add `role: str | None = None` to ParsedTask, read `task_data.get('role')` in parse_phases_from_yaml(), and set `role=self.role` in to_contract_task()",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Parsing yaml-tasks with role: tester produces Task with role='tester'; omitting role produces role=None",
+          "files_affected": [
+            "shared/egg_contracts/plan_parser.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "In `orchestrator/routes/pipelines.py`, create `_build_role_restrictions_section()` that formats coder/tester/documenter file boundaries using get_file_patterns(), and append its output to the task_planner prompt after the yaml-tasks example block",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "task_planner prompt includes file restriction info for coder, tester, and documenter roles",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "In `orchestrator/routes/pipelines.py:_build_role_context()`, filter phase_obj.tasks by task.role matching role_value for implement phase \u2014 unassigned tasks (role=None) default to coder",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tester sees only tester tasks; documenter sees only documenter tasks; coder sees coder + unassigned tasks",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Add role-scope-aware task assignment to plan generation",
+    "description": "Plans now assign tasks to specific execution roles (coder, tester, documenter)\nbased on file access restrictions. Each agent only sees its own tasks during\nthe implement phase, preventing gateway push rejections.",
+    "test_plan": "- Automated: test_plan_parser.py for role field parsing, test_pipeline_prompts.py for task_planner prompt content\n- Manual: Submit a pipeline with cross-role tasks and verify agents only work on their assigned files",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
