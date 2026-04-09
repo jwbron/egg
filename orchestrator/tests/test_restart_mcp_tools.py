@@ -219,3 +219,103 @@ class TestHandleRestartPhase:
         data = call_args.kwargs.get("data", {})
         assert data.get("reason") == "multiple stalls"
         assert "context" not in data
+
+
+# ---------------------------------------------------------------------------
+# Timeout handling tests (#1594)
+# ---------------------------------------------------------------------------
+
+
+class TestRestartAgentTimeout:
+    """Tests for graceful timeout handling in restart_agent."""
+
+    def test_timeout_returns_pending_not_error(self, handler):
+        """Timeout should return restarted='pending', not an error."""
+        from urllib.error import URLError
+
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = URLError(TimeoutError("timed out"))
+            result = handler.handle_tool_call(
+                "restart_agent",
+                {"task_id": "issue-42", "agent_role": "coder"},
+            )
+
+        assert "error" not in result
+        assert result["restarted"] == "pending"
+        assert result["agent_role"] == "coder"
+        assert "get_status" in result["message"].lower()
+
+    def test_non_timeout_oserror_returns_error(self, handler):
+        """Non-timeout OSError should still return an error."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = ConnectionRefusedError("connection refused")
+            result = handler.handle_tool_call(
+                "restart_agent",
+                {"task_id": "issue-42", "agent_role": "coder"},
+            )
+
+        assert "error" in result
+
+
+class TestRestartPhaseTimeout:
+    """Tests for graceful timeout handling in restart_phase."""
+
+    def test_timeout_returns_pending_not_error(self, handler):
+        """Timeout should return restarted='pending', not an error."""
+        from urllib.error import URLError
+
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = URLError(TimeoutError("timed out"))
+            result = handler.handle_tool_call(
+                "restart_phase",
+                {"task_id": "issue-42", "phase": "implement"},
+            )
+
+        assert "error" not in result
+        assert result["restarted"] == "pending"
+        assert result["phase"] == "implement"
+        assert "get_status" in result["message"].lower()
+
+    def test_non_timeout_oserror_returns_error(self, handler):
+        """Non-timeout OSError should still return an error."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = ConnectionRefusedError("connection refused")
+            result = handler.handle_tool_call(
+                "restart_phase",
+                {"task_id": "issue-42", "phase": "implement"},
+            )
+
+        assert "error" in result
+
+
+class TestCancelTaskBackgroundCleanup:
+    """Tests for fire-and-forget DELETE in cancel_task (#1594)."""
+
+    def test_cleanup_returns_immediately_with_started_flag(self, handler):
+        """cancel_task with cleanup=True should return without waiting for DELETE."""
+        import time
+
+        call_log: list[str] = []
+
+        def mock_request(endpoint, method="GET", **kwargs):
+            call_log.append(method)
+            if method == "PATCH":
+                return {"success": True}
+            elif method == "DELETE":
+                # Simulate slow DELETE — should not block the response
+                time.sleep(5)
+                return {"success": True}
+            return {}
+
+        with patch.object(handler, "_make_request", side_effect=mock_request):
+            start = time.monotonic()
+            result = handler.handle_tool_call(
+                "cancel_task",
+                {"task_id": "issue-42", "cleanup": True},
+            )
+            elapsed = time.monotonic() - start
+
+        assert result["cancelled"] is True
+        assert result.get("cleanup_started") is True
+        assert "PATCH" in call_log
+        assert elapsed < 3, f"cancel_task took {elapsed:.1f}s — DELETE should be async"
