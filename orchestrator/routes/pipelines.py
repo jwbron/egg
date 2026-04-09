@@ -3557,7 +3557,7 @@ def _ensure_statefiles_on_branch(
                     continue
                 try:
                     result = subprocess.run(
-                        [*git_base, "show", f"origin/{pipeline.branch}:{draft_rel}"],
+                        [*git_base, "show", "--", f"origin/{pipeline.branch}:{draft_rel}"],
                         capture_output=True,
                         text=True,
                         timeout=15,
