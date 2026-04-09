@@ -67,10 +67,10 @@
         {
           "container_id": "bb22af98044b1ea9ec5c044977c38ac8b51ede045ee965ea36dad31b91f5c522",
           "container_name": "issue-1570-v2-risk_analyst",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-09T01:17:09.741191Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-09T01:37:08.668407Z",
+          "exit_code": 1,
           "agent_role": "risk_analyst",
           "session_token": null
         },
@@ -112,13 +112,13 @@
         },
         {
           "role": "risk_analyst",
-          "status": "running",
+          "status": "failed",
           "container_id": "bb22af98044b1ea9ec5c044977c38ac8b51ede045ee965ea36dad31b91f5c522",
           "started_at": "2026-04-09T01:17:09.741196Z",
-          "completed_at": null,
+          "completed_at": "2026-04-09T01:37:10.073230Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -171,7 +171,7 @@
     }
   ],
   "created_at": "2026-04-09T01:16:37.974233Z",
-  "updated_at": "2026-04-09T01:32:22.731874Z",
+  "updated_at": "2026-04-09T01:37:10.073344Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -179,5 +179,5 @@
   "error": null,
   "analysis": "See the full approved analysis at .egg-state/drafts/1570-analysis.md on branch egg/issue-1570. Key HITL decisions: (1) Custom thin adapter wrapping anthropic + openai SDKs, (2) Both headless and interactive in MVP, (3) Shell out to CLIs for egg-native tools initially, (4) Default claude-sdk with configurable opt-in to egg harness + TOS warning, (5) Include WebFetch/WebSearch, defer NotebookEdit, (6) Keep transcript capture in gateway, (7) Hardcoded per-model cost rates, (8) Basic retries with backoff in harness for transient API failures, (9) Replicate exact CLAUDE.md rule-merging, (10) Support opus[1m] suffix syntax, (11) Compare cost/turns/duration/success for validation, (12) Multi-model routing post-MVP but design provider abstraction to support it.",
   "plan": null,
-  "version": 8
+  "version": 9
 }
