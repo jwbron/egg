@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1575,
+    "title": "Issue #1575",
+    "url": "https://github.com/jwbron/egg/issues/1575"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/routes/pipelines.py:_read_phase_draft()`, after primary path miss, try generic fallback path (e.g. `analysis.md` / `plan.md`). Log when fallback is used.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "_read_phase_draft returns content from generic path when issue-specific path is missing",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add tests for fallback behavior: fallback hit, primary precedence, both-missing miss",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All new tests pass, existing tests unchanged",
+          "files_affected": [
+            "orchestrator/tests/test_read_phase_draft.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Fix phase gate draft resolution with generic path fallback",
+    "description": "Add fallback path resolution to _read_phase_draft so phase gates can find\ndraft files when the issue-specific path isn't present on the worktree.\nAddresses #1575.",
+    "test_plan": "- Automated: test_read_phase_draft.py covers fallback, precedence, and miss cases\n- Manual: Run a pipeline and verify phase gate shows draft content instead of warning",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}

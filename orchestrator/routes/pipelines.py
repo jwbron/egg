@@ -2188,6 +2188,20 @@ def _verdict_path_for_type(
     return f".egg-state/reviews/{prefix}-{phase}-{reviewer_type}-review.json"
 
 
+def _draft_filename(phase: str) -> str | None:
+    """Return the draft filename for a phase, without any prefix.
+
+    Centralises the phase-to-filename mapping so that
+    ``_get_draft_path`` and ``_get_generic_draft_path`` stay in sync.
+    """
+    if phase == "refine":
+        return "analysis.md"
+    elif phase == "implement":
+        return None
+    else:
+        return f"{phase}.md"
+
+
 def _get_draft_path(
     phase: str,
     issue_number: int | None = None,
@@ -2197,13 +2211,11 @@ def _get_draft_path(
 
     Uses issue_number as prefix when available, otherwise pipeline_id.
     """
-    prefix = _pipeline_identifier(issue_number, pipeline_id or "unknown")
-    if phase == "refine":
-        return f".egg-state/drafts/{prefix}-analysis.md"
-    elif phase == "implement":
+    filename = _draft_filename(phase)
+    if not filename:
         return None
-    else:
-        return f".egg-state/drafts/{prefix}-{phase}.md"
+    prefix = _pipeline_identifier(issue_number, pipeline_id or "unknown")
+    return f".egg-state/drafts/{prefix}-{filename}"
 
 
 def _cleanup_stale_generic_drafts(worktree_path: Path) -> bool:
@@ -2283,6 +2295,17 @@ def _cleanup_stale_generic_drafts(worktree_path: Path) -> bool:
     return False
 
 
+def _get_generic_draft_path(phase: str) -> str | None:
+    """Return the generic (unprefixed) draft path for a phase.
+
+    Used as a fallback when the issue-specific draft file is missing.
+    """
+    filename = _draft_filename(phase)
+    if not filename:
+        return None
+    return f".egg-state/drafts/{filename}"
+
+
 def _read_phase_draft(
     repo_path: Path,
     phase: str,
@@ -2294,11 +2317,20 @@ def _read_phase_draft(
 
     Returns None when the draft cannot be found (no path configured or
     file missing on disk).
+
+    When the primary issue-specific draft path does not exist, falls back
+    to the generic (unprefixed) path — e.g. ``analysis.md`` for refine,
+    ``plan.md`` for plan.  This handles cases where the agent wrote to the
+    generic path, the stale-draft cleanup did not run or failed, or the
+    worktree was set up outside the normal pipeline-start flow.
     """
     draft_rel = _get_draft_path(phase, issue_number=issue_number, pipeline_id=pipeline_id)
     if not draft_rel:
         return None
+
     draft_path = repo_path / draft_rel
+
+    # Try primary (issue-specific) path first.
     if not draft_path.exists():
         logger.debug(
             "Draft file not found",
@@ -2307,7 +2339,24 @@ def _read_phase_draft(
             issue_number=issue_number,
             pipeline_id=pipeline_id,
         )
-        return None
+
+        # Fallback: try the generic (unprefixed) path.
+        generic_rel = _get_generic_draft_path(phase)
+        if generic_rel:
+            generic_path = repo_path / generic_rel
+            if generic_path.exists():
+                logger.debug(
+                    "Using generic fallback draft path",
+                    primary_path=str(draft_path),
+                    fallback_path=str(generic_path),
+                    phase=phase,
+                )
+                draft_path = generic_path
+            else:
+                return None
+        else:
+            return None
+
     content = draft_path.read_text(encoding="utf-8")
     if len(content) > max_chars:
         return content[:max_chars] + f"\n\n... (truncated, {len(content)} chars total)"

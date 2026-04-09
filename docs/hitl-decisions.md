@@ -234,6 +234,17 @@ When multiple HITL decisions are pending (e.g., agent-created choice/feedback qu
 
 This ensures the human has access to the full analysis or plan context when answering agent questions, not just at the final phase gate approval.
 
+### Draft Path Resolution
+
+Phase gates display draft content (analysis or plan documents) to the human reviewer. The draft is resolved from the worktree using a two-step fallback:
+
+1. **Issue-specific path** (primary): `.egg-state/drafts/{identifier}-analysis.md` or `{identifier}-plan.md`
+2. **Generic path** (fallback): `.egg-state/drafts/analysis.md` or `plan.md`
+
+If neither path exists, the phase gate displays a warning: *"No draft was found on the work branch."* When the fallback path is used, a debug log is emitted for diagnostics.
+
+See [Orchestrator Architecture § Draft path resolution](architecture/orchestrator.md#per-pipeline-worktrees) for details on how draft files are stored and resolved.
+
 Every decision type also includes universal options:
 - **General feedback** (`[f]`) — free-text input attached alongside the primary resolution
 - **Change approach** (`[a]`) — signals the agent to re-run the current phase differently

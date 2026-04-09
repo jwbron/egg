@@ -323,8 +323,8 @@ The refine and plan phases include an automated internal review step before huma
 .egg-state/
 ├── contracts/{identifier}.json      # Contract state
 ├── drafts/
-│   ├── {identifier}-analysis.md     # Refine phase draft
-│   └── {identifier}-plan.md         # Plan phase draft
+│   ├── {identifier}-analysis.md     # Refine phase draft (canonical write path)
+│   └── {identifier}-plan.md         # Plan phase draft (canonical write path)
 ├── brc-history/
 │   ├── {identifier}-refine.md       # BRC consensus messages from refine phase
 │   ├── {identifier}-plan.md         # BRC consensus messages from plan phase
@@ -1352,6 +1352,15 @@ Tier 1 (orchestrator) escalates directly to the overseer/HITL on heartbeat/progr
 - **Query progress events**: `egg-orch progress query --agent <role>`
 - **View oversight logs**: Check `.egg-state/oversight/` in the pipeline branch
 - **Override thresholds**: Set fields on `PipelineConfig` (e.g., `orchestrator_heartbeat_timeout_seconds`, `orchestrator_implement_heartbeat_timeout_seconds`, `overseer_max_redirects_before_escalation`)
+
+### Phase Gate Troubleshooting
+
+**"No draft was found on the work branch"**: The phase gate could not locate the draft file in the worktree. The orchestrator checks two paths in order: the issue-specific path (e.g., `.egg-state/drafts/1553-analysis.md`) then the generic fallback (e.g., `.egg-state/drafts/analysis.md`). If neither exists, this warning is displayed. Common causes:
+- The agent failed before writing the draft
+- The worktree sync didn't bring the file into the local worktree (fetch failure, worktree on wrong branch)
+- The file was written to a different path than expected
+
+Use `git show origin/<branch>:.egg-state/drafts/` to list draft files on the remote branch and verify the expected file exists.
 
 ---
 
