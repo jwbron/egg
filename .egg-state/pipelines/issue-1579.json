@@ -205,10 +205,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "No-zero-proposal confirm guard scope: Block reviewer confirm if ANY assigned producer has zero proposals, only CRITICAL producers, or make it configurable per-edge?",
+      "context": "",
+      "options": [
+        "All producers: block if any has version 0",
+        "Critical producers only",
+        "Configurable per-edge flag"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-09T23:47:27.107090Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-09T23:37:30.329498Z",
-  "updated_at": "2026-04-09T23:47:25.222005Z",
+  "updated_at": "2026-04-09T23:47:27.111646Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -216,5 +234,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 11
+  "version": 12
 }
