@@ -2283,6 +2283,83 @@ def _cleanup_stale_generic_drafts(worktree_path: Path) -> bool:
     return False
 
 
+def _cleanup_drafts_for_pr(
+    worktree_path: Path,
+    pipeline_identifier: int | str,
+) -> bool:
+    """Remove pipeline-scoped draft files before PR creation.
+
+    Finds files matching ``{pipeline_identifier}-*.md`` in
+    ``.egg-state/drafts/`` and removes them with ``git rm`` so the PR
+    diff is focused on code changes rather than intermediate drafts.
+
+    Uses ``git rm -f --ignore-unmatch`` for each matching file so the
+    call is safe when files are already absent or untracked.  Commits
+    the removal as a single commit when any tracked files were staged.
+
+    Safe to call when the drafts directory does not exist (no-op).
+
+    Returns ``True`` if a commit was made, ``False`` otherwise.
+    """
+    drafts_dir = worktree_path / ".egg-state" / "drafts"
+    if not drafts_dir.is_dir():
+        return False
+
+    pid = str(pipeline_identifier)
+    matches = list(drafts_dir.glob(f"{pid}-*.md"))
+    if not matches:
+        return False
+
+    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_path)]
+    removed = False
+
+    for draft in matches:
+        logger.info(
+            "Removing pipeline draft for PR",
+            path=str(draft),
+        )
+        try:
+            subprocess.run(
+                [*git_base, "rm", "-f", "--ignore-unmatch", str(draft.relative_to(worktree_path))],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10,
+            )
+            removed = True
+        except subprocess.CalledProcessError as exc:
+            logger.warning(
+                "git rm failed for pipeline draft, falling back to unlink",
+                path=str(draft),
+                error=str(exc),
+            )
+            draft.unlink(missing_ok=True)
+
+    if removed:
+        try:
+            subprocess.run(
+                [
+                    *git_base,
+                    "commit",
+                    "--no-verify",
+                    "-m",
+                    f"Remove pipeline draft files for {pid}",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=30,
+            )
+            return True
+        except subprocess.CalledProcessError as commit_err:
+            logger.debug(
+                "No changes to commit after pipeline draft cleanup",
+                error=str(commit_err),
+            )
+
+    return False
+
+
 def _read_phase_draft(
     repo_path: Path,
     phase: str,
@@ -7423,8 +7500,42 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline_id=pipeline_id,
                     )
 
-                # BRC history files are written per-phase at phase completion,
-                # so they are already on the branch before PR creation.
+                # Safety net: re-write BRC history for all completed phases.
+                # Per-phase writes happen at phase completion, but pushes
+                # can fail silently — re-writing here guarantees the files
+                # are on the branch before the PR is created.
+                identifier = _pipeline_identifier(pipeline.issue_number, pipeline_id)
+                for phase_name, phase_exec in pipeline.phases.items():
+                    if phase_exec.status == PipelineStatus.COMPLETE:
+                        try:
+                            _write_brc_history(
+                                worktree_repo_path,
+                                pipeline_id,
+                                phase_name,
+                                identifier,
+                            )
+                        except Exception as brc_err:
+                            logger.debug(
+                                "Failed to re-write BRC history for PR (continuing)",
+                                pipeline_id=pipeline_id,
+                                phase=phase_name,
+                                error=str(brc_err),
+                            )
+                try:
+                    _commit_statefiles_to_worktree(
+                        worktree_repo_path,
+                        "Persist BRC history files for PR",
+                        pipeline_identifier=identifier,
+                    )
+                except subprocess.CalledProcessError as git_err:
+                    logger.warning(
+                        "Failed to commit BRC history for PR (continuing)",
+                        pipeline_id=pipeline_id,
+                        error=str(git_err),
+                    )
+
+                # Clean up pipeline draft files so PR diffs stay focused
+                _cleanup_drafts_for_pr(worktree_repo_path, identifier)
 
                 # Push latest commits before creating PR
                 if pipeline.branch and worktree_repo_path != repo_path:
