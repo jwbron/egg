@@ -53,6 +53,16 @@
           "exit_code": null,
           "agent_role": null,
           "session_token": null
+        },
+        {
+          "container_id": "60e793718ca43d68936bb2dcad6c40a8a4d12bd2b00460765e8f3132fafd8963",
+          "container_name": "egg-sandbox-egg-issue-1570-v2-architect",
+          "status": "running",
+          "started_at": "2026-04-09T13:44:43.079570Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": null,
+          "session_token": null
         }
       ],
       "agents": [
@@ -60,6 +70,18 @@
           "role": "task_planner",
           "status": "running",
           "container_id": "80bbdd9af65b95d233d916ed2112fedc53e57044cdd1f6f039788b083f2ac76c",
+          "started_at": null,
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "architect",
+          "status": "running",
+          "container_id": "60e793718ca43d68936bb2dcad6c40a8a4d12bd2b00460765e8f3132fafd8963",
           "started_at": null,
           "completed_at": null,
           "commit": null,
@@ -105,7 +127,7 @@
     }
   ],
   "created_at": "2026-04-09T01:16:37.974233Z",
-  "updated_at": "2026-04-09T13:44:42.957721Z",
+  "updated_at": "2026-04-09T13:44:43.083589Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -113,5 +135,5 @@
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "analysis": "See the full approved analysis at .egg-state/drafts/1570-analysis.md on branch egg/issue-1570. Key HITL decisions: (1) Custom thin adapter wrapping anthropic + openai SDKs, (2) Both headless and interactive in MVP, (3) Shell out to CLIs for egg-native tools initially, (4) Default claude-sdk with configurable opt-in to egg harness + TOS warning, (5) Include WebFetch/WebSearch, defer NotebookEdit, (6) Keep transcript capture in gateway, (7) Hardcoded per-model cost rates, (8) Basic retries with backoff in harness for transient API failures, (9) Replicate exact CLAUDE.md rule-merging, (10) Support opus[1m] suffix syntax, (11) Compare cost/turns/duration/success for validation, (12) Multi-model routing post-MVP but design provider abstraction to support it.",
   "plan": null,
-  "version": 22
+  "version": 23
 }
