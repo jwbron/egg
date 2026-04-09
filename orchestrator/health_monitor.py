@@ -80,6 +80,7 @@ class AgentState:
     heartbeat_escalated: bool = False
     progress_escalated: bool = False
     infra_error_escalated: bool = False
+    brc_progress_escalated: bool = False
     last_progress_data: dict = field(default_factory=dict)
 
 
@@ -121,6 +122,9 @@ class HealthMonitor:
 
         # Last heartbeat times (exposed for test manipulation)
         self._last_heartbeat: dict[str, float] = {}
+
+        # BRC progress tracking: first time each fully-ACKed producer was seen
+        self._fully_acked_first_seen: dict[str, float] = {}
 
         # Subscribe to events
         self._event_bus.subscribe(EventType.PROGRESS_EMITTED, self._on_progress)
@@ -177,6 +181,10 @@ class HealthMonitor:
         WORKING phase is legitimately idle — it has nothing to review yet.
         Such agents should be excluded from heartbeat/progress alerts.
 
+        Additionally, a reviewer-only agent within the post-propose grace
+        period (after a producer proposes but before the reviewer has had
+        time to start reviewing) is also suppressed from alerts.
+
         Returns True if the agent should be suppressed from alerts.
         """
         try:
@@ -194,7 +202,19 @@ class HealthMonitor:
         if not graph.is_reviewer(agent_id) or graph.is_producer(agent_id):
             return False
 
-        return tracker.are_all_producers_working(agent_id)
+        # Suppress when all producers are still working (nothing to review)
+        if tracker.are_all_producers_working(agent_id):
+            return True
+
+        # Post-propose grace: suppress reviewers within the grace window
+        # after a producer proposes, giving them time to begin reviewing
+        earliest_proposal = tracker.get_earliest_proposal_time(agent_id)
+        if earliest_proposal is not None:
+            grace = self._config.orchestrator_post_propose_grace_seconds
+            if time.time() - earliest_proposal < grace:
+                return True
+
+        return False
 
     # -----------------------------------------------------------------
     # Event handlers
@@ -685,6 +705,106 @@ class HealthMonitor:
 
         return actions
 
+    def check_brc_progress(self) -> list[dict[str, Any]]:
+        """Evaluate BRC protocol progress for fully-ACKed producers.
+
+        Producers that have been fully ACKed by all reviewers but have not
+        yet sent CONFIRMED are tracked. If they remain in this state longer
+        than ``orchestrator_post_ack_confirmation_timeout_seconds``, an
+        escalation is raised regardless of heartbeat activity.
+
+        This catches producers stuck in a heartbeat loop post-ACK that
+        would otherwise go undetected by liveness-based checks.
+
+        Returns:
+            List of action dicts for producers that have timed out.
+        """
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+        except ImportError:
+            return []
+
+        tracker = get_peer_consensus_tracker(self._pipeline_id)
+        if tracker is None:
+            return []
+
+        fully_acked = tracker.get_fully_acked_producers()
+        now = time.time()
+        timeout = self._config.orchestrator_post_ack_confirmation_timeout_seconds
+        actions: list[dict[str, Any]] = []
+
+        # Clean up tracking for producers no longer in the fully-acked set
+        # (they confirmed or withdrew)
+        stale_keys = [k for k in self._fully_acked_first_seen if k not in fully_acked]
+        for key in stale_keys:
+            del self._fully_acked_first_seen[key]
+            # Reset escalation flag when producer leaves fully-acked state
+            with self._lock:
+                agent_state = self._agents.get(key)
+                if agent_state:
+                    agent_state.brc_progress_escalated = False
+
+        for producer, _proposal_ts in fully_acked.items():
+            # Record first time we saw this producer as fully-acked
+            if producer not in self._fully_acked_first_seen:
+                self._fully_acked_first_seen[producer] = now
+
+            first_seen = self._fully_acked_first_seen[producer]
+            elapsed = now - first_seen
+
+            if elapsed <= timeout:
+                continue
+
+            # Check dedup flag
+            with self._lock:
+                agent_state = self._agents.get(producer)
+                if agent_state and agent_state.brc_progress_escalated:
+                    continue
+
+            action = {
+                "action": "escalate",
+                "agent_id": producer,
+                "reason": (
+                    f"Producer {producer} fully ACKed but not confirmed "
+                    f"for {int(elapsed)}s (timeout: {timeout}s)"
+                ),
+                "elapsed_seconds": int(elapsed),
+                "alert_type": "brc_confirmation_timeout",
+            }
+            actions.append(action)
+
+            escalation_type = "overseer" if self._config.overseer_enabled else "hitl"
+            escalation = {
+                "type": escalation_type,
+                "agent_id": producer,
+                "reason": action["reason"],
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+            with self._lock:
+                agent_state = self._agents.get(producer)
+                if agent_state:
+                    agent_state.brc_progress_escalated = True
+                self._active_alerts.append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "pipeline_id": self._pipeline_id,
+                        "agent_id": producer,
+                        "alert_type": "brc_confirmation_timeout",
+                        "message": action["reason"],
+                        "severity": "warning",
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                )
+
+            for cb in self._escalation_callbacks:
+                try:
+                    cb(escalation)
+                except Exception as e:
+                    logger.error("Escalation callback error", error=str(e))
+
+        return actions
+
     def check_tripwires(self, pipeline_id: str | None = None) -> list[dict[str, Any]]:
         """Evaluate all tripwire rules and return combined actions.
 
@@ -695,6 +815,7 @@ class HealthMonitor:
         actions.extend(self.check_heartbeats())
         actions.extend(self.check_progress())
         actions.extend(self._check_infra_errors())
+        actions.extend(self.check_brc_progress())
         return actions
 
 

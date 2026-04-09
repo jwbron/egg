@@ -346,6 +346,16 @@ class PipelineConfig(BaseModel):
         ge=30,
         description="Grace period after CONSENSUS_PROPOSE before flagging blocking reviewers as stalled",
     )
+    orchestrator_post_propose_grace_seconds: int = Field(
+        default=300,
+        ge=30,
+        description="Grace period for reviewers after producer proposes before Tier 1 stall detection",
+    )
+    orchestrator_post_ack_confirmation_timeout_seconds: int = Field(
+        default=180,
+        ge=30,
+        description="Timeout for producers to send CONFIRMED after being fully ACKed",
+    )
     active_agent_stall_extension_seconds: int = Field(
         default=120,
         ge=30,
