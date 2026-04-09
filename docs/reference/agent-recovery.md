@@ -168,7 +168,7 @@ Restarts are allowed when the pipeline is in `RUNNING`, `AWAITING_HUMAN`, or `FA
 
 1. The orchestrator stops the existing container via `stop_agent_container()` and removes it via `remove_agent_container()`
 2. The agent's consensus state is reset — `PeerConsensusTracker.remove_agent()` and `ConsensusEvaluator.remove_agent()` withdraw any proposals, ACKs, or confirmations
-3. A new container is spawned via `spawn_agent_container()` with the **same role, phase, and environment** — reusing the existing worktree rather than creating a new one
+3. A new container is spawned via `spawn_agent_container()` with the **same role, phase, and environment** — the gateway's idempotent worktree creation rediscovers the existing worktree and mounts it into the new container
 4. Recovery context is injected into the respawned agent (e.g., "You are being restarted after a stall. Resume from where your predecessor left off.")
 5. The pipeline's `PhaseExecution` state is updated with the new container/agent entries
 6. Restart count is tracked per agent per phase — configurable maximum (default: 2) prevents infinite restart loops
@@ -184,7 +184,9 @@ Restarts are allowed when the pipeline is in `RUNNING`, `AWAITING_HUMAN`, or `FA
 
 ### Worktree Preservation
 
-Agent restart preserves the agent's git worktree, including any committed work on the branch. The respawned agent starts with the full commit history intact. This is critical for agents (like coders) that may have pushed partial work before becoming stuck.
+Agent restart preserves the agent's git worktree, including any committed work on the branch. The gateway's `create_worktrees` API is **idempotent** — when called with a worktree ID that already exists (keyed by `{pipeline_id}-{role}`), it returns the existing worktree and its host paths rather than creating a new one. This means the respawned agent starts with the full commit history and all prior committed work intact.
+
+**Implementation detail:** `spawn_agent_container()` always calls the gateway to create (or reuse) the per-agent worktree when `repos` is provided, regardless of whether `repo_volumes` was passed by the caller. This ensures both the initial spawn path and the restart path (which does not pass `repo_volumes`) correctly mount the agent's worktree. See issue [#1597](https://github.com/jwbron/egg/issues/1597) for the fix that resolved a bug where the restart path skipped worktree creation.
 
 ## Phase-Level Restart
 
@@ -200,7 +202,7 @@ Restarts are allowed when the pipeline is in `RUNNING`, `AWAITING_HUMAN`, or `FA
 2. `PeerConsensusTracker.clear()` resets all consensus state (proposals, ACKs, NACKs, confirmations)
 3. The phase's review cycle counter in `PhaseExecution` is reset
 4. All prior phase artifacts and HITL decisions are preserved (e.g., refine output carries into a restarted plan phase)
-5. All commits on the branch are preserved
+5. All commits on the branch are preserved — each respawned agent's worktree is recreated from the pipeline branch HEAD via the gateway's idempotent `create_worktrees` API, so all prior pushed commits are immediately available
 6. All agents for the phase are respawned from scratch
 
 ### Triggering a Phase Restart

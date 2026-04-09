@@ -224,6 +224,20 @@ All git operations that require metadata access go through the gateway:
    │                              ▼                                   │
    │  git worktree remove /worktrees/abc123/my-repo                  │
    └──────────────────────────────────────────────────────────────────┘
+
+5. Agent Restart (preserves worktree)
+   ┌──────────────────────────────────────────────────────────────────┐
+   │  Orchestrator calls spawn_agent_container() for replacement      │
+   │                              │                                   │
+   │                              ▼                                   │
+   │  Gateway create_worktrees() is idempotent — if the worktree     │
+   │  at /worktrees/{pipeline}-{role}/{repo}/ already exists, it is  │
+   │  reused with all committed work intact.                          │
+   │                              │                                   │
+   │                              ▼                                   │
+   │  New container launched with the existing worktree mounted       │
+   │  Agent resumes with full commit history from prior container     │
+   └──────────────────────────────────────────────────────────────────┘
 ```
 
 ### Multi-Agent Isolation
@@ -352,6 +366,8 @@ If an agent container crashes without cleanup:
 2. **Orphan detection**: Compare worktree list against active containers
 3. **Cleanup**: Remove worktrees for containers that no longer exist
 4. **Branch preservation**: Committed work is preserved; only working directory removed
+
+**Restart recovery:** When an agent is restarted (via `restart_agent` or `restart_phase`), the gateway's idempotent `create_worktrees` API detects the existing worktree keyed by `{pipeline_id}-{role}` and returns its host paths. The respawned container mounts the same worktree with all committed work intact. Uncommitted changes from the previous container are lost — agents should commit work incrementally to maximize recovery. See [Agent Recovery Reference](../reference/agent-recovery.md#worktree-preservation) for details.
 
 ```python
 def cleanup_orphaned_worktrees():
