@@ -2159,6 +2159,75 @@ class TestIncompleteConsensusActivityAware:
         monitor._create_hitl_decision.assert_awaited()
         assert monitor._incomplete_consensus_hitl_created is True
 
+    def test_hitl_fires_after_grace_reset_and_deferral_cap(self):
+        """HITL fires when: grace resets tracking → grace expires → agent active past deferral cap."""
+        from datetime import UTC, datetime, timedelta
+
+        monitor = self._make_monitor()
+
+        # --- Step 1: Simulate a proposal arriving, triggering grace reset ---
+        monitor._incomplete_consensus_blocking = frozenset(["reviewer_refine"])
+        monitor._incomplete_consensus_first_seen = time.time() - 400
+        monitor._incomplete_consensus_absolute_start = time.time() - 400
+        monitor._incomplete_consensus_nudged = True
+
+        consensus = {
+            "is_complete": False,
+            "blocking_agents": ["reviewer_refine"],
+        }
+
+        # Recent proposal (60s ago) triggers grace
+        mock_tracker = MagicMock()
+        mock_tracker.get_latest_proposal_timestamp.return_value = datetime.now(UTC) - timedelta(
+            seconds=60
+        )
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = mock_tracker
+
+        with patch.dict("sys.modules", {"peer_consensus": mock_pc}):
+            _run(monitor._check_incomplete_consensus_stall(consensus, "running"))
+
+        # Grace fired — tracking was reset, absolute_start should be set to ~now
+        assert monitor._incomplete_consensus_nudged is False
+        assert monitor._incomplete_consensus_absolute_start is not None
+        grace_absolute_start = monitor._incomplete_consensus_absolute_start
+
+        # --- Step 2: Simulate time passing past HITL + deferral cap ---
+        # poll_interval=1, hitl_threshold=20, max_deferral=40
+        # Set first_seen and absolute_start so elapsed > hitl_threshold
+        # and absolute_elapsed > 2 * hitl_threshold
+        monitor._incomplete_consensus_first_seen = grace_absolute_start  # from grace reset
+        monitor._incomplete_consensus_absolute_start = (
+            grace_absolute_start - 45
+        )  # simulate 45s of total time
+        monitor._incomplete_consensus_nudged = True  # nudge was sent
+
+        # Agents are still active
+        mock_progress_store = MagicMock()
+        mock_event = MagicMock()
+        mock_progress_store.get_events.return_value = [mock_event]
+        mock_ps = MagicMock()
+        mock_ps.get_progress_store.return_value = mock_progress_store
+
+        mock_pc2 = MagicMock()
+        mock_pc2.get_peer_consensus_tracker.return_value = None
+
+        # Advance first_seen so elapsed > hitl_threshold (20)
+        monitor._incomplete_consensus_first_seen = time.time() - 25
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "progress_store": mock_ps,
+                "peer_consensus": mock_pc2,
+            },
+        ):
+            _run(monitor._check_incomplete_consensus_stall(consensus, "running"))
+
+        # HITL SHOULD fire — deferral cap exceeded even though agents are active
+        monitor._create_hitl_decision.assert_awaited()
+        assert monitor._incomplete_consensus_hitl_created is True
+
     def test_nudge_deferral_capped_at_hitl_threshold(self):
         """Nudge fires when absolute elapsed exceeds HITL threshold despite activity."""
         monitor = self._make_monitor()

@@ -1064,6 +1064,7 @@ class OverseerMonitor:
             self._reset_incomplete_consensus_tracking()
             self._incomplete_consensus_blocking = current_blocking
             self._incomplete_consensus_first_seen = now
+            self._incomplete_consensus_absolute_start = now  # restart deferral cap
             return
 
         elapsed = now - self._incomplete_consensus_first_seen

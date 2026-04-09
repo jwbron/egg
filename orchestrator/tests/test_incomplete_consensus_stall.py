@@ -461,7 +461,46 @@ class TestIncompleteConsensusStallCheck:
     # ===========================================================================
 
     def test_healthy_within_post_proposal_grace(self):
-        """After a CONSENSUS_PROPOSE, check returns HEALTHY within grace period."""
+        """After a CONSENSUS_PROPOSE, check returns HEALTHY within grace period.
+
+        Exercises the primary strategy (tracker) for proposal timestamp lookup.
+        """
+        from datetime import UTC, datetime, timedelta
+
+        pipeline = _make_concurrent_pipeline()
+        ctx = _make_context(pipeline)
+        check = _make_check(stall_tick_threshold=2)
+
+        mock_ce = MagicMock()
+        mock_ce.is_concurrent_execution.return_value = True
+
+        # Tracker shows blocking agents AND provides proposal timestamp (primary strategy)
+        mock_tracker = MagicMock()
+        mock_tracker.evaluate.return_value = {
+            "is_complete": False,
+            "blocking_agents": ["reviewer_refine"],
+        }
+        mock_tracker.get_latest_proposal_timestamp.return_value = datetime.now(UTC) - timedelta(
+            seconds=30
+        )
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = mock_tracker
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "concurrent_executor": mock_ce,
+                "peer_consensus": mock_pc,
+            },
+        ):
+            # Run enough ticks to exceed threshold — should still be HEALTHY
+            for _ in range(3):
+                result = check.run(ctx)
+            assert result.status == HealthStatus.HEALTHY
+            assert "post-proposal grace" in result.reasoning
+
+    def test_healthy_within_post_proposal_grace_message_store_fallback(self):
+        """Post-proposal grace via message store fallback when tracker has no timestamp."""
         import time as _time
 
         pipeline = _make_concurrent_pipeline()
@@ -471,12 +510,13 @@ class TestIncompleteConsensusStallCheck:
         mock_ce = MagicMock()
         mock_ce.is_concurrent_execution.return_value = True
 
-        # Tracker shows blocking agents
+        # Tracker returns None for proposal timestamp — forces fallback to message store
         mock_tracker = MagicMock()
         mock_tracker.evaluate.return_value = {
             "is_complete": False,
             "blocking_agents": ["reviewer_refine"],
         }
+        mock_tracker.get_latest_proposal_timestamp.return_value = None
         mock_pc = MagicMock()
         mock_pc.get_peer_consensus_tracker.return_value = mock_tracker
 
@@ -499,7 +539,6 @@ class TestIncompleteConsensusStallCheck:
                 "message_store": mock_ms,
             },
         ):
-            # Run enough ticks to exceed threshold — should still be HEALTHY
             for _ in range(3):
                 result = check.run(ctx)
             assert result.status == HealthStatus.HEALTHY
