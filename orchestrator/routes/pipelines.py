@@ -1332,6 +1332,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             phase=current_phase,
             command=command,
             branch=pipeline.branch,
+            base_branch=pipeline.branch,
             reason=reason,
         )
     except ContainerSpawnError as e:
@@ -1650,6 +1651,7 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
                 phase=phase,
                 command=agent_commands.get(role),
                 branch=pipeline.branch,
+                base_branch=pipeline.branch,
                 preserve_worktree_on_failure=True,
             )
 
@@ -5603,6 +5605,7 @@ def _run_concurrent_phase(
         phase=phase_str,
         sandbox_env=sandbox_env,
         certs_volume=certs_volume,
+        base_branch=pipeline.base_branch,
     )
 
     max_concurrent = getattr(pipeline.config, "max_concurrent_agents", 6)

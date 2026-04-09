@@ -259,10 +259,10 @@ class TestWorktreeCreationGuard:
         assert git_shadows[0].get("Source") == "/dev/null"
         assert git_shadows[0].get("ReadOnly") is True
 
-    def test_spawn_repos_only_passes_branch_to_create_worktrees(
+    def test_spawn_without_base_branch_passes_none_to_create_worktrees(
         self, spawner, mock_docker_client, mock_gateway_client
     ):
-        """Branch should be passed as base_branch to create_worktrees."""
+        """Without explicit base_branch, create_worktrees gets None (gateway default)."""
         spawner.spawn_agent_container(
             pipeline_id="issue-200",
             agent_role=AgentRole.CODER,
@@ -270,6 +270,23 @@ class TestWorktreeCreationGuard:
             repos=["owner/my-repo"],
             repo_volumes=None,
             branch="egg/issue-200",
+        )
+
+        call_kwargs = mock_gateway_client.create_worktrees.call_args.kwargs
+        assert call_kwargs.get("base_branch") is None
+
+    def test_spawn_with_base_branch_passes_it_to_create_worktrees(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Explicit base_branch (restart path) is forwarded to create_worktrees."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-200",
+            agent_role=AgentRole.CODER,
+            issue_number=200,
+            repos=["owner/my-repo"],
+            repo_volumes=None,
+            branch="egg/issue-200",
+            base_branch="egg/issue-200",
         )
 
         call_kwargs = mock_gateway_client.create_worktrees.call_args.kwargs
