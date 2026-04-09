@@ -4,10 +4,10 @@ This document describes the orchestrator component and the three deployment mode
 
 ## Overview
 
-The orchestrator manages SDLC pipeline execution, container lifecycle, and agent coordination. It provides:
+The orchestrator manages SDLC pipeline execution, agent lifecycle, and agent coordination. It provides:
 
 - Pipeline state management (phases, tasks, decisions)
-- Container spawning and monitoring
+- Agent Job spawning and monitoring via Kubernetes API
 - Multi-agent coordination (for parallel execution)
 - Human-in-the-loop (HITL) decision handling
 - Completion signaling and handoff management
@@ -41,8 +41,8 @@ This differs from agent worktrees (managed by the gateway for agent isolation). 
 On orchestrator restart, orphaned container state is automatically recovered:
 
 1. **RUNNING pipelines**: For each pipeline showing `status=RUNNING`, the reconciliation process recovers orphaned container state:
-   - Scans only the **current phase** for stale containers. Containers from prior phases are intentionally terminated and their absence is expected — checking all phases caused false `FAILED` transitions when the orchestrator restarted mid-pipeline.
-   - Any agent/container in the current phase whose container ID is absent from the live Docker container set is marked `FAILED`.
+   - Scans only the **current phase** for stale Jobs. Jobs from prior phases are intentionally terminated and their absence is expected — checking all phases caused false `FAILED` transitions when the orchestrator restarted mid-pipeline.
+   - Any agent/Job in the current phase whose Job name is absent from the live Kubernetes Jobs set is marked `FAILED`.
    - If at least one stale entry is found, the pipeline itself is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start`.
 
 2. **AWAITING_HUMAN pipelines**: For each pipeline showing `status=AWAITING_HUMAN` with no pending decisions (orphaned after a restart where the decision was already resolved), the pipeline is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start`. The restart endpoint will automatically recover by parsing the latest phase_gate resolution and either advancing to the next phase (approved) or resetting the current phase for re-run (request_changes/change_approach).

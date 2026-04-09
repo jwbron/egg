@@ -8,16 +8,16 @@ egg supports multiple deployment methods depending on your use case:
 
 | Method | Best For | Prerequisites |
 |--------|----------|---------------|
-| **egg CLI** | Local development (recommended) | Docker |
-| **Docker Compose** | Production, advanced deployments | Docker, Docker Compose |
+| **egg CLI** | Local development (recommended) | Docker (for image builds), k3s |
+| **Kubernetes (k3s)** | Local and production deployments | k3s, Calico CNI |
 | **GitHub Action** | CI/CD automation | GitHub repository |
 
 ### Prerequisites by Platform
 
-| Platform | Docker | Notes |
-|----------|--------|-------|
-| **Linux** | Docker Engine + Compose v2 | Native performance |
-| **macOS** | [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Ensure Docker Desktop is running; enable "Use Rosetta for x86_64/amd64 emulation" on Apple Silicon for best compatibility |
+| Platform | Requirements | Notes |
+|----------|-------------|-------|
+| **Linux** | Docker Engine (for builds), k3s | Native performance. `make k3s-setup` installs k3s + Calico |
+| **macOS** | [Docker Desktop](https://www.docker.com/products/docker-desktop/) | k3s runs in Docker Desktop's VM; enable "Use Rosetta for x86_64/amd64 emulation" on Apple Silicon for best compatibility |
 
 ## egg CLI (Recommended)
 
@@ -35,9 +35,9 @@ On first run, egg prompts to configure repositories and credentials via `egg --s
 
 See the [CLI Reference](../../README.md#cli-reference) for all flags and options.
 
-## Docker Compose (Advanced)
+## Kubernetes Deployment (k3s)
 
-For production deployments or managing the gateway stack separately, use Docker Compose.
+egg runs on Kubernetes using k3s for local development. The orchestrator and gateway run as Deployments in the `egg-system` namespace, while agent containers run as Jobs in the `egg-agents` namespace. Calico NetworkPolicies enforce network isolation.
 
 ### Quick Start
 
@@ -46,17 +46,17 @@ For production deployments or managing the gateway stack separately, use Docker 
 git clone https://github.com/jwbron/egg.git
 cd egg
 
-# Initialize configuration
-bin/egg-deploy init
+# Install k3s with Calico CNI
+make k3s-setup
 
-# Review and edit configuration
-vim ~/.config/egg/config.yaml
+# Build images and import into k3s
+make build
 
-# Start the gateway
-bin/egg-deploy up
+# Deploy egg to k3s
+make deploy
 
-# Start a sandbox session
-egg --public
+# Verify everything is running
+kubectl get pods -n egg-system
 ```
 
 ### Configuration
@@ -90,52 +90,44 @@ egg --public
 
 | Command | Description |
 |---------|-------------|
-| `bin/egg-deploy init` | Generate initial configuration |
-| `bin/egg-deploy up` | Start the gateway stack |
-| `bin/egg-deploy down` | Stop the gateway stack |
-| `bin/egg-deploy status` | Show container status and health |
-| `bin/egg-deploy logs` | Follow gateway logs |
-| `bin/egg-deploy build` | Rebuild images |
+| `make k3s-setup` | Install k3s with Calico CNI |
+| `make build` | Build images and import into k3s |
+| `make deploy` | Deploy egg to k3s cluster |
+| `make k3s-teardown` | Remove k3s and all resources |
+| `kubectl get pods -n egg-system` | Check service status |
+| `kubectl logs -n egg-system deploy/gateway` | View gateway logs |
 
 ### Network Topology
 
-Docker Compose creates a dual-network architecture:
+Kubernetes uses namespace-based isolation with Calico NetworkPolicies:
 
 ```
-sandbox (172.32.0.x) ──┐
+egg-agents namespace (default-deny)
+┌──────────────────────────────────────────────────────┐
+│  agent pods ──► egress only to gateway Service       │
+│  (no internet, no inter-agent communication)         │
+└──────────────────────┬───────────────────────────────┘
                        │
-                       ├──▶ egg-isolated (internal)
-                       │         │
-                       │         ▼
-                       │    gateway (172.32.0.2)
-                       │    orchestrator (172.32.0.3)
-                       │         │
-                       └─────────┼──▶ egg-external
-                                 │         │
-                                 ▼         ▼
-                            API + Proxy   Internet
+                       ▼
+egg-system namespace
+┌──────────────────────────────────────────────────────┐
+│  gateway (Service)    orchestrator (Service)         │
+│  Ports: 9848,         Port: 9849                     │
+│  3129, 9851                                          │
+│       │                                              │
+│       ▼                                              │
+│  Squid proxy ──► Internet (filtered by allowlist)    │
+└──────────────────────────────────────────────────────┘
 ```
 
-- **egg-isolated**: Internal network with no external route
-- **egg-external**: Standard bridge network with internet access
-- **Gateway**: Dual-homed, acts as the only egress point for sandboxes
-- **Orchestrator**: Dual-homed, manages SDLC pipelines and spawns sandbox containers
+- **`egg-agents` namespace**: Default-deny ingress and egress. Agents can only reach the gateway Service
+- **`egg-system` namespace**: Gateway and orchestrator run as Deployments with Services
+- **Gateway**: Acts as the only egress point for agents, proxies all external traffic
+- **Orchestrator**: Manages SDLC pipelines and spawns agent Jobs via k8s API
 
-## CLI with Docker Compose Gateway
+See [Kubernetes Architecture](../architecture/kubernetes.md) for the full design.
 
-To use the `egg` CLI with a separately-managed Docker Compose gateway:
-
-### Using --compose Mode
-
-```bash
-# Start gateway via compose, then launch sandbox (auto-rebuilds when code changes)
-egg --compose
-
-# Stop the compose stack
-egg --compose --down
-```
-
-### Traditional Mode
+### CLI Modes
 
 ```bash
 # Start gateway and sandbox manually
@@ -233,8 +225,6 @@ gateway_image: ghcr.io/jwbron/egg-gateway:latest
 sandbox_image: ghcr.io/jwbron/egg-sandbox:latest
 ```
 
-You can also specify tags directly in a docker-compose.yml override.
-
 ## Configuration Files
 
 ### Required Files
@@ -255,11 +245,15 @@ You can also specify tags directly in a docker-compose.yml override.
 
 The gateway exposes health endpoints on two ports:
 
-- **Port 9851** — dedicated lightweight health check server. Docker Compose uses this port for liveness probes so health checks are never blocked by long-running git operations on the main thread pool.
+- **Port 9851** — dedicated lightweight health check server. Kubernetes uses this port for liveness probes so health checks are never blocked by long-running git operations on the main thread pool.
 - **Port 9848** — full health endpoint with additional detail (active sessions, orchestrator process checks). Use this for manual diagnostics.
 
 ```bash
-# Check gateway health (manual diagnostics)
+# Check gateway health (manual diagnostics — from within the cluster)
+kubectl exec -n egg-system deploy/gateway -- curl -s http://localhost:9848/api/v1/health
+
+# Or port-forward for host access
+kubectl port-forward -n egg-system svc/gateway 9848:9848
 curl http://localhost:9848/api/v1/health
 
 # Expected response
@@ -274,13 +268,13 @@ curl http://localhost:9848/api/v1/health
 }
 ```
 
-The `status` field is `"healthy"` only when all three conditions are met: the GitHub token is valid, the launcher secret is configured, and the Squid proxy is listening on port 3129. A Squid crash returns `"degraded"` and causes Docker's health check to fail, triggering a container restart.
+The `status` field is `"healthy"` only when all three conditions are met: the GitHub token is valid, the launcher secret is configured, and the Squid proxy is listening on port 3129. A Squid crash returns `"degraded"` and causes the Kubernetes liveness probe to fail, triggering a pod restart.
 
-The Docker Compose configuration includes automatic health checks (on port 9851) with:
-- 10 second interval
+The Kubernetes Deployment includes liveness probes (on port 9851) with:
+- 10 second period
 - 5 second timeout
-- 12 retries
-- 30 second start period
+- 12 failure threshold
+- 30 second initial delay
 
 ## Troubleshooting
 
@@ -297,19 +291,20 @@ This clears cached images and rebuilds the sandbox with Claude Code installed.
 
 ### Gateway fails to start
 
-1. Check Docker is running: `docker info`
-2. Check port availability: `lsof -i :9848; lsof -i :9851  # main + health-check ports`
-3. Check logs: `bin/egg-deploy logs`
+1. Check k3s is running: `kubectl get nodes`
+2. Check pod status: `kubectl get pods -n egg-system`
+3. Check logs: `kubectl logs -n egg-system deploy/gateway`
 
 **Network unavailable at startup**: The gateway retries GitHub App token initialization with exponential backoff for up to 120 seconds if the network is temporarily unavailable (e.g., DNS not yet ready). During this window you'll see log lines like `Token refresher not ready, retrying`. If the token never initializes within the timeout, the gateway exits with code 1. Increase the window with `EGG_TOKEN_INIT_TIMEOUT=<seconds>` if your network takes longer to come up.
 
 **Missing or invalid credentials**: Configuration errors (missing key file, invalid credentials) are detected immediately and do not trigger retries. The gateway logs a warning and continues running, but GitHub operations will fail.
 
-### Sandbox cannot reach gateway
+### Agent cannot reach gateway
 
-1. Verify gateway is healthy: `bin/egg-deploy status`
-2. Check network exists: `docker network ls | grep egg`
-3. Check gateway IP: `docker inspect egg-gateway --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'`
+1. Verify gateway is healthy: `kubectl get pods -n egg-system`
+2. Check Calico is running: `kubectl get pods -n calico-system`
+3. Check NetworkPolicies: `kubectl get networkpolicies -n egg-agents`
+4. Check gateway Service: `kubectl get svc -n egg-system`
 
 ### Git operations fail
 
@@ -345,6 +340,20 @@ If `.git` directories already have root-owned files:
 sudo chown -R $(id -u):$(id -g) ~/repos/*/.git
 ```
 
+### Agent pod stuck in Pending
+
+If agent Jobs are created but pods remain in `Pending`:
+1. Check if images are imported: `k3s ctr images ls | grep egg`
+2. Run `make build` to rebuild and import images
+3. Check node resources: `kubectl describe node | grep -A 5 "Allocated resources"`
+
+### Calico not running
+
+If NetworkPolicies are not enforced (agents can reach the internet):
+1. Check Calico pods: `kubectl get pods -n calico-system`
+2. Re-install Calico: `scripts/install-calico.sh`
+3. Verify k3s was installed without Flannel: check for `--flannel-backend=none` in k3s config
+
 ## Security Considerations
 
 ### Credentials
@@ -356,11 +365,14 @@ sudo chown -R $(id -u):$(id -g) ~/repos/*/.git
 ### Network
 
 - The gateway is the only component with external network access
-- In private mode, only api.anthropic.com is accessible
-- All outbound traffic from sandbox routes through gateway proxy
+- Calico NetworkPolicies enforce default-deny egress in the `egg-agents` namespace
+- Agents can only reach the gateway Service — no direct internet access
+- In private mode, only api.anthropic.com is accessible via the gateway proxy
+- All outbound traffic from agents routes through the gateway's Squid proxy
 
 ### Container Security
 
-- Sandbox runs as non-root user matching host UID
-- Git metadata is shadowed (tmpfs mount on .git/)
-- No credentials are passed to sandbox environment
+- Agent pods run as non-root user matching host UID
+- Git metadata is shadowed (tmpfs mount on .git/ via init container)
+- No credentials are passed to agent pods
+- RBAC restricts orchestrator to Job management in `egg-agents` only

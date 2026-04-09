@@ -21,6 +21,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Git Isolation](architecture/git-isolation.md) | Gateway sidecar design for worktree isolation and credential separation |
 | [Credential Injection](architecture/credential-injection.md) | Zero-credential sandbox with API key proxy via gateway |
 | [Network Isolation](architecture/network-isolation.md) | Public/private network modes and domain allowlist |
+| [Kubernetes Architecture](architecture/kubernetes.md) | k3s runtime, Kustomize manifests, Calico NetworkPolicies, agent Jobs |
 | [SDLC Pipeline](architecture/sdlc-pipeline.md) | Structurally enforced agent checkpoints and verification gates |
 | [Declarative Setup](architecture/declarative-setup.md) | Python-based declarative setup system |
 | [Logging](architecture/logging.md) | Structured JSON logging with OpenTelemetry alignment |
@@ -39,7 +40,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 | Document | Description |
 |----------|-------------|
-| [Deployment](guides/deployment.md) | Production deployment options: Docker Compose, CLI, GitHub Action |
+| [Deployment](guides/deployment.md) | Deployment options: k3s, egg CLI, GitHub Action |
 | [Deploy Migration](guides/deploy-migration.md) | Migrating from legacy deployments |
 | [Agent-Mode Design](guides/agent-mode-design.md) | When to let egg operate freely vs. when constraints are appropriate |
 | [Agent Development](guides/agent-development.md) | Developing agent strategies |
@@ -104,6 +105,7 @@ Each major component has detailed documentation:
 | **Sandbox changes** | [Sandbox README](../sandbox/README.md) | [Architecture Overview](architecture/README.md) |
 | **Configuration changes** | [Config README](../config/README.md) | [egg_config README](../shared/egg_config/README.md) |
 | **Docker build / dependency caching** | [Sandbox README](../sandbox/README.md#build-time-dependency-installation) | [Config README](../config/README.md#per-repo-build-commands-dependency-caching) |
+| **Kubernetes / k3s / container runtime** | [Kubernetes Architecture](architecture/kubernetes.md) | [Network Isolation](architecture/network-isolation.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **GitHub Action setup** | [GitHub Action README](../action/README.md) | [Architecture Overview](architecture/README.md) |
 | **Adding tests** | [Contributing](../CONTRIBUTING.md) | [Project Structure](development/STRUCTURE.md) |
 | **Setting up GitHub automation** | [GitHub Automation](guides/github-automation.md) | [Agent-Mode Design](guides/agent-mode-design.md), [GitHub Action](../action/README.md) |

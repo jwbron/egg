@@ -4,9 +4,10 @@ Get egg running locally with the full SDLC pipeline using a GitHub Personal Acce
 
 ## Prerequisites
 
-- **Docker** installed and running:
-  - **Linux**: Docker Engine with Compose v2
+- **Docker** installed (for building images):
+  - **Linux**: Docker Engine
   - **macOS**: [Docker Desktop](https://www.docker.com/products/docker-desktop/) (ensure it is running before starting egg)
+- **k3s** (installed automatically via `make k3s-setup`)
 - **GitHub CLI** (`gh`) installed and authenticated: `gh auth login`
 - **Anthropic credentials**: either a Claude OAuth token or API key
 - **GitHub PAT**: a fine-grained Personal Access Token with Contents (R/W), Pull requests (R/W), Issues (R/W)
@@ -16,6 +17,7 @@ Get egg running locally with the full SDLC pipeline using a GitHub Personal Acce
 ```bash
 git clone https://github.com/jwbron/egg.git
 cd egg
+make k3s-setup             # install k3s with Calico CNI
 pip install -e ./sandbox   # install the egg CLI
 egg --setup                # interactive setup wizard
 ```
@@ -68,11 +70,12 @@ Setting `auth_mode: user` tells the gateway to use `GITHUB_USER_TOKEN` for git/g
 ## 3. Build and start
 
 ```bash
-egg --compose           # start gateway + orchestrator (auto-rebuilds when build context changes)
+make build              # build images and import into k3s
+make deploy             # deploy egg to k3s
 egg                     # start sandbox session
 ```
 
-On subsequent runs, `egg` starts the gateway and orchestrator automatically. The gateway and orchestrator images are rebuilt when their build context changes — Docker's layer cache makes this fast when nothing has changed.
+On subsequent runs, `egg` starts the sandbox session while the gateway and orchestrator continue running as k8s Deployments. Run `make build` after code changes to rebuild and reimport images.
 
 ## 4. Using the SDLC pipeline
 
@@ -165,20 +168,22 @@ The pipeline stores its internal state in `.egg-state/` on the feature branch (n
 
 ```bash
 egg                        # start interactive session
-egg --compose              # start gateway + orchestrator (auto-rebuilds when code changes)
-egg --compose --down       # stop gateway + orchestrator
+make deploy                # deploy/redeploy gateway + orchestrator to k3s
+make k3s-teardown          # tear down k3s cluster
 egg --private              # run in private mode (Anthropic API only, private repos)
 egg --public               # run in public mode (full internet, public repos — default)
 egg --exec "make test"     # run a command in an ephemeral container
+kubectl get pods -n egg-system    # check gateway/orchestrator status
+kubectl get jobs -n egg-agents    # check agent Jobs
 ```
 
 ## Troubleshooting
 
 **Claude binary not found**: If the sandbox exits with `Claude Code CLI not found in PATH`, rebuild the sandbox image with `egg --reset`.
 
-**Stale containers/networks**: egg automatically cleans up stale Docker resources from previous runs. If you see network conflicts, run `egg --compose --down` then `egg`.
+**Stale pods/resources**: Run `make deploy` to redeploy, or `make k3s-teardown && make k3s-setup && make deploy` for a clean start.
 
-**Permission denied on repos**: The gateway and orchestrator need to run as your host UID. This is handled automatically via `HOST_UID`/`HOST_GID` in the entrypoint scripts. If issues persist, rebuild with `egg --compose --build`.
+**Permission denied on repos**: The gateway and orchestrator need to run as your host UID. This is handled automatically via `HOST_UID`/`HOST_GID` in the entrypoint scripts. If issues persist, redeploy with `make deploy`.
 
 **Orchestrator won't start (root-related error)**: The orchestrator refuses to run as root to prevent git artifacts from being created with root ownership. If you see an error about root, HOST_UID, or HOST_GID, it means `HOST_UID`/`HOST_GID` are not set or are set to 0. The `egg` CLI sets these automatically; if values are wrong, check your `~/.config/egg/config.yaml`:
 ```yaml
@@ -193,6 +198,4 @@ host_gid: 1000  # output of id -g
 **Empty repository in sandbox containers**: The orchestrator creates isolated git worktrees for each pipeline via the gateway's worktree API. If containers have empty working trees:
 1. Ensure `host_home` in your `~/.config/egg/config.yaml` matches your actual home directory: `echo $HOME`
 2. Verify the gateway is healthy: `curl http://egg-gateway:9848/api/v1/health`
-3. Check orchestrator logs for worktree creation errors: `docker logs egg-orchestrator | grep -i worktree`
-
-**Note**: As of PR #569, worktrees use a bind mount instead of a Docker named volume. If upgrading from an older version, remove the old volume: `docker volume rm egg-worktrees`
+3. Check orchestrator logs for worktree creation errors: `kubectl logs -n egg-system deploy/orchestrator | grep -i worktree`

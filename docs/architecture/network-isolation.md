@@ -38,45 +38,33 @@ Specific threats:
 
 ## Architecture Overview
 
+> **Note:** egg has migrated from Docker Compose to Kubernetes (k3s). The isolation model is now enforced via Kubernetes namespaces and Calico NetworkPolicies instead of Docker networks. See [Kubernetes Architecture](kubernetes.md) for the full runtime details.
+
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            Docker Compose Network                             │
-│                                                                               │
-│  ┌───────────────────────────────┐      ┌───────────────────────────────┐  │
-│  │        egg container          │      │       gateway          │  │
-│  │                               │      │                               │  │
-│  │  - Claude Code agent          │      │  - GITHUB_TOKEN               │  │
-│  │  - No GITHUB_TOKEN            │      │  - git push capability        │  │
-│  │  - No git push capability     │ REST │  - gh CLI                     │  │
-│  │  - Full internet via proxy ───┼──────►  - HTTP/HTTPS proxy          │  │
-│  │  - git (no auth)              │      │  - Ownership checks           │  │
-│  │                               │      │  - Audit logging              │  │
-│  │  HTTP_PROXY=gateway:3128     │      │  - Policy enforcement         │  │
-│  │                               │      │                               │  │
-│  └───────────────────────────────┘      └───────────────────────────────┘  │
-│                                                     │                        │
-│                                                     │ All traffic proxied    │
-│                                                     ▼                        │
-│                                              ┌─────────────┐                │
-│                                              │  Internet   │                │
-│                                              │  - GitHub   │                │
-│                                              │  - Claude   │                │
-│                                              │  - PyPI     │                │
-│                                              │  - etc      │                │
-│                                              └─────────────┘                │
-│                                                                               │
-└───────────────────────────────────────────────────────────────────────────────┘
+Namespace: egg-system              Namespace: egg-agents
+┌──────────────────┐               ┌──────────┐  ┌──────────┐
+│     gateway      │               │ agent-1  │  │ agent-2  │
+│   (Deployment)   │               │  (Job)   │  │  (Job)   │
+│                  │               │          │  │          │
+│ - GITHUB_TOKEN   │               │ - No creds│ │ - No creds│
+│ - git push       │◄──────────────│ - Proxy  │  │ - Proxy  │
+│ - gh CLI         │  REST + proxy │   via gw │  │   via gw │
+│ - HTTP/HTTPS     │               └──────────┘  └──────────┘
+│   proxy (Squid)  │
+│ - Policy enforce │──── (internet via Squid proxy)
+└──────────────────┘
 ```
 
 ### Component Summary
 
 | Component | Purpose | Implementation |
 |-----------|---------|----------------|
-| egg container | Run Claude Code agent | Docker container, no credentials |
-| gateway | Handle authenticated ops + proxy all traffic | Docker container with credentials |
-| HTTP Proxy | Route all egg traffic through gateway | Squid in gateway |
+| Agent pods | Run Claude Code agents | Kubernetes Jobs in `egg-agents`, no credentials |
+| Gateway | Handle authenticated ops + proxy all traffic | Kubernetes Deployment in `egg-system` with credentials |
+| HTTP Proxy | Route all agent traffic through gateway | Squid in gateway pod |
 | REST API | Controlled interface for git/gh operations | Python service in gateway |
 | Audit Logger | Log all traffic and operations | Gateway component |
+| NetworkPolicies | Enforce network isolation | Calico CNI (default-deny egress in `egg-agents`) |
 
 ### Key Security Properties
 
@@ -107,7 +95,7 @@ The egg container uses `git` and `gh` CLI wrappers that:
 
 ## Gateway Authentication
 
-The gateway API authenticates requests to prevent abuse from unauthorized containers on the Docker network.
+The gateway API authenticates requests to prevent abuse from unauthorized pods on the Kubernetes network.
 
 **Container Identity Token:**
 
