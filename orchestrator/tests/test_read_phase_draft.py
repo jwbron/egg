@@ -1,4 +1,4 @@
-"""Tests for _read_phase_draft, _draft_filename, _get_draft_path, and _cleanup_stale_generic_drafts."""
+"""Tests for _read_phase_draft, _draft_filename, _get_draft_path, _git_show_draft, and _cleanup_stale_generic_drafts."""
 
 import sys
 from pathlib import Path
@@ -14,6 +14,7 @@ from routes.pipelines import (
     _cleanup_stale_generic_drafts,
     _draft_filename,
     _get_generic_draft_path,
+    _git_show_draft,
     _read_phase_draft,
 )
 
@@ -355,3 +356,278 @@ class TestReadPhaseDraftFallback:
 
         result = _read_phase_draft(tmp_path, "plan")
         assert result == "generic plan no prefix"
+
+
+class TestGitShowDraft:
+    """Tests for _git_show_draft."""
+
+    def test_success(self, tmp_path: Path, monkeypatch):
+        """Returns content when git show succeeds and command is well-formed."""
+        import routes.pipelines as mod
+
+        captured_cmd: list[str] = []
+
+        def fake_run(cmd, **kwargs):
+            captured_cmd.extend(cmd)
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = "draft from remote"
+            return result
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        result = _git_show_draft(tmp_path, "egg/pid/work", ".egg-state/drafts/pid-analysis.md")
+        assert result == "draft from remote"
+
+        # Verify the command includes the -- separator and correct ref:path
+        assert "--" in captured_cmd
+        assert "show" in captured_cmd
+        separator_idx = captured_cmd.index("--")
+        assert (
+            captured_cmd[separator_idx + 1]
+            == "origin/egg/pid/work:.egg-state/drafts/pid-analysis.md"
+        )
+
+    def test_nonzero_returncode(self, tmp_path: Path, monkeypatch):
+        """Returns None when git show returns non-zero."""
+        import routes.pipelines as mod
+
+        def fake_run(cmd, **kwargs):
+            result = MagicMock()
+            result.returncode = 128
+            result.stdout = ""
+            return result
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        result = _git_show_draft(tmp_path, "egg/pid/work", ".egg-state/drafts/pid-analysis.md")
+        assert result is None
+
+    def test_empty_stdout(self, tmp_path: Path, monkeypatch):
+        """Returns None when git show returns zero but empty stdout."""
+        import routes.pipelines as mod
+
+        def fake_run(cmd, **kwargs):
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = ""
+            return result
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        result = _git_show_draft(tmp_path, "egg/pid/work", ".egg-state/drafts/pid-analysis.md")
+        assert result is None
+
+    def test_subprocess_exception(self, tmp_path: Path, monkeypatch):
+        """Returns None when subprocess raises an exception."""
+        import routes.pipelines as mod
+
+        def fake_run(cmd, **kwargs):
+            raise OSError("git not found")
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        result = _git_show_draft(tmp_path, "egg/pid/work", ".egg-state/drafts/pid-analysis.md")
+        assert result is None
+
+
+class TestReadPhaseDraftGitShowFallback:
+    """Tests for _read_phase_draft git show fallback (issue #1614)."""
+
+    def test_git_show_fallback_primary_path(self, tmp_path: Path, monkeypatch):
+        """Falls back to git show for primary path when disk files missing."""
+        import routes.pipelines as mod
+
+        # No files on disk
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+
+        call_log: list[list[str]] = []
+
+        def fake_run(cmd, **kwargs):
+            call_log.append(cmd)
+            result = MagicMock()
+            # Succeed for the primary path
+            if "pid123-analysis.md" in cmd[-1]:
+                result.returncode = 0
+                result.stdout = "analysis from remote"
+            else:
+                result.returncode = 128
+                result.stdout = ""
+            return result
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        result = _read_phase_draft(
+            tmp_path, "refine", pipeline_id="pid123", branch="egg/pid123/work"
+        )
+        assert result == "analysis from remote"
+        assert len(call_log) == 1  # Only primary path attempted
+
+    def test_git_show_fallback_generic_path(self, tmp_path: Path, monkeypatch):
+        """Falls back to git show for generic path when primary git show fails."""
+        import routes.pipelines as mod
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+
+        def fake_run(cmd, **kwargs):
+            result = MagicMock()
+            git_show_ref = cmd[-1]  # e.g. "origin/branch:.egg-state/drafts/..."
+            # Fail for primary (pid123-analysis.md), succeed for generic (analysis.md)
+            if "pid123-analysis.md" in git_show_ref:
+                result.returncode = 128
+                result.stdout = ""
+            elif "analysis.md" in git_show_ref:
+                result.returncode = 0
+                result.stdout = "generic analysis from remote"
+            else:
+                result.returncode = 128
+                result.stdout = ""
+            return result
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        result = _read_phase_draft(
+            tmp_path, "refine", pipeline_id="pid123", branch="egg/pid123/work"
+        )
+        assert result == "generic analysis from remote"
+
+    def test_git_show_not_attempted_without_branch(self, tmp_path: Path, monkeypatch):
+        """Git show is not attempted when branch is None."""
+        import routes.pipelines as mod
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+
+        call_log: list = []
+
+        def fake_run(cmd, **kwargs):
+            call_log.append(cmd)
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = "should not be read"
+            return result
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        result = _read_phase_draft(tmp_path, "refine", pipeline_id="pid123")
+        assert result is None
+        assert len(call_log) == 0  # subprocess.run never called
+
+    def test_disk_preferred_over_git_show(self, tmp_path: Path, monkeypatch):
+        """Disk file is preferred over git show even when branch is provided."""
+        import routes.pipelines as mod
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "pid123-analysis.md").write_text("disk content", encoding="utf-8")
+
+        call_log: list = []
+
+        def fake_run(cmd, **kwargs):
+            call_log.append(cmd)
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = "remote content"
+            return result
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        result = _read_phase_draft(
+            tmp_path, "refine", pipeline_id="pid123", branch="egg/pid123/work"
+        )
+        assert result == "disk content"
+        assert len(call_log) == 0  # subprocess.run never called
+
+    def test_git_show_fallback_truncation(self, tmp_path: Path, monkeypatch):
+        """Content from git show is truncated when exceeding max_chars."""
+        import routes.pipelines as mod
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+
+        content = "x" * 200
+
+        def fake_run(cmd, **kwargs):
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = content
+            return result
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        result = _read_phase_draft(
+            tmp_path, "refine", pipeline_id="pid123", branch="egg/pid123/work", max_chars=100
+        )
+        assert result.startswith("x" * 100)
+        assert "... (truncated, 200 chars total)" in result
+
+    def test_git_show_returns_none_when_all_fail(self, tmp_path: Path, monkeypatch):
+        """Returns None when both disk and git show fail."""
+        import routes.pipelines as mod
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+
+        def fake_run(cmd, **kwargs):
+            result = MagicMock()
+            result.returncode = 128
+            result.stdout = ""
+            return result
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        result = _read_phase_draft(
+            tmp_path, "refine", pipeline_id="pid123", branch="egg/pid123/work"
+        )
+        assert result is None
+
+    def test_git_show_fallback_for_plan_phase(self, tmp_path: Path, monkeypatch):
+        """Git show fallback works for plan phase."""
+        import routes.pipelines as mod
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+
+        def fake_run(cmd, **kwargs):
+            result = MagicMock()
+            if "pid123-plan.md" in cmd[-1]:
+                result.returncode = 0
+                result.stdout = "plan from remote"
+            else:
+                result.returncode = 128
+                result.stdout = ""
+            return result
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        result = _read_phase_draft(tmp_path, "plan", pipeline_id="pid123", branch="egg/pid123/work")
+        assert result == "plan from remote"
+
+    def test_git_show_logs_info_when_used(self, tmp_path: Path, monkeypatch):
+        """Info log is emitted when git show fallback provides the draft."""
+        import routes.pipelines as mod
+
+        mock_logger = MagicMock()
+        monkeypatch.setattr(mod, "logger", mock_logger)
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+
+        def fake_run(cmd, **kwargs):
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = "remote draft"
+            return result
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        result = _read_phase_draft(
+            tmp_path, "refine", pipeline_id="pid123", branch="egg/pid123/work"
+        )
+        assert result == "remote draft"
+
+        # Should have an info log about reading from remote ref
+        info_calls = mock_logger.info.call_args_list
+        assert any("remote tracking ref" in call[0][0] for call in info_calls)
