@@ -53,6 +53,16 @@
           "exit_code": null,
           "agent_role": null,
           "session_token": null
+        },
+        {
+          "container_id": "91d159200fdd6136190b807f288d00a1ced95f338ac6cd8565eaa4e4e6afe9da",
+          "container_name": "egg-sandbox-egg-issue-1570-v2-architect",
+          "status": "running",
+          "started_at": "2026-04-09T13:02:09.940721Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": null,
+          "session_token": null
         }
       ],
       "agents": [
@@ -60,6 +70,18 @@
           "role": "task_planner",
           "status": "running",
           "container_id": "afc89619ac6df1cfd719cba05ca975cd3960a36719d6446a6615dace5325a737",
+          "started_at": null,
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "architect",
+          "status": "running",
+          "container_id": "91d159200fdd6136190b807f288d00a1ced95f338ac6cd8565eaa4e4e6afe9da",
           "started_at": null,
           "completed_at": null,
           "commit": null,
@@ -105,7 +127,7 @@
     }
   ],
   "created_at": "2026-04-09T01:16:37.974233Z",
-  "updated_at": "2026-04-09T13:02:09.769199Z",
+  "updated_at": "2026-04-09T13:02:09.945614Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -113,5 +135,5 @@
   "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-09T01:37:24.001653608Z     Status: healthy\n2026-04-09T01:37:24.001655900Z     GitHub token valid: True\n2026-04-09T01:37:24.001658775Z     Auth configured: True\n2026-04-09T01:37:24.001661858Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-09T01:37:24.001664358Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-09T01:37:24.001666858Z   Credentials injected by gateway (not in container)\n2026-04-09T01:37:24.001671441Z Signaled error to orchestrator\n2026-04-09T01:37:24.001673816Z \n2026-04-09T01:37:24.001675941Z Cleaning up on container exit...\n2026-04-09T01:37:24.001680108Z ✓ Cleanup complete",
   "analysis": "See the full approved analysis at .egg-state/drafts/1570-analysis.md on branch egg/issue-1570. Key HITL decisions: (1) Custom thin adapter wrapping anthropic + openai SDKs, (2) Both headless and interactive in MVP, (3) Shell out to CLIs for egg-native tools initially, (4) Default claude-sdk with configurable opt-in to egg harness + TOS warning, (5) Include WebFetch/WebSearch, defer NotebookEdit, (6) Keep transcript capture in gateway, (7) Hardcoded per-model cost rates, (8) Basic retries with backoff in harness for transient API failures, (9) Replicate exact CLAUDE.md rule-merging, (10) Support opus[1m] suffix syntax, (11) Compare cost/turns/duration/success for validation, (12) Multi-model routing post-MVP but design provider abstraction to support it.",
   "plan": null,
-  "version": 16
+  "version": 17
 }
