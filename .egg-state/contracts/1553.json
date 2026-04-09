@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1553,
+    "title": "Issue #1553",
+    "url": "https://github.com/jwbron/egg/issues/1553"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Complete Migration + Docker Removal",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Pull existing work from egg/issue-1553-v2 branch: git fetch origin egg/issue-1553-v2 && git merge origin/egg/issue-1553-v2. This brings in ContainerBackend, KubernetesClient, KubernetesSpawner, KubernetesMonitor, Kustomize manifests, NetworkPolicies, gateway changes, CLI changes, tests, CI updates, and Makefile targets.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All files from egg/issue-1553-v2 present on working branch. No merge conflicts.",
+          "files_affected": [
+            "orchestrator/container_backend.py",
+            "orchestrator/kubernetes_client.py",
+            "orchestrator/kubernetes_spawner.py",
+            "orchestrator/kubernetes_monitor.py",
+            "k8s/base/"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Migrate routes/pipelines.py from ContainerSpawner/DockerClient to KubernetesSpawner/KubernetesClient. Replace all 11 remaining Docker references. Update spawn_agent_container calls to spawn_agent_job, update container health checks to k8s pod status, update overseer spawning, update exception handling from Docker to k8s exceptions.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Zero references to ContainerSpawner, DockerClient, or DockerException in pipelines.py. All imports use kubernetes_spawner and kubernetes_client.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add k8s-native fields to ContainerInfo in models.py: pod_name (str), namespace (str), job_name (str). Update any code that creates ContainerInfo instances to populate these fields.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "ContainerInfo has pod_name, namespace, job_name fields. KubernetesClient and KubernetesSpawner populate these when creating ContainerInfo.",
+          "files_affected": [
+            "orchestrator/models.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Remove legacy Docker files: delete docker-compose.yml, docker-compose.override.yml (if exists), orchestrator/docker_client.py, orchestrator/container_spawner.py, orchestrator/container_monitor.py, integration_tests/docker-compose.yml, integration_tests/local_pipeline/docker-compose.yml. Remove docker>=7.0.0 from pyproject.toml dependencies.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "None of the listed files exist. docker dependency removed from pyproject.toml. grep -r 'docker' finds only Dockerfile references, comments, and image build commands.",
+          "files_affected": [
+            "docker-compose.yml",
+            "orchestrator/docker_client.py",
+            "orchestrator/container_spawner.py",
+            "orchestrator/container_monitor.py",
+            "pyproject.toml"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Final validation: verify no stale Docker SDK imports remain anywhere in the codebase. Update any remaining test files that reference Docker. Ensure make lint passes.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No Python files import docker SDK. make lint passes. All tests reference kubernetes client, not docker.",
+          "files_affected": [
+            "orchestrator/tests/"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Migrate container runtime from Docker to Kubernetes (k3s)",
+    "description": "Replace Docker-based container management with Kubernetes using k3s for\nlocal development. Introduces ContainerBackend protocol, KubernetesClient,\nKubernetesSpawner, Kustomize manifests with Calico NetworkPolicies for\nagent isolation, and migrates CI/CD to k3s. Removes all Docker Compose\nfiles and Docker SDK dependencies.",
+    "test_plan": "- Automated: Unit tests for KubernetesClient, KubernetesSpawner, ContainerBackend protocol conformance, and gateway token auth.\n- Manual: Run make k3s-setup && make deploy, verify pods healthy, verify agent isolation.",
+    "manual_steps": "Pre-merge: Install k3s with Calico CNI via make k3s-setup.\nPost-merge: Update developer documentation to reflect k3s prerequisite."
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
