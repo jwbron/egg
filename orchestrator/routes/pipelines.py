@@ -5816,6 +5816,44 @@ def _run_concurrent_phase(
                 combined_logs += f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
                 return 1, combined_logs
 
+            # Final consensus completeness check: all containers exited
+            # cleanly (no failures, no NACKs) but consensus may not have
+            # been reached.  Mirror the has_failures branch pattern to
+            # prevent advancing without confirmed BRC consensus.
+            try:
+                final_consensus = executor.check_consensus()
+            except Exception as e:
+                logger.warning(
+                    "Final consensus recheck failed on clean exit, treating as incomplete",
+                    pipeline_id=pipeline_id,
+                    error=str(e),
+                )
+                final_consensus = {"is_complete": False}
+
+            if not final_consensus.get("is_complete"):
+                logger.warning(
+                    "All containers exited cleanly but consensus not reached",
+                    pipeline_id=pipeline_id,
+                    elapsed_seconds=round(elapsed, 1),
+                )
+                return 1, combined_logs
+
+            # Consensus confirmed on clean exit — mirror the has_failures
+            # success path: emit event, update agent state, stop containers.
+            if _emit_event is not None:
+                _emit_event(
+                    EventType.CONSENSUS_REACHED,
+                    pipeline_id,
+                    data={"elapsed_seconds": elapsed},
+                )
+            logger.info(
+                "Consensus reached on final recheck, stopping containers",
+                pipeline_id=pipeline_id,
+                elapsed_seconds=round(elapsed, 1),
+                has_failures=has_failures[0],
+            )
+            _update_agents_complete()
+            _stop_running_containers()
             return 0, combined_logs
 
         # 6. Consensus timeout

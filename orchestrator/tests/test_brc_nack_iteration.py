@@ -321,10 +321,10 @@ class TestPollingLoopWithNacks:
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
-    def test_containers_exit_without_nacks_returns_success(
+    def test_containers_exit_without_nacks_returns_failure_without_consensus(
         self, MockExecutor, mock_prompt, mock_lock, mock_monotonic, mock_sleep
     ):
-        """All containers exit code 0, no NACKs -> returns (0, ...)."""
+        """All containers exit code 0, no NACKs but no consensus -> returns (1, ...)."""
         from routes.pipelines import _run_concurrent_phase
 
         mock_monotonic.return_value = 0.0
@@ -368,7 +368,8 @@ class TestPollingLoopWithNacks:
             **_CALL_ARGS,
         )
 
-        assert exit_code == 0
+        # Issue #1581: clean exit without consensus must return failure
+        assert exit_code == 1
 
 
 class TestTimeoutWithNacks:

@@ -758,3 +758,494 @@ class TestWrapperStaleTrackerFallback:
             with open(log_file) as f:
                 log_content = f.read()
             assert "message poll" not in log_content or "pipeline status" in log_content
+
+
+# ===========================================================================
+# Issue #1581: Clean exit without consensus — no-failures path
+# ===========================================================================
+
+
+class TestCleanExitWithoutConsensus:
+    """When all containers exit with code 0 (no failures) but BRC consensus
+    is not complete, _run_concurrent_phase must return exit code 1.
+
+    This covers the bug in issue #1581 where the no-failures branch at step 5
+    returned 0 without verifying consensus.is_complete, allowing the pipeline
+    to advance (and open a PR) despite consensus not being reached.
+    """
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_clean_exit_without_consensus_returns_failure(
+        self,
+        MockExecutor,
+        mock_prompt,
+        mock_lock,
+        mock_emit,
+        mock_monotonic,
+        mock_sleep,
+    ):
+        """Task 1-2: All containers exit code 0, consensus never completes.
+
+        Scenario: All agents exit cleanly (code 0), no NACKs, but
+        check_consensus always returns is_complete=False. The phase must
+        return exit code 1 to prevent pipeline advancement.
+        """
+        mock_monotonic.return_value = 10.0
+
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.TESTER, "tester-1"),
+            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-1"),
+        ]
+
+        # All containers exited cleanly — exit code 0 (no failures)
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-1581-coder",
+                status=ContainerStatus.EXITED,
+                exit_code=0,
+            ),
+            "tester-1": ContainerInfo(
+                container_id="tester-1",
+                container_name="issue-1581-tester",
+                status=ContainerStatus.EXITED,
+                exit_code=0,
+            ),
+            "reviewer-1": ContainerInfo(
+                container_id="reviewer-1",
+                container_name="issue-1581-reviewer",
+                status=ContainerStatus.EXITED,
+                exit_code=0,
+            ),
+        }
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions, container_infos)
+
+        # Consensus is never complete
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = {
+            "is_complete": False,
+            "has_objections": False,
+            "has_unresolved_nacks": False,
+            "blocking_agents": ["coder", "tester", "reviewer_code"],
+        }
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-1581",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        assert exit_code == 1, (
+            f"Expected exit code 1 (all containers exited cleanly but consensus "
+            f"not reached), got {exit_code}. Logs: {logs}"
+        )
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_clean_exit_with_late_consensus_returns_success(
+        self,
+        MockExecutor,
+        mock_prompt,
+        mock_lock,
+        mock_emit,
+        mock_monotonic,
+        mock_sleep,
+    ):
+        """Task 1-3: All containers exit code 0, consensus completes on recheck.
+
+        Scenario: All agents exit cleanly (code 0), no NACKs. Initial
+        check_consensus returns is_complete=False, but the final recheck
+        returns is_complete=True. The phase should return exit code 0.
+        """
+        mock_monotonic.return_value = 10.0
+
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.TESTER, "tester-1"),
+        ]
+
+        # All containers exited cleanly — exit code 0
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-1581-coder",
+                status=ContainerStatus.EXITED,
+                exit_code=0,
+            ),
+            "tester-1": ContainerInfo(
+                container_id="tester-1",
+                container_name="issue-1581-tester",
+                status=ContainerStatus.EXITED,
+                exit_code=0,
+            ),
+        }
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions, container_infos)
+
+        # First call: incomplete; final recheck: complete
+        call_count = [0]
+
+        def _check_consensus():
+            call_count[0] += 1
+            if call_count[0] <= 1:
+                return {
+                    "is_complete": False,
+                    "has_objections": False,
+                    "has_unresolved_nacks": False,
+                    "blocking_agents": ["coder", "tester"],
+                }
+            return {
+                "is_complete": True,
+                "has_objections": False,
+                "has_unresolved_nacks": False,
+                "blocking_agents": [],
+            }
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.side_effect = _check_consensus
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-1581",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        assert exit_code == 0, (
+            f"Expected exit code 0 (consensus completed on final recheck), "
+            f"got {exit_code}. Logs: {logs}"
+        )
+        # Should have called check_consensus at least twice
+        assert call_count[0] >= 2, (
+            f"Expected at least 2 consensus checks (initial + final recheck), got {call_count[0]}"
+        )
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_clean_exit_without_consensus_recheck_exception_returns_failure(
+        self,
+        MockExecutor,
+        mock_prompt,
+        mock_lock,
+        mock_emit,
+        mock_monotonic,
+        mock_sleep,
+    ):
+        """Edge case: Final consensus recheck raises an exception in the
+        no-failures path. Should still return exit code 1, not crash."""
+        mock_monotonic.return_value = 10.0
+
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-1"),
+        ]
+
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-1581-coder",
+                status=ContainerStatus.EXITED,
+                exit_code=0,
+            ),
+        }
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions, container_infos)
+
+        call_count = [0]
+
+        def _check_consensus():
+            call_count[0] += 1
+            if call_count[0] <= 1:
+                return {
+                    "is_complete": False,
+                    "has_objections": False,
+                    "has_unresolved_nacks": False,
+                    "blocking_agents": ["coder"],
+                }
+            raise RuntimeError("Orchestrator API unreachable")
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.side_effect = _check_consensus
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-1581",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        assert exit_code == 1, (
+            f"Expected exit code 1 (consensus recheck exception), got {exit_code}. Logs: {logs}"
+        )
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_clean_exit_with_consensus_complete_returns_success(
+        self,
+        MockExecutor,
+        mock_prompt,
+        mock_lock,
+        mock_emit,
+        mock_monotonic,
+        mock_sleep,
+    ):
+        """Positive case: All containers exit code 0, consensus is already
+        complete. Should return exit code 0 (no regression)."""
+        mock_monotonic.return_value = 10.0
+
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.TESTER, "tester-1"),
+        ]
+
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-1581-coder",
+                status=ContainerStatus.EXITED,
+                exit_code=0,
+            ),
+            "tester-1": ContainerInfo(
+                container_id="tester-1",
+                container_name="issue-1581-tester",
+                status=ContainerStatus.EXITED,
+                exit_code=0,
+            ),
+        }
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions, container_infos)
+
+        # Consensus is always complete
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = {
+            "is_complete": True,
+            "has_objections": False,
+            "has_unresolved_nacks": False,
+            "blocking_agents": [],
+        }
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-1581",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        assert exit_code == 0, (
+            f"Expected exit code 0 (consensus already complete), got {exit_code}. Logs: {logs}"
+        )
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_clean_exit_without_consensus_calls_update_agents_on_recovery(
+        self,
+        MockExecutor,
+        mock_prompt,
+        mock_lock,
+        mock_emit,
+        mock_monotonic,
+        mock_sleep,
+    ):
+        """When the clean-exit recheck succeeds, _update_agents_complete and
+        _stop_running_containers should be invoked (same as has_failures path)."""
+        mock_monotonic.return_value = 10.0
+
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.TESTER, "tester-1"),
+        ]
+
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-1581-coder",
+                status=ContainerStatus.EXITED,
+                exit_code=0,
+            ),
+            "tester-1": ContainerInfo(
+                container_id="tester-1",
+                container_name="issue-1581-tester",
+                status=ContainerStatus.EXITED,
+                exit_code=0,
+            ),
+        }
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions, container_infos)
+
+        call_count = [0]
+
+        def _check_consensus():
+            call_count[0] += 1
+            if call_count[0] <= 1:
+                return {
+                    "is_complete": False,
+                    "has_objections": False,
+                    "has_unresolved_nacks": False,
+                    "blocking_agents": ["coder"],
+                }
+            return {
+                "is_complete": True,
+                "has_objections": False,
+                "has_unresolved_nacks": False,
+                "blocking_agents": [],
+            }
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.side_effect = _check_consensus
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-1581",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        assert exit_code == 0
+
+        # Verify _update_agents_complete was called: it calls
+        # store.load_pipeline -> pip.get_phase_execution -> store.save_pipeline.
+        # The mock_pipeline_state returned by load_pipeline must have
+        # get_phase_execution called on it (from _update_agents_complete,
+        # not just from step 4 container tracking which uses a different path).
+        mock_pipeline_state = mock_store.load_pipeline.return_value
+        mock_pipeline_state.get_phase_execution.assert_called()
+        mock_store.save_pipeline.assert_called_with(mock_pipeline_state)
+
+        # Verify CONSENSUS_REACHED event was emitted
+        from events import EventType
+
+        consensus_calls = [
+            c for c in mock_emit.call_args_list if c[0][0] == EventType.CONSENSUS_REACHED
+        ]
+        assert len(consensus_calls) == 1, (
+            f"Expected exactly 1 CONSENSUS_REACHED event, got {len(consensus_calls)}"
+        )
+        assert consensus_calls[0][0][1] == "issue-1581"
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_clean_exit_with_unresolved_nacks_still_fails(
+        self,
+        MockExecutor,
+        mock_prompt,
+        mock_lock,
+        mock_emit,
+        mock_monotonic,
+        mock_sleep,
+    ):
+        """Regression: unresolved NACKs path should still work. Even though
+        consensus recheck is added, the NACK check comes first and should
+        still return failure."""
+        mock_monotonic.return_value = 10.0
+
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-1"),
+        ]
+
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-1581-coder",
+                status=ContainerStatus.EXITED,
+                exit_code=0,
+            ),
+            "reviewer-1": ContainerInfo(
+                container_id="reviewer-1",
+                container_name="issue-1581-reviewer",
+                status=ContainerStatus.EXITED,
+                exit_code=0,
+            ),
+        }
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions, container_infos)
+
+        # Consensus incomplete with unresolved NACKs
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = {
+            "is_complete": False,
+            "has_objections": False,
+            "has_unresolved_nacks": True,
+            "unresolved_nacks": [
+                {
+                    "reviewer": "reviewer_code",
+                    "producer": "coder",
+                    "reason": "Missing error handling",
+                }
+            ],
+            "blocking_agents": ["coder"],
+        }
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-1581",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        assert exit_code == 1, (
+            f"Expected exit code 1 (unresolved NACKs), got {exit_code}. Logs: {logs}"
+        )

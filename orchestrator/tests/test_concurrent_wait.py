@@ -139,10 +139,10 @@ class TestRunConcurrentPhaseWait:
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
-    def test_all_containers_exit_successfully(
+    def test_all_containers_exit_without_consensus_returns_failure(
         self, MockExecutor, mock_build_prompt, mock_state_lock, mock_monotonic, mock_sleep
     ):
-        """When all containers exit with code 0, returns (0, logs)."""
+        """When all containers exit with code 0 but no consensus, returns (1, logs)."""
         mock_monotonic.return_value = 0.0
 
         executions = [
@@ -174,7 +174,8 @@ class TestRunConcurrentPhaseWait:
             worktree_repo_path=Path("/tmp/test-repo"),
         )
 
-        assert exit_code == 0
+        # Issue #1581: clean exit without consensus must return failure
+        assert exit_code == 1
         assert mock_docker.get_container_info.call_count == 3
 
     @patch("routes.pipelines.time.sleep")
@@ -335,7 +336,12 @@ class TestRunConcurrentPhaseWait:
     def test_store_none_does_not_crash(
         self, MockExecutor, mock_build_prompt, mock_state_lock, mock_monotonic, mock_sleep
     ):
-        """When store=None, state recording is skipped gracefully."""
+        """When store=None, state recording is skipped gracefully.
+
+        Note: with the #1581 consensus gate fix, clean exit without
+        consensus returns failure (1), but it must not crash when store
+        is None.
+        """
         mock_monotonic.return_value = 0.0
 
         executions = [
@@ -362,7 +368,8 @@ class TestRunConcurrentPhaseWait:
             worktree_repo_path=Path("/tmp/test-repo"),
         )
 
-        assert exit_code == 0
+        # Issue #1581: clean exit without consensus returns failure, but must not crash
+        assert exit_code == 1
 
     @patch("routes.pipelines.time.sleep")
     @patch("routes.pipelines.time.monotonic")

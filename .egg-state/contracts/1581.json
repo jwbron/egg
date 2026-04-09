@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1581,
+    "title": "Issue #1581",
+    "url": "https://github.com/jwbron/egg/issues/1581"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/routes/pipelines.py` step 5 no-failures branch (after NACK check ~line 5295, before `return 0` at line 5297), add a final consensus recheck via `executor.check_consensus()`. If `is_complete` is False, log a warning ('All containers exited cleanly but consensus not reached') and return 1. Mirror the has_failures branch pattern (lines 5219-5268) but without the pipeline FAILED recovery logic (not needed since has_failures is False here).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "_run_concurrent_phase returns exit code 1 when all containers exit code 0 but consensus.is_complete is False",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `orchestrator/tests/test_consensus_race_on_exit.py`, add TestCleanExitWithoutConsensus class. Test: all containers exit code 0 (ContainerStatus.EXITED, exit_code=0), check_consensus always returns is_complete=False. Assert _run_concurrent_phase returns exit code 1. Use _base_mocks, _CALL_ARGS, and the same mock/patch pattern as TestConsensusRaceOnContainerExit.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes, asserts exit_code == 1",
+          "files_affected": [
+            "orchestrator/tests/test_consensus_race_on_exit.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In the same test class, add positive test: all containers exit code 0, check_consensus returns is_complete=False on first call then is_complete=True on final recheck. Assert _run_concurrent_phase returns exit code 0. Validates that the final recheck recovers correctly.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes, asserts exit_code == 0",
+          "files_affected": [
+            "orchestrator/tests/test_consensus_race_on_exit.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Gate phase completion on BRC consensus in clean-exit path",
+    "description": "Fix bug where _run_concurrent_phase returns success when all containers\nexit cleanly (code 0) but BRC consensus was never reached. Adds a final\nconsensus recheck in the no-failures exit path, mirroring the existing\npattern in the has_failures branch.\n\nCloses #1581",
+    "test_plan": "- Automated: test_consensus_race_on_exit.py \u2014 new TestCleanExitWithoutConsensus class\n- Manual: Run a pipeline where agents exit code 0 without confirming consensus; verify PR is not created",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
