@@ -5,7 +5,7 @@
   "branch": "egg/issue-1570-v2",
   "base_branch": null,
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -39,102 +39,12 @@
   "phases": {
     "plan": {
       "phase": "plan",
-      "status": "failed",
+      "status": "running",
       "started_at": "2026-04-09T01:17:02.760584Z",
       "work_started_at": "2026-04-09T01:17:05.740640Z",
       "completed_at": "2026-04-09T01:37:26.676422Z",
-      "containers": [
-        {
-          "container_id": "8a3ab2dd7caefffb473eacb84c3edc708ebd5206b0ddef7b9280be777142e6cf",
-          "container_name": "issue-1570-v2-task_planner",
-          "status": "exited",
-          "started_at": "2026-04-09T01:17:09.741142Z",
-          "exited_at": "2026-04-09T01:37:24.027716Z",
-          "exit_code": 1,
-          "agent_role": "task_planner",
-          "session_token": null
-        },
-        {
-          "container_id": "35f7c929e22d0275e19ca21ee7bfdb0b4361f71324cfcfd360845f71f3fc0710",
-          "container_name": "issue-1570-v2-architect",
-          "status": "exited",
-          "started_at": "2026-04-09T01:17:09.741178Z",
-          "exited_at": "2026-04-09T01:37:11.973558Z",
-          "exit_code": 1,
-          "agent_role": "architect",
-          "session_token": null
-        },
-        {
-          "container_id": "bb22af98044b1ea9ec5c044977c38ac8b51ede045ee965ea36dad31b91f5c522",
-          "container_name": "issue-1570-v2-risk_analyst",
-          "status": "exited",
-          "started_at": "2026-04-09T01:17:09.741191Z",
-          "exited_at": "2026-04-09T01:37:08.668407Z",
-          "exit_code": 1,
-          "agent_role": "risk_analyst",
-          "session_token": null
-        },
-        {
-          "container_id": "b8860c0b696961b528456fc1def5f5a1f5ef85b5dd66f85842e42f9f3a9374b8",
-          "container_name": "issue-1570-v2-reviewer_plan",
-          "status": "exited",
-          "started_at": "2026-04-09T01:17:09.741201Z",
-          "exited_at": "2026-04-09T01:37:08.980438Z",
-          "exit_code": 1,
-          "agent_role": "reviewer_plan",
-          "session_token": null
-        }
-      ],
-      "agents": [
-        {
-          "role": "task_planner",
-          "status": "failed",
-          "container_id": "8a3ab2dd7caefffb473eacb84c3edc708ebd5206b0ddef7b9280be777142e6cf",
-          "started_at": "2026-04-09T01:17:09.741163Z",
-          "completed_at": "2026-04-09T01:37:26.658487Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "architect",
-          "status": "failed",
-          "container_id": "35f7c929e22d0275e19ca21ee7bfdb0b4361f71324cfcfd360845f71f3fc0710",
-          "started_at": "2026-04-09T01:17:09.741184Z",
-          "completed_at": "2026-04-09T01:37:15.177209Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "risk_analyst",
-          "status": "failed",
-          "container_id": "bb22af98044b1ea9ec5c044977c38ac8b51ede045ee965ea36dad31b91f5c522",
-          "started_at": "2026-04-09T01:17:09.741196Z",
-          "completed_at": "2026-04-09T01:37:10.073230Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_plan",
-          "status": "failed",
-          "container_id": "b8860c0b696961b528456fc1def5f5a1f5ef85b5dd66f85842e42f9f3a9374b8",
-          "started_at": "2026-04-09T01:17:09.741206Z",
-          "completed_at": "2026-04-09T01:37:10.129836Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        }
-      ],
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -171,7 +81,7 @@
     }
   ],
   "created_at": "2026-04-09T01:16:37.974233Z",
-  "updated_at": "2026-04-09T01:37:48.046257Z",
+  "updated_at": "2026-04-09T13:02:09.331730Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -179,5 +89,5 @@
   "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-09T01:37:24.001653608Z     Status: healthy\n2026-04-09T01:37:24.001655900Z     GitHub token valid: True\n2026-04-09T01:37:24.001658775Z     Auth configured: True\n2026-04-09T01:37:24.001661858Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-09T01:37:24.001664358Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-09T01:37:24.001666858Z   Credentials injected by gateway (not in container)\n2026-04-09T01:37:24.001671441Z Signaled error to orchestrator\n2026-04-09T01:37:24.001673816Z \n2026-04-09T01:37:24.001675941Z Cleaning up on container exit...\n2026-04-09T01:37:24.001680108Z ✓ Cleanup complete",
   "analysis": "See the full approved analysis at .egg-state/drafts/1570-analysis.md on branch egg/issue-1570. Key HITL decisions: (1) Custom thin adapter wrapping anthropic + openai SDKs, (2) Both headless and interactive in MVP, (3) Shell out to CLIs for egg-native tools initially, (4) Default claude-sdk with configurable opt-in to egg harness + TOS warning, (5) Include WebFetch/WebSearch, defer NotebookEdit, (6) Keep transcript capture in gateway, (7) Hardcoded per-model cost rates, (8) Basic retries with backoff in harness for transient API failures, (9) Replicate exact CLAUDE.md rule-merging, (10) Support opus[1m] suffix syntax, (11) Compare cost/turns/duration/success for validation, (12) Multi-model routing post-MVP but design provider abstraction to support it.",
   "plan": null,
-  "version": 14
+  "version": 15
 }
