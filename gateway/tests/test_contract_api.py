@@ -419,6 +419,93 @@ class TestCheckContractExistsByPipelineId:
 
 
 # ---------------------------------------------------------------------------
+# Path traversal and routing edge-case tests
+# ---------------------------------------------------------------------------
+
+
+class TestIdentifierValidation:
+    """Tests for path traversal prevention on string identifier routes."""
+
+    @pytest.mark.parametrize(
+        "identifier",
+        [
+            "../../../etc/passwd",
+            "..%2F..%2Fetc%2Fpasswd",
+            "drafts/../secret",
+            "foo/bar",
+            "foo\\bar",
+        ],
+    )
+    def test_get_contract_rejects_traversal(self, client, auth_headers, identifier):
+        """GET /api/v1/contract/<identifier> rejects path-traversal identifiers."""
+        response = client.get(
+            f"/api/v1/contract/{identifier}?repo_path=/home/egg/repos/test",
+            headers=auth_headers,
+        )
+        # Flask may return 404 (route not matched due to slashes) or 400 (our validation)
+        assert response.status_code in (400, 404)
+
+    def test_get_contract_rejects_dot_dot(self, client, auth_headers):
+        """GET /api/v1/contract/<identifier> rejects '..' even without slashes."""
+        response = client.get(
+            "/api/v1/contract/..?repo_path=/home/egg/repos/test",
+            headers=auth_headers,
+        )
+        assert response.status_code in (400, 404)
+
+    def test_exists_rejects_traversal(self, client, auth_headers):
+        """GET /api/v1/contract/exists/<identifier> rejects traversal identifiers."""
+        response = client.get(
+            "/api/v1/contract/exists/..%2Fsecret?repo_path=/home/egg/repos/test",
+            headers=auth_headers,
+        )
+        assert response.status_code in (400, 404)
+
+    def test_mutate_rejects_traversal_identifier(self, client, auth_headers):
+        """POST /api/v1/contract/mutate rejects traversal in identifier field."""
+        response = client.post(
+            "/api/v1/contract/mutate",
+            headers=auth_headers,
+            data=json.dumps(
+                {
+                    "identifier": "../../../etc/passwd",
+                    "field_path": "phases.0.tasks.0.commit",
+                    "new_value": "abc1234",
+                    "repo_path": "/home/egg/repos/test",
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "invalid identifier" in data["message"].lower()
+
+
+class TestNumericStringRouting:
+    """Verify numeric strings route to <int:issue_number>, not <identifier>."""
+
+    def test_numeric_string_routes_to_int_handler(self, client, auth_headers):
+        """A numeric path like /api/v1/contract/123 hits the int route."""
+        mock_contract = MagicMock()
+        mock_exported = {"issue": {"number": 123}, "phases": []}
+
+        with (
+            patch.object(contract_api, "load_contract", return_value=mock_contract) as mock_load,
+            patch.object(contract_api, "export_contract", return_value=mock_exported),
+        ):
+            response = client.get(
+                "/api/v1/contract/123?repo_path=/home/egg/repos/test",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 200
+        # Verify the identifier passed was an int, not a string
+        call_args = mock_load.call_args
+        assert call_args[0][0] == 123
+        assert isinstance(call_args[0][0], int)
+
+
+# ---------------------------------------------------------------------------
 # POST /api/v1/contract/validate tests
 # ---------------------------------------------------------------------------
 

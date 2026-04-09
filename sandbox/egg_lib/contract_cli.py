@@ -86,10 +86,10 @@ def get_contract_identifier(args: argparse.Namespace) -> int | str | None:
         int for issue numbers, str for pipeline IDs, None if nothing found
     """
     issue_arg: int | None = args.issue
-    if issue_arg:
+    if issue_arg is not None:
         return issue_arg
     pipeline_id_arg: str | None = getattr(args, "pipeline_id", None)
-    if pipeline_id_arg:
+    if pipeline_id_arg is not None:
         return pipeline_id_arg
     issue = get_issue_number()
     if issue is not None:

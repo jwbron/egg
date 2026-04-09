@@ -6,6 +6,7 @@ Role is determined from GitHub Actions workflow context, not agent environment.
 """
 
 import os
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -210,11 +211,32 @@ def make_contract_success(
     return jsonify(response), 200
 
 
+_VALID_IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _validate_identifier(identifier: int | str) -> tuple[Response, int] | None:
+    """Validate a contract identifier against path traversal.
+
+    Returns an error response tuple if invalid, None if valid.
+    """
+    if isinstance(identifier, int):
+        return None
+    if not _VALID_IDENTIFIER_RE.match(identifier):
+        return make_contract_error(
+            "Invalid identifier: must contain only alphanumeric characters, hyphens, and underscores",
+            status_code=400,
+        )
+    return None
+
+
 def _get_contract_impl(identifier: int | str) -> tuple[Response, int]:
     """Shared implementation for get_contract routes.
 
     Supports both integer issue numbers and string pipeline IDs.
     """
+    validation_error = _validate_identifier(identifier)
+    if validation_error:
+        return validation_error
     repo_path, path_error, container_id = get_repo_path_from_request(from_query=True)
     if path_error:
         return make_contract_error(path_error, status_code=400)
@@ -236,7 +258,7 @@ def _get_contract_impl(identifier: int | str) -> tuple[Response, int]:
         return make_contract_success("Contract retrieved", data=data)
     except ContractNotFoundError:
         return make_contract_error(
-            f"Contract for {identifier} not found",
+            f"Contract for {'#' + str(identifier) if isinstance(identifier, int) else identifier} not found",
             status_code=404,
         )
     except ContractValidationError as e:
@@ -311,13 +333,21 @@ def mutate_contract() -> tuple[Response, int]:
     if not data:
         return make_contract_error("Missing request body")
 
-    # Required fields — accept "identifier" with "issue_number" fallback
-    identifier = data.get("identifier") or data.get("issue_number")
+    # Required fields — accept "identifier" with "issue_number" fallback.
+    # Identifier may be int or str, so use explicit None checks to avoid
+    # falsy values (e.g. 0 or "") falling through incorrectly.
+    identifier = data.get("identifier")
+    if identifier is None:
+        identifier = data.get("issue_number")
     field_path = data.get("field_path")
     new_value = data.get("new_value")
 
-    if not identifier:
+    if identifier is None:
         return make_contract_error("Missing identifier or issue_number")
+
+    validation_error = _validate_identifier(identifier)
+    if validation_error:
+        return validation_error
     if not field_path:
         return make_contract_error("Missing field_path")
     if new_value is None:
@@ -362,7 +392,7 @@ def mutate_contract() -> tuple[Response, int]:
         contract = load_contract(identifier, repo_path)
     except ContractNotFoundError:
         return make_contract_error(
-            f"Contract for {identifier} not found",
+            f"Contract for {'#' + str(identifier) if isinstance(identifier, int) else identifier} not found",
             status_code=404,
         )
     except ContractValidationError as e:
@@ -486,6 +516,9 @@ def validate_contract_mutation() -> tuple[Response, int]:
 
 def _check_contract_exists_impl(identifier: int | str) -> tuple[Response, int]:
     """Shared implementation for contract exists routes."""
+    validation_error = _validate_identifier(identifier)
+    if validation_error:
+        return validation_error
     repo_path, path_error, container_id = get_repo_path_from_request(from_query=True)
     if path_error:
         return make_contract_error(path_error, status_code=400)
