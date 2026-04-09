@@ -323,8 +323,8 @@ The refine and plan phases include an automated internal review step before huma
 .egg-state/
 ├── contracts/{identifier}.json      # Contract state
 ├── drafts/
-│   ├── {identifier}-analysis.md     # Refine phase draft
-│   └── {identifier}-plan.md         # Plan phase draft
+│   ├── {identifier}-analysis.md     # Refine phase draft (removed before PR creation)
+│   └── {identifier}-plan.md         # Plan phase draft (removed before PR creation)
 ├── brc-history/
 │   ├── {identifier}-refine.md       # BRC consensus messages from refine phase
 │   ├── {identifier}-plan.md         # BRC consensus messages from plan phase
@@ -336,6 +336,8 @@ The refine and plan phases include an automated internal review step before huma
     ├── {identifier}-implement-code-review.json        # Code review verdict
     └── {identifier}-implement-contract-review.json    # Contract review verdict
 ```
+
+**Note:** Draft files are removed from the branch during the PR phase by `_cleanup_drafts_for_pr()`. This keeps PR diffs focused on code changes. Draft content is preserved in git history and in BRC history files.
 
 **Review Verdict JSON Schema:**
 ```json
@@ -410,8 +412,8 @@ This structural enforcement prevents incidents where agents push code during pla
 | `.egg/schemas/` | Contract JSON schema definitions | `main` |
 | `.egg/phase-permissions.json` | Phase operation restrictions | `main` |
 | `.egg-state/contracts/` | Per-issue contract instances | Feature branches only |
-| `.egg-state/drafts/` | Draft analysis and plan documents | Feature branches only |
-| `.egg-state/brc-history/` | Per-phase BRC consensus message logs (markdown) | Feature branches only |
+| `.egg-state/drafts/` | Draft analysis and plan documents (cleaned up before PR creation) | Feature branches only |
+| `.egg-state/brc-history/` | Per-phase BRC consensus message logs (re-written in PR phase as safety net) | Feature branches only |
 | `.egg-state/reviews/` | Internal review verdicts (JSON) | Feature branches only |
 
 ### Conflict-Resistant Contract Updates
@@ -715,7 +717,8 @@ The orchestrator pushes worktree state (including `.egg-state/` files) to the re
 
 1. **After contract initialization** — Pushes initial contract and analysis/plan drafts so the first agents in the next phase see them
 2. **After phase completion** — Pushes statefiles (drafts, reviews, BRC history, check results, contract updates) so the next phase's agents don't have unpushed `.egg-state/` files in their diff
-3. **On pipeline failure** — Best-effort failsafe push to preserve in-progress work
+3. **Before PR creation** — Pushes BRC history re-writes, draft cleanup commits, and any pending statefiles. This is a safety net for cases where post-phase pushes (point 2) failed silently
+4. **On pipeline failure** — Best-effort failsafe push to preserve in-progress work
 
 All pushes use `GatewayClient.push_worktree_branch()`, which registers a temporary session token, pushes the branch, and cleans up the session.
 
@@ -880,6 +883,8 @@ Default checks for each phase are defined in `shared/egg_contracts/phase_default
 **PR phase:**
 - No checks
 - PR is auto-created by the orchestrator (no agent spawned). The PR title and description are sourced from the contract's `pr` field (populated by the plan agent), with commit log and diff stats appended automatically. When BRC consensus was active, a **BRC Consensus Summary** section is included in the PR body showing per-phase agent participation, proposal/ACK/NACK counts, and consensus outcomes.
+- **BRC history safety net**: Before PR creation, the orchestrator re-writes BRC history files for all completed phases via `_write_brc_history()`. This is a safety net — BRC history is normally written at each phase boundary, but per-phase pushes can fail silently. Re-writing in the PR phase ensures BRC history files are always present in the PR diff.
+- **Draft cleanup**: Pipeline-specific draft files (`.egg-state/drafts/{id}-analysis.md`, `.egg-state/drafts/{id}-plan.md`) are removed from the branch via `_cleanup_drafts_for_pr()` before PR creation. By the time the PR phase runs, all review cycles and HITL gates that read drafts are complete, so these files are no longer needed. Removing them keeps the PR diff focused on actual code changes. The cleanup is scoped to the current pipeline's identifier to avoid affecting concurrent pipelines.
 - If PR creation returns no URL, the pipeline is marked **FAILED** immediately. The overseer also runs a safety-net check at pipeline completion: if `current_phase=pr` but no `pr_url` is in the phase artifacts, it creates a HITL decision and Slack notification to prevent stranded branch work from going unnoticed.
 
 ### Customizing Phase Checks
