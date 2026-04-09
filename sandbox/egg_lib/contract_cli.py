@@ -64,6 +64,39 @@ def get_issue_number() -> int | None:
     return None
 
 
+def get_pipeline_id() -> str | None:
+    """Get the pipeline ID from environment.
+
+    Used when running in pipeline mode with JIRA tickets
+    instead of GitHub issues.
+    """
+    return os.environ.get("EGG_PIPELINE_ID") or None
+
+
+def get_contract_identifier(args: argparse.Namespace) -> int | str | None:
+    """Resolve the contract identifier from args and environment.
+
+    Priority (highest to lowest):
+    1. --issue flag (int, for backward compatibility)
+    2. --pipeline-id flag (str)
+    3. EGG_ISSUE_NUMBER env var (int)
+    4. EGG_PIPELINE_ID env var (str)
+
+    Returns:
+        int for issue numbers, str for pipeline IDs, None if nothing found
+    """
+    issue_arg: int | None = args.issue
+    if issue_arg:
+        return issue_arg
+    pipeline_id_arg: str | None = getattr(args, "pipeline_id", None)
+    if pipeline_id_arg:
+        return pipeline_id_arg
+    issue = get_issue_number()
+    if issue is not None:
+        return issue
+    return get_pipeline_id()
+
+
 def get_repo_path() -> str:
     """Get the repository path from environment or default."""
     return os.environ.get("EGG_REPO_PATH", str(Path.cwd()))
@@ -231,9 +264,13 @@ def make_gateway_request(
 
 def cmd_show(args: argparse.Namespace) -> int:
     """Display current contract state."""
-    issue_number = args.issue or get_issue_number()
-    if not issue_number:
-        print("Error: Issue number required. Set EGG_ISSUE_NUMBER or use --issue", file=sys.stderr)
+    identifier = get_contract_identifier(args)
+    if not identifier:
+        print(
+            "Error: Contract identifier required. "
+            "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
+            file=sys.stderr,
+        )
         return 1
 
     params: dict[str, str] = {}
@@ -245,7 +282,7 @@ def cmd_show(args: argparse.Namespace) -> int:
     if container_id:
         params["container_id"] = container_id
 
-    endpoint = f"/api/v1/contract/{issue_number}"
+    endpoint = f"/api/v1/contract/{identifier}"
     if params:
         endpoint += "?" + urlencode(params)
 
@@ -266,9 +303,15 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 def _print_contract_summary(contract: dict[str, Any]) -> None:
     """Print a human-readable contract summary."""
-    print(
-        f"Issue: #{contract.get('issue', {}).get('number')} - {contract.get('issue', {}).get('title')}"
-    )
+    issue = contract.get("issue")
+    if issue and issue.get("number"):
+        print(f"Issue: #{issue.get('number')} - {issue.get('title')}")
+    else:
+        pipeline_id = contract.get("pipeline_id")
+        if pipeline_id:
+            print(f"Pipeline: {pipeline_id}")
+        else:
+            print("Contract:")
     print(f"Phase: {contract.get('current_phase', 'unknown')}")
     print()
 
@@ -323,9 +366,13 @@ def _print_contract_summary(contract: dict[str, Any]) -> None:
 
 def cmd_add_commit(args: argparse.Namespace) -> int:
     """Link a commit to a task."""
-    issue_number = args.issue or get_issue_number()
-    if not issue_number:
-        print("Error: Issue number required", file=sys.stderr)
+    identifier = get_contract_identifier(args)
+    if not identifier:
+        print(
+            "Error: Contract identifier required. "
+            "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
+            file=sys.stderr,
+        )
         return 1
 
     try:
@@ -346,7 +393,7 @@ def cmd_add_commit(args: argparse.Namespace) -> int:
         "/api/v1/contract/mutate",
         method="POST",
         data={
-            "issue_number": issue_number,
+            "identifier": identifier,
             "repo_path": args.repo_path or get_repo_path(),
             "field_path": field_path,
             "new_value": args.commit,
@@ -366,9 +413,13 @@ def cmd_add_commit(args: argparse.Namespace) -> int:
 
 def cmd_update_notes(args: argparse.Namespace) -> int:
     """Add implementation notes to a task."""
-    issue_number = args.issue or get_issue_number()
-    if not issue_number:
-        print("Error: Issue number required", file=sys.stderr)
+    identifier = get_contract_identifier(args)
+    if not identifier:
+        print(
+            "Error: Contract identifier required. "
+            "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
+            file=sys.stderr,
+        )
         return 1
 
     try:
@@ -383,7 +434,7 @@ def cmd_update_notes(args: argparse.Namespace) -> int:
         "/api/v1/contract/mutate",
         method="POST",
         data={
-            "issue_number": issue_number,
+            "identifier": identifier,
             "repo_path": args.repo_path or get_repo_path(),
             "field_path": field_path,
             "new_value": args.notes,
@@ -460,9 +511,13 @@ def cmd_verify_criterion(args: argparse.Namespace) -> int:
     will receive a role authorization error from the gateway. This command is
     used by contract verification reviewers to mark criteria as verified.
     """
-    issue_number = args.issue or get_issue_number()
-    if not issue_number:
-        print("Error: Issue number required", file=sys.stderr)
+    identifier = get_contract_identifier(args)
+    if not identifier:
+        print(
+            "Error: Contract identifier required. "
+            "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
+            file=sys.stderr,
+        )
         return 1
 
     try:
@@ -477,7 +532,7 @@ def cmd_verify_criterion(args: argparse.Namespace) -> int:
         "/api/v1/contract/mutate",
         method="POST",
         data={
-            "issue_number": issue_number,
+            "identifier": identifier,
             "repo_path": args.repo_path or get_repo_path(),
             "field_path": field_path,
             "new_value": True,
@@ -504,15 +559,19 @@ def cmd_add_decision(args: argparse.Namespace) -> int:
     The gateway should handle conflicts by rejecting duplicate indices or
     assigning IDs server-side. This is documented as a known limitation.
     """
-    issue_number = args.issue or get_issue_number()
-    if not issue_number:
-        print("Error: Issue number required", file=sys.stderr)
+    identifier = get_contract_identifier(args)
+    if not identifier:
+        print(
+            "Error: Contract identifier required. "
+            "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
+            file=sys.stderr,
+        )
         return 1
 
     # Get the current contract to determine the next decision ID
     # NOTE: TOCTOU race condition exists here - concurrent calls may get same ID.
     # The gateway should handle conflicts appropriately.
-    endpoint = f"/api/v1/contract/{issue_number}"
+    endpoint = f"/api/v1/contract/{identifier}"
     params = {}
     if args.repo_path:
         params["repo_path"] = args.repo_path
@@ -563,7 +622,7 @@ def cmd_add_decision(args: argparse.Namespace) -> int:
         "/api/v1/contract/mutate",
         method="POST",
         data={
-            "issue_number": issue_number,
+            "identifier": identifier,
             "repo_path": args.repo_path or get_repo_path(),
             "field_path": f"decisions.{len(decisions)}",
             "new_value": new_decision,
@@ -597,12 +656,16 @@ VALID_AGENT_STATUSES = ["pending", "running", "complete", "failed", "skipped", "
 
 def cmd_agent_status(args: argparse.Namespace) -> int:
     """Show agent execution status for multi-agent orchestration."""
-    issue_number = args.issue or get_issue_number()
-    if not issue_number:
-        print("Error: Issue number required", file=sys.stderr)
+    identifier = get_contract_identifier(args)
+    if not identifier:
+        print(
+            "Error: Contract identifier required. "
+            "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
+            file=sys.stderr,
+        )
         return 1
 
-    endpoint = f"/api/v1/contract/{issue_number}"
+    endpoint = f"/api/v1/contract/{identifier}"
     params = {}
     if args.repo_path:
         params["repo_path"] = args.repo_path
@@ -633,7 +696,7 @@ def cmd_agent_status(args: argparse.Namespace) -> int:
             print("No agent executions found. Multi-agent mode may not be enabled.")
             return 0
 
-        print(f"Agent Executions for Issue #{issue_number}:")
+        print(f"Agent Executions for {identifier}:")
         print()
 
         for execution in agent_executions:
@@ -678,9 +741,13 @@ def cmd_agent_status(args: argparse.Namespace) -> int:
 
 def cmd_agent_start(args: argparse.Namespace) -> int:
     """Mark an agent as started (running)."""
-    issue_number = args.issue or get_issue_number()
-    if not issue_number:
-        print("Error: Issue number required", file=sys.stderr)
+    identifier = get_contract_identifier(args)
+    if not identifier:
+        print(
+            "Error: Contract identifier required. "
+            "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
+            file=sys.stderr,
+        )
         return 1
 
     role = args.role.lower()
@@ -692,7 +759,7 @@ def cmd_agent_start(args: argparse.Namespace) -> int:
         return 1
 
     # Get current contract to find agent execution index
-    endpoint = f"/api/v1/contract/{issue_number}"
+    endpoint = f"/api/v1/contract/{identifier}"
     params = {}
     if args.repo_path:
         params["repo_path"] = args.repo_path
@@ -726,7 +793,7 @@ def cmd_agent_start(args: argparse.Namespace) -> int:
         "/api/v1/contract/mutate",
         method="POST",
         data={
-            "issue_number": issue_number,
+            "identifier": identifier,
             "repo_path": args.repo_path or get_repo_path(),
             "field_path": f"agent_executions.{exec_idx}.status",
             "new_value": "running",
@@ -746,9 +813,13 @@ def cmd_agent_start(args: argparse.Namespace) -> int:
 
 def cmd_agent_complete(args: argparse.Namespace) -> int:
     """Mark an agent as complete."""
-    issue_number = args.issue or get_issue_number()
-    if not issue_number:
-        print("Error: Issue number required", file=sys.stderr)
+    identifier = get_contract_identifier(args)
+    if not identifier:
+        print(
+            "Error: Contract identifier required. "
+            "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
+            file=sys.stderr,
+        )
         return 1
 
     role = args.role.lower()
@@ -760,7 +831,7 @@ def cmd_agent_complete(args: argparse.Namespace) -> int:
         return 1
 
     # Get current contract to find agent execution index
-    endpoint = f"/api/v1/contract/{issue_number}"
+    endpoint = f"/api/v1/contract/{identifier}"
     params = {}
     if args.repo_path:
         params["repo_path"] = args.repo_path
@@ -817,7 +888,7 @@ def cmd_agent_complete(args: argparse.Namespace) -> int:
             "/api/v1/contract/mutate",
             method="POST",
             data={
-                "issue_number": issue_number,
+                "identifier": identifier,
                 "repo_path": args.repo_path or get_repo_path(),
                 "field_path": update["field_path"],
                 "new_value": update["new_value"],
@@ -838,9 +909,13 @@ def cmd_agent_complete(args: argparse.Namespace) -> int:
 
 def cmd_agent_fail(args: argparse.Namespace) -> int:
     """Mark an agent as failed."""
-    issue_number = args.issue or get_issue_number()
-    if not issue_number:
-        print("Error: Issue number required", file=sys.stderr)
+    identifier = get_contract_identifier(args)
+    if not identifier:
+        print(
+            "Error: Contract identifier required. "
+            "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
+            file=sys.stderr,
+        )
         return 1
 
     role = args.role.lower()
@@ -852,7 +927,7 @@ def cmd_agent_fail(args: argparse.Namespace) -> int:
         return 1
 
     # Get current contract to find agent execution index
-    endpoint = f"/api/v1/contract/{issue_number}"
+    endpoint = f"/api/v1/contract/{identifier}"
     params = {}
     if args.repo_path:
         params["repo_path"] = args.repo_path
@@ -898,7 +973,7 @@ def cmd_agent_fail(args: argparse.Namespace) -> int:
             "/api/v1/contract/mutate",
             method="POST",
             data={
-                "issue_number": issue_number,
+                "identifier": identifier,
                 "repo_path": args.repo_path or get_repo_path(),
                 "field_path": update["field_path"],
                 "new_value": update["new_value"],
@@ -919,12 +994,16 @@ def cmd_agent_fail(args: argparse.Namespace) -> int:
 
 def cmd_agent_next(args: argparse.Namespace) -> int:
     """Get the next wave of agents to dispatch."""
-    issue_number = args.issue or get_issue_number()
-    if not issue_number:
-        print("Error: Issue number required", file=sys.stderr)
+    identifier = get_contract_identifier(args)
+    if not identifier:
+        print(
+            "Error: Contract identifier required. "
+            "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
+            file=sys.stderr,
+        )
         return 1
 
-    endpoint = f"/api/v1/contract/{issue_number}"
+    endpoint = f"/api/v1/contract/{identifier}"
     params = {}
     if args.repo_path:
         params["repo_path"] = args.repo_path
@@ -1036,9 +1115,13 @@ def cmd_add_feedback(args: argparse.Namespace) -> int:
     questions. Humans edit the comment to fill in answers and check a submit checkbox
     to trigger processing.
     """
-    issue_number = args.issue or get_issue_number()
-    if not issue_number:
-        print("Error: Issue number required", file=sys.stderr)
+    identifier = get_contract_identifier(args)
+    if not identifier:
+        print(
+            "Error: Contract identifier required. "
+            "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
+            file=sys.stderr,
+        )
         return 1
 
     if not args.question:
@@ -1046,7 +1129,7 @@ def cmd_add_feedback(args: argparse.Namespace) -> int:
         return 1
 
     # Get the current contract to check for existing feedback
-    endpoint = f"/api/v1/contract/{issue_number}"
+    endpoint = f"/api/v1/contract/{identifier}"
     params = {}
     if args.repo_path:
         params["repo_path"] = args.repo_path
@@ -1100,7 +1183,7 @@ def cmd_add_feedback(args: argparse.Namespace) -> int:
         "/api/v1/contract/mutate",
         method="POST",
         data={
-            "issue_number": issue_number,
+            "identifier": identifier,
             "repo_path": args.repo_path or get_repo_path(),
             "field_path": "feedback",
             "new_value": new_feedback,
@@ -1140,6 +1223,11 @@ def create_parser() -> argparse.ArgumentParser:
         "--issue",
         type=int,
         help="Issue number (defaults to EGG_ISSUE_NUMBER env var)",
+    )
+    parser.add_argument(
+        "--pipeline-id",
+        type=str,
+        help="Pipeline ID for JIRA-ticket pipelines (defaults to EGG_PIPELINE_ID env var)",
     )
     parser.add_argument(
         "--repo-path",

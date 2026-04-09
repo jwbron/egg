@@ -210,18 +210,10 @@ def make_contract_success(
     return jsonify(response), 200
 
 
-@contract_bp.route("/<int:issue_number>", methods=["GET"])
-@require_session_auth
-def get_contract(issue_number: int) -> tuple[Response, int]:
-    """
-    Get contract state for an issue.
+def _get_contract_impl(identifier: int | str) -> tuple[Response, int]:
+    """Shared implementation for get_contract routes.
 
-    URL params:
-        issue_number: GitHub issue number
-
-    Query params:
-        repo_path: Path to the repository (optional)
-        include_audit_log: Whether to include audit log (default: false)
+    Supports both integer issue numbers and string pipeline IDs.
     """
     repo_path, path_error, container_id = get_repo_path_from_request(from_query=True)
     if path_error:
@@ -239,12 +231,12 @@ def get_contract(issue_number: int) -> tuple[Response, int]:
     include_audit = request.args.get("include_audit_log", "false").lower() == "true"
 
     try:
-        contract = load_contract(issue_number, repo_path)
+        contract = load_contract(identifier, repo_path)
         data = export_contract(contract, include_audit_log=include_audit)
         return make_contract_success("Contract retrieved", data=data)
     except ContractNotFoundError:
         return make_contract_error(
-            f"Contract for issue #{issue_number} not found",
+            f"Contract for {identifier} not found",
             status_code=404,
         )
     except ContractValidationError as e:
@@ -252,6 +244,40 @@ def get_contract(issue_number: int) -> tuple[Response, int]:
             f"Contract validation failed: {e}",
             status_code=500,
         )
+
+
+@contract_bp.route("/<int:issue_number>", methods=["GET"])
+@require_session_auth
+def get_contract(issue_number: int) -> tuple[Response, int]:
+    """
+    Get contract state for an issue by issue number.
+
+    URL params:
+        issue_number: GitHub issue number
+
+    Query params:
+        repo_path: Path to the repository (optional)
+        include_audit_log: Whether to include audit log (default: false)
+    """
+    return _get_contract_impl(issue_number)
+
+
+@contract_bp.route("/<identifier>", methods=["GET"])
+@require_session_auth
+def get_contract_by_pipeline_id(identifier: str) -> tuple[Response, int]:
+    """
+    Get contract state by pipeline ID (string identifier).
+
+    Supports JIRA-ticket-driven pipelines where EGG_ISSUE_NUMBER is not set.
+
+    URL params:
+        identifier: Pipeline ID (e.g., "KORE-1191-full")
+
+    Query params:
+        repo_path: Path to the repository (optional)
+        include_audit_log: Whether to include audit log (default: false)
+    """
+    return _get_contract_impl(identifier)
 
 
 @contract_bp.route("/mutate", methods=["POST"])
@@ -262,13 +288,17 @@ def mutate_contract() -> tuple[Response, int]:
 
     Request body:
         {
-            "issue_number": 123,
+            "identifier": 123 or "KORE-1191-full",  // issue number or pipeline ID
             "repo_path": "/path/to/repo",  // optional
             "field_path": "phases.0.tasks.0.commit",
             "new_value": "abc1234",
             "actor": "egg",  // optional, defaults to "agent"
             "reason": "Implementation complete"  // optional
         }
+
+    The "identifier" field accepts both integer issue numbers and string
+    pipeline IDs. The legacy "issue_number" field is still accepted for
+    backward compatibility.
 
     The role is determined from workflow context, not the request body.
     This prevents agents from escalating their privileges.
@@ -281,13 +311,13 @@ def mutate_contract() -> tuple[Response, int]:
     if not data:
         return make_contract_error("Missing request body")
 
-    # Required fields
-    issue_number = data.get("issue_number")
+    # Required fields — accept "identifier" with "issue_number" fallback
+    identifier = data.get("identifier") or data.get("issue_number")
     field_path = data.get("field_path")
     new_value = data.get("new_value")
 
-    if not issue_number:
-        return make_contract_error("Missing issue_number")
+    if not identifier:
+        return make_contract_error("Missing identifier or issue_number")
     if not field_path:
         return make_contract_error("Missing field_path")
     if new_value is None:
@@ -329,10 +359,10 @@ def mutate_contract() -> tuple[Response, int]:
 
     # Load the contract
     try:
-        contract = load_contract(issue_number, repo_path)
+        contract = load_contract(identifier, repo_path)
     except ContractNotFoundError:
         return make_contract_error(
-            f"Contract for issue #{issue_number} not found",
+            f"Contract for {identifier} not found",
             status_code=404,
         )
     except ContractValidationError as e:
@@ -354,7 +384,7 @@ def mutate_contract() -> tuple[Response, int]:
     if not result.success:
         logger.warning(
             "Contract mutation rejected",
-            issue=issue_number,
+            identifier=identifier,
             role=role.value,
             field_path=field_path,
             error=result.message,
@@ -376,7 +406,7 @@ def mutate_contract() -> tuple[Response, int]:
     except Exception as e:
         logger.error(
             "Failed to save contract",
-            issue=issue_number,
+            identifier=identifier,
             error=str(e),
         )
         return make_contract_error(
@@ -386,7 +416,7 @@ def mutate_contract() -> tuple[Response, int]:
 
     logger.info(
         "Contract mutation applied",
-        issue=issue_number,
+        identifier=identifier,
         role=role.value,
         actor=actor,
         field_path=field_path,
@@ -454,14 +484,8 @@ def validate_contract_mutation() -> tuple[Response, int]:
         )
 
 
-@contract_bp.route("/exists/<int:issue_number>", methods=["GET"])
-@require_session_auth
-def check_contract_exists(issue_number: int) -> tuple[Response, int]:
-    """Check if a contract exists for an issue.
-
-    Query params:
-        repo_path: Path to the repository (optional)
-    """
+def _check_contract_exists_impl(identifier: int | str) -> tuple[Response, int]:
+    """Shared implementation for contract exists routes."""
     repo_path, path_error, container_id = get_repo_path_from_request(from_query=True)
     if path_error:
         return make_contract_error(path_error, status_code=400)
@@ -475,8 +499,22 @@ def check_contract_exists(issue_number: int) -> tuple[Response, int]:
         return _worktree_err(container_id or "")
     repo_path = Path(mapped_path)
 
-    exists = contract_exists(issue_number, repo_path)
+    exists = contract_exists(identifier, repo_path)
     return make_contract_success(
         "Contract exists" if exists else "Contract does not exist",
         data={"exists": exists},
     )
+
+
+@contract_bp.route("/exists/<int:issue_number>", methods=["GET"])
+@require_session_auth
+def check_contract_exists(issue_number: int) -> tuple[Response, int]:
+    """Check if a contract exists for an issue by issue number."""
+    return _check_contract_exists_impl(issue_number)
+
+
+@contract_bp.route("/exists/<identifier>", methods=["GET"])
+@require_session_auth
+def check_contract_exists_by_pipeline_id(identifier: str) -> tuple[Response, int]:
+    """Check if a contract exists by pipeline ID (string identifier)."""
+    return _check_contract_exists_impl(identifier)
