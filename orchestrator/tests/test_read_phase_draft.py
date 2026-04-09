@@ -590,9 +590,7 @@ class TestReadPhaseDraftGitShowFallback:
 
         monkeypatch.setattr(mod.subprocess, "run", fake_run)
 
-        result = _read_phase_draft(
-            tmp_path, "plan", pipeline_id="pid123", branch="egg/pid123/work"
-        )
+        result = _read_phase_draft(tmp_path, "plan", pipeline_id="pid123", branch="egg/pid123/work")
         assert result == "plan from remote"
 
     def test_git_show_logs_info_when_used(self, tmp_path: Path, monkeypatch):
@@ -620,7 +618,4 @@ class TestReadPhaseDraftGitShowFallback:
 
         # Should have an info log about reading from remote ref
         info_calls = mock_logger.info.call_args_list
-        assert any(
-            "remote tracking ref" in call[0][0]
-            for call in info_calls
-        )
+        assert any("remote tracking ref" in call[0][0] for call in info_calls)
