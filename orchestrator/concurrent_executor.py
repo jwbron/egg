@@ -424,7 +424,10 @@ class ConcurrentPhaseExecutor:
                     store = get_message_store()
                     messages = store.get_messages(self.pipeline.id, limit=10000)
                     confirmed_roles = {
-                        m.from_role for m in messages if m.message_type == "CONSENSUS_CONFIRMED"
+                        m.from_role
+                        for m in messages
+                        if m.message_type == "CONSENSUS_CONFIRMED"
+                        and not (m.metadata or {}).get("pending_acks")
                     }
                     if all_roles and all_roles.issubset(confirmed_roles):
                         logger.warning(

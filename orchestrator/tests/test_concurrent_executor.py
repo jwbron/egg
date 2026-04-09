@@ -571,3 +571,56 @@ class TestCheckConsensusMessageBusFallback:
             assert "fallback" not in result
         finally:
             remove_peer_consensus_tracker("KORE-1234")
+
+    def test_fallback_excludes_pending_acks_messages(self):
+        """Message-bus fallback must not count pending_acks messages as genuine confirmations."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from message_store import Message, MessageType
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+
+        pipeline = _make_pipeline("KORE-1234")
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock(), review_graph=graph)
+
+        from peer_consensus import create_peer_consensus_tracker, remove_peer_consensus_tracker
+
+        try:
+            tracker = create_peer_consensus_tracker("KORE-1234", graph)
+            tracker.register_agent("coder")
+            tracker.register_agent("reviewer_code")
+
+            # All roles have CONSENSUS_CONFIRMED messages, but all have pending_acks=True
+            pending_messages = [
+                Message(
+                    pipeline_id="KORE-1234",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="Confirmed by coder (pending_acks)",
+                    metadata={"pending_acks": True},
+                ),
+                Message(
+                    pipeline_id="KORE-1234",
+                    from_role="reviewer_code",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="Confirmed by reviewer_code (pending_acks)",
+                    metadata={"pending_acks": True},
+                ),
+            ]
+
+            mock_store = MagicMock()
+            mock_store.get_messages.return_value = pending_messages
+
+            with patch("message_store.get_message_store", return_value=mock_store):
+                result = executor.check_consensus()
+
+            assert result["is_complete"] is False
+            assert "fallback" not in result
+        finally:
+            remove_peer_consensus_tracker("KORE-1234")

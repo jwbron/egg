@@ -1239,7 +1239,10 @@ def handle_consensus_confirmed_signal(
                 store = get_message_store()
                 messages = store.get_messages(pipeline_id, limit=10000)
                 confirmed_roles = {
-                    m.from_role for m in messages if m.message_type == "CONSENSUS_CONFIRMED"
+                    m.from_role
+                    for m in messages
+                    if m.message_type == "CONSENSUS_CONFIRMED"
+                    and not (m.metadata or {}).get("pending_acks")
                 }
                 # Agent sending this signal is also confirming
                 confirmed_roles.add(agent_role)
