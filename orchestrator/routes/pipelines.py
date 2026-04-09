@@ -2575,6 +2575,9 @@ def _extract_plan_overview(plan_text: str) -> str:
     return "\n".join(overview_lines)
 
 
+_EXECUTION_ROLES = frozenset({"coder", "tester", "documenter"})
+
+
 def _build_role_context(
     role_value: str,
     prompt: str | None,
@@ -2635,15 +2638,13 @@ def _build_role_context(
         # Only apply role-based filtering when at least one task has a role
         # assigned — legacy plans (all role=None) show all tasks to all agents,
         # preserving backward compatibility.
-        _execution_roles = {"coder", "tester", "documenter"}
-        _has_any_role = any(getattr(t, "role", None) is not None for t in phase_obj.tasks)
-        if role_value in _execution_roles and _has_any_role:
+        _has_any_role = any(t.role is not None for t in phase_obj.tasks)
+        if role_value in _EXECUTION_ROLES and _has_any_role:
             # Unassigned tasks (role=None) default to coder.
             filtered_tasks = [
                 task
                 for task in phase_obj.tasks
-                if getattr(task, "role", None) == role_value
-                or (getattr(task, "role", None) is None and role_value == "coder")
+                if task.role == role_value or (task.role is None and role_value == "coder")
             ]
         else:
             filtered_tasks = list(phase_obj.tasks)
