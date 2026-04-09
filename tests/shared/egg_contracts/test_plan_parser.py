@@ -36,6 +36,42 @@ class TestParsedTask:
         assert task.acceptance_criteria == "Schema validates"
         assert task.files_affected == ["schema.json"]
 
+    def test_parsed_task_role_defaults_to_none(self):
+        """Test that ParsedTask role defaults to None when not specified."""
+        parsed = ParsedTask(
+            id="TASK-1-1",
+            phase_number=1,
+            task_number=1,
+            description="Create schema",
+            acceptance_criteria="Schema validates",
+        )
+        assert parsed.role is None
+
+    def test_to_contract_task_with_role(self):
+        """Test converting ParsedTask with role to contract Task passes role through."""
+        parsed = ParsedTask(
+            id="TASK-1-1",
+            phase_number=1,
+            task_number=1,
+            description="Write tests",
+            acceptance_criteria="Tests pass",
+            role="tester",
+        )
+        task = parsed.to_contract_task()
+        assert task.role == "tester"
+
+    def test_to_contract_task_without_role(self):
+        """Test converting ParsedTask without role produces Task with role=None."""
+        parsed = ParsedTask(
+            id="TASK-1-1",
+            phase_number=1,
+            task_number=1,
+            description="Create schema",
+            acceptance_criteria="Schema validates",
+        )
+        task = parsed.to_contract_task()
+        assert task.role is None
+
 
 class TestParsedPhase:
     """Tests for ParsedPhase dataclass."""
@@ -1047,6 +1083,175 @@ phases:
         result = parse_plan(content)
         assert result.success
         assert any("pr_plan" in w.message for w in result.warnings)
+
+    def test_task_with_role_coder(self):
+        """Test that a task with role: coder is parsed correctly."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Implementation",
+                    "tasks": [
+                        {
+                            "id": "TASK-1-1",
+                            "description": "Implement feature",
+                            "acceptance": "Feature works",
+                            "role": "coder",
+                        }
+                    ],
+                }
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        assert len(phases) == 1
+        assert phases[0].tasks[0].role == "coder"
+
+    def test_task_with_role_tester(self):
+        """Test that a task with role: tester is parsed correctly."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Testing",
+                    "tasks": [
+                        {
+                            "id": "TASK-1-1",
+                            "description": "Write tests",
+                            "acceptance": "Tests pass",
+                            "role": "tester",
+                        }
+                    ],
+                }
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        assert len(phases) == 1
+        assert phases[0].tasks[0].role == "tester"
+
+    def test_task_with_role_documenter(self):
+        """Test that a task with role: documenter is parsed correctly."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Documentation",
+                    "tasks": [
+                        {
+                            "id": "TASK-1-1",
+                            "description": "Write docs",
+                            "acceptance": "Docs are complete",
+                            "role": "documenter",
+                        }
+                    ],
+                }
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        assert len(phases) == 1
+        assert phases[0].tasks[0].role == "documenter"
+
+    def test_task_without_role_has_none(self):
+        """Test that a task without role field has role=None."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Implementation",
+                    "tasks": [
+                        {
+                            "id": "TASK-1-1",
+                            "description": "Implement feature",
+                            "acceptance": "Feature works",
+                        }
+                    ],
+                }
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        assert len(phases) == 1
+        assert phases[0].tasks[0].role is None
+
+    def test_task_with_invalid_role_warns_and_sets_none(self):
+        """Test that an invalid role produces a warning and sets role to None."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Implementation",
+                    "tasks": [
+                        {
+                            "id": "TASK-1-1",
+                            "description": "Do something",
+                            "acceptance": "Something done",
+                            "role": "invalid",
+                        }
+                    ],
+                }
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        assert len(phases) == 1
+        assert phases[0].tasks[0].role is None
+        assert any("invalid role" in w.message for w in warnings)
+
+    def test_role_preserved_through_to_contract_task(self):
+        """Test that role is preserved when converting parsed task to contract task."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Testing",
+                    "tasks": [
+                        {
+                            "id": "TASK-1-1",
+                            "description": "Write unit tests",
+                            "acceptance": "All tests pass",
+                            "role": "tester",
+                        }
+                    ],
+                }
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        task = phases[0].tasks[0].to_contract_task()
+        assert task.role == "tester"
+
+    def test_mixed_roles_in_same_phase(self):
+        """Test that tasks in the same phase can have different roles."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Implementation",
+                    "tasks": [
+                        {
+                            "id": "TASK-1-1",
+                            "description": "Implement feature",
+                            "acceptance": "Feature works",
+                            "role": "coder",
+                        },
+                        {
+                            "id": "TASK-1-2",
+                            "description": "Write tests",
+                            "acceptance": "Tests pass",
+                            "role": "tester",
+                        },
+                        {
+                            "id": "TASK-1-3",
+                            "description": "Update docs",
+                            "acceptance": "Docs updated",
+                        },
+                    ],
+                }
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        assert len(phases) == 1
+        tasks = phases[0].tasks
+        assert len(tasks) == 3
+        assert tasks[0].role == "coder"
+        assert tasks[1].role == "tester"
+        assert tasks[2].role is None
 
 
 class TestParsePlanWithYamlCodeFence:

@@ -107,6 +107,60 @@ class TestTask:
             )
             assert task.status == status
 
+    def test_task_role_defaults_to_none(self):
+        """Test that role defaults to None when not provided."""
+        task = Task(id="task-1", description="Implement feature")
+        assert task.role is None
+
+    def test_task_with_role_coder(self):
+        """Test task with role set to coder."""
+        task = Task(id="task-1", description="Test", role="coder")
+        assert task.role == "coder"
+
+    def test_task_with_role_tester(self):
+        """Test task with role set to tester."""
+        task = Task(id="task-1", description="Test", role="tester")
+        assert task.role == "tester"
+
+    def test_task_with_role_documenter(self):
+        """Test task with role set to documenter."""
+        task = Task(id="task-1", description="Test", role="documenter")
+        assert task.role == "documenter"
+
+    def test_task_role_arbitrary_string_accepted(self):
+        """Test that any string is accepted for role (no enum validation)."""
+        task = Task(id="task-1", description="Test", role="reviewer")
+        assert task.role == "reviewer"
+
+    def test_task_role_serialization_roundtrip(self):
+        """Test that role is preserved through serialization roundtrip."""
+        task = Task(id="task-1", description="Test", role="coder")
+        data = task.model_dump()
+        assert data["role"] == "coder"
+        restored = Task(**data)
+        assert restored.role == "coder"
+
+    def test_task_role_none_serialization_roundtrip(self):
+        """Test that role=None is preserved through serialization roundtrip."""
+        task = Task(id="task-1", description="Test")
+        data = task.model_dump()
+        assert data["role"] is None
+        restored = Task(**data)
+        assert restored.role is None
+
+    def test_existing_contract_without_role_deserializes(self):
+        """Test backward compatibility: dict without role key deserializes with role=None."""
+        data = {
+            "id": "task-1",
+            "description": "Legacy task",
+            "status": "pending",
+            "commit": None,
+            "notes": "",
+        }
+        task = Task(**data)
+        assert task.role is None
+        assert task.description == "Legacy task"
+
 
 class TestPhase:
     """Tests for Phase model."""
