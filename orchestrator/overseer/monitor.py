@@ -94,6 +94,8 @@ class OverseerMonitor:
         self._incomplete_consensus_blocking: frozenset[str] | None = None
         self._incomplete_consensus_nudged = False
         self._incomplete_consensus_hitl_created = False
+        # Track the absolute start time for activity deferral cap (#1609)
+        self._incomplete_consensus_absolute_start: float | None = None
 
         # Re-run anomaly deduplication (decision IDs already flagged)
         self._rerun_anomaly_reported: set[str] = set()
@@ -997,10 +999,9 @@ class OverseerMonitor:
             from peer_consensus import get_peer_consensus_tracker
 
             tracker = get_peer_consensus_tracker(self.pipeline_id)
-            if tracker is not None and hasattr(tracker, "_proposal_timestamps"):
-                ts_values = tracker._proposal_timestamps.values()
-                if ts_values:
-                    latest = max(ts_values)
+            if tracker is not None:
+                latest = tracker.get_latest_proposal_timestamp()
+                if isinstance(latest, datetime):
                     return (datetime.now(UTC) - latest).total_seconds()
         except Exception:
             logger.debug("Failed to query proposal age", exc_info=True)
@@ -1044,10 +1045,12 @@ class OverseerMonitor:
             self._reset_incomplete_consensus_tracking()
             self._incomplete_consensus_blocking = current_blocking
             self._incomplete_consensus_first_seen = now
+            self._incomplete_consensus_absolute_start = now
             return
 
         if self._incomplete_consensus_first_seen is None:
             self._incomplete_consensus_first_seen = now
+            self._incomplete_consensus_absolute_start = now
             return
 
         # Post-proposal grace: reset if a recent proposal arrived (#1609)
@@ -1073,12 +1076,19 @@ class OverseerMonitor:
 
         if elapsed >= hitl_threshold and not self._incomplete_consensus_hitl_created:
             # Activity check: skip HITL escalation if agents are active (#1609)
-            if self._blocking_agents_are_active(sorted(blocking_agents)):
+            # Cap total deferral at 2x HITL threshold to prevent indefinite suppression
+            absolute_elapsed = now - (self._incomplete_consensus_absolute_start or now)
+            max_deferral = hitl_threshold * 2
+            if absolute_elapsed < max_deferral and self._blocking_agents_are_active(
+                sorted(blocking_agents)
+            ):
                 logger.info(
                     "Incomplete consensus: blocking agents still active, deferring HITL"
-                    " (pipeline=%s, blocking=%s)",
+                    " (pipeline=%s, blocking=%s, absolute_elapsed=%ds, max_deferral=%ds)",
                     self.pipeline_id,
                     sorted(blocking_agents),
+                    round(absolute_elapsed),
+                    round(max_deferral),
                 )
                 return
 
@@ -1110,12 +1120,17 @@ class OverseerMonitor:
 
         elif elapsed >= nudge_threshold and not self._incomplete_consensus_nudged:
             # Activity check: defer nudge if agents are active (#1609)
-            if self._blocking_agents_are_active(sorted(blocking_agents)):
+            # Cap nudge deferrals: don't defer past HITL threshold from absolute start
+            absolute_elapsed = now - (self._incomplete_consensus_absolute_start or now)
+            if absolute_elapsed < hitl_threshold and self._blocking_agents_are_active(
+                sorted(blocking_agents)
+            ):
                 logger.info(
                     "Incomplete consensus: blocking agents are active, deferring nudge"
-                    " (pipeline=%s, blocking=%s)",
+                    " (pipeline=%s, blocking=%s, absolute_elapsed=%ds)",
                     self.pipeline_id,
                     sorted(blocking_agents),
+                    round(absolute_elapsed),
                 )
                 # Reset first_seen to extend the window
                 self._incomplete_consensus_first_seen = now
@@ -1170,6 +1185,7 @@ class OverseerMonitor:
         self._incomplete_consensus_blocking = None
         self._incomplete_consensus_nudged = False
         self._incomplete_consensus_hitl_created = False
+        self._incomplete_consensus_absolute_start = None
 
     # -----------------------------------------------------------------
     # Orchestrator reachability (issue #1371)

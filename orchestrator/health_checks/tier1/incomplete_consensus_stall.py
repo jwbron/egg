@@ -251,35 +251,40 @@ class IncompleteConsensusStallCheck:
     # ------------------------------------------------------------------
 
     def _get_latest_proposal_timestamp(self, pipeline_id: str) -> float | None:
-        """Return the timestamp of the most recent CONSENSUS_PROPOSE, or None."""
-        # Strategy 1: message store
+        """Return the timestamp of the most recent CONSENSUS_PROPOSE, or None.
+
+        Uses the peer consensus tracker (O(1)) as the primary strategy, falling
+        back to the message store if the tracker is unavailable.
+        """
+        # Strategy 1: peer consensus tracker (preferred — O(1) lookup)
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+
+            tracker = get_peer_consensus_tracker(pipeline_id)
+            if tracker is not None:
+                latest = tracker.get_latest_proposal_timestamp()
+                if isinstance(latest, datetime):
+                    return latest.timestamp()
+        except Exception:
+            logger.debug(
+                "Tracker-based proposal timestamp query failed",
+                pipeline_id=pipeline_id,
+                exc_info=True,
+            )
+
+        # Strategy 2: message store fallback (scans recent messages)
         try:
             from message_store import get_message_store
 
             store = get_message_store()
-            messages = store.get_messages(pipeline_id, limit=1000)
+            # Limit to 100 recent messages — proposals are typically near the end
+            messages = store.get_messages(pipeline_id, limit=100)
             proposals = [m for m in messages if m.message_type == "CONSENSUS_PROPOSE"]
             if proposals:
                 return max(m.timestamp.timestamp() for m in proposals)
         except Exception:
             logger.debug(
                 "Message-based proposal timestamp query failed",
-                pipeline_id=pipeline_id,
-                exc_info=True,
-            )
-
-        # Strategy 2: peer consensus tracker
-        try:
-            from peer_consensus import get_peer_consensus_tracker
-
-            tracker = get_peer_consensus_tracker(pipeline_id)
-            if tracker is not None and hasattr(tracker, "_proposal_timestamps"):
-                ts_values = tracker._proposal_timestamps.values()
-                if ts_values:
-                    return max(t.timestamp() for t in ts_values)
-        except Exception:
-            logger.debug(
-                "Tracker-based proposal timestamp query failed",
                 pipeline_id=pipeline_id,
                 exc_info=True,
             )
