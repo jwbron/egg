@@ -1075,18 +1075,20 @@ class OverseerMonitor:
             # Activity check: skip HITL escalation if agents are active (#1609)
             if self._blocking_agents_are_active(sorted(blocking_agents)):
                 logger.info(
-                    "Incomplete consensus: blocking agents still active, deferring HITL",
-                    pipeline_id=self.pipeline_id,
-                    blocking_agents=sorted(blocking_agents),
+                    "Incomplete consensus: blocking agents still active, deferring HITL"
+                    " (pipeline=%s, blocking=%s)",
+                    self.pipeline_id,
+                    sorted(blocking_agents),
                 )
                 return
 
             # Nudge didn't resolve — escalate to HITL
             logger.warning(
-                "Incomplete consensus stall persists after nudge — escalating to HITL",
-                pipeline_id=self.pipeline_id,
-                blocking_agents=sorted(blocking_agents),
-                elapsed_seconds=round(elapsed),
+                "Incomplete consensus stall persists after nudge — escalating to HITL"
+                " (pipeline=%s, blocking=%s, elapsed=%ds)",
+                self.pipeline_id,
+                sorted(blocking_agents),
+                round(elapsed),
             )
             message = (
                 f"Consensus incomplete for {round(elapsed)}s. "
@@ -1110,9 +1112,10 @@ class OverseerMonitor:
             # Activity check: defer nudge if agents are active (#1609)
             if self._blocking_agents_are_active(sorted(blocking_agents)):
                 logger.info(
-                    "Incomplete consensus: blocking agents are active, deferring nudge",
-                    pipeline_id=self.pipeline_id,
-                    blocking_agents=sorted(blocking_agents),
+                    "Incomplete consensus: blocking agents are active, deferring nudge"
+                    " (pipeline=%s, blocking=%s)",
+                    self.pipeline_id,
+                    sorted(blocking_agents),
                 )
                 # Reset first_seen to extend the window
                 self._incomplete_consensus_first_seen = now
@@ -1126,10 +1129,11 @@ class OverseerMonitor:
 
             # Send targeted nudge to each blocking agent
             logger.info(
-                "Incomplete consensus stall detected — nudging blocking agents",
-                pipeline_id=self.pipeline_id,
-                blocking_agents=sorted(blocking_agents),
-                elapsed_seconds=round(elapsed),
+                "Incomplete consensus stall detected — nudging blocking agents"
+                " (pipeline=%s, blocking=%s, elapsed=%ds)",
+                self.pipeline_id,
+                sorted(blocking_agents),
+                round(elapsed),
             )
             for agent_role in sorted(blocking_agents):
                 nudge_message = (
