@@ -1,4 +1,4 @@
-"""Tests for _read_phase_draft, _get_draft_path, and _cleanup_stale_generic_drafts."""
+"""Tests for _read_phase_draft, _draft_filename, _get_draft_path, and _cleanup_stale_generic_drafts."""
 
 import sys
 from pathlib import Path
@@ -12,6 +12,7 @@ sys.modules.setdefault("docker.types", _docker_mock.types)
 
 from routes.pipelines import (
     _cleanup_stale_generic_drafts,
+    _draft_filename,
     _get_generic_draft_path,
     _read_phase_draft,
 )
@@ -189,6 +190,22 @@ class TestCleanupStaleGenericDrafts:
         # Should have logged a warning about git rm failure
         mock_logger.warning.assert_called_once()
         assert "git rm failed" in mock_logger.warning.call_args[0][0]
+
+
+class TestDraftFilename:
+    """Tests for _draft_filename."""
+
+    def test_refine_returns_analysis_md(self):
+        assert _draft_filename("refine") == "analysis.md"
+
+    def test_implement_returns_none(self):
+        assert _draft_filename("implement") is None
+
+    def test_plan_returns_plan_md(self):
+        assert _draft_filename("plan") == "plan.md"
+
+    def test_arbitrary_phase_returns_phase_md(self):
+        assert _draft_filename("review") == "review.md"
 
 
 class TestGetGenericDraftPath:
