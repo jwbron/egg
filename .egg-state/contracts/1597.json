@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1597,
+    "title": "Issue #1597",
+    "url": "https://github.com/jwbron/egg/issues/1597"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/container_spawner.py:spawn_agent_container()`, change line 308 guard from `if repo_volumes and repos:` to `if repos:` \u2014 repo_volumes is always overwritten by gateway result",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "spawn_agent_container with repos but no repo_volumes triggers gateway.create_worktrees and mounts result",
+          "files_affected": [
+            "orchestrator/container_spawner.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add test verifying spawn_agent_container creates worktrees when repos is provided but repo_volumes is None",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes and covers the restart code path",
+          "files_affected": [
+            "orchestrator/tests/test_container_spawner.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Fix restart losing worktrees by gating on repos not repo_volumes",
+    "description": "restart_phase and restart_agent call spawn_agent_container without\nrepo_volumes, causing per-agent worktree creation to be skipped.\nChange the guard from `if repo_volumes and repos` to `if repos`.",
+    "test_plan": "- Automated: new test_spawn_creates_worktree_without_repo_volumes\n- Automated: existing test suite (make test)\n- Manual: run restart_phase on a pipeline and verify the new container mounts the existing worktree",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
