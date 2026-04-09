@@ -1,35 +1,28 @@
 # Gateway Sidecar
 
-Policy enforcement gateway for git/gh operations in egg containers.
+Policy enforcement gateway for git/gh operations in egg agent pods.
 
 ## Overview
 
-The gateway sidecar is the **trusted** component that holds credentials and validates all operations against ownership and approval rules. The sandbox container has no direct access to credentials; instead, all requests route through this gateway.
+The gateway sidecar is the **trusted** component that holds credentials and validates all operations against ownership and approval rules. Agent pods have no direct access to credentials; instead, all requests route through this gateway. The gateway runs as a Kubernetes Deployment in the `egg-system` namespace. See [Kubernetes Architecture](../docs/architecture/kubernetes.md) for the full runtime design.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              HOST                                       │
-│                                                                         │
-│  ┌────────────────────────────────────────────────────────────────────┐ │
-│  │              Gateway Sidecar (Docker container)                    │ │
-│  │  ┌─────────────┐  ┌─────────────────┐  ┌────────────────────────┐  │ │
-│  │  │ REST API    │  │ Policy Engine   │  │ GitHub Client          │  │ │
-│  │  │ :9848       │  │ - PR ownership  │  │ - Token holder         │  │ │
-│  │  │             │  │ - Branch owner  │  │ - gh CLI executor      │  │ │
-│  │  │             │  │ - Approval check│  │                        │  │ │
-│  │  └──────┬──────┘  └────────┬────────┘  └────────────┬───────────┘  │ │
-│  └─────────┼──────────────────┼────────────────────────┼──────────────┘ │
-│            │ HTTP (Docker network)                     │                │
-│  ┌─────────▼──────────────────────────────────────────────────────────┐ │
-│  │                    Sandbox container(s)                            │ │
-│  │  ┌─────────────┐   ┌─────────────┐                                 │ │
-│  │  │ git wrapper │   │ gh wrapper  │   NO CREDENTIALS                │ │
-│  │  │ calls API   │   │ calls API   │   Wrappers route to gateway     │ │
-│  │  └─────────────┘   └─────────────┘                                 │ │
-│  └────────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────────┘
+Namespace: egg-system                          Namespace: egg-agents
+┌─────────────────────────────────────────┐   ┌───────────────────────────────┐
+│  Gateway (Deployment + Service)         │   │  Agent Pods (k8s Jobs)        │
+│                                         │   │                               │
+│  ┌───────────┐ ┌──────────┐ ┌────────┐ │   │  ┌──────────┐  ┌──────────┐  │
+│  │ REST API  │ │ Policy   │ │ GitHub │ │   │  │git wrapper│  │gh wrapper│  │
+│  │ :9848     │ │ Engine   │ │ Client │ │   │  │calls API  │  │calls API │  │
+│  │           │ │          │ │        │ │   │  │           │  │          │  │
+│  └─────┬─────┘ └──────────┘ └────────┘ │   │  │ NO CREDENTIALS             │
+│        │                                │   │  │ Wrappers route to gateway  │
+│        │◄───────────────────────────────┼───┼──┘                            │
+│        │  HTTP (via k8s Service)        │   │  NetworkPolicy: egress only   │
+│        │                                │   │  to gateway Service           │
+└────────┴────────────────────────────────┘   └───────────────────────────────┘
 ```
 
 ## Policy Rules
@@ -483,7 +476,7 @@ The gateway picks up changes to `repositories.yaml` without a restart via two me
 
 ```bash
 # Via signal
-docker kill -s HUP egg-gateway
+kubectl exec -n egg-system deploy/gateway -- kill -s HUP 1
 
 # Via API (requires launcher secret)
 curl -X POST -H "Authorization: Bearer $(cat ~/.config/egg/launcher-secret)" \
@@ -492,7 +485,7 @@ curl -X POST -H "Authorization: Bearer $(cat ~/.config/egg/launcher-secret)" \
 
 Both methods clear all in-memory config caches so the next access re-reads from disk.
 
-**Note:** `GATEWAY_TRUSTED_USERS` is read from the process environment, which is fixed at container start time. Changing trusted users requires a container restart — SIGHUP will re-read the same environment value.
+**Note:** `GATEWAY_TRUSTED_USERS` is read from the process environment, which is fixed at pod start time. Changing trusted users requires a pod restart — SIGHUP will re-read the same environment value.
 
 ## Design Decisions
 
@@ -530,6 +523,7 @@ make test
 ## Related Documentation
 
 - [Architecture Overview](../docs/architecture/README.md) - System design
+- [Kubernetes Architecture](../docs/architecture/kubernetes.md) - k3s runtime, namespaces, NetworkPolicies
 - [Git Isolation](../docs/architecture/git-isolation.md) - Worktree isolation design
 - [Credential Injection](../docs/architecture/credential-injection.md) - Zero-credential sandbox
 - [Network Isolation](../docs/architecture/network-isolation.md) - Network modes
