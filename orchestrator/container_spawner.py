@@ -151,6 +151,8 @@ class ContainerSpawner:
         """
         self._docker = docker_client
         self._gateway = gateway_client
+        # Track restart counts per (pipeline_id, agent_role) pair
+        self._restart_counts: dict[tuple[str, str], int] = {}
 
     @property
     def docker(self) -> DockerClient:
@@ -208,6 +210,7 @@ class ContainerSpawner:
         certs_volume: str | None = None,
         branch: str | None = None,
         extra_mounts: list[MountSpec] | None = None,
+        preserve_worktree_on_failure: bool = False,
     ) -> SpawnedContainer:
         """Spawn a container for an agent.
 
@@ -230,6 +233,10 @@ class ContainerSpawner:
             phase: SDLC pipeline phase for gateway session
             command: Command to execute in the container
             certs_volume: Docker named volume for gateway CA certs
+            preserve_worktree_on_failure: If True, do not delete the agent's
+                worktree when Docker spawn fails.  Used during restarts where
+                the existing worktree contains committed work that must not
+                be destroyed by a transient failure.
 
         Returns:
             SpawnedContainer with container and session info
@@ -297,6 +304,7 @@ class ContainerSpawner:
         # pipeline_id) is retained for orchestrator-side reads (contracts,
         # drafts); agents get their own worktree branched from the same ref.
         agent_worktree_id = f"{pipeline_id}-{agent_role.value}"
+        worktree_created_this_call = False
         if repo_volumes and repos:
             try:
                 wt_repos = repos
@@ -309,6 +317,7 @@ class ContainerSpawner:
                 )
                 if wt_result and wt_result.success and wt_result.worktrees:
                     repo_volumes = wt_result.worktrees
+                    worktree_created_this_call = True
                     logger.info(
                         "Per-agent worktree created",
                         agent_worktree_id=agent_worktree_id,
@@ -542,11 +551,15 @@ class ContainerSpawner:
                     self.gateway.delete_session(session_info.session_token)
                 except GatewayError:
                     pass  # Best effort cleanup
-            # Clean up per-agent worktree created before Docker spawn (#1494 review)
-            try:
-                self.gateway.delete_worktrees(container_id=agent_worktree_id, force=True)
-            except Exception:
-                pass  # Best effort cleanup
+            # Only clean up the worktree if we created it in this call and
+            # the caller hasn't asked to preserve it.  During restarts the
+            # existing worktree contains committed work that must not be
+            # destroyed on a transient Docker failure.
+            if worktree_created_this_call and not preserve_worktree_on_failure:
+                try:
+                    self.gateway.delete_worktrees(container_id=agent_worktree_id, force=True)
+                except Exception:
+                    pass  # Best effort cleanup
             raise ContainerSpawnError(f"Failed to spawn container: {e}") from e
 
     def stop_agent_container(
@@ -717,6 +730,160 @@ class ContainerSpawner:
         )
 
         return removed
+
+    def restart_agent_container(
+        self,
+        pipeline_id: str,
+        agent_role: AgentRole,
+        issue_number: int | None = None,
+        repo_volumes: dict[str, str] | None = None,
+        mode: str = "public",
+        image: str | None = None,
+        extra_env: dict[str, str] | None = None,
+        repos: list[str] | None = None,
+        phase: str | None = None,
+        command: list[str] | None = None,
+        certs_volume: str | None = None,
+        branch: str | None = None,
+        extra_mounts: list["MountSpec"] | None = None,
+        max_restarts: int = 2,
+        reason: str = "",
+    ) -> SpawnedContainer:
+        """Restart an agent container: stop, remove, respawn preserving worktree.
+
+        Stops the existing container, removes it, and respawns with the same
+        parameters.  The per-agent worktree is preserved (not deleted) so
+        committed work is retained across restarts.
+
+        Args:
+            pipeline_id: Pipeline ID.
+            agent_role: Agent role to restart.
+            issue_number: GitHub issue number.
+            repo_volumes: Repo name to host path mappings.
+            mode: Gateway mode.
+            image: Docker image override.
+            extra_env: Additional environment variables.
+            repos: Repositories for gateway session.
+            phase: Current pipeline phase.
+            command: Command to execute in the container (e.g. consensus-wrapped prompt).
+            certs_volume: Certs volume name.
+            branch: Branch name.
+            extra_mounts: Additional mount specs.
+            max_restarts: Maximum restart attempts per agent per phase (default 2).
+            reason: Human-readable reason for the restart.
+
+        Returns:
+            SpawnedContainer with new container info.
+
+        Raises:
+            ContainerSpawnError: If restart limit exceeded or spawning fails.
+        """
+        restart_key = (pipeline_id, agent_role.value)
+        current_count = self._restart_counts.get(restart_key, 0)
+
+        if current_count >= max_restarts:
+            raise ContainerSpawnError(
+                f"Restart limit ({max_restarts}) exceeded for {agent_role.value} "
+                f"in pipeline {pipeline_id} (restarted {current_count} times)"
+            )
+
+        # Find and stop the existing container
+        container_name = self.CONTAINER_NAME_FORMAT.format(
+            pipeline_id=pipeline_id,
+            role=agent_role.value,
+        )
+        full_container_name = f"{self.docker.CONTAINER_PREFIX}{container_name}"
+
+        logger.info(
+            "Restarting agent container",
+            pipeline_id=pipeline_id,
+            role=agent_role.value,
+            restart_count=current_count + 1,
+            max_restarts=max_restarts,
+            reason=reason,
+        )
+
+        # Stop and remove the existing container (best effort — it may already be gone)
+        try:
+            info = self.docker.get_container_info(full_container_name)
+            try:
+                self.stop_agent_container(info.container_id, cleanup_session=True)
+            except Exception as e:
+                logger.warning(
+                    "Failed to stop container during restart (may already be stopped)",
+                    container_id=info.container_id[:12],
+                    error=str(e),
+                )
+            try:
+                self.remove_agent_container(info.container_id, force=True, cleanup_session=False)
+            except Exception as e:
+                logger.warning(
+                    "Failed to remove container during restart",
+                    container_id=info.container_id[:12],
+                    error=str(e),
+                )
+        except ContainerNotFoundError:
+            logger.info(
+                "No existing container found during restart (already removed)",
+                container_name=full_container_name,
+            )
+
+        # Respawn — the gateway's create_worktrees() is idempotent (returns
+        # the existing worktree if valid), so the agent's committed work is
+        # preserved.  preserve_worktree_on_failure=True ensures that a
+        # transient Docker failure does not delete the pre-existing worktree.
+        spawned = self.spawn_agent_container(
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            issue_number=issue_number,
+            repo_volumes=repo_volumes,
+            mode=mode,
+            image=image,
+            extra_env=extra_env,
+            wait_for_gateway=True,
+            repos=repos,
+            phase=phase,
+            command=command,
+            certs_volume=certs_volume,
+            branch=branch,
+            extra_mounts=extra_mounts,
+            preserve_worktree_on_failure=True,
+        )
+
+        # Track restart count
+        self._restart_counts[restart_key] = current_count + 1
+
+        logger.info(
+            "Agent container restarted successfully",
+            pipeline_id=pipeline_id,
+            role=agent_role.value,
+            new_container_id=spawned.container_info.container_id[:12],
+            restart_count=current_count + 1,
+        )
+
+        return spawned
+
+    def get_restart_count(self, pipeline_id: str, agent_role: str) -> int:
+        """Get the current restart count for an agent.
+
+        Args:
+            pipeline_id: Pipeline ID.
+            agent_role: Agent role value string.
+
+        Returns:
+            Number of times the agent has been restarted.
+        """
+        return self._restart_counts.get((pipeline_id, agent_role), 0)
+
+    def reset_restart_counts(self, pipeline_id: str) -> None:
+        """Reset all restart counts for a pipeline (e.g., on phase transition).
+
+        Args:
+            pipeline_id: Pipeline ID.
+        """
+        keys_to_remove = [k for k in self._restart_counts if k[0] == pipeline_id]
+        for k in keys_to_remove:
+            del self._restart_counts[k]
 
     def detect_uncommitted_changes(
         self,

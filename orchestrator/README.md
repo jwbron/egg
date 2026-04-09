@@ -134,6 +134,13 @@ All endpoints are prefixed with `/api/v1`.
 
 **Completion signal branch verification:** When an agent signals completion with a `commit` SHA, the orchestrator verifies the commit exists on the pipeline's expected branch. If the commit is not found on the expected branch (e.g., the agent pushed to an improvised branch name), the signal is rejected with HTTP 409. Verification failures (network issues, git errors) are non-blocking — the signal is accepted when verification cannot be performed. Additionally, the orchestrator logs a warning if no new commits have been pushed since the phase started (detected via `phase_start_sha` recorded at phase start).
 
+### Restart
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/pipelines/{id}/agents/{role}/restart` | Restart a single stuck agent (stop, reset consensus, respawn with same config) |
+| `POST` | `/pipelines/{id}/phases/{phase}/restart` | Restart an entire phase (stop all containers, reset consensus and review cycles, respawn all agents) |
+
 ### Containers
 
 | Method | Path | Description |
@@ -218,7 +225,7 @@ orchestrator/
 ├── cli.py                  # CLI interface (serve, health, pipelines commands)
 ├── models.py               # Pydantic models (Pipeline, AgentExecution, HITLDecision, ReviewVerdict, etc.)
 ├── state_store.py          # Git-backed persistent state storage
-├── container_spawner.py    # Container spawning with gateway session integration
+├── container_spawner.py    # Container spawning with gateway session integration; agent restart (stop + respawn preserving worktree)
 ├── container_monitor.py    # Container state monitoring and lifecycle tracking
 ├── decision_queue.py       # HITL decision queue management (supports typed decisions)
 ├── handoffs.py             # Agent-to-agent data handoff mechanism
@@ -293,7 +300,9 @@ Both checkpoint tools accept an optional `repo` parameter (string, `owner/repo` 
 
 ### Orchestrator-Backed Tools
 
-`submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `validate_config`
+`submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `validate_config`, `restart_agent`, `restart_phase`
+
+The `restart_agent` tool accepts `task_id`, `agent_role`, and optional `reason` parameters. It proxies to the agent restart API endpoint. The `restart_phase` tool accepts `task_id`, `phase`, and optional `reason`/`context` parameters. It proxies to the phase restart API endpoint. Both are available to HITL operators via the MCP server.
 
 ## Health Check Framework
 

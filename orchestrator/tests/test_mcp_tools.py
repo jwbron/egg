@@ -754,6 +754,8 @@ class TestToolRouting:
             "search_checkpoints",
             "get_contract",
             "validate_config",
+            "restart_agent",
+            "restart_phase",
         }
         assert tool_names == expected
 

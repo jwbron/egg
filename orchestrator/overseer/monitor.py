@@ -114,6 +114,10 @@ class OverseerMonitor:
         # Maps (agent_id, error_hash) -> timestamp of first escalation
         self._infra_error_dedup: dict[tuple[str, str], float] = {}
 
+        # Agent restart tracking: (pipeline_id, agent_role) -> restart_count
+        self._agent_restart_counts: dict[str, int] = {}
+        self._max_agent_restarts: int = 2
+
         # Cross-phase consistency: track phase transitions and deduplication
         self._last_phase_name: str | None = None
         self._cross_phase_checked: set[tuple[str, str]] = set()
@@ -559,6 +563,131 @@ class OverseerMonitor:
 
         elif action == "slack":
             await self._send_slack_notification(agent_role, message)
+
+        elif action == "restart_agent":
+            await self._execute_restart_agent(agent_role, message)
+            self.self_monitor.record_message_sent()
+
+        elif action == "restart_phase":
+            # Phase restarts require HITL approval — the human must
+            # manually call the phase restart API after reviewing.
+            from urllib.parse import quote
+
+            current_phase = os.environ.get("EGG_CURRENT_PHASE", "implement")
+            orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://localhost:9849")
+            restart_api = (
+                f"POST {orchestrator_url}/api/v1/pipelines/"
+                f"{quote(self.pipeline_id, safe='')}/phases/{quote(current_phase, safe='')}/restart"
+            )
+            await self._create_phase_restart_decision(
+                agent_role,
+                f"Phase restart requested: {message}. To approve, call: {restart_api}",
+            )
+            self.self_monitor.record_message_sent()
+
+    async def _execute_restart_agent(self, agent_role: str, message: str) -> None:
+        """Execute an agent restart via the orchestrator API.
+
+        Tracks restart counts per agent. When an agent's restart limit is
+        exhausted, checks if 2+ agents have hit their limits and escalates
+        to a phase restart (via HITL decision) if so.
+
+        Args:
+            agent_role: The agent role to restart.
+            message: Reason for the restart.
+        """
+        restart_count = self._agent_restart_counts.get(agent_role, 0)
+
+        if restart_count >= self._max_agent_restarts:
+            logger.info(
+                "Agent %s restart limit reached (%d/%d) — checking for phase escalation",
+                agent_role,
+                restart_count,
+                self._max_agent_restarts,
+            )
+            # Count agents that have hit their restart limit
+            exhausted_agents = [
+                role
+                for role, count in self._agent_restart_counts.items()
+                if count >= self._max_agent_restarts
+            ]
+            if len(exhausted_agents) >= 2:
+                logger.warning(
+                    "Multiple agents exhausted restart limits (%s) — escalating to phase restart",
+                    exhausted_agents,
+                )
+                await self._create_hitl_decision(
+                    "orchestrator",
+                    f"Multiple agents have exhausted restart limits "
+                    f"({', '.join(exhausted_agents)}). Consider restarting the "
+                    f"entire phase. Original issue: {message}",
+                )
+            else:
+                await self._create_hitl_decision(
+                    agent_role,
+                    f"Agent {agent_role} has exhausted its restart limit "
+                    f"({restart_count}/{self._max_agent_restarts}). "
+                    f"Requires human intervention: {message}",
+                )
+            return
+
+        # Call the restart REST API endpoint directly (no CLI subcommand exists)
+        try:
+            from urllib.parse import quote
+
+            orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://localhost:9849")
+            restart_url = (
+                f"{orchestrator_url}/api/v1/pipelines/"
+                f"{quote(self.pipeline_id, safe='')}/agents/{quote(agent_role, safe='')}/restart"
+            )
+            import urllib.request
+
+            req_data = json.dumps({"reason": message[:500]}).encode()
+            req = urllib.request.Request(
+                restart_url,
+                data=req_data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open(req, timeout=60) as resp:
+                result = json.loads(resp.read().decode())
+
+            if result.get("success"):
+                self._agent_restart_counts[agent_role] = restart_count + 1
+                logger.info(
+                    "Agent %s restarted successfully (count: %d/%d)",
+                    agent_role,
+                    restart_count + 1,
+                    self._max_agent_restarts,
+                )
+                self._log_oversight_event(
+                    {
+                        "event": "agent_restarted",
+                        "agent_role": agent_role,
+                        "restart_count": restart_count + 1,
+                        "reason": message[:500],
+                    }
+                )
+            else:
+                error_msg = result.get("message", "Unknown error")
+                logger.error(
+                    "Failed to restart agent %s: %s",
+                    agent_role,
+                    error_msg,
+                )
+                # Fall back to HITL on failure
+                await self._create_hitl_decision(
+                    agent_role,
+                    f"Attempted to restart agent {agent_role} but failed: "
+                    f"{error_msg}. Original issue: {message}",
+                )
+        except Exception as e:
+            logger.error("Exception restarting agent %s: %s", agent_role, e)
+            await self._create_hitl_decision(
+                agent_role,
+                f"Exception restarting agent {agent_role}: {e}. Original issue: {message}",
+            )
 
     # -----------------------------------------------------------------
     # CLI wrappers
@@ -1455,6 +1584,36 @@ class OverseerMonitor:
             )
         except Exception:
             logger.debug("Failed to create HITL decision for %s", agent_role, exc_info=True)
+
+    async def _create_phase_restart_decision(self, agent_role: str, message: str) -> None:
+        """Create a HITL decision for a phase restart request.
+
+        Unlike agent-level restarts (which the overseer executes
+        automatically), phase restarts surface a decision so a human can
+        review and then **manually call the phase restart API endpoint**.
+        The HITL decision options are advisory — no automated execution
+        occurs after the human selects an option.
+        """
+        try:
+            await self._run_cli(
+                "egg-orch",
+                "decision",
+                "create",
+                self.pipeline_id,
+                "--question",
+                f"Phase restart decision: {message}",
+                "--options",
+                "Restart phase",
+                "Restart individual agent",
+                "Continue monitoring",
+                "Cancel pipeline",
+            )
+        except Exception:
+            logger.debug(
+                "Failed to create phase restart HITL decision for %s",
+                agent_role,
+                exc_info=True,
+            )
 
     async def _send_slack_notification(self, agent_role: str, message: str) -> None:
         """Send a Slack notification about an agent issue."""

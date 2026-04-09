@@ -452,6 +452,58 @@ PIPELINE_TOOLS = [
             "required": ["config"],
         },
     },
+    {
+        "name": "restart_agent",
+        "description": (
+            "Restart a single agent in a pipeline. Stops the existing container, "
+            "resets its consensus state, and respawns it with the same configuration. "
+            "The agent's worktree is preserved so committed work is retained."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+                "agent_role": {
+                    "type": "string",
+                    "description": "Role of the agent to restart (e.g. 'coder', 'tester')",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Reason for restarting the agent",
+                },
+            },
+            "required": ["task_id", "agent_role"],
+        },
+    },
+    {
+        "name": "restart_phase",
+        "description": (
+            "Restart all agents in a pipeline phase. Stops all phase containers, "
+            "resets consensus and review cycle state, and respawns all agents. "
+            "Prior phase artifacts are preserved."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+                "phase": {
+                    "type": "string",
+                    "description": "Phase to restart (e.g. 'implement', 'plan')",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Reason for restarting the phase",
+                },
+            },
+            "required": ["task_id", "phase"],
+        },
+    },
 ]
 
 
@@ -496,6 +548,8 @@ class PipelineToolHandler:
             "search_checkpoints": self._handle_search_checkpoints,
             "get_contract": self._handle_get_contract,
             "validate_config": self._handle_validate_config,
+            "restart_agent": self._handle_restart_agent,
+            "restart_phase": self._handle_restart_phase,
         }
 
         handler = handlers.get(tool_name)
@@ -1403,3 +1457,49 @@ class PipelineToolHandler:
             return {"error": "Either issue_number or task_id (with linked issue) is required"}
 
         return self._make_gateway_request(f"/api/v1/contract/{int(issue_number)}")
+
+    def _handle_restart_agent(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Restart a single agent in a pipeline."""
+        task_id = quote(args["task_id"], safe="")
+        agent_role = quote(args["agent_role"], safe="")
+        data: dict[str, Any] = {}
+        if args.get("reason"):
+            data["reason"] = args["reason"]
+        try:
+            result = self._make_request(
+                f"/api/v1/pipelines/{task_id}/agents/{agent_role}/restart",
+                method="POST",
+                data=data,
+                timeout=60,
+            )
+            return {
+                "restarted": True,
+                "agent_role": args["agent_role"],
+                "container_id": result.get("data", {}).get("container_id", ""),
+                "message": f"Agent {args['agent_role']} restarted successfully",
+            }
+        except Exception as e:
+            return {"error": f"Failed to restart agent: {e}"}
+
+    def _handle_restart_phase(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Restart all agents in a pipeline phase."""
+        task_id = quote(args["task_id"], safe="")
+        phase = quote(args["phase"], safe="")
+        data: dict[str, Any] = {}
+        if args.get("reason"):
+            data["reason"] = args["reason"]
+        try:
+            result = self._make_request(
+                f"/api/v1/pipelines/{task_id}/phases/{phase}/restart",
+                method="POST",
+                data=data,
+                timeout=120,
+            )
+            return {
+                "restarted": True,
+                "phase": args["phase"],
+                "agents_restarted": result.get("data", {}).get("agents_restarted", []),
+                "message": f"Phase {args['phase']} restarted successfully",
+            }
+        except Exception as e:
+            return {"error": f"Failed to restart phase: {e}"}

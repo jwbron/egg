@@ -1,0 +1,136 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1551,
+    "title": "Issue #1551",
+    "url": "https://github.com/jwbron/egg/issues/1551"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/container_spawner.py`, add `restart_agent_container(pipeline_id, agent_role, ...)` method that stops the existing container via `stop_agent_container()`, removes it via `remove_agent_container()`, and respawns with the same parameters using `spawn_agent_container()` \u2014 reusing the existing worktree rather than creating a new one. Track restart count. Return the new `SpawnedContainer`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Method stops old container, removes it, respawns with same role/phase/env preserving worktree, and returns new SpawnedContainer",
+          "files_affected": [
+            "orchestrator/container_spawner.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `orchestrator/routes/pipelines.py`, add `POST /<pipeline_id>/agents/<role>/restart` endpoint that validates pipeline/role, calls `PeerConsensusTracker.remove_agent()` and `ConsensusEvaluator.remove_agent()` to reset consensus state, calls the new spawner method, updates pipeline PhaseExecution state, and returns success with new container ID. Accept optional `reason` in request body.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Endpoint returns 200 with new container ID, old container is stopped, consensus state is reset for the restarted agent",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In `orchestrator/routes/pipelines.py`, add `POST /<pipeline_id>/phases/<phase>/restart` endpoint that validates pipeline/phase, stops and removes all containers for the phase, calls `PeerConsensusTracker.clear()` to reset all consensus state, resets the phase review cycle counter, respawns all agents, and returns success. Accept optional `reason` and `context` in request body.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Endpoint returns 200, all phase containers stopped, consensus and review cycles reset, all agents respawned",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "In `orchestrator/mcp_tools.py`, add `restart_agent` tool (params: task_id, agent_role, reason) and `restart_phase` tool (params: task_id, phase, reason, context) to PIPELINE_TOOLS with handlers `_handle_restart_agent()` and `_handle_restart_phase()` that proxy to the new API endpoints.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Both MCP tools call correct API endpoints and return structured success/error responses",
+          "files_affected": [
+            "orchestrator/mcp_tools.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "In `orchestrator/overseer/decision_maker.py`, add `restart_agent` and `restart_phase` to available actions in `decide_corrective_action()` prompt. In `orchestrator/overseer/monitor.py`, add handling in `_execute_action()`: restart_agent calls the API directly; restart_phase creates HITL decision by default. Track restart counts per agent per phase; escalate to phase restart when agent restarts exhausted for 2+ agents.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Overseer can decide and execute restart_agent automatically; restart_phase escalates to HITL by default; restart counts tracked with limit enforcement",
+          "files_affected": [
+            "orchestrator/overseer/decision_maker.py",
+            "orchestrator/overseer/monitor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-6",
+          "description": "Add tests for restart endpoints, spawner method, MCP tools, and overseer actions in `orchestrator/tests/`. Cover happy path and edge cases: missing pipeline, missing agent, restart limit exceeded, consensus reset, phase artifact preservation.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests pass for all new functionality including edge cases",
+          "files_affected": [
+            "orchestrator/tests/test_container_spawner.py",
+            "orchestrator/tests/test_pipelines.py",
+            "orchestrator/tests/test_mcp_tools.py",
+            "orchestrator/tests/test_overseer_monitor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Add agent-level and phase-level restart capabilities",
+    "description": "Adds force-retry at two levels \u2014 individual agents and entire phases \u2014\nwithout killing the whole pipeline. Exposed via REST API, MCP tools,\nand overseer auto-restart actions. Fixes #1551.",
+    "test_plan": "- Automated: Unit tests for restart endpoints, spawner method, MCP tools, overseer actions\n- Automated: Edge case tests for missing pipeline/agent, restart limits, consensus reset\n- Manual: Submit a pipeline, manually hang an agent (e.g., large codebase read), trigger restart via MCP tool, verify agent resumes with worktree intact\n- Manual: Trigger phase restart, verify all agents respawn and consensus resets",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}

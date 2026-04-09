@@ -194,6 +194,9 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `overseer_rerun_min_work_seconds` | `60` | Minimum work duration required after a `request_changes` phase-gate decision; completions faster than this with `content_changed=False` are flagged as re-run anomalies |
 | `overseer_hitl_propagation_timeout_seconds` | `300` | Seconds to wait for a resolved phase-gate decision to appear in the SDLC contract before raising a propagation-failure alert |
 | `overseer_infra_error_dedup_window_seconds` | `300` | Time window for deduplicating infrastructure error escalations between Tier 1 and Tier 2 (same agent + same error pattern) |
+| `overseer_max_agent_restarts` | `2` | Maximum auto-restarts per agent per phase before escalating to HITL. Tracked by the overseer independently of the consensus wrapper's restart count |
+| `overseer_heartbeat_failures_before_restart` | `3` | Consecutive heartbeat failures before the overseer triggers an agent restart (default: 3) |
+| `overseer_nudge_timeout_before_restart_minutes` | `5` | Minutes to wait after sending a nudge with no response before triggering an agent restart |
 
 ## Tier 2: Overseer Agent
 
@@ -236,7 +239,9 @@ Characteristics:
 A Sonnet or Opus agent handles corrective decision-making when Haiku monitors escalate.
 
 Responsibilities:
-- Decide corrective action: nudge, redirect, HITL escalation, or issue filing
+- Decide corrective action: nudge, redirect, **restart agent**, **restart phase**, HITL escalation, or issue filing
+- **Agent restart**: When an agent is classified as stalled or unresponsive after escalation thresholds, the decision-maker can select the `restart_agent` action to automatically stop and respawn the stuck agent (up to the configured restart limit per agent per phase, default 2)
+- **Phase restart**: When agent-level restarts are exhausted for 2+ agents, the decision-maker can select the `restart_phase` action, which creates a HITL decision for human approval before restarting the entire phase
 - **Infrastructure error fast-path**: When classification is `infrastructure_error`, bypass the nudge/redirect ladder and return `hitl` action with high priority immediately, including the original error details in the escalation message
 - Compose redirect messages with actionable guidance
 - Determine whether a pattern warrants an issue vs. HITL escalation
@@ -285,11 +290,13 @@ The system follows a progressive escalation ladder:
 | Step | Action | When |
 |------|--------|------|
 | 1 | **Escalate to overseer/HITL** | Orchestrator detects heartbeat/progress timeout; immediately escalates to overseer (or HITL if overseer disabled) |
-| 1a | **Infrastructure error → HITL fast-path** | Orchestrator detects infrastructure error (blocked + infra keyword); bypasses steps 2-3 and escalates directly to HITL with error details |
+| 1a | **Infrastructure error → HITL fast-path** | Orchestrator detects infrastructure error (blocked + infra keyword); bypasses steps 2-4 and escalates directly to HITL with error details |
 | 2 | **Nudge / Redirect message** | Overseer classifies the alert and sends a nudge or actionable guidance to the agent |
-| 3 | **HITL escalation** | Agent still stuck after max redirects |
-| 4 | **File GitHub issue** | Structured diagnostic report for persistent problems |
-| 5 | **Slack notification** | Human escalation for urgent issues |
+| 3 | **Restart agent** | Agent still unresponsive after nudge(s); overseer auto-restarts the agent (up to max restarts per phase, default 2). Stops the container, resets consensus state, respawns with same config preserving worktree |
+| 4 | **Restart phase (HITL)** | Agent-level restarts exhausted for 2+ agents; overseer creates HITL decision for phase restart approval. Requires human confirmation before stopping all containers and respawning |
+| 5 | **HITL escalation** | Agent still stuck after max restarts, or restart not applicable |
+| 6 | **File GitHub issue** | Structured diagnostic report for persistent problems |
+| 7 | **Slack notification** | Human escalation for urgent issues |
 
 **Escalation safety net**: If the decision-maker selects `nudge` or `redirect` but the accompanying message indicates human intervention is required (e.g., contains phrases combining human/manual/operator with intervention/review/needed), the action is automatically upgraded to `hitl`. This prevents under-escalation caused by LLM phrasing that signals urgency without selecting the appropriate action level.
 
@@ -392,9 +399,10 @@ All overseer CLI operations (`_broadcast_alert`, `_send_message`, `_resolve_aler
 - All source, test, doc, and config files
 - `gh pr merge` and `gh pr create`
 - `egg-orch phase advance` / `egg-orch phase complete`
-- Direct agent restart (must go through HITL)
 
-When the overseer creates a HITL decision (format: `"Agent <role> issue: <message>"`) and the human resolves it with **"Restart agent"**, the orchestrator automatically stops the stalled container and emits a `CONTAINER_STOPPED` event so the pipeline loop can respawn a replacement.
+**Agent restart capability**: The overseer can trigger agent-level restarts automatically via the `RESTART_AGENT` corrective action, which calls the `POST /api/v1/pipelines/{id}/agents/{role}/restart` endpoint. This is subject to the per-agent restart limit (default 2 per phase). Phase-level restarts (`RESTART_PHASE`) require HITL approval by default — the overseer creates a decision rather than restarting directly.
+
+The overseer's restart tracking is per-agent per-phase. When an agent's restart count reaches the configured maximum, the overseer escalates to HITL instead of auto-restarting. When 2+ agents have exhausted their restart limits, the overseer escalates to a phase-level restart decision.
 
 ### Self-Monitoring
 

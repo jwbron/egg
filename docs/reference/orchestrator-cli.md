@@ -31,6 +31,8 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch container spawn [<id>] --role <role>` | Spawn a container |
 | `egg-orch container logs [<id>] <cid>` | Get container logs |
 | `egg-orch container stop [<id>] <cid>` | Stop a container |
+| `egg-orch agent restart [<id>] <role> [--reason "..."]` | Restart a single stuck agent (stop, reset consensus, respawn). *CLI pending — use the REST API directly for now* |
+| `egg-orch phase restart [<id>] <phase> [--reason "..."] [--context "..."]` | Restart an entire phase (stop all containers, reset consensus, respawn all). *CLI pending — use the REST API directly for now* |
 | `egg-orch gateway health` | Check gateway health |
 | `egg-orch gateway phase --issue <n>` | Get current phase from gateway |
 | `egg-orch gateway permissions <phase>` | Get allowed ops for a phase |
@@ -106,6 +108,36 @@ egg-orch health resolve --agent-id coder --alert-type heartbeat_timeout
 # Or specify an explicit pipeline ID
 egg-orch health resolve issue-123 --agent-id coder --alert-type heartbeat_timeout
 ```
+
+**Restart a stuck agent or phase:**
+```bash
+# Restart a single agent (preserves worktree, resets consensus state)
+egg-orch agent restart coder --reason "Agent hung after Edit tool error"
+
+# Restart with explicit pipeline ID
+egg-orch agent restart issue-1551 coder --reason "No heartbeat for 10 minutes"
+
+# Restart an entire phase (stops all containers, resets consensus + review cycles)
+egg-orch phase restart implement --reason "Multiple agents stalled"
+
+# Restart phase with additional context injected into respawned agents
+egg-orch phase restart implement \
+  --reason "Consensus corrupted after restart cascade" \
+  --context "Previous attempt stalled during BRC convergence — focus on completing reviews first"
+```
+
+Agent restart preserves the agent's existing worktree (including committed work on the branch) and resets only that agent's consensus state (proposals, ACKs, NACKs, confirmations). Phase restart resets all consensus state and review cycle counters for the phase, then respawns all agents from scratch while preserving prior phase artifacts and branch commits.
+
+> **Note:** CLI commands for restart are pending implementation. In the meantime, use the REST API directly or the MCP tools:
+> ```bash
+> # Agent restart via REST API
+> curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/agents/<role>/restart \
+>   -H "Content-Type: application/json" -d '{"reason": "Agent hung"}'
+>
+> # Phase restart via REST API
+> curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/phases/<phase>/restart \
+>   -H "Content-Type: application/json" -d '{"reason": "Phase stalled", "context": "Focus on X"}'
+> ```
 
 **Manage agent anchors (post-compaction recovery):**
 ```bash
