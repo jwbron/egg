@@ -1168,8 +1168,7 @@ class TestCleanExitWithoutConsensus:
         from events import EventType
 
         consensus_calls = [
-            c for c in mock_emit.call_args_list
-            if c[0][0] == EventType.CONSENSUS_REACHED
+            c for c in mock_emit.call_args_list if c[0][0] == EventType.CONSENSUS_REACHED
         ]
         assert len(consensus_calls) == 1, (
             f"Expected exactly 1 CONSENSUS_REACHED event, got {len(consensus_calls)}"
