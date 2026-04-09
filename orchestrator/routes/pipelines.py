@@ -1138,8 +1138,12 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     except ValueError:
         return make_error_response(f"Invalid agent role: {agent_role}", status_code=400)
 
-    # Validate pipeline is running
-    if pipeline.status not in (PipelineStatus.RUNNING, PipelineStatus.AWAITING_HUMAN):
+    # Validate pipeline is in a restartable state
+    if pipeline.status not in (
+        PipelineStatus.RUNNING,
+        PipelineStatus.AWAITING_HUMAN,
+        PipelineStatus.FAILED,
+    ):
         return make_error_response(
             f"Pipeline {pipeline_id} is not running (status: {pipeline.status.value})",
             status_code=409,
@@ -1306,6 +1310,12 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                         )
                     )
 
+        # Reset pipeline/phase status if restarting from failed state
+        if pipeline.status == PipelineStatus.FAILED:
+            pipeline.status = PipelineStatus.RUNNING
+            if phase_exec is not None:
+                phase_exec.status = PipelineStatus.RUNNING
+
         pipeline.updated_at = datetime.now(UTC)
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
 
@@ -1371,8 +1381,12 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     except ValueError:
         return make_error_response(f"Invalid phase: {phase}", status_code=400)
 
-    # Validate pipeline is running
-    if pipeline.status not in (PipelineStatus.RUNNING, PipelineStatus.AWAITING_HUMAN):
+    # Validate pipeline is in a restartable state
+    if pipeline.status not in (
+        PipelineStatus.RUNNING,
+        PipelineStatus.AWAITING_HUMAN,
+        PipelineStatus.FAILED,
+    ):
         return make_error_response(
             f"Pipeline {pipeline_id} is not running (status: {pipeline.status.value})",
             status_code=409,
@@ -1498,6 +1512,7 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
         phase_exec.agents = []
         phase_exec.review_cycles = 0
         phase_exec.status = PipelineStatus.RUNNING
+        pipeline.status = PipelineStatus.RUNNING
         pipeline.updated_at = datetime.now(UTC)
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
 
