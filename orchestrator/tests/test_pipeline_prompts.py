@@ -27,6 +27,7 @@ from routes.pipelines import (
     _build_review_prompt,
     _build_reviewer_preparation,
     _build_role_context,
+    _build_role_restrictions_section,
     _extract_plan_overview,
     _get_agent_design_criteria,
     _get_code_review_criteria,
@@ -685,6 +686,7 @@ class TestBuildRoleContext:
         task.description = desc
         task.files_affected = files or []
         task.acceptance_criteria = acceptance or "Tests pass"
+        task.role = None
         return task
 
     def test_architect_gets_full_prompt(self):
@@ -725,6 +727,7 @@ class TestBuildRoleContext:
     def test_tester_with_phase_obj_includes_tasks(self):
         """Tester with phase_obj includes phase-scoped task details."""
         task = self._make_task("TASK-1-1", "Add validation", ["models.py"], "Tests pass")
+        task.role = "tester"
         phase = self._make_phase("phase-1", "Schema", [task])
         result = _build_role_context("tester", "# Issue\n\nBody.", issue_number=1, phase_obj=phase)
         assert "Phase Scope" in result
@@ -736,6 +739,7 @@ class TestBuildRoleContext:
     def test_documenter_with_phase_obj_includes_tasks(self):
         """Documenter with phase_obj includes phase-scoped task details."""
         task = self._make_task("TASK-2-1", "Update docs", ["README.md"])
+        task.role = "documenter"
         phase = self._make_phase("phase-2", "Docs", [task])
         result = _build_role_context(
             "documenter", "# Issue\n\nBody.", issue_number=1, phase_obj=phase
@@ -771,6 +775,108 @@ class TestBuildRoleContext:
         result = _build_role_context("tester", None, issue_number=5)
         assert "## For More Context" in result
         assert "5" in result
+
+    def test_coder_sees_coder_tasks_and_unassigned(self):
+        """Coder sees tasks with role='coder' and role=None, but NOT role='tester'."""
+        task_coder = self._make_task("task-1-1", "Code feature")
+        task_coder.role = "coder"
+
+        task_tester = self._make_task("task-1-2", "Write tests")
+        task_tester.role = "tester"
+
+        task_unassigned = self._make_task("task-1-3", "Misc task")
+        task_unassigned.role = None
+
+        phase = self._make_phase("phase-1", "Implement", [task_coder, task_tester, task_unassigned])
+
+        result = _build_role_context("coder", "# Issue", issue_number=1, phase_obj=phase)
+        assert "task-1-1" in result
+        assert "Code feature" in result
+        assert "task-1-3" in result
+        assert "Misc task" in result
+        assert "task-1-2" not in result
+        assert "Write tests" not in result
+
+    def test_tester_sees_only_tester_tasks(self):
+        """Tester only sees tasks with role='tester', not role=None or role='coder'."""
+        task_coder = self._make_task("task-1-1", "Code feature")
+        task_coder.role = "coder"
+
+        task_tester = self._make_task("task-1-2", "Write tests")
+        task_tester.role = "tester"
+
+        task_unassigned = self._make_task("task-1-3", "Misc task")
+        task_unassigned.role = None
+
+        phase = self._make_phase("phase-1", "Implement", [task_coder, task_tester, task_unassigned])
+
+        result = _build_role_context("tester", "# Issue", issue_number=1, phase_obj=phase)
+        assert "task-1-2" in result
+        assert "Write tests" in result
+        assert "task-1-1" not in result
+        assert "Code feature" not in result
+        assert "task-1-3" not in result
+        assert "Misc task" not in result
+
+    def test_documenter_sees_only_documenter_tasks(self):
+        """Documenter only sees tasks with role='documenter'."""
+        task_coder = self._make_task("task-1-1", "Code feature")
+        task_coder.role = "coder"
+
+        task_doc = self._make_task("task-1-2", "Update README")
+        task_doc.role = "documenter"
+
+        task_unassigned = self._make_task("task-1-3", "Misc task")
+        task_unassigned.role = None
+
+        phase = self._make_phase("phase-1", "Implement", [task_coder, task_doc, task_unassigned])
+
+        result = _build_role_context("documenter", "# Issue", issue_number=1, phase_obj=phase)
+        assert "task-1-2" in result
+        assert "Update README" in result
+        assert "task-1-1" not in result
+        assert "Code feature" not in result
+        assert "task-1-3" not in result
+        assert "Misc task" not in result
+
+    def test_non_execution_role_sees_all_tasks(self):
+        """Non-execution roles (reviewer_code, architect) see all tasks regardless of role."""
+        task_coder = self._make_task("task-1-1", "Code feature")
+        task_coder.role = "coder"
+
+        task_tester = self._make_task("task-1-2", "Write tests")
+        task_tester.role = "tester"
+
+        task_unassigned = self._make_task("task-1-3", "Misc task")
+        task_unassigned.role = None
+
+        phase = self._make_phase("phase-1", "Implement", [task_coder, task_tester, task_unassigned])
+
+        # reviewer_code is not an execution role, should see all tasks
+        result = _build_role_context("reviewer_code", "# Issue", issue_number=1, phase_obj=phase)
+        assert "task-1-1" in result
+        assert "Code feature" in result
+        assert "task-1-2" in result
+        assert "Write tests" in result
+        assert "task-1-3" in result
+        assert "Misc task" in result
+
+    def test_legacy_plan_all_roles_none_shows_all_tasks(self):
+        """Legacy plans (all role=None) show all tasks to all execution roles."""
+        task1 = self._make_task("task-1-1", "First task")
+        task1.role = None
+        task2 = self._make_task("task-1-2", "Second task")
+        task2.role = None
+        task3 = self._make_task("task-1-3", "Third task")
+        task3.role = None
+        phase = self._make_phase("phase-1", "Implement", [task1, task2, task3])
+
+        # Even though tester would normally be filtered, legacy plans show all
+        for role in ("coder", "tester", "documenter"):
+            result = _build_role_context(role, "# Issue", issue_number=1, phase_obj=phase)
+            assert "task-1-1" in result, f"{role} should see task-1-1 in legacy plan"
+            assert "task-1-2" in result, f"{role} should see task-1-2 in legacy plan"
+            assert "task-1-3" in result, f"{role} should see task-1-3 in legacy plan"
 
 
 class TestBuildAgentPromptRoleContext:
@@ -841,6 +947,7 @@ class TestBuildAgentPromptRoleContext:
         task.description = "Add JWT validation"
         task.acceptance_criteria = "Token verified"
         task.files_affected = ["auth.py"]
+        task.role = "tester"
         phase.tasks = [task]
 
         result = _build_agent_prompt(
@@ -1002,6 +1109,7 @@ class TestBuildRoleContextEdgeCases:
         task.description = desc
         task.files_affected = files
         task.acceptance_criteria = acceptance
+        task.role = None
         return task
 
     def test_analysis_role_none_prompt_returns_empty(self):
@@ -1017,6 +1125,7 @@ class TestBuildRoleContextEdgeCases:
     def test_task_without_acceptance_criteria(self):
         """Tasks with no acceptance_criteria are rendered without that line."""
         task = self._make_task("t-1", "Fix it", files=["a.py"], acceptance=None)
+        task.role = "tester"
         phase = self._make_phase(tasks=[task])
         result = _build_role_context("tester", "# Issue", issue_number=1, phase_obj=phase)
         assert "t-1" in result
@@ -1027,6 +1136,7 @@ class TestBuildRoleContextEdgeCases:
     def test_task_without_files_affected(self):
         """Tasks with no files_affected are rendered without that line."""
         task = self._make_task("t-2", "Update logic", files=None, acceptance="Tests pass")
+        task.role = "tester"
         phase = self._make_phase(tasks=[task])
         result = _build_role_context("tester", "# Issue", issue_number=1, phase_obj=phase)
         assert "t-2" in result
@@ -1036,6 +1146,7 @@ class TestBuildRoleContextEdgeCases:
     def test_task_with_empty_files_list(self):
         """Tasks with empty files_affected list don't show Files line."""
         task = self._make_task("t-3", "Refactor", files=[], acceptance="Lint passes")
+        task.role = "documenter"
         phase = self._make_phase(tasks=[task])
         result = _build_role_context("documenter", "# Issue", issue_number=1, phase_obj=phase)
         assert "Files:" not in result
@@ -1047,6 +1158,8 @@ class TestBuildRoleContextEdgeCases:
             self._make_task("t-2", "Task two", ["b.py"]),
             self._make_task("t-3", "Task three", ["c.py"]),
         ]
+        for t in tasks:
+            t.role = "tester"
         phase = self._make_phase(tasks=tasks)
         result = _build_role_context("tester", "# Issue", issue_number=1, phase_obj=phase)
         assert "t-1" in result
@@ -2750,6 +2863,64 @@ class TestFileBoundarySection:
             issue_number=1,
         )
         assert "File Boundaries" in result
+
+
+class TestBuildRoleRestrictionsSection:
+    """Tests for _build_role_restrictions_section() helper."""
+
+    def test_includes_all_three_execution_roles(self):
+        """Section includes coder, tester, documenter subsections."""
+        section = _build_role_restrictions_section()
+        assert "### coder" in section
+        assert "### tester" in section
+        assert "### documenter" in section
+
+    def test_includes_allowed_and_blocked_patterns(self):
+        """Section includes Allowed and Blocked labels."""
+        section = _build_role_restrictions_section()
+        assert "**Allowed**" in section
+        assert "**Blocked**" in section
+
+    def test_includes_role_assignment_guidance(self):
+        """Section includes guidance about when to assign each role."""
+        section = _build_role_restrictions_section()
+        assert "role: tester" in section
+        assert "role: documenter" in section
+        assert "role: coder" in section
+        assert "split it into separate tasks per role" in section
+
+    def test_includes_header(self):
+        """Section has 'Execution Role File Restrictions' header."""
+        section = _build_role_restrictions_section()
+        assert "## Execution Role File Restrictions" in section
+
+
+class TestTaskPlannerRoleRestrictions:
+    """Tests for task_planner prompt including role restrictions."""
+
+    def test_task_planner_prompt_includes_role_restrictions(self):
+        """Task planner prompt contains Execution Role File Restrictions section."""
+        result = _build_agent_prompt(
+            role_value="task_planner",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature",
+            issue_number=42,
+        )
+        assert "Execution Role File Restrictions" in result
+
+    def test_task_planner_yaml_example_includes_role_field(self):
+        """Task planner prompt yaml-tasks example includes the role field."""
+        result = _build_agent_prompt(
+            role_value="task_planner",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature",
+            issue_number=42,
+        )
+        assert "role: coder" in result
 
 
 class TestReviewPromptBaseBranch:

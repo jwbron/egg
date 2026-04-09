@@ -310,11 +310,11 @@ loaded = load_checkpoint(checkpoint_path)
 ```
 
 **Key modules:**
-- `models.py` - Pydantic models (Contract, Task, Phase, Feedback, CheckDefinition, CheckResult, PhaseConfig, AgentExecutionModel, etc.). Phase model includes `dependencies` field for Tier 3 phase ordering; AgentExecutionModel includes `phase_id` for composite execution tracking.
+- `models.py` - Pydantic models (Contract, Task, Phase, Feedback, CheckDefinition, CheckResult, PhaseConfig, AgentExecutionModel, etc.). Phase model includes `dependencies` field for Tier 3 phase ordering; AgentExecutionModel includes `phase_id` for composite execution tracking. Task model includes optional `role` field for role-aware task assignment.
 - `hitl.py` - Human-in-the-loop checkbox UI generation and parsing
 - `feedback.py` - Feedback comment generation and parsing for open-ended questions
 - `resilience.py` - Rate limit handling, retry logic, timeout checkpoints
-- `plan_parser.py` - Markdown plan parsing, task extraction, and phase dependency normalization
+- `plan_parser.py` - Markdown plan parsing, task extraction, phase dependency normalization, and role assignment propagation. Parses the optional `role` field from yaml-tasks into `ParsedTask` and propagates it to the contract `Task` model.
 - `roles.py` - Role-based field ownership validation
 - `audit.py` - Audit log utilities
 - `agent_recovery.py` - Multi-agent recovery (retry manager, circuit breaker, conflict detector)

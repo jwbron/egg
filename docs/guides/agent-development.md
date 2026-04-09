@@ -307,12 +307,13 @@ Agent prompts are built with role-appropriate context via `_build_role_context()
 **Execution roles** (coder, tester, documenter) receive:
 - A `## Background` section with a 1-2 sentence summary extracted from the issue
 - A `## For More Context` section with pointers to the full issue (`gh issue view`), handoff data, and git diff
+- **Role-filtered tasks**: During the implement phase, each agent only sees tasks assigned to its role via the `task.role` field. The coder also receives any unassigned tasks as a fallback. See [Agent Roles Reference](../reference/agent-roles.md#role-aware-task-assignment).
 
 **Utility roles** (autofixer, conflict_resolver) receive targeted context specific to their task (e.g., lint output, conflict details, list of affected files).
 
 **Interface roles** (inspector, overseer) receive pipeline state, health alerts, and agent logs.
 
-When adding a new execution role, `_build_role_context()` will automatically provide the summarized context. If the role needs phase-specific instructions (like the tester's "Focus your testing on..." or the documenter's "Focus your documentation on..."), add a condition in `_build_role_context()` for the new role.
+When adding a new execution role, `_build_role_context()` will automatically provide the summarized context and filter tasks by role. If the role needs phase-specific instructions (like the tester's "Focus your testing on..." or the documenter's "Focus your documentation on..."), add a condition in `_build_role_context()` for the new role.
 
 ## Best Practices
 
