@@ -2632,9 +2632,13 @@ def _build_role_context(
             lines.append("The following tasks were implemented in this phase:\n")
 
         # Filter tasks by role for execution agents in the implement phase.
-        # Unassigned tasks (role=None) default to coder.
+        # Only apply role-based filtering when at least one task has a role
+        # assigned — legacy plans (all role=None) show all tasks to all agents,
+        # preserving backward compatibility.
         _execution_roles = {"coder", "tester", "documenter"}
-        if role_value in _execution_roles:
+        _has_any_role = any(getattr(t, "role", None) is not None for t in phase_obj.tasks)
+        if role_value in _execution_roles and _has_any_role:
+            # Unassigned tasks (role=None) default to coder.
             filtered_tasks = [
                 task
                 for task in phase_obj.tasks
