@@ -1351,6 +1351,16 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             reason=reason,
         )
     except ContainerSpawnError as e:
+        # Revert early status update — the agent is not actually running.
+        revert_lock = get_pipeline_state_lock(pipeline_id)
+        with revert_lock:
+            pipeline = store.load_pipeline(pipeline_id)
+            pipeline.status = PipelineStatus.FAILED
+            _phase_exec = pipeline.phases.get(current_phase)
+            if _phase_exec is not None:
+                _phase_exec.status = PipelineStatus.FAILED
+            pipeline.updated_at = datetime.now(UTC)
+            store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
         return make_error_response(f"Failed to restart agent: {e}", status_code=500)
 
     # Update pipeline state with new container/agent info
@@ -1598,7 +1608,7 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     # 6. Reset restart counts for this pipeline
     spawner.reset_restart_counts(pipeline_id)
 
-    # 6. Reconstruct prompts/env for concurrent mode and respawn all agents
+    # 7. Reconstruct prompts/env for concurrent mode and respawn all agents
     agent_commands: dict[AgentRole, list[str] | None] = {}
     agent_envs: dict[AgentRole, dict[str, str]] = {}
     try:
@@ -1698,6 +1708,15 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
             )
 
     if not restarted_agents:
+        # Revert early status update — no agents are actually running.
+        with lock:
+            pipeline = store.load_pipeline(pipeline_id)
+            pipeline.status = PipelineStatus.FAILED
+            phase_exec = pipeline.phases.get(phase)
+            if phase_exec is not None:
+                phase_exec.status = PipelineStatus.FAILED
+            pipeline.updated_at = datetime.now(UTC)
+            store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
         return make_error_response(
             "Phase restart failed: no agents could be respawned", status_code=500
         )

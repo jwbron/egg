@@ -319,3 +319,11 @@ class TestCancelTaskBackgroundCleanup:
         assert result.get("cleanup_started") is True
         assert "PATCH" in call_log
         assert elapsed < 3, f"cancel_task took {elapsed:.1f}s — DELETE should be async"
+
+        # Wait for the background thread to complete and verify DELETE executed
+        import threading
+
+        for t in threading.enumerate():
+            if t.name.startswith("mcp-cleanup-"):
+                t.join(timeout=10)
+        assert "DELETE" in call_log, "Background DELETE should have been called"
