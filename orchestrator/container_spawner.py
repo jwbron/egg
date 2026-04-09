@@ -305,7 +305,7 @@ class ContainerSpawner:
         # drafts); agents get their own worktree branched from the same ref.
         agent_worktree_id = f"{pipeline_id}-{agent_role.value}"
         worktree_created_this_call = False
-        if repo_volumes and repos:
+        if repos:
             try:
                 wt_repos = repos
                 wt_result = self.gateway.create_worktrees(
