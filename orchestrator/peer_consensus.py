@@ -742,6 +742,13 @@ class PeerConsensusTracker:
         """Return the commit SHA from a producer's last proposal (#1473)."""
         return self._proposal_commit_shas.get(role, "")
 
+    def get_latest_proposal_timestamp(self) -> datetime | None:
+        """Return the timestamp of the most recent CONSENSUS_PROPOSE, or None."""
+        with self._lock:
+            if not self._proposal_timestamps:
+                return None
+            return max(self._proposal_timestamps.values())
+
     def evaluate(self) -> dict[str, Any]:
         """Evaluate current consensus state.
 

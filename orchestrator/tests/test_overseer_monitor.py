@@ -9,7 +9,7 @@ import json
 import sys
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1975,3 +1975,294 @@ class TestHealthChecksBroadcast:
         call_args = monitor._broadcast_alert.call_args
         assert call_args.args[0] == "cross_phase_inconsistency"
         assert call_args.args[3] == "high"
+
+
+# ===================================================================
+# Incomplete consensus activity-aware tests (#1609)
+# ===================================================================
+
+
+class _MockConfigWithGrace(_MockConfig):
+    """Config with post-proposal grace and activity extension fields."""
+
+    post_proposal_grace_seconds = 300
+    active_agent_stall_extension_seconds = 120
+
+
+class TestIncompleteConsensusActivityAware:
+    """Test activity-aware deferral in _check_incomplete_consensus_stall."""
+
+    def _make_monitor(self):
+        classifier = _MockClassifier()
+        decision_maker = _MockDecisionMaker()
+        monitor = OverseerMonitor(
+            pipeline_id="test-1609",
+            config=_MockConfigWithGrace(),
+            classifier=classifier,
+            decision_maker=decision_maker,
+        )
+        monitor._send_message = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+        monitor._log_oversight_event = MagicMock()
+        return monitor
+
+    def test_nudge_deferred_when_agents_active(self):
+        """Blocking agents with recent progress events — nudge deferred."""
+        monitor = self._make_monitor()
+
+        # Set up tracking: blocking agents seen just past nudge threshold
+        # (poll_interval=1, nudge_threshold=10, hitl_threshold=20)
+        now = time.time()
+        monitor._incomplete_consensus_blocking = frozenset(["reviewer_refine"])
+        monitor._incomplete_consensus_first_seen = now - 15  # past nudge, below HITL
+        monitor._incomplete_consensus_absolute_start = now - 15
+
+        consensus = {
+            "is_complete": False,
+            "blocking_agents": ["reviewer_refine"],
+        }
+
+        # Mock progress store to show recent activity
+        mock_progress_store = MagicMock()
+        mock_event = MagicMock()
+        mock_progress_store.get_events.return_value = [mock_event]
+        mock_ps = MagicMock()
+        mock_ps.get_progress_store.return_value = mock_progress_store
+
+        # Mock peer_consensus to return no recent proposals
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = None
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "progress_store": mock_ps,
+                "peer_consensus": mock_pc,
+            },
+        ):
+            _run(monitor._check_incomplete_consensus_stall(consensus, "running"))
+
+        # Nudge should NOT have been sent
+        monitor._send_message.assert_not_awaited()
+        # first_seen should have been reset (activity extension)
+        assert monitor._incomplete_consensus_first_seen > time.time() - 5
+
+    def test_nudge_sent_when_agents_inactive(self):
+        """Blocking agents without recent progress — nudge sent normally."""
+        monitor = self._make_monitor()
+
+        # Set elapsed past nudge threshold (10) but below HITL threshold (20)
+        now = time.time()
+        monitor._incomplete_consensus_blocking = frozenset(["reviewer_refine"])
+        monitor._incomplete_consensus_first_seen = now - 15
+        monitor._incomplete_consensus_absolute_start = now - 15
+
+        consensus = {
+            "is_complete": False,
+            "blocking_agents": ["reviewer_refine"],
+        }
+
+        # Mock progress store — no recent activity
+        mock_progress_store = MagicMock()
+        mock_progress_store.get_events.return_value = []
+        mock_ps = MagicMock()
+        mock_ps.get_progress_store.return_value = mock_progress_store
+
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = None
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "progress_store": mock_ps,
+                "peer_consensus": mock_pc,
+            },
+        ):
+            _run(monitor._check_incomplete_consensus_stall(consensus, "running"))
+
+        # Nudge SHOULD have been sent
+        monitor._send_message.assert_awaited()
+        assert monitor._incomplete_consensus_nudged is True
+
+    def test_post_proposal_grace_resets_tracking(self):
+        """A recent CONSENSUS_PROPOSE resets the incomplete consensus tracking."""
+        from datetime import UTC, datetime, timedelta
+
+        monitor = self._make_monitor()
+
+        monitor._incomplete_consensus_blocking = frozenset(["reviewer_refine"])
+        monitor._incomplete_consensus_first_seen = time.time() - 400
+        monitor._incomplete_consensus_absolute_start = time.time() - 400
+        monitor._incomplete_consensus_nudged = True  # was nudged before
+
+        consensus = {
+            "is_complete": False,
+            "blocking_agents": ["reviewer_refine"],
+        }
+
+        # Mock tracker with a recent proposal (60s ago, grace is 300s)
+        mock_tracker = MagicMock()
+        mock_tracker.get_latest_proposal_timestamp.return_value = datetime.now(UTC) - timedelta(
+            seconds=60
+        )
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = mock_tracker
+
+        with patch.dict("sys.modules", {"peer_consensus": mock_pc}):
+            _run(monitor._check_incomplete_consensus_stall(consensus, "running"))
+
+        # Tracking should have been reset — nudged flag cleared
+        assert monitor._incomplete_consensus_nudged is False
+        # No nudge or HITL should have been created
+        monitor._send_message.assert_not_awaited()
+        monitor._create_hitl_decision.assert_not_awaited()
+
+    def test_hitl_deferral_capped_when_agents_active_too_long(self):
+        """HITL escalation fires even if agents are active once deferral cap is exceeded."""
+        monitor = self._make_monitor()
+
+        # poll_interval=1, hitl_threshold=20, max_deferral=40
+        # Set elapsed past HITL threshold AND past the 2x deferral cap
+        now = time.time()
+        monitor._incomplete_consensus_blocking = frozenset(["reviewer_refine"])
+        monitor._incomplete_consensus_first_seen = now - 25  # past hitl_threshold (20)
+        monitor._incomplete_consensus_absolute_start = now - 45  # past 2x cap (40)
+        monitor._incomplete_consensus_nudged = True
+
+        consensus = {
+            "is_complete": False,
+            "blocking_agents": ["reviewer_refine"],
+        }
+
+        # Mock progress store — agents ARE active (but cap is exceeded)
+        mock_progress_store = MagicMock()
+        mock_event = MagicMock()
+        mock_progress_store.get_events.return_value = [mock_event]
+        mock_ps = MagicMock()
+        mock_ps.get_progress_store.return_value = mock_progress_store
+
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = None
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "progress_store": mock_ps,
+                "peer_consensus": mock_pc,
+            },
+        ):
+            _run(monitor._check_incomplete_consensus_stall(consensus, "running"))
+
+        # HITL SHOULD have been created despite active agents — cap exceeded
+        monitor._create_hitl_decision.assert_awaited()
+        assert monitor._incomplete_consensus_hitl_created is True
+
+    def test_hitl_fires_after_grace_reset_and_deferral_cap(self):
+        """HITL fires when: grace resets tracking → grace expires → agent active past deferral cap."""
+        from datetime import UTC, datetime, timedelta
+
+        monitor = self._make_monitor()
+
+        # --- Step 1: Simulate a proposal arriving, triggering grace reset ---
+        monitor._incomplete_consensus_blocking = frozenset(["reviewer_refine"])
+        monitor._incomplete_consensus_first_seen = time.time() - 400
+        monitor._incomplete_consensus_absolute_start = time.time() - 400
+        monitor._incomplete_consensus_nudged = True
+
+        consensus = {
+            "is_complete": False,
+            "blocking_agents": ["reviewer_refine"],
+        }
+
+        # Recent proposal (60s ago) triggers grace
+        mock_tracker = MagicMock()
+        mock_tracker.get_latest_proposal_timestamp.return_value = datetime.now(UTC) - timedelta(
+            seconds=60
+        )
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = mock_tracker
+
+        with patch.dict("sys.modules", {"peer_consensus": mock_pc}):
+            _run(monitor._check_incomplete_consensus_stall(consensus, "running"))
+
+        # Grace fired — tracking was reset, absolute_start should be set to ~now
+        assert monitor._incomplete_consensus_nudged is False
+        assert monitor._incomplete_consensus_absolute_start is not None
+        grace_absolute_start = monitor._incomplete_consensus_absolute_start
+
+        # --- Step 2: Simulate time passing past HITL + deferral cap ---
+        # poll_interval=1, hitl_threshold=20, max_deferral=40
+        # Set first_seen and absolute_start so elapsed > hitl_threshold
+        # and absolute_elapsed > 2 * hitl_threshold
+        monitor._incomplete_consensus_first_seen = grace_absolute_start  # from grace reset
+        monitor._incomplete_consensus_absolute_start = (
+            grace_absolute_start - 45
+        )  # simulate 45s of total time
+        monitor._incomplete_consensus_nudged = True  # nudge was sent
+
+        # Agents are still active
+        mock_progress_store = MagicMock()
+        mock_event = MagicMock()
+        mock_progress_store.get_events.return_value = [mock_event]
+        mock_ps = MagicMock()
+        mock_ps.get_progress_store.return_value = mock_progress_store
+
+        mock_pc2 = MagicMock()
+        mock_pc2.get_peer_consensus_tracker.return_value = None
+
+        # Advance first_seen so elapsed > hitl_threshold (20)
+        monitor._incomplete_consensus_first_seen = time.time() - 25
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "progress_store": mock_ps,
+                "peer_consensus": mock_pc2,
+            },
+        ):
+            _run(monitor._check_incomplete_consensus_stall(consensus, "running"))
+
+        # HITL SHOULD fire — deferral cap exceeded even though agents are active
+        monitor._create_hitl_decision.assert_awaited()
+        assert monitor._incomplete_consensus_hitl_created is True
+
+    def test_nudge_deferral_capped_at_hitl_threshold(self):
+        """Nudge fires when absolute elapsed exceeds HITL threshold despite activity."""
+        monitor = self._make_monitor()
+
+        # poll_interval=1, nudge_threshold=10, hitl_threshold=20
+        # Absolute elapsed past hitl_threshold — nudge deferral should stop
+        now = time.time()
+        monitor._incomplete_consensus_blocking = frozenset(["reviewer_refine"])
+        monitor._incomplete_consensus_first_seen = now - 15  # past nudge (10)
+        monitor._incomplete_consensus_absolute_start = now - 25  # past hitl_threshold (20)
+
+        consensus = {
+            "is_complete": False,
+            "blocking_agents": ["reviewer_refine"],
+        }
+
+        # Mock progress store — agents ARE active
+        mock_progress_store = MagicMock()
+        mock_event = MagicMock()
+        mock_progress_store.get_events.return_value = [mock_event]
+        mock_ps = MagicMock()
+        mock_ps.get_progress_store.return_value = mock_progress_store
+
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = None
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "progress_store": mock_ps,
+                "peer_consensus": mock_pc,
+            },
+        ):
+            _run(monitor._check_incomplete_consensus_stall(consensus, "running"))
+
+        # Nudge SHOULD have been sent despite active agents — cap exceeded
+        monitor._send_message.assert_awaited()
+        assert monitor._incomplete_consensus_nudged is True
