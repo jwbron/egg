@@ -473,6 +473,92 @@ class TestRestartWorktreeIntegration:
             call_kwargs = mock_spawn.call_args.kwargs
             assert call_kwargs.get("preserve_worktree_on_failure") is True
 
+    def test_restart_agent_container_forwards_base_branch(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """restart_agent_container should forward base_branch to spawn_agent_container.
+
+        The restart path uses pipeline.branch as base_branch so the gateway
+        bases the worktree on the existing working branch rather than the
+        remote default.
+        """
+        mock_docker_client.get_container_info.side_effect = ContainerNotFoundError(
+            "already removed"
+        )
+
+        with patch.object(
+            spawner, "spawn_agent_container", wraps=spawner.spawn_agent_container
+        ) as mock_spawn:
+            spawner.restart_agent_container(
+                pipeline_id="issue-200",
+                agent_role=AgentRole.CODER,
+                issue_number=200,
+                repos=["owner/my-repo"],
+                branch="egg/issue-200",
+                base_branch="egg/issue-200",
+            )
+
+            mock_spawn.assert_called_once()
+            call_kwargs = mock_spawn.call_args.kwargs
+            assert call_kwargs.get("base_branch") == "egg/issue-200"
+
+        # Also verify it reached the gateway
+        gw_kwargs = mock_gateway_client.create_worktrees.call_args.kwargs
+        assert gw_kwargs.get("base_branch") == "egg/issue-200"
+
+
+# ---------------------------------------------------------------------------
+# Concurrent spawn factory
+# ---------------------------------------------------------------------------
+
+
+class TestConcurrentSpawnFnBaseBranch:
+    """Tests that create_concurrent_spawn_fn captures and forwards base_branch.
+
+    The initial creation path (_run_concurrent_phase) uses this factory to
+    spawn agents. base_branch must be captured in the closure and forwarded
+    to spawn_agent_container so the gateway bases worktrees on the correct
+    branch (pipeline.base_branch for initial creation).
+    """
+
+    def test_concurrent_spawn_fn_forwards_base_branch(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """The closure returned by create_concurrent_spawn_fn should forward base_branch."""
+        spawn_fn = spawner.create_concurrent_spawn_fn(
+            pipeline_id="issue-200",
+            issue_number=200,
+            repo_volumes=None,
+            mode="public",
+            repos=["owner/my-repo"],
+            phase=None,
+            base_branch="main",
+        )
+
+        spawn_fn(role=AgentRole.CODER, branch="egg/issue-200")
+
+        gw_kwargs = mock_gateway_client.create_worktrees.call_args.kwargs
+        assert gw_kwargs.get("base_branch") == "main"
+
+    def test_concurrent_spawn_fn_without_base_branch_passes_none(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Without base_branch, the closure should pass None to spawn_agent_container."""
+        spawn_fn = spawner.create_concurrent_spawn_fn(
+            pipeline_id="issue-200",
+            issue_number=200,
+            repo_volumes=None,
+            mode="public",
+            repos=["owner/my-repo"],
+            phase=None,
+            # base_branch omitted — defaults to None
+        )
+
+        spawn_fn(role=AgentRole.CODER, branch="egg/issue-200")
+
+        gw_kwargs = mock_gateway_client.create_worktrees.call_args.kwargs
+        assert gw_kwargs.get("base_branch") is None
+
 
 # ---------------------------------------------------------------------------
 # Multiple repos
