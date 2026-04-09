@@ -383,7 +383,10 @@ class TestGitShowDraft:
         assert "--" in captured_cmd
         assert "show" in captured_cmd
         separator_idx = captured_cmd.index("--")
-        assert captured_cmd[separator_idx + 1] == "origin/egg/pid/work:.egg-state/drafts/pid-analysis.md"
+        assert (
+            captured_cmd[separator_idx + 1]
+            == "origin/egg/pid/work:.egg-state/drafts/pid-analysis.md"
+        )
 
     def test_nonzero_returncode(self, tmp_path: Path, monkeypatch):
         """Returns None when git show returns non-zero."""
