@@ -10,7 +10,7 @@ import contextlib
 import os
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -74,9 +74,7 @@ class TestPipelineModeInteractiveGuard:
         {"EGG_PIPELINE_ID": "issue-1591-v1", "EGG_AGENT_ROLE": "coder"},
     )
     @patch("sys.argv", ["entrypoint.py"])
-    def test_rejects_interactive_mode_in_pipeline(
-        self, mock_run_interactive, _bypass_setup
-    ):
+    def test_rejects_interactive_mode_in_pipeline(self, mock_run_interactive, _bypass_setup):
         """No command + pipeline mode should exit(1), not call run_interactive."""
         with pytest.raises(SystemExit) as exc_info:
             main()
@@ -94,9 +92,7 @@ class TestPipelineModeInteractiveGuard:
         },
     )
     @patch("sys.argv", ["entrypoint.py"])
-    def test_allows_interactive_mode_without_pipeline(
-        self, mock_run_interactive, _bypass_setup
-    ):
+    def test_allows_interactive_mode_without_pipeline(self, mock_run_interactive, _bypass_setup):
         """No command + no pipeline mode should call run_interactive normally."""
         with pytest.raises(SystemExit) as exc_info:
             main()

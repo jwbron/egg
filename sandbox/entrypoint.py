@@ -2100,9 +2100,7 @@ def main() -> None:
                 "ERROR: No command provided but container is in pipeline mode "
                 f"(EGG_PIPELINE_ID={config.pipeline_id})."
             )
-            logger.error(
-                "This likely indicates a bug in prompt reconstruction during restart."
-            )
+            logger.error("This likely indicates a bug in prompt reconstruction during restart.")
             logger.error("")
             sys.exit(1)
         exit_code = run_interactive(config, logger)
