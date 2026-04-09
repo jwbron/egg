@@ -337,6 +337,175 @@ class TestCheckContractExists:
 
 
 # ---------------------------------------------------------------------------
+# String identifier (pipeline ID) tests
+# ---------------------------------------------------------------------------
+
+
+class TestGetContractByPipelineId:
+    """Tests for GET /api/v1/contract/<identifier> with string pipeline IDs."""
+
+    def test_get_contract_by_pipeline_id(self, client, auth_headers):
+        """Successfully retrieves a contract by string pipeline ID."""
+        mock_contract = MagicMock()
+        mock_exported = {"pipeline_id": "KORE-1191-full", "phases": []}
+
+        with (
+            patch.object(contract_api, "load_contract", return_value=mock_contract) as mock_load,
+            patch.object(contract_api, "export_contract", return_value=mock_exported),
+        ):
+            response = client.get(
+                "/api/v1/contract/KORE-1191-full?repo_path=/home/egg/repos/test",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["success"] is True
+        assert data["data"]["pipeline_id"] == "KORE-1191-full"
+        mock_load.assert_called_once()
+        # Verify the identifier passed is the string pipeline ID
+        call_args = mock_load.call_args
+        assert call_args[0][0] == "KORE-1191-full"
+
+    def test_get_contract_pipeline_id_not_found(self, client, auth_headers):
+        """Returns 404 when pipeline ID contract not found."""
+        from pathlib import Path
+
+        from egg_contracts import ContractNotFoundError
+
+        with patch.object(
+            contract_api,
+            "load_contract",
+            side_effect=ContractNotFoundError("KORE-999", Path("/home/egg/repos/test")),
+        ):
+            response = client.get(
+                "/api/v1/contract/KORE-999?repo_path=/home/egg/repos/test",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 404
+        data = json.loads(response.data)
+        assert "not found" in data["message"].lower()
+
+
+class TestCheckContractExistsByPipelineId:
+    """Tests for GET /api/v1/contract/exists/<identifier> with string pipeline IDs."""
+
+    def test_exists_by_pipeline_id(self, client, auth_headers):
+        """Returns exists=True for contract found by pipeline ID."""
+        with patch.object(contract_api, "contract_exists", return_value=True) as mock_exists:
+            response = client.get(
+                "/api/v1/contract/exists/KORE-1191-full?repo_path=/home/egg/repos/test",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["data"]["exists"] is True
+        mock_exists.assert_called_once()
+        assert mock_exists.call_args[0][0] == "KORE-1191-full"
+
+    def test_not_exists_by_pipeline_id(self, client, auth_headers):
+        """Returns exists=False when pipeline ID contract not found."""
+        with patch.object(contract_api, "contract_exists", return_value=False):
+            response = client.get(
+                "/api/v1/contract/exists/KORE-999?repo_path=/home/egg/repos/test",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["data"]["exists"] is False
+
+
+# ---------------------------------------------------------------------------
+# Path traversal and routing edge-case tests
+# ---------------------------------------------------------------------------
+
+
+class TestIdentifierValidation:
+    """Tests for path traversal prevention on string identifier routes."""
+
+    @pytest.mark.parametrize(
+        "identifier",
+        [
+            "../../../etc/passwd",
+            "..%2F..%2Fetc%2Fpasswd",
+            "drafts/../secret",
+            "foo/bar",
+            "foo\\bar",
+        ],
+    )
+    def test_get_contract_rejects_traversal(self, client, auth_headers, identifier):
+        """GET /api/v1/contract/<identifier> rejects path-traversal identifiers."""
+        response = client.get(
+            f"/api/v1/contract/{identifier}?repo_path=/home/egg/repos/test",
+            headers=auth_headers,
+        )
+        # Flask may return 404 (route not matched due to slashes) or 400 (our validation)
+        assert response.status_code in (400, 404)
+
+    def test_get_contract_rejects_dot_dot(self, client, auth_headers):
+        """GET /api/v1/contract/<identifier> rejects '..' even without slashes."""
+        response = client.get(
+            "/api/v1/contract/..?repo_path=/home/egg/repos/test",
+            headers=auth_headers,
+        )
+        assert response.status_code in (400, 404)
+
+    def test_exists_rejects_traversal(self, client, auth_headers):
+        """GET /api/v1/contract/exists/<identifier> rejects traversal identifiers."""
+        response = client.get(
+            "/api/v1/contract/exists/..%2Fsecret?repo_path=/home/egg/repos/test",
+            headers=auth_headers,
+        )
+        assert response.status_code in (400, 404)
+
+    def test_mutate_rejects_traversal_identifier(self, client, auth_headers):
+        """POST /api/v1/contract/mutate rejects traversal in identifier field."""
+        response = client.post(
+            "/api/v1/contract/mutate",
+            headers=auth_headers,
+            data=json.dumps(
+                {
+                    "identifier": "../../../etc/passwd",
+                    "field_path": "phases.0.tasks.0.commit",
+                    "new_value": "abc1234",
+                    "repo_path": "/home/egg/repos/test",
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "invalid identifier" in data["message"].lower()
+
+
+class TestNumericStringRouting:
+    """Verify numeric strings route to <int:issue_number>, not <identifier>."""
+
+    def test_numeric_string_routes_to_int_handler(self, client, auth_headers):
+        """A numeric path like /api/v1/contract/123 hits the int route."""
+        mock_contract = MagicMock()
+        mock_exported = {"issue": {"number": 123}, "phases": []}
+
+        with (
+            patch.object(contract_api, "load_contract", return_value=mock_contract) as mock_load,
+            patch.object(contract_api, "export_contract", return_value=mock_exported),
+        ):
+            response = client.get(
+                "/api/v1/contract/123?repo_path=/home/egg/repos/test",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 200
+        # Verify the identifier passed was an int, not a string
+        call_args = mock_load.call_args
+        assert call_args[0][0] == 123
+        assert isinstance(call_args[0][0], int)
+
+
+# ---------------------------------------------------------------------------
 # POST /api/v1/contract/validate tests
 # ---------------------------------------------------------------------------
 
@@ -490,8 +659,8 @@ class TestMutateContract:
         assert data["success"] is False
         assert "Missing request body" in data["message"]
 
-    def test_missing_issue_number_returns_400(self, client, auth_headers):
-        """Returns 400 when issue_number is missing."""
+    def test_missing_identifier_returns_400(self, client, auth_headers):
+        """Returns 400 when neither identifier nor issue_number is provided."""
         response = client.post(
             "/api/v1/contract/mutate",
             headers=auth_headers,
@@ -507,7 +676,7 @@ class TestMutateContract:
         assert response.status_code == 400
         data = json.loads(response.data)
         assert data["success"] is False
-        assert "issue_number" in data["message"]
+        assert "identifier" in data["message"].lower()
 
     def test_missing_field_path_returns_400(self, client, auth_headers):
         """Returns 400 when field_path is missing."""
@@ -681,6 +850,86 @@ class TestMutateContract:
         assert "applied" in data["message"].lower()
         assert data["data"]["contract"]["issue"] == 42
         mock_save.assert_called_once()
+
+    def test_mutate_with_identifier_field(self, client, auth_headers):
+        """Mutate accepts 'identifier' field with string pipeline ID."""
+        from egg_contracts import MutationResult, Role
+
+        mock_contract = MagicMock()
+        mock_updated = MagicMock()
+        mock_exported = {"pipeline_id": "KORE-1191-full", "phases": []}
+
+        mock_result = MutationResult(
+            success=True,
+            message="Mutation applied",
+            contract=mock_updated,
+        )
+
+        with (
+            patch.object(contract_api, "get_role_from_context", return_value=Role.IMPLEMENTER),
+            patch.object(contract_api, "load_contract", return_value=mock_contract) as mock_load,
+            patch.object(contract_api, "apply_mutation", return_value=mock_result),
+            patch.object(contract_api, "save_contract"),
+            patch.object(contract_api, "export_contract", return_value=mock_exported),
+        ):
+            response = client.post(
+                "/api/v1/contract/mutate",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "identifier": "KORE-1191-full",
+                        "field_path": "phases.0.tasks.0.commit",
+                        "new_value": "abc1234",
+                        "repo_path": "/home/egg/repos/test",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["success"] is True
+        mock_load.assert_called_once()
+        assert mock_load.call_args[0][0] == "KORE-1191-full"
+
+    def test_mutate_backward_compat_issue_number(self, client, auth_headers):
+        """Mutate still accepts legacy 'issue_number' field."""
+        from egg_contracts import MutationResult, Role
+
+        mock_contract = MagicMock()
+        mock_updated = MagicMock()
+        mock_exported = {"issue": 42, "phases": []}
+
+        mock_result = MutationResult(
+            success=True,
+            message="Mutation applied",
+            contract=mock_updated,
+        )
+
+        with (
+            patch.object(contract_api, "get_role_from_context", return_value=Role.IMPLEMENTER),
+            patch.object(contract_api, "load_contract", return_value=mock_contract) as mock_load,
+            patch.object(contract_api, "apply_mutation", return_value=mock_result),
+            patch.object(contract_api, "save_contract"),
+            patch.object(contract_api, "export_contract", return_value=mock_exported),
+        ):
+            response = client.post(
+                "/api/v1/contract/mutate",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "issue_number": 42,
+                        "field_path": "phases.0.tasks.0.commit",
+                        "new_value": "abc1234",
+                        "repo_path": "/home/egg/repos/test",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200
+        mock_load.assert_called_once()
+        assert mock_load.call_args[0][0] == 42
 
 
 # ---------------------------------------------------------------------------
