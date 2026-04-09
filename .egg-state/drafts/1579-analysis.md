@@ -178,7 +178,7 @@ The recommended implementation should:
 
 ## Open Questions
 
-The following questions need human input to proceed with planning. Each has been registered as a HITL decision or feedback item via the orchestrator.
+The following questions need human input to proceed with planning. Each has been registered as a HITL decision via `egg-orch decision create` (decision-1 through decision-6) and persisted to the contract file (`.egg-state/contracts/1579.json`).
 
 ### Q1: Auto-repropose trigger mechanism
 
