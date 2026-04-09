@@ -1,0 +1,651 @@
+{
+  "issue": 1570,
+  "agent": "risk_analyst",
+  "phase": "plan",
+  "revision": 1,
+  "timestamp": "2026-04-09T01:25:00Z",
+  "summary": "Identified 12 risks (3 CRITICAL, 4 HIGH, 3 MEDIUM, 2 LOW) for the custom coding harness with multi-provider support. This is a foundational change that replaces egg's core agent runtime (Claude Agent SDK + Claude Code CLI) with a custom implementation. The three critical risks are: (1) security regression in credential handling and permission enforcement when bypassing the SDK's built-in security controls, (2) behavioral parity gaps between the custom tool implementations and Claude Code's battle-tested tools that could cause agent failures in production, and (3) the recent CVE-2026-35022 (CVSS 9.8, published 2026-04-06) demonstrating that shell=true patterns in authentication helpers are actively exploited — the custom harness must avoid replicating this class of vulnerability. External dependency research found active CVEs in both Anthropic SDK (CVE-2025-59536, CVE-2026-21852, CVE-2026-35022) and OpenAI ecosystem tools. The change scope is very large (~20 new files, ~3000+ LOC) touching security-critical paths. Recommend phased rollout with parallel validation, mandatory security review of credential flow, and comprehensive integration testing before default-on.",
+  "external_research": {
+    "performed": true,
+    "reason": "Issue introduces direct dependency on anthropic and openai Python SDKs, replaces Claude Code CLI, and builds custom API client. External research needed for CVEs, deprecation notices, and API compatibility.",
+    "findings": [
+      {
+        "source": "CVE-2026-35022 (CVSS 9.8, published 2026-04-06)",
+        "relevance": "CRITICAL — OS command injection in Claude CLI/SDK authentication helper using shell=true. The custom harness must handle authentication without shell=true subprocess calls.",
+        "url": "https://www.thehackerwire.com/anthropic-claude-cli-sdk-os-command-injection-cve-2026-35022/"
+      },
+      {
+        "source": "CVE-2025-59536 and CVE-2026-21852",
+        "relevance": "HIGH — ANTHROPIC_BASE_URL redirect allows API key exfiltration. The custom harness sets ANTHROPIC_BASE_URL to the gateway proxy, which is the SAME mechanism exploited. Must ensure the harness validates the target URL and never sends credentials to untrusted endpoints.",
+        "url": "https://research.checkpoint.com/2026/rce-and-api-token-exfiltration-through-claude-code-project-files-cve-2025-59536/"
+      },
+      {
+        "source": "Claude Haiku 3 deprecation (retirement 2026-04-19)",
+        "relevance": "MEDIUM — Model alias system must handle deprecated models gracefully. Haiku 3 retires in 10 days; the harness model alias mapping must default to claude-haiku-4-5 instead.",
+        "url": "https://docs.anthropic.com/en/release-notes/api"
+      },
+      {
+        "source": "1M context window beta retirement (2026-04-30)",
+        "relevance": "MEDIUM — The opus[1m] suffix syntax parses max_tokens from model alias. The 1M context window beta header (context-1m-2025-08-07) becomes a no-op for Sonnet 4.5/4 on April 30. The harness must use the correct beta headers for models that still support it (Opus 4.6, Sonnet 4.6).",
+        "url": "https://releasebot.io/updates/anthropic"
+      },
+      {
+        "source": "OpenAI Assistants API deprecation (2025-08-26, removal 2026-08-26)",
+        "relevance": "LOW — The harness uses /v1/chat/completions not Assistants API, so not directly affected. But signals OpenAI's ecosystem is actively evolving.",
+        "url": "https://developers.openai.com/api/docs/deprecations"
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "RISK-1",
+      "title": "Security regression in credential handling when bypassing SDK's built-in security controls",
+      "category": "security",
+      "severity": "CRITICAL",
+      "likelihood": "MEDIUM",
+      "impact": "CRITICAL",
+      "description": "The current architecture relies on a defense-in-depth chain: (1) gateway holds all credentials, (2) Claude Agent SDK's bypassPermissions mode + can_use_tool callback, (3) gateway strips/injects credentials at proxy layer. The custom harness replaces layer 2 entirely. If the new agent loop sends API requests directly to the Anthropic API (instead of through the gateway proxy), credentials would need to be in the container — destroying the zero-credential sandbox model. Even routing through the gateway, the harness must replicate the SDK's tool interception callback, disallowed_tools filtering, and streaming permission checks. A single gap in reimplementation could allow agents to bypass file write restrictions or access blocked tools. CVE-2026-35022 (CVSS 9.8, published 3 days ago) demonstrates that authentication helper code using shell=true is actively exploited in the Claude SDK ecosystem.",
+      "affected_components": [
+        "shared/egg_harness/client.py (new)",
+        "shared/egg_harness/loop.py (new)",
+        "shared/egg_harness/providers/anthropic.py (new)",
+        "shared/egg_agent/tool_interceptor.py (existing — must be integrated)",
+        "gateway/gateway.py (/v1/messages proxy endpoint)",
+        "sandbox/entrypoint.py (setup_anthropic_api credential isolation)"
+      ],
+      "scenarios": [
+        "Harness makes direct API call to api.anthropic.com instead of gateway proxy, requiring ANTHROPIC_API_KEY in container environment — credential leaks to agent",
+        "Harness sends tool definitions without filtering WebFetch/WebSearch in private mode, bypassing both SDK-level and gateway-level tool filtering",
+        "Harness implements Bash tool execution with shell=true for command construction (replicating CVE-2026-35022 pattern), allowing command injection",
+        "Tool interceptor callback not wired into new agent loop, allowing agents to write to files outside their role boundaries",
+        "Harness accepts ANTHROPIC_BASE_URL from environment without validation, replicating CVE-2026-21852 exfiltration vector"
+      ],
+      "mitigations": [
+        {
+          "id": "M-1-1",
+          "description": "MANDATORY: Harness MUST route all API calls through the gateway proxy (ANTHROPIC_BASE_URL=http://egg-gateway:PORT). Never import or use ANTHROPIC_API_KEY in the harness code. Add a startup assertion that ANTHROPIC_API_KEY is NOT in os.environ.",
+          "status": "must_be_enforced_in_implementation",
+          "effectiveness": "critical"
+        },
+        {
+          "id": "M-1-2",
+          "description": "Port the existing tool_interceptor.py can_use_tool callback into the new agent loop. The harness loop.py must call check_file_write_permission() before executing any Write/Edit/NotebookEdit tool. Add unit tests that verify blocked tools return error results, not silent passes.",
+          "status": "must_be_enforced_in_implementation",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-1-3",
+          "description": "Implement tool disallow list filtering (WebFetch, WebSearch in private mode) at BOTH the harness level (before sending API request) AND keep existing gateway-level filtering. Defense-in-depth must be preserved.",
+          "status": "must_be_enforced_in_implementation",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-1-4",
+          "description": "NEVER use shell=true in subprocess calls within tool implementations. All Bash tool execution must use subprocess.run(cmd, shell=False) with proper argument list construction. Add a CI check (bandit or custom linter rule) to flag shell=true usage in the harness package.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-1-5",
+          "description": "Add integration test: spawn harness agent in private mode, verify WebFetch/WebSearch tools are not in API request body. Mirror existing test_credential_security.py patterns.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        }
+      ],
+      "rollback_plan": "Set EGG_HARNESS=claude-sdk to revert to the existing Claude Agent SDK runtime. No code changes needed — the harness selection is a configuration switch. Ensure the rollback path is tested as part of the parallel validation phase.",
+      "human_review_needed": true,
+      "human_review_reason": "MANDATORY security review of the credential flow in the new harness. Reviewer must verify: (1) no credential imports/reads in harness code, (2) all API calls route through gateway, (3) tool interceptor is properly wired, (4) no shell=true in tool implementations, (5) ANTHROPIC_BASE_URL validation."
+    },
+    {
+      "id": "RISK-2",
+      "title": "Behavioral parity gaps between custom tool implementations and Claude Code's battle-tested tools",
+      "category": "reliability",
+      "severity": "CRITICAL",
+      "likelihood": "HIGH",
+      "impact": "HIGH",
+      "description": "The harness must implement 10+ tools (Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, plus 5 egg-native tools) from scratch. Claude Code's tools have been refined over thousands of hours of real-world usage and handle many edge cases: file encoding, line ending normalization, permission errors, symlink resolution, large file truncation, binary file detection, timeout handling, output buffering, and more. Reimplementing these tools introduces a high probability of subtle behavioral differences that cause agent failures. For example: if the Edit tool's old_string matching differs from Claude Code's exact-match semantics, agents trained to use Claude Code's Edit tool will generate incorrect edits. The issue's analysis notes the model aliases ('opus[1m]') have specific semantics — a parsing error would silently use wrong model/token limits.",
+      "affected_components": [
+        "shared/egg_harness/tools/bash.py (new)",
+        "shared/egg_harness/tools/read.py (new)",
+        "shared/egg_harness/tools/write.py (new)",
+        "shared/egg_harness/tools/edit.py (new)",
+        "shared/egg_harness/tools/glob.py (new)",
+        "shared/egg_harness/tools/grep.py (new)",
+        "shared/egg_harness/tools/web_fetch.py (new)",
+        "shared/egg_harness/tools/web_search.py (new)",
+        "shared/egg_harness/config.py (model alias parsing)"
+      ],
+      "scenarios": [
+        "Edit tool uses different whitespace normalization than Claude Code — agent generates edits that fail to match, causing 'old_string not found' errors in production",
+        "Bash tool timeout handling differs — Claude Code kills process group vs harness only kills main process, leaving orphan processes that consume resources",
+        "Read tool doesn't handle binary files the same way — agent receives garbled content instead of a clean error message",
+        "Grep tool output format differs from ripgrep's expected format — agent parses wrong line numbers and makes incorrect edits",
+        "Model alias parser fails on 'opus[1m]' suffix when max_tokens exceeds 1M context window limit, silently truncating or erroring",
+        "Write tool doesn't preserve file permissions — agent creates files that other tools can't read/execute"
+      ],
+      "mitigations": [
+        {
+          "id": "M-2-1",
+          "description": "Build a comprehensive tool compliance test suite that runs the SAME inputs against both Claude Code's tools and the custom implementations, comparing outputs. Use snapshot testing for output format parity.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-2-2",
+          "description": "For Bash tool: use subprocess.run() with process group management (os.setpgrp/os.killpg) to ensure timeout kills the entire process tree. Include tests for zombie process cleanup.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-2-3",
+          "description": "For Edit tool: replicate Claude Code's exact-match semantics precisely. The tool must find EXACTLY one occurrence of old_string in the file. If zero or multiple matches, return an error. Test with whitespace-sensitive cases (tabs vs spaces, trailing whitespace, CRLF vs LF).",
+          "status": "must_be_enforced_in_implementation",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-2-4",
+          "description": "For Read/Grep/Glob: use ripgrep (rg) and fd binaries directly (already installed in sandbox container) rather than reimplementing search logic in Python. This ensures format parity with Claude Code's tools which use the same binaries.",
+          "status": "recommended_approach",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-2-5",
+          "description": "Run parallel validation on at least 10 test pipelines comparing egg harness vs claude-sdk harness outcomes. Track the 4 metrics specified in HITL decision #11: cost_usd, num_turns, duration_ms, task_success_rate.",
+          "status": "planned_per_issue_requirements",
+          "effectiveness": "high"
+        }
+      ],
+      "rollback_plan": "Switch EGG_HARNESS=claude-sdk. Individual tools can also be swapped independently if the tool registry supports fallback — but this adds complexity. Recommend all-or-nothing harness selection for MVP.",
+      "human_review_needed": true,
+      "human_review_reason": "Human should review the tool compliance test results from parallel validation before switching the default harness. Pay special attention to Edit tool behavior differences and Bash timeout semantics."
+    },
+    {
+      "id": "RISK-3",
+      "title": "Agent loop reliability: infinite loops, context exhaustion, and error recovery gaps",
+      "category": "reliability",
+      "severity": "CRITICAL",
+      "likelihood": "MEDIUM",
+      "impact": "CRITICAL",
+      "description": "The core agent loop (prompt → API call → parse response → execute tools → feed results → repeat) is the most critical component. Claude Agent SDK has robust handling for: context window exhaustion (automatic summarization or truncation), tool result size limits, malformed API responses, rate limiting with backoff, connection resets, streaming interruption recovery, and graceful shutdown on SIGTERM. The custom loop must handle ALL of these. A bug in the loop (e.g., not decrementing remaining turns, not handling stop_reason correctly, accumulating unbounded message history) could cause infinite API calls, unbounded costs, or silent agent hangs. The consensus wrapper (consensus_wrapper.py) already restarts agents that exit without reaching CONFIRMED state — if the harness loop has a restart-triggering bug, this creates an infinite restart-crash cycle.",
+      "affected_components": [
+        "shared/egg_harness/loop.py (new — core agent loop)",
+        "shared/egg_harness/providers/anthropic.py (new — API client)",
+        "shared/egg_harness/client.py (new — high-level run_agent)",
+        "orchestrator/consensus_wrapper.py (existing — restart logic)"
+      ],
+      "scenarios": [
+        "Agent loop doesn't count turns correctly — exceeds max_turns limit, generating unbounded API costs",
+        "Message history grows unbounded — context window exceeded, API returns error, loop crashes, consensus wrapper restarts, same crash repeats (restart storm)",
+        "Streaming response interrupted mid-tool-use — partial JSON in tool_use block causes parse error, loop crashes",
+        "API rate limit (429) not handled with backoff — loop hammers API, gets permanently rate-limited, all agents in pipeline stall",
+        "SIGTERM during tool execution — Bash command still running, agent exits dirty, orphan processes left behind",
+        "stop_reason='max_tokens' treated as success — agent output truncated, incomplete tool calls passed to execution layer"
+      ],
+      "mitigations": [
+        {
+          "id": "M-3-1",
+          "description": "Implement strict turn counting with both a max_turns limit and a token budget. Log remaining turns and token usage at each iteration. Add circuit breaker: if 3 consecutive tool executions fail, exit with error rather than retrying.",
+          "status": "must_be_enforced_in_implementation",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-3-2",
+          "description": "Implement message history management: when approaching context window limit (e.g., 80% of model's max), summarize or truncate older messages. Match the approach Claude Agent SDK uses. Log when summarization occurs.",
+          "status": "must_be_enforced_in_implementation",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-3-3",
+          "description": "Handle ALL stop_reasons explicitly: end_turn (success), tool_use (continue), max_tokens (truncated — retry or error), stop_sequence. Log unrecognized stop_reasons and treat as error.",
+          "status": "must_be_enforced_in_implementation",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-3-4",
+          "description": "Implement exponential backoff with jitter for rate limits (429) and server errors (5xx). Use the Retry-After header when provided. Cap retries at 5 per request with total timeout. Match the retry behavior specified in HITL decision #8.",
+          "status": "planned_per_issue_requirements",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-3-5",
+          "description": "Register SIGTERM handler that: (1) sets a 'shutting_down' flag, (2) waits up to 30s for current tool execution to complete, (3) kills child processes via process group, (4) returns AgentResult with metadata indicating graceful shutdown. Test with kill -TERM during Bash execution.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        }
+      ],
+      "rollback_plan": "EGG_HARNESS=claude-sdk. Additionally, the consensus wrapper's max_restarts (default: 2) provides a safety net against infinite restart-crash cycles. If restart count exceeded, the agent stops and the orchestrator receives an error signal.",
+      "human_review_needed": true,
+      "human_review_reason": "Human should review the agent loop implementation with focus on: turn counting, context management, stop_reason handling, and SIGTERM behavior. This is the most critical code path in the entire harness."
+    },
+    {
+      "id": "RISK-4",
+      "title": "OpenAI-compatible provider: untested API surface with wide variance across implementations",
+      "category": "compatibility",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "MEDIUM",
+      "description": "The MVP includes an OpenAI-compatible provider targeting vLLM, Ollama, and other endpoints. The OpenAI /v1/chat/completions API has significant implementation variance across providers: tool_choice support varies, streaming chunk formats differ, function calling may use different schemas, stop reasons have different semantics, and token counting is not standardized. Testing against one implementation (e.g., vLLM) does not guarantee compatibility with others (e.g., Ollama). Models behind these endpoints may also have weaker tool-calling capabilities than Claude, leading to higher failure rates in the agent loop. The harness must handle graceful degradation when tools aren't supported.",
+      "affected_components": [
+        "shared/egg_harness/providers/openai_compat.py (new)",
+        "shared/egg_harness/loop.py (new — must handle provider differences)",
+        "shared/egg_harness/config.py (ProviderConfig)"
+      ],
+      "scenarios": [
+        "vLLM returns tool_calls in different format than OpenAI spec — parser fails, agent crashes",
+        "Ollama doesn't support streaming with tool_choice — harness hangs waiting for stream events that never come",
+        "Model behind OpenAI-compatible endpoint returns malformed JSON in function arguments — tool execution fails with parse error",
+        "Provider doesn't support system messages — system prompt silently dropped, agent behaves without instructions",
+        "Token counting endpoint not available — cost tracking returns null, parallel validation metrics incomplete"
+      ],
+      "mitigations": [
+        {
+          "id": "M-4-1",
+          "description": "Define a clear 'minimum viable API surface' for OpenAI-compatible providers: must support /v1/chat/completions with tool_choice, streaming with delta events, and system role messages. Document unsupported features per provider.",
+          "status": "recommended_addition",
+          "effectiveness": "medium"
+        },
+        {
+          "id": "M-4-2",
+          "description": "Add provider capability detection at startup: send a minimal test request to verify streaming, tool_choice, and system message support. Log warnings for unsupported features. Fall back to non-streaming or non-tool mode if needed.",
+          "status": "recommended_addition",
+          "effectiveness": "medium"
+        },
+        {
+          "id": "M-4-3",
+          "description": "Implement robust JSON parsing for tool arguments with fallback: try json.loads() first, then attempt to extract JSON from markdown code blocks, then return parse error to model for self-correction.",
+          "status": "recommended_addition",
+          "effectiveness": "medium"
+        },
+        {
+          "id": "M-4-4",
+          "description": "Cost tracking: when token counts are unavailable from the provider, estimate based on tokenizer (tiktoken for OpenAI-compatible models). Document that cost estimates for non-Anthropic providers are approximate.",
+          "status": "recommended_addition",
+          "effectiveness": "low"
+        }
+      ],
+      "rollback_plan": "The OpenAI-compatible provider is opt-in via ProviderConfig(provider='openai-compatible'). If it causes issues, users simply don't configure it. Anthropic provider is the default and is unaffected.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-5",
+      "title": "Transcript capture migration: loss of API conversation history for debugging and checkpoints",
+      "category": "observability",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "Currently, the gateway's transcript_buffer.py captures ALL API request/response pairs for every agent session. This data feeds into the checkpoint system (egg-checkpoint) which is critical for debugging pipeline failures, reviewing agent behavior, and conducting post-mortems. HITL decision #6 says 'keep transcript capture in gateway for MVP.' However, the custom harness's API requests go through the same gateway proxy, so transcripts SHOULD still be captured. The risk is subtle: if the harness changes the request format (different content-type, chunked encoding, different streaming protocol), the gateway's transcript capture might fail silently — capturing empty or malformed entries. Additionally, if transcripts move to the harness in a future iteration, the security model changes: transcript data (which includes system prompts and tool schemas) would be inside the container instead of only in the gateway.",
+      "affected_components": [
+        "gateway/transcript_buffer.py (existing — must handle new request patterns)",
+        "gateway/gateway.py (/v1/messages proxy — must parse harness requests)",
+        "shared/egg_harness/providers/anthropic.py (new — request format)"
+      ],
+      "scenarios": [
+        "Harness sends requests with different Content-Type header — gateway transcript parser fails silently, no transcripts captured",
+        "Harness uses httpx streaming response — gateway proxy doesn't buffer response correctly for transcript capture",
+        "Harness adds custom headers (e.g., anthropic-beta for extended thinking) that gateway doesn't forward, breaking model features",
+        "Future migration of transcripts to harness puts conversation history inside sandbox container, accessible to agent"
+      ],
+      "mitigations": [
+        {
+          "id": "M-5-1",
+          "description": "Add integration test: run harness agent, verify gateway transcript buffer has non-empty entries with expected fields (request.model, request.messages, response.content, response.usage). Compare entry format with existing claude-sdk transcript entries.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-5-2",
+          "description": "Harness Anthropic provider must send requests in the exact same format as the Anthropic Python SDK (application/json, standard Messages API body). Do NOT add custom serialization or encoding. Use the anthropic Python SDK's request builder if possible.",
+          "status": "recommended_approach",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-5-3",
+          "description": "Gateway proxy must forward ALL headers from the harness to the Anthropic API, especially anthropic-beta, anthropic-version, and any cache control headers. Add a header allowlist rather than blocklist to avoid accidentally stripping new headers.",
+          "status": "recommended_addition",
+          "effectiveness": "medium"
+        }
+      ],
+      "rollback_plan": "If transcript capture breaks, roll back to EGG_HARNESS=claude-sdk while investigating. Transcripts are not real-time critical — a few hours of missing transcripts is recoverable.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-6",
+      "title": "CLAUDE.md rule loading divergence from Claude Code's exact merging behavior",
+      "category": "compatibility",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "HITL decision #9 explicitly requires 'replicate exact rule-merging from sandbox/agent-config/rules/'. Claude Code's rule merging has specific, undocumented semantics for how global CLAUDE.md (~/.claude/CLAUDE.md) is combined with project-level CLAUDE.md files, how conflicting rules are resolved, and how setting_sources=['project', 'user'] interacts with the rule merging. If the custom harness's prompt.py assembles the system prompt differently (wrong order, missing sections, different separator), agents will behave differently — potentially ignoring critical instructions like commit attribution rules, branch naming conventions, or security constraints. This is especially dangerous because behavioral differences may only manifest in edge cases (e.g., when an agent needs to make a judgment call about conflicting instructions).",
+      "affected_components": [
+        "shared/egg_harness/prompt.py (new — system prompt assembly)",
+        "sandbox/entrypoint.py (existing — CLAUDE.md generation from rule files)",
+        "sandbox/agent-config/rules/ (existing — rule source files)"
+      ],
+      "scenarios": [
+        "Harness loads project CLAUDE.md but not user CLAUDE.md — agent misses global instructions about commit attribution",
+        "Harness concatenates rules in wrong order — later rules override earlier ones in the model's attention, changing priority of conflicting instructions",
+        "Harness doesn't inject the system-reminder sections that Claude Code adds — agent missing pipeline-specific instructions",
+        "Harness system prompt exceeds model context limit when combined with conversation — instructions silently truncated"
+      ],
+      "mitigations": [
+        {
+          "id": "M-6-1",
+          "description": "Extract the exact rule assembly logic from sandbox/entrypoint.py::setup_claude() and create a shared function that both the existing setup and the new harness's prompt.py call. This guarantees identical CLAUDE.md content.",
+          "status": "recommended_approach",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-6-2",
+          "description": "Add a test that: (1) generates the system prompt via the harness's prompt.py, (2) generates the system prompt via the existing entrypoint.py setup, (3) asserts they are identical (or documents any intentional differences).",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-6-3",
+          "description": "Log the final assembled system prompt at agent startup (truncated to first/last 500 chars) for debugging prompt assembly issues.",
+          "status": "recommended_addition",
+          "effectiveness": "medium"
+        }
+      ],
+      "rollback_plan": "EGG_HARNESS=claude-sdk. System prompt is reconstructed on each agent run, so no persistent state to clean up.",
+      "human_review_needed": true,
+      "human_review_reason": "Human should compare the system prompt output from the new harness against the existing Claude Code system prompt for a sample pipeline run. Verify all critical sections (mission, environment, code standards, orchestrator CLI) are present and in correct order."
+    },
+    {
+      "id": "RISK-7",
+      "title": "Migration path complexity: three concurrent harness options increase testing and debugging surface",
+      "category": "operational",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The migration plan maintains three harness options (egg, claude-sdk, claude-code) selectable via EGG_HARNESS. While this is good for rollback, it triples the test matrix: every pipeline feature must work with all three harnesses. The consensus wrapper, babysit agents (fixer/reviewer), and orchestrator all spawn agents via build_agent_command() — this function must correctly select the right entry point for each harness. Configuration drift between harnesses (different default models, different timeout semantics, different tool sets) could cause subtle behavioral differences that are only caught in production.",
+      "affected_components": [
+        "shared/egg_agent/command.py (existing — build_agent_command must support harness selection)",
+        "orchestrator/consensus_wrapper.py (existing — agent spawning)",
+        "shared/egg_babysit/fixer.py (existing — agent spawning)",
+        "shared/egg_babysit/reviewer.py (existing — agent spawning)",
+        "shared/egg_harness/__main__.py (new — CLI entry point)"
+      ],
+      "scenarios": [
+        "build_agent_command() selects wrong harness for a babysit agent — fixer runs with egg harness while pipeline used claude-sdk, causing behavioral mismatch",
+        "CI tests only run with default harness — regression in claude-sdk path undetected until production",
+        "TOS warning for subscription users (HITL decision #4) not properly triggered — legal compliance issue",
+        "Timeout semantics differ between harnesses — consensus wrapper kills agent too early or too late"
+      ],
+      "mitigations": [
+        {
+          "id": "M-7-1",
+          "description": "Add EGG_HARNESS to the environment variables propagated by the consensus wrapper and babysit agents. Ensure child agents inherit the parent's harness selection.",
+          "status": "must_be_enforced_in_implementation",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-7-2",
+          "description": "Add a CI matrix that runs the core test suite against each harness option. At minimum: egg + claude-sdk. claude-code interactive mode can be tested manually.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-7-3",
+          "description": "Document the expected behavior differences between harnesses in a comparison table. Any difference is either intentional (documented) or a bug (filed and fixed).",
+          "status": "recommended_addition",
+          "effectiveness": "medium"
+        }
+      ],
+      "rollback_plan": "Set EGG_HARNESS=claude-sdk as the default. The harness selection switch is designed to be the rollback mechanism.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-8",
+      "title": "Extended thinking and cache control: undocumented API features may not be correctly reimplemented",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The issue mentions 'Extended thinking support (if currently used)' and 'Cache control headers (anthropic-beta: prompt-caching)' as requirements. These features use beta API headers and have specific interaction semantics (e.g., extended thinking blocks appear as special content blocks in the response, prompt caching requires specific cache_control annotations on messages). If the harness doesn't correctly implement these, agent performance degrades (no caching = higher costs and latency, no extended thinking = reduced reasoning quality). The prompt-caching beta header and extended thinking semantics are still evolving — Anthropic may change them without notice.",
+      "affected_components": [
+        "shared/egg_harness/providers/anthropic.py (new — must send correct beta headers)",
+        "shared/egg_harness/loop.py (new — must parse thinking blocks)"
+      ],
+      "scenarios": [
+        "Harness doesn't send anthropic-beta: prompt-caching header — every API call pays full input token cost instead of cached rate (2-5x cost increase)",
+        "Harness doesn't parse extended thinking content blocks — thinking text appears as regular text in agent output, confusing downstream parsing",
+        "Cache control annotations placed on wrong messages — cache misses on every call despite header being sent",
+        "Anthropic changes beta header format — harness silently downgrades to non-cached mode"
+      ],
+      "mitigations": [
+        {
+          "id": "M-8-1",
+          "description": "Use the anthropic Python SDK's client.messages.create() method rather than raw HTTP calls. The SDK automatically handles beta headers and response parsing, reducing the surface area for implementation errors.",
+          "status": "recommended_approach",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-8-2",
+          "description": "Add cost tracking comparison between harness and SDK agents. If harness agents cost >20% more per pipeline, investigate cache control header issues.",
+          "status": "recommended_addition",
+          "effectiveness": "medium"
+        },
+        {
+          "id": "M-8-3",
+          "description": "Log response headers from the API (especially anthropic-cache-status) to verify caching is working. Alert if cache-hit ratio drops below expected threshold.",
+          "status": "recommended_addition",
+          "effectiveness": "medium"
+        }
+      ],
+      "rollback_plan": "EGG_HARNESS=claude-sdk. Caching and extended thinking features are transparent to the agent's behavior — degradation shows up as increased cost, not functional failures.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-9",
+      "title": "Interactive mode: terminal UI replacing Claude Code CLI creates UX regression risk",
+      "category": "usability",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The issue requires full interactive mode replacing 'claude --dangerously-skip-permissions'. Claude Code's interactive mode has a sophisticated terminal UI with: streaming output rendering, markdown formatting, tool call visualization, multi-turn conversation state, history navigation, and keyboard shortcuts. Reimplementing this from scratch is a significant UI effort. HITL decision #2 requires 'full feature parity from the start' — which means the interactive mode must be production-ready at MVP. Users (subscription users with the egg harness selected) will directly compare the UX against Claude Code, and any regression will drive them back to claude-code harness.",
+      "affected_components": [
+        "shared/egg_harness/interactive.py (new — terminal UI)"
+      ],
+      "scenarios": [
+        "Streaming output renders poorly in terminal — garbled text, missing newlines, no markdown formatting",
+        "Tool call visualization missing — user can't see what the agent is doing, reducing trust and debuggability",
+        "Multi-turn conversation doesn't persist context — user must re-explain context after each response",
+        "Ctrl+C doesn't gracefully interrupt — kills process immediately, losing conversation state"
+      ],
+      "mitigations": [
+        {
+          "id": "M-9-1",
+          "description": "Use the rich library (already in Python ecosystem) for terminal rendering. It handles markdown, streaming, and color output well. Don't build a custom terminal renderer.",
+          "status": "recommended_approach",
+          "effectiveness": "medium"
+        },
+        {
+          "id": "M-9-2",
+          "description": "Start with a minimal viable interactive mode: streaming text output, basic tool call indicators, Ctrl+C for graceful stop. Add rich features (markdown, syntax highlighting, history) incrementally.",
+          "status": "recommended_approach",
+          "effectiveness": "medium"
+        },
+        {
+          "id": "M-9-3",
+          "description": "Allow EGG_HARNESS=claude-code for users who prefer Claude Code's interactive experience. The egg harness interactive mode is additive, not a forced replacement.",
+          "status": "planned_per_issue_requirements",
+          "effectiveness": "high"
+        }
+      ],
+      "rollback_plan": "EGG_HARNESS=claude-code for interactive mode. Users can always use Claude Code CLI for interactive sessions while using egg harness for headless pipelines.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-10",
+      "title": "Anthropic SDK version coupling: direct dependency on fast-evolving SDK with history of breaking changes",
+      "category": "dependency",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The harness uses the anthropic Python SDK directly (HITL decision #1: 'custom thin adapter wrapping anthropic and openai Python SDKs'). The anthropic SDK currently has no version pin in sandbox/pyproject.toml (installs latest). The SDK has had recent CVEs (CVE-2026-35022 on April 6, 2026) and breaking changes (context window beta retirement, model deprecations). If the SDK updates and changes the Messages API client interface, response types, or streaming event types, the harness breaks. Unlike the current setup where claude-agent-sdk abstracts the SDK, the harness directly depends on the raw SDK types.",
+      "affected_components": [
+        "shared/egg_harness/providers/anthropic.py (new — directly imports anthropic SDK)",
+        "sandbox/pyproject.toml (dependency pinning)"
+      ],
+      "scenarios": [
+        "anthropic SDK major version bump changes Messages.create() return type — harness response parsing breaks",
+        "SDK adds required parameter to Messages.create() — harness API calls fail with missing parameter error",
+        "SDK changes streaming event types (e.g., content_block_delta format) — harness streaming parser breaks",
+        "SDK security patch (CVE fix) changes behavior of credential helper — harness authentication flow changes"
+      ],
+      "mitigations": [
+        {
+          "id": "M-10-1",
+          "description": "PIN the anthropic SDK version in sandbox/pyproject.toml with a compatible-release constraint (e.g., anthropic>=0.50,<1.0). Update intentionally with a PR, not automatically.",
+          "status": "must_be_enforced_in_implementation",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-10-2",
+          "description": "Wrap all SDK type imports in a thin compatibility layer (e.g., shared/egg_harness/providers/_anthropic_types.py). If the SDK changes types, only the compatibility layer needs updating.",
+          "status": "recommended_addition",
+          "effectiveness": "medium"
+        },
+        {
+          "id": "M-10-3",
+          "description": "Add a CI job that tests the harness against the latest SDK version (nightly). If it fails, open an issue automatically.",
+          "status": "recommended_addition",
+          "effectiveness": "medium"
+        }
+      ],
+      "rollback_plan": "Pin to the last known-good SDK version. The version pin makes this a simple Dockerfile change.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-11",
+      "title": "Egg-native tool latency: Python-native tool implementations may not match CLI shell-out performance",
+      "category": "performance",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "description": "HITL decision #3 says 'shell out to CLIs initially' for egg-native tools (EggOrch, EggContract, EggCheckpoint, GitOps, GhCli). The issue also mentions 'native Python implementations come incrementally post-MVP' and notes that native tools 'reduce latency and token waste from parsing CLI output.' However, the initial shell-out approach means the MVP harness won't have the latency benefit. If native tools are added later, there's a risk of behavioral differences between CLI output parsing and native API responses. The current egg-orch CLI has an import error (cli_push relative import — observed during this assessment) which would affect the harness's EggOrch tool.",
+      "affected_components": [
+        "shared/egg_harness/tools/egg_orch.py (new — initially shells out)",
+        "shared/egg_harness/tools/egg_contract.py (new — initially shells out)",
+        "shared/egg_harness/tools/egg_checkpoint.py (new — initially shells out)"
+      ],
+      "scenarios": [
+        "egg-orch CLI has import error (as observed during this assessment) — EggOrch tool returns errors, breaking BRC consensus protocol for agents using the harness",
+        "CLI output format changes — tool response parser breaks, agent receives malformed data",
+        "Shell-out adds 50-100ms per tool call — in a 200-turn pipeline with ~5 tool calls per turn, adds ~50-100 seconds total latency"
+      ],
+      "mitigations": [
+        {
+          "id": "M-11-1",
+          "description": "Fix the egg-orch CLI import error (cli_push relative import in create_parser()) before the harness ships. This is a pre-existing bug that blocks the EggOrch tool.",
+          "status": "must_be_fixed_before_implementation",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-11-2",
+          "description": "Add error handling around CLI shell-outs: if the CLI fails (non-zero exit), return a structured error message to the agent rather than a raw traceback.",
+          "status": "recommended_addition",
+          "effectiveness": "medium"
+        }
+      ],
+      "rollback_plan": "Shell-out tools have the same behavior as agents currently experience (they already use these CLIs via Bash tool). No functional regression.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-12",
+      "title": "Scope creep and timeline risk: MVP scope is very large for a single implementation effort",
+      "category": "project",
+      "severity": "LOW",
+      "likelihood": "HIGH",
+      "impact": "LOW",
+      "description": "The MVP requires: provider abstraction (2 providers), 10+ tool implementations, agent loop, permission layer, CLAUDE.md loading, result type, CLI entry point, interactive mode, and gateway compatibility. This is ~20 new files and ~3000+ lines of code across security-critical paths. The issue explicitly states 'both headless and interactive in MVP — full feature parity from the start.' This is an ambitious scope that risks: incomplete implementations shipped under time pressure, security shortcuts (e.g., skipping integration tests), and features marked as 'done' but not thoroughly tested. Post-MVP items (#1571 multi-model routing) depend on the foundation being solid.",
+      "affected_components": [
+        "shared/egg_harness/ (entire new package)"
+      ],
+      "scenarios": [
+        "Interactive mode deprioritized to ship headless — users who expected interactive mode from MVP are disappointed",
+        "OpenAI-compatible provider shipped without testing against real vLLM/Ollama instances — fails on first real use",
+        "Security review skipped due to timeline — credential handling bug discovered in production"
+      ],
+      "mitigations": [
+        {
+          "id": "M-12-1",
+          "description": "Prioritize implementation order: (1) Anthropic provider + core tools + agent loop (functional parity with claude-sdk), (2) permission/security layer (critical path), (3) OpenAI-compatible provider, (4) interactive mode. Ship each layer independently with its own test coverage.",
+          "status": "recommended_approach",
+          "effectiveness": "medium"
+        },
+        {
+          "id": "M-12-2",
+          "description": "Gate the default harness switch on parallel validation results (HITL decision #11). Don't change the default until the metrics show parity. Keep claude-sdk as default until proven.",
+          "status": "planned_per_issue_requirements",
+          "effectiveness": "high"
+        }
+      ],
+      "rollback_plan": "EGG_HARNESS=claude-sdk remains the default until parallel validation proves the egg harness is ready. This is built into the migration plan.",
+      "human_review_needed": false,
+      "human_review_reason": null
+    }
+  ],
+  "cross_cutting_concerns": [
+    {
+      "title": "Gateway compatibility is the primary security boundary",
+      "description": "Nearly all security properties (credential isolation, tool filtering, file restriction enforcement, network isolation) depend on the gateway sidecar. The custom harness MUST route through the gateway. If any code path bypasses the gateway (direct API calls, direct git operations), the entire security model collapses. This is the single most important invariant to preserve.",
+      "affected_risks": ["RISK-1", "RISK-5", "RISK-8"]
+    },
+    {
+      "title": "Parallel validation is the primary quality gate",
+      "description": "HITL decision #11 specifies comparing cost_usd, num_turns, duration_ms, and task_success_rate between harnesses. This comparison is the key mechanism for catching behavioral parity issues, security regressions, and performance problems before the harness becomes the default. The parallel validation test pipeline must be designed carefully and run on representative workloads.",
+      "affected_risks": ["RISK-2", "RISK-3", "RISK-7", "RISK-12"]
+    },
+    {
+      "title": "CVE landscape is active — the harness enters a volatile security environment",
+      "description": "Three CVEs in the Anthropic ecosystem in the past 6 months (CVE-2025-59536, CVE-2026-21852, CVE-2026-35022). Building a custom harness increases the attack surface while also giving egg more control over security patches. The tradeoff is: more responsibility but also more control. The harness must have a security-first design with regular dependency audits.",
+      "affected_risks": ["RISK-1", "RISK-10"]
+    }
+  ],
+  "overall_risk_assessment": {
+    "risk_level": "HIGH",
+    "justification": "This is a foundational change to egg's core runtime with 3 CRITICAL risks in security, reliability, and agent loop correctness. The scope is very large (~20 files, 3000+ LOC) touching security-critical paths. However, the migration design (EGG_HARNESS selection, parallel validation) provides strong rollback and quality gates. The primary risk is not whether the harness CAN work, but whether the MVP implementation will be thorough enough to match the battle-tested Claude Agent SDK across the full range of edge cases. The recent CVEs (especially CVE-2026-35022 from 3 days ago) underscore the importance of security-first implementation.",
+    "recommendation": "PROCEED with implementation, subject to mandatory human review gates at: (1) security review of credential flow before any production use, (2) tool compliance test results before switching default, (3) parallel validation metrics meeting parity thresholds. Implement in priority order: Anthropic provider → agent loop → tools → security layer → OpenAI provider → interactive mode."
+  },
+  "human_review_areas": [
+    {
+      "area": "Credential flow in new harness",
+      "reason": "Security-critical: must verify zero-credential sandbox model is preserved",
+      "risks": ["RISK-1"],
+      "priority": "CRITICAL"
+    },
+    {
+      "area": "Agent loop implementation (loop.py)",
+      "reason": "Reliability-critical: turn counting, context management, stop_reason handling, SIGTERM behavior",
+      "risks": ["RISK-3"],
+      "priority": "CRITICAL"
+    },
+    {
+      "area": "Tool behavioral parity (especially Edit tool)",
+      "reason": "Functional parity: agents depend on exact tool semantics",
+      "risks": ["RISK-2"],
+      "priority": "HIGH"
+    },
+    {
+      "area": "System prompt assembly (prompt.py)",
+      "reason": "Agent behavior depends on exact rule ordering and content",
+      "risks": ["RISK-6"],
+      "priority": "HIGH"
+    },
+    {
+      "area": "Parallel validation test design and results",
+      "reason": "Primary quality gate before default harness switch",
+      "risks": ["RISK-2", "RISK-3", "RISK-7", "RISK-12"],
+      "priority": "HIGH"
+    }
+  ]
+}
