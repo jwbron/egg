@@ -312,9 +312,9 @@ Store the returned `task_id`. Confirm submission to the user:
 
 ## Phase 3 — Monitor
 
-Poll the pipeline status in a loop. Wait 60 seconds between each poll. On each poll:
+Poll the pipeline status in a loop. On each poll:
 
-1. Call the `get_status` MCP tool with the `task_id`
+1. Call the `get_status` MCP tool with the `task_id` and `wait: 60` (the tool waits 60 seconds before fetching status). On the first poll after submission, omit `wait` (or use `wait: 0`) to get immediate feedback.
 2. Display a compact status dashboard:
 
 ```
@@ -340,7 +340,7 @@ Overseer: <subject> — <body summary, first 120 chars>
 
 6. **Track elapsed time** — Record the wall-clock time when the current phase started. Use this for [Long-Running Phase Detection](#long-running-phase-detection).
 
-**Important: Run polling sleeps in the foreground (blocking).** Do not use background sleeps or `run_in_background` for the 60-second poll interval. Background sleeps provide no benefit since the next action (polling) depends on the sleep completing, and they cause notification spam if the user interrupts.
+**Important: The `wait` parameter on `get_status` handles the polling delay internally.** Do not use separate `sleep` commands or background sleeps for the poll interval.
 
 Keep the dashboard output concise. Only show changes from the previous poll when possible.
 
@@ -1112,9 +1112,9 @@ Store the returned `task_id`. Confirm submission to the user:
 
 ## Phase S5 — Monitor
 
-Poll the pipeline status in a loop. Wait 60 seconds between each poll. On each poll:
+Poll the pipeline status in a loop. On each poll:
 
-1. Call the `get_status` MCP tool with the `task_id`
+1. Call the `get_status` MCP tool with the `task_id` and `wait: 60` (the tool waits 60 seconds before fetching status). On the first poll after submission, omit `wait` (or use `wait: 0`) to get immediate feedback.
 2. Display a compact status dashboard:
 
 ```
@@ -1140,7 +1140,7 @@ Recent: <latest message subject from recent_messages>
 
 Keep the dashboard output concise. Only show changes from the previous poll when possible.
 
-**Important: Run polling sleeps in the foreground (blocking).** Do not use background sleeps or `run_in_background` for the 60-second poll interval.
+**Important: The `wait` parameter on `get_status` handles the polling delay internally.** Do not use separate `sleep` commands or background sleeps for the poll interval.
 
 ### Failed Status Grace Period
 
