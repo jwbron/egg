@@ -2094,6 +2094,17 @@ def main() -> None:
 
     # Run appropriate mode (timing summary is printed inside each mode)
     if len(sys.argv) == 1:
+        if config.is_orchestrator_mode:
+            error_msg = (
+                "No command provided but container is in pipeline mode "
+                f"(EGG_PIPELINE_ID={config.pipeline_id}). "
+                "This likely indicates a bug in prompt reconstruction during restart."
+            )
+            logger.error("")
+            logger.error(f"ERROR: {error_msg}")
+            logger.error("")
+            signal_orchestrator_completion(config, logger, exit_code=1, error_message=error_msg)
+            sys.exit(1)
         exit_code = run_interactive(config, logger)
     else:
         exit_code = run_exec(config, logger, sys.argv[1:])
