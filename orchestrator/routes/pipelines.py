@@ -1529,7 +1529,8 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
         phase_exec.agents = []
         phase_exec.review_cycles = 0
         phase_exec.status = PipelineStatus.RUNNING
-        pipeline.status = PipelineStatus.RUNNING
+        if pipeline.status == PipelineStatus.FAILED:
+            pipeline.status = PipelineStatus.RUNNING
         pipeline.updated_at = datetime.now(UTC)
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
 
