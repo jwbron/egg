@@ -241,10 +241,27 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Hybrid: transition table for state, handlers for side effects\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-7",
+      "question": "The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "context": "**Warning**: No analysis draft was found on the work branch. The agent may not have written the output to the expected path.",
+      "options": [
+        "approve",
+        "request changes"
+      ],
+      "decision_type": "phase_gate",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-09T23:56:24.035018Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-09T23:37:30.329498Z",
-  "updated_at": "2026-04-09T23:56:14.930119Z",
+  "updated_at": "2026-04-09T23:56:24.036736Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -252,5 +269,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 21
+  "version": 22
 }
