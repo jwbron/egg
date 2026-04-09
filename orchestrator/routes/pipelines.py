@@ -169,9 +169,7 @@ def _check_and_respawn_overseer(
         # Capture log tail from the old container before respawning (best-effort).
         log_tail = "unavailable"
         try:
-            log_tail = spawner.docker.get_container_logs(
-                overseer_container_id, tail=20
-            )
+            log_tail = spawner.docker.get_container_logs(overseer_container_id, tail=20)
         except Exception:
             # Container may already be purged — fall back to "unavailable".
             pass
@@ -218,7 +216,7 @@ def _check_and_respawn_overseer(
                                 from_role="orchestrator",
                                 to_role="all",
                                 message_type=MessageType.OVERSEER_ALERT,
-                                subject=f"overseer_restart: overseer [info]",
+                                subject="overseer_restart: overseer [info]",
                                 body=(
                                     f"Overseer container was respawned. "
                                     f"Old container {overseer_container_id[:12]} exited "
