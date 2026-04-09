@@ -82,13 +82,15 @@ phases:
       - id: TASK-1-1
         description: [Task description]
         acceptance: [Criteria for completion]
+        role: coder           # Optional: coder | tester | documenter
         files:
           - [path/to/file]
       - id: TASK-1-2
         description: [Task description]
         acceptance: [Criteria for completion]
+        role: tester
         files:
-          - [path/to/file]
+          - [path/to/test_file]
   - id: 2
     name: [Phase Name]
     goal: [What this phase achieves]
@@ -96,9 +98,15 @@ phases:
       - id: TASK-2-1
         description: [Task description]
         acceptance: [Criteria for completion]
+        role: coder
         files:
           - [path/to/file]
 ```
+
+> **Role assignment**: The optional `role` field assigns a task to a specific execution agent
+> (`coder`, `tester`, or `documenter`). Assign roles based on which agent is permitted to modify
+> the task's files — see [Agent Roles Reference](../reference/agent-roles.md#role-aware-task-assignment)
+> for the file-to-role mapping. Tasks without a `role` default to the coder.
 
 ---
 

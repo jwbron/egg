@@ -141,6 +141,8 @@ The plan parser (`shared/egg_contracts/plan_parser.py`) extracts tasks and PR me
 
 The parser also extracts optional PR metadata (title and description) from the `pr:` field in the YAML data. If provided, this metadata is used when creating the pull request during the implement phase.
 
+**Role-aware task assignment**: Tasks can include an optional `role` field (`coder`, `tester`, or `documenter`) that assigns the task to a specific execution agent. The parser propagates this field through `ParsedTask` into the contract `Task` model. During the implement phase, `_build_role_context()` filters tasks by role so each agent only sees its assigned work. See [Agent Roles Reference](../reference/agent-roles.md#role-aware-task-assignment) for details.
+
 The parser generates placeholder tasks for empty phases and includes warnings for human review when parsing issues occur.
 
 ### Phase Checks

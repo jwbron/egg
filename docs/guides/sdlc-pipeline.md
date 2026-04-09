@@ -297,6 +297,9 @@ The implement phase uses concurrent BRC execution, where specialized agents run 
 | **Reviewer (Code)** | Review code for security, correctness, robustness | Review verdicts only |
 | **Reviewer (Contract)** | Verify task completion and acceptance criteria | Review verdicts only |
 
+**Role-Aware Task Assignment:**
+Tasks in the plan's YAML appendix can include an optional `role` field (`coder`, `tester`, or `documenter`) that assigns the task to a specific execution agent based on the files it modifies. During the implement phase, each agent only sees tasks assigned to its role — the coder also picks up any unassigned tasks as a fallback. This prevents agents from working on files outside their gateway-enforced boundaries. See [Agent Roles Reference](../reference/agent-roles.md#role-aware-task-assignment) for the file-to-role mapping and examples.
+
 **File Access Enforcement:**
 The gateway enforces file access patterns for each agent role via `gateway/agent_restrictions.py`. For example, the Coder agent cannot modify documentation files, and the Tester agent cannot modify source code. This prevents agents from overstepping their responsibilities.
 
@@ -554,10 +557,11 @@ Agent prompts include role-appropriate context rather than embedding the full is
 - A 1-2 sentence background summary extracted from the issue title and first paragraph
 - Checkpoint discovery hints for reviewing prior agent sessions (`egg-checkpoint`)
 - Pointers to full context on demand (`gh issue view`, handoff data, git diff)
+- Role-filtered tasks: only the tasks assigned to their role via the `task.role` field (unassigned tasks default to coder)
 
 This approach follows a "focus, don't starve" philosophy: agents get enough context to make good decisions without being distracted by irrelevant detail. Full context is always accessible on demand via CLI commands and file paths.
 
-The context is built by `_build_role_context()` in `orchestrator/routes/pipelines.py`, which replaces the previous pattern of embedding `pipeline.prompt` verbatim into every agent prompt.
+The context is built by `_build_role_context()` in `orchestrator/routes/pipelines.py`, which replaces the previous pattern of embedding `pipeline.prompt` verbatim into every agent prompt. Task filtering by role ensures each agent only works on files within its gateway-enforced boundaries.
 
 ## Multi-Agent Orchestration
 

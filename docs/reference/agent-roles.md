@@ -267,6 +267,62 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 See [Pipeline Health Monitoring Guide](../guides/pipeline-health-monitoring.md) for full details.
 
+## Role-Aware Task Assignment
+
+Plan generation assigns tasks to specific execution roles based on file access restrictions. Each task in the YAML appendix can include an optional `role` field (`coder`, `tester`, or `documenter`) that indicates which agent should own the task.
+
+### How It Works
+
+1. **Plan generation**: The `task_planner` prompt includes file restriction information for each execution role (sourced from `get_file_patterns()`). The planner uses this to assign each task to the role permitted to modify the task's files.
+2. **Contract propagation**: The `role` field flows through the YAML schema → `ParsedTask` → contract `Task` model, preserving the assignment from plan to execution.
+3. **Implement-phase filtering**: When building agent prompts for the implement phase, `_build_role_context()` filters tasks by `task.role` so each agent only sees its own tasks:
+   - **Coder**: sees tasks with `role: coder` plus any unassigned tasks (`role: null`)
+   - **Tester**: sees only tasks with `role: tester`
+   - **Documenter**: sees only tasks with `role: documenter`
+
+### Assignment Rules
+
+Tasks are assigned based on the files they modify:
+
+| File pattern | Assigned role |
+|-------------|---------------|
+| `**/*.py`, `**/*.ts`, `**/*.js`, config files | `coder` |
+| `tests/`, `**/test_*.py`, `**/*.test.ts` | `tester` |
+| `docs/`, `**/*.md`, `**/README.md` | `documenter` |
+| Mixed (spans multiple roles) | Split into sub-tasks per role |
+
+### Backward Compatibility
+
+The `role` field is optional. Plans generated before this feature (without `role` assignments) continue to work: all tasks default to showing for all agents, preserving the prior behavior. Unassigned tasks (`role: null`) fall through to the coder as the default execution role.
+
+### Example
+
+```yaml
+# yaml-tasks
+phases:
+  - id: 1
+    name: Implement
+    tasks:
+      - id: TASK-1-1
+        description: "Add validation logic to auth module"
+        acceptance: "Auth validates tokens correctly"
+        role: coder
+        files:
+          - src/auth/validator.py
+      - id: TASK-1-2
+        description: "Add unit tests for auth validation"
+        acceptance: "Tests cover token validation edge cases"
+        role: tester
+        files:
+          - tests/test_auth_validator.py
+      - id: TASK-1-3
+        description: "Update auth module README"
+        acceptance: "README documents new validation behavior"
+        role: documenter
+        files:
+          - src/auth/README.md
+```
+
 ## Prompt Context Scoping
 
 Agent prompts are scoped to role-relevant context to avoid unnecessary token usage and to focus each agent on its bounded work:
