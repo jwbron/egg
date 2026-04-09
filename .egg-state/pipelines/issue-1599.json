@@ -67,10 +67,10 @@
         {
           "container_id": "138e921c4cdee0758e461f014a4c000717c26e4fe381bd9472ced5bbec04f978",
           "container_name": "issue-1599-coder",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-09T14:30:18.788217Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-09T14:46:28.403014Z",
+          "exit_code": 1,
           "agent_role": "coder",
           "session_token": null
         },
@@ -122,13 +122,13 @@
         },
         {
           "role": "coder",
-          "status": "running",
+          "status": "failed",
           "container_id": "138e921c4cdee0758e461f014a4c000717c26e4fe381bd9472ced5bbec04f978",
           "started_at": "2026-04-09T14:30:18.788219Z",
-          "completed_at": null,
+          "completed_at": "2026-04-09T14:46:32.970647Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -175,7 +175,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-09T14:29:43.472098Z",
-  "updated_at": "2026-04-09T14:46:19.226285Z",
+  "updated_at": "2026-04-09T14:46:32.970713Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -183,5 +183,5 @@
   "error": null,
   "analysis": "### Task Analysis\n\n**Problem statement**: BRC history files (`.egg-state/brc-history/`) are missing from PRs, and draft files (`.egg-state/drafts/`) pollute PR diffs with non-code content.\n\n**Source context**: Issue #1599 references #1572 (original BRC history feature) and #1593 (example PR showing both problems). The BRC consensus summary already appears in PR bodies from the message store, so the data exists — it's just not making it into the file tree. Draft files are no longer needed by PR time since BRC messages now capture that context.\n\n**System context**: The pipeline runs phases sequentially (refine → plan → implement → PR). At each phase completion (`pipelines.py:7721-7770`), `_write_brc_history()` writes a markdown log to `.egg-state/brc-history/{id}-{phase}.md`, then `_commit_statefiles_to_worktree()` commits it, and `push_worktree_branch()` pushes. The PR phase (`pipelines.py:7404`) skips agent spawn and calls `_auto_create_pr()` directly. It assumes BRC history is already on the branch (comment at line 7426), but in practice the per-phase push can fail silently or worktree sync can lose the files.\n\n**Technical root cause**:\n1. **BRC history**: The per-phase commit+push at lines 7742-7770 is best-effort — both the commit and push have exception handlers that log warnings and continue. If either fails, the BRC history file is lost. The PR phase has no safety net to re-write them.\n2. **Draft files**: There's no cleanup step for pipeline-specific drafts (`.egg-state/drafts/{id}-analysis.md`, `.egg-state/drafts/{id}-plan.md`). Only stale *generic* drafts (`analysis.md`, `plan.md`) are cleaned up by `_cleanup_stale_generic_drafts()` at worktree init.\n\n**Files affected**:\n- `orchestrator/routes/pipelines.py` — PR phase path (~line 7404): add BRC history re-write for all completed phases + draft cleanup before PR push\n- `orchestrator/tests/test_brc_history.py` — tests for new PR-phase BRC history write\n- New test or additions for draft cleanup\n\n**Risks / edge cases**:\n- `_write_brc_history` is idempotent (overwrites existing file), so re-writing in the PR phase is safe\n- Draft cleanup must only remove files for *this* pipeline (scoped by identifier) to avoid affecting concurrent pipelines\n- The `git rm` for drafts must handle files that are untracked or already removed (use `-f --ignore-unmatch`)",
   "plan": "# Plan: BRC history safety net + draft cleanup in PR phase\n\n## Summary\n\nAdd two safety-net steps to the PR phase path in `pipelines.py`: (1) re-write BRC history files for all completed phases before PR creation, ensuring they're on the branch even if per-phase pushes failed; (2) `git rm` pipeline-specific draft files from `.egg-state/drafts/` to keep PR diffs focused on code changes. Both steps happen before the pre-PR push.\n\n**Risks / edge cases**: `_write_brc_history` is idempotent (overwrites existing files), so re-writing is safe. Draft cleanup must be scoped to the current pipeline's identifier to avoid removing other pipelines' files. Must handle files that are already missing or untracked gracefully.\n\n## Implementation\n\n### Phase 1: Implement\n\nAdd BRC history re-write and draft cleanup to the PR phase path.\n\n**Tasks**:\n1. **[task-1-1]** In `orchestrator/routes/pipelines.py`, replace the comment at line 7426 (\"BRC history files are written per-phase...\") with a loop that calls `_write_brc_history()` for each phase in `pipeline.phases` that has status `COMPLETE`. Uses existing `_pipeline_identifier` helper. Then call `_commit_statefiles_to_worktree()` to commit the BRC history files. Acceptance: BRC history files for all completed phases exist in `.egg-state/brc-history/` after the PR phase runs.\n2. **[task-1-2]** In `orchestrator/routes/pipelines.py`, add a `_cleanup_drafts_for_pr()` function near `_cleanup_stale_generic_drafts()` (~line 2209). It takes `worktree_path` and `pipeline_identifier`, finds pipeline-scoped draft files (`{id}-analysis.md`, `{id}-plan.md`, and any `{id}-*.md` in `.egg-state/drafts/`), runs `git rm -f --ignore-unmatch` on each, and commits the removal. Follows the same pattern as `_cleanup_stale_generic_drafts()`. Acceptance: function removes only pipeline-scoped draft files and commits the removal.\n3. **[task-1-3]** In `orchestrator/routes/pipelines.py`, call `_cleanup_drafts_for_pr()` in the PR phase path after the BRC history write and before the pre-PR push (~line 7429). Pass `worktree_repo_path` and the pipeline identifier. Acceptance: draft files are removed before PR creation.\n4. **[task-1-4]** Add tests: (a) BRC history re-write in PR phase covers all completed phases, (b) `_cleanup_drafts_for_pr` removes pipeline-scoped drafts and commits, (c) `_cleanup_drafts_for_pr` is a no-op when no drafts exist, (d) `_cleanup_drafts_for_pr` doesn't remove other pipelines' drafts. Acceptance: all tests pass.\n\n```yaml\n# yaml-tasks\npr:\n  title: \"Write BRC history and remove drafts in PR phase (#1599)\"\n  description: |\n    Adds a safety net for BRC history files in the PR phase by re-writing\n    history for all completed phases before PR creation. Also removes\n    pipeline draft files from the branch to keep PR diffs clean.\n  test_plan: |\n    - Automated: test_brc_history.py tests for PR-phase BRC re-write\n    - Automated: new tests for _cleanup_drafts_for_pr scoping and no-op behavior\n    - Manual: Run a pipeline and verify BRC history files appear in the PR and draft files do not\n  manual_steps: |\n    Pre-merge: None\n    Post-merge: None\nphases:\n  - id: 1\n    name: Implement\n    goal: \"Add BRC history safety net and draft cleanup to PR phase path\"\n    tasks:\n      - id: task-1-1\n        description: \"In `orchestrator/routes/pipelines.py` PR phase path (~line 7426), replace the assumption comment with a loop that calls `_write_brc_history()` for each completed phase in `pipeline.phases`, then commits via `_commit_statefiles_to_worktree()`\"\n        acceptance: \"BRC history files for all completed phases exist in .egg-state/brc-history/ after PR phase\"\n        files:\n          - orchestrator/routes/pipelines.py\n      - id: task-1-2\n        description: \"Add `_cleanup_drafts_for_pr(worktree_path, pipeline_identifier)` near `_cleanup_stale_generic_drafts()` — finds `{id}-*.md` in `.egg-state/drafts/`, runs `git rm -f --ignore-unmatch`, commits removal. Scoped to pipeline identifier only.\"\n        acceptance: \"Function removes only this pipeline's draft files and commits the removal\"\n        files:\n          - orchestrator/routes/pipelines.py\n      - id: task-1-3\n        description: \"Call `_cleanup_drafts_for_pr()` in the PR phase path after BRC history write and before pre-PR push, passing worktree_repo_path and pipeline identifier\"\n        acceptance: \"Draft files are removed from the branch before PR creation\"\n        files:\n          - orchestrator/routes/pipelines.py\n      - id: task-1-4\n        description: \"Add tests: BRC history re-write covers all completed phases; _cleanup_drafts_for_pr removes scoped drafts, no-ops when empty, doesn't touch other pipelines' files\"\n        acceptance: \"All new tests pass with `make test`\"\n        files:\n          - orchestrator/tests/test_brc_history.py\n          - orchestrator/tests/test_cleanup_drafts_for_pr.py\n```",
-  "version": 11
+  "version": 12
 }
