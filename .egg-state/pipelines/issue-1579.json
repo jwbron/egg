@@ -151,10 +151,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Change tracking for 'all changes reviewed' guard: commit SHA-based (track SHA at ACK time), version-based (auto-increment on new commits), or both?",
+      "context": "",
+      "options": [
+        "Commit SHA-based: compare ACK SHA to producer HEAD",
+        "Version-based: auto-increment proposal version on push",
+        "Both: version for state, SHA for verification"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-09T23:47:21.424027Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-09T23:37:30.329498Z",
-  "updated_at": "2026-04-09T23:47:19.001580Z",
+  "updated_at": "2026-04-09T23:47:21.425765Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -162,5 +180,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 8
+  "version": 9
 }
