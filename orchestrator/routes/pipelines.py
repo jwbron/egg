@@ -2433,61 +2433,116 @@ def _get_generic_draft_path(phase: str) -> str | None:
     return f".egg-state/drafts/{filename}"
 
 
+def _git_show_draft(
+    repo_path: Path,
+    branch: str,
+    rel_path: str,
+    timeout: int = 15,
+) -> str | None:
+    """Read a file from ``origin/{branch}`` via ``git show``.
+
+    Returns the file content as a string, or ``None`` if the file does
+    not exist on the remote ref or the git command fails.  This is a
+    read-only operation that does not modify the worktree.
+    """
+    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(repo_path)]
+    try:
+        result = subprocess.run(
+            [*git_base, "show", f"origin/{branch}:{rel_path}"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout:
+            return result.stdout
+    except Exception as exc:
+        logger.debug(
+            "git show failed for draft",
+            branch=branch,
+            rel_path=rel_path,
+            error=str(exc),
+        )
+    return None
+
+
 def _read_phase_draft(
     repo_path: Path,
     phase: str,
     issue_number: int | None = None,
     pipeline_id: str | None = None,
     max_chars: int = 32000,
+    branch: str | None = None,
 ) -> str | None:
     """Read draft file contents. Truncates at max_chars.
 
     Returns None when the draft cannot be found (no path configured or
     file missing on disk).
 
-    When the primary issue-specific draft path does not exist, falls back
-    to the generic (unprefixed) path — e.g. ``analysis.md`` for refine,
-    ``plan.md`` for plan.  This handles cases where the agent wrote to the
-    generic path, the stale-draft cleanup did not run or failed, or the
-    worktree was set up outside the normal pipeline-start flow.
+    Attempts in order:
+
+    1. Primary (issue-specific) path on disk
+    2. Generic (unprefixed) path on disk
+    3. Primary path via ``git show origin/{branch}:``
+    4. Generic path via ``git show origin/{branch}:``
+
+    The ``git show`` fallback (steps 3–4) handles cases where
+    ``_sync_worktree_with_remote`` failed silently and the draft exists
+    on the remote branch but not in the local checkout.
     """
     draft_rel = _get_draft_path(phase, issue_number=issue_number, pipeline_id=pipeline_id)
     if not draft_rel:
         return None
 
+    def _truncate(content: str) -> str:
+        if len(content) > max_chars:
+            return content[:max_chars] + f"\n\n... (truncated, {len(content)} chars total)"
+        return content
+
     draft_path = repo_path / draft_rel
+    generic_rel = _get_generic_draft_path(phase)
 
     # Try primary (issue-specific) path first.
-    if not draft_path.exists():
-        logger.debug(
-            "Draft file not found",
-            path=str(draft_path),
-            phase=phase,
-            issue_number=issue_number,
-            pipeline_id=pipeline_id,
-        )
+    if draft_path.exists():
+        return _truncate(draft_path.read_text(encoding="utf-8"))
 
-        # Fallback: try the generic (unprefixed) path.
-        generic_rel = _get_generic_draft_path(phase)
-        if generic_rel:
-            generic_path = repo_path / generic_rel
-            if generic_path.exists():
-                logger.debug(
-                    "Using generic fallback draft path",
-                    primary_path=str(draft_path),
-                    fallback_path=str(generic_path),
-                    phase=phase,
-                )
-                draft_path = generic_path
-            else:
-                return None
-        else:
-            return None
+    logger.debug(
+        "Draft file not found",
+        path=str(draft_path),
+        phase=phase,
+        issue_number=issue_number,
+        pipeline_id=pipeline_id,
+    )
 
-    content = draft_path.read_text(encoding="utf-8")
-    if len(content) > max_chars:
-        return content[:max_chars] + f"\n\n... (truncated, {len(content)} chars total)"
-    return content
+    # Fallback: try the generic (unprefixed) path on disk.
+    if generic_rel:
+        generic_path = repo_path / generic_rel
+        if generic_path.exists():
+            logger.debug(
+                "Using generic fallback draft path",
+                primary_path=str(draft_path),
+                fallback_path=str(generic_path),
+                phase=phase,
+            )
+            return _truncate(generic_path.read_text(encoding="utf-8"))
+
+    # Fallback: try reading from remote tracking ref via git show.
+    # This handles cases where _sync_worktree_with_remote() failed
+    # silently (fetch failure, detached HEAD, divergence, etc.) and
+    # the draft exists on origin but not in the local checkout.
+    if branch:
+        content = _git_show_draft(repo_path, branch, draft_rel)
+        if content is None and generic_rel:
+            content = _git_show_draft(repo_path, branch, generic_rel)
+        if content is not None:
+            logger.info(
+                "Read draft from remote tracking ref (local copy missing)",
+                phase=phase,
+                branch=branch,
+            )
+            return _truncate(content)
+
+    return None
 
 
 def _summarize_issue(prompt: str | None, issue_number: int | None = None) -> str:
@@ -8043,6 +8098,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         current_phase.value,
                         issue_number=pipeline.issue_number,
                         pipeline_id=pipeline_id,
+                        branch=pipeline.branch,
                     )
                     phase_label = (
                         "analysis" if current_phase.value == "refine" else current_phase.value

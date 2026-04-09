@@ -850,6 +850,7 @@ class PipelineToolHandler:
                         issue_number=issue_number,
                         pipeline_id=pipeline_id,
                         max_chars=16_000,
+                        branch=pipeline_data.get("branch"),
                     )
                 except Exception:
                     logger.debug(
