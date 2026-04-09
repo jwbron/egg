@@ -1154,8 +1154,27 @@ class TestCleanExitWithoutConsensus:
         )
 
         assert exit_code == 0
-        # store.save_pipeline should have been called (by _update_agents_complete)
-        mock_store.save_pipeline.assert_called()
+
+        # Verify _update_agents_complete was called: it calls
+        # store.load_pipeline -> pip.get_phase_execution -> store.save_pipeline.
+        # The mock_pipeline_state returned by load_pipeline must have
+        # get_phase_execution called on it (from _update_agents_complete,
+        # not just from step 4 container tracking which uses a different path).
+        mock_pipeline_state = mock_store.load_pipeline.return_value
+        mock_pipeline_state.get_phase_execution.assert_called()
+        mock_store.save_pipeline.assert_called_with(mock_pipeline_state)
+
+        # Verify CONSENSUS_REACHED event was emitted
+        from events import EventType
+
+        consensus_calls = [
+            c for c in mock_emit.call_args_list
+            if c[0][0] == EventType.CONSENSUS_REACHED
+        ]
+        assert len(consensus_calls) == 1, (
+            f"Expected exactly 1 CONSENSUS_REACHED event, got {len(consensus_calls)}"
+        )
+        assert consensus_calls[0][0][1] == "issue-1581"
 
     @patch("routes.pipelines.time.sleep")
     @patch("routes.pipelines.time.monotonic")

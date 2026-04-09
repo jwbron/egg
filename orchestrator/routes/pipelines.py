@@ -5316,6 +5316,22 @@ def _run_concurrent_phase(
                 )
                 return 1, combined_logs
 
+            # Consensus confirmed on clean exit — mirror the has_failures
+            # success path: emit event, update agent state, stop containers.
+            if _emit_event is not None:
+                _emit_event(
+                    EventType.CONSENSUS_REACHED,
+                    pipeline_id,
+                    data={"elapsed_seconds": elapsed},
+                )
+            logger.info(
+                "Consensus reached on final recheck, stopping containers",
+                pipeline_id=pipeline_id,
+                elapsed_seconds=round(elapsed, 1),
+                has_failures=has_failures[0],
+            )
+            _update_agents_complete()
+            _stop_running_containers()
             return 0, combined_logs
 
         # 6. Consensus timeout
