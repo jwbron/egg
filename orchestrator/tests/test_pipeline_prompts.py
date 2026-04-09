@@ -114,6 +114,7 @@ class TestGetCodeReviewCriteria:
             result = _get_code_review_criteria()
             assert "Security" in result
             assert "Correctness" in result
+            assert "### Skip" in result
 
 
 class TestGetAgentDesignCriteria:
