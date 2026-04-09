@@ -363,6 +363,28 @@ class PipelineConfig(BaseModel):
         "at this phase instead of 'refine'.",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _alias_post_propose_grace(cls, data: Any) -> Any:
+        """Accept orchestrator_post_propose_grace_seconds as alias for post_proposal_grace_seconds.
+
+        The original plan added orchestrator_post_propose_grace_seconds as a
+        separate field, but review identified it as a duplicate of the existing
+        post_proposal_grace_seconds. This validator preserves backward
+        compatibility for callers using the old name.
+        """
+        if isinstance(data, dict) and "orchestrator_post_propose_grace_seconds" in data:
+            data.setdefault(
+                "post_proposal_grace_seconds",
+                data.pop("orchestrator_post_propose_grace_seconds"),
+            )
+        return data
+
+    @property
+    def orchestrator_post_propose_grace_seconds(self) -> int:
+        """Alias for post_proposal_grace_seconds (backward compatibility)."""
+        return self.post_proposal_grace_seconds
+
     @field_validator("start_phase")
     @classmethod
     def validate_start_phase(cls, v: str | None) -> str | None:

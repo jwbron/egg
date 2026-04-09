@@ -182,12 +182,12 @@ The suppression logic queries the peer consensus tracker's review graph to deter
 
 When a producer sends `CONSENSUS_PROPOSE`, reviewer-only agents transition from idle (waiting for proposals) to active (reviewing). However, reviewers need time to prepare their review — reading code, verifying claims, running checks — before they can emit BRC messages. Previously, reviewers were immediately subject to normal heartbeat/progress thresholds as soon as any upstream producer proposed, causing **false positive stall alerts** that killed active reviewers mid-review.
 
-The health monitor now provides a **post-propose grace period** for reviewer-only agents. After an upstream producer proposes, the reviewer has `orchestrator_post_propose_grace_seconds` (default: 300s / 5 minutes) before heartbeat and progress stall checks apply. During this grace window, the reviewer is suppressed from alerts — similar to BRC-idle suppression but covering the transition period after a proposal arrives.
+The health monitor now provides a **post-propose grace period** for reviewer-only agents. After an upstream producer proposes, the reviewer has `post_proposal_grace_seconds` (default: 300s / 5 minutes) before heartbeat and progress stall checks apply. During this grace window, the reviewer is suppressed from alerts — similar to BRC-idle suppression but covering the transition period after a proposal arrives.
 
 **How it works:**
 - The `HealthMonitor._is_brc_idle()` method checks if the agent is a reviewer-only role (not a producer)
 - It queries `PeerConsensusTracker.get_earliest_proposal_time(reviewer)` to find the earliest proposal timestamp among the reviewer's upstream producers
-- If a proposal exists and `time.time() - proposal_time < orchestrator_post_propose_grace_seconds`, the reviewer is suppressed from alerts
+- If a proposal exists and `time.time() - proposal_time < post_proposal_grace_seconds`, the reviewer is suppressed from alerts
 - Once the grace window expires, normal heartbeat/progress monitoring resumes
 
 **Why 5 minutes?** Even complex reviews (e.g., verifying refine analysis against the full codebase) complete their initial orientation within 5 minutes. This window is long enough to prevent false positives but short enough to detect genuinely stuck reviewers.
@@ -226,7 +226,7 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `orchestrator_implement_heartbeat_timeout_seconds` | `600` | Escalate to overseer/HITL after this many seconds without heartbeat during the **implement phase** (must be ≥ 10) |
 | `orchestrator_error_repeat_threshold` | `3` | Escalate after N identical consecutive errors |
 | `orchestrator_message_rate_limit` | `20` | Auto-throttle above this many messages per minute |
-| `orchestrator_post_propose_grace_seconds` | `300` | Grace period (seconds) for reviewer-only agents after an upstream producer proposes, before heartbeat/progress stall checks apply (must be >= 30) |
+| `post_proposal_grace_seconds` | `300` | Grace period (seconds) for reviewer-only agents after an upstream producer proposes, before heartbeat/progress stall checks apply (must be >= 30). This reuses the existing BRC proposal grace period setting. |
 | `orchestrator_post_ack_confirmation_timeout_seconds` | `180` | Timeout (seconds) for fully-ACKed producers to send `CONSENSUS_CONFIRMED` before escalation, regardless of heartbeat activity (must be >= 30) |
 | `overseer_poll_interval_seconds` | `30` | How often the overseer checks health |
 | `overseer_max_redirects_before_escalation` | `2` | Redirect attempts before HITL escalation |
