@@ -100,7 +100,7 @@ Agents emit structured progress via `POST /api/v1/pipelines/{id}/progress` (CLI:
 
 **Overseer tier (LLM-powered):** A phase-scoped agent container (no code access) that handles ambiguous cases the deterministic tier can't resolve. Uses Haiku via `shared/egg_agent/` for lightweight classification (stall vs. legitimate work, loop detection, error triage including infrastructure error detection, off-track detection, cross-phase decision consistency) and Sonnet/Opus for corrective decision-making (composing redirect messages, deciding escalation level, filing diagnostic GitHub issues). Auto-spawned at the start of each pipeline phase when `overseer_enabled` is true, and torn down when the phase completes, advances, or fails — each phase gets a fresh instance with no accumulated state. If the overseer exits before the current phase completes, the orchestrator's health monitor thread automatically respawns it (up to `overseer_max_respawns` times, default 3), gated by a `phase_overseer_active` flag to avoid respawning between phases.
 
-The overseer follows a corrective action ladder: auto-nudge → redirect message → HITL escalation → GitHub issue filing → Slack notification. **Infrastructure errors bypass the ladder** — when the Tier 1 tripwire detects an infrastructure error (or the Tier 2 classifier identifies one), the decision maker fast-paths directly to HITL escalation with the error details. Cross-tier deduplication prevents duplicate escalations when both tiers detect the same error. The overseer cannot restart agents autonomously — all restart requests go through the HITL decision queue.
+The overseer follows a corrective action ladder: auto-nudge → redirect message → agent restart → HITL escalation → phase restart (HITL) → GitHub issue filing → Slack notification. **Infrastructure errors bypass the ladder** — when the Tier 1 tripwire detects an infrastructure error (or the Tier 2 classifier identifies one), the decision maker fast-paths directly to HITL escalation with the error details. Cross-tier deduplication prevents duplicate escalations when both tiers detect the same error. The overseer can restart individual agents autonomously (up to `overseer_max_agent_restarts`, default 2, preserving the agent's worktree); phase-level restarts require HITL approval.
 
 See [Pipeline Health Monitoring Guide](../guides/pipeline-health-monitoring.md) for the full reference.
 
@@ -429,7 +429,7 @@ Fixed IPs:
 - `GET /health` - MCP server health check
 - `POST /mcp` - Streamable HTTP transport endpoint (MCP protocol via JSON-RPC)
 
-Available MCP tools (orchestrator-backed): `submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `validate_config`
+Available MCP tools (orchestrator-backed): `submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `validate_config`, `restart_agent`, `restart_phase`
 
 Available MCP tools (gateway-backed, requires `gateway_url`): `list_checkpoints`, `search_checkpoints`, `get_contract`
 
