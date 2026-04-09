@@ -1,0 +1,628 @@
+{
+  "issue": 1570,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 1,
+  "revision_notes": "",
+  "title": "Custom Coding Harness with Multi-Provider LLM Support",
+  "summary": "This architecture analysis designs `shared/egg_harness/`, a new Python package that replaces the Claude Agent SDK as egg's primary agent runtime. The harness owns the complete agent execution loop — LLM API calls, tool dispatch, permission enforcement, streaming, context management, and cost tracking — with a pluggable provider abstraction supporting Anthropic (via its Python SDK) and OpenAI-compatible endpoints (via httpx). All 12 HITL design decisions from the refine phase are incorporated. The recommended approach is a hybrid client strategy (Anthropic SDK for Anthropic, raw httpx for OpenAI-compatible) with a phased migration path that defaults to the existing Claude Agent SDK during transition. The harness introduces ~15-20 new files across 6 subsystems: providers, tools, agent loop, config/prompt loading, CLI entry points, and interactive mode.",
+  "problem_statement": {
+    "description": "egg currently depends on two Anthropic-controlled runtimes — the Claude Agent SDK (claude_agent_sdk.query()) for headless pipelines and the Claude Code CLI for interactive sessions. Both are opaque, evolve on Anthropic's release schedule, and can break egg without warning. The goal is to build a custom harness (shared/egg_harness/) that owns the full agent execution loop with pluggable LLM backends, while retaining Claude Code and the Agent SDK as supported alternatives for users with Anthropic subscriptions.",
+    "root_causes": [
+      {
+        "id": "RC-1",
+        "title": "External runtime dependency risk",
+        "description": "The claude-agent-sdk package is unpinned, currently installed as 0.1.56, and can change behavior on any update. The Claude Code CLI is installed via `curl | bash` in the Dockerfile and auto-updates are disabled but the installation adds latency. Both are single points of failure for all agent execution.",
+        "location": "shared/egg_agent/client.py (SDK wrapper), sandbox/llm/runner.py (CLI exec), sandbox/entrypoint.py (setup_claude)"
+      },
+      {
+        "id": "RC-2",
+        "title": "No tool execution ownership",
+        "description": "Tool definitions, execution semantics, output truncation, and timeout handling are all controlled by Claude Code / Agent SDK. egg cannot customize tool behavior, add egg-native tools with reduced latency, or control context window usage.",
+        "location": "Claude Code internal tool implementations (opaque)"
+      },
+      {
+        "id": "RC-3",
+        "title": "Single-provider lock-in",
+        "description": "Both runtimes only support Anthropic models. There is no path to route to OpenAI-compatible endpoints (vLLM, Ollama) or other providers without building a custom execution layer.",
+        "location": "shared/egg_agent/client.py (hardcoded claude_agent_sdk.query)"
+      },
+      {
+        "id": "RC-4",
+        "title": "Opaque context management",
+        "description": "The Agent SDK manages conversation history, system prompt injection, and context window limits internally. egg cannot implement custom context strategies (e.g., summarization, selective pruning) or optimize token usage.",
+        "location": "claude_agent_sdk internals"
+      }
+    ]
+  },
+  "current_architecture": {
+    "headless_path": {
+      "description": "shared/egg_agent/client.py wraps claude_agent_sdk.query() with ClaudeAgentOptions (permission_mode='bypassPermissions', model, cwd, env, setting_sources=['project','user'], disallowed_tools, can_use_tool callback, max_turns, system_prompt). Returns an async stream of AssistantMessage/UserMessage/SystemMessage/ResultMessage. The on_output callback enables real-time text streaming. AgentResult captures success, stdout, stderr, returncode, cost_usd, num_turns, duration_ms, session_id.",
+      "files": [
+        "shared/egg_agent/client.py",
+        "shared/egg_agent/result.py",
+        "shared/egg_agent/tool_interceptor.py",
+        "shared/egg_agent/__main__.py",
+        "shared/egg_agent/command.py"
+      ]
+    },
+    "interactive_path": {
+      "description": "sandbox/llm/runner.py execs 'claude --dangerously-skip-permissions --model opus[1m]' via os.execvpe(). sandbox/entrypoint.py:setup_claude() configures settings.json (defaultPermissionMode, autoApproveEdits, defaultModel, disallowedTools), .claude.json (onboarding bypass, trust pre-population), ~/.claude/CLAUDE.md (combined agent rules), commands, and skills.",
+      "files": [
+        "sandbox/llm/runner.py",
+        "sandbox/entrypoint.py",
+        "sandbox/agent-config/rules/"
+      ]
+    },
+    "gateway_proxy": {
+      "description": "gateway/gateway.py proxies POST /v1/messages to Anthropic API, injecting credentials from ~/.config/egg/secrets.env (OAuth or API key). Supports streaming (SSE chunked via httpx send(stream=True)) and non-streaming. Captures transcripts to per-session JSONL buffers via transcript_buffer.py. Strips WebFetch/WebSearch tool definitions in private mode. Container has no direct credentials — gateway is the trust boundary.",
+      "files": [
+        "gateway/gateway.py",
+        "gateway/anthropic_credentials.py",
+        "gateway/transcript_buffer.py"
+      ]
+    },
+    "orchestrator_spawning": {
+      "description": "orchestrator/consensus_wrapper.py wraps the base agent command in a bash script that handles restart-on-exit for BRC protocol. Up to MAX_CONSENSUS_RESTARTS=2 with exponential backoff. Injects recovery system prompt via --system-prompt flag. orchestrator/container_spawner.py creates per-agent worktrees, pre-registers gateway sessions, and spawns Docker containers with EGG_AGENT_ROLE, EGG_PIPELINE_ID, EGG_CONCURRENT_MODE, AGENT_ANCHOR_ID env vars.",
+      "files": [
+        "orchestrator/consensus_wrapper.py",
+        "orchestrator/container_spawner.py",
+        "orchestrator/concurrent_executor.py"
+      ]
+    },
+    "babysit_agents": {
+      "description": "shared/egg_babysit/ fixer.py and reviewer.py spawn agents via build_agent_command() + subprocess.run(). Fixer uses model='sonnet', max_turns=200. Reviewer uses model='sonnet', max_turns=100 with read-only enforcement prepended to prompt.",
+      "files": [
+        "shared/egg_babysit/fixer.py",
+        "shared/egg_babysit/reviewer.py",
+        "shared/egg_agent/command.py"
+      ]
+    },
+    "tool_interception": {
+      "description": "shared/egg_agent/tool_interceptor.py implements role-based file write blocking via check_file_write_permission(). Intercepts Write, Edit, NotebookEdit tools. Delegates to shared/egg_restrictions/ which defines AgentFilePattern per role with allowed_patterns, blocked_patterns, and block_exempt_patterns. Only active when EGG_AGENT_ROLE is set. Fail-open if egg_restrictions not importable.",
+      "files": [
+        "shared/egg_agent/tool_interceptor.py",
+        "shared/egg_restrictions/patterns.py",
+        "shared/egg_restrictions/checker.py"
+      ]
+    }
+  },
+  "approaches_considered": [
+    {
+      "id": "A",
+      "name": "Direct Anthropic SDK Client (Anthropic SDK for all providers)",
+      "description": "Use the official anthropic Python SDK (anthropic.AsyncAnthropic) to call /v1/messages through the gateway proxy for Anthropic models. For OpenAI-compatible endpoints, also use the anthropic SDK's base_url capability or a thin adapter. All provider communication goes through a single SDK.",
+      "pros": [
+        "Battle-tested HTTP client with proper retry logic, rate limiting, SSE parsing",
+        "Handles streaming edge cases (partial chunks, reconnection, content block assembly)",
+        "Type-safe response models (Message, ContentBlock, ToolUseBlock)",
+        "base_url parameter routes seamlessly through gateway proxy",
+        "Extended thinking and prompt caching support built-in for future use",
+        "Single SDK reduces maintenance surface"
+      ],
+      "cons": [
+        "Anthropic SDK cannot call OpenAI-compatible /v1/chat/completions endpoints — format mismatch",
+        "Would need a second HTTP client anyway for OpenAI-compatible providers",
+        "SDK's response types differ from OpenAI format — provider abstraction still required",
+        "Adds dependency on Anthropic's SDK release cadence (though lighter than Agent SDK)"
+      ],
+      "rejected_reason": "Cannot serve as a unified client for both Anthropic and OpenAI-compatible endpoints. The API formats are fundamentally different (/v1/messages vs /v1/chat/completions), so a second client is unavoidable."
+    },
+    {
+      "id": "B",
+      "name": "Raw HTTP Client (httpx for all providers)",
+      "description": "Build the API client from scratch using httpx for both Anthropic and OpenAI-compatible endpoints. Parse SSE streams manually. Handle retries, rate limits, and error types in custom code.",
+      "pros": [
+        "Zero external dependencies on LLM vendor SDKs",
+        "Full control over HTTP behavior (timeouts, retries, connection pooling)",
+        "Single HTTP library for all providers",
+        "Easier to add custom headers, request/response logging"
+      ],
+      "cons": [
+        "Anthropic Messages API streaming has significant complexity: 6+ SSE event types (message_start, content_block_start, content_block_delta with text_delta/input_json_delta/thinking_delta/signature_delta, content_block_stop, message_delta, message_stop), partial JSON accumulation for tool use inputs, ping events, error events mid-stream",
+        "Must implement own retry logic with exponential backoff for rate limits (429) and server errors (5xx)",
+        "Must maintain own type definitions for request/response shapes",
+        "Higher risk of subtle bugs in streaming edge cases that the Anthropic SDK already handles",
+        "Significantly more code to write and maintain (~500+ lines for SSE parsing alone)"
+      ],
+      "rejected_reason": "Too much reimplementation risk for egg's most critical code path. The Anthropic Messages API streaming protocol has at least 8 distinct event/delta types with complex accumulation semantics. Getting this wrong causes silent data loss or agent hangs."
+    },
+    {
+      "id": "C",
+      "name": "LiteLLM as Abstraction Layer",
+      "description": "Use LiteLLM (litellm package) as a unified interface for all providers. It translates OpenAI-format calls to provider-native APIs and supports 100+ providers out of the box.",
+      "pros": [
+        "Single API for Anthropic, OpenAI-compatible, Google, and many more providers",
+        "Tool calling translation already handled between formats",
+        "Active community with frequent updates"
+      ],
+      "cons": [
+        "Heavy dependency (~50+ transitive deps) — bloats container image significantly",
+        "Abstraction hides provider-specific features (cache control, extended thinking, prompt caching)",
+        "Another external dependency with its own release cadence and breakage risk — contradicts the goal of reducing external dependencies",
+        "Gateway already handles credential injection — LiteLLM's key management conflicts",
+        "Streaming translation introduces latency and loses provider-specific events",
+        "Overkill for two providers (Anthropic + OpenAI-compatible)"
+      ],
+      "rejected_reason": "Contradicts the core motivation of reducing external dependencies. Adding a 50+ transitive dependency layer between egg and LLM APIs creates more opacity, not less. Also conflicts with the gateway's credential injection model."
+    },
+    {
+      "id": "D",
+      "name": "Hybrid — Anthropic SDK + Raw httpx for OpenAI-Compatible",
+      "description": "Use the official anthropic Python SDK for the Anthropic provider (leveraging its streaming, types, and retry logic) and httpx directly for the OpenAI-compatible provider (simpler API surface, well-documented SSE). Each provider implements a shared Provider interface that normalizes events into a common stream format.",
+      "pros": [
+        "Best-in-class client for each provider — Anthropic SDK handles all Messages API complexity, httpx handles the simpler OpenAI chat completions format",
+        "Anthropic SDK's base_url parameter routes seamlessly through gateway proxy",
+        "OpenAI /v1/chat/completions SSE is simpler than Anthropic's — only 'data: [DONE]' termination with standard JSON chunks — manageable without an SDK",
+        "httpx is already a transitive dependency of the anthropic SDK, so no new HTTP library",
+        "Minimizes vendor SDK dependencies while getting full reliability for the critical Anthropic path",
+        "Provider interface abstraction is clean because each side only normalizes one format",
+        "Aligns with HITL decision-1 (custom thin adapter wrapping anthropic + openai SDKs)"
+      ],
+      "cons": [
+        "Two different HTTP patterns to maintain (SDK streaming vs raw SSE parsing)",
+        "Provider interface must abstract over different response shapes (Anthropic content blocks vs OpenAI choices)",
+        "anthropic SDK is still an external dependency, though far lighter than the Agent SDK"
+      ],
+      "rejected_reason": null
+    }
+  ],
+  "recommended_approach": {
+    "strategy": "Approach D — Hybrid: Anthropic SDK + Raw httpx for OpenAI-Compatible",
+    "rationale": "This is the pragmatic choice that aligns with all 12 HITL decisions from the refine phase. The Anthropic Messages API has significant streaming complexity (8+ SSE event types, partial JSON accumulation for tool inputs, thinking deltas, signature deltas) that the official SDK handles correctly. Reimplementing this (Option B) would be high-risk for egg's most critical code path. LiteLLM (Option C) contradicts the goal of reducing external dependencies. Using the Anthropic SDK for its own API while using httpx for the simpler OpenAI-compatible format gives the best balance of reliability, control, and minimal dependencies. The anthropic SDK's base_url parameter makes gateway proxy routing trivial, preserving the existing credential injection and transcript capture without changes.",
+    "implementation_overview": {
+      "subsystem_1_providers": {
+        "description": "Provider abstraction layer with pluggable LLM backends. Each provider implements a shared interface that normalizes API-specific events into a common stream format consumable by the agent loop.",
+        "components": [
+          {
+            "file": "shared/egg_harness/providers/base.py",
+            "what": "Abstract Provider base class and event types. Provider.send_message(messages, tools, system, model) -> AsyncIterator[StreamEvent]. StreamEvent is a union type: TextDelta(text), ToolUseStart(id, name), ToolUseInputDelta(partial_json), ToolUseEnd(), ThinkingDelta(text), MessageStart(message_id, model), MessageDelta(stop_reason, usage), MessageEnd(). Usage dataclass: input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens."
+          },
+          {
+            "file": "shared/egg_harness/providers/anthropic.py",
+            "what": "Anthropic provider using the anthropic Python SDK. Creates anthropic.AsyncAnthropic(base_url=gateway_url) for credential injection. Maps SDK streaming events to StreamEvent: message_start->MessageStart, content_block_start(type=text)->implicit, content_block_delta(text_delta)->TextDelta, content_block_start(type=tool_use)->ToolUseStart, content_block_delta(input_json_delta)->ToolUseInputDelta, content_block_stop->ToolUseEnd, message_delta->MessageDelta(stop_reason, usage), message_stop->MessageEnd. Handles model alias resolution (opus->claude-opus-4-6, sonnet->claude-sonnet-4-5-20250514, haiku->claude-haiku-3-5-20241022). Supports opus[1m] suffix syntax per HITL decision-10."
+          },
+          {
+            "file": "shared/egg_harness/providers/openai_compat.py",
+            "what": "OpenAI-compatible provider using httpx directly. Targets /v1/chat/completions with streaming. Translates Anthropic-style messages to OpenAI chat format (system->system message, tool results->tool role messages). Parses SSE chunks: each 'data: {json}' line contains choices[0].delta with content (->TextDelta), tool_calls[i].function (->ToolUseStart/ToolUseInputDelta), finish_reason (->MessageDelta/MessageEnd). 'data: [DONE]' terminates stream. Model passed as-is (no alias mapping — endpoint determines the model)."
+          }
+        ],
+        "design_decisions": [
+          "The Provider interface uses AsyncIterator[StreamEvent] rather than callbacks, enabling composable stream processing (filtering, logging, buffering) via async generators.",
+          "The Anthropic provider routes through the gateway proxy (ANTHROPIC_BASE_URL env var) — credentials never reach the sandbox process, preserving the existing trust boundary.",
+          "OpenAI-compatible provider connects directly to configured endpoint (e.g., http://localhost:8000/v1) since these are local/private deployments not requiring gateway credential injection.",
+          "Model alias resolution is Anthropic-provider-specific. OpenAI-compatible provider passes model strings through unmodified."
+        ]
+      },
+      "subsystem_2_tools": {
+        "description": "Tool system implementing all Claude Code tools that egg agents use, plus egg-native tool stubs that shell out to CLIs initially (HITL decision-3).",
+        "components": [
+          {
+            "file": "shared/egg_harness/tools/registry.py",
+            "what": "ToolRegistry class with register(tool), get_definitions() -> list[dict] (JSON schemas for API), and execute(tool_name, tool_input) -> ToolResult. ToolResult(content: str, is_error: bool). Each tool is a class with name, definition() -> dict, and async execute(input: dict) -> ToolResult. Registry handles timeout enforcement and output truncation."
+          },
+          {
+            "file": "shared/egg_harness/tools/bash.py",
+            "what": "Bash tool: subprocess execution with configurable timeout (default 120s, max 600s), working directory support, output capture (stdout + stderr combined), output truncation for large results. Uses asyncio.create_subprocess_exec for non-blocking execution."
+          },
+          {
+            "file": "shared/egg_harness/tools/read.py",
+            "what": "Read tool: file reading with offset/limit support, cat -n format output with line numbers. Handles binary detection, PDF reading (via external tool), image files. Output truncation for large files."
+          },
+          {
+            "file": "shared/egg_harness/tools/write.py",
+            "what": "Write tool: file creation/overwrite with atomic writes (write to temp, rename). Creates parent directories. Subject to role-based interception."
+          },
+          {
+            "file": "shared/egg_harness/tools/edit.py",
+            "what": "Edit tool: string replacement (old_string -> new_string) with uniqueness validation. replace_all flag for global replacement. Subject to role-based interception."
+          },
+          {
+            "file": "shared/egg_harness/tools/glob_tool.py",
+            "what": "Glob tool: file pattern matching using pathlib.Path.glob(). Returns matching paths sorted by modification time."
+          },
+          {
+            "file": "shared/egg_harness/tools/grep.py",
+            "what": "Grep tool: content search shelling out to rg (ripgrep) binary. Supports regex, file type filtering, context lines, output modes (content, files_with_matches, count). Output truncation via head_limit."
+          },
+          {
+            "file": "shared/egg_harness/tools/web_fetch.py",
+            "what": "WebFetch tool: URL fetching via httpx, HTML-to-markdown conversion, content processing. Conditionally disabled in private mode (EGG_PRIVATE_MODE). Included in MVP per HITL decision-5."
+          },
+          {
+            "file": "shared/egg_harness/tools/web_search.py",
+            "what": "WebSearch tool: web search integration. Conditionally disabled in private mode. Included in MVP per HITL decision-5."
+          },
+          {
+            "file": "shared/egg_harness/tools/egg_orch.py",
+            "what": "EggOrch tool: shells out to egg-orch CLI initially per HITL decision-3. Handles orchestrator operations (consensus, messages, anchors, health, progress). Structured as a class that can be incrementally replaced with native Python calls post-MVP."
+          },
+          {
+            "file": "shared/egg_harness/tools/egg_contract.py",
+            "what": "EggContract tool: shells out to egg-contract CLI initially. Handles SDLC contract operations (show, add-commit, update-notes, decisions)."
+          },
+          {
+            "file": "shared/egg_harness/tools/egg_checkpoint.py",
+            "what": "EggCheckpoint tool: shells out to egg-checkpoint CLI initially. Handles checkpoint browsing (list, show, context, search)."
+          },
+          {
+            "file": "shared/egg_harness/tools/git_ops.py",
+            "what": "GitOps tool: shells out to git CLI. Git operations routed through gateway sidecar."
+          },
+          {
+            "file": "shared/egg_harness/tools/gh_cli.py",
+            "what": "GhCli tool: shells out to gh CLI. GitHub operations routed through gateway sidecar."
+          }
+        ],
+        "design_decisions": [
+          "NotebookEdit is deferred from MVP per HITL decision-5 — rarely used by pipeline agents.",
+          "Egg-native tools (EggOrch, EggContract, EggCheckpoint, GitOps, GhCli) shell out to CLIs initially per HITL decision-3. Each is structured as a class with an execute() method that can be incrementally replaced with direct Python API calls post-MVP without changing the tool interface.",
+          "Tool definitions match Claude Code's JSON schemas exactly to ensure behavioral parity with the Agent SDK.",
+          "The ToolRegistry.execute() method applies role-based interception (reusing shared/egg_restrictions/) before calling the tool's execute() method, mirroring the can_use_tool callback pattern in the current egg_agent client.",
+          "Output truncation defaults match Claude Code behavior (~2000 lines for Read, configurable head_limit for Grep, etc.) to avoid context window waste."
+        ]
+      },
+      "subsystem_3_agent_loop": {
+        "description": "The core agentic loop that replaces claude_agent_sdk.query(). Sends messages to the LLM, parses responses, executes tools, feeds results back, and repeats until completion or limits.",
+        "components": [
+          {
+            "file": "shared/egg_harness/loop.py",
+            "what": "AgentLoop class implementing the core loop: (1) Send conversation to provider via send_message(), (2) Consume StreamEvents, accumulate text and tool use blocks, (3) For each tool_use in the response, execute via ToolRegistry, (4) Append tool results as user messages, (5) Repeat until stop_reason='end_turn' or max_turns reached. Supports: max_turns limit, wall-clock timeout (default 2 hours), SIGTERM graceful shutdown, on_output callback for real-time text streaming (fired for TextDelta events), turn counting. Tracks accumulated usage (input_tokens, output_tokens) across all turns for cost calculation."
+          }
+        ],
+        "design_decisions": [
+          "The loop accumulates the full conversation history in memory. For MVP, no context window management (summarization, pruning) — the provider's max_tokens limit is the natural bound. Context management is a post-MVP optimization.",
+          "Tool execution is sequential within a turn (matching Claude Code behavior). Parallel tool execution is a post-MVP optimization.",
+          "The on_output callback is invoked synchronously for each TextDelta, enabling the same real-time streaming behavior that the consensus wrapper and babysit agents depend on for heartbeats and progress monitoring.",
+          "Retry logic for transient API failures (rate limits 429, server errors 5xx, connection resets) is implemented in the loop with exponential backoff per HITL decision-8. Full restart-on-exit and BRC recovery logic stays in the consensus wrapper.",
+          "SIGTERM handler sets a flag that causes the loop to exit cleanly after the current tool execution completes, preserving partial results."
+        ]
+      },
+      "subsystem_4_config_and_prompts": {
+        "description": "Configuration management, model alias resolution, cost tracking, and CLAUDE.md / system prompt assembly.",
+        "components": [
+          {
+            "file": "shared/egg_harness/config.py",
+            "what": "ProviderConfig(provider: Literal['anthropic','openai-compatible'], model: str, endpoint: str|None, api_key_env: str|None, max_tokens: int|None). HarnessConfig(provider: ProviderConfig, timeout: int=7200, max_turns: int|None, intercept_tools: bool=True, private_mode: bool=False, tool_disallow_list: list[str]|None). Model alias resolution: MODEL_ALIASES dict mapping 'opus'->'claude-opus-4-6', 'sonnet'->'claude-sonnet-4-5-20250514', 'haiku'->'claude-haiku-3-5-20241022'. Supports 'opus[1m]' suffix syntax per HITL decision-10: parse_model_spec(spec) -> (model_id, max_tokens|None)."
+          },
+          {
+            "file": "shared/egg_harness/prompt.py",
+            "what": "System prompt assembly replicating exact rule-merging from sandbox/agent-config/rules/ per HITL decision-9. Loads ~/.claude/CLAUDE.md (user global rules) and {cwd}/CLAUDE.md (project rules). Merges with section deduplication matching Claude Code's behavior. Injects optional system_prompt override (from --system-prompt CLI flag) as a prepended section."
+          },
+          {
+            "file": "shared/egg_harness/cost.py",
+            "what": "Cost tracking with hardcoded per-model rates per HITL decision-7. COST_PER_1M_TOKENS dict mapping model IDs to (input_rate, output_rate) tuples. calculate_cost(model, usage) -> float (USD). Anthropic SDK returns token counts in usage; multiply by known rates. Updated when Anthropic changes pricing (infrequent, easy to maintain)."
+          }
+        ],
+        "design_decisions": [
+          "CLAUDE.md loading replicates exact rule-merging behavior per HITL decision-9. Simplifying risks behavioral differences between egg harness and Claude Code that would make parallel validation unreliable.",
+          "Cost tracking uses hardcoded per-model rates per HITL decision-7. The Anthropic SDK returns input_tokens and output_tokens in every response's usage field. No external pricing API dependency.",
+          "ProviderConfig is designed so #1571 (multi-model routing) layers on without rewiring per HITL decision-12. The provider/model/endpoint fields support per-task or per-role routing when that feature is added."
+        ]
+      },
+      "subsystem_5_cli_and_entry": {
+        "description": "CLI entry points providing drop-in compatibility with the current python3 -m egg_agent interface, plus harness selection logic.",
+        "components": [
+          {
+            "file": "shared/egg_harness/__main__.py",
+            "what": "CLI entry point: python3 -m egg_harness. Accepts same args as egg_agent: --model, --max-turns, --system-prompt, --timeout. Reads prompt from positional arg or stdin. Streams output via on_output callback to stdout. Returns AgentResult.returncode as exit code. Drop-in replacement for python3 -m egg_agent."
+          },
+          {
+            "file": "shared/egg_harness/client.py",
+            "what": "High-level API matching egg_agent.client: run_agent_async(prompt, model, max_turns, system_prompt, cwd, timeout, on_output, env, intercept_tools) -> AgentResult. run_agent() synchronous wrapper. This is the primary integration point — consumers (consensus_wrapper, babysit, CLI) call this function identically to how they call egg_agent.run_agent_async() today."
+          },
+          {
+            "file": "shared/egg_harness/result.py",
+            "what": "Re-exports or extends AgentResult from egg_agent.result. Same fields: success, stdout, stderr, returncode, error, metadata, cost_usd, num_turns, duration_ms, session_id. Ensures backward compatibility."
+          },
+          {
+            "file": "shared/egg_harness/command.py",
+            "what": "build_agent_command() equivalent: returns ['python3', '-m', 'egg_harness', '--model', model, '--max-turns', str(max_turns), prompt]. Used by orchestrator to spawn containers with the egg harness instead of egg_agent."
+          }
+        ],
+        "design_decisions": [
+          "The CLI interface is identical to python3 -m egg_agent to minimize changes in orchestrator/consensus_wrapper.py and shared/egg_babysit/. Harness selection happens at command construction time.",
+          "AgentResult is re-exported from egg_agent.result (not duplicated) to ensure type compatibility. The harness populates the same fields from its own tracking (cost_usd from cost.py, num_turns from loop.py, duration_ms from wall clock)."
+        ]
+      },
+      "subsystem_6_harness_selection": {
+        "description": "Runtime harness selection and migration infrastructure.",
+        "components": [
+          {
+            "file": "shared/egg_agent/client.py (modified)",
+            "what": "Add harness routing: when EGG_HARNESS=egg, import and delegate to egg_harness.client.run_agent_async(). When EGG_HARNESS=claude-sdk (default), use existing claude_agent_sdk.query() path. This makes the switch transparent to all consumers that import from egg_agent."
+          },
+          {
+            "file": "shared/egg_agent/command.py (modified)",
+            "what": "Modify build_agent_command() to return 'python3 -m egg_harness' when EGG_HARNESS=egg, 'python3 -m egg_agent' otherwise. This routes orchestrator-spawned containers to the correct entry point."
+          },
+          {
+            "file": "sandbox/entrypoint.py (modified)",
+            "what": "When EGG_HARNESS=egg and mode is interactive, launch the egg harness interactive mode instead of claude --dangerously-skip-permissions. TOS warning when subscription account users select the egg harness per HITL decision-4."
+          }
+        ],
+        "design_decisions": [
+          "Default to claude-sdk during transition, opt-in to egg harness per HITL decision-4. This ensures zero disruption to existing pipelines while the harness is validated.",
+          "Harness selection via both EGG_HARNESS env var AND PipelineConfig (first-class config option) per HITL decision-4.",
+          "TOS warning when subscription users select egg harness per HITL decision-4. This is because the egg harness bypasses Anthropic's subscription-based tooling (Claude Code/Agent SDK)."
+        ]
+      },
+      "subsystem_7_interactive_mode": {
+        "description": "Interactive terminal mode replacing claude --dangerously-skip-permissions for human-in-the-loop sessions.",
+        "components": [
+          {
+            "file": "shared/egg_harness/interactive.py",
+            "what": "Interactive terminal mode with multi-turn conversation. Reads user input from stdin, sends to agent loop, streams responses to stdout. Supports the same tool set as headless mode. Basic line-editing (readline). Conversation history maintained across turns. Ctrl-C interrupts current generation, Ctrl-D exits. Included in MVP per HITL decision-2."
+          }
+        ],
+        "design_decisions": [
+          "Both headless and interactive modes in MVP per HITL decision-2 — full feature parity from the start.",
+          "Interactive mode reuses the same agent loop (loop.py) and tool registry, just with a different input source (stdin REPL vs single prompt).",
+          "The interactive mode is deliberately minimal for MVP — no rich TUI, no syntax highlighting, no tab completion. These can be added incrementally."
+        ]
+      }
+    },
+    "validation_strategy": {
+      "description": "Parallel validation comparing egg harness against Claude Agent SDK per HITL decision-11.",
+      "metrics": ["cost_usd", "num_turns", "duration_ms", "task_success_rate"],
+      "approach": "Run both harnesses (EGG_HARNESS=egg and EGG_HARNESS=claude-sdk) on identical test pipelines. Compare the four metrics. The egg harness must achieve parity (within 10% variance for cost/turns/duration) and equal or better success rate before becoming the default."
+    },
+    "gateway_compatibility": {
+      "description": "The egg harness continues routing through the gateway's /v1/messages proxy for Anthropic calls. Transcript capture stays in the gateway per HITL decision-6. No gateway changes required for MVP — the Anthropic SDK's base_url parameter (set to ANTHROPIC_BASE_URL, which points to the gateway) handles credential injection and transcript capture transparently. For OpenAI-compatible providers, requests go directly to the configured endpoint (not through the gateway) since these are local/private deployments.",
+      "changes_required": "None for Anthropic path. For OpenAI-compatible path, the gateway may optionally add a /v1/chat/completions proxy endpoint in the future, but this is not required for MVP since OpenAI-compatible endpoints are local."
+    }
+  },
+  "risk_assessment": [
+    {
+      "id": "R-1",
+      "risk": "Tool behavior divergence: egg harness tools may behave differently from Claude Code's internal tool implementations, causing agent behavioral regressions",
+      "severity": "high",
+      "mitigation": "Implement tools to match Claude Code's exact JSON schemas and behavioral semantics. The parallel validation strategy (HITL decision-11) will catch behavioral differences by comparing task success rates. Start with the most critical tools (Bash, Read, Write, Edit) and validate each individually."
+    },
+    {
+      "id": "R-2",
+      "risk": "Streaming fidelity: the agent loop may not handle all Anthropic SSE event types correctly, leading to lost text, malformed tool calls, or silent failures",
+      "severity": "high",
+      "mitigation": "Using the official Anthropic Python SDK (not raw SSE parsing) for the Anthropic provider eliminates this risk for the primary path. The SDK handles content_block_delta accumulation, partial JSON parsing for tool inputs, thinking deltas, and error events. Only the OpenAI-compatible provider uses raw SSE, which has a much simpler format."
+    },
+    {
+      "id": "R-3",
+      "risk": "Context window management: without Claude Code's internal context management, long-running agents may exceed the model's context window and fail",
+      "severity": "medium",
+      "mitigation": "For MVP, the provider's max_tokens limit and the model's context window are the natural bounds. The Anthropic API returns an error when the context is exceeded, which the loop catches and returns as a failed AgentResult. Post-MVP, implement context pruning/summarization strategies. Current agents rarely hit context limits within their max_turns bounds."
+    },
+    {
+      "id": "R-4",
+      "risk": "CLAUDE.md loading divergence: if the harness loads or merges CLAUDE.md rules differently from Claude Code, agent behavior may differ in subtle ways",
+      "severity": "medium",
+      "mitigation": "Per HITL decision-9, replicate exact rule-merging behavior. The current setup_agent_rules() function in sandbox/entrypoint.py combines rules in a known order. The harness prompt.py should use the same concatenation order and produce identical system prompt content. Validate by comparing system prompts between harnesses."
+    },
+    {
+      "id": "R-5",
+      "risk": "Consensus wrapper compatibility: the consensus wrapper's restart-on-exit logic depends on specific agent CLI behavior (exit codes, stdout streaming, --system-prompt flag)",
+      "severity": "medium",
+      "mitigation": "The egg harness CLI (python3 -m egg_harness) matches the egg_agent CLI interface exactly: same args, same exit codes, same stdout streaming. The consensus wrapper's build_consensus_wrapped_command() will work unmodified — only the module name changes (egg_harness vs egg_agent)."
+    },
+    {
+      "id": "R-6",
+      "risk": "Permission bypass: if the harness's tool interception has gaps compared to the Agent SDK's can_use_tool callback, agents could write to files outside their role",
+      "severity": "high",
+      "mitigation": "The harness reuses the same shared/egg_restrictions/ patterns and shared/egg_agent/tool_interceptor.py logic. The ToolRegistry wraps every tool execution in a check_file_write_permission() call for Write/Edit/NotebookEdit. Additionally, the gateway enforces file restrictions at push time (defense in depth), so any harness-level gap is caught before changes reach the remote."
+    },
+    {
+      "id": "R-7",
+      "risk": "Container image bloat: adding the anthropic Python SDK and httpx increases image size and build time",
+      "severity": "low",
+      "mitigation": "The anthropic SDK is ~5MB with httpx as its only significant dependency. httpx is already a transitive dependency. Net image size increase is minimal compared to the Claude Code CLI installation (which uses curl | bash and installs Node.js). If the egg harness fully replaces Claude Code, image size actually decreases."
+    },
+    {
+      "id": "R-8",
+      "risk": "OpenAI-compatible provider reliability: different OpenAI-compatible servers (vLLM, Ollama) may have subtly different tool calling behavior",
+      "severity": "medium",
+      "mitigation": "The OpenAI-compatible provider implements the standard /v1/chat/completions format with tool_choice. Both vLLM and Ollama document OpenAI API compatibility. Test against both during validation. The provider interface allows adding server-specific workarounds if needed."
+    }
+  ],
+  "key_files_affected": {
+    "new_files": [
+      "shared/egg_harness/__init__.py",
+      "shared/egg_harness/__main__.py",
+      "shared/egg_harness/client.py",
+      "shared/egg_harness/loop.py",
+      "shared/egg_harness/config.py",
+      "shared/egg_harness/cost.py",
+      "shared/egg_harness/prompt.py",
+      "shared/egg_harness/result.py",
+      "shared/egg_harness/command.py",
+      "shared/egg_harness/interactive.py",
+      "shared/egg_harness/providers/__init__.py",
+      "shared/egg_harness/providers/base.py",
+      "shared/egg_harness/providers/anthropic.py",
+      "shared/egg_harness/providers/openai_compat.py",
+      "shared/egg_harness/tools/__init__.py",
+      "shared/egg_harness/tools/registry.py",
+      "shared/egg_harness/tools/bash.py",
+      "shared/egg_harness/tools/read.py",
+      "shared/egg_harness/tools/write.py",
+      "shared/egg_harness/tools/edit.py",
+      "shared/egg_harness/tools/glob_tool.py",
+      "shared/egg_harness/tools/grep.py",
+      "shared/egg_harness/tools/web_fetch.py",
+      "shared/egg_harness/tools/web_search.py",
+      "shared/egg_harness/tools/egg_orch.py",
+      "shared/egg_harness/tools/egg_contract.py",
+      "shared/egg_harness/tools/egg_checkpoint.py",
+      "shared/egg_harness/tools/git_ops.py",
+      "shared/egg_harness/tools/gh_cli.py"
+    ],
+    "modified_files": [
+      "shared/egg_agent/client.py — add harness routing (EGG_HARNESS=egg delegates to egg_harness)",
+      "shared/egg_agent/command.py — route build_agent_command() to egg_harness when EGG_HARNESS=egg",
+      "shared/pyproject.toml — add egg_harness to packages.find, add anthropic + httpx dependencies",
+      "sandbox/entrypoint.py — add EGG_HARNESS=egg interactive mode launch path"
+    ],
+    "test_files": [
+      "shared/tests/test_egg_harness_providers.py",
+      "shared/tests/test_egg_harness_tools.py",
+      "shared/tests/test_egg_harness_loop.py",
+      "shared/tests/test_egg_harness_config.py",
+      "shared/tests/test_egg_harness_prompt.py",
+      "shared/tests/test_egg_harness_cost.py",
+      "shared/tests/test_egg_harness_client.py"
+    ],
+    "documentation": [
+      "docs/architecture/egg-harness.md — architecture overview of the harness subsystem",
+      "shared/egg_harness/README.md — package README with usage, configuration, and provider setup"
+    ],
+    "configuration": [
+      "sandbox/Dockerfile — add anthropic SDK to pip install",
+      "config/ — add EGG_HARNESS to documented env vars"
+    ]
+  },
+  "dependency_analysis": {
+    "external_dependencies": [
+      {
+        "package": "anthropic",
+        "version": ">=0.40.0",
+        "purpose": "Anthropic Messages API client with streaming, types, and retry logic",
+        "transitive_deps": "httpx, pydantic, anyio, sniffio, distro",
+        "risk": "Low — official SDK, actively maintained, lighter than claude-agent-sdk"
+      },
+      {
+        "package": "httpx",
+        "version": ">=0.27.0",
+        "purpose": "HTTP client for OpenAI-compatible provider (already transitive dep of anthropic)",
+        "transitive_deps": "httpcore, certifi, idna, sniffio, anyio",
+        "risk": "Very low — already present as transitive dependency"
+      }
+    ],
+    "system_dependencies": [
+      {
+        "binary": "rg (ripgrep)",
+        "purpose": "Grep tool implementation",
+        "status": "Already installed in sandbox image"
+      },
+      {
+        "binary": "bash",
+        "purpose": "Bash tool implementation",
+        "status": "Already installed in sandbox image"
+      }
+    ],
+    "internal_dependencies": [
+      {
+        "package": "shared/egg_restrictions",
+        "purpose": "Role-based file access patterns for tool interception",
+        "coupling": "Import AgentFilePattern.can_write() for Write/Edit permission checks"
+      },
+      {
+        "package": "shared/egg_agent",
+        "purpose": "AgentResult dataclass, tool_interceptor, existing client interface",
+        "coupling": "Re-export AgentResult, reuse check_file_write_permission(), add routing logic"
+      },
+      {
+        "package": "shared/egg_logging",
+        "purpose": "Structured logging",
+        "coupling": "Import get_logger() for agent session and tool execution logging"
+      }
+    ],
+    "prerequisite_issues": [
+      {
+        "issue": "None — this is a standalone new subsystem",
+        "description": "No blocking prerequisites. The harness is additive and does not require changes to existing features to start implementation."
+      }
+    ],
+    "dependent_issues": [
+      {
+        "issue": 1571,
+        "title": "Open-model hierarchy / multi-model routing",
+        "relationship": "Depends on this harness for the provider abstraction. ProviderConfig and Provider base class are designed so #1571 layers on per-task or per-role model routing without rewiring."
+      }
+    ]
+  },
+  "open_decisions": [
+    {
+      "id": "OD-1",
+      "question": "What HTML-to-markdown library should WebFetch use for content processing?",
+      "recommendation": "Use markdownify (lightweight, pure Python) or html2text. Both are already available or easily installable. markdownify produces cleaner output for web pages. If neither is acceptable, raw HTML truncation with BeautifulSoup as fallback.",
+      "status": "recommendation_provided"
+    },
+    {
+      "id": "OD-2",
+      "question": "Should the interactive mode support conversation export/import for session persistence?",
+      "recommendation": "Not in MVP. Interactive mode maintains conversation in memory for the current session. Session persistence (export to JSONL, resume from file) is a post-MVP feature.",
+      "status": "recommendation_provided"
+    },
+    {
+      "id": "OD-3",
+      "question": "How should the harness handle Anthropic API errors that are not retryable (400 Bad Request, 401 Unauthorized)?",
+      "recommendation": "Return immediately as a failed AgentResult with the error message. Do not retry. The loop should distinguish retryable (429, 5xx, connection errors) from non-retryable (4xx except 429) errors. 401 specifically should be logged as a gateway credential issue.",
+      "status": "recommendation_provided"
+    }
+  ],
+  "scope_estimate": {
+    "files_new": "25-30",
+    "files_modified": "4-6",
+    "lines_added": "3000-4500",
+    "lines_modified": "100-200",
+    "test_files_added_or_modified": "7-10",
+    "estimated_complexity": "high",
+    "estimated_phases": "1 implementation phase with 8-12 tasks, parallelizable into 3-4 work streams: (1) providers + config, (2) tools, (3) agent loop + client, (4) CLI + interactive mode"
+  },
+  "technical_decisions": [
+    {
+      "id": "TD-1",
+      "decision": "Use Anthropic Python SDK for Anthropic provider, httpx for OpenAI-compatible",
+      "rationale": "The Anthropic Messages API streaming protocol has 8+ SSE event types with complex accumulation semantics. The official SDK handles all of this correctly. OpenAI-compatible SSE is simpler (standard JSON chunks + 'data: [DONE]' termination) and manageable with raw httpx. This hybrid gives best reliability for the critical Anthropic path while avoiding unnecessary vendor SDK dependency for the simpler OpenAI format.",
+      "alternatives_considered": "Raw httpx for both (too risky for Anthropic streaming), LiteLLM (too heavy, conflicts with gateway), Anthropic SDK for both (can't call OpenAI-compatible endpoints)"
+    },
+    {
+      "id": "TD-2",
+      "decision": "Shell out to CLIs for egg-native tools initially, with native Python as post-MVP optimization",
+      "rationale": "Per HITL decision-3. Shelling out to egg-orch, egg-contract, egg-checkpoint is lower risk and faster to implement. The CLI interfaces are stable and well-tested. Each tool class is structured so the execute() method can be incrementally replaced with direct Python API calls without changing the tool interface or the ToolRegistry.",
+      "alternatives_considered": "Native Python from start (higher risk, slower MVP), hybrid (complexity without clear benefit for MVP)"
+    },
+    {
+      "id": "TD-3",
+      "decision": "Implement harness selection as a routing layer in egg_agent.client, not as a separate entry point",
+      "rationale": "All consumers (orchestrator, consensus wrapper, babysit) already import from egg_agent. Adding routing there means zero changes to consumers — just set EGG_HARNESS=egg. The build_agent_command() function routes to the correct __main__.py module. This minimizes blast radius during transition.",
+      "alternatives_considered": "Separate import paths requiring consumer changes (high blast radius), environment-only selection without code routing (fragile)"
+    },
+    {
+      "id": "TD-4",
+      "decision": "Use AsyncIterator[StreamEvent] for provider interface instead of callbacks",
+      "rationale": "Async iterators enable composable stream processing — logging, filtering, and buffering can be implemented as async generator wrappers without modifying the provider or the loop. Callbacks create inversion-of-control issues and are harder to compose. The agent loop's async for event in provider.send_message(...) pattern is natural and testable.",
+      "alternatives_considered": "Callback-based streaming (harder to compose), sync iterator (blocks event loop), complete response then parse (loses streaming benefit)"
+    },
+    {
+      "id": "TD-5",
+      "decision": "Replicate exact CLAUDE.md rule-merging rather than simplifying",
+      "rationale": "Per HITL decision-9. The current rule-merging order (mission → environment → code-standards → ...) produces a specific system prompt that agents are tuned to follow. Simplifying risks behavioral differences that would make parallel validation (HITL decision-11) unreliable. The merging logic is straightforward file concatenation — not worth optimizing at the cost of compatibility.",
+      "alternatives_considered": "Simplified single-file loading (risks behavioral divergence), dynamic rule selection (over-engineering for MVP)"
+    },
+    {
+      "id": "TD-6",
+      "decision": "Keep transcript capture in the gateway, not in the harness",
+      "rationale": "Per HITL decision-6. The gateway already captures transcripts via transcript_buffer.py. Moving this to the harness would add complexity and require the harness to have write access to transcript storage. The gateway capture works transparently for both the Agent SDK and the egg harness since both route through /v1/messages. No duplication needed.",
+      "alternatives_considered": "Harness-side capture (adds complexity, duplicates gateway functionality), both sides capture (redundant storage, coordination overhead)"
+    },
+    {
+      "id": "TD-7",
+      "decision": "Transient API error retries in the harness with exponential backoff; restart-on-exit stays in consensus wrapper",
+      "rationale": "Per HITL decision-8. The harness retries rate limits (429), server errors (5xx), and connection resets with exponential backoff. This handles the common transient failures that the Agent SDK handles internally. The consensus wrapper's restart-on-exit logic handles a different failure mode — agent clean exit before BRC consensus — and should remain separate. Combining them would conflate API reliability with BRC protocol recovery.",
+      "alternatives_considered": "No retries in harness (delegates to consensus wrapper which is coarser-grained), full restart logic in harness (mixes concerns)"
+    }
+  ],
+  "component_interaction_diagram": {
+    "description": "How the egg harness components interact at runtime",
+    "flow": [
+      "1. Entry: python3 -m egg_harness --model opus --max-turns 200 'prompt' (or egg_agent.client delegates to egg_harness.client when EGG_HARNESS=egg)",
+      "2. client.run_agent_async() creates HarnessConfig, loads system prompt via prompt.py, creates ProviderConfig, instantiates Provider (Anthropic or OpenAI-compatible), creates ToolRegistry with all enabled tools, creates AgentLoop",
+      "3. AgentLoop.run() enters the main loop: builds messages list (system + conversation history), calls provider.send_message()",
+      "4. Provider.send_message() calls the LLM API (Anthropic SDK or httpx) and yields StreamEvent objects",
+      "5. AgentLoop consumes events: TextDelta -> on_output callback + accumulate stdout, ToolUseStart/End -> accumulate tool call, MessageDelta -> record usage",
+      "6. For each tool call: ToolRegistry.execute() checks permissions (egg_restrictions), executes tool, returns ToolResult",
+      "7. Tool results appended as user messages, loop continues from step 3",
+      "8. On stop_reason='end_turn' or max_turns: calculate cost via cost.py, return AgentResult with all metadata",
+      "9. Gateway proxy (unchanged): intercepts /v1/messages requests from Anthropic SDK, injects credentials, captures transcripts"
+    ]
+  }
+}
