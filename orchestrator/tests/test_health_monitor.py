@@ -1111,7 +1111,7 @@ class TestBRCIdleSuppression:
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
-            orchestrator_post_propose_grace_seconds=300,
+            post_proposal_grace_seconds=300,
         )
         monitor = _make_monitor(bus, config)
 
@@ -1224,7 +1224,7 @@ class TestBRCIdleSuppression:
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
-            orchestrator_post_propose_grace_seconds=300,
+            post_proposal_grace_seconds=300,
         )
         monitor = _make_monitor(bus, config)
 
@@ -1326,7 +1326,7 @@ class TestBRCIdleSuppression:
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
-            orchestrator_post_propose_grace_seconds=300,
+            post_proposal_grace_seconds=300,
         )
         monitor = _make_monitor(bus, config)
 
@@ -1479,7 +1479,7 @@ class TestPostProposeGrace:
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
-            orchestrator_post_propose_grace_seconds=300,
+            post_proposal_grace_seconds=300,
         )
         monitor = _make_monitor(bus, config)
 
@@ -1506,7 +1506,7 @@ class TestPostProposeGrace:
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
-            orchestrator_post_propose_grace_seconds=300,
+            post_proposal_grace_seconds=300,
         )
         monitor = _make_monitor(bus, config)
 
@@ -1532,7 +1532,7 @@ class TestPostProposeGrace:
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
-            orchestrator_post_propose_grace_seconds=300,
+            post_proposal_grace_seconds=300,
         )
         monitor = _make_monitor(bus, config)
 
@@ -1560,7 +1560,7 @@ class TestPostProposeGrace:
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
-            orchestrator_post_propose_grace_seconds=300,
+            post_proposal_grace_seconds=300,
         )
         monitor = _make_monitor(bus, config)
 
@@ -1587,7 +1587,7 @@ class TestPostProposeGrace:
         grace = 300
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
-            orchestrator_post_propose_grace_seconds=grace,
+            post_proposal_grace_seconds=grace,
         )
         monitor = _make_monitor(bus, config)
 
@@ -1615,7 +1615,7 @@ class TestPostProposeGrace:
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
-            orchestrator_post_propose_grace_seconds=60,
+            post_proposal_grace_seconds=60,
         )
         monitor = _make_monitor(bus, config)
 
@@ -1644,7 +1644,7 @@ class TestPostProposeGrace:
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
-            orchestrator_post_propose_grace_seconds=300,
+            post_proposal_grace_seconds=300,
         )
         monitor = _make_monitor(bus, config)
 
@@ -1678,7 +1678,7 @@ class TestPostProposeGrace:
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
-            orchestrator_post_propose_grace_seconds=300,
+            post_proposal_grace_seconds=300,
         )
         monitor = _make_monitor(bus, config)
 
@@ -2161,24 +2161,24 @@ class TestPipelineConfigBRCFields:
     """New config fields for post-propose grace and post-ACK timeout."""
 
     def test_post_propose_grace_default_300(self):
-        """orchestrator_post_propose_grace_seconds defaults to 300."""
+        """post_proposal_grace_seconds defaults to 300."""
         config = PipelineConfig()
-        assert config.orchestrator_post_propose_grace_seconds == 300
+        assert config.post_proposal_grace_seconds == 300
 
     def test_post_propose_grace_custom_value(self):
         """Custom value is accepted."""
-        config = PipelineConfig(orchestrator_post_propose_grace_seconds=60)
-        assert config.orchestrator_post_propose_grace_seconds == 60
+        config = PipelineConfig(post_proposal_grace_seconds=60)
+        assert config.post_proposal_grace_seconds == 60
 
     def test_post_propose_grace_rejects_below_30(self):
         """Value below 30 is rejected."""
         with pytest.raises(ValueError):
-            PipelineConfig(orchestrator_post_propose_grace_seconds=10)
+            PipelineConfig(post_proposal_grace_seconds=10)
 
     def test_post_propose_grace_accepts_30(self):
         """Value of exactly 30 is accepted."""
-        config = PipelineConfig(orchestrator_post_propose_grace_seconds=30)
-        assert config.orchestrator_post_propose_grace_seconds == 30
+        config = PipelineConfig(post_proposal_grace_seconds=30)
+        assert config.post_proposal_grace_seconds == 30
 
     def test_post_ack_timeout_default_180(self):
         """orchestrator_post_ack_confirmation_timeout_seconds defaults to 180."""
@@ -2214,7 +2214,7 @@ class TestGraceAndBRCProgressInteraction:
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
-            orchestrator_post_propose_grace_seconds=300,
+            post_proposal_grace_seconds=300,
             orchestrator_post_ack_confirmation_timeout_seconds=180,
         )
         monitor = _make_monitor(bus, config)
