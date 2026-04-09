@@ -4065,6 +4065,33 @@ def _auto_create_pr(
         return None
 
 
+# Shared PR description guidance injected into planner prompts.
+# Kept as a constant so both _build_phase_prompt and _build_agent_prompt
+# stay in sync when the guidance evolves.
+_PR_DESCRIPTION_GUIDANCE = [
+    "**PR description quality**: The `pr.description` field becomes the PR body "
+    "that reviewers read first. Write 2-3 paragraphs following this structure:",
+    "1. **Context** — what problem exists and why it matters",
+    "2. **Changes** — what this PR does, with specifics (e.g. numbered list of "
+    "key changes with bold headers)",
+    "3. **Impact** — what behavior changes for users or other components",
+    "",
+    "Do NOT write a one-liner — reviewers need enough detail to understand "
+    "the problem, the approach, and why it was chosen without reading every file.",
+]
+
+_PR_DESCRIPTION_YAML_EXAMPLE = [
+    "    Explain the problem or need this PR addresses and why it matters.",
+    "",
+    "    Describe the key changes, ideally as a numbered or bulleted list",
+    "    with bold headers so reviewers can scan quickly. For each change,",
+    "    explain what it does and why.",
+    "",
+    "    Summarize the impact — what changes for users, callers, or other",
+    "    components as a result.",
+]
+
+
 def _build_phase_prompt(
     phase: str,
     pipeline_id: str,
@@ -4272,6 +4299,8 @@ def _build_phase_prompt(
                 "Write a markdown plan with a **yaml-tasks** structured appendix at the end.",
                 "The prose section explains the approach; the appendix is machine-parsed.",
                 "",
+                *_PR_DESCRIPTION_GUIDANCE,
+                "",
                 "End your document with a fenced YAML block like this:",
                 "",
                 "````",
@@ -4280,7 +4309,7 @@ def _build_phase_prompt(
                 "pr:",
                 '  title: "Short imperative summary (≤70 chars)"',
                 "  description: |",
-                "    One-paragraph context and impact.",
+                *_PR_DESCRIPTION_YAML_EXAMPLE,
                 "  test_plan: |",
                 "    - Automated: describe which tests cover the changes",
                 "    - Manual: specific steps a reviewer should take to verify",
@@ -5351,6 +5380,8 @@ def _build_agent_prompt(
                 "appendix at the end. The prose section should explain the approach;",
                 "the appendix is machine-parsed for contract population.",
                 "",
+                *_PR_DESCRIPTION_GUIDANCE,
+                "",
                 "End your document with a fenced YAML block like this:",
                 "",
                 "````",
@@ -5359,7 +5390,7 @@ def _build_agent_prompt(
                 "pr:",
                 '  title: "Short imperative summary (≤70 chars)"',
                 "  description: |",
-                "    One-paragraph context and impact.",
+                *_PR_DESCRIPTION_YAML_EXAMPLE,
                 "  test_plan: |",
                 "    - Automated: describe which tests cover the changes",
                 "    - Manual: specific steps a reviewer should take to verify",
