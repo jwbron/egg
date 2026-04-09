@@ -6,6 +6,7 @@ via Streamable HTTP transport using the official mcp Python SDK.
 Runs as a sidecar alongside the orchestrator.
 """
 
+import asyncio
 import functools
 import json
 import sys
@@ -33,6 +34,32 @@ logger = get_logger("orchestrator.mcp_server")
 # Default configuration
 DEFAULT_MCP_PORT = 9850
 DEFAULT_RATE_LIMIT = 30  # requests per minute
+
+# Upper bound for the ``get_status`` wait parameter.  Must stay safely under
+# Claude Code's streamable-HTTP MCP tool-call timeout (~30s, and the documented
+# MCP_TOOL_TIMEOUT env var is ignored on that transport, see
+# anthropics/claude-code#20335), otherwise the client gives up before we reply.
+GET_STATUS_MAX_WAIT = 25
+
+
+async def _apply_get_status_wait(tool_name: str, kwargs: dict) -> None:
+    """Handle the ``get_status`` ``wait`` parameter on the event loop.
+
+    Consumes the ``wait`` key from ``kwargs`` (if present) and awaits
+    ``asyncio.sleep`` for up to :data:`GET_STATUS_MAX_WAIT` seconds.  Running
+    this in the async wrapper — rather than ``time.sleep`` inside the sync
+    tool handler — keeps the anyio worker thread pool free during polling
+    delays and makes the wait cancellable when the client disconnects.
+
+    Non-numeric, zero, or negative ``wait`` values are silently ignored.
+    """
+    if tool_name != "get_status":
+        return
+    wait = kwargs.pop("wait", 0)
+    if isinstance(wait, bool):
+        return  # bool is a subclass of int; reject to avoid True -> 1 sleep
+    if isinstance(wait, (int, float)) and wait > 0:
+        await asyncio.sleep(min(wait, GET_STATUS_MAX_WAIT))
 
 
 class RateLimiter:
@@ -127,6 +154,17 @@ class MCPServer:
             async def tool_fn(**kwargs) -> str:
                 if not rate_limiter.allow():
                     return json.dumps({"error": "Rate limit exceeded"})
+
+                # ``get_status`` supports an optional server-side polling
+                # delay via ``wait``.  We sleep on the event loop here rather
+                # than inside the sync handler so no worker thread is held
+                # during the delay — the anyio thread pool is shared with
+                # every other MCP tool call, and a blocking time.sleep would
+                # pin a worker for the full wait even after a client timeout
+                # (time.sleep cannot be cancelled), leading to thread-pool
+                # exhaustion under polling load.
+                await _apply_get_status_wait(tool_name, kwargs)
+
                 result = await anyio.to_thread.run_sync(
                     functools.partial(tool_handler.handle_tool_call, tool_name, kwargs)
                 )

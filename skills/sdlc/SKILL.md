@@ -316,7 +316,7 @@ Poll the pipeline status in a loop. On each poll:
 
 1. Call the `get_status` MCP tool with the `task_id`:
    - **First poll** after submission: `get_status(task_id)` — omit `wait` (or use `wait: 0`) for immediate feedback.
-   - **Subsequent polls**: `get_status(task_id, wait=60)` — the tool waits 60 seconds before fetching status.
+   - **Subsequent polls**: `get_status(task_id, wait=25)` — the tool waits 25 seconds on the server event loop before fetching status. (Capped at 25s to stay under the Claude Code streamable-HTTP MCP client timeout. Call again immediately for longer effective poll intervals.)
 2. Display a compact status dashboard:
 
 ```
@@ -1118,7 +1118,7 @@ Poll the pipeline status in a loop. On each poll:
 
 1. Call the `get_status` MCP tool with the `task_id`:
    - **First poll** after submission: `get_status(task_id)` — omit `wait` (or use `wait: 0`) for immediate feedback.
-   - **Subsequent polls**: `get_status(task_id, wait=60)` — the tool waits 60 seconds before fetching status.
+   - **Subsequent polls**: `get_status(task_id, wait=25)` — the tool waits 25 seconds on the server event loop before fetching status. (Capped at 25s to stay under the Claude Code streamable-HTTP MCP client timeout. Call again immediately for longer effective poll intervals.)
 2. Display a compact status dashboard:
 
 ```
