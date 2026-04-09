@@ -151,16 +151,16 @@ Within each phase, specialized agents run concurrently via BRC (enabled by defau
 │                                       egg                                           │
 │                                                                                     │
 │  ┌──────────────────────┐  ┌───────────────────────────┐  ┌───────────────────────┐ │
-│  │    Orchestrator      │  │    Gateway Sidecar        │  │  Sandbox Containers   │ │
-│  │                      │  │    (Trusted)              │  │  (Untrusted)          │ │
+│  │    Orchestrator      │  │    Gateway Sidecar        │  │  Agent Jobs (k8s)     │ │
+│  │  (egg-system ns)     │  │    (Trusted)              │  │  (egg-agents ns)      │ │
 │  │  • Pipeline state    │  │                           │  │                       │ │
-│  │  • Container mgmt    │  │  • Zero-trust credential  │  │  • Claude Code agent  │ │
+│  │  • Agent Job mgmt    │  │  • Zero-trust credential  │  │  • Claude Code agent  │ │
 │  │  • BRC consensus     │◀─│    injection              │──│  • Standard git/gh    │ │
 │  │  • Overseer          │  │  • Phase-locked ops       │  │  • egg-orch/contract  │ │
 │  │  • Health monitoring │  │  • Branch ownership       │  │  • No credentials     │ │
 │  │  • HITL decisions    │  │  • Role-based file gates  │  │  • No merge endpoint  │ │
 │  │  • MCP server        │  │  • Network isolation      │  │  • Proxied network    │ │
-│  │  • Message bus       │  │  • Post-agent auto-commit │  │                       │ │
+│  │  • Message bus       │  │  • Calico NetworkPolicies │  │                       │ │
 │  └──────────────────────┘  └───────────────────────────┘  └───────────────────────┘ │
 │                                                                                     │
 │  ┌──────────────────────┐                                                           │
@@ -210,14 +210,14 @@ egg
 
 Or use the MCP server directly from any MCP-compatible client (see [MCP Server](#mcp-server)).
 
-See [Local Quickstart](docs/guides/local-quickstart.md) for detailed setup and [Deployment Guide](docs/guides/deployment.md) for Docker Compose and production options.
+See [Local Quickstart](docs/guides/local-quickstart.md) for detailed setup and [Deployment Guide](docs/guides/deployment.md) for Kubernetes (k3s) deployment options.
 
 ## Platform Support
 
 | Platform | Status | Notes |
 |----------|--------|-------|
-| **Linux** (x86_64, arm64) | Supported | Primary development platform |
-| **macOS** (Apple Silicon, Intel) | Supported | Requires Docker Desktop |
+| **Linux** (x86_64, arm64) | Supported | Primary development platform. `make k3s-setup` installs k3s + Calico |
+| **macOS** (Apple Silicon, Intel) | Supported | Requires Docker Desktop (for image builds); k3s runs in Docker Desktop VM |
 
 ## Documentation
 
@@ -225,6 +225,7 @@ See [Local Quickstart](docs/guides/local-quickstart.md) for detailed setup and [
 |-------|------|
 | **Full docs index** | [docs/index.md](docs/index.md) |
 | **Architecture & security model** | [Architecture Overview](docs/architecture/README.md) |
+| **Kubernetes runtime** | [Kubernetes Architecture](docs/architecture/kubernetes.md) |
 | **Gateway enforcement** | [Gateway README](gateway/README.md) |
 | **Agent teams & deliberative consensus** | [Agent Teams Guide](docs/guides/agent-teams.md) |
 | **Concurrent execution** | [Concurrent Execution Guide](docs/guides/concurrent-execution.md) |
@@ -242,10 +243,12 @@ See [Local Quickstart](docs/guides/local-quickstart.md) for detailed setup and [
 make setup             # Install dev dependencies
 make lint              # Run all linters
 make test              # Run all tests
-make test-integration  # Run integration tests (Docker required)
+make test-integration  # Run integration tests (k3s required)
 make lint-fix          # Auto-fix lint issues
 make security          # Run security scans
-make build             # Build Docker images
+make build             # Build images and import into k3s
+make k3s-setup         # Install k3s with Calico CNI
+make deploy            # Deploy egg to k3s
 ```
 
 Requires Python >= 3.11. See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
