@@ -41,13 +41,20 @@
       "phase": "implement",
       "status": "running",
       "started_at": "2026-04-09T14:35:32.960903Z",
-      "work_started_at": null,
+      "work_started_at": "2026-04-09T14:35:35.920807Z",
       "completed_at": null,
       "containers": [],
       "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [],
+      "cycle_timings": [
+        {
+          "cycle": 0,
+          "started_at": "2026-04-09T14:35:35.920807Z",
+          "completed_at": null,
+          "commit_sha": "c08f024b207b3d6b9ccf02c574f4f2a86fda805e"
+        }
+      ],
       "artifacts": {},
       "error": null,
       "hitl_feedback": null,
@@ -56,7 +63,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-09T14:35:04.629506Z",
-  "updated_at": "2026-04-09T14:35:32.961438Z",
+  "updated_at": "2026-04-09T14:35:35.922538Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -64,5 +71,5 @@
   "error": null,
   "analysis": "### Task Analysis\n\n**Problem statement**: After `restart_phase` or `restart_agent`, new agent containers start with empty worktrees — all prior committed and uncommitted work from the previous iteration is gone. Agents must re-do merges and setup from scratch, wasting quota.\n\n**Source context**: Issue #1597, observed on pipeline `issue-1553-v3` (Kubernetes migration). After 3 restart cycles, the branch had zero coder implementation commits. Related: #1577 (restart capabilities), #1589 (restart on failed pipelines), #1594 (MCP timeout).\n\n**System context**: The spawn flow works as follows:\n1. `ConcurrentPhaseExecutor` creates a `spawn_fn` via `container_spawner.create_concurrent_spawn_fn()` which captures `repo_volumes` and `repos` in a closure\n2. `spawn_agent_container()` creates per-agent worktrees only when `repo_volumes and repos` is truthy (line 308)\n3. The gateway's `WorktreeManager.create_worktree()` is idempotent — if a valid worktree exists at `{worktree_base}/{pipeline_id}-{role}/{repo}/`, it returns the existing one with all committed work intact\n4. Worktrees on the host filesystem survive container stop/remove (they're bind-mounted, not Docker volumes)\n\n**Technical root cause**: Both `restart_phase` (`pipelines.py:1595`) and `restart_agent` (`pipelines.py:1277`) call `spawn_agent_container()` / `restart_agent_container()` **without passing `repo_volumes`**. The per-agent worktree creation block at `container_spawner.py:308` checks `if repo_volumes and repos:` — since `repo_volumes` is `None` (the default), this entire block is skipped. The result:\n- No call to `gateway.create_worktrees()` — so the existing worktree is never discovered\n- `repo_volumes` stays `None` — so no repo bind-mounts are added to the container\n- The agent starts with no mounted repository, losing access to all prior work\n\nThe initial spawn path works because `create_concurrent_spawn_fn()` (`container_spawner.py:1079`) captures `repo_volumes` from the pipeline setup and passes it through the closure. The restart paths bypass this closure and call `spawn_agent_container` directly, forgetting `repo_volumes`.\n\n**Files affected**:\n- `orchestrator/container_spawner.py:308` — Change the guard from `if repo_volumes and repos:` to `if repos:`, so that worktrees are always created when repos are specified. Since `create_worktree` is idempotent, existing worktrees (with committed work) are reused and their host paths populate `repo_volumes` for mounting.\n\n**Risks / edge cases**:\n- The `repo_volumes` parameter is never read inside the worktree creation block — it's always overwritten by the gateway result (`repo_volumes = wt_result.worktrees`). So the parameter only served as a truthy flag. Changing to `if repos:` is a safe behavioral change.\n- The `worktree_created_this_call` flag (used for cleanup on Docker failure) will now be set even for restart calls. This is correct: during restarts, `preserve_worktree_on_failure=True` prevents cleanup regardless.\n- No callers pass `repos` without intending repo access, so no unintended worktree creation.\n- Uncommitted work from the previous container is still lost (this is a separate enhancement — the immediate fix preserves all *committed* work).",
   "plan": "# Plan: Fix restart losing worktrees by gating on repos not repo_volumes\n\n## Summary\n\nThe fix is a single-line condition change in `spawn_agent_container()`. By changing the per-agent worktree creation guard from `if repo_volumes and repos:` to `if repos:`, worktrees are always created (or reused) when repos are specified — regardless of whether the caller provided `repo_volumes`. This fixes both `restart_phase` and `restart_agent` without modifying those callers, since the gateway's idempotent `create_worktree` will find the existing worktree and return its host paths for mounting.\n\n**Risks / edge cases**: None identified — `repo_volumes` was never read inside the block (only overwritten), so the change has no effect on callers that already pass `repo_volumes`. The `preserve_worktree_on_failure=True` flag used by restart paths prevents cleanup on Docker failure.\n\n## Implementation\n\n### Phase 1: Implement\n\nFix the worktree creation guard and add test coverage for the restart code path.\n\n**Tasks**:\n1. **[task-1-1]** In `orchestrator/container_spawner.py:spawn_agent_container()`, change the worktree creation guard at line 308 from `if repo_volumes and repos:` to `if repos:` — `repo_volumes` served only as a truthy flag and is always overwritten by the gateway result. Acceptance: spawn_agent_container with repos but no repo_volumes triggers gateway.create_worktrees and mounts result.\n2. **[task-1-2]** Add a test in `orchestrator/tests/test_container_spawner.py` that verifies `spawn_agent_container` creates per-agent worktrees when `repos` is provided but `repo_volumes` is `None` (the restart path). Acceptance: Test passes and covers the restart code path.\n\n```yaml\n# yaml-tasks\npr:\n  title: \"Fix restart losing worktrees by gating on repos not repo_volumes\"\n  description: |\n    restart_phase and restart_agent call spawn_agent_container without\n    repo_volumes, causing per-agent worktree creation to be skipped.\n    Change the guard from `if repo_volumes and repos` to `if repos`.\n  test_plan: |\n    - Automated: new test_spawn_creates_worktree_without_repo_volumes\n    - Automated: existing test suite (make test)\n    - Manual: run restart_phase on a pipeline and verify the new container mounts the existing worktree\n  manual_steps: |\n    Pre-merge: none\n    Post-merge: none\nphases:\n  - id: 1\n    name: Implement\n    goal: \"Fix worktree creation guard so restarts preserve prior work\"\n    tasks:\n      - id: task-1-1\n        description: \"In `orchestrator/container_spawner.py:spawn_agent_container()`, change line 308 guard from `if repo_volumes and repos:` to `if repos:` — repo_volumes is always overwritten by gateway result\"\n        acceptance: \"spawn_agent_container with repos but no repo_volumes triggers gateway.create_worktrees and mounts result\"\n        files:\n          - orchestrator/container_spawner.py\n      - id: task-1-2\n        description: \"Add test verifying spawn_agent_container creates worktrees when repos is provided but repo_volumes is None\"\n        acceptance: \"Test passes and covers the restart code path\"\n        files:\n          - orchestrator/tests/test_container_spawner.py\n```",
-  "version": 5
+  "version": 6
 }
