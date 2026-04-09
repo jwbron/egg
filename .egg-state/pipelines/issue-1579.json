@@ -223,10 +223,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "State machine formalization scope: executable transition table replacing handler logic, design document with runtime assertions, or hybrid (transition table for state, existing handlers for side effects)?",
+      "context": "",
+      "options": [
+        "Executable state machine with transition table",
+        "Design document + assert checks",
+        "Hybrid: transition table for state, handlers for side effects"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-09T23:47:33.297102Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-09T23:37:30.329498Z",
-  "updated_at": "2026-04-09T23:47:27.111646Z",
+  "updated_at": "2026-04-09T23:47:33.300271Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -234,5 +252,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 12
+  "version": 13
 }
