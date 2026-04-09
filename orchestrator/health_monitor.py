@@ -208,14 +208,9 @@ class HealthMonitor:
 
         # Post-propose grace: suppress reviewers within the grace window
         # after a producer proposes, giving them time to begin reviewing.
-        # The try/except handles trackers that don't implement this method
-        # (e.g. test mocks without get_earliest_proposal_time configured).
-        try:
-            earliest_proposal = tracker.get_earliest_proposal_time(agent_id)
-        except (TypeError, AttributeError):
-            earliest_proposal = None
+        earliest_proposal = tracker.get_earliest_proposal_time(agent_id)
 
-        if isinstance(earliest_proposal, (int, float)) and earliest_proposal is not None:
+        if earliest_proposal is not None:
             grace = self._config.post_proposal_grace_seconds
             if time.time() - earliest_proposal < grace:
                 return True
@@ -738,59 +733,63 @@ class HealthMonitor:
         now = time.time()
         timeout = self._config.orchestrator_post_ack_confirmation_timeout_seconds
         actions: list[dict[str, Any]] = []
+        escalations: list[dict[str, Any]] = []
 
-        # Clean up tracking for producers no longer in the fully-acked set
-        # (they confirmed or withdrew)
-        stale_keys = [k for k in self._fully_acked_first_seen if k not in fully_acked]
-        for key in stale_keys:
-            del self._fully_acked_first_seen[key]
-            # Reset escalation flag when producer leaves fully-acked state
-            with self._lock:
+        with self._lock:
+            # Clean up tracking for producers no longer in the fully-acked set
+            # (they confirmed or withdrew)
+            stale_keys = [k for k in self._fully_acked_first_seen if k not in fully_acked]
+            for key in stale_keys:
+                del self._fully_acked_first_seen[key]
+                # Reset escalation flag when producer leaves fully-acked state
                 agent_state = self._agents.get(key)
                 if agent_state:
                     agent_state.brc_progress_escalated = False
 
-        for producer, _proposal_ts in fully_acked.items():
-            # Record first time we saw this producer as fully-acked
-            if producer not in self._fully_acked_first_seen:
-                self._fully_acked_first_seen[producer] = now
+            # Timeout is measured from when the monitor first observed the
+            # fully-acked state (_fully_acked_first_seen), not from the
+            # original proposal timestamp, because the monitor may start
+            # after proposals were already made.
+            for producer, _proposal_ts in fully_acked.items():
+                # Record first time we saw this producer as fully-acked
+                if producer not in self._fully_acked_first_seen:
+                    self._fully_acked_first_seen[producer] = now
 
-            first_seen = self._fully_acked_first_seen[producer]
-            elapsed = now - first_seen
+                first_seen = self._fully_acked_first_seen[producer]
+                elapsed = now - first_seen
 
-            if elapsed <= timeout:
-                continue
-
-            # Check dedup flag
-            with self._lock:
-                agent_state = self._agents.get(producer)
-                if agent_state and agent_state.brc_progress_escalated:
+                if elapsed <= timeout:
                     continue
 
-            action = {
-                "action": "escalate",
-                "agent_id": producer,
-                "reason": (
-                    f"Producer {producer} fully ACKed but not confirmed "
-                    f"for {int(elapsed)}s (timeout: {timeout}s)"
-                ),
-                "elapsed_seconds": int(elapsed),
-                "alert_type": "brc_confirmation_timeout",
-            }
-            actions.append(action)
-
-            escalation_type = "overseer" if self._config.overseer_enabled else "hitl"
-            escalation = {
-                "type": escalation_type,
-                "agent_id": producer,
-                "reason": action["reason"],
-                "timestamp": datetime.now(UTC).isoformat(),
-            }
-
-            with self._lock:
+                # Skip producers with no agent state (never emitted heartbeat/progress)
                 agent_state = self._agents.get(producer)
-                if agent_state:
-                    agent_state.brc_progress_escalated = True
+                if not agent_state:
+                    continue
+                if agent_state.brc_progress_escalated:
+                    continue
+
+                action = {
+                    "action": "escalate",
+                    "agent_id": producer,
+                    "reason": (
+                        f"Producer {producer} fully ACKed but not confirmed "
+                        f"for {int(elapsed)}s (timeout: {timeout}s)"
+                    ),
+                    "elapsed_seconds": int(elapsed),
+                    "alert_type": "brc_confirmation_timeout",
+                }
+                actions.append(action)
+
+                escalation_type = "overseer" if self._config.overseer_enabled else "hitl"
+                escalation = {
+                    "type": escalation_type,
+                    "agent_id": producer,
+                    "reason": action["reason"],
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+                escalations.append(escalation)
+
+                agent_state.brc_progress_escalated = True
                 self._active_alerts.append(
                     {
                         "id": str(uuid.uuid4()),
@@ -803,6 +802,8 @@ class HealthMonitor:
                     }
                 )
 
+        # Fire callbacks outside the lock to avoid holding it during external calls
+        for escalation in escalations:
             for cb in self._escalation_callbacks:
                 try:
                     cb(escalation)

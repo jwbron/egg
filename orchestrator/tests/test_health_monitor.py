@@ -1585,15 +1585,19 @@ class TestPostProposeGrace:
         """At the exact grace boundary, reviewer should NOT be suppressed."""
         bus = _make_event_bus()
         grace = 300
+        hb_timeout = 60
         config = _make_config(
-            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_heartbeat_timeout_seconds=hb_timeout,
             post_proposal_grace_seconds=grace,
         )
         monitor = _make_monitor(bus, config)
 
         base = time.time()
-        # Producer proposed exactly grace seconds ago
-        mock_tracker = self._make_tracker_with_proposal(proposal_epoch=base - grace)
+        # Set mock_time so heartbeat is stale (past hb_timeout)
+        check_time = base + hb_timeout + 1
+        # Set proposal_epoch so that check_time - proposal_epoch == grace exactly
+        proposal_epoch = check_time - grace
+        mock_tracker = self._make_tracker_with_proposal(proposal_epoch=proposal_epoch)
 
         _emit_heartbeat(bus, agent_id=REVIEWER_ID)
 
@@ -1604,8 +1608,8 @@ class TestPostProposeGrace:
                 return_value=mock_tracker,
             ),
         ):
-            # time.time() - proposal_epoch == grace, so NOT < grace
-            mock_time.time.return_value = base + 61
+            # time.time() - proposal_epoch == grace exactly, so NOT < grace
+            mock_time.time.return_value = check_time
             actions = monitor.check_heartbeats()
 
         assert len(actions) == 1, "At exact grace boundary, reviewer should be flagged"
