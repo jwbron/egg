@@ -295,7 +295,7 @@ The system follows a progressive escalation ladder:
 | 1 | **Escalate to overseer/HITL** | Orchestrator detects heartbeat/progress timeout; immediately escalates to overseer (or HITL if overseer disabled) |
 | 1a | **Infrastructure error → HITL fast-path** | Orchestrator detects infrastructure error (blocked + infra keyword); bypasses steps 2-4 and escalates directly to HITL with error details |
 | 2 | **Nudge / Redirect message** | Overseer classifies the alert and sends a nudge or actionable guidance to the agent |
-| 3 | **Restart agent** | Agent still unresponsive after nudge(s); overseer auto-restarts the agent (up to max restarts per phase, default 2). Stops the container, resets consensus state, respawns with same config preserving worktree |
+| 3 | **Restart agent** | Agent still unresponsive after nudge(s); overseer auto-restarts the agent (up to max restarts per phase, default 2). Stops the container, resets consensus state, respawns with same config — the gateway's idempotent worktree creation rediscovers the existing worktree so all committed work is preserved |
 | 4 | **Restart phase (HITL)** | Agent-level restarts exhausted for 2+ agents; overseer creates HITL decision for phase restart approval. Requires human confirmation before stopping all containers and respawning |
 | 5 | **HITL escalation** | Agent still stuck after max restarts, or restart not applicable |
 | 6 | **File GitHub issue** | Structured diagnostic report for persistent problems |
