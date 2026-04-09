@@ -190,6 +190,7 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `overseer_poll_interval_seconds` | `30` | How often the overseer checks health |
 | `overseer_max_redirects_before_escalation` | `2` | Redirect attempts before HITL escalation |
 | `overseer_decision_maker_model` | `"sonnet"` | LLM model for overseer decision-making tier |
+| `overseer_max_turns` | `2000` | Maximum Agent SDK turns for the overseer agent per phase. The overseer's continuous poll-classify-act loop consumes ~2–10 turns per 30-second cycle depending on alert activity, so the previous hardcoded value of 500 could be exhausted in ~25 minutes during active consensus negotiation. Valid range: 100–10,000. |
 | `overseer_max_respawns` | `3` | Max times to auto-respawn the overseer if it exits mid-phase (0 disables respawning). The respawn counter resets at each phase boundary since each phase spawns a fresh overseer instance. |
 | `overseer_rerun_min_work_seconds` | `60` | Minimum work duration required after a `request_changes` phase-gate decision; completions faster than this with `content_changed=False` are flagged as re-run anomalies |
 | `overseer_hitl_propagation_timeout_seconds` | `300` | Seconds to wait for a resolved phase-gate decision to appear in the SDLC contract before raising a propagation-failure alert |
@@ -206,7 +207,9 @@ The overseer is a phase-scoped, read-only agent that handles cases the orchestra
 
 - **Phase-scoped** — the overseer is spawned at the start of each pipeline phase and torn down when that phase completes, advances, or fails. Each phase gets a fresh overseer instance with no accumulated state from prior phases.
 - **Auto-spawned** on every pipeline (when `overseer_enabled` is true)
+- **Configurable turn budget** — the overseer runs with `overseer_max_turns` (default 2000) Agent SDK turns per phase, configurable in `PipelineConfig`. This replaced a hardcoded value of 500 that caused premature exits during active consensus negotiation (~480 turns consumed in ~25 minutes).
 - **Auto-respawned** if the overseer exits before the current phase reaches a terminal state (up to `overseer_max_respawns` attempts, checked every 30 seconds by the orchestrator's health monitor thread). The respawn logic is gated by a `phase_overseer_active` flag — the health monitor thread will not attempt to respawn the overseer between phases when it has been intentionally stopped.
+- **Respawn visibility** — when the overseer is respawned, the orchestrator captures the exited container's last 20 log lines (best-effort) and broadcasts an `OVERSEER_ALERT` message to the message bus with diagnostic metadata: `exit_code`, `old_container_id`, `new_container_id`, `log_tail`, `respawn_attempt`, and `max_respawns`. This ensures respawn events are visible via `get_status`/`recent_messages` and the `/sdlc` monitoring session. The broadcast is best-effort — it never blocks the respawn if the message store is unavailable or log capture fails.
 - **One overseer per pipeline phase** — only one overseer container runs at a time
 - **No code access** — cannot clone, checkout, or modify code
 
