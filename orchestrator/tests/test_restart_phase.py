@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from container_spawner import (
+    ContainerSpawnError,
     SpawnedContainer,
 )
 from models import (
@@ -760,3 +761,43 @@ class TestRestartPhaseEndpoint:
         assert first_update < first_stop, (
             f"Expected status update before container stop. Call order: {call_order}"
         )
+
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_reverts_status_when_all_spawns_fail(
+        self, mock_repo, mock_resolve, mock_spawner_fn, client
+    ):
+        """Total spawn failure must revert pipeline status back to FAILED.
+
+        Regression test for review feedback on #1594: the early status update
+        sets RUNNING before container teardown and respawn. If every agent
+        spawn fails, the status must be reverted so monitoring doesn't see a
+        'running' pipeline with no running containers.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+        pipeline.status = PipelineStatus.FAILED
+        pipeline.phases["implement"].status = PipelineStatus.FAILED
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        # All spawn attempts fail
+        mock_spawner.spawn_agent_container.side_effect = ContainerSpawnError("Failed to spawn")
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 500
+        # Verify status was reverted to FAILED after total spawn failure
+        assert pipeline.status == PipelineStatus.FAILED
+        assert pipeline.phases["implement"].status == PipelineStatus.FAILED
+        # Verify update_pipeline was called at least twice:
+        # once for the early RUNNING update, once for the FAILED revert
+        assert mock_store.update_pipeline.call_count >= 2

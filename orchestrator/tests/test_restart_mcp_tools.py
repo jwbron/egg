@@ -5,6 +5,7 @@ Covers:
 - restart_phase MCP tool definition and handler (task-1-4)
 """
 
+import threading
 from unittest.mock import patch
 
 import pytest
@@ -321,8 +322,6 @@ class TestCancelTaskBackgroundCleanup:
         assert elapsed < 3, f"cancel_task took {elapsed:.1f}s — DELETE should be async"
 
         # Wait for the background thread to complete and verify DELETE executed
-        import threading
-
         for t in threading.enumerate():
             if t.name.startswith("mcp-cleanup-"):
                 t.join(timeout=10)
