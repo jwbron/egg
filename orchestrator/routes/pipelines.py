@@ -2448,7 +2448,7 @@ def _git_show_draft(
     git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(repo_path)]
     try:
         result = subprocess.run(
-            [*git_base, "show", f"origin/{branch}:{rel_path}"],
+            [*git_base, "show", "--", f"origin/{branch}:{rel_path}"],
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -4338,6 +4338,7 @@ def _build_phase_prompt(
                 "plan",
                 issue_number=issue_number,
                 pipeline_id=pipeline_id,
+                branch=branch,
             )
             if draft_text:
                 lines.append("## Plan\n")
