@@ -929,6 +929,7 @@ def handle_consensus_propose_signal(
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
+        phase = _resolve_pipeline_phase(pipeline_id, repo_path)
         store.add_message(
             Message(
                 pipeline_id=pipeline_id,
@@ -937,7 +938,7 @@ def handle_consensus_propose_signal(
                 message_type=MessageType.CONSENSUS_PROPOSE,
                 subject=f"Proposal from {agent_role}",
                 body=payload.get("summary", ""),
-                phase=_resolve_pipeline_phase(pipeline_id, repo_path),
+                phase=phase,
                 metadata={
                     "payload": payload,
                     "version": result.get("version"),
@@ -963,7 +964,7 @@ def handle_consensus_propose_signal(
                         f"Your previous confirmation was on an earlier version. "
                         f"Please re-review and ACK/NACK the new proposal."
                     ),
-                    phase=_resolve_pipeline_phase(pipeline_id, repo_path),
+                    phase=phase,
                     metadata={
                         "producer_role": agent_role,
                         "version": result.get("version"),
@@ -1015,6 +1016,7 @@ def handle_consensus_ack_signal(
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
+        phase = _resolve_pipeline_phase(pipeline_id, repo_path)
         store.add_message(
             Message(
                 pipeline_id=pipeline_id,
@@ -1023,7 +1025,7 @@ def handle_consensus_ack_signal(
                 message_type=MessageType.CONSENSUS_ACK,
                 subject=f"ACK from {reviewer_role} for {producer_role}",
                 body=payload.get("reason", ""),
-                phase=_resolve_pipeline_phase(pipeline_id, repo_path),
+                phase=phase,
                 metadata={"payload": payload, "version": result.get("version")},
             )
         )
@@ -1039,7 +1041,7 @@ def handle_consensus_ack_signal(
                     subject="All reviewers have ACKed — ready to confirm",
                     body=f"All assigned reviewers have ACKed your proposal (version {result.get('version')}). "
                     "Run `egg-orch consensus confirmed` to confirm.",
-                    phase=_resolve_pipeline_phase(pipeline_id, repo_path),
+                    phase=phase,
                     metadata={"fully_acked": True, "version": result.get("version")},
                 )
             )
