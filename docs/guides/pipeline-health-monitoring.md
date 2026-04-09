@@ -17,6 +17,7 @@ Agent containers emit structured progress events
 │  • Repeated errors (N×)   → Escalate to overseer              │
 │  • Message volume spike   → Auto-throttle                     │
 │  • Progress stall         → Escalate to overseer/HITL         │
+│  • BRC progress stall     → Escalate (post-ACK timeout)       │
 │                                                               │
 │  Ambiguous cases ──────────────────────┐                      │
 └────────────────────────────────────────┼──────────────────────┘
@@ -104,6 +105,7 @@ The orchestrator processes structured progress events with deterministic rules. 
 | **Message volume spike** | Agent sending > N messages/minute | Auto-throttle |
 | **Progress stall** | No structured progress update within threshold | Escalate to overseer/HITL (overseer decides whether to nudge) |
 | **Infrastructure error** | Agent reports `blocked` state with infrastructure-related blocker (git failures, gateway errors, permission denied) | Critical alert → overseer routes to HITL fast-path (bypasses nudge/redirect ladder) |
+| **BRC progress stall** | Fully-ACKed producer hasn't sent `CONSENSUS_CONFIRMED` within timeout | Escalate to overseer/HITL (detects producers stuck in heartbeat loops post-ACK) |
 
 ### Infrastructure Error Detection
 
@@ -176,6 +178,43 @@ The suppression logic queries the peer consensus tracker's review graph to deter
 
 **Example:** During the implement phase, the coder is actively working while reviewer_code and reviewer_contract wait for proposals. Without BRC-idle suppression, both reviewers would trigger heartbeat timeout alerts after the threshold. With suppression enabled, only agents with their own work to complete are monitored — pure reviewers waiting for upstream proposals are recognized as legitimately idle.
 
+### Post-Propose Grace Period for Reviewers
+
+When a producer sends `CONSENSUS_PROPOSE`, reviewer-only agents transition from idle (waiting for proposals) to active (reviewing). However, reviewers need time to prepare their review — reading code, verifying claims, running checks — before they can emit BRC messages. Previously, reviewers were immediately subject to normal heartbeat/progress thresholds as soon as any upstream producer proposed, causing **false positive stall alerts** that killed active reviewers mid-review.
+
+The health monitor now provides a **post-propose grace period** for reviewer-only agents. After an upstream producer proposes, the reviewer has `post_proposal_grace_seconds` (default: 300s / 5 minutes) before heartbeat and progress stall checks apply. During this grace window, the reviewer is suppressed from alerts — similar to BRC-idle suppression but covering the transition period after a proposal arrives.
+
+**How it works:**
+- The `HealthMonitor._is_brc_idle()` method checks if the agent is a reviewer-only role (not a producer)
+- It queries `PeerConsensusTracker.get_earliest_proposal_time(reviewer)` to find the earliest proposal timestamp among the reviewer's upstream producers
+- If a proposal exists and `time.time() - proposal_time < post_proposal_grace_seconds`, the reviewer is suppressed from alerts
+- Once the grace window expires, normal heartbeat/progress monitoring resumes
+
+**Why 5 minutes?** Even complex reviews (e.g., verifying refine analysis against the full codebase) complete their initial orientation within 5 minutes. This window is long enough to prevent false positives but short enough to detect genuinely stuck reviewers.
+
+**Example:** During the implement phase, coder sends `CONSENSUS_PROPOSE` after completing its work. reviewer_code begins reading the changed files, grepping the codebase, and checking type signatures — all showing tool call activity but no BRC messages. Without the post-propose grace period, reviewer_code would trigger a heartbeat timeout after 120s (or 600s in implement phase). With the grace period, reviewer_code has 5 minutes of uninterrupted review time before monitoring kicks in.
+
+**Root cause addressed:** In pipeline runs observed in issue #1613, a reviewer_refine agent was killed after ~1 minute despite actively verifying claims from the analysis (grepping codebase, checking types). The overseer flagged it as stalled because it had zero BRC messages, ignoring the tool call activity that showed it was doing real work.
+
+### Post-ACK Confirmation Timeout for Producers
+
+After all reviewers ACK a producer's proposal, the producer must send `CONSENSUS_CONFIRMED` to complete the BRC protocol. In observed failure modes, producers entered tight heartbeat loops after being ACKed — heartbeating every few seconds but never sending `CONFIRMED` — and the health monitor never flagged them because liveness checks only tested heartbeat freshness.
+
+The health monitor now adds a **post-ACK confirmation timeout** via `check_brc_progress()`. When a producer is fully ACKed (all reviewers have sent `CONSENSUS_ACK`) but hasn't yet sent `CONSENSUS_CONFIRMED`, a timeout clock starts. If the producer doesn't confirm within `orchestrator_post_ack_confirmation_timeout_seconds` (default: 180s / 3 minutes), the health monitor creates an escalation alert and fires callbacks — regardless of how frequently the producer is heartbeating.
+
+**How it works:**
+1. `check_brc_progress()` is called as part of `check_tripwires()` on each monitoring cycle
+2. It queries `PeerConsensusTracker.get_fully_acked_producers()` to find producers where all reviewers have ACKed but the producer hasn't yet confirmed
+3. For each such producer, it records a first-seen timestamp in `_fully_acked_first_seen`
+4. If `time.time() - first_seen > orchestrator_post_ack_confirmation_timeout_seconds` and the agent hasn't already been escalated (via `brc_progress_escalated` flag on `AgentState`), it creates an escalation alert
+5. When a producer confirms or is no longer in the fully-acked set, tracking is cleaned up
+
+**Why 3 minutes?** The time between receiving an ACK and sending `CONFIRMED` should be near-instantaneous (just reading the ACK message and calling `egg-orch consensus confirmed`). A 3-minute timeout is generous enough to accommodate network delays and slow poll cycles, but catches agents stuck in heartbeat loops far faster than the previous detection mechanisms (~10 minutes via `IncompleteConsensusStallCheck`).
+
+**Example:** In a pipeline run documented in issue #1613, a producer received reviewer ACKs and the orchestrator broadcast "All reviewers have ACKed — ready to confirm." Four out of five agents confirmed normally. The remaining producer entered a tight loop (heartbeat + message poll every ~4 seconds) for 11 minutes without ever sending `CONFIRMED`. With the post-ACK confirmation timeout, this would be detected and escalated after 3 minutes instead of 11.
+
+**Relationship to `IncompleteConsensusStallCheck`:** The Tier 1 health check `IncompleteConsensusStallCheck` catches a broader class of incomplete consensus stalls (including reviewers that haven't ACKed). The post-ACK confirmation timeout is narrower and faster — it specifically targets the "heartbeating but not confirming" failure mode and fires within 3 minutes rather than the ~10 minutes required by the Tier 1 check's grace + tick threshold.
+
 ### Configuration
 
 Tripwire thresholds are configurable in `PipelineConfig`:
@@ -187,6 +226,8 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `orchestrator_implement_heartbeat_timeout_seconds` | `600` | Escalate to overseer/HITL after this many seconds without heartbeat during the **implement phase** (must be ≥ 10) |
 | `orchestrator_error_repeat_threshold` | `3` | Escalate after N identical consecutive errors |
 | `orchestrator_message_rate_limit` | `20` | Auto-throttle above this many messages per minute |
+| `post_proposal_grace_seconds` | `300` | Grace period (seconds) for reviewer-only agents after an upstream producer proposes, before heartbeat/progress stall checks apply (must be >= 30). This reuses the existing BRC proposal grace period setting. |
+| `orchestrator_post_ack_confirmation_timeout_seconds` | `180` | Timeout (seconds) for fully-ACKed producers to send `CONSENSUS_CONFIRMED` before escalation, regardless of heartbeat activity (must be >= 30) |
 | `overseer_poll_interval_seconds` | `30` | How often the overseer checks health |
 | `overseer_max_redirects_before_escalation` | `2` | Redirect attempts before HITL escalation |
 | `overseer_decision_maker_model` | `"sonnet"` | LLM model for overseer decision-making tier |

@@ -798,12 +798,18 @@ def _make_mock_tracker(
     producer_roles: list[str] | None = None,
     producer_phases: dict | None = None,
     producers_for_reviewer: dict[str, list[str]] | None = None,
+    proposal_timestamps: dict[str, float] | None = None,
 ):
     """Create a mock PeerConsensusTracker with a ReviewGraph.
 
-    The mock supports ``are_all_producers_working()`` via the public API
-    (not private internals).  The returned mock exposes an ``_effective_phases``
+    The mock supports ``are_all_producers_working()`` and
+    ``get_earliest_proposal_time()`` via the public API (not private
+    internals).  The returned mock exposes an ``_effective_phases``
     dict that tests can mutate to simulate phase transitions.
+
+    Args:
+        proposal_timestamps: Mapping of producer role -> epoch timestamp
+            of proposal. Used by ``get_earliest_proposal_time()``.
     """
     from egg_orchestrator.types import ConsensusPhase
 
@@ -811,6 +817,7 @@ def _make_mock_tracker(
     producer_roles = producer_roles or []
     producer_phases = producer_phases or {}
     producers_for_reviewer = producers_for_reviewer or {}
+    proposal_timestamps = proposal_timestamps or {}
 
     effective_phases: dict[str, ConsensusPhase] = dict.fromkeys(
         producer_roles, ConsensusPhase.WORKING
@@ -829,6 +836,15 @@ def _make_mock_tracker(
         return all(effective_phases.get(p) == ConsensusPhase.WORKING for p in producers)
 
     mock_tracker.are_all_producers_working.side_effect = _are_all_working
+
+    def _get_earliest_proposal_time(reviewer: str) -> float | None:
+        producers = producers_for_reviewer.get(reviewer, [])
+        timestamps = [proposal_timestamps[p] for p in producers if p in proposal_timestamps]
+        if not timestamps:
+            return None
+        return min(timestamps)
+
+    mock_tracker.get_earliest_proposal_time.side_effect = _get_earliest_proposal_time
 
     # Create a mock graph
     mock_graph = MagicMock()
@@ -1048,6 +1064,7 @@ class TestBRCIdleSuppression:
         producer_roles: list[str] | None = None,
         producer_phases: dict | None = None,
         producers_for_reviewer: dict[str, list[str]] | None = None,
+        proposal_timestamps: dict[str, float] | None = None,
     ):
         """Create a mock PeerConsensusTracker with a ReviewGraph."""
         return _make_mock_tracker(
@@ -1055,6 +1072,7 @@ class TestBRCIdleSuppression:
             producer_roles=producer_roles,
             producer_phases=producer_phases,
             producers_for_reviewer=producers_for_reviewer,
+            proposal_timestamps=proposal_timestamps,
         )
 
     def test_reviewer_only_suppressed_when_producers_working(self):
@@ -1087,18 +1105,23 @@ class TestBRCIdleSuppression:
         assert len(actions) == 0, "BRC-idle reviewer should be suppressed"
 
     def test_reviewer_not_suppressed_when_producer_proposed(self):
-        """Reviewer is NOT suppressed when a producer has proposed."""
+        """Reviewer is NOT suppressed when a producer proposed PAST grace period."""
         from egg_orchestrator.types import ConsensusPhase
 
         bus = _make_event_bus()
-        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            post_proposal_grace_seconds=300,
+        )
         monitor = _make_monitor(bus, config)
 
+        now = time.time()
         mock_tracker = self._make_mock_tracker(
             reviewer_roles=[REVIEWER_ID],
             producer_roles=[PRODUCER_ID],
             producer_phases={PRODUCER_ID: ConsensusPhase.PROPOSED},
             producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID]},
+            proposal_timestamps={PRODUCER_ID: now - 400},  # well past 300s grace
         )
 
         _emit_heartbeat(bus, agent_id=REVIEWER_ID)
@@ -1110,10 +1133,10 @@ class TestBRCIdleSuppression:
                 return_value=mock_tracker,
             ),
         ):
-            mock_time.time.return_value = time.time() + 61
+            mock_time.time.return_value = now + 61
             actions = monitor.check_heartbeats()
 
-        assert len(actions) == 1, "Reviewer should escalate when producer has proposed"
+        assert len(actions) == 1, "Reviewer should escalate when producer proposed past grace"
 
     def test_dual_role_agent_not_suppressed(self):
         """Dual-role agent (producer + reviewer) is NOT suppressed."""
@@ -1195,13 +1218,17 @@ class TestBRCIdleSuppression:
         assert len(actions) == 1, "Without tracker, should escalate normally"
 
     def test_reviewer_with_multiple_producers_partial_proposed(self):
-        """Reviewer with multiple producers — one proposed, one working — is NOT suppressed."""
+        """Reviewer with multiple producers — one proposed (past grace), one working — NOT suppressed."""
         from egg_orchestrator.types import ConsensusPhase
 
         bus = _make_event_bus()
-        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            post_proposal_grace_seconds=300,
+        )
         monitor = _make_monitor(bus, config)
 
+        now = time.time()
         producer_2 = "documenter-xyz"
         mock_tracker = self._make_mock_tracker(
             reviewer_roles=[REVIEWER_ID],
@@ -1211,6 +1238,7 @@ class TestBRCIdleSuppression:
                 producer_2: ConsensusPhase.WORKING,
             },
             producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID, producer_2]},
+            proposal_timestamps={PRODUCER_ID: now - 400},  # past grace
         )
 
         _emit_heartbeat(bus, agent_id=REVIEWER_ID)
@@ -1222,10 +1250,12 @@ class TestBRCIdleSuppression:
                 return_value=mock_tracker,
             ),
         ):
-            mock_time.time.return_value = time.time() + 61
+            mock_time.time.return_value = now + 61
             actions = monitor.check_heartbeats()
 
-        assert len(actions) == 1, "Reviewer should escalate when at least one producer has proposed"
+        assert len(actions) == 1, (
+            "Reviewer should escalate when at least one producer has proposed past grace"
+        )
 
     def test_reviewer_with_multiple_producers_all_working(self):
         """Reviewer with multiple producers all working — IS suppressed."""
@@ -1290,15 +1320,20 @@ class TestBRCIdleSuppression:
         assert len(actions) == 1, "Producer should never be suppressed by BRC-idle"
 
     def test_brc_suppression_resumes_monitoring_after_proposal(self):
-        """After producer proposes, previously suppressed reviewer resumes monitoring."""
+        """After producer proposes and grace expires, previously suppressed reviewer is monitored."""
         from egg_orchestrator.types import ConsensusPhase
 
         bus = _make_event_bus()
-        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            post_proposal_grace_seconds=300,
+        )
         monitor = _make_monitor(bus, config)
 
+        now = time.time()
+
         # Phase 1: producer is WORKING — reviewer suppressed
-        mock_tracker = self._make_mock_tracker(
+        mock_tracker = _make_mock_tracker(
             reviewer_roles=[REVIEWER_ID],
             producer_roles=[PRODUCER_ID],
             producer_phases={PRODUCER_ID: ConsensusPhase.WORKING},
@@ -1314,12 +1349,14 @@ class TestBRCIdleSuppression:
                 return_value=mock_tracker,
             ),
         ):
-            mock_time.time.return_value = time.time() + 61
+            mock_time.time.return_value = now + 61
             actions = monitor.check_heartbeats()
         assert len(actions) == 0, "Reviewer should be suppressed initially"
 
-        # Phase 2: producer transitions to PROPOSED — reviewer should be monitored
+        # Phase 2: producer transitions to PROPOSED, grace expired
         mock_tracker._effective_phases[PRODUCER_ID] = ConsensusPhase.PROPOSED
+        # Set proposal timestamp well past grace
+        mock_tracker.get_earliest_proposal_time.side_effect = lambda r: now - 400
 
         with (
             patch("health_monitor.time") as mock_time,
@@ -1328,9 +1365,9 @@ class TestBRCIdleSuppression:
                 return_value=mock_tracker,
             ),
         ):
-            mock_time.time.return_value = time.time() + 61
+            mock_time.time.return_value = now + 61
             actions = monitor.check_heartbeats()
-        assert len(actions) == 1, "Reviewer should resume monitoring after proposal"
+        assert len(actions) == 1, "Reviewer should resume monitoring after grace expires"
 
 
 class TestCombinedPhaseAndBRCSuppression:
@@ -1403,3 +1440,822 @@ class TestCombinedPhaseAndBRCSuppression:
         escalated_agents = {a["agent_id"] for a in actions}
         assert PRODUCER_ID in escalated_agents, "Producer should escalate at 601s"
         assert REVIEWER_ID not in escalated_agents, "BRC-idle reviewer should still be suppressed"
+
+
+# ---------------------------------------------------------------------------
+# Tests: Post-propose grace period (#1613 — task-1-3)
+# ---------------------------------------------------------------------------
+
+
+class TestPostProposeGrace:
+    """Reviewer-only agents within post-propose grace period are suppressed.
+
+    After a producer proposes (CONSENSUS_PROPOSE), reviewers need time to
+    analyse the proposal before producing BRC messages. During this grace
+    window, heartbeat/progress stall checks should NOT flag the reviewer.
+    """
+
+    def _make_tracker_with_proposal(
+        self,
+        *,
+        proposal_epoch: float,
+        reviewer: str = REVIEWER_ID,
+        producer: str = PRODUCER_ID,
+    ):
+        """Create a mock tracker where the producer has already proposed."""
+        from egg_orchestrator.types import ConsensusPhase
+
+        mock_tracker = _make_mock_tracker(
+            reviewer_roles=[reviewer],
+            producer_roles=[producer],
+            producer_phases={producer: ConsensusPhase.PROPOSED},
+            producers_for_reviewer={reviewer: [producer]},
+            proposal_timestamps={producer: proposal_epoch},
+        )
+        return mock_tracker
+
+    def test_reviewer_within_grace_suppressed_heartbeat(self):
+        """Reviewer within post-propose grace is NOT flagged by check_heartbeats."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            post_proposal_grace_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        now = time.time()
+        # Producer proposed 100s ago — within 300s grace
+        mock_tracker = self._make_tracker_with_proposal(proposal_epoch=now - 100)
+
+        _emit_heartbeat(bus, agent_id=REVIEWER_ID)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = now + 61
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 0, "Reviewer within post-propose grace should be suppressed"
+
+    def test_reviewer_within_grace_suppressed_progress(self):
+        """Reviewer within post-propose grace is NOT flagged by check_progress."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            post_proposal_grace_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        now = time.time()
+        mock_tracker = self._make_tracker_with_proposal(proposal_epoch=now - 100)
+
+        _emit_progress(bus, agent_id=REVIEWER_ID)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = now + 61
+            actions = monitor.check_progress()
+
+        assert len(actions) == 0, "Reviewer within post-propose grace should be suppressed"
+
+    def test_reviewer_past_grace_is_flagged(self):
+        """Reviewer PAST post-propose grace IS flagged by check_heartbeats."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            post_proposal_grace_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        now = time.time()
+        # Producer proposed 400s ago — past 300s grace
+        mock_tracker = self._make_tracker_with_proposal(proposal_epoch=now - 400)
+
+        _emit_heartbeat(bus, agent_id=REVIEWER_ID)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = now + 61
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1, "Reviewer past grace period should be flagged"
+        assert actions[0]["agent_id"] == REVIEWER_ID
+
+    def test_reviewer_past_grace_flagged_progress(self):
+        """Reviewer past grace is flagged by check_progress too."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            post_proposal_grace_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        now = time.time()
+        mock_tracker = self._make_tracker_with_proposal(proposal_epoch=now - 400)
+
+        _emit_progress(bus, agent_id=REVIEWER_ID)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = now + 61
+            actions = monitor.check_progress()
+
+        assert len(actions) == 1, "Reviewer past grace should be flagged by progress check"
+
+    def test_grace_boundary_exactly_at_threshold(self):
+        """At the exact grace boundary, reviewer should NOT be suppressed."""
+        bus = _make_event_bus()
+        grace = 300
+        hb_timeout = 60
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=hb_timeout,
+            post_proposal_grace_seconds=grace,
+        )
+        monitor = _make_monitor(bus, config)
+
+        base = time.time()
+        # Set mock_time so heartbeat is stale (past hb_timeout)
+        check_time = base + hb_timeout + 1
+        # Set proposal_epoch so that check_time - proposal_epoch == grace exactly
+        proposal_epoch = check_time - grace
+        mock_tracker = self._make_tracker_with_proposal(proposal_epoch=proposal_epoch)
+
+        _emit_heartbeat(bus, agent_id=REVIEWER_ID)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            # time.time() - proposal_epoch == grace exactly, so NOT < grace
+            mock_time.time.return_value = check_time
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1, "At exact grace boundary, reviewer should be flagged"
+
+    def test_custom_grace_period_config(self):
+        """Custom grace period value is respected."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            post_proposal_grace_seconds=60,
+        )
+        monitor = _make_monitor(bus, config)
+
+        now = time.time()
+        # Proposed 80s ago — past custom 60s grace
+        mock_tracker = self._make_tracker_with_proposal(proposal_epoch=now - 80)
+
+        _emit_heartbeat(bus, agent_id=REVIEWER_ID)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = now + 61
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1, "Past custom 60s grace should be flagged"
+
+    def test_no_proposals_means_not_suppressed(self):
+        """If no upstream producers have proposed, grace period doesn't apply."""
+        from egg_orchestrator.types import ConsensusPhase
+
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            post_proposal_grace_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        # PROPOSED phase but no proposal_timestamps → get_earliest_proposal_time returns None
+        mock_tracker = _make_mock_tracker(
+            reviewer_roles=[REVIEWER_ID],
+            producer_roles=[PRODUCER_ID],
+            producer_phases={PRODUCER_ID: ConsensusPhase.PROPOSED},
+            producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID]},
+            # No proposal_timestamps → returns None
+        )
+
+        _emit_heartbeat(bus, agent_id=REVIEWER_ID)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = time.time() + 61
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1, "Without proposals, grace doesn't apply"
+
+    def test_dual_role_not_suppressed_by_grace(self):
+        """Dual-role agents (producer + reviewer) are NOT suppressed by grace."""
+        from egg_orchestrator.types import ConsensusPhase
+
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            post_proposal_grace_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        dual_id = "tester-xyz"
+        now = time.time()
+        # Even with a recent proposal, dual-role should not be suppressed
+        mock_tracker = _make_mock_tracker(
+            reviewer_roles=[dual_id],
+            producer_roles=[dual_id, PRODUCER_ID],
+            producer_phases={PRODUCER_ID: ConsensusPhase.PROPOSED},
+            producers_for_reviewer={dual_id: [PRODUCER_ID]},
+            proposal_timestamps={PRODUCER_ID: now - 10},
+        )
+
+        _emit_heartbeat(bus, agent_id=dual_id)
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = now + 61
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1, "Dual-role agent should NOT be suppressed by grace"
+
+
+# ---------------------------------------------------------------------------
+# Tests: BRC progress check — post-ACK confirmation timeout (#1613 — task-1-4)
+# ---------------------------------------------------------------------------
+
+
+class TestBRCProgressCheck:
+    """check_brc_progress escalates fully-ACKed producers that don't confirm."""
+
+    def _make_tracker_with_fully_acked(
+        self,
+        *,
+        fully_acked: dict[str, float] | None = None,
+    ):
+        """Create a mock tracker with configurable fully_acked producers."""
+        mock_tracker = MagicMock()
+        mock_tracker.get_fully_acked_producers.return_value = fully_acked or {}
+        return mock_tracker
+
+    def test_escalates_stuck_producer(self):
+        """Fully-ACKed producer past timeout triggers escalation."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_post_ack_confirmation_timeout_seconds=180)
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        # Register the producer so it has an AgentState
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+
+        mock_tracker = self._make_tracker_with_fully_acked(
+            fully_acked={PRODUCER_ID: time.time() - 200},
+        )
+
+        base = time.time()
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            # First call at base: records first-seen time as base
+            mock_time.time.return_value = base
+            monitor.check_brc_progress()
+
+            # Second call 181s later: past 180s timeout
+            mock_time.time.return_value = base + 181
+            actions = monitor.check_brc_progress()
+
+        assert len(actions) == 1
+        assert actions[0]["action"] == "escalate"
+        assert actions[0]["agent_id"] == PRODUCER_ID
+        assert "brc_confirmation_timeout" in actions[0].get("alert_type", "")
+        assert len(escalations) >= 1
+
+    def test_within_timeout_no_escalation(self):
+        """Fully-ACKed producer within timeout is NOT escalated."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_post_ack_confirmation_timeout_seconds=180)
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+
+        mock_tracker = self._make_tracker_with_fully_acked(
+            fully_acked={PRODUCER_ID: time.time()},
+        )
+
+        with patch(
+            "peer_consensus.get_peer_consensus_tracker",
+            return_value=mock_tracker,
+        ):
+            actions = monitor.check_brc_progress()
+
+        assert len(actions) == 0, "Within timeout, should NOT escalate"
+        assert len(escalations) == 0
+
+    def test_resets_on_confirm(self):
+        """Producer that confirms (leaves fully-acked set) clears tracking."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_post_ack_confirmation_timeout_seconds=180)
+        monitor = _make_monitor(bus, config)
+
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+
+        # Phase 1: producer is fully-acked
+        tracker_acked = self._make_tracker_with_fully_acked(
+            fully_acked={PRODUCER_ID: time.time()},
+        )
+        with patch(
+            "peer_consensus.get_peer_consensus_tracker",
+            return_value=tracker_acked,
+        ):
+            monitor.check_brc_progress()
+
+        # Verify tracking is active
+        assert PRODUCER_ID in monitor._fully_acked_first_seen
+
+        # Phase 2: producer confirms — no longer in fully-acked set
+        tracker_empty = self._make_tracker_with_fully_acked(fully_acked={})
+        with patch(
+            "peer_consensus.get_peer_consensus_tracker",
+            return_value=tracker_empty,
+        ):
+            monitor.check_brc_progress()
+
+        # Tracking should be cleaned up
+        assert PRODUCER_ID not in monitor._fully_acked_first_seen
+
+    def test_escalation_deduplication(self):
+        """Already-escalated producer is NOT re-escalated on subsequent checks."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_post_ack_confirmation_timeout_seconds=180)
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+
+        mock_tracker = self._make_tracker_with_fully_acked(
+            fully_acked={PRODUCER_ID: time.time() - 200},
+        )
+
+        base = time.time()
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            # First call: record first-seen
+            mock_time.time.return_value = base
+            monitor.check_brc_progress()
+
+            # Second call at base+181: escalate
+            mock_time.time.return_value = base + 181
+            actions1 = monitor.check_brc_progress()
+
+            # Third check — should NOT re-escalate
+            mock_time.time.return_value = base + 300
+            actions2 = monitor.check_brc_progress()
+
+            # Fourth check — still should NOT re-escalate
+            mock_time.time.return_value = base + 500
+            actions3 = monitor.check_brc_progress()
+
+        assert len(actions1) == 1
+        assert len(actions2) == 0
+        assert len(actions3) == 0
+        assert len(escalations) == 1
+
+    def test_re_escalation_after_confirm_and_re_ack(self):
+        """After confirm + re-ack cycle, a new timeout triggers fresh escalation."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_post_ack_confirmation_timeout_seconds=180)
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+
+        base = time.time()
+
+        # Phase 1: fully-acked → register first-seen → timeout → escalation
+        tracker_acked = self._make_tracker_with_fully_acked(
+            fully_acked={PRODUCER_ID: base},
+        )
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=tracker_acked,
+            ),
+        ):
+            mock_time.time.return_value = base
+            monitor.check_brc_progress()  # records first-seen
+
+            mock_time.time.return_value = base + 181
+            monitor.check_brc_progress()
+
+        assert len(escalations) == 1
+
+        # Phase 2: producer confirms (leaves fully-acked)
+        tracker_empty = self._make_tracker_with_fully_acked(fully_acked={})
+        with patch(
+            "peer_consensus.get_peer_consensus_tracker",
+            return_value=tracker_empty,
+        ):
+            monitor.check_brc_progress()
+
+        # Phase 3: producer gets re-acked after new proposal round
+        new_base = base + 400
+        tracker_reacked = self._make_tracker_with_fully_acked(
+            fully_acked={PRODUCER_ID: new_base},
+        )
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=tracker_reacked,
+            ),
+        ):
+            # Record new first-seen
+            mock_time.time.return_value = new_base
+            monitor.check_brc_progress()
+
+            # Within timeout — no escalation
+            mock_time.time.return_value = new_base + 100
+            monitor.check_brc_progress()
+
+            # Past timeout — fresh escalation
+            mock_time.time.return_value = new_base + 181
+            monitor.check_brc_progress()
+
+        assert len(escalations) == 2, "Should get a fresh escalation after confirm/re-ack"
+
+    def test_multiple_producers_only_timed_out_escalated(self):
+        """Only producers past timeout are escalated; within-timeout ones are not."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_post_ack_confirmation_timeout_seconds=180)
+        monitor = _make_monitor(bus, config)
+
+        producer_2 = "documenter-xyz"
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+        _emit_heartbeat(bus, agent_id=producer_2)
+
+        base = time.time()
+
+        # Both fully-acked initially
+        mock_tracker = self._make_tracker_with_fully_acked(
+            fully_acked={
+                PRODUCER_ID: base,
+                producer_2: base,
+            },
+        )
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            # First check: registers both at base
+            mock_time.time.return_value = base
+            actions = monitor.check_brc_progress()
+            assert len(actions) == 0
+
+            # Both past timeout
+            mock_time.time.return_value = base + 181
+            actions = monitor.check_brc_progress()
+
+        assert len(actions) == 2, "Both producers past timeout should escalate"
+        escalated = {a["agent_id"] for a in actions}
+        assert PRODUCER_ID in escalated
+        assert producer_2 in escalated
+
+    def test_no_tracker_returns_empty(self):
+        """Without a PeerConsensusTracker, check_brc_progress returns empty."""
+        bus = _make_event_bus()
+        monitor = _make_monitor(bus)
+
+        with patch(
+            "peer_consensus.get_peer_consensus_tracker",
+            return_value=None,
+        ):
+            actions = monitor.check_brc_progress()
+
+        assert actions == []
+
+    def test_escalation_callback_fires(self):
+        """Escalation callback is invoked on BRC confirmation timeout."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_post_ack_confirmation_timeout_seconds=180)
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+
+        mock_tracker = self._make_tracker_with_fully_acked(
+            fully_acked={PRODUCER_ID: time.time()},
+        )
+
+        base = time.time()
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = base
+            monitor.check_brc_progress()  # records first-seen
+
+            mock_time.time.return_value = base + 181
+            monitor.check_brc_progress()
+
+        assert len(escalations) == 1
+        esc = escalations[0]
+        assert esc["agent_id"] == PRODUCER_ID
+        assert (
+            "fully acked" in esc.get("reason", "").lower()
+            or "confirmed" in esc.get("reason", "").lower()
+        )
+
+    def test_alert_created_on_escalation(self):
+        """An active alert is created when BRC confirmation timeout fires."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_post_ack_confirmation_timeout_seconds=180)
+        monitor = _make_monitor(bus, config)
+
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+
+        mock_tracker = self._make_tracker_with_fully_acked(
+            fully_acked={PRODUCER_ID: time.time()},
+        )
+
+        base = time.time()
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = base
+            monitor.check_brc_progress()  # records first-seen
+
+            mock_time.time.return_value = base + 181
+            monitor.check_brc_progress()
+
+        alerts = monitor.get_active_alerts()
+        brc_alerts = [a for a in alerts if a.get("alert_type") == "brc_confirmation_timeout"]
+        assert len(brc_alerts) >= 1
+        assert brc_alerts[0]["agent_id"] == PRODUCER_ID
+
+    def test_wired_into_check_tripwires(self):
+        """check_brc_progress is called as part of check_tripwires."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_post_ack_confirmation_timeout_seconds=180)
+        monitor = _make_monitor(bus, config)
+
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+
+        mock_tracker = self._make_tracker_with_fully_acked(
+            fully_acked={PRODUCER_ID: time.time()},
+        )
+
+        base = time.time()
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = base
+            monitor.check_tripwires()  # records first-seen
+
+            mock_time.time.return_value = base + 181
+            actions = monitor.check_tripwires()
+
+        brc_actions = [a for a in actions if a.get("alert_type") == "brc_confirmation_timeout"]
+        assert len(brc_actions) >= 1, "check_brc_progress should be part of check_tripwires"
+
+    def test_escalation_routes_to_overseer_when_enabled(self):
+        """BRC confirmation timeout routes to overseer when enabled."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_post_ack_confirmation_timeout_seconds=180,
+            overseer_enabled=True,
+        )
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+
+        mock_tracker = self._make_tracker_with_fully_acked(
+            fully_acked={PRODUCER_ID: time.time()},
+        )
+
+        base = time.time()
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = base
+            monitor.check_brc_progress()  # records first-seen
+
+            mock_time.time.return_value = base + 181
+            monitor.check_brc_progress()
+
+        assert len(escalations) == 1
+        assert escalations[0]["type"] == "overseer"
+
+    def test_escalation_routes_to_hitl_when_overseer_disabled(self):
+        """BRC confirmation timeout routes to HITL when overseer disabled."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_post_ack_confirmation_timeout_seconds=180,
+            overseer_enabled=False,
+        )
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+
+        mock_tracker = self._make_tracker_with_fully_acked(
+            fully_acked={PRODUCER_ID: time.time()},
+        )
+
+        base = time.time()
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = base
+            monitor.check_brc_progress()  # records first-seen
+
+            mock_time.time.return_value = base + 181
+            monitor.check_brc_progress()
+
+        assert len(escalations) == 1
+        assert escalations[0]["type"] == "hitl"
+
+
+# ---------------------------------------------------------------------------
+# Tests: PipelineConfig new fields (#1613 — task-1-2)
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineConfigBRCFields:
+    """New config fields for post-propose grace and post-ACK timeout."""
+
+    def test_post_propose_grace_default_300(self):
+        """post_proposal_grace_seconds defaults to 300."""
+        config = PipelineConfig()
+        assert config.post_proposal_grace_seconds == 300
+
+    def test_post_propose_grace_custom_value(self):
+        """Custom value is accepted."""
+        config = PipelineConfig(post_proposal_grace_seconds=60)
+        assert config.post_proposal_grace_seconds == 60
+
+    def test_post_propose_grace_rejects_below_30(self):
+        """Value below 30 is rejected."""
+        with pytest.raises(ValueError):
+            PipelineConfig(post_proposal_grace_seconds=10)
+
+    def test_post_propose_grace_accepts_30(self):
+        """Value of exactly 30 is accepted."""
+        config = PipelineConfig(post_proposal_grace_seconds=30)
+        assert config.post_proposal_grace_seconds == 30
+
+    def test_post_ack_timeout_default_180(self):
+        """orchestrator_post_ack_confirmation_timeout_seconds defaults to 180."""
+        config = PipelineConfig()
+        assert config.orchestrator_post_ack_confirmation_timeout_seconds == 180
+
+    def test_post_ack_timeout_custom_value(self):
+        """Custom value is accepted."""
+        config = PipelineConfig(orchestrator_post_ack_confirmation_timeout_seconds=60)
+        assert config.orchestrator_post_ack_confirmation_timeout_seconds == 60
+
+    def test_post_ack_timeout_rejects_below_30(self):
+        """Value below 30 is rejected."""
+        with pytest.raises(ValueError):
+            PipelineConfig(orchestrator_post_ack_confirmation_timeout_seconds=10)
+
+    def test_post_ack_timeout_accepts_30(self):
+        """Value of exactly 30 is accepted."""
+        config = PipelineConfig(orchestrator_post_ack_confirmation_timeout_seconds=30)
+        assert config.orchestrator_post_ack_confirmation_timeout_seconds == 30
+
+
+# ---------------------------------------------------------------------------
+# Tests: Interaction between grace period and BRC progress (#1613)
+# ---------------------------------------------------------------------------
+
+
+class TestGraceAndBRCProgressInteraction:
+    """Test interaction between post-propose grace and BRC progress checks."""
+
+    def test_reviewer_suppressed_while_producer_past_ack_timeout(self):
+        """Grace suppresses reviewer while BRC progress catches stuck producer."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            post_proposal_grace_seconds=300,
+            orchestrator_post_ack_confirmation_timeout_seconds=180,
+        )
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        _emit_heartbeat(bus, agent_id=REVIEWER_ID)
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+
+        now = time.time()
+
+        # Tracker: producer proposed 100s ago (within grace), fully-acked
+        mock_tracker = _make_mock_tracker(
+            reviewer_roles=[REVIEWER_ID],
+            producer_roles=[PRODUCER_ID],
+            producers_for_reviewer={REVIEWER_ID: [PRODUCER_ID]},
+        )
+        mock_tracker.get_earliest_proposal_time.return_value = now - 100
+        mock_tracker.get_fully_acked_producers.return_value = {
+            PRODUCER_ID: now - 100,
+        }
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = now + 61
+            actions = monitor.check_tripwires()
+
+        # Reviewer should be suppressed (within grace)
+        reviewer_actions = [a for a in actions if a.get("agent_id") == REVIEWER_ID]
+        assert len(reviewer_actions) == 0, "Reviewer should be suppressed by grace"
+
+        # Producer should NOT be escalated yet (within BRC timeout)
+        brc_actions = [a for a in actions if a.get("alert_type") == "brc_confirmation_timeout"]
+        assert len(brc_actions) == 0, "Producer within BRC timeout should not escalate"

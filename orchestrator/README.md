@@ -364,7 +364,7 @@ CLI: `egg-orch progress emit --step "..." --state working` / `egg-orch progress 
 
 ### Deterministic Tripwires
 
-The `health_monitor.py` module subscribes to EventBus events and evaluates six tripwire rules. Thresholds are **phase-aware**: during the implement phase, the heartbeat and progress stall thresholds use `orchestrator_implement_heartbeat_timeout_seconds` (default 600s) instead of the standard 120s. Agents idle in BRC protocol (waiting for an upstream producer's proposal) are suppressed from heartbeat and progress stall checks.
+The `health_monitor.py` module subscribes to EventBus events and evaluates seven tripwire rules. Thresholds are **phase-aware**: during the implement phase, the heartbeat and progress stall thresholds use `orchestrator_implement_heartbeat_timeout_seconds` (default 600s) instead of the standard 120s. BRC-aware suppression prevents false positives: reviewer-only agents are suppressed from heartbeat/progress stall checks both while waiting for upstream proposals and during a configurable grace period after a proposal arrives (`post_proposal_grace_seconds`, default 300s). A separate BRC progress check detects producers stuck in heartbeat loops after being fully ACKed (`orchestrator_post_ack_confirmation_timeout_seconds`, default 180s).
 
 | Tripwire | Threshold Config | Action |
 |----------|-----------------|--------|
@@ -374,6 +374,7 @@ The `health_monitor.py` module subscribes to EventBus events and evaluates six t
 | Message volume spike | `orchestrator_message_rate_limit` (20/min) | Auto-throttle |
 | Progress stall | Same as heartbeat (phase-aware) | Escalate to overseer/HITL |
 | Infrastructure error | Pattern-matched on blocked progress events | Critical alert → HITL fast-path |
+| BRC progress stall | `orchestrator_post_ack_confirmation_timeout_seconds` (180s) | Escalate to overseer/HITL |
 
 ### Overseer Agent
 

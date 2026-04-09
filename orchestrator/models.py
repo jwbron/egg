@@ -346,6 +346,11 @@ class PipelineConfig(BaseModel):
         ge=30,
         description="Grace period after CONSENSUS_PROPOSE before flagging blocking reviewers as stalled",
     )
+    orchestrator_post_ack_confirmation_timeout_seconds: int = Field(
+        default=180,
+        ge=30,
+        description="Timeout for producers to send CONFIRMED after being fully ACKed",
+    )
     active_agent_stall_extension_seconds: int = Field(
         default=120,
         ge=30,
@@ -357,6 +362,28 @@ class PipelineConfig(BaseModel):
         "Valid values: 'plan', 'implement'. When set, the pipeline starts "
         "at this phase instead of 'refine'.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _alias_post_propose_grace(cls, data: Any) -> Any:
+        """Accept orchestrator_post_propose_grace_seconds as alias for post_proposal_grace_seconds.
+
+        The original plan added orchestrator_post_propose_grace_seconds as a
+        separate field, but review identified it as a duplicate of the existing
+        post_proposal_grace_seconds. This validator preserves backward
+        compatibility for callers using the old name.
+        """
+        if isinstance(data, dict) and "orchestrator_post_propose_grace_seconds" in data:
+            data.setdefault(
+                "post_proposal_grace_seconds",
+                data.pop("orchestrator_post_propose_grace_seconds"),
+            )
+        return data
+
+    @property
+    def orchestrator_post_propose_grace_seconds(self) -> int:
+        """Alias for post_proposal_grace_seconds (backward compatibility)."""
+        return self.post_proposal_grace_seconds
 
     @field_validator("start_phase")
     @classmethod

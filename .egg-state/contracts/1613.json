@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1613,
+    "title": "Issue #1613",
+    "url": "https://github.com/jwbron/egg/issues/1613"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/peer_consensus.py:PeerConsensusTracker`, add `get_earliest_proposal_time(reviewer: str) -> float | None` that returns the earliest `_proposal_timestamps` epoch float among the reviewer's upstream producers (via `graph.producers_for(reviewer)`), and `get_fully_acked_producers() -> dict[str, float]` that returns `{role: epoch_float}` for producers where `matrix.is_fully_acked(role)` and `_producer_phases[role] == ConsensusPhase.PROPOSED`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Both methods return correct values; get_earliest_proposal_time returns None for reviewers with no proposals; get_fully_acked_producers excludes confirmed producers.",
+          "files_affected": [
+            "orchestrator/peer_consensus.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `orchestrator/models.py:PipelineConfig`, add `orchestrator_post_propose_grace_seconds: int = Field(default=300, ge=30)` and `orchestrator_post_ack_confirmation_timeout_seconds: int = Field(default=180, ge=30)` with appropriate descriptions.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Fields exist with defaults 300 and 180 respectively; PipelineConfig validates ge=30.",
+          "files_affected": [
+            "orchestrator/models.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In `orchestrator/health_monitor.py:_is_brc_idle()`, after the existing `are_all_producers_working` check, add a second condition: if the agent is reviewer-only (not producer), call `tracker.get_earliest_proposal_time(agent_id)`. If result is not None and `time.time() - result < self._config.orchestrator_post_propose_grace_seconds`, return True. This gives reviewers a grace period after a producer proposes before they can be flagged.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Reviewer-only agents within post-propose grace window are suppressed from heartbeat and progress stall alerts.",
+          "files_affected": [
+            "orchestrator/health_monitor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "In `orchestrator/health_monitor.py`, add `brc_progress_escalated: bool = False` to `AgentState` dataclass. Add `_fully_acked_first_seen: dict[str, float] = {}` to `HealthMonitor.__init__`. Add `check_brc_progress() -> list[dict]` method that: (1) gets tracker via `get_peer_consensus_tracker`, (2) calls `tracker.get_fully_acked_producers()`, (3) for each producer, records first-seen time in `_fully_acked_first_seen` if not present, (4) if elapsed > `_config.orchestrator_post_ack_confirmation_timeout_seconds` and not `brc_progress_escalated`, creates escalation alert and fires callbacks (same pattern as check_progress), (5) cleans up `_fully_acked_first_seen` entries for producers no longer in the fully-acked set. Wire `check_brc_progress()` into `check_tripwires()`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Fully-ACKed producers that don't confirm within 3 minutes are escalated regardless of heartbeat activity; producers within timeout are not escalated.",
+          "files_affected": [
+            "orchestrator/health_monitor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add tests in `orchestrator/tests/test_health_monitor.py`: (a) test_reviewer_post_propose_grace_suppresses_heartbeat_alert \u2014 reviewer within 300s of proposal not flagged; (b) test_reviewer_past_post_propose_grace_is_flagged \u2014 reviewer past grace IS flagged; (c) test_brc_progress_escalates_stuck_producer \u2014 fully-ACKed producer past 180s triggers escalation; (d) test_brc_progress_within_timeout_no_escalation \u2014 within timeout, no escalation; (e) test_brc_progress_resets_on_confirm \u2014 producer that confirms clears tracking.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All 5 new tests pass; all existing tests in test_health_monitor.py still pass.",
+          "files_affected": [
+            "orchestrator/tests/test_health_monitor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Separate BRC progress tracking from liveness in stall detection",
+    "description": "Fixes #1613. The overseer stall detection conflated container liveness (heartbeats) with BRC\nprotocol progress (state transitions), causing false positives (killing active reviewers pre-BRC)\nand false negatives (ignoring producers stuck in heartbeat loops post-ACK). This PR separates\nthe two signals by adding a post-propose grace period for reviewers and a post-ACK confirmation\ntimeout for producers in the Tier 1 health monitor.",
+    "test_plan": "- Automated: new tests in test_health_monitor.py cover post-propose grace and post-ACK timeout\n- Automated: existing test_health_monitor.py tests still pass (no regressions)\n- Manual: run a pipeline with concurrent agents and verify reviewer is not killed during pre-BRC analysis",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
