@@ -28,7 +28,7 @@ When the orchestrator detects uncommitted work in an agent's worktree after exit
 |--------|-------------|
 | **Recover** | A recovery agent or human manually reviews and commits the work |
 | **Discard** | The worktree is cleaned up with uncommitted changes discarded |
-| **Retry agent** | The agent is respawned in a new worktree; uncommitted work from the old worktree is not carried over |
+| **Retry agent** | The agent is respawned and the gateway rediscovers the existing worktree (including all committed work on the branch); uncommitted changes from the old container are not carried over |
 
 ## Worktree Lifecycle
 
