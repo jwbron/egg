@@ -47,9 +47,9 @@
         {
           "container_id": "ca9e14706593e5183e93e410cd518c61b4264f5f3e2536d0a83e593140fc9873",
           "container_name": "issue-1581-documenter",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-04-08T23:38:38.458123Z",
-          "exited_at": null,
+          "exited_at": "2026-04-09T01:19:10.653881Z",
           "exit_code": null,
           "agent_role": "documenter",
           "session_token": null
@@ -77,9 +77,9 @@
         {
           "container_id": "c88adab27eeeb2fd78af1792b8c6f05b88d71a66d2640440e0f311c1991d13e6",
           "container_name": "issue-1581-tester",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-04-08T23:38:38.458145Z",
-          "exited_at": null,
+          "exited_at": "2026-04-09T01:19:10.653881Z",
           "exit_code": null,
           "agent_role": "tester",
           "session_token": null
@@ -87,9 +87,9 @@
         {
           "container_id": "fe5822b1d17a571c41fd75cf77b23b431719d92f3611d8443de5254c38aa685f",
           "container_name": "issue-1581-coder",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-04-08T23:38:38.458148Z",
-          "exited_at": null,
+          "exited_at": "2026-04-09T01:19:10.653881Z",
           "exit_code": null,
           "agent_role": "coder",
           "session_token": null
@@ -98,13 +98,13 @@
       "agents": [
         {
           "role": "documenter",
-          "status": "running",
+          "status": "failed",
           "container_id": "ca9e14706593e5183e93e410cd518c61b4264f5f3e2536d0a83e593140fc9873",
           "started_at": "2026-04-08T23:38:38.458132Z",
-          "completed_at": null,
+          "completed_at": "2026-04-09T01:19:10.653881Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pipeline cancelled",
           "retry_count": 0,
           "conflicts": []
         },
@@ -134,25 +134,25 @@
         },
         {
           "role": "tester",
-          "status": "running",
+          "status": "failed",
           "container_id": "c88adab27eeeb2fd78af1792b8c6f05b88d71a66d2640440e0f311c1991d13e6",
           "started_at": "2026-04-08T23:38:38.458147Z",
-          "completed_at": null,
+          "completed_at": "2026-04-09T01:19:10.653881Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pipeline cancelled",
           "retry_count": 0,
           "conflicts": []
         },
         {
           "role": "coder",
-          "status": "running",
+          "status": "failed",
           "container_id": "fe5822b1d17a571c41fd75cf77b23b431719d92f3611d8443de5254c38aa685f",
           "started_at": "2026-04-08T23:38:38.458150Z",
-          "completed_at": null,
+          "completed_at": "2026-04-09T01:19:10.653881Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pipeline cancelled",
           "retry_count": 0,
           "conflicts": []
         }
@@ -175,7 +175,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-08T23:37:42.350354Z",
-  "updated_at": "2026-04-09T01:19:10.629114Z",
+  "updated_at": "2026-04-09T01:19:10.654089Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -183,5 +183,5 @@
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "analysis": "### Task Analysis\n\n**Problem statement**: A PR was opened despite the BRC Consensus Summary showing \"Consensus not reached\" for all phases. BRC consensus should gate phase completion, which in turn gates PR creation.\n\n**Source context**: Issue #1581. The triggering pipeline was `issue-1526` (#1578). Related: #1572 (BRC context in PR body), #1580 (other BRC bugs).\n\n**System context**: `_run_concurrent_phase()` (pipelines.py:4717) is the shared function that runs any BRC-enabled phase. It polls `executor.check_consensus()` in a loop (step 2), tracks container exits (step 4), and at step 5 decides the phase outcome when all containers have exited. The return value (exit code 0 or 1) determines whether the pipeline advances to the next phase — ultimately reaching the `pr` phase where `_auto_create_pr()` runs unconditionally.\n\n**Technical root cause**: At `pipelines.py:5212-5297` (step 5, all-containers-exited), there are two branches:\n- **`has_failures` is True** (line 5215): Does a final `executor.check_consensus()` recheck. Returns 0 only if `is_complete=True`, otherwise returns 1. Correct.\n- **`has_failures` is False** (line 5270): Only checks for unresolved NACKs. If none, returns 0 at line 5297 **without ever verifying `consensus.is_complete`**. This is the bug — all containers exiting cleanly (exit code 0) is treated as success regardless of consensus state.\n\nThis affects every BRC-enabled phase, not just implement. Any phase where agents exit code 0 without confirming consensus will be treated as successful, allowing the pipeline to advance.\n\n**Files affected**:\n- `orchestrator/routes/pipelines.py` — Add consensus completeness check in the no-failures exit path (around line 5270-5297)\n- `orchestrator/tests/test_consensus_race_on_exit.py` — Add test for clean-exit-without-consensus scenario\n\n**Risks / edge cases**: The consensus wrapper inside containers is supposed to ensure agents confirm before exiting, but agents can exit code 0 without confirming (e.g., wrapper bug, timeout handling). The fix must treat \"all exited cleanly but consensus incomplete\" as failure, matching how the failure path already works.",
   "plan": "# Plan: Gate phase completion on BRC consensus in clean-exit path\n\n## Summary\n\nThe no-failures branch of the all-containers-exited path (step 5) in `_run_concurrent_phase` returns success without checking `consensus.is_complete`. The fix adds a final consensus recheck — mirroring the existing pattern in the `has_failures` branch — so that clean container exits without confirmed consensus are treated as failures. This applies to all BRC-enabled phases.\n\n**Risks / edge cases**: If agents legitimately exit code 0 after a consensus timeout that was handled by the BRC tracker, this change would correctly block advancement. The NACK check (line 5274) remains in place and runs before the new consensus check, preserving existing escalation behavior.\n\n## Implementation\n\n### Phase 1: Implement\n\nAdd a consensus completeness check in the no-failures exit path of `_run_concurrent_phase`, and add tests.\n\n**Tasks**:\n1. **[task-1-1]** In `orchestrator/routes/pipelines.py`, in the no-failures branch of step 5 (after the NACK check at line 5295, before the `return 0` at line 5297), add a final consensus recheck using `executor.check_consensus()`. If `is_complete` is False, log a warning and return 1 (failure) instead of 0. Mirror the pattern used in the `has_failures` branch (lines 5219-5268). Acceptance: `_run_concurrent_phase` returns 1 when all containers exit code 0 but consensus is not complete.\n2. **[task-1-2]** In `orchestrator/tests/test_consensus_race_on_exit.py`, add a test class `TestCleanExitWithoutConsensus` with a test for the scenario: all containers exit code 0, no failures, no NACKs, but `check_consensus()` always returns `is_complete=False` — assert `_run_concurrent_phase` returns exit code 1. Use the existing `_base_mocks` and `_CALL_ARGS` helpers. Acceptance: test passes and validates exit code 1.\n3. **[task-1-3]** In the same test file/class, add a positive test: all containers exit code 0, no failures, and final consensus recheck returns `is_complete=True` — assert exit code 0. Acceptance: test passes and validates exit code 0.\n\n```yaml\n# yaml-tasks\npr:\n  title: \"Gate phase completion on BRC consensus in clean-exit path\"\n  description: |\n    Fix bug where _run_concurrent_phase returns success when all containers\n    exit cleanly (code 0) but BRC consensus was never reached. Adds a final\n    consensus recheck in the no-failures exit path, mirroring the existing\n    pattern in the has_failures branch.\n    \n    Closes #1581\n  test_plan: |\n    - Automated: test_consensus_race_on_exit.py — new TestCleanExitWithoutConsensus class\n    - Manual: Run a pipeline where agents exit code 0 without confirming consensus; verify PR is not created\n  manual_steps: |\n    Pre-merge: None\n    Post-merge: None\nphases:\n  - id: 1\n    name: Implement\n    goal: \"Gate phase completion on BRC consensus completeness for all phases\"\n    tasks:\n      - id: task-1-1\n        description: \"In `orchestrator/routes/pipelines.py` step 5 no-failures branch (after NACK check ~line 5295, before `return 0` at line 5297), add a final consensus recheck via `executor.check_consensus()`. If `is_complete` is False, log a warning ('All containers exited cleanly but consensus not reached') and return 1. Mirror the has_failures branch pattern (lines 5219-5268) but without the pipeline FAILED recovery logic (not needed since has_failures is False here).\"\n        acceptance: \"_run_concurrent_phase returns exit code 1 when all containers exit code 0 but consensus.is_complete is False\"\n        files:\n          - orchestrator/routes/pipelines.py\n      - id: task-1-2\n        description: \"In `orchestrator/tests/test_consensus_race_on_exit.py`, add TestCleanExitWithoutConsensus class. Test: all containers exit code 0 (ContainerStatus.EXITED, exit_code=0), check_consensus always returns is_complete=False. Assert _run_concurrent_phase returns exit code 1. Use _base_mocks, _CALL_ARGS, and the same mock/patch pattern as TestConsensusRaceOnContainerExit.\"\n        acceptance: \"Test passes, asserts exit_code == 1\"\n        files:\n          - orchestrator/tests/test_consensus_race_on_exit.py\n      - id: task-1-3\n        description: \"In the same test class, add positive test: all containers exit code 0, check_consensus returns is_complete=False on first call then is_complete=True on final recheck. Assert _run_concurrent_phase returns exit code 0. Validates that the final recheck recovers correctly.\"\n        acceptance: \"Test passes, asserts exit_code == 0\"\n        files:\n          - orchestrator/tests/test_consensus_race_on_exit.py\n```",
-  "version": 10
+  "version": 11
 }
