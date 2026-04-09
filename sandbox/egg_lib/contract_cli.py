@@ -265,7 +265,7 @@ def make_gateway_request(
 def cmd_show(args: argparse.Namespace) -> int:
     """Display current contract state."""
     identifier = get_contract_identifier(args)
-    if not identifier:
+    if identifier is None:
         print(
             "Error: Contract identifier required. "
             "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
@@ -367,7 +367,7 @@ def _print_contract_summary(contract: dict[str, Any]) -> None:
 def cmd_add_commit(args: argparse.Namespace) -> int:
     """Link a commit to a task."""
     identifier = get_contract_identifier(args)
-    if not identifier:
+    if identifier is None:
         print(
             "Error: Contract identifier required. "
             "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
@@ -414,7 +414,7 @@ def cmd_add_commit(args: argparse.Namespace) -> int:
 def cmd_update_notes(args: argparse.Namespace) -> int:
     """Add implementation notes to a task."""
     identifier = get_contract_identifier(args)
-    if not identifier:
+    if identifier is None:
         print(
             "Error: Contract identifier required. "
             "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
@@ -512,7 +512,7 @@ def cmd_verify_criterion(args: argparse.Namespace) -> int:
     used by contract verification reviewers to mark criteria as verified.
     """
     identifier = get_contract_identifier(args)
-    if not identifier:
+    if identifier is None:
         print(
             "Error: Contract identifier required. "
             "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
@@ -560,7 +560,7 @@ def cmd_add_decision(args: argparse.Namespace) -> int:
     assigning IDs server-side. This is documented as a known limitation.
     """
     identifier = get_contract_identifier(args)
-    if not identifier:
+    if identifier is None:
         print(
             "Error: Contract identifier required. "
             "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
@@ -657,7 +657,7 @@ VALID_AGENT_STATUSES = ["pending", "running", "complete", "failed", "skipped", "
 def cmd_agent_status(args: argparse.Namespace) -> int:
     """Show agent execution status for multi-agent orchestration."""
     identifier = get_contract_identifier(args)
-    if not identifier:
+    if identifier is None:
         print(
             "Error: Contract identifier required. "
             "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
@@ -742,7 +742,7 @@ def cmd_agent_status(args: argparse.Namespace) -> int:
 def cmd_agent_start(args: argparse.Namespace) -> int:
     """Mark an agent as started (running)."""
     identifier = get_contract_identifier(args)
-    if not identifier:
+    if identifier is None:
         print(
             "Error: Contract identifier required. "
             "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
@@ -814,7 +814,7 @@ def cmd_agent_start(args: argparse.Namespace) -> int:
 def cmd_agent_complete(args: argparse.Namespace) -> int:
     """Mark an agent as complete."""
     identifier = get_contract_identifier(args)
-    if not identifier:
+    if identifier is None:
         print(
             "Error: Contract identifier required. "
             "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
@@ -910,7 +910,7 @@ def cmd_agent_complete(args: argparse.Namespace) -> int:
 def cmd_agent_fail(args: argparse.Namespace) -> int:
     """Mark an agent as failed."""
     identifier = get_contract_identifier(args)
-    if not identifier:
+    if identifier is None:
         print(
             "Error: Contract identifier required. "
             "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
@@ -995,7 +995,7 @@ def cmd_agent_fail(args: argparse.Namespace) -> int:
 def cmd_agent_next(args: argparse.Namespace) -> int:
     """Get the next wave of agents to dispatch."""
     identifier = get_contract_identifier(args)
-    if not identifier:
+    if identifier is None:
         print(
             "Error: Contract identifier required. "
             "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
@@ -1116,7 +1116,7 @@ def cmd_add_feedback(args: argparse.Namespace) -> int:
     to trigger processing.
     """
     identifier = get_contract_identifier(args)
-    if not identifier:
+    if identifier is None:
         print(
             "Error: Contract identifier required. "
             "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
