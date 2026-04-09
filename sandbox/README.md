@@ -1,6 +1,6 @@
 # Sandbox Container
 
-The untrusted container where the LLM agent runs with no credentials and restricted access.
+The untrusted container where the LLM agent runs with no credentials and restricted access. Sandbox containers run as Kubernetes Jobs in the `egg-agents` namespace, with Calico NetworkPolicies restricting network access to the gateway only. See [Kubernetes Architecture](../docs/architecture/kubernetes.md) for runtime details.
 
 ## Overview
 
@@ -28,7 +28,7 @@ sandbox/
 │   ├── config.py           # Configuration management
 │   ├── auth.py             # Authentication handling
 │   ├── gateway.py          # Gateway communication
-│   ├── docker.py           # Docker image build, Dockerfile generation, dependency caching
+│   ├── docker.py           # Container image build, Dockerfile generation, dependency caching
 │   ├── context.py          # Context management
 │   ├── runtime.py          # Runtime utilities
 │   ├── setup_flow.py       # Setup workflow
@@ -36,7 +36,7 @@ sandbox/
 │   ├── container_logging.py # Container logging
 │   ├── timing.py           # Timing utilities
 │   ├── output.py           # Output formatting
-│   ├── compose.py          # Docker Compose operations
+│   ├── compose.py          # Legacy Docker Compose operations (deprecated — see k8s migration)
 │   ├── checkpoint_cli.py   # Checkpoint CLI implementation
 │   ├── contract_cli.py     # SDLC contract CLI (egg-contract)
 │   ├── orchestration.py    # Multi-agent orchestration support
@@ -204,3 +204,4 @@ See [Configuration README](../config/README.md#per-repo-build-commands-dependenc
 - [Claude Code Configuration](agent-config/README.md) - Agent rules and commands
 - [Gateway Sidecar](../gateway/README.md) - Policy enforcement gateway
 - [Architecture Overview](../docs/architecture/README.md) - System design
+- [Kubernetes Architecture](../docs/architecture/kubernetes.md) - k3s runtime, agent Jobs, NetworkPolicies
