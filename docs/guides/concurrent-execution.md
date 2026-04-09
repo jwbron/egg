@@ -578,7 +578,7 @@ The health monitor is aware of BRC protocol state and **suppresses stall alerts 
 **Two-phase suppression:** Stall suppression for reviewers now covers two distinct periods:
 
 1. **Pre-proposal idle**: Reviewer-only agents whose upstream producers are all still in `WORKING` phase are fully suppressed. This is the original BRC-idle suppression behavior.
-2. **Post-proposal grace**: After an upstream producer sends `CONSENSUS_PROPOSE`, the reviewer has a configurable grace period (`orchestrator_post_propose_grace_seconds`, default 300s / 5 minutes) before heartbeat/progress stall checks apply. This covers the transition period where the reviewer is actively reading code, verifying claims, and preparing their review — showing tool call activity but no BRC messages yet.
+2. **Post-proposal grace**: After an upstream producer sends `CONSENSUS_PROPOSE`, the reviewer has a configurable grace period (`post_proposal_grace_seconds`, default 300s / 5 minutes) before heartbeat/progress stall checks apply. This covers the transition period where the reviewer is actively reading code, verifying claims, and preparing their review — showing tool call activity but no BRC messages yet.
 
 Once both conditions expire (all producers have proposed AND the grace period has elapsed), normal heartbeat/progress monitoring resumes.
 
