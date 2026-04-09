@@ -205,10 +205,10 @@ def _check_and_respawn_overseer(
 
                 # Broadcast OVERSEER_ALERT with respawn diagnostics (best-effort).
                 try:
+                    from message_store import Message, MessageType
+
                     store_fn = _get_message_store()
                     if store_fn is not None:
-                        from message_store import Message, MessageType
-
                         msg_store = store_fn()
                         msg_store.add_message(
                             Message(
@@ -231,7 +231,7 @@ def _check_and_respawn_overseer(
                                     "respawn_attempt": overseer_respawn_count,
                                     "max_respawns": max_overseer_respawns,
                                 },
-                                phase=pipeline.current_phase.value,
+                                phase=pipeline_check.current_phase.value,
                             )
                         )
                 except Exception as broadcast_err:
