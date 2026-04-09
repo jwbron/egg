@@ -777,6 +777,9 @@ class ContainerSpawner:
             command: Command to execute in the container (e.g. consensus-wrapped prompt).
             certs_volume: Certs volume name.
             branch: Branch name.
+            base_branch: Branch to base worktrees on.  When None, the gateway
+                resolves the remote default branch.  For restarts, pass the
+                pipeline's working branch (the worktree already exists).
             extra_mounts: Additional mount specs.
             max_restarts: Maximum restart attempts per agent per phase (default 2).
             reason: Human-readable reason for the restart.
@@ -1116,6 +1119,9 @@ class ContainerSpawner:
             sandbox_env: Base environment variables.
             image: Docker image override.
             certs_volume: Certs volume name.
+            base_branch: Branch to base worktrees on.  When None, the gateway
+                resolves the remote default branch.  For initial creation, pass
+                the pipeline's base_branch.
 
         Returns:
             Callable suitable for ConcurrentPhaseExecutor.spawn_fn.
