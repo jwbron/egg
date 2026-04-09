@@ -7613,7 +7613,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 identifier,
                             )
                         except Exception as brc_err:
-                            logger.debug(
+                            logger.warning(
                                 "Failed to re-write BRC history for PR (continuing)",
                                 pipeline_id=pipeline_id,
                                 phase=phase_name,
