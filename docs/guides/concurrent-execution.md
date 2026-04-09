@@ -291,6 +291,8 @@ At each phase boundary, the orchestrator writes a chronological log of all BRC c
 3. If matching BRC messages exist, they are formatted as chronological markdown entries and written to `.egg-state/brc-history/{identifier}-{phase}.md`
 4. If no BRC messages exist for that phase, no file is created (graceful no-op)
 
+**PR-phase safety net:** The per-phase write (step 1) is best-effort — if the commit or push fails, BRC history files may not make it to the branch. As a safety net, the PR phase re-writes BRC history for **all completed phases** before creating the PR. Since `_write_brc_history()` is idempotent (it overwrites existing files), the re-write is safe regardless of whether the per-phase write succeeded. This ensures BRC history files are always present in the PR diff.
+
 **Phase tracking requirement:** The phase filter in step 2 (`m.phase == phase`) means that every BRC message must have its `phase` field set at creation time. The consensus signal handlers in `orchestrator/routes/signals.py` resolve the phase via `_resolve_pipeline_phase()`, which loads the pipeline state and returns the current phase name (falling back to `"implement"` on error). Without a phase value, messages would be invisible to the phase filter and the history file would be empty.
 
 **File format:**
