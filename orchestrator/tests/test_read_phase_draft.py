@@ -362,10 +362,13 @@ class TestGitShowDraft:
     """Tests for _git_show_draft."""
 
     def test_success(self, tmp_path: Path, monkeypatch):
-        """Returns content when git show succeeds."""
+        """Returns content when git show succeeds and command is well-formed."""
         import routes.pipelines as mod
 
+        captured_cmd: list[str] = []
+
         def fake_run(cmd, **kwargs):
+            captured_cmd.extend(cmd)
             result = MagicMock()
             result.returncode = 0
             result.stdout = "draft from remote"
@@ -375,6 +378,12 @@ class TestGitShowDraft:
 
         result = _git_show_draft(tmp_path, "egg/pid/work", ".egg-state/drafts/pid-analysis.md")
         assert result == "draft from remote"
+
+        # Verify the command includes the -- separator and correct ref:path
+        assert "--" in captured_cmd
+        assert "show" in captured_cmd
+        separator_idx = captured_cmd.index("--")
+        assert captured_cmd[separator_idx + 1] == "origin/egg/pid/work:.egg-state/drafts/pid-analysis.md"
 
     def test_nonzero_returncode(self, tmp_path: Path, monkeypatch):
         """Returns None when git show returns non-zero."""

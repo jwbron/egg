@@ -2444,6 +2444,11 @@ def _git_show_draft(
     Returns the file content as a string, or ``None`` if the file does
     not exist on the remote ref or the git command fails.  This is a
     read-only operation that does not modify the worktree.
+
+    Note: this does **not** ``git fetch`` before reading.  It relies on
+    ``origin/{branch}`` being reasonably fresh from periodic fetches
+    performed by the health monitor and other pipeline flows.  If stale
+    refs become a problem, consider adding an optional fetch here.
     """
     git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(repo_path)]
     try:
