@@ -33,7 +33,9 @@ def _noop(*_args, **_kwargs):
     return True
 
 
-# All setup functions called within timed_phase blocks in main()
+# All setup functions called within timed_phase blocks in main().
+# NOTE: If a new setup step is added to main(), it must be added here too,
+# otherwise the test will fail with a real side effect instead of a clear error.
 _SETUP_PATCHES = [
     "entrypoint.setup_user",
     "entrypoint.setup_repo_permissions",
@@ -68,18 +70,26 @@ def _bypass_setup():
 class TestPipelineModeInteractiveGuard:
     """Entrypoint should refuse interactive mode when in pipeline mode."""
 
+    @patch("entrypoint.signal_orchestrator_completion")
     @patch("entrypoint.run_interactive")
     @patch.dict(
         os.environ,
         {"EGG_PIPELINE_ID": "issue-1591-v1", "EGG_AGENT_ROLE": "coder"},
     )
     @patch("sys.argv", ["entrypoint.py"])
-    def test_rejects_interactive_mode_in_pipeline(self, mock_run_interactive, _bypass_setup):
+    def test_rejects_interactive_mode_in_pipeline(
+        self, mock_run_interactive, mock_signal, _bypass_setup
+    ):
         """No command + pipeline mode should exit(1), not call run_interactive."""
         with pytest.raises(SystemExit) as exc_info:
             main()
         assert exc_info.value.code == 1
         mock_run_interactive.assert_not_called()
+        # Verify orchestrator is notified with exit_code=1 and a descriptive error
+        mock_signal.assert_called_once()
+        _, kwargs = mock_signal.call_args
+        assert kwargs["exit_code"] == 1
+        assert "No command provided" in kwargs["error_message"]
 
     @patch("entrypoint.run_interactive", return_value=0)
     @patch.dict(
