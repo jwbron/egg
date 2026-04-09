@@ -83,23 +83,22 @@ deps:
 	fi
 	@PATH="$$HOME/.local/bin:$$HOME/.cargo/bin:$$PATH" $(MAKE) venv
 
-# Ensure venv exists and has dev dependencies
+# Ensure venv exists and has dev dependencies.
+# Always runs `uv sync` — it's a fast no-op when the lockfile already matches
+# the installed environment, and avoids fragile single-binary sentinel checks
+# that can miss partial installs.
 venv:
-	@if [ ! -f "$(VENV_BIN)/ruff" ]; then \
-		echo "==> Setting up venv..."; \
-		if ! command -v uv >/dev/null 2>&1; then \
-			echo "ERROR: uv is not installed."; \
-			echo ""; \
-			echo "Install uv with:"; \
-			echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"; \
-			echo ""; \
-			echo "Or see: https://docs.astral.sh/uv/getting-started/installation/"; \
-			exit 1; \
-		fi; \
-		uv sync --extra dev; \
-	else \
-		echo "Dev dependencies already installed."; \
+	@if ! command -v uv >/dev/null 2>&1; then \
+		echo "ERROR: uv is not installed."; \
+		echo ""; \
+		echo "Install uv with:"; \
+		echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"; \
+		echo ""; \
+		echo "Or see: https://docs.astral.sh/uv/getting-started/installation/"; \
+		exit 1; \
 	fi
+	@echo "==> Syncing venv..."
+	@uv sync --extra dev
 
 # Install all linting tools
 install-linters: venv
