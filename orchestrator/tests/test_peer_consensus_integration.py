@@ -2585,3 +2585,174 @@ class TestUnresolvedNackGuard:
         assert result["status"] == "pending_acks"
         # tester should NOT be fully confirmed
         assert "tester" not in t._confirmed
+
+
+# ---------------------------------------------------------------------------
+# Tests: get_earliest_proposal_time (#1613 — task-1-1)
+# ---------------------------------------------------------------------------
+
+
+class TestGetEarliestProposalTime:
+    """Test PeerConsensusTracker.get_earliest_proposal_time()."""
+
+    def test_returns_none_when_no_proposals(self, tracker):
+        """Returns None when no upstream producer has proposed."""
+        result = tracker.get_earliest_proposal_time("reviewer_code")
+        assert result is None
+
+    def test_returns_epoch_after_proposal(self, tracker):
+        """Returns the proposal timestamp as epoch float after a producer proposes."""
+        tracker.handle_propose(
+            "coder",
+            {"summary": "test", "artifacts": ["a.py"], "commit_sha": "abc123"},
+        )
+        result = tracker.get_earliest_proposal_time("reviewer_code")
+        assert result is not None
+        assert isinstance(result, float)
+        # Should be close to now (within a few seconds)
+        import time
+
+        assert abs(result - time.time()) < 5
+
+    def test_returns_earliest_with_multiple_producers(self, tracker):
+        """With multiple upstream producers, returns the earliest proposal time."""
+        import time
+
+        # Both coder and tester are upstream of reviewer_code
+        tracker.handle_propose(
+            "coder",
+            {"summary": "coder proposal", "artifacts": ["a.py"], "commit_sha": "abc123"},
+        )
+        # Small delay to get a different timestamp
+        time.sleep(0.01)
+        tracker.handle_propose(
+            "tester",
+            {"summary": "tester proposal", "artifacts": ["t.py"], "commit_sha": "def456"},
+        )
+
+        result = tracker.get_earliest_proposal_time("reviewer_code")
+        assert result is not None
+
+        # It should be the coder's timestamp (earlier)
+        coder_ts = tracker._proposal_timestamps["coder"].timestamp()
+        tester_ts = tracker._proposal_timestamps["tester"].timestamp()
+        assert result == min(coder_ts, tester_ts)
+
+    def test_returns_none_for_reviewer_with_no_upstream(self):
+        """Returns None for a reviewer with no upstream producers."""
+        graph = ReviewGraph([])  # Empty graph
+        t = PeerConsensusTracker("test", graph, cooldown_seconds=0)
+        result = t.get_earliest_proposal_time("orphan_reviewer")
+        assert result is None
+
+    def test_only_considers_upstream_producers(self):
+        """Only considers producers assigned to this reviewer, not all producers."""
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_a", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_b", "tester", ReviewCriticality.CRITICAL),
+            ]
+        )
+        t = PeerConsensusTracker("test", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("tester")
+        t.register_agent("reviewer_a")
+        t.register_agent("reviewer_b")
+
+        # Only tester proposes
+        t.handle_propose(
+            "tester",
+            {"summary": "test", "artifacts": ["t.py"], "commit_sha": "abc"},
+        )
+
+        # reviewer_a is upstream of coder (not tester) — should return None
+        assert t.get_earliest_proposal_time("reviewer_a") is None
+        # reviewer_b is upstream of tester — should return tester's timestamp
+        assert t.get_earliest_proposal_time("reviewer_b") is not None
+
+
+# ---------------------------------------------------------------------------
+# Tests: get_fully_acked_producers (#1613 — task-1-1)
+# ---------------------------------------------------------------------------
+
+
+class TestGetFullyAckedProducers:
+    """Test PeerConsensusTracker.get_fully_acked_producers()."""
+
+    def test_empty_when_no_proposals(self, tracker):
+        """Returns empty dict when no producer has proposed."""
+        result = tracker.get_fully_acked_producers()
+        assert result == {}
+
+    def test_empty_when_proposed_but_not_acked(self, tracker):
+        """Returns empty dict when a producer has proposed but not been ACKed."""
+        tracker.handle_propose(
+            "coder",
+            {"summary": "test", "artifacts": ["a.py"], "commit_sha": "abc123"},
+        )
+        result = tracker.get_fully_acked_producers()
+        assert result == {}
+
+    def test_returns_fully_acked_producer(self, tracker):
+        """Returns producer with timestamp when fully ACKed by all critical reviewers."""
+        tracker.handle_propose(
+            "coder",
+            {"summary": "test", "artifacts": ["a.py"], "commit_sha": "abc123"},
+        )
+        # Both critical reviewers ACK
+        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
+        tracker.handle_ack("reviewer_contract", "coder", {"artifact_references": ["a.py"]})
+
+        result = tracker.get_fully_acked_producers()
+        assert "coder" in result
+        assert isinstance(result["coder"], float)
+
+    def test_excludes_confirmed_producers(self, tracker):
+        """Producers that have already confirmed are excluded."""
+        tracker.handle_propose(
+            "coder",
+            {"summary": "test", "artifacts": ["a.py"], "commit_sha": "abc123"},
+        )
+        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
+        tracker.handle_ack("reviewer_contract", "coder", {"artifact_references": ["a.py"]})
+
+        # Confirm the producer
+        tracker.handle_confirmed("coder")
+
+        result = tracker.get_fully_acked_producers()
+        assert "coder" not in result, "Confirmed producer should be excluded"
+
+    def test_excludes_partially_acked(self, tracker):
+        """Producer with only some ACKs is not returned."""
+        tracker.handle_propose(
+            "coder",
+            {"summary": "test", "artifacts": ["a.py"], "commit_sha": "abc123"},
+        )
+        # Only one of two critical reviewers ACKs
+        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
+
+        result = tracker.get_fully_acked_producers()
+        assert "coder" not in result, "Partially ACKed should not be in result"
+
+    def test_advisory_ack_not_needed(self):
+        """Advisory-only reviewer ACK is not required for fully-acked status."""
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_a", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_b", "coder", ReviewCriticality.ADVISORY),
+            ]
+        )
+        t = PeerConsensusTracker("test", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("reviewer_a")
+        t.register_agent("reviewer_b")
+
+        t.handle_propose(
+            "coder",
+            {"summary": "test", "artifacts": ["a.py"], "commit_sha": "abc"},
+        )
+        # Only critical reviewer ACKs
+        t.handle_ack("reviewer_a", "coder", {"artifact_references": ["a.py"]})
+
+        result = t.get_fully_acked_producers()
+        assert "coder" in result, "Advisory reviewer ACK should not be required"
