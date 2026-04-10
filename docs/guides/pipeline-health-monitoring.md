@@ -274,6 +274,8 @@ Lightweight Haiku agents handle classification tasks. They run only when the orc
 
 **Consensus-aware stall classification**: The stall classifier receives BRC consensus state as authoritative context when available. The classifier is instructed that an agent with confirmed consensus is not stalled — this prevents false stall diagnoses during the window between consensus confirmation and phase transition.
 
+**Container-log-aware classification**: The overseer automatically fetches recent Docker container logs (last 200 lines, truncated to 8 000 chars) for each alerted agent at the start of every monitoring cycle and passes them to both the stall and error classifiers. This surfaces runtime failures — OOM kills, segfaults, tracebacks, repeated permission errors — that never appear in structured progress events. The same logs are forwarded to the Sonnet/Opus decision-maker when determining escalation level.
+
 Characteristics:
 - Short, focused prompts — single-purpose classification
 - Results are cached to avoid re-analyzing the same log lines
@@ -422,6 +424,9 @@ When the overseer files a GitHub issue (decided by the Sonnet/Opus tier), it use
 
 ## Sonnet/Opus Decision
 {reasoning for the corrective action}
+
+## Container Logs
+{last 2 000 chars of Docker container logs for the agent, if available}
 
 ## Suggested Next Step
 {what a human should do}
