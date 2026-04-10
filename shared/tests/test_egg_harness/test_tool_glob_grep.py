@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import time
 from pathlib import Path
 
@@ -157,6 +158,7 @@ class TestGrepToolCreation:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(shutil.which("rg") is None, reason="ripgrep (rg) not installed")
 class TestGrepFiles:
     """Grep handler: content-based searching."""
 
