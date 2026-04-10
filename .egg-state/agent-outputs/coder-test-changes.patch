@@ -1,67 +1,212 @@
+diff --git a/orchestrator/tests/test_action_guards.py b/orchestrator/tests/test_action_guards.py
+index 7ad58c1820..bd031f421e 100644
+--- a/orchestrator/tests/test_action_guards.py
++++ b/orchestrator/tests/test_action_guards.py
+@@ -269,6 +269,8 @@ class TestCheckConfirmGuardProducer:
+         matrix.record_ack("reviewer_code", "coder", version)
+         matrix.record_ack("reviewer_contract", "coder", version)
+         matrix.record_ack("tester", "coder", version)
++        # tester must also have proposed to pass global zero-proposal guard
++        matrix.record_proposal("tester")
+ 
+         result = check_confirm_guard(
+             "coder",
+@@ -283,6 +285,8 @@ class TestCheckConfirmGuardProducer:
+         matrix.record_proposal("coder")
+         # Only one ACK
+         matrix.record_ack("reviewer_code", "coder", 1)
++        # tester must also have proposed to pass global zero-proposal guard
++        matrix.record_proposal("tester")
+ 
+         result = check_confirm_guard(
+             "coder",
+@@ -334,7 +338,11 @@ class TestCheckConfirmGuardReviewer:
+         assert result.details["guard"] == "must_have_reviewed"
+ 
+     def test_zero_proposal_producers(self, graph, matrix):
+-        """Producer has version 0 (never proposed) -> not allowed (#1598)."""
++        """Producer has version 0 (never proposed) -> not allowed (#1598).
++
++        Now caught by the global zero-proposal guard (#1648) which fires
++        before the per-reviewer guard.
++        """
+         # Coder proposed and reviewer_code ACKed
+         version = matrix.record_proposal("coder")
+         matrix.record_ack("reviewer_code", "coder", version)
+@@ -352,7 +360,8 @@ class TestCheckConfirmGuardReviewer:
+             confirmed=set(),
+         )
+         assert result.allowed is False
+-        assert result.details["guard"] == "zero_proposal_producers"
++        # Global guard fires before per-reviewer guard
++        assert result.details["guard"] == "global_zero_proposal"
+         assert "tester" in result.details["producers"]
+ 
+     def test_stale_ack(self, graph, matrix):
+@@ -427,7 +436,11 @@ class TestCheckConfirmGuardReviewer:
+         assert stale[0]["current_version"] == 2
+ 
+     def test_guard_priority_zero_proposal_before_stale_acks(self, graph, matrix):
+-        """Zero-proposal guard fires before stale_acks guard."""
++        """Zero-proposal guard fires before stale_acks guard.
++
++        The global zero-proposal guard (#1648) now fires even earlier than
++        the per-reviewer zero_proposal_producers guard.
++        """
+         # reviewer_code reviews coder (stale ACK) and tester (never proposed)
+         v1 = matrix.record_proposal("coder")
+         matrix.record_ack("reviewer_code", "coder", v1)
+@@ -443,8 +456,8 @@ class TestCheckConfirmGuardReviewer:
+             confirmed=set(),
+         )
+         assert result.allowed is False
+-        # zero_proposal fires first because it's checked before stale_acks
+-        assert result.details["guard"] == "zero_proposal_producers"
++        # Global zero-proposal guard fires first
++        assert result.details["guard"] == "global_zero_proposal"
+ 
+     def test_guard_priority_stale_acks_before_unresolved_nacks(self):
+         """Stale ACKs guard fires before unresolved NACKs guard."""
+@@ -476,6 +489,67 @@ class TestCheckConfirmGuardReviewer:
+         # Stale ACKs checked before unresolved NACKs
+         assert result.details["guard"] == "stale_acks"
+ 
++    def test_global_zero_proposal_blocks_unassigned_reviewer(self, graph, matrix):
++        """reviewer_contract blocked when tester has v0, even though reviewer_contract doesn't review tester (#1648)."""
++        # reviewer_contract only reviews coder — the per-reviewer guard
++        # (Guard 2) would not catch tester's missing proposal.  The global
++        # guard must block it.
++        version = matrix.record_proposal("coder")
++        matrix.record_ack("reviewer_contract", "coder", version)
++        # tester never proposed — proposal_version == 0
++
++        result = check_confirm_guard(
++            "reviewer_contract",
++            graph,
++            matrix,
++            confirmed=set(),
++        )
++        assert result.allowed is False
++        assert result.details["guard"] == "global_zero_proposal"
++        assert "tester" in result.details["producers"]
++
++    def test_global_zero_proposal_blocks_producer(self, graph, matrix):
++        """coder (a producer) blocked when peer producer tester has v0 (#1648)."""
++        # coder is fully ACKed as a producer, but tester never proposed.
++        version = matrix.record_proposal("coder")
++        matrix.record_ack("reviewer_code", "coder", version)
++        matrix.record_ack("reviewer_contract", "coder", version)
++        matrix.record_ack("tester", "coder", version)
++        assert matrix.is_fully_acked("coder")
++        # tester never proposed — proposal_version == 0
++
++        result = check_confirm_guard(
++            "coder",
++            graph,
++            matrix,
++            confirmed=set(),
++        )
++        assert result.allowed is False
++        assert result.details["guard"] == "global_zero_proposal"
++        assert "tester" in result.details["producers"]
++
++    def test_global_zero_proposal_clears_when_all_proposed(self, graph, matrix):
++        """Global guard passes once all producers have proposed (#1648)."""
++        # Both producers propose
++        c_version = matrix.record_proposal("coder")
++        t_version = matrix.record_proposal("tester")
++
++        # reviewer_contract ACKs coder (its only assigned producer)
++        matrix.record_ack("reviewer_contract", "coder", c_version)
++
++        result = check_confirm_guard(
++            "reviewer_contract",
++            graph,
++            matrix,
++            confirmed=set(),
++        )
++        # The global zero-proposal guard should NOT fire — both producers
++        # have proposed.  reviewer_contract may still be blocked by other
++        # guards (e.g. must_have_reviewed for coder), but not by
++        # global_zero_proposal.
++        if not result.allowed:
++            assert result.details["guard"] != "global_zero_proposal"
++
+     def test_dual_role_tester_producer_side(self, graph, matrix):
+         """Dual-role agent (tester) tested as producer."""
+         # Tester is both producer (reviewed by reviewer_code) and reviewer (of coder)
 diff --git a/orchestrator/tests/test_peer_consensus_integration.py b/orchestrator/tests/test_peer_consensus_integration.py
-index de4b45c002..5306876085 100644
+index d0f1139503..f8f068ead4 100644
 --- a/orchestrator/tests/test_peer_consensus_integration.py
 +++ b/orchestrator/tests/test_peer_consensus_integration.py
-@@ -2042,19 +2042,23 @@ class TestPreProposalACKDeadlock:
-             t.handle_confirmed("reviewer_code")
+@@ -1166,6 +1166,11 @@ class TestPrematureConfirmReturnsPending:
+                 "commit_sha": "abc123",
+             },
+         )
++        # Tester must also propose to pass global zero-proposal guard (#1648)
++        tracker.handle_propose(
++            "tester",
++            {"summary": "Tests", "artifacts": ["tests/test.py"], "commit_sha": "def456"},
++        )
  
-     def test_confirmed_reviewer_with_pre_proposal_ack_unconfirmed(self, deadlock_tracker):
--        """A reviewer who ACKed at version 0 and confirmed should be un-confirmed
--        when the producer proposes."""
-+        """A reviewer who ACKed at version 0 cannot confirm while a producer
-+        has never proposed (zero-proposal guard). Once the producer proposes,
-+        the version-0 ACK is invalidated via _invalidate_pre_proposal_acks."""
-         t = deadlock_tracker
- 
-         # reviewer_code ACKs before coder proposes (version 0)
-         t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
- 
--        # reviewer_code confirms (has_reviewed returns True for the ACK entry)
--        t.handle_confirmed("reviewer_code")
--        assert "reviewer_code" in t._confirmed
-+        # reviewer_code attempts to confirm — blocked by the zero-proposal
-+        # guard because coder has proposal_version == 0.
-+        result = t.handle_confirmed("reviewer_code")
-+        assert result["status"] == "pending_acks"
-+        assert "zero_proposal_producers" in result
-+        assert "reviewer_code" not in t._confirmed
- 
--        # Coder proposes — the confirmed reviewer with stale version-0 ACK
--        # should be un-confirmed via _un_confirm_stale_reviewers
-+        # Coder proposes — the version-0 ACK is invalidated via
-+        # _invalidate_pre_proposal_acks so the reviewer must re-review.
-         result = t.handle_propose(
+         # Only reviewer_code ACKs, but reviewer_contract hasn't ACKed yet
+         tracker.handle_ack(
+@@ -1467,6 +1472,11 @@ class TestConfirmErrorListsPendingReviewers:
              "coder",
-             {"summary": "Implementation", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
-@@ -2486,11 +2490,12 @@ class TestUnresolvedNackGuard:
-         assert "rev" not in t._confirmed
+             {"summary": "v1", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
+         )
++        # Tester must also propose to pass global zero-proposal guard (#1648)
++        tracker.handle_propose(
++            "tester",
++            {"summary": "Tests", "artifacts": ["tests/test.py"], "commit_sha": "def456"},
++        )
  
-     def test_nack_guard_with_version_zero_nack(self):
--        """NACK at version 0 (before proposal) should not trigger the guard
--        because current_version == 0 means no proposal has been made yet.
-+        """NACK at version 0 (before proposal) — the zero-proposal guard
-+        blocks confirmation because the producer hasn't proposed yet.
+         # Only reviewer_code ACKs
+         tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+@@ -2726,13 +2736,18 @@ class TestJiraPipelineConsensus:
+             remove_peer_consensus_tracker("KORE-5678")
  
--        The guard condition requires current_version > 0 to avoid false
--        positives when reviewers NACK before any proposal exists.
-+        The NACK guard condition requires current_version > 0, so it would
-+        not fire at v0.  However, the zero-proposal guard fires first,
-+        preventing confirmation when any assigned producer has version == 0.
-         """
-         graph = ReviewGraph([ReviewEdge("rev", "coder", ReviewCriticality.CRITICAL)])
-         t = PeerConsensusTracker("test-v0", graph, cooldown_seconds=0)
-@@ -2501,10 +2506,11 @@ class TestUnresolvedNackGuard:
-         t.handle_nack("rev", "coder", {"artifact_references": ["a.py"], "reason": "preemptive"})
+     def test_pending_acks_returns_blocking_details(self, jira_tracker):
+-        """handle_confirmed returns pending_acks with details before any proposals."""
++        """handle_confirmed returns pending_acks with details before any proposals.
++
++        Now caught by global zero-proposal guard (#1648) which fires before
++        the producer_not_fully_acked guard.
++        """
+         # Try to confirm coder before any proposals — should get pending_acks
+         result = jira_tracker.handle_confirmed("coder")
  
-         # has_reviewed returns True for NACK, so the has_reviewed guard passes.
--        # The NACK guard requires current_version > 0, which is 0 here, so it
--        # doesn't fire. Confirm succeeds.
-+        # However, the zero-proposal guard blocks: coder has version == 0.
-         result = t.handle_confirmed("rev")
--        assert result["status"] in ("confirmed", "partially_confirmed")
-+        assert result["status"] == "pending_acks"
+         assert result["status"] == "pending_acks"
+-        assert "not fully ACKed" in result["message"]
+-        assert "reviewer_code" in result["message"]
++        # Global zero-proposal guard fires because no producer has proposed
++        assert "have never proposed" in result["message"]
 +        assert "zero_proposal_producers" in result
-+        assert "coder" in result["zero_proposal_producers"]
  
-     def test_nack_guard_response_includes_nacked_producers(self):
-         """The rejection response should identify which producers have
+ 
+ # ---------------------------------------------------------------------------
+@@ -2861,6 +2876,11 @@ class TestGetFullyAckedProducers:
+             "coder",
+             {"summary": "test", "artifacts": ["a.py"], "commit_sha": "abc123"},
+         )
++        # Tester must also propose to pass global zero-proposal guard (#1648)
++        tracker.handle_propose(
++            "tester",
++            {"summary": "Tests", "artifacts": ["tests/test.py"], "commit_sha": "def456"},
++        )
+         tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
+         tracker.handle_ack("reviewer_contract", "coder", {"artifact_references": ["a.py"]})
+ 
+diff --git a/orchestrator/tests/test_producer_push_consensus.py b/orchestrator/tests/test_producer_push_consensus.py
+index 0a6c18bc30..03c5306ca0 100644
+--- a/orchestrator/tests/test_producer_push_consensus.py
++++ b/orchestrator/tests/test_producer_push_consensus.py
+@@ -525,6 +525,8 @@ class TestExcuseProducer:
+         """excuse_producer clears _producer_phases, _confirmed, _proposal_artifacts, etc."""
+         # Setup: coder proposes and gets confirmed
+         tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
++        # Tester must also propose to pass global zero-proposal guard (#1648)
++        tracker.handle_propose("tester", make_proposal(commit_sha="sha_tester"))
+         ack_producer(tracker, "reviewer_code", "coder")
+         ack_producer(tracker, "reviewer_contract", "coder")
+         ack_producer(tracker, "tester", "coder")

@@ -455,9 +455,10 @@ class PeerConsensusTracker:
         (``check_confirm_guard``) which encapsulates all producer and
         reviewer confirmation guards:
 
+        - Global: all producers must have proposed (proposal_version > 0).
         - Producer: must be fully ACKed.
         - Reviewer: must have reviewed all producers, ACK versions must match,
-          no unresolved NACKs, no zero-proposal producers.
+          no unresolved NACKs, no zero-proposal producers (defense-in-depth).
         """
         with self._lock:
             guard = check_confirm_guard(
@@ -469,6 +470,21 @@ class PeerConsensusTracker:
 
             if not guard.allowed:
                 guard_type = guard.details.get("guard", "unknown")
+
+                # Global zero-proposal guard (#1648): any producer has
+                # never proposed — blocks all agents from confirming.
+                if guard_type == "global_zero_proposal":
+                    logger.warning(
+                        "handle_confirmed rejected: global zero-proposal producers",
+                        pipeline_id=self.pipeline_id,
+                        role=agent_role,
+                        producers=guard.details.get("producers"),
+                    )
+                    return {
+                        "status": "pending_acks",
+                        "message": guard.reason,
+                        "zero_proposal_producers": guard.details.get("producers"),
+                    }
 
                 # Producer guard failures return pending_acks status
                 if guard_type == "producer_not_fully_acked":

@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1648,
+    "title": "Issue #1648",
+    "url": "https://github.com/jwbron/egg/issues/1648"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/action_guards.py:check_confirm_guard()`, add a global zero-proposal guard after the phantom-agent guard and before the producer/reviewer-specific sections. Iterate all producers via `[r for r in graph.all_roles() if graph.is_producer(r)]`, check `matrix.get_proposal_version(p) == 0` for each, and return GuardResult(allowed=False) with guard type 'global_zero_proposal' and the list of zero-proposal producers if any are found.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "check_confirm_guard('reviewer_contract', ...) returns allowed=False with guard='global_zero_proposal' when tester has proposal_version == 0, even though reviewer_contract does not review tester",
+          "files_affected": [
+            "orchestrator/action_guards.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `orchestrator/peer_consensus.py:handle_confirmed()`, add explicit handling for the 'global_zero_proposal' guard type before the existing 'producer_not_fully_acked' handler. Log 'handle_confirmed rejected: global zero-proposal producers' and return {status: 'pending_acks', message: guard.reason, zero_proposal_producers: guard.details.get('producers')}.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "handle_confirmed returns structured response with zero_proposal_producers for the global_zero_proposal guard type",
+          "files_affected": [
+            "orchestrator/peer_consensus.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In `orchestrator/tests/test_action_guards.py`, add three tests to TestCheckConfirmGuard: (a) test_global_zero_proposal_blocks_unassigned_reviewer \u2014 reviewer_contract blocked when tester has v0 even though reviewer_contract doesn't review tester; (b) test_global_zero_proposal_blocks_producer \u2014 coder blocked when peer producer tester has v0; (c) test_global_zero_proposal_clears_when_all_proposed \u2014 guard passes once all producers have proposed. Use existing graph and matrix fixtures.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All three new tests pass and all existing tests in test_action_guards.py continue to pass",
+          "files_affected": [
+            "orchestrator/tests/test_action_guards.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Fix BRC zero-proposal guard bypass for unassigned producers",
+    "description": "Adds a global zero-proposal guard to check_confirm_guard() that prevents\nany agent from confirming consensus while any producer in the review graph\nhas never proposed (proposal_version == 0). Fixes #1648 where\nreviewer_contract could confirm before tester proposed because the\nper-reviewer guard only checked assigned producers.",
+    "test_plan": "- Automated: test_global_zero_proposal_blocks_unassigned_reviewer, test_global_zero_proposal_blocks_producer, test_global_zero_proposal_clears_when_all_proposed in test_action_guards.py\n- Manual: Run existing test suite to confirm no regressions (pytest orchestrator/tests/test_action_guards.py)",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}

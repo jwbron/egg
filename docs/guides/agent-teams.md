@@ -209,7 +209,8 @@ When agents work at different speeds, a faster reviewer (e.g., tester) may send 
 2. **Confirm-time guards**: The formal action guard system (`check_confirm_guard()` in `orchestrator/action_guards.py`) enforces multiple preconditions before allowing confirmation. See [Concurrent Execution — Action Guards](concurrent-execution.md#action-guards) for the complete guard table. Key guards include:
    - **Version-match guard**: All of the reviewer's ACKs must match the current proposal versions. Stale ACKs return `pending_acks` (exit code 2) with instructions to re-ACK the listed producers.
    - **Unresolved-NACK guard**: If the reviewer has NACKed a producer that hasn't re-proposed since, confirmation returns `pending_acks` (exit code 2) — the reviewer must wait for the producer to re-propose and be re-reviewed before confirming.
-   - **Zero-proposal guard** ([#1598](https://github.com/jwbron/egg/issues/1598)): If any assigned producer has never proposed (version 0), the reviewer cannot confirm — preventing consensus from completing without the primary deliverable.
+   - **Global zero-proposal guard** ([#1648](https://github.com/jwbron/egg/issues/1648)): If any producer in the review graph has never proposed (version 0), no agent — producer or reviewer — can confirm. This prevents consensus from completing without all deliverables, even when the confirming agent has no direct review relationship with the non-delivering producer.
+   - **Per-reviewer zero-proposal guard** ([#1598](https://github.com/jwbron/egg/issues/1598)): Additionally, if any *assigned* producer has never proposed, the reviewer cannot confirm. Retained as defense-in-depth with a more specific error message.
 
 These two layers — proactive invalidation at propose time and defensive validation at confirm time — ensure that out-of-order ACKs, unresolved NACKs, and non-delivering producers never create unrecoverable deadlocks, regardless of agent timing.
 
@@ -228,7 +229,7 @@ An agent crashes after proposing but before the review phase completes.
 1. Detect crash via container exit event on the stream
 2. **Producer crashed:** Its proposal stands (already on the stream). Reviewers can still ACK/NACK. If reviewers NACK and the producer can't respond, escalate to HITL or restart.
 3. **Reviewer crashed:** Remove from the review graph via `excuse_reviewer()`. Re-evaluate whether remaining ACKs satisfy consensus. If the crashed reviewer was the only reviewer for a producer, restart or escalate.
-4. **Non-delivering producer:** If a producer never proposes, the zero-proposal confirm guard prevents reviewers from confirming. The orchestrator escalates via HITL decision. See [Concurrent Execution — Excusing Non-Delivering Agents](concurrent-execution.md#excusing-non-delivering-agents).
+4. **Non-delivering producer:** If a producer never proposes, the global zero-proposal confirm guard ([#1648](https://github.com/jwbron/egg/issues/1648)) prevents *any* agent from confirming — not just reviewers assigned to the non-delivering producer. The orchestrator escalates via HITL decision. See [Concurrent Execution — Excusing Non-Delivering Agents](concurrent-execution.md#excusing-non-delivering-agents).
 5. Restarted agents replay missed messages from Redis Stream and rejoin the protocol.
 
 ## Commitment Devices
