@@ -25,6 +25,7 @@ from egg_harness.tools.glob_tool import create_glob_tool
 from egg_harness.tools.grep import create_grep_tool
 from egg_harness.tools.read import create_read_tool
 from egg_harness.tools.registry import ToolResult
+from egg_config.constants import GATEWAY_PORT
 from egg_harness.tools.web_fetch import create_web_fetch_tool
 from egg_harness.tools.web_search import create_web_search_tool
 from egg_harness.tools.write import create_write_tool
@@ -500,7 +501,7 @@ class TestWebFetchToolParity:
         result = _run(
             handler(
                 {
-                    "url": "http://egg-gateway:9848/api/v1/health",
+                    "url": f"http://egg-gateway:{GATEWAY_PORT}/api/v1/health",
                     "prompt": "test",
                 }
             )
