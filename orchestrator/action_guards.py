@@ -322,6 +322,33 @@ def check_confirm_guard(
             details={"guard": "phantom_agent", "agent_role": agent_role},
         )
 
+    # --- Global zero-proposal guard (#1648): reject if ANY producer in the
+    # review graph has never proposed (proposal_version == 0).  The existing
+    # per-reviewer guard (Guard 2 below) only checks assigned producers,
+    # which allows reviewers like reviewer_contract (who only reviews coder)
+    # to confirm even when tester has never proposed.  This global guard
+    # closes that gap by checking all producers regardless of review
+    # assignments.  Applies to both producers and reviewers. ---
+    all_producers = [r for r in graph.all_roles() if graph.is_producer(r)]
+    global_zero_producers: list[str] = []
+    for p in all_producers:
+        if matrix.get_proposal_version(p) == 0:
+            global_zero_producers.append(p)
+    if global_zero_producers:
+        return GuardResult(
+            allowed=False,
+            reason=(
+                f"Agent {agent_role} cannot confirm: producers "
+                f"{global_zero_producers} have never proposed "
+                f"(proposal_version == 0). All producers must propose "
+                f"before any agent can confirm consensus."
+            ),
+            details={
+                "guard": "global_zero_proposal",
+                "producers": global_zero_producers,
+            },
+        )
+
     # --- Producer confirmation guard ---
     if is_producer:
         if not matrix.is_fully_acked(agent_role):
