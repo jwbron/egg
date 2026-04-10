@@ -476,6 +476,12 @@ class Pipeline(BaseModel):
         description="Pre-generated plan with yaml-tasks appendix for short flow pipelines "
         "(written to drafts and parsed into contract on first run)",
     )
+    run_epoch: datetime | None = Field(
+        default=None,
+        description="Thread ownership epoch — bumped on restart_phase and start_pipeline "
+        "recovery so lingering _run_pipeline threads detect the change and exit. "
+        "Separate from created_at which is user-facing.",
+    )
     version: int = Field(
         default=1,
         ge=1,

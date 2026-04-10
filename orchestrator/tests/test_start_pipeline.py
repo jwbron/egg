@@ -204,7 +204,7 @@ class TestStartFailedPipeline:
     @patch("routes.pipelines._run_pipeline")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_restart_bumps_created_at(
+    def test_restart_bumps_run_epoch(
         self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
     ):
         pipeline = _make_pipeline(
@@ -217,7 +217,8 @@ class TestStartFailedPipeline:
 
         client.post("/api/v1/pipelines/issue-42/start")
 
-        assert pipeline.created_at > original_created_at
+        assert pipeline.run_epoch is not None
+        assert pipeline.created_at == original_created_at
 
     @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._run_pipeline")
@@ -432,17 +433,18 @@ class TestStartAwaitingHumanPipeline:
     @patch("routes.pipelines._run_pipeline")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_recovery_bumps_created_at(
+    def test_recovery_bumps_run_epoch(
         self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
     ):
-        """Recovery bumps created_at to signal old thread to skip cleanup."""
+        """Recovery bumps run_epoch to signal old thread to skip cleanup."""
         pipeline = _make_awaiting_pipeline()
         original_created_at = pipeline.created_at
         _setup_mocks(mock_get_repo, mock_resolve, pipeline)
 
         client.post("/api/v1/pipelines/issue-42/start")
 
-        assert pipeline.created_at > original_created_at
+        assert pipeline.run_epoch is not None
+        assert pipeline.created_at == original_created_at
 
     @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._run_pipeline")

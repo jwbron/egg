@@ -163,7 +163,7 @@ class TestHandleRestartPhase:
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {
                 "success": True,
-                "data": {"agents_restarted": ["coder", "tester"]},
+                "data": {"agents_to_restart": ["coder", "tester"]},
             }
             handler.handle_tool_call(
                 "restart_phase",
@@ -181,7 +181,7 @@ class TestHandleRestartPhase:
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {
                 "success": True,
-                "data": {"agents_restarted": ["coder", "tester", "documenter"]},
+                "data": {"agents_to_restart": ["coder", "tester", "documenter"]},
             }
             result = handler.handle_tool_call(
                 "restart_phase",

@@ -1570,7 +1570,7 @@ class PipelineToolHandler:
             return {
                 "restarted": True,
                 "phase": args["phase"],
-                "agents_restarted": result.get("data", {}).get("agents_restarted", []),
+                "agents_restarted": result.get("data", {}).get("agents_to_restart", []),
                 "message": f"Phase {args['phase']} restarted successfully",
             }
         except (TimeoutError, OSError) as e:
