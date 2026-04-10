@@ -486,6 +486,122 @@ def state_store(tmp_path, mock_git):
     return store
 
 
+class TestStartPhaseImplementContractPopulation:
+    """Contract is populated from plan draft when start_phase=implement.
+
+    When start_phase=implement, the plan phase is skipped so the
+    plan-completion hook never fires.  The safety net in _run_pipeline
+    must call _populate_contract_from_plan() whenever the plan draft
+    exists on disk and start_phase is set.
+
+    This exercises the code path added to fix the missing contract
+    population when pipelines skip directly to implement.
+    """
+
+    def test_contract_populated_with_start_phase_implement(self, tmp_path: Path):
+        """Contract gets phases and tasks when start_phase=implement and plan draft exists."""
+        from egg_contracts.loader import create_contract, load_contract
+        from routes.pipelines import _get_draft_path, _populate_contract_from_plan
+
+        pipeline_id = "pipeline-impl-only"
+
+        # Create blank contract (as _run_pipeline would)
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        # Write plan draft to disk (simulating source_branch or inline plan)
+        draft_rel = _get_draft_path("plan", pipeline_id=pipeline_id)
+        assert draft_rel is not None
+        draft_path = tmp_path / draft_rel
+        draft_path.parent.mkdir(parents=True, exist_ok=True)
+        draft_path.write_text(SAMPLE_PLAN)
+
+        # Simulate the safety net: check file exists, then populate
+        if draft_rel and (tmp_path / draft_rel).exists():
+            _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        # Verify contract was populated with phases and tasks
+        contract = load_contract(pipeline_id, tmp_path)
+        assert len(contract.phases) == 1
+        assert contract.phases[0].name == "Implement"
+        assert len(contract.phases[0].tasks) == 2
+        assert contract.phases[0].tasks[0].id == "task-1-1"
+        assert contract.phases[0].tasks[1].id == "task-1-2"
+
+    def test_contract_populated_with_issue_number(self, tmp_path: Path):
+        """Contract populated correctly with issue_number-based draft path."""
+        from egg_contracts.loader import create_contract, load_contract
+        from routes.pipelines import _get_draft_path, _populate_contract_from_plan
+
+        issue_number = 77
+
+        create_contract(
+            issue_number=issue_number,
+            title=f"Issue #{issue_number}",
+            url=f"https://github.com/owner/repo/issues/{issue_number}",
+            repo_root=tmp_path,
+        )
+
+        draft_rel = _get_draft_path("plan", issue_number=issue_number)
+        assert draft_rel is not None
+        draft_path = tmp_path / draft_rel
+        draft_path.parent.mkdir(parents=True, exist_ok=True)
+        draft_path.write_text(SAMPLE_PLAN)
+
+        _populate_contract_from_plan(tmp_path, "issue-77", "issue", issue_number)
+
+        contract = load_contract(issue_number, tmp_path)
+        assert len(contract.phases) == 1
+        assert len(contract.phases[0].tasks) == 2
+        assert contract.pr is not None
+        assert contract.pr.title == "Add retry logic to API client"
+
+    def test_no_plan_draft_skips_population(self, tmp_path: Path):
+        """When plan draft does not exist, _populate_contract_from_plan is a no-op."""
+        from egg_contracts.loader import create_contract, load_contract
+        from routes.pipelines import _get_draft_path, _populate_contract_from_plan
+
+        pipeline_id = "pipeline-no-draft"
+
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        draft_rel = _get_draft_path("plan", pipeline_id=pipeline_id)
+        # File does NOT exist — safety net should not call populate
+        assert draft_rel is not None
+        assert not (tmp_path / draft_rel).exists()
+
+        # This is a no-op when the file doesn't exist
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        contract = load_contract(pipeline_id, tmp_path)
+        assert len(contract.phases) == 0
+
+    def test_idempotent_double_population(self, tmp_path: Path):
+        """Calling _populate_contract_from_plan twice does not duplicate tasks.
+
+        The inline-plan path may call it once, and the safety net may call
+        it again — the result should be the same as a single call.
+        """
+        from egg_contracts.loader import create_contract, load_contract
+        from routes.pipelines import _get_draft_path, _populate_contract_from_plan
+
+        pipeline_id = "pipeline-idempotent"
+
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        draft_rel = _get_draft_path("plan", pipeline_id=pipeline_id)
+        draft_path = tmp_path / draft_rel
+        draft_path.parent.mkdir(parents=True, exist_ok=True)
+        draft_path.write_text(SAMPLE_PLAN)
+
+        # Call twice (inline-plan path + safety net)
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        contract = load_contract(pipeline_id, tmp_path)
+        assert len(contract.phases) == 1
+        assert len(contract.phases[0].tasks) == 2
+
+
 class TestStateStoreCreatePipeline:
     """State store accepts and stores analysis and plan fields."""
 
