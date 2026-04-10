@@ -211,7 +211,7 @@ Each agent tracks two state machines (producer and reviewer) independently:
 
 1. **Propose**: Producer completes work, commits and pushes to the remote branch, then sends `CONSENSUS_PROPOSE` with a summary, artifact list, and the pushed commit SHA (`--commit-sha`). The orchestrator rejects proposals whose commit SHA is confirmed absent from the branch (verification failures due to network errors are non-blocking).
 2. **Review**: Assigned reviewers discover proposals via polling. Before a reviewer has submitted their own evaluation, the Delphi filter delivers a **redacted** version of the `CONSENSUS_PROPOSE` message (`body` cleared, `metadata.payload` stripped except `version` and `commit_sha`, `metadata.delphi_redacted=True`). This notifies the reviewer that a proposal exists without exposing the producer's self-assessment. Reviewers must **sync their worktree** before reviewing (`git fetch origin && git merge origin/{branch} --no-edit`) to pull in the producer's pushed commits. After reviewing the git artifacts and submitting `CONSENSUS_ACK` or `CONSENSUS_NACK`, subsequent polls return the full unredacted message.
-3. **Converge**: When all critical reviewers ACK, the producer sends `CONSENSUS_CONFIRMED`. When all agents are confirmed, the phase advances. Reviewers also call `CONSENSUS_CONFIRMED` after completing all reviews; the protocol enforces two guards in the reviewer confirmation path before allowing a reviewer to confirm (see [Deadlock Prevention Guards](#deadlock-prevention-guards) below).
+3. **Converge**: When all critical reviewers ACK, the producer sends `CONSENSUS_CONFIRMED`. When all agents are confirmed, the phase advances. Reviewers also call `CONSENSUS_CONFIRMED` after completing all reviews; the protocol enforces multiple guards in both the producer and reviewer confirmation paths (see [Action Guards](#action-guards) and [Deadlock Prevention Guards](#deadlock-prevention-guards) below).
 4. **Re-propose**: If a NACK is received, the producer addresses the feedback and re-proposes (with `changed_artifacts` to scope re-evaluation). Flip-flop cycles are capped at `max_flip_flops` (default: 3). If any reviewer had already confirmed on a prior proposal version, they automatically receive a `CONSENSUS_RE_REVIEW` message and are un-confirmed so they re-enter the review loop — preventing a deadlock where a stale-confirmed reviewer can never see the new proposal.
 
    > **Note — `CONSENSUS_RE_REVIEW` handling:** Agents that receive a `CONSENSUS_RE_REVIEW` while staying alive **must** act on it immediately: reviewers of the re-proposing producer must re-review and ACK/NACK; all other agents must re-confirm via `egg-orch consensus confirmed`. Ignoring this message stalls the pipeline.
@@ -230,16 +230,139 @@ When agents work at different speeds, a faster reviewer may ACK a producer befor
 
 These protections prevent a deadlock that previously occurred when a reviewer's stale version-0 ACK could never satisfy `is_fully_acked()`, permanently blocking the producer from confirming.
 
+### Formal BRC State Machine
+
+The BRC protocol is defined by a formal state machine with explicit **action guards** (preconditions) for every protocol action. Guards are implemented in `orchestrator/action_guards.py` as the canonical protocol specification — each `PeerConsensusTracker` handler delegates to the corresponding guard function before mutating state.
+
+#### State Transition Diagram
+
+**Producer states:**
+
+```
+                   ┌──────────────────────────────────┐
+                   │                                  │
+                   ▼                                  │
+              ┌─────────┐    propose    ┌──────────┐  │  confirm    ┌───────────┐
+              │ WORKING ├──────────────►│ PROPOSED ├──┼────────────►│ CONFIRMED │
+              └────┬────┘               └─────┬────┘  │             └───────────┘
+                   ▲                          │  │    │
+                   │  NACK (auto-transition)  │  │    │
+                   ├──────────────────────────┘  │    │
+                   │  withdraw (voluntary)       │    │
+                   ├─────────────────────────────┘    │
+                   │                                  │
+                   │    auto re-propose on push       │
+                   │    (back to PROPOSED)             │
+                   └──────────────────────────────────┘
+```
+
+- `WORKING → PROPOSED`: Producer calls `propose` after completing work and pushing commits.
+- `PROPOSED → WORKING` (on NACK): Producer receives a NACK; the handler auto-transitions the producer back to WORKING so it can address feedback and re-propose.
+- `PROPOSED → WORKING` (on withdraw): Producer voluntarily calls `withdraw` to retract its proposal (e.g., to address feedback proactively). Subject to cooldown and flip-flop limits.
+- `PROPOSED → PROPOSED`: Producer pushes new commits, triggering auto re-propose via `handle_producer_push()`, which increments the proposal version and invalidates stale reviews.
+- `PROPOSED → CONFIRMED`: All critical reviewers ACK and the producer calls `confirmed`.
+
+**Reviewer states:**
+
+```
+              ┌─────────┐   ACK/NACK   ┌───────────┐  confirm   ┌───────────┐
+              │ WORKING ├──────────────►│ REVIEWING ├───────────►│ CONFIRMED │
+              └─────────┘               └─────┬─────┘            └─────┬─────┘
+                                              │    ▲                   │
+                                              │    │                   │
+                                              └────┘                   │
+                                        re-review on                   │
+                                        re-proposal                    │
+                                              ▲                        │
+                                              │  CONSENSUS_RE_REVIEW   │
+                                              └────────────────────────┘
+```
+
+- `WORKING → REVIEWING`: Reviewer submits first ACK or NACK against any producer.
+- `REVIEWING → REVIEWING`: Producer re-proposes; reviewer's prior ACK is invalidated and they must re-review.
+- `REVIEWING → CONFIRMED`: All assigned producers are reviewed with current-version ACKs.
+- `CONFIRMED → REVIEWING`: Producer re-proposes after reviewer confirmed; `CONSENSUS_RE_REVIEW` un-confirms the reviewer.
+
+**Dual-role agents** (e.g., `tester`): Both the producer and reviewer state machines must independently reach `CONFIRMED` before the agent is considered confirmed.
+
+#### Action Guards
+
+Guards are implemented in `orchestrator/action_guards.py` as standalone functions — one per protocol action. Each guard returns a `GuardResult` (a frozen dataclass with `allowed: bool`, `reason: str`, and `details: dict`). When `allowed` is `False`, the `reason` field contains a human-readable explanation and `details` provides machine-readable context (guard name, blocking agents, version info, etc.).
+
+Each handler in `PeerConsensusTracker` calls its corresponding guard before mutating state:
+
+| Guard function | Called by | Preconditions enforced |
+|----------------|-----------|----------------------|
+| `check_propose_guard()` | `handle_propose()` | Agent must be a producer. Must not be fully ACKed in PROPOSED state ([#1185](https://github.com/jwbron/egg/issues/1185)). |
+| `check_re_propose_guard()` | `handle_re_propose()` | Agent must be a producer. (Re-propose is always legitimate after NACK or new artifacts.) |
+| `check_ack_guard()` | `handle_ack()` | Agent must be a reviewer. Review edge must exist from reviewer to producer. |
+| `check_nack_guard()` | `handle_nack()` | Agent must be a reviewer. Review edge must exist from reviewer to producer. |
+| `check_confirm_guard()` | `handle_confirmed()` | **Producer path:** Must be fully ACKed by all critical reviewers at current version. **Reviewer path:** Must have reviewed all assigned producers. ACK versions must match current proposal versions (version-match guard, [#1405](https://github.com/jwbron/egg/issues/1405)). Must not hold unresolved NACKs ([#1576](https://github.com/jwbron/egg/issues/1576)). All assigned producers must have proposed at least once (zero-proposal guard, [#1598](https://github.com/jwbron/egg/issues/1598)). |
+| `check_withdraw_guard()` | `handle_withdraw()` | Agent must be a producer. Reason required. Must have waited at least `cooldown_seconds` (default 30s) since proposing. Must not exceed `max_flip_flops` (default 3) propose→withdraw cycles. |
+
+#### Protocol Invariants
+
+The `validate_invariants()` function in `action_guards.py` (also exposed as a method on `PeerConsensusTracker`) checks five invariants against the current protocol state. Violations are returned as a list of `InvariantViolation` objects (a dataclass with `invariant`, `agent`, `description`, and `details` fields) — violations are not raised as exceptions.
+
+| ID | Invariant | Description |
+|----|-----------|-------------|
+| **INV-1** | No confirmed agent with unresolved NACK | No agent in CONFIRMED state may hold an unresolved NACK against a producer that hasn't re-proposed since the NACK |
+| **INV-2** | No confirmed reviewer with stale ACK | No reviewer in CONFIRMED state may have an ACK whose version does not match the producer's current proposal version |
+| **INV-3** | No confirmed reviewer with unreviewed changes | No reviewer in CONFIRMED state if any producer has proposed at a version newer than the reviewer's last ACK |
+| **INV-4** | No confirmed reviewer with zero-proposal producer | No reviewer in CONFIRMED state if any assigned producer has proposal version 0 (never proposed) |
+| **INV-5** | Consistent `is_fully_acked` | `is_fully_acked()` must be consistent with the actual approval matrix state — all critical reviewers must have ACKED entries at the current proposal version, and version 0 producers must report `is_fully_acked=False` |
+
 ### Deadlock Prevention Guards
 
-The `handle_confirmed()` method enforces two guards on the reviewer confirmation path that prevent different classes of BRC deadlock. Both guards return `pending_acks` (exit code 2) when triggered — the reviewer must resolve the condition before confirming.
+The `handle_confirmed()` method enforces guards on both the producer and reviewer confirmation paths that prevent different classes of BRC deadlock. Guards return `pending_acks` (exit code 2) when triggered — the agent must resolve the condition before confirming.
 
 | Guard | Trigger | Resolution |
 |-------|---------|------------|
 | **Stale-ACK version-match** | Reviewer's ACK version does not match the producer's current proposal version (e.g., ACK recorded before the producer proposed) | Re-ACK the listed producers at their current proposal version |
-| **Unresolved-NACK** | Reviewer has NACKed a producer that has not yet re-proposed since the NACK | Wait for the NACKed producer to re-propose, then re-review and ACK/NACK the new version |
+| **Unresolved-NACK (reviewer)** | Reviewer has NACKed a producer that has not yet re-proposed since the NACK | Wait for the NACKed producer to re-propose, then re-review and ACK/NACK the new version |
+| **Unresolved-NACK (producer)** | Producer has unresolved NACKs from reviewers | Address the NACK feedback and re-propose |
+| **Zero-proposal producer** | Reviewer attempts to confirm but an assigned producer has never proposed (version 0) | Wait for the producer to propose, or escalate via HITL if the producer is non-delivering ([#1598](https://github.com/jwbron/egg/issues/1598)) |
+| **All-changes-reviewed** | Reviewer attempts to confirm but a producer has re-proposed (higher version) since the reviewer's last ACK | Re-review and ACK the producer's latest proposal version before confirming |
 
 **Why the unresolved-NACK guard is needed:** Without this guard, a reviewer can enter terminal CONFIRMED state while still holding an open NACK against a producer. When that producer later re-proposes, the reviewer — already confirmed and only sending heartbeats — never re-reviews the new proposal. The producer is permanently blocked waiting for a re-ACK that never comes. The `_un_confirm_stale_reviewers()` mechanism handles the inverse ordering (reviewer confirms *after* re-proposal with a stale ACK), but cannot catch the case where the reviewer confirms *before* the re-proposal. The unresolved-NACK guard blocks this at the source by preventing the reviewer from confirming in the first place. See [#1576](https://github.com/jwbron/egg/issues/1576) for the original deadlock scenario.
+
+**Why the zero-proposal guard is needed:** Without this guard, a reviewer can NACK a non-delivering producer (who never proposed), then confirm — causing consensus to complete without the primary deliverable. The guard blocks reviewer confirmation when any assigned producer has version 0, ensuring non-delivering producers are addressed (via HITL escalation or agent recovery) before consensus can complete. See [#1598](https://github.com/jwbron/egg/issues/1598).
+
+### Auto Re-Propose on Push/Commit
+
+When a producer pushes new commits after proposing, existing reviews become stale — reviewers may have ACKed code that no longer reflects the current state. The `handle_producer_push()` method on `PeerConsensusTracker` detects this and triggers a re-proposal, invalidating existing reviews and notifying reviewers.
+
+**How it works:**
+
+1. When a producer pushes new commits (detected via commit SHA change in the signal handler), the orchestrator calls `tracker.handle_producer_push(agent_role, commit_sha, changed_files)`.
+2. If the producer is still in `WORKING` state (hasn't proposed yet), the call is a no-op — there are no reviews to invalidate.
+3. If the producer is in `PROPOSED` state, the method builds a minimal proposal payload using the changed files (or the previous proposal's artifacts if no specific files provided).
+4. ACKs overlapping with the changed files are invalidated via `invalidate_overlapping_acks()` (scoped invalidation). If no specific files are provided, all ACKs for the producer are invalidated (conservative fallback).
+5. The method calls `_handle_propose_inner()` to increment the proposal version and emit events, which triggers `CONSENSUS_RE_REVIEW` messages to affected reviewers.
+6. Reviewers must re-review and ACK the new version before confirming.
+
+**Guard enforcement**: The `check_confirm_guard()` function enforces that no reviewer can confirm with a stale ACK — if a producer has re-proposed at a higher version since the reviewer's last ACK, the version-match guard blocks confirmation. This provides a server-side blocking mechanism even if a reviewer misses the `CONSENSUS_RE_REVIEW` notification.
+
+### Excusing Non-Delivering Agents
+
+When an agent fails to deliver (crashes, stalls, or exhausts restarts), it can block other agents from confirming. The protocol provides HITL-gated escape hatches to unblock consensus:
+
+**`excuse_reviewer(role)`** (implemented): Removes a reviewer from the review graph entirely. All edges from the reviewer are removed, allowing affected producers to reach `is_fully_acked()` and call `confirmed` without the excused reviewer's ACK. Used when a reviewer crashes and the human selects "Continue without" in the HITL decision.
+
+**`excuse_producer()`** (planned, [#1598](https://github.com/jwbron/egg/issues/1598)): Analogous to `excuse_reviewer()` but for producers. Would remove all review edges targeting the excused producer, unblocking reviewers who are blocked by the zero-proposal confirm guard. Currently, non-delivering producers are handled via `handle_agent_crash()`, which assesses the impact and creates a HITL decision for the operator.
+
+**When to use**: Agent excusal is intended for agents that cannot recover and would otherwise permanently block consensus. Both mechanisms are gated behind HITL decisions to prevent automated removal of critical roles.
+
+### Recovery Mechanisms
+
+The BRC protocol retains two recovery mechanisms as **defense-in-depth**, even though the formal guard table should prevent the conditions they handle. Both mechanisms log warnings and increment counters when they fire — a non-zero counter indicates a gap in the guard table that should be investigated.
+
+| Mechanism | Method | Purpose | When it fires |
+|-----------|--------|---------|---------------|
+| **Stale reviewer un-confirmation** | `_un_confirm_stale_reviewers()` | Un-confirms reviewers whose ACKs are stale after a producer re-proposes | Called during `handle_propose()` and `handle_re_propose()`. Fires when a reviewer confirmed on a prior proposal version and the producer has since re-proposed. Transitions the reviewer back to REVIEWING and invalidates stale ACKs. |
+| **Pre-proposal ACK invalidation** | `_invalidate_pre_proposal_acks()` | Invalidates version-0 ACKs that can never match a post-proposal version | Called during `handle_propose()`. Fires when a reviewer ACKed before the producer's first proposal (version 0 ACK). Only processes non-confirmed reviewers. |
+
+**Design rationale**: These mechanisms were added before the formal guard table to fix specific deadlock scenarios ([#1405](https://github.com/jwbron/egg/issues/1405), [#1576](https://github.com/jwbron/egg/issues/1576)). With the guard table in place, `guard_version_match_at_ack` and `guard_producer_proposed` should prevent the conditions that trigger these mechanisms. They are retained as a safety net — if they fire in production, it indicates the guards missed an edge case.
 
 ### Delphi Redaction
 
@@ -416,6 +539,7 @@ Before an agent failure reaches the orchestrator's `handle_agent_crash()` path, 
 When an agent crashes, `PeerConsensusTracker.handle_agent_crash()` assesses impact:
 - Escalation occurs when a crashed reviewer was the **sole reviewer** for a producer, **or** when the reviewer had pending (non-ACKed) reviews for a producer that has already proposed. Both cases create a HITL decision. When the reviewer had pending reviews, the question lists the affected producers.
 - When the human selects **"Continue without"** for a failed reviewer, `excuse_reviewer()` removes all of that reviewer's edges from the review graph. This allows affected producers to reach `is_fully_acked()` and call `confirmed` without the excused reviewer's ACK.
+- For failed producers, `handle_agent_crash()` assesses the impact on reviewers and creates a HITL decision. See [Excusing Non-Delivering Agents](#excusing-non-delivering-agents) for the planned `excuse_producer()` mechanism.
 - Otherwise, the agent is removed from consensus tracking and treated as a single-agent failure (see failure recovery below).
 
 **Stall demotion for dual-role agents**: If a dual-role agent (e.g., `tester`) misses heartbeats for 5+ minutes without crashing, the orchestrator automatically demotes its reviewer edges from CRITICAL to ADVISORY via `PeerConsensusTracker.handle_stall_demotion()`. This allows producers that the stalled agent was assigned to review to reach `is_fully_acked()` and call `confirmed` without waiting for that agent's ACK. The demotion is permanent for the current phase and emits a `CONSENSUS_FAILURE` event with type `stall_demotion`. Unlike a crash (which triggers a HITL decision), stall demotion is fully automatic.

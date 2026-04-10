@@ -1,0 +1,258 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1579,
+    "title": "Design formal BRC protocol state machine with action guards",
+    "url": "https://github.com/jwbron/egg/issues/1579"
+  },
+  "pipeline_id": "issue-1579",
+  "current_phase": "implement",
+  "acceptance_criteria": [
+    "GUARD_TABLE dict exists with entries for all 7 action/role pairs",
+    "All handlers call _check_guards before mutating state",
+    "assert_invariants() checks all 6 invariants after every state mutation",
+    "excuse_producer removes producer from review graph, unblocking reviewers",
+    "Auto re-propose gated by feature flag (default OFF), debounced, rate-limited",
+    "All existing tests pass; ~60 new test cases added"
+  ],
+  "phases": [
+    {
+      "id": 1,
+      "name": "Transition guard table, action guards, and invariant checker",
+      "goal": "Define the formal guard table, add missing guards to all handlers, and implement invariant checking",
+      "tasks": [
+        {
+          "id": "TASK-1-1",
+          "description": "Define the transition guard table as a module-level GUARD_TABLE dict in orchestrator/peer_consensus.py. Map (action, role_type) tuples to lists of guard functions. Implement the _check_guards(action, role_type, tracker, **kwargs) utility that iterates guards and returns the first rejection or None. Add a formal state machine specification as an extended module docstring documenting: valid states per role, the guard table structure, transition table derived from guards, all 6 invariants (INV-1 through INV-6), and recovery mechanism documentation. The guard table must include entries for: propose/producer, ack/reviewer, nack/reviewer, confirm/producer, confirm/reviewer, withdraw/producer, re_propose/producer.",
+          "acceptance": "GUARD_TABLE dict exists with entries for all 7 action/role pairs. _check_guards utility works correctly \u2014 returns None when all guards pass, returns first rejection dict when a guard fails. Module docstring contains complete state machine spec with transition table, invariants, and recovery documentation.",
+          "role": "coder",
+          "files": [
+            "orchestrator/peer_consensus.py"
+          ],
+          "status": "complete"
+        },
+        {
+          "id": "TASK-1-2",
+          "description": "Add helper methods to orchestrator/approval_matrix.py: (1) get_nack_entries_for(producer) \u2014 returns list of (reviewer, ApprovalEntry) tuples where state is NACKED for the given producer, (2) has_unresolved_nacks_as_producer(producer) \u2014 returns True if any reviewer has NACKed the producer at the current proposal version (producer hasn't re-proposed since), (3) get_latest_review_versions(reviewer) \u2014 returns dict mapping producer\u2192version for the reviewer's latest ACK/NACK on each assigned producer. Also add ack_commit_sha field to ApprovalEntry for tracking the commit SHA at ACK time (needed for INV-6).",
+          "acceptance": "All 3 helper methods exist with correct logic. has_unresolved_nacks_as_producer returns True when NACK version == current proposal version, False when producer has re-proposed. ApprovalEntry has ack_commit_sha field populated on record_ack().",
+          "role": "coder",
+          "files": [
+            "orchestrator/approval_matrix.py"
+          ],
+          "status": "complete"
+        },
+        {
+          "id": "TASK-1-3",
+          "description": "Implement guard functions for propose, ack, nack, and withdraw actions. (1) guard_producer_in_working_state: reject propose if not WORKING. (2) guard_producer_proposed: reject ack/nack if producer not in PROPOSED state. (3) guard_version_match_at_ack: reject ack if version doesn't match current proposal version. (4) guard_producer_in_proposed_state: reject withdraw if not PROPOSED. (5) guard_no_zero_version_nack: reject nack if proposal version == 0. Wire all guard functions into the GUARD_TABLE. Update each handler (handle_propose, handle_ack, handle_nack, handle_withdraw) to call _check_guards() at entry.",
+          "acceptance": "Each handler calls _check_guards before mutating state. Guards return rejection dicts with appropriate status and message. All existing tests that set up correct preconditions still pass.",
+          "role": "coder",
+          "files": [
+            "orchestrator/peer_consensus.py"
+          ],
+          "status": "complete"
+        },
+        {
+          "id": "TASK-1-4",
+          "description": "Implement guard functions for confirm action. (1) guard_no_unresolved_nacks_as_producer: for producer confirm, check matrix.has_unresolved_nacks_as_producer \u2014 reject with specific NACK info. (2) guard_no_zero_proposal_producers: for reviewer confirm, reject if any assigned producer has version == 0 (never proposed). (3) guard_all_changes_reviewed: for reviewer confirm, compare reviewer's last ACK version against each producer's current proposal version \u2014 reject if any producer has a higher version. Wire into GUARD_TABLE. Update handle_confirmed() to call _check_guards() for both producer and reviewer paths.",
+          "acceptance": "Producer with unresolved NACKs gets specific rejection. Reviewer blocked when assigned producer has version 0. Reviewer blocked when producer re-proposed since last ACK. All guards wired into GUARD_TABLE and called via _check_guards().",
+          "role": "coder",
+          "files": [
+            "orchestrator/peer_consensus.py"
+          ],
+          "status": "complete"
+        },
+        {
+          "id": "TASK-1-5",
+          "description": "Implement guard function for re_propose action: guard_has_nacks_or_auto_triggered \u2014 reject if no reviewer has NACKed and auto_triggered is False. Add auto_triggered: bool = False parameter to handle_re_propose(). Wire into GUARD_TABLE. Update handle_re_propose() to call _check_guards().",
+          "acceptance": "handle_re_propose rejects when no NACKs exist and auto_triggered=False. Succeeds when NACKs exist. Succeeds when auto_triggered=True.",
+          "role": "coder",
+          "files": [
+            "orchestrator/peer_consensus.py"
+          ],
+          "status": "complete"
+        },
+        {
+          "id": "TASK-1-6",
+          "description": "Implement assert_invariants() method on PeerConsensusTracker that validates all 6 invariants (INV-1 through INV-6). Each invariant check logs a warning and returns the violation details if failed. Add an enable_invariant_checks flag (default True in tests via conftest, False in production). Call assert_invariants() after every state-mutating operation (handle_propose, handle_ack, handle_nack, handle_confirmed, handle_withdraw, handle_re_propose) when the flag is enabled.",
+          "acceptance": "assert_invariants() checks all 6 invariants. Returns empty list when all pass, list of violation dicts when any fail. Called after every state mutation when enabled. Does not raise \u2014 returns violations for the caller to handle.",
+          "role": "coder",
+          "files": [
+            "orchestrator/peer_consensus.py"
+          ],
+          "status": "complete"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "excuse_producer and zero-version confirm guard",
+      "goal": "Implement excuse_producer escape hatch so the zero-version confirm guard does not permanently block consensus for non-delivering producers",
+      "tasks": [
+        {
+          "id": "TASK-2-1",
+          "description": "Implement excuse_producer(producer_role, reason) method on PeerConsensusTracker, following the pattern of existing excuse_reviewer() at line 686. Steps: (1) remove all edges where the producer is the target from the review graph, (2) remove the producer from _producer_phases and _confirmed, (3) recalculate is_fully_acked for all remaining producers (some may now be fully ACKed if this producer was a dual-role reviewer), (4) emit a PRODUCER_EXCUSED event, (5) check if consensus is now reachable. Gate behind HITL decision requirement (document that callers must have HITL approval before calling).",
+          "acceptance": "excuse_producer removes the producer from the graph. Reviewers previously assigned to this producer are no longer blocked by it. is_fully_acked for other producers recalculated. Event emitted. After excuse, reviewer can confirm even though the excused producer has version 0.",
+          "role": "coder",
+          "files": [
+            "orchestrator/peer_consensus.py"
+          ],
+          "status": "complete"
+        },
+        {
+          "id": "TASK-2-2",
+          "description": "Wire excuse_producer into the signal handler in orchestrator/routes/signals.py. Add a new signal type 'EXCUSE_PRODUCER' or extend the existing HITL decision resolution handler to call excuse_producer when a HITL decision resolves to excuse a producer. Ensure the pipeline_id and producer_role are passed correctly. Write a message to the bus notifying all agents that the producer has been excused.",
+          "acceptance": "HITL decision to excuse a producer triggers excuse_producer(). Message bus notification sent. Reviewers polling for messages see the excusal notification.",
+          "role": "coder",
+          "files": [
+            "orchestrator/routes/signals.py"
+          ],
+          "status": "complete"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Auto re-propose on push/commit with safety mechanisms",
+      "goal": "Detect producer pushes after proposing and trigger re-proposal with debounce, rate-limiting, and feature flag",
+      "tasks": [
+        {
+          "id": "TASK-3-1",
+          "description": "Add auto-re-propose configuration and state to PeerConsensusTracker: (1) auto_repropose_enabled: bool parameter (default False), (2) auto_repropose_debounce_seconds: int parameter (default 60), (3) max_auto_repropose: int parameter (default 5), (4) _last_auto_repropose_timestamp: dict[str, datetime] state, (5) _auto_repropose_counts: dict[str, int] state. Add a method check_auto_repropose(producer_role, new_commit_sha) that: checks feature flag, checks debounce window, checks max counter, checks overlap with proposed artifacts, and returns (should_trigger: bool, reason: str). Tag auto-re-propose messages with metadata trigger='auto_push' for tracker reconstruction.",
+          "acceptance": "check_auto_repropose returns False when feature flag is OFF. Returns False when within debounce window. Returns False when max counter exceeded. Returns True when all safety checks pass and commit SHA differs. Message metadata includes trigger='auto_push'.",
+          "role": "coder",
+          "files": [
+            "orchestrator/peer_consensus.py"
+          ],
+          "status": "complete"
+        },
+        {
+          "id": "TASK-3-2",
+          "description": "Add auto re-propose logic to the signal handler in orchestrator/routes/signals.py. In the completion signal handler (or a new push signal handler), when a producer's commit SHA changes and the producer is in PROPOSED or CONFIRMED state: (1) call tracker.check_auto_repropose() to check safety mechanisms, (2) if approved, call tracker.handle_re_propose(agent_role, payload, auto_triggered=True), (3) send CONSENSUS_RE_REVIEW messages to all affected reviewers, (4) log the auto re-proposal with debounce and counter info. If producer is in WORKING state, skip (no proposal to invalidate).",
+          "acceptance": "Push with feature flag OFF does not trigger re-propose. Push with feature flag ON from PROPOSED producer triggers re-propose (respecting debounce/counter). CONSENSUS_RE_REVIEW messages sent. Producer version increments. Reviewer ACKs invalidated.",
+          "role": "coder",
+          "files": [
+            "orchestrator/routes/signals.py"
+          ],
+          "status": "complete"
+        },
+        {
+          "id": "TASK-3-3",
+          "description": "Update tracker reconstruction (reconstruct_tracker_from_messages) to handle auto-re-propose messages correctly. During replay: (1) detect messages with metadata trigger='auto_push', (2) apply the same debounce logic to prevent redundant version inflation from rapid auto-re-propose replays, (3) ensure stable replay order using message sequence numbers for timestamp ties.",
+          "acceptance": "Reconstruction correctly handles auto-re-propose messages. Rapid auto-re-proposes within debounce window are deduplicated during replay. Reconstructed state matches live tracker state for the same message sequence.",
+          "role": "coder",
+          "files": [
+            "orchestrator/peer_consensus.py"
+          ],
+          "status": "complete"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Tests and documentation",
+      "goal": "Comprehensive test coverage for guard table, invariants, auto re-propose with debounce, excuse_producer, and formal documentation",
+      "tasks": [
+        {
+          "id": "TASK-4-1",
+          "description": "Create orchestrator/tests/test_brc_state_machine_guards.py with ~35 test cases. Test structure: (1) TestGuardTable \u2014 verify GUARD_TABLE has entries for all action/role pairs, guard functions are callable, _check_guards returns correct types. (2) TestProposeGuards \u2014 reject if not WORKING, allow if WORKING. (3) TestAckGuards \u2014 reject if producer not PROPOSED, reject version mismatch, allow current version. (4) TestNackGuards \u2014 reject if producer not PROPOSED, reject version 0. (5) TestWithdrawGuards \u2014 reject if not PROPOSED. (6) TestConfirmProducerGuards \u2014 reject with unresolved NACKs. (7) TestConfirmReviewerGuards \u2014 reject zero-proposal producers, reject stale ACK versions, reject all-changes-unreviewed. (8) TestReProposeGuards \u2014 reject if no NACKs and not auto-triggered. (9) TestInvariantChecker \u2014 verify all 6 invariants after multi-agent scenarios, verify violations are detected.",
+          "acceptance": "All ~35 test cases pass. Each guard has reject + allow tests. Invariant checker tests verify both passing and failing invariants.",
+          "role": "tester",
+          "files": [
+            "orchestrator/tests/test_brc_state_machine_guards.py"
+          ],
+          "status": "complete"
+        },
+        {
+          "id": "TASK-4-2",
+          "description": "Create orchestrator/tests/test_brc_auto_repropose.py with ~15 test cases covering: (1) feature flag OFF \u2014 push does NOT trigger re-propose, (2) feature flag ON \u2014 push after PROPOSED triggers re-propose, (3) debounce \u2014 rapid pushes within 60s window trigger only one re-propose, (4) max counter \u2014 after 5 auto-re-proposes, further pushes require explicit action, (5) overlap-aware \u2014 push to non-overlapping files does NOT trigger, (6) WORKING state \u2014 push does not trigger, (7) CONSENSUS_RE_REVIEW messages sent to affected reviewers, (8) reviewer cannot confirm until re-reviewing, (9) full cycle: propose \u2192 push \u2192 auto-repropose \u2192 re-ACK \u2192 confirm, (10) tracker reconstruction with auto-re-propose messages respects debounce.",
+          "acceptance": "All ~15 test cases pass. Debounce test verifies timing behavior. Feature flag test verifies OFF by default. Full cycle test reaches consensus.",
+          "role": "tester",
+          "files": [
+            "orchestrator/tests/test_brc_auto_repropose.py"
+          ],
+          "status": "complete"
+        },
+        {
+          "id": "TASK-4-3",
+          "description": "Add integration test cases to orchestrator/tests/test_peer_consensus_integration.py (~10 cases): (1) #1576 \u2014 reviewer blocked by unresolved NACK guard, (2) #1405 \u2014 pre-proposal ACK rejected at ACK time, (3) #1411 \u2014 withdraw rejected in non-PROPOSED state, (4) #1598 \u2014 reviewer blocked by zero-version guard, then excuse_producer unblocks, (5) excuse_producer with dual-role agent, (6) excuse_producer followed by consensus completion, (7) invariant validation after complex multi-producer scenario, (8) confirm rejected when producer has un-reviewed changes.",
+          "acceptance": "All ~10 cases pass. Each maps to an issue number. excuse_producer scenarios verify reviewers can proceed after excusal.",
+          "role": "tester",
+          "files": [
+            "orchestrator/tests/test_peer_consensus_integration.py"
+          ],
+          "status": "complete"
+        },
+        {
+          "id": "TASK-4-4",
+          "description": "Update existing tests that break due to new guards: (1) tests that ACK before producer proposes \u2014 now rejected by guard_producer_proposed, (2) tests that withdraw while WORKING \u2014 now rejected by guard_producer_in_proposed_state, (3) tests that NACK before producer proposes \u2014 now rejected by guard_no_zero_version_nack. Update preconditions or assert new rejection behavior. Files: test_peer_consensus_integration.py, test_pre_proposal_ack_deadlock.py, test_brc_nack_iteration.py, test_brc_phase_propagation.py.",
+          "acceptance": "All existing tests pass. No test deleted. make test passes clean.",
+          "role": "tester",
+          "files": [
+            "orchestrator/tests/test_peer_consensus_integration.py",
+            "orchestrator/tests/test_pre_proposal_ack_deadlock.py",
+            "orchestrator/tests/test_brc_nack_iteration.py",
+            "orchestrator/tests/test_brc_phase_propagation.py"
+          ],
+          "status": "complete"
+        },
+        {
+          "id": "TASK-4-5",
+          "description": "Update docs/guides/concurrent-execution.md with: (1) formal state transition diagram, (2) guard table reference \u2014 table of action preconditions for each action/role pair, (3) list of 6 protocol invariants, (4) auto re-propose description with safety mechanisms (debounce, feature flag, max counter), (5) excuse_producer mechanism, (6) recovery mechanisms and when they fire.",
+          "acceptance": "Documentation contains all 6 sections. Guard table matches GUARD_TABLE in code. Invariants match assert_invariants(). Content oriented toward agent developers.",
+          "role": "documenter",
+          "files": [
+            "docs/guides/concurrent-execution.md"
+          ],
+          "status": "complete"
+        }
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Auto-repropose trigger",
+      "resolution": "Orchestrator-level: auto-trigger re-propose on detected push"
+    },
+    {
+      "id": "decision-2",
+      "question": "Change tracking mechanism",
+      "resolution": "Both: version for state, SHA for verification"
+    },
+    {
+      "id": "decision-3",
+      "question": "ACKed-but-never-confirms handling",
+      "resolution": "Nudge only via OVERSEER_ALERT, escalate to HITL"
+    },
+    {
+      "id": "decision-4",
+      "question": "Recovery mechanism disposition",
+      "resolution": "Retain all as defense-in-depth"
+    },
+    {
+      "id": "decision-5",
+      "question": "Zero-proposal confirm guard scope",
+      "resolution": "All producers: block if any has version 0"
+    },
+    {
+      "id": "decision-6",
+      "question": "State machine formalization scope",
+      "resolution": "Hybrid: transition table for state, handlers for side effects"
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 1,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 1,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Add formal BRC state machine with action guards",
+    "description": "The BRC consensus protocol has accumulated individual deadlock fixes (#1405,\n#1576, #1411) without a formal specification of when each agent action is\nvalid. This allows subtle bugs where legal-but-problematic action sequences\n(e.g., confirming with outstanding NACKs, ACKing stale proposals) create\ndeadlocks that require ad-hoc recovery.\n\nThis PR adds a formal state machine with a hybrid transition guard table:\n1. **Transition guard table** \u2014 a module-level `GUARD_TABLE` dict mapping\n   `(action, role_type) \u2192 list[guard_fn]` serves as the canonical protocol\n   specification. Each handler checks the table via `_check_guards()` before\n   executing side effects. Guards cover all 6 actions: propose, ack, nack,\n   withdraw, confirm, re_propose.\n2. **New guards** \u2014 `handle_propose` rejects if not in WORKING state;\n   `handle_ack` rejects stale-version ACKs at ACK time; `handle_nack`\n   rejects if producer hasn't proposed; `handle_withdraw` rejects if not\n   PROPOSED; `handle_confirmed` for producers checks unresolved NACKs, for\n   reviewers checks zero-proposal producers and all-changes-reviewed.\n3. **excuse_producer()** \u2014 analogous to existing `excuse_reviewer()`, removes\n   a non-delivering producer from the review graph via HITL decision. Closes\n   the #1598 gap safely when combined with the zero-version confirm guard.\n4. **Auto re-propose on push/commit** \u2014 gated by feature flag (default OFF),\n   debounced (60s window), rate-limited (max 5), and overlap-aware. When\n   enabled, automatically invalidates existing ACKs and sends\n   CONSENSUS_RE_REVIEW on producer push.\n5. **Invariant checker** \u2014 `assert_invariants()` validates 6 protocol\n   invariants after every state mutation. Enabled in tests, opt-in in\n   production.\n6. **Recovery mechanisms retained** \u2014 `_un_confirm_stale_reviewers` and\n   `_invalidate_pre_proposal_acks` kept as defense-in-depth with fire\n   counters for monitoring.\n\nCloses #1579. Related: #1405, #1576, #1411, #1598.\n",
+    "test_plan": "- Automated: ~60 new test cases across 3 new + 4 updated test files:\n  - test_brc_state_machine_guards.py: guard table structure, per-handler guard tests, invariant checker (~35 cases)\n  - test_brc_auto_repropose.py: feature flag, debounce, max counter, overlap-aware, full cycle (~15 cases)\n  - test_peer_consensus_integration.py: #1576/#1405/#1411/#1598 scenarios, excuse_producer, invariant validation (~10 cases)\n  - 4 existing test files updated for new guard behavior\n- Manual: run `make test` for full regression; `pytest orchestrator/tests/ -v` for focused validation\n",
+    "manual_steps": "Pre-merge: none \u2014 auto-re-propose feature flag defaults to OFF\nPost-merge: to enable auto-re-propose, set auto_repropose_enabled=True in pipeline configuration\n"
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}

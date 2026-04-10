@@ -1,603 +1,67 @@
-diff --git a/orchestrator/tests/test_health_monitor.py b/orchestrator/tests/test_health_monitor.py
-index ac4bbdbb8e..1b22fb00c1 100644
---- a/orchestrator/tests/test_health_monitor.py
-+++ b/orchestrator/tests/test_health_monitor.py
-@@ -1,14 +1,15 @@
- """
- Tests for the deterministic health monitor (tripwire processor).
+diff --git a/orchestrator/tests/test_peer_consensus_integration.py b/orchestrator/tests/test_peer_consensus_integration.py
+index de4b45c002..5306876085 100644
+--- a/orchestrator/tests/test_peer_consensus_integration.py
++++ b/orchestrator/tests/test_peer_consensus_integration.py
+@@ -2042,19 +2042,23 @@ class TestPreProposalACKDeadlock:
+             t.handle_confirmed("reviewer_code")
  
--Covers the five tripwire rules enforced by HealthMonitor:
-+Covers the six tripwire rules enforced by HealthMonitor:
- 1. Heartbeat timeout - escalate to overseer/HITL when no heartbeat within threshold
- 2. Container exit - immediate HITL escalation
- 3. Repeated identical errors - escalate after threshold
- 4. Message volume spike - auto-throttle above rate limit
- 5. Progress stall - escalate to overseer/HITL on stall detection
-+6. Infrastructure error - escalate on blocked progress with infra error keywords
+     def test_confirmed_reviewer_with_pre_proposal_ack_unconfirmed(self, deadlock_tracker):
+-        """A reviewer who ACKed at version 0 and confirmed should be un-confirmed
+-        when the producer proposes."""
++        """A reviewer who ACKed at version 0 cannot confirm while a producer
++        has never proposed (zero-proposal guard). Once the producer proposes,
++        the version-0 ACK is invalidated via _invalidate_pre_proposal_acks."""
+         t = deadlock_tracker
  
--Related: issue #1059, #1447
-+Related: issue #1059, #1447, #1489
- """
+         # reviewer_code ACKs before coder proposes (version 0)
+         t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
  
- import sys
-@@ -780,3 +781,152 @@ class TestAlertResolution:
-             if a["agent_id"] == AGENT_ID and a["alert_type"] == "heartbeat_timeout"
-         ]
-         assert len(matching) == 0
-+
-+
-+# ---------------------------------------------------------------------------
-+# Helpers: Infrastructure error progress events
-+# ---------------------------------------------------------------------------
-+
-+
-+def _emit_progress_with_state(
-+    event_bus: EventBus,
-+    state: str,
-+    blocker: str = "",
-+    agent_id: str = AGENT_ID,
-+    pipeline_id: str = PIPELINE_ID,
-+) -> Event:
-+    """Emit a progress event with state and optional blocker."""
-+    data = {"agent_id": agent_id, "type": "progress", "state": state}
-+    if blocker:
-+        data["blocker"] = blocker
-+    return event_bus.emit(
-+        EventType.PROGRESS_EMITTED,
-+        pipeline_id=pipeline_id,
-+        data=data,
-+    )
-+
-+
-+# ---------------------------------------------------------------------------
-+# Tests: Infrastructure error tripwire
-+# ---------------------------------------------------------------------------
-+
-+
-+class TestInfrastructureErrorTripwire:
-+    """Tripwire #6: infrastructure errors in blocked progress events."""
-+
-+    def test_infra_error_triggers_critical_alert(self):
-+        """Blocked progress with infra keyword triggers infrastructure_error alert."""
-+        bus = _make_event_bus()
-+        monitor = _make_monitor(bus)
-+
-+        escalations = []
-+        monitor.on_escalation(lambda e: escalations.append(e))
-+
-+        _emit_progress_with_state(bus, "blocked", blocker="git add failed: .gitignore rule")
-+
-+        actions = monitor._check_infra_errors()
-+
-+        assert len(actions) == 1
-+        assert actions[0]["action"] == "escalate"
-+        assert actions[0]["alert_type"] == "infrastructure_error"
-+        assert len(escalations) == 1
-+        assert escalations[0]["type"] == "hitl"
-+
-+        alerts = monitor.get_active_alerts()
-+        infra_alerts = [a for a in alerts if a["alert_type"] == "infrastructure_error"]
-+        assert len(infra_alerts) == 1
-+        assert infra_alerts[0]["severity"] == "critical"
-+
-+    def test_non_infra_blocker_ignored(self):
-+        """Blocked progress with non-infra blocker does NOT trigger alert."""
-+        bus = _make_event_bus()
-+        monitor = _make_monitor(bus)
-+
-+        escalations = []
-+        monitor.on_escalation(lambda e: escalations.append(e))
-+
-+        _emit_progress_with_state(bus, "blocked", blocker="waiting for reviewer")
-+
-+        actions = monitor._check_infra_errors()
-+
-+        assert len(actions) == 0
-+        assert len(escalations) == 0
-+
-+    def test_dedup_prevents_repeat_alert(self):
-+        """Second identical infra error does NOT create duplicate alert."""
-+        bus = _make_event_bus()
-+        monitor = _make_monitor(bus)
-+
-+        escalations = []
-+        monitor.on_escalation(lambda e: escalations.append(e))
-+
-+        _emit_progress_with_state(bus, "blocked", blocker="permission denied")
-+
-+        actions1 = monitor._check_infra_errors()
-+        actions2 = monitor._check_infra_errors()
-+
-+        assert len(actions1) == 1
-+        assert len(actions2) == 0
-+        assert len(escalations) == 1
-+
-+    def test_flag_resets_on_working_progress(self):
-+        """After recovery (working state), a new infra error triggers again."""
-+        bus = _make_event_bus()
-+        monitor = _make_monitor(bus)
-+
-+        escalations = []
-+        monitor.on_escalation(lambda e: escalations.append(e))
-+
-+        # First infra error
-+        _emit_progress_with_state(bus, "blocked", blocker="EROFS: read-only file system")
-+        monitor._check_infra_errors()
-+        assert len(escalations) == 1
-+
-+        # Agent recovers
-+        _emit_progress_with_state(bus, "working")
-+
-+        # Second infra error
-+        _emit_progress_with_state(bus, "blocked", blocker="403 Forbidden from gateway")
-+        monitor._check_infra_errors()
-+        assert len(escalations) == 2
-+
-+    def test_multiple_patterns_match(self):
-+        """Various infrastructure error strings are detected."""
-+        patterns_to_test = [
-+            "git push failed: remote rejected",
-+            "permission denied: /tmp/file",
-+            "EROFS error on write",
-+            "403 Forbidden",
-+            "gateway connection error",
-+            ".gitignore blocking staged file",
-+            "500 Internal Server Error from API",
-+            "read-only file system",
-+        ]
-+
-+        for blocker in patterns_to_test:
-+            bus = _make_event_bus()
-+            monitor = _make_monitor(bus)
-+            _emit_progress_with_state(bus, "blocked", blocker=blocker)
-+            actions = monitor._check_infra_errors()
-+            assert len(actions) == 1, f"Pattern not detected: {blocker}"
-+
-+    def test_working_state_not_detected(self):
-+        """Non-blocked progress events are not checked for infra errors."""
-+        bus = _make_event_bus()
-+        monitor = _make_monitor(bus)
-+
-+        _emit_progress_with_state(bus, "working")
-+
-+        actions = monitor._check_infra_errors()
-+        assert len(actions) == 0
-+
-+    def test_check_tripwires_includes_infra_errors(self):
-+        """check_tripwires() includes infrastructure error checks."""
-+        bus = _make_event_bus()
-+        monitor = _make_monitor(bus)
-+
-+        _emit_progress_with_state(bus, "blocked", blocker="git add failed: .gitignore")
-+
-+        actions = monitor.check_tripwires()
-+        infra_actions = [a for a in actions if a.get("alert_type") == "infrastructure_error"]
-+        assert len(infra_actions) == 1
-diff --git a/orchestrator/tests/test_overseer_classifier.py b/orchestrator/tests/test_overseer_classifier.py
-index eb66c9af67..31fedbb79c 100644
---- a/orchestrator/tests/test_overseer_classifier.py
-+++ b/orchestrator/tests/test_overseer_classifier.py
-@@ -292,6 +292,65 @@ class TestCheckAlignmentAligned:
- # ===================================================================
+-        # reviewer_code confirms (has_reviewed returns True for the ACK entry)
+-        t.handle_confirmed("reviewer_code")
+-        assert "reviewer_code" in t._confirmed
++        # reviewer_code attempts to confirm — blocked by the zero-proposal
++        # guard because coder has proposal_version == 0.
++        result = t.handle_confirmed("reviewer_code")
++        assert result["status"] == "pending_acks"
++        assert "zero_proposal_producers" in result
++        assert "reviewer_code" not in t._confirmed
  
+-        # Coder proposes — the confirmed reviewer with stale version-0 ACK
+-        # should be un-confirmed via _un_confirm_stale_reviewers
++        # Coder proposes — the version-0 ACK is invalidated via
++        # _invalidate_pre_proposal_acks so the reviewer must re-review.
+         result = t.handle_propose(
+             "coder",
+             {"summary": "Implementation", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
+@@ -2486,11 +2490,12 @@ class TestUnresolvedNackGuard:
+         assert "rev" not in t._confirmed
  
-+class TestClassifyStallInfrastructureError:
-+    """Test classify_stall returns infrastructure_error classification."""
-+
-+    @patch(_AGENT_PATCH, new_callable=AsyncMock)
-+    def test_classify_stall_infrastructure_error(self, mock_agent: AsyncMock) -> None:
-+        mock_agent.return_value = _make_result(
-+            json.dumps(
-+                {
-+                    "classification": "infrastructure_error",
-+                    "confidence": 0.95,
-+                    "reasoning": "Agent blocked by git add failure due to .gitignore",
-+                }
-+            )
-+        )
-+
-+        result = _run(
-+            classify_stall(
-+                logs=[{"msg": "git add failed: .gitignore rule"}],
-+                progress=[{"state": "blocked", "blocker": "git add failed"}],
-+            )
-+        )
-+
-+        assert result["classification"] == "infrastructure_error"
-+        assert result["confidence"] == 0.95
-+        mock_agent.assert_awaited_once()
-+
-+
-+class TestClassifyErrorInfrastructure:
-+    """Test classify_error returns infrastructure_error type."""
-+
-+    @patch(_AGENT_PATCH, new_callable=AsyncMock)
-+    def test_classify_error_infrastructure(self, mock_agent: AsyncMock) -> None:
-+        mock_agent.return_value = _make_result(
-+            json.dumps(
-+                {
-+                    "error_type": "infrastructure_error",
-+                    "severity": "critical",
-+                    "recommended_action": "escalate_hitl",
-+                }
-+            )
-+        )
-+
-+        result = _run(
-+            classify_error(
-+                error_context={"msg": "permission denied: /tmp/file", "code": 1}
-+            )
-+        )
-+
-+        assert result["error_type"] == "infrastructure_error"
-+        assert result["severity"] == "critical"
-+        assert result["recommended_action"] == "escalate_hitl"
-+        mock_agent.assert_awaited_once()
-+
-+
-+# ===================================================================
-+# Caching
-+# ===================================================================
-+
-+
- class TestClassifierCaching:
-     """Test that classifier results are cached."""
+     def test_nack_guard_with_version_zero_nack(self):
+-        """NACK at version 0 (before proposal) should not trigger the guard
+-        because current_version == 0 means no proposal has been made yet.
++        """NACK at version 0 (before proposal) — the zero-proposal guard
++        blocks confirmation because the producer hasn't proposed yet.
  
-diff --git a/orchestrator/tests/test_overseer_decision_maker.py b/orchestrator/tests/test_overseer_decision_maker.py
-index df93616eac..0cfd7f746c 100644
---- a/orchestrator/tests/test_overseer_decision_maker.py
-+++ b/orchestrator/tests/test_overseer_decision_maker.py
-@@ -255,3 +255,42 @@ class TestDecideEscalationLevel:
+-        The guard condition requires current_version > 0 to avoid false
+-        positives when reviewers NACK before any proposal exists.
++        The NACK guard condition requires current_version > 0, so it would
++        not fire at v0.  However, the zero-proposal guard fires first,
++        preventing confirmation when any assigned producer has version == 0.
+         """
+         graph = ReviewGraph([ReviewEdge("rev", "coder", ReviewCriticality.CRITICAL)])
+         t = PeerConsensusTracker("test-v0", graph, cooldown_seconds=0)
+@@ -2501,10 +2506,11 @@ class TestUnresolvedNackGuard:
+         t.handle_nack("rev", "coder", {"artifact_references": ["a.py"], "reason": "preemptive"})
  
-         assert result["escalate"] is False
-         assert result["level"] == "redirect"
-+
-+
-+# ===================================================================
-+# infrastructure_error fast-path
-+# ===================================================================
-+
-+
-+class TestInfraErrorFastPath:
-+    """Test that infrastructure_error classifications bypass LLM."""
-+
-+    def test_decide_corrective_action_infra_fast_path(self) -> None:
-+        """infrastructure_error classification returns hitl without LLM call."""
-+        classification = {
-+            "classification": "infrastructure_error",
-+            "confidence": 0.95,
-+            "reasoning": "git add failed due to .gitignore",
-+        }
-+        context = {"pipeline_id": "test-123"}
-+
-+        result = _run(decide_corrective_action(classification, context))
-+
-+        assert result["action"] == "hitl"
-+        assert result["priority"] == "critical"
-+        assert "git add failed" in result["message"]
-+
-+    def test_decide_escalation_level_infra_fast_path(self) -> None:
-+        """infrastructure_error classification always escalates to hitl."""
-+        classification = {
-+            "classification": "infrastructure_error",
-+            "confidence": 0.95,
-+            "reasoning": "permission denied on file write",
-+        }
-+        redirect_history = []
-+
-+        result = _run(decide_escalation_level(classification, redirect_history))
-+
-+        assert result["escalate"] is True
-+        assert result["level"] == "hitl"
-+        assert "permission denied" in result["reasoning"]
-diff --git a/orchestrator/tests/test_overseer_monitor.py b/orchestrator/tests/test_overseer_monitor.py
-index 2e51fe70a0..dc668707db 100644
---- a/orchestrator/tests/test_overseer_monitor.py
-+++ b/orchestrator/tests/test_overseer_monitor.py
-@@ -1949,3 +1949,306 @@ class TestHealthChecksBroadcast:
-         call_args = monitor._broadcast_alert.call_args
-         assert call_args.args[0] == "cross_phase_inconsistency"
-         assert call_args.args[3] == "high"
-+
-+
-+# ===================================================================
-+# test_infrastructure_error_routing
-+# ===================================================================
-+
-+
-+class TestInfrastructureErrorRouting:
-+    """Test routing of infrastructure_error alerts through the monitor."""
-+
-+    def test_tier1_infra_alert_skips_classifier(self) -> None:
-+        """Tier 1 infrastructure_error alerts bypass classifier and go to decision maker."""
-+        classifier = _MockClassifier()
-+        decision_maker = _MockDecisionMaker()
-+        decision_maker.decide_corrective_action.return_value = {
-+            "action": "hitl",
-+            "message": "Infrastructure error: git add failed",
-+            "priority": "critical",
-+        }
-+
-+        monitor = OverseerMonitor(
-+            pipeline_id="test-infra-001",
-+            config=_MockConfig(),
-+            classifier=classifier,
-+            decision_maker=decision_maker,
-+        )
-+
-+        infra_alert = {
-+            "agent_role": "coder",
-+            "agent_id": "coder",
-+            "alert_type": "infrastructure_error",
-+            "message": "Infrastructure error detected: git add failed: .gitignore",
-+            "severity": "critical",
-+            "logs": [],
-+        }
-+
-+        pipeline_data = {
-+            "status": "running",
-+            "concurrent": {"agents": [{"role": "coder"}]},
-+        }
-+
-+        async def mock_run_cli(*args, **kwargs):
-+            cmd = " ".join(args)
-+            if "consensus status" in cmd:
-+                return (0, "{}", "")
-+            if "phase get" in cmd:
-+                return (0, '{"name": "implement"}', "")
-+            if "health alerts" in cmd:
-+                return (0, json.dumps([infra_alert]), "")
-+            if "pipeline status" in cmd:
-+                return (0, json.dumps(pipeline_data), "")
-+            if "message poll" in cmd:
-+                return (0, "[]", "")
-+            if "progress query" in cmd:
-+                return (0, "[]", "")
-+            return (0, "[]", "")
-+
-+        monitor._run_cli = AsyncMock(side_effect=mock_run_cli)
-+
-+        _run(monitor._poll_cycle())
-+
-+        # Classifier should NOT have been called (bypassed for infra alerts)
-+        classifier.classify_stall.assert_not_awaited()
-+
-+        # Decision maker SHOULD have been called with infra classification
-+        decision_maker.decide_corrective_action.assert_awaited_once()
-+        call_args = decision_maker.decide_corrective_action.call_args
-+        classification = call_args.args[0] if call_args.args else call_args.kwargs.get("classification")
-+        assert classification["classification"] == "infrastructure_error"
-+        assert classification["confidence"] == 1.0
-+
-+    def test_non_infra_alert_still_classifies(self) -> None:
-+        """Non-infrastructure alerts still go through normal classifier path."""
-+        classifier = _MockClassifier()
-+        decision_maker = _MockDecisionMaker()
-+
-+        monitor = OverseerMonitor(
-+            pipeline_id="test-infra-002",
-+            config=_MockConfig(),
-+            classifier=classifier,
-+            decision_maker=decision_maker,
-+        )
-+
-+        regular_alert = {
-+            "agent_role": "coder",
-+            "agent_id": "coder",
-+            "alert_type": "heartbeat_timeout",
-+            "message": "No heartbeat for 120s",
-+            "logs": [],
-+        }
-+
-+        pipeline_data = {
-+            "status": "running",
-+            "concurrent": {"agents": [{"role": "coder"}]},
-+        }
-+
-+        async def mock_run_cli(*args, **kwargs):
-+            cmd = " ".join(args)
-+            if "consensus status" in cmd:
-+                return (0, "{}", "")
-+            if "phase get" in cmd:
-+                return (0, '{"name": "implement"}', "")
-+            if "health alerts" in cmd:
-+                return (0, json.dumps([regular_alert]), "")
-+            if "pipeline status" in cmd:
-+                return (0, json.dumps(pipeline_data), "")
-+            if "message poll" in cmd:
-+                return (0, "[]", "")
-+            if "progress query" in cmd:
-+                return (0, "[]", "")
-+            return (0, "[]", "")
-+
-+        monitor._run_cli = AsyncMock(side_effect=mock_run_cli)
-+
-+        _run(monitor._poll_cycle())
-+
-+        # Classifier SHOULD be called for regular alerts
-+        classifier.classify_stall.assert_awaited_once()
-+        decision_maker.decide_corrective_action.assert_awaited_once()
-+
-+    def test_classifier_detected_infra_reaches_fast_path(self) -> None:
-+        """When classifier returns infrastructure_error, decision maker fast-path is used."""
-+        classifier = _MockClassifier()
-+        classifier.classify_stall.return_value = {
-+            "classification": "infrastructure_error",
-+            "confidence": 0.9,
-+            "reasoning": "Agent blocked by permission denied error",
-+        }
-+
-+        decision_maker = _MockDecisionMaker()
-+
-+        monitor = OverseerMonitor(
-+            pipeline_id="test-infra-003",
-+            config=_MockConfig(),
-+            classifier=classifier,
-+            decision_maker=decision_maker,
-+        )
-+
-+        escalation = {
-+            "agent_role": "coder",
-+            "logs": [{"msg": "permission denied"}],
-+            "progress": [],
-+        }
-+
-+        monitor._run_cli = AsyncMock(return_value=(0, "{}", ""))
-+
-+        _run(monitor.handle_escalation(escalation))
-+
-+        # Classifier is called (this is via handle_escalation, not the fast-path in _poll_cycle)
-+        classifier.classify_stall.assert_awaited_once()
-+
-+        # Decision maker receives infrastructure_error classification
-+        decision_maker.decide_corrective_action.assert_awaited_once()
-+        call_args = decision_maker.decide_corrective_action.call_args
-+        classification = call_args.args[0] if call_args.args else call_args.kwargs.get("classification")
-+        assert classification["classification"] == "infrastructure_error"
-+
-+
-+# ===================================================================
-+# test_infra_error_deduplication (#1489)
-+# ===================================================================
-+
-+
-+class TestInfraErrorDeduplication:
-+    """Test deduplication between Tier 1 and Tier 2 infrastructure error escalations."""
-+
-+    def test_same_error_within_window_is_deduped(self) -> None:
-+        """Duplicate infra error alert within dedup window produces only one escalation."""
-+        classifier = _MockClassifier()
-+        decision_maker = _MockDecisionMaker()
-+        decision_maker.decide_corrective_action.return_value = {
-+            "action": "hitl",
-+            "message": "Infrastructure error",
-+            "priority": "critical",
-+        }
-+
-+        monitor = OverseerMonitor(
-+            pipeline_id="test-dedup-001",
-+            config=_MockConfig(),
-+            classifier=classifier,
-+            decision_maker=decision_maker,
-+        )
-+
-+        infra_alert = {
-+            "agent_role": "coder",
-+            "agent_id": "coder",
-+            "alert_type": "infrastructure_error",
-+            "message": "Infrastructure error: git add failed: .gitignore",
-+            "severity": "critical",
-+        }
-+        pipeline_data = {
-+            "status": "running",
-+            "concurrent": {"agents": [{"role": "coder"}]},
-+        }
-+
-+        async def mock_run_cli(*args, **kwargs):
-+            cmd = " ".join(args)
-+            if "consensus status" in cmd:
-+                return (0, "{}", "")
-+            if "phase get" in cmd:
-+                return (0, '{"name": "implement"}', "")
-+            if "health alerts" in cmd:
-+                return (0, json.dumps([infra_alert]), "")
-+            if "pipeline status" in cmd:
-+                return (0, json.dumps(pipeline_data), "")
-+            if "message poll" in cmd:
-+                return (0, "[]", "")
-+            if "progress query" in cmd:
-+                return (0, "[]", "")
-+            return (0, "[]", "")
-+
-+        monitor._run_cli = AsyncMock(side_effect=mock_run_cli)
-+
-+        # First cycle: escalates
-+        _run(monitor._poll_cycle())
-+        assert decision_maker.decide_corrective_action.await_count == 1
-+
-+        # Second cycle with same error: deduped
-+        _run(monitor._poll_cycle())
-+        assert decision_maker.decide_corrective_action.await_count == 1
-+
-+    def test_distinct_errors_not_deduped(self) -> None:
-+        """Different infra errors for the same agent produce separate escalations."""
-+        classifier = _MockClassifier()
-+        decision_maker = _MockDecisionMaker()
-+        decision_maker.decide_corrective_action.return_value = {
-+            "action": "hitl",
-+            "message": "Infrastructure error",
-+            "priority": "critical",
-+        }
-+
-+        monitor = OverseerMonitor(
-+            pipeline_id="test-dedup-002",
-+            config=_MockConfig(),
-+            classifier=classifier,
-+            decision_maker=decision_maker,
-+        )
-+
-+        pipeline_data = {
-+            "status": "running",
-+            "concurrent": {"agents": [{"role": "coder"}]},
-+        }
-+
-+        # First error
-+        alert1 = {
-+            "agent_role": "coder",
-+            "agent_id": "coder",
-+            "alert_type": "infrastructure_error",
-+            "message": "Infrastructure error: git add failed",
-+            "severity": "critical",
-+        }
-+
-+        async def mock_cli_1(*args, **kwargs):
-+            cmd = " ".join(args)
-+            if "health alerts" in cmd:
-+                return (0, json.dumps([alert1]), "")
-+            if "pipeline status" in cmd:
-+                return (0, json.dumps(pipeline_data), "")
-+            return (0, "[]" if "query" in cmd or "poll" in cmd else "{}", "")
-+
-+        monitor._run_cli = AsyncMock(side_effect=mock_cli_1)
-+        _run(monitor._poll_cycle())
-+        assert decision_maker.decide_corrective_action.await_count == 1
-+
-+        # Second error (different message)
-+        alert2 = {
-+            "agent_role": "coder",
-+            "agent_id": "coder",
-+            "alert_type": "infrastructure_error",
-+            "message": "Infrastructure error: permission denied /tmp/file",
-+            "severity": "critical",
-+        }
-+
-+        async def mock_cli_2(*args, **kwargs):
-+            cmd = " ".join(args)
-+            if "health alerts" in cmd:
-+                return (0, json.dumps([alert2]), "")
-+            if "pipeline status" in cmd:
-+                return (0, json.dumps(pipeline_data), "")
-+            return (0, "[]" if "query" in cmd or "poll" in cmd else "{}", "")
-+
-+        monitor._run_cli = AsyncMock(side_effect=mock_cli_2)
-+        _run(monitor._poll_cycle())
-+        assert decision_maker.decide_corrective_action.await_count == 2
-+
-+    def test_dedup_window_is_configurable(self) -> None:
-+        """Dedup window can be configured via config attribute."""
-+        monitor = OverseerMonitor(
-+            pipeline_id="test-dedup-003",
-+            config=_MockConfig(),
-+        )
-+
-+        # Record an escalation
-+        monitor._record_infra_error_escalation("coder", "test error")
-+
-+        # Within default 300s window: should be deduped
-+        assert monitor._is_infra_error_deduped("coder", "test error") is True
-+
-+        # Different error: should not be deduped
-+        assert monitor._is_infra_error_deduped("coder", "different error") is False
-+
-+        # Different agent: should not be deduped
-+        assert monitor._is_infra_error_deduped("tester", "test error") is False
+         # has_reviewed returns True for NACK, so the has_reviewed guard passes.
+-        # The NACK guard requires current_version > 0, which is 0 here, so it
+-        # doesn't fire. Confirm succeeds.
++        # However, the zero-proposal guard blocks: coder has version == 0.
+         result = t.handle_confirmed("rev")
+-        assert result["status"] in ("confirmed", "partially_confirmed")
++        assert result["status"] == "pending_acks"
++        assert "zero_proposal_producers" in result
++        assert "coder" in result["zero_proposal_producers"]
+ 
+     def test_nack_guard_response_includes_nacked_producers(self):
+         """The rejection response should identify which producers have

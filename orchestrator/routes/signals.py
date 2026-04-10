@@ -156,6 +156,8 @@ def handle_signal(pipeline_id: str) -> tuple[Response, int]:
         "consensus_nack": handle_consensus_nack_signal,
         "consensus_withdraw": handle_consensus_withdraw_signal,
         "consensus_confirmed": handle_consensus_confirmed_signal,
+        "consensus_producer_push": handle_consensus_producer_push_signal,
+        "consensus_excuse_producer": handle_consensus_excuse_producer_signal,
     }
 
     handler = handlers.get(signal_type)
@@ -1001,6 +1003,11 @@ def handle_consensus_ack_signal(
 
     payload = data.get("payload", {})
 
+    # Forward ack_version from signal data into the payload so the
+    # version-match guard can detect stale ACKs.
+    if "ack_version" in data and "ack_version" not in payload:
+        payload["ack_version"] = int(data["ack_version"])
+
     try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
@@ -1347,6 +1354,246 @@ def handle_consensus_confirmed_signal(
         return make_error_response(str(e), 500)
 
 
+def handle_consensus_excuse_producer_signal(
+    pipeline_id: str,
+    data: dict[str, Any],
+    repo_path: Path,
+) -> tuple[Response, int]:
+    """Handle EXCUSE_PRODUCER signal (HITL-gated).
+
+    Removes a non-delivering producer from the review graph so that
+    reviewers can proceed without its deliverable.  Requires a resolved
+    HITL decision — the ``decision_id`` field must reference a RESOLVED
+    decision to prevent unauthorized producer removal.
+
+    Request data:
+        producer_role: The producer role to excuse.
+        reason: Why the producer is being excused.
+        decision_id: ID of the resolved HITL decision authorizing this action.
+    """
+    producer_role = data.get("producer_role")
+    if not producer_role:
+        return make_error_response("Missing producer_role")
+
+    reason = data.get("reason", "")
+
+    # --- HITL gate: require a resolved decision ---
+    decision_id = data.get("decision_id")
+    if not decision_id:
+        return make_error_response(
+            "Missing decision_id. consensus_excuse_producer requires a "
+            "resolved HITL decision. Create a decision via the decisions "
+            "API and resolve it before calling this signal.",
+            status_code=403,
+        )
+
+    try:
+        from decision_queue import DecisionNotFoundError, get_decision_queue
+    except ImportError:
+        from ..decision_queue import (  # type: ignore[no-redef]
+            DecisionNotFoundError,
+            get_decision_queue,
+        )
+
+    try:
+        from models import DecisionStatus
+    except ImportError:
+        from ..models import DecisionStatus  # type: ignore[no-redef]
+
+    try:
+        queue = get_decision_queue(pipeline_id, repo_path)
+        decision = queue.get_decision(decision_id)
+        if decision.status != DecisionStatus.RESOLVED:
+            return make_error_response(
+                f"Decision {decision_id} is not resolved "
+                f"(status: {decision.status.value}). Only resolved HITL "
+                f"decisions can authorize producer excusal.",
+                status_code=403,
+            )
+
+        # Scope validation: the decision must be specifically about
+        # excusing *this* producer, not just any resolved decision.
+        # Mirrors the excuse_reviewer pattern in decisions.py.
+        expected_context = f"failed_role:{producer_role}"
+        if decision.context != expected_context:
+            return make_error_response(
+                f"Decision {decision_id} is not authorized for excusing "
+                f"producer {producer_role} (expected context: "
+                f"'{expected_context}', got: '{decision.context}').",
+                status_code=403,
+            )
+    except DecisionNotFoundError:
+        return make_error_response(
+            f"Decision {decision_id} not found. A valid resolved HITL "
+            f"decision is required to excuse a producer.",
+            status_code=404,
+        )
+
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+    except ImportError:
+        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
+
+    tracker = get_peer_consensus_tracker(pipeline_id)
+    if not tracker:
+        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+
+    try:
+        result = tracker.excuse_producer(producer_role, reason)
+
+        from message_store import Message, MessageType, get_message_store
+
+        store = get_message_store()
+        phase = _resolve_pipeline_phase(pipeline_id, repo_path)
+
+        # Notify all agents that the producer has been excused
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="orchestrator",
+                to_role="all",
+                message_type=MessageType.STATUS,
+                subject=f"Producer {producer_role} excused from consensus",
+                body=(
+                    f"Producer {producer_role} has been excused from the consensus "
+                    f"protocol (reason: {reason or 'HITL decision'}). Reviewers "
+                    f"assigned to this producer are no longer blocked by it."
+                ),
+                phase=phase,
+                metadata={
+                    "excuse_producer": True,
+                    "producer_role": producer_role,
+                    "reason": reason,
+                    "affected_reviewers": result.get("affected_reviewers", []),
+                },
+            )
+        )
+
+        return make_success_response(
+            f"Producer {producer_role} excused from consensus",
+            data=result,
+        )
+    except (ValueError, Exception) as e:
+        logger.error(
+            "Failed to excuse producer",
+            pipeline_id=pipeline_id,
+            producer_role=producer_role,
+            error=str(e),
+        )
+        return make_error_response(str(e), 400 if isinstance(e, ValueError) else 500)
+
+
+def handle_consensus_producer_push_signal(
+    pipeline_id: str,
+    data: dict[str, Any],
+    repo_path: Path,
+) -> tuple[Response, int]:
+    """Handle a producer push/commit that should trigger auto re-proposal.
+
+    When a producer pushes new commits after having already proposed, this
+    signal triggers an automatic re-proposal in the consensus tracker.
+    Existing ACKs are invalidated and reviewers are notified to re-review.
+
+    Request data:
+        agent_role: The producer role that pushed.
+        commit_sha: The new commit SHA.
+        changed_files: Optional list of changed file paths for scoped
+            re-evaluation.
+    """
+    agent_role = data.get("agent_role")
+    if not agent_role:
+        return make_error_response("Missing agent_role")
+
+    commit_sha = data.get("commit_sha", "")
+    if not commit_sha:
+        return make_error_response("Missing commit_sha")
+
+    changed_files = data.get("changed_files")
+
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+    except ImportError:
+        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
+
+    tracker = get_peer_consensus_tracker(pipeline_id)
+    if not tracker:
+        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+
+    try:
+        result = tracker.handle_producer_push(agent_role, commit_sha, changed_files)
+
+        # If auto re-propose happened, write a message and notify reviewers
+        if result.get("auto_re_propose"):
+            from message_store import Message, MessageType, get_message_store
+
+            store = get_message_store()
+            phase = _resolve_pipeline_phase(pipeline_id, repo_path)
+            store.add_message(
+                Message(
+                    pipeline_id=pipeline_id,
+                    from_role=agent_role,
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_PROPOSE,
+                    subject=f"Auto re-proposal from {agent_role} (push)",
+                    body=(
+                        f"Producer {agent_role} pushed new commit {commit_sha}. "
+                        f"Existing ACKs invalidated; re-review required."
+                    ),
+                    phase=phase,
+                    metadata={
+                        "auto_re_propose": True,
+                        "trigger": "auto_push",
+                        "commit_sha": commit_sha,
+                        "version": result.get("version"),
+                        "changed_files": changed_files,
+                    },
+                )
+            )
+
+            # Notify invalidated reviewers (deduplicate in case a reviewer
+            # appears in both lists)
+            notified_reviewers = set(
+                result.get("stale_reviewers", []) + result.get("invalidated_reviewers", [])
+            )
+            for reviewer in notified_reviewers:
+                store.add_message(
+                    Message(
+                        pipeline_id=pipeline_id,
+                        from_role="orchestrator",
+                        to_role=reviewer,
+                        message_type=MessageType.CONSENSUS_RE_REVIEW,
+                        subject=(
+                            f"Re-review required: {agent_role} pushed new changes "
+                            f"(v{result.get('version')})"
+                        ),
+                        body=(
+                            f"Producer {agent_role} has pushed new commits after "
+                            f"proposing. Your previous review is invalidated. "
+                            f"Please re-review and ACK/NACK the updated work."
+                        ),
+                        phase=phase,
+                        metadata={
+                            "producer_role": agent_role,
+                            "version": result.get("version"),
+                            "commit_sha": commit_sha,
+                        },
+                    )
+                )
+
+        return make_success_response(
+            f"Producer push processed for {agent_role}",
+            data=result,
+        )
+    except (ValueError, Exception) as e:
+        logger.error(
+            "Failed to process consensus producer push",
+            pipeline_id=pipeline_id,
+            role=agent_role,
+            error=str(e),
+        )
+        return make_error_response(str(e), 400 if isinstance(e, ValueError) else 500)
+
+
 @signals_bp.route("/<pipeline_id>/signal/batch", methods=["POST"])
 def handle_batch_signals(pipeline_id: str) -> tuple[Response, int]:
     """
@@ -1400,6 +1647,8 @@ def handle_batch_signals(pipeline_id: str) -> tuple[Response, int]:
                 "consensus_nack": handle_consensus_nack_signal,
                 "consensus_withdraw": handle_consensus_withdraw_signal,
                 "consensus_confirmed": handle_consensus_confirmed_signal,
+                "consensus_producer_push": handle_consensus_producer_push_signal,
+                "consensus_excuse_producer": handle_consensus_excuse_producer_signal,
             }
 
             handler = handlers.get(signal_type)

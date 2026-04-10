@@ -1140,3 +1140,253 @@ class TestConsensusProposeBranchVerification:
         call_args = mock_store_inst.add_message.call_args_list[0]
         msg = call_args[0][0]
         assert msg.metadata.get("commit_sha") == "deadbeef"
+
+
+# ---------------------------------------------------------------------------
+# consensus_excuse_producer HITL gate tests (#1637)
+# ---------------------------------------------------------------------------
+
+
+class TestExcuseProducerHITLGate:
+    """Tests for HITL gate validation in handle_consensus_excuse_producer_signal."""
+
+    def test_missing_decision_id_returns_403(self, app):
+        """Request without decision_id is rejected with 403."""
+        with app.app_context():
+            from routes.signals import handle_consensus_excuse_producer_signal
+
+            response, status_code = handle_consensus_excuse_producer_signal(
+                "issue-42",
+                {"producer_role": "coder", "reason": "Not delivering"},
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 403
+        data = json.loads(response.data)
+        assert data["success"] is False
+        assert "Missing decision_id" in data["message"]
+
+    def test_unresolved_decision_returns_403(self, app):
+        """Decision that is not RESOLVED is rejected with 403."""
+        with app.app_context():
+            from routes.signals import handle_consensus_excuse_producer_signal
+
+            mock_decision = MagicMock()
+            mock_decision.status = MagicMock()
+            mock_decision.status.value = "pending"
+            # Make status != RESOLVED
+            mock_queue = MagicMock()
+            mock_queue.get_decision.return_value = mock_decision
+
+            with patch("routes.signals.DecisionStatus", create=True):
+                # Import the real DecisionStatus for comparison
+                from models import DecisionStatus
+
+                mock_decision.status = DecisionStatus.PENDING
+
+                with patch("decision_queue.get_decision_queue", return_value=mock_queue):
+                    response, status_code = handle_consensus_excuse_producer_signal(
+                        "issue-42",
+                        {
+                            "producer_role": "coder",
+                            "reason": "Not delivering",
+                            "decision_id": "dec-123",
+                        },
+                        Path("/tmp/repo"),
+                    )
+
+        assert status_code == 403
+        data = json.loads(response.data)
+        assert data["success"] is False
+        assert "not resolved" in data["message"]
+
+    def test_wrong_context_returns_403(self, app):
+        """Decision for a different role is rejected with 403."""
+        with app.app_context():
+            from models import DecisionStatus
+            from routes.signals import handle_consensus_excuse_producer_signal
+
+            mock_decision = MagicMock()
+            mock_decision.status = DecisionStatus.RESOLVED
+            mock_decision.context = "failed_role:tester"  # Wrong role
+
+            mock_queue = MagicMock()
+            mock_queue.get_decision.return_value = mock_decision
+
+            with patch("decision_queue.get_decision_queue", return_value=mock_queue):
+                response, status_code = handle_consensus_excuse_producer_signal(
+                    "issue-42",
+                    {
+                        "producer_role": "coder",
+                        "reason": "Not delivering",
+                        "decision_id": "dec-123",
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 403
+        data = json.loads(response.data)
+        assert data["success"] is False
+        assert "not authorized for excusing producer coder" in data["message"]
+
+    def test_decision_not_found_returns_404(self, app):
+        """Non-existent decision ID returns 404."""
+        with app.app_context():
+            from decision_queue import DecisionNotFoundError
+            from routes.signals import handle_consensus_excuse_producer_signal
+
+            mock_queue = MagicMock()
+            mock_queue.get_decision.side_effect = DecisionNotFoundError("dec-999")
+
+            with patch("decision_queue.get_decision_queue", return_value=mock_queue):
+                response, status_code = handle_consensus_excuse_producer_signal(
+                    "issue-42",
+                    {
+                        "producer_role": "coder",
+                        "reason": "Not delivering",
+                        "decision_id": "dec-999",
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 404
+        data = json.loads(response.data)
+        assert data["success"] is False
+        assert "not found" in data["message"]
+
+    def test_valid_decision_proceeds(self, app):
+        """Correctly authorized decision allows excuse to proceed."""
+        with app.app_context():
+            from models import DecisionStatus
+            from routes.signals import handle_consensus_excuse_producer_signal
+
+            mock_decision = MagicMock()
+            mock_decision.status = DecisionStatus.RESOLVED
+            mock_decision.context = "failed_role:coder"
+
+            mock_queue = MagicMock()
+            mock_queue.get_decision.return_value = mock_decision
+
+            mock_tracker = MagicMock()
+            mock_tracker.excuse_producer.return_value = {
+                "status": "excused",
+                "affected_reviewers": ["reviewer_code"],
+            }
+
+            with (
+                patch("decision_queue.get_decision_queue", return_value=mock_queue),
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("message_store.get_message_store") as mock_msg_store,
+            ):
+                mock_store_inst = MagicMock()
+                mock_msg_store.return_value = mock_store_inst
+
+                with patch("routes.signals._resolve_pipeline_phase", return_value="implement"):
+                    response, status_code = handle_consensus_excuse_producer_signal(
+                        "issue-42",
+                        {
+                            "producer_role": "coder",
+                            "reason": "Not delivering",
+                            "decision_id": "dec-123",
+                        },
+                        Path("/tmp/repo"),
+                    )
+
+        assert status_code == 200
+        data = json.loads(response.data)
+        assert data["success"] is True
+        mock_tracker.excuse_producer.assert_called_once_with("coder", "Not delivering")
+
+
+# ---------------------------------------------------------------------------
+# ACK version forwarding tests (#1637)
+# ---------------------------------------------------------------------------
+
+
+class TestAckVersionForwarding:
+    """Tests for ack_version forwarding in handle_consensus_ack_signal."""
+
+    @patch("subprocess.run")
+    def test_ack_version_forwarded_from_signal_data(self, mock_subprocess_run, app):
+        """ack_version in signal data is forwarded to payload for version-match guard."""
+        with app.app_context():
+            from routes.signals import handle_consensus_ack_signal
+
+            mock_tracker = MagicMock()
+            mock_tracker.handle_ack.return_value = {
+                "status": "acked",
+                "version": 2,
+                "fully_acked": False,
+            }
+
+            with (
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("message_store.get_message_store") as mock_msg_store,
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                mock_store_inst = MagicMock()
+                mock_msg_store.return_value = mock_store_inst
+
+                response, status_code = handle_consensus_ack_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "reviewer_code",
+                        "producer_role": "coder",
+                        "ack_version": 1,
+                        "payload": {"reason": "Looks good"},
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 200
+        # Verify the payload passed to handle_ack includes ack_version
+        call_args = mock_tracker.handle_ack.call_args
+        payload_passed = call_args[0][2]  # Third positional arg is payload
+        assert payload_passed.get("ack_version") == 1
+
+    @patch("subprocess.run")
+    def test_ack_version_not_overwritten_if_already_in_payload(self, mock_subprocess_run, app):
+        """ack_version already in payload is not overwritten by signal data."""
+        with app.app_context():
+            from routes.signals import handle_consensus_ack_signal
+
+            mock_tracker = MagicMock()
+            mock_tracker.handle_ack.return_value = {
+                "status": "acked",
+                "version": 3,
+                "fully_acked": False,
+            }
+
+            with (
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("message_store.get_message_store") as mock_msg_store,
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                mock_store_inst = MagicMock()
+                mock_msg_store.return_value = mock_store_inst
+
+                response, status_code = handle_consensus_ack_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "reviewer_code",
+                        "producer_role": "coder",
+                        "ack_version": 1,
+                        "payload": {"reason": "Looks good", "ack_version": 3},
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 200
+        call_args = mock_tracker.handle_ack.call_args
+        payload_passed = call_args[0][2]
+        # Payload's own ack_version should be preserved, not overwritten
+        assert payload_passed.get("ack_version") == 3

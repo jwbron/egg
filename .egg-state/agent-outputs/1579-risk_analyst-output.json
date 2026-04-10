@@ -1,0 +1,366 @@
+{
+  "issue": 1579,
+  "agent": "risk_analyst",
+  "phase": "plan",
+  "revision": 1,
+  "timestamp": "2026-04-10T00:30:00Z",
+  "summary": "Identified 8 risks (3 HIGH, 3 MEDIUM, 2 LOW) for the formal BRC state machine with action guards. The three HIGH risks are: (1) AUTO-RE-PROPOSE ON PUSH/COMMIT introduces a fundamentally new trigger mechanism that bypasses explicit agent action, creating risk of infinite re-proposal loops and version inflation if the guard logic is incomplete; (2) the confirm-guard tightening to require 'all producer changes reviewed' creates a liveness hazard where slow producers permanently block reviewer confirmation; (3) the existing #1598 gap (reviewer confirms with zero-version unresolved NACKs) requires careful migration to avoid breaking in-flight pipelines. The change is entirely internal to the orchestrator (no third-party dependencies), spans 4 tightly coupled files (~3,258 LOC), and has good existing test coverage to build on — but 3 critical test gaps must be filled before the auto-re-propose feature is safe. Key mitigations: feature-flag the auto-re-propose trigger, add negative guard tests before implementation, and ensure backward compatibility with existing pipelines.",
+  "risks": [
+    {
+      "id": "RISK-1",
+      "title": "Auto-re-propose on push/commit may cause infinite re-proposal loops",
+      "category": "reliability",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "Issue #1579 specifies that 'any push/commit by a producer should automatically trigger a re-propose, invalidating existing reviews.' This is a fundamentally new trigger mechanism — currently re-propose is ONLY triggered by explicit agent action via `handle_re_propose()` in peer_consensus.py (line 531). Adding an automatic trigger from push events in signals.py introduces a feedback loop risk: producer pushes → auto-re-propose fires → version incremented → stale reviewers un-confirmed → reviewers re-review → producer fixes minor issue → pushes again → cycle repeats. Without a rate limiter or circuit breaker, a producer making incremental commits could cause unbounded version inflation and reviewer fatigue. The existing cooldown (DEFAULT_COOLDOWN_SECONDS=30) only applies to `handle_withdraw()`, NOT to `handle_propose()` or `handle_re_propose()`.",
+      "affected_components": [
+        "orchestrator/peer_consensus.py (handle_re_propose, _un_confirm_stale_reviewers)",
+        "orchestrator/routes/signals.py (push/commit signal handler — new)",
+        "orchestrator/approval_matrix.py (record_proposal, version tracking)"
+      ],
+      "scenarios": [
+        "Producer makes 10 small commits in 5 minutes (e.g., lint fixes). Each triggers auto-re-propose, incrementing version from v1 to v11. Reviewers are un-confirmed 10 times, each time receiving CONSENSUS_RE_REVIEW messages. Reviewer agents enter infinite poll-review-confirm-un-confirm loop.",
+        "Producer pushes a commit during reviewer's ACK processing. Race condition: reviewer ACKs at version N, but auto-re-propose bumps to N+1 before the ACK is recorded. ACK recorded at stale version, reviewer must re-ACK at N+1. Repeated timing collisions prevent convergence.",
+        "Producer pushes a trivial change (README typo) that doesn't affect reviewed artifacts. Auto-re-propose fires anyway because the trigger doesn't distinguish content-relevant vs. irrelevant pushes. Scoped re-evaluation (`invalidate_overlapping_acks`) might not invalidate any ACKs if artifact refs don't overlap, but the version still increments and _un_confirm_stale_reviewers fires."
+      ],
+      "mitigations": [
+        {
+          "id": "M-1-1",
+          "description": "Add a cooldown/debounce on auto-re-propose: batch commits within a configurable window (e.g., 60 seconds) and only trigger one re-propose per window. Record last-auto-repropose timestamp per producer and skip if within window.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-1-2",
+          "description": "Only trigger auto-re-propose when pushed artifacts overlap with previously proposed artifacts. Use `invalidate_overlapping_acks()` check BEFORE deciding to re-propose — if no ACKs would be invalidated, skip the re-propose entirely.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-1-3",
+          "description": "Add a max-auto-repropose counter per producer (e.g., 5). After reaching the limit, log a warning and require explicit re-propose from the agent. This prevents unbounded version inflation.",
+          "status": "recommended_addition",
+          "effectiveness": "medium"
+        },
+        {
+          "id": "M-1-4",
+          "description": "Feature-flag the auto-re-propose trigger (default OFF initially). Enable per-pipeline or globally after validation. This allows incremental rollout and easy rollback.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        }
+      ],
+      "rollback_plan": "Remove the push/commit signal handler that triggers auto-re-propose. The existing explicit re-propose path (handle_re_propose via CONSENSUS_PROPOSE signal with changed_artifacts) continues to work. No state migration needed — the auto-re-propose is purely additive behavior.",
+      "human_review_needed": true,
+      "human_review_reason": "The auto-re-propose trigger design requires human review to validate the debounce strategy, the overlap-detection heuristic, and the interaction with scoped re-evaluation. This is a new architectural pattern not present in the current protocol."
+    },
+    {
+      "id": "RISK-2",
+      "title": "Reviewer confirm guard ('all changes must be reviewed') creates liveness hazard",
+      "category": "reliability",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "Issue #1579 specifies: 'a reviewer cannot confirm if any producer has produced new changes since the reviewer's last review.' Combined with auto-re-propose on push, this creates a liveness hazard: if a producer keeps pushing changes (even small ones), the reviewer can NEVER confirm because there are always 'new changes since last review.' The current unresolved-NACK guard (peer_consensus.py lines 461-498) only blocks confirmation for NACKED entries with current_version > 0. The proposed guard is much stricter — it blocks confirmation whenever ANY producer's version exceeds the reviewer's last ACK version, regardless of NACK status. In a multi-producer topology (e.g., reviewer reviewing coder + documenter), a slow documenter who keeps pushing updates prevents the reviewer from confirming the coder's work even if the coder's proposal is stable.",
+      "affected_components": [
+        "orchestrator/peer_consensus.py (handle_confirmed — reviewer path, lines 413-500)",
+        "orchestrator/approval_matrix.py (version tracking, is_fully_acked)"
+      ],
+      "scenarios": [
+        "Reviewer ACKs coder at v3 and documenter at v2. Documenter pushes a minor update → auto-re-propose bumps documenter to v3. Reviewer tries to confirm → blocked because documenter ACK (v2) is stale. Reviewer must re-review documenter. Meanwhile, coder pushes another fix → coder bumps to v4. Reviewer's ACK on coder (v3) is now stale too. Infinite loop.",
+        "In a 3-producer pipeline (coder, tester, documenter), each producer pushes at different rates. The reviewer cannot confirm until ALL THREE have stable versions AND the reviewer has ACKed each at the latest version. Probability of all three being stable simultaneously decreases with auto-re-propose frequency.",
+        "Consensus timeout fires (DEFAULT_COOLDOWN) before reviewer can confirm due to continuous version churn. The pipeline fails even though all work is complete — it's just the review loop that can't converge."
+      ],
+      "mitigations": [
+        {
+          "id": "M-2-1",
+          "description": "Implement a 'quiescence window' — auto-re-propose only fires if no push has occurred for N seconds (e.g., 120s). This allows the reviewer to confirm during quiet periods. The version stays stable as long as the producer is idle.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-2-2",
+          "description": "Allow reviewers to ACK with 'reviewed through commit SHA X' rather than by version number. If the producer pushes a commit that doesn't change files the reviewer ACKed, the ACK remains valid. This decouples version inflation from review validity.",
+          "status": "design_alternative",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-2-3",
+          "description": "Add a 'grace period' after a producer's last push during which the version is considered 'stable' for confirmation purposes. Only reject reviewer confirmation if the producer pushed within the last N seconds.",
+          "status": "design_alternative",
+          "effectiveness": "medium"
+        }
+      ],
+      "rollback_plan": "Revert to the current version-match guard which only checks stale ACKs at version mismatch (lines 426-459) and the unresolved-NACK guard (lines 461-498). These guards are proven stable in production.",
+      "human_review_needed": true,
+      "human_review_reason": "The 'all changes must be reviewed' invariant is philosophically correct but may be impractical with auto-re-propose. Human must decide on the right balance between review completeness and liveness."
+    },
+    {
+      "id": "RISK-3",
+      "title": "Fixing #1598 gap (zero-version NACK) may break in-flight pipelines",
+      "category": "compatibility",
+      "severity": "HIGH",
+      "likelihood": "LOW",
+      "impact": "HIGH",
+      "description": "Issue #1598 identified that the unresolved-NACK guard (peer_consensus.py lines 470-474) only triggers when `current_version > 0`, meaning a reviewer who NACKs a producer that never proposed (version stays 0) can still confirm. The fix requires changing the guard to also catch zero-version NACKs. However, this changes the confirm semantics for in-flight pipelines that may rely on the current behavior — specifically, pipelines where a non-delivering producer is NACKed and the reviewer legitimately confirms to proceed without that producer's deliverable. The existing `excuse_reviewer()` mechanism (line 686) handles reviewer removal, but there is no `excuse_producer()` mechanism. Without a way to excuse a non-delivering producer, tightening the confirm guard creates a hard block with no escape hatch.",
+      "affected_components": [
+        "orchestrator/peer_consensus.py (handle_confirmed — unresolved NACK guard, lines 466-498)",
+        "orchestrator/peer_consensus.py (evaluate — is_complete check, lines 778-841)"
+      ],
+      "scenarios": [
+        "In-flight pipeline: coder fails to start, reviewer NACKs coder for zero progress. Under current rules, reviewer can confirm (version=0 bypasses guard) and consensus proceeds with documenter+tester. Under new rules, reviewer is permanently blocked waiting for coder to re-propose — but coder's container has crashed. Pipeline deadlocks.",
+        "Orchestrator restart during pipeline execution. Tracker is reconstructed from messages. The reconstructed tracker replays the NACK but the new guard logic (if deployed between restart cycles) now blocks the previously-valid confirmation path.",
+        "Agent team with optional producer role (e.g., documenter is 'nice to have'). If documenter fails, reviewer NACKs and proceeds. New guard blocks this workflow pattern."
+      ],
+      "mitigations": [
+        {
+          "id": "M-3-1",
+          "description": "Implement `excuse_producer()` (analogous to `excuse_reviewer()` at line 686) that removes a non-delivering producer from the review graph via HITL decision. This provides an escape hatch when a producer cannot deliver.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-3-2",
+          "description": "Add a 'producer_timeout' guard that automatically excuses a producer if they haven't proposed within a configurable window after being NACKed. This handles the crashed-producer scenario without HITL intervention.",
+          "status": "recommended_addition",
+          "effectiveness": "medium"
+        },
+        {
+          "id": "M-3-3",
+          "description": "Phase the #1598 fix: first add the guard in 'warn' mode (log warning + emit event but allow confirmation). Then, after validating no false positives in production, switch to 'block' mode.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        }
+      ],
+      "rollback_plan": "Revert the unresolved-NACK guard condition to `current_version > 0`. The #1598 gap returns, but all existing pipelines continue working. The excuse_producer mechanism can be added independently.",
+      "human_review_needed": true,
+      "human_review_reason": "Changing confirm semantics affects all pipeline topologies. Human must validate that the escape-hatch (excuse_producer or timeout) covers all legitimate non-delivery scenarios."
+    },
+    {
+      "id": "RISK-4",
+      "title": "State machine formalization may introduce subtle behavioral regressions in recovery paths",
+      "category": "reliability",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The current protocol has two defense-in-depth recovery mechanisms: `_un_confirm_stale_reviewers()` (line 950) and `_invalidate_pre_proposal_acks()` (line 997). Issue #1579 asks whether these are 'still needed if the action guards are comprehensive enough.' If the formal state machine redesign removes these recovery mechanisms in favor of tighter action guards, any gap in the guards will have no safety net. The recovery mechanisms were added AFTER production deadlocks (#1405, #1411) and handle edge cases that the primary guards miss (e.g., pre-proposal ACKs at version 0, concurrent confirmation during re-proposal). Removing them requires formal proof that the guards cover all cases — which is exactly what the state machine design should provide, but any proof error would manifest as a production deadlock.",
+      "affected_components": [
+        "orchestrator/peer_consensus.py (_un_confirm_stale_reviewers, lines 950-995)",
+        "orchestrator/peer_consensus.py (_invalidate_pre_proposal_acks, lines 997-1032)",
+        "orchestrator/peer_consensus.py (_handle_propose_inner, lines 175-182)"
+      ],
+      "scenarios": [
+        "Guard redesign eliminates _invalidate_pre_proposal_acks() because the new confirm guard catches version-0 ACKs. But a race condition in tracker reconstruction (from_dict) allows a version-0 ACK to persist without the guard noticing. Production deadlock.",
+        "Guard redesign tightens _un_confirm_stale_reviewers() to only fire for ACKED entries (not NACKED). But a reviewer who NACKed at v1 and confirmed before re-proposal at v2 is not un-confirmed because their entry is NACKED, not ACKED. The version-match guard should catch this, but if the reviewer confirmed before the re-proposal (the exact #1576 scenario), the check happens on the old state.",
+        "Reconstruction from messages replays in timestamp order. A message-bus write failure causes a propose message to be lost. Reconstructed tracker has version 0 for a producer that actually proposed. All guards check against the wrong version."
+      ],
+      "mitigations": [
+        {
+          "id": "M-4-1",
+          "description": "Retain recovery mechanisms as defense-in-depth even after formal state machine implementation. Mark them as 'safety net' with comments explaining they should be no-ops if guards are correct. Add metrics/counters to detect when recovery mechanisms actually fire (indicating guard gaps).",
+          "status": "strongly_recommended",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-4-2",
+          "description": "Add invariant assertions that run after every state-mutating operation. If an invariant is violated, log an error and trigger the relevant recovery mechanism rather than deadlocking. E.g., after handle_confirmed(): assert no reviewer in CONFIRMED with stale ACK.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-4-3",
+          "description": "Implement the formal state machine as a SEPARATE validation layer (state machine validator) that runs alongside the existing tracker. The validator checks preconditions before each action and postconditions after. If the validator disagrees with the tracker, log a warning but allow the tracker to proceed. Only enforce the validator after burn-in period.",
+          "status": "design_alternative",
+          "effectiveness": "high"
+        }
+      ],
+      "rollback_plan": "If production deadlocks occur, re-enable the recovery mechanisms. They are pure functions with no side effects other than state cleanup, so they can be toggled without migration.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-5",
+      "title": "Tracker reconstruction may replay auto-re-propose messages incorrectly",
+      "category": "reliability",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The `reconstruct_tracker_from_messages()` function (peer_consensus.py line 1081) replays consensus messages in timestamp order to rebuild tracker state after orchestrator restart. If auto-re-propose on push is implemented, it will generate CONSENSUS_PROPOSE messages that are indistinguishable from explicit proposals. During reconstruction, the replay will increment versions for each auto-re-propose message, but the associated ACK invalidations and reviewer un-confirmations depend on runtime state (e.g., which reviewers were confirmed) that may not be accurately reconstructible from messages alone. Additionally, the reconstruction uses RELAXED attestation strictness (line 1137) and zero cooldown (line 1138), which may allow auto-re-propose messages through that would normally be throttled.",
+      "affected_components": [
+        "orchestrator/peer_consensus.py (reconstruct_tracker_from_messages, lines 1081-1233)",
+        "orchestrator/peer_consensus.py (_un_confirm_stale_reviewers, called during replay)"
+      ],
+      "scenarios": [
+        "Producer auto-re-proposed 5 times in 30 seconds (debounced in live tracker via cooldown). During reconstruction, all 5 messages are replayed without cooldown — version jumps from 1 to 6. Reviewers' ACKs at v1-v5 are all invalidated. The reconstructed state shows all reviewers as PENDING when they should be ACKED at v5.",
+        "Reconstruction replays: PROPOSE(v1), ACK(v1), auto-PROPOSE(v2), CONFIRMED(reviewer). In live operation, the CONFIRMED was rejected (pending_acks). But during reconstruction, handle_confirmed() succeeds because the tracker's relaxed mode doesn't enforce version-match guards strictly.",
+        "Two auto-re-proposes have identical timestamps (sub-second commits). Reconstruction sort is unstable for equal timestamps. Depending on message ordering, version may be v2 or v1, leading to divergent state."
+      ],
+      "mitigations": [
+        {
+          "id": "M-5-1",
+          "description": "Tag auto-re-propose messages in the message bus with metadata `trigger: 'auto_push'`. During reconstruction, apply the same debounce/rate-limit logic to auto-re-propose messages that the live tracker uses. Skip redundant auto-re-proposes within the debounce window.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-5-2",
+          "description": "Add a stable sort key (e.g., message sequence number or commit SHA) to break timestamp ties during reconstruction. Ensure deterministic replay order.",
+          "status": "recommended_addition",
+          "effectiveness": "medium"
+        },
+        {
+          "id": "M-5-3",
+          "description": "After reconstruction, run the invariant validator (M-4-2) to detect state inconsistencies and trigger recovery mechanisms if needed.",
+          "status": "recommended_addition",
+          "effectiveness": "medium"
+        }
+      ],
+      "rollback_plan": "If reconstruction produces incorrect state, fall back to the message-bus authoritative fallback (Tier 3 in the confirmed handler, signals.py lines 1232-1286) which counts CONSENSUS_CONFIRMED messages directly without tracker state.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-6",
+      "title": "Single RLock creates contention risk with push-triggered auto-re-propose",
+      "category": "performance",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "description": "All PeerConsensusTracker operations are protected by a single `threading.RLock()` (peer_consensus.py line 83). Currently, consensus signals arrive relatively infrequently (seconds between events). With auto-re-propose on push, the signal rate could spike significantly — each push generates a propose signal that acquires the lock, iterates all reviewers for _un_confirm_stale_reviewers, iterates all reviewers for _invalidate_pre_proposal_acks, and emits events. During this time, any concurrent ACK, NACK, or confirm signal must wait. In a pipeline with 5+ agents and frequent pushes, the lock hold time could grow, causing signal handler timeouts (HTTP 502) or delayed consensus evaluation.",
+      "affected_components": [
+        "orchestrator/peer_consensus.py (all handler methods, _lock)",
+        "orchestrator/routes/signals.py (HTTP handlers waiting on tracker lock)"
+      ],
+      "scenarios": [
+        "Producer pushes 3 commits in rapid succession. Three auto-re-propose signals arrive concurrently. Only one can proceed (lock serialization). The other two queue. Each re-propose takes ~50ms (lock + iteration + events). Meanwhile, a reviewer's ACK signal waits 150ms. If the HTTP handler has a tight timeout, the ACK is lost.",
+        "5-producer pipeline with auto-re-propose. All 5 producers push within a 10-second window. 5 concurrent re-propose signals + stale reviewer notifications + version increments all contend for the same lock."
+      ],
+      "mitigations": [
+        {
+          "id": "M-6-1",
+          "description": "Profile lock hold times in production before and after adding auto-re-propose. Set up metrics on lock contention (time-to-acquire). If p99 exceeds 100ms, add signal queuing with backpressure.",
+          "status": "recommended_monitoring",
+          "effectiveness": "medium"
+        },
+        {
+          "id": "M-6-2",
+          "description": "Move event emission (`emit_event`) outside the lock-held section. Events are informational and don't need atomicity with state changes. This reduces lock hold time.",
+          "status": "recommended_optimization",
+          "effectiveness": "medium"
+        }
+      ],
+      "rollback_plan": "If contention causes timeouts, disable auto-re-propose (feature flag from M-1-4). The existing lock strategy is proven adequate for explicit-only proposals.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-7",
+      "title": "Scoped re-evaluation with overlapping artifacts may produce incorrect ACK invalidation",
+      "category": "correctness",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "description": "The `invalidate_overlapping_acks()` function (approval_matrix.py line 220) uses set intersection between changed_artifacts and ack_refs to decide which ACKs to invalidate. With auto-re-propose, the 'changed_artifacts' must be derived from the push diff. If the diff detection is inaccurate (e.g., only captures file paths but not specific functions/classes), it may over-invalidate (invalidating ACKs for a file that had minor whitespace changes) or under-invalidate (missing a semantic change in a file the reviewer ACKed). The current artifact reference format is unspecified — it could be file paths, module names, or free-text descriptions. Without a canonical artifact format, overlap detection is fragile.",
+      "affected_components": [
+        "orchestrator/approval_matrix.py (invalidate_overlapping_acks, lines 220-245)",
+        "orchestrator/peer_consensus.py (handle_re_propose, lines 531-560)"
+      ],
+      "scenarios": [
+        "Auto-re-propose detects changed files: ['orchestrator/peer_consensus.py']. Reviewer ACKed with artifact_refs=['peer_consensus module']. Set intersection is empty (string mismatch), so ACK is not invalidated despite the file being changed.",
+        "Producer pushes a commit that changes 'tests/test_peer_consensus.py'. Auto-re-propose includes this in changed_artifacts. Reviewer's ACK referenced 'tests/test_peer_consensus.py' for test coverage review. ACK is invalidated even though the test changes don't affect the reviewer's assessment of the production code."
+      ],
+      "mitigations": [
+        {
+          "id": "M-7-1",
+          "description": "Standardize artifact reference format: use file paths as the canonical format. Both proposal artifacts and ACK artifact_references must use identical path formatting. Document this in the state machine specification.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        },
+        {
+          "id": "M-7-2",
+          "description": "For auto-re-propose, derive changed_artifacts from `git diff --name-only` between the last proposed commit SHA and the new push commit SHA. This gives precise file-level change detection.",
+          "status": "recommended_addition",
+          "effectiveness": "high"
+        }
+      ],
+      "rollback_plan": "Fall back to conservative invalidation (invalidate ALL ACKs on re-propose) if scoped invalidation produces incorrect results. This is the existing fallback in handle_re_propose() when changed_artifacts is None (line 548).",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-8",
+      "title": "State machine invariant enforcement may conflict with message-bus fallback path",
+      "category": "correctness",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "description": "Issue #1579 proposes defining invariants that 'must hold at all times.' However, the message-bus fallback (signals.py lines 1232-1286) bypasses the tracker entirely and counts CONSENSUS_CONFIRMED messages to determine consensus. This fallback path does NOT enforce invariants like 'no reviewer in CONFIRMED with stale ACK' because it has no access to the approval matrix. If the formal state machine enforces stricter invariants, the fallback path becomes an invariant-violating escape hatch. A pipeline that fails invariant checks via the tracker might succeed via the fallback, creating inconsistent behavior depending on whether the orchestrator restarted.",
+      "affected_components": [
+        "orchestrator/routes/signals.py (message-bus fallback, lines 1232-1286)",
+        "orchestrator/peer_consensus.py (invariants — new)"
+      ],
+      "scenarios": [
+        "Tracker enforces new invariant: reviewer cannot confirm with stale ACK. Reviewer's confirmation is rejected (202 pending_acks). Orchestrator restarts, tracker is lost. Reviewer retries confirmation → message-bus fallback counts it as confirmed → consensus completes with stale ACK.",
+        "Invariant violation is detected but only logged (defense-in-depth). Tracker allows operation. Message-bus fallback records same operation. Metrics show invariant was violated, but pipeline completed successfully. Unclear whether the violation is benign or indicates a state corruption."
+      ],
+      "mitigations": [
+        {
+          "id": "M-8-1",
+          "description": "Update the message-bus fallback to check pending_acks metadata AND require that no CONSENSUS_CONFIRMED message has pending_acks=True in its most recent attempt per role. This is already partially implemented (line 1245 excludes pending_acks=True messages) but should be explicitly validated as part of the invariant specification.",
+          "status": "verify_existing",
+          "effectiveness": "medium"
+        },
+        {
+          "id": "M-8-2",
+          "description": "Document the message-bus fallback as an explicitly defined 'relaxed invariant' path in the state machine specification. Acknowledge that this path trades invariant strictness for liveness (availability over consistency). Make this trade-off explicit in the design.",
+          "status": "recommended_documentation",
+          "effectiveness": "medium"
+        }
+      ],
+      "rollback_plan": "The message-bus fallback is a last resort for orchestrator restart scenarios. If invariant violations through this path cause problems, disable the fallback and require tracker reconstruction for all confirmations.",
+      "human_review_needed": false
+    }
+  ],
+  "cross_cutting_concerns": [
+    {
+      "id": "CC-1",
+      "title": "Test coverage gaps must be addressed BEFORE implementation",
+      "description": "Three critical test gaps exist: (1) No tests for auto-re-propose on push (the feature doesn't exist yet but NO negative tests verify re-propose requires explicit trigger), (2) No tests for the #1598 zero-version NACK scenario, (3) No dedicated test for the exact #1576 deadlock scenario (only covered implicitly). These gaps should be filled as test-first development BEFORE implementing the state machine changes.",
+      "recommendation": "Add test cases covering: auto-re-propose debounce, zero-version NACK confirm guard, confirm-before-re-proposal race, multi-producer version churn, and tracker reconstruction with auto-re-propose messages."
+    },
+    {
+      "id": "CC-2",
+      "title": "The 4 tightly coupled files create a wide blast radius",
+      "description": "The change spans peer_consensus.py (1,233 lines), approval_matrix.py (298 lines), review_graph.py (287 lines), and routes/signals.py (1,440 lines) — a total of ~3,258 LOC. These files are tightly coupled through the tracker→matrix→graph dependency chain. A state machine redesign that changes any interface between them (e.g., adding return types to guards, changing version semantics) will cascade through all four files. The existing 99 test files in orchestrator/tests/ provide good regression coverage, but the integration surface is large.",
+      "recommendation": "Implement changes incrementally: (1) Add formal guards and invariants to peer_consensus.py, (2) Add auto-re-propose trigger to signals.py, (3) Update approval_matrix.py semantics if needed, (4) Update documentation. Each step should be independently testable and deployable."
+    },
+    {
+      "id": "CC-3",
+      "title": "Backward compatibility with existing pipeline configurations",
+      "description": "Existing pipelines use the current confirm semantics. Adding stricter guards (especially the 'all changes reviewed' requirement and zero-version NACK block) changes the confirm contract. Pipelines that rely on the current escape-hatch behavior (e.g., confirming with zero-version NACKs to proceed without a non-delivering producer) will break. There is no pipeline versioning mechanism to apply different guard sets to different pipelines.",
+      "recommendation": "Add a `state_machine_version` or `guard_strictness` configuration option per pipeline. Default to current behavior for existing pipelines. New pipelines or opt-in pipelines get the stricter guards. Migrate all pipelines to strict mode after validation period."
+    }
+  ],
+  "external_dependency_assessment": {
+    "has_external_dependencies": false,
+    "notes": "This change is entirely internal to the orchestrator. No third-party dependencies are added or modified. The affected modules (peer_consensus.py, approval_matrix.py, review_graph.py, signals.py) use only Python standard library (threading, datetime, dataclasses, enum) and internal shared libraries (egg_logging, events). No external research for vulnerabilities or deprecation notices is needed."
+  },
+  "overall_risk_rating": "MEDIUM-HIGH",
+  "overall_assessment": "The formal BRC state machine design is well-motivated — the current implementation relies on overlapping tactical fixes from 4 separate deadlock incidents (#1405, #1411, #1576, #1598) rather than a coherent protocol specification. Formalizing guards and invariants will reduce the surface area for deadlocks. However, the auto-re-propose on push feature (RISK-1) and the 'all changes must be reviewed' confirm guard (RISK-2) introduce significant new complexity that the current protocol doesn't have. These features fundamentally change the trigger model from 'explicit agent action' to 'automatic infrastructure reaction,' which has historically been a source of edge cases in consensus protocols. The #1598 fix (RISK-3) requires an escape hatch (excuse_producer) that doesn't yet exist. The recommendation is to implement the formal state machine in phases: Phase 1 — formalize existing guards and add invariant checking (LOW risk), Phase 2 — fix #1598 with excuse_producer escape hatch (MEDIUM risk), Phase 3 — add auto-re-propose with feature flag and debounce (HIGH risk, requires thorough testing).",
+  "implementation_phases_recommendation": [
+    {
+      "phase": 1,
+      "description": "Formalize existing guards as explicit precondition functions. Add invariant assertions after each state mutation. Add state transition diagram to documentation. Retain all existing recovery mechanisms as defense-in-depth. This phase is LOW risk because it doesn't change behavior, only codifies it.",
+      "risk_level": "LOW",
+      "risks_addressed": ["RISK-4"]
+    },
+    {
+      "phase": 2,
+      "description": "Fix the #1598 gap: tighten the unresolved-NACK guard to also catch zero-version NACKs. Add excuse_producer() mechanism for non-delivering producers. Add pipeline-level guard_strictness configuration for backward compatibility.",
+      "risk_level": "MEDIUM",
+      "risks_addressed": ["RISK-3"]
+    },
+    {
+      "phase": 3,
+      "description": "Implement auto-re-propose on push/commit behind feature flag. Add debounce/cooldown, overlap-aware triggering, and max-auto-repropose counter. Update tracker reconstruction to handle auto-re-propose messages. Strengthen the 'all changes reviewed' confirm guard with liveness safeguards.",
+      "risk_level": "HIGH",
+      "risks_addressed": ["RISK-1", "RISK-2", "RISK-5", "RISK-6", "RISK-7", "RISK-8"]
+    }
+  ]
+}

@@ -35,6 +35,7 @@ class ApprovalEntry:
     )  # Artifacts cited in most recent NACK
     reason: str = ""  # Reason for NACK
     timestamp: datetime | None = None
+    ack_commit_sha: str = ""  # Commit SHA at time of ACK (INV-6)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -46,6 +47,7 @@ class ApprovalEntry:
             "nack_artifact_refs": self.nack_artifact_refs,
             "reason": self.reason,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "ack_commit_sha": self.ack_commit_sha,
         }
 
 
@@ -90,6 +92,7 @@ class ApprovalMatrix:
         producer: str,
         version: int,
         artifact_refs: list[str] | None = None,
+        commit_sha: str = "",
     ) -> ApprovalEntry:
         """Record an ACK from a reviewer for a producer's proposal."""
         key = (reviewer, producer)
@@ -105,6 +108,7 @@ class ApprovalMatrix:
         # persist through ACK transitions for context-change detection.
         entry.reason = ""
         entry.timestamp = datetime.now(UTC)
+        entry.ack_commit_sha = commit_sha
         return entry
 
     def record_nack(
@@ -257,6 +261,50 @@ class ApprovalMatrix:
         entry = self._entries.get((reviewer, producer))
         return entry is not None and entry.state != ApprovalState.PENDING
 
+    def get_nack_entries_for(self, producer: str) -> list[tuple[str, ApprovalEntry]]:
+        """Get all NACKed entries for a producer.
+
+        Returns list of (reviewer_role, ApprovalEntry) tuples where the
+        entry state is NACKED.
+        """
+        nacked = []
+        for reviewer in self._graph.reviewers_for(producer):
+            key = (reviewer, producer)
+            entry = self._entries.get(key)
+            if entry and entry.state == ApprovalState.NACKED:
+                nacked.append((reviewer, entry))
+        return nacked
+
+    def has_unresolved_nacks_as_producer(self, producer: str) -> bool:
+        """Check if any reviewer has NACKed the producer at the current proposal version.
+
+        Returns True if the producer has unresolved NACKs — i.e., a reviewer
+        NACKed at the same version as the current proposal, meaning the
+        producer hasn't re-proposed since the NACK.
+        """
+        current_version = self._proposal_versions.get(producer, 0)
+        for reviewer in self._graph.reviewers_for(producer):
+            key = (reviewer, producer)
+            entry = self._entries.get(key)
+            if entry and entry.state == ApprovalState.NACKED and entry.version == current_version:
+                return True
+        return False
+
+    def get_latest_review_versions(self, reviewer: str) -> dict[str, int]:
+        """Get the version of each review the reviewer has submitted.
+
+        Returns a dict mapping producer_role to the version number of the
+        reviewer's latest ACK/NACK. Entries still in PENDING state are
+        excluded.
+        """
+        versions: dict[str, int] = {}
+        for producer in self._graph.producers_for(reviewer):
+            key = (reviewer, producer)
+            entry = self._entries.get(key)
+            if entry and entry.state != ApprovalState.PENDING:
+                versions[producer] = entry.version
+        return versions
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize the matrix."""
         return {
@@ -289,6 +337,7 @@ class ApprovalMatrix:
                         if entry_data.get("timestamp")
                         else None
                     ),
+                    ack_commit_sha=entry_data.get("ack_commit_sha", ""),
                 )
 
         for key_str, count in data.get("revision_counts", {}).items():
