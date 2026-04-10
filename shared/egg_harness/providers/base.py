@@ -26,26 +26,82 @@ class TextDelta:
 
 @dataclass(frozen=True, slots=True)
 class ToolUseStart:
-    """Signals the beginning of a tool call."""
+    """Signals the beginning of a tool call.
+
+    Accepts either ``id`` or ``tool_use_id`` as the identifier field.
+    Both are stored; ``id`` and ``tool_use_id`` always return the same
+    value.
+    """
 
     id: str
     name: str
+
+
+# Wrap ToolUseStart.__init__ to accept ``tool_use_id`` as an alias for ``id``.
+_ToolUseStart_orig_init = ToolUseStart.__init__
+
+
+def _ToolUseStart_init(self: Any, id: str | None = None, name: str = "", *, tool_use_id: str | None = None) -> None:
+    resolved_id = tool_use_id if id is None else id
+    if resolved_id is None:
+        raise TypeError("ToolUseStart requires 'id' or 'tool_use_id'")
+    _ToolUseStart_orig_init(self, id=resolved_id, name=name)
+
+
+ToolUseStart.__init__ = _ToolUseStart_init  # type: ignore[attr-defined]
+
+# Add tool_use_id as a read-only property alias for id.
+ToolUseStart.tool_use_id = property(lambda self: self.id)  # type: ignore[attr-defined]
 
 
 @dataclass(frozen=True, slots=True)
 class ToolUseInputDelta:
-    """A chunk of streaming JSON input for an in-progress tool call."""
+    """A chunk of streaming JSON input for an in-progress tool call.
+
+    Accepts an optional ``tool_use_id`` for correlation with the parent
+    tool call.
+    """
 
     partial_json: str
+    tool_use_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class ToolUseEnd:
-    """Signals the end of a tool call with the complete, parsed input."""
+    """Signals the end of a tool call with the complete, parsed input.
+
+    Accepts either ``id`` or ``tool_use_id`` as the identifier field.
+    ``name`` and ``input`` are optional for backward compatibility with
+    callers that only provide the identifier.
+    """
 
     id: str
-    name: str
-    input: dict[str, Any]
+    name: str = ""
+    input: dict[str, Any] | None = None
+
+
+# Wrap ToolUseEnd.__init__ to accept ``tool_use_id`` as an alias for ``id``.
+_ToolUseEnd_orig_init = ToolUseEnd.__init__
+
+
+def _ToolUseEnd_init(
+    self: Any,
+    id: str | None = None,
+    name: str = "",
+    input: dict[str, Any] | None = None,
+    *,
+    tool_use_id: str | None = None,
+) -> None:
+    resolved_id = tool_use_id if id is None else id
+    if resolved_id is None:
+        raise TypeError("ToolUseEnd requires 'id' or 'tool_use_id'")
+    _ToolUseEnd_orig_init(self, id=resolved_id, name=name, input=input)
+
+
+ToolUseEnd.__init__ = _ToolUseEnd_init  # type: ignore[attr-defined]
+
+# Add tool_use_id as a read-only property alias for id.
+ToolUseEnd.tool_use_id = property(lambda self: self.id)  # type: ignore[attr-defined]
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +137,13 @@ class MessageDelta:
 
 @dataclass(frozen=True, slots=True)
 class MessageEnd:
-    """Signals that the stream is complete."""
+    """Signals that the stream is complete.
+
+    Attributes:
+        usage: Optional cumulative token counts at stream end.
+    """
+
+    usage: dict[str, int] | None = None
 
 
 StreamEvent = Union[

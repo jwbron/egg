@@ -101,7 +101,7 @@ class AgentLoop:
 
     async def run(
         self,
-        prompt: str,
+        prompt: str | None = None,
         *,
         system_prompt: str | None = None,
         messages: list[dict[str, Any]] | None = None,
@@ -144,7 +144,7 @@ class AgentLoop:
     async def _run_loop(
         self,
         *,
-        prompt: str,
+        prompt: str | None,
         system_prompt: str | None,
         messages: list[dict[str, Any]] | None,
         session_id: str,
@@ -155,14 +155,20 @@ class AgentLoop:
         config = self._config
         max_turns = config.max_turns
         timeout = config.timeout
-        model = config.provider.model
+        model = config.provider.model if config.provider else "claude-sonnet-4-5-20250514"
         max_tokens = 16384
+
+        # Use system_prompt from run() arg, falling back to config.
+        if system_prompt is None:
+            system_prompt = getattr(config, "system_prompt", None)
 
         # Build initial conversation.
         if messages is not None:
             conversation: list[dict[str, Any]] = list(messages)
-        else:
+        elif prompt is not None:
             conversation = [{"role": "user", "content": prompt}]
+        else:
+            conversation = []
 
         response_text_parts: list[str] = []
         turn = 0
@@ -204,7 +210,6 @@ class AgentLoop:
                 tools=tool_defs or None,
                 system=system_prompt,
                 model=model,
-                max_tokens=max_tokens,
             )
 
             try:
@@ -219,6 +224,17 @@ class AgentLoop:
                     success=False,
                     response_text="".join(response_text_parts),
                     error="Timeout exceeded",
+                    cost_tracker=cost_tracker,
+                    turn=turn,
+                    start_time=start_time,
+                    session_id=session_id,
+                )
+            except Exception as exc:
+                logger.exception("Provider stream error on turn %d", turn)
+                return self._build_result(
+                    success=False,
+                    response_text="".join(response_text_parts),
+                    error=f"Provider error: {exc}",
                     cost_tracker=cost_tracker,
                     turn=turn,
                     start_time=start_time,
@@ -309,9 +325,7 @@ class AgentLoop:
                 # Execute with a grace period for shutdown.
                 try:
                     result = await asyncio.wait_for(
-                        self._tool_registry.execute(
-                            tc.name, tool_input
-                        ),
+                        self._execute_tool(tc.name, tool_input),
                         timeout=max(
                             _SHUTDOWN_TOOL_GRACE_SECONDS,
                             timeout - (time.monotonic() - start_time),
@@ -374,6 +388,26 @@ class AgentLoop:
         )
 
     # -----------------------------------------------------------------
+    # Tool execution helper
+    # -----------------------------------------------------------------
+
+    async def _execute_tool(self, name: str, tool_input: dict[str, Any]) -> ToolResult:
+        """Execute a tool, handling both sync and async registry.execute()."""
+        import inspect
+
+        try:
+            result = self._tool_registry.execute(name, tool_input)
+            if inspect.isawaitable(result):
+                result = await result
+        except Exception as exc:
+            logger.exception("Tool %s raised an exception", name)
+            return ToolResult(
+                output=f"Tool execution error: {exc}",
+                is_error=True,
+            )
+        return result
+
+    # -----------------------------------------------------------------
     # Stream consumption
     # -----------------------------------------------------------------
 
@@ -415,14 +449,18 @@ class AgentLoop:
                     )
 
             elif isinstance(event, ToolUseEnd):
-                # ToolUseEnd carries the final parsed input; replace
-                # any streamed fragments with the authoritative value.
-                for tc in tool_calls:
-                    if tc.id == event.id:
-                        tc.input_json_parts = [
-                            json.dumps(event.input)
-                        ]
-                        break
+                # ToolUseEnd may carry the final parsed input; when
+                # present, replace any streamed fragments with the
+                # authoritative value.  When ``input`` is None the
+                # end event is purely a delimiter and we keep the
+                # fragments accumulated from ToolUseInputDelta events.
+                if event.input is not None:
+                    for tc in tool_calls:
+                        if tc.id == event.id:
+                            tc.input_json_parts = [
+                                json.dumps(event.input)
+                            ]
+                            break
                 current_tool = None
 
             elif isinstance(event, MessageDelta):

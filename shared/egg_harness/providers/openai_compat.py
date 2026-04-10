@@ -44,9 +44,40 @@ class OpenAICompatibleProvider(Provider):
             must point to the API base URL (e.g. ``http://localhost:8080``).
             ``config.api_key_env`` names the environment variable holding the
             API key.
+        base_url: Alternative to ``config`` — provide the base URL directly.
+        api_key: API key to use (stored in the environment variable lookup).
+        model: Model name override.
+        api_key_env: Environment variable name holding the API key.
+        capabilities: Optional capabilities dict for the provider.
     """
 
-    def __init__(self, config: ProviderConfig) -> None:
+    def __init__(
+        self,
+        config: ProviderConfig | None = None,
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        model: str | None = None,
+        api_key_env: str | None = None,
+        capabilities: dict[str, Any] | None = None,
+    ) -> None:
+        # Allow construction via base_url shorthand.
+        if config is None and base_url is not None:
+            if not base_url:
+                raise ValueError(
+                    "OpenAICompatibleProvider requires a non-empty base_url."
+                )
+            config = ProviderConfig(
+                provider_type="openai_compatible",
+                model=model or "default",
+                endpoint=base_url,
+                api_key_env=api_key_env,
+            )
+        if config is None:
+            raise TypeError(
+                "OpenAICompatibleProvider requires either 'config' or 'base_url'."
+            )
+
         self._config = config
         self._model = config.model
 
@@ -55,11 +86,75 @@ class OpenAICompatibleProvider(Provider):
                 "OpenAICompatibleProvider requires config.endpoint to be set."
             )
         self._endpoint = config.endpoint.rstrip("/")
+        self._base_url = self._endpoint
+
+        # Store the API key directly if provided.
+        self._api_key = api_key
+
+        # Store capabilities.
+        self._capabilities = capabilities or {
+            "supports_tools": True,
+            "supports_streaming": True,
+            "supports_system_prompt": True,
+        }
+
+    @property
+    def capabilities(self) -> dict[str, Any]:
+        """Return provider capabilities."""
+        return self._capabilities
 
     @property
     def name(self) -> str:
         """Return ``"openai_compatible"``."""
         return "openai_compatible"
+
+    def _create_stream(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        headers: dict[str, str],
+        body: dict[str, Any],
+        **kwargs: Any,
+    ) -> Any:
+        """Create the raw streaming response.
+
+        This method is extracted so tests can patch it to inject mock
+        streams. Returns an async iterable of chunk objects, or an
+        httpx response that will be parsed.
+        """
+        # Default implementation: return an async generator that performs
+        # the HTTP streaming and parses SSE into chunk dicts.
+        return self._http_stream(body=body, headers=headers)
+
+    async def _http_stream(
+        self,
+        *,
+        body: dict[str, Any],
+        headers: dict[str, str],
+    ) -> AsyncIterator[Any]:
+        """Perform the actual HTTP SSE streaming."""
+        url = f"{self._endpoint}/v1/chat/completions"
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
+            async with client.stream("POST", url, json=body, headers=headers) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+
+                    payload = line[len("data: "):]
+
+                    if payload.strip() == "[DONE]":
+                        return
+
+                    try:
+                        chunk_data = json.loads(payload)
+                    except json.JSONDecodeError:
+                        logger.warning("Skipping malformed SSE chunk: %r", payload)
+                        continue
+
+                    # Yield as a simple object with attribute access
+                    yield _DictObj(chunk_data)
 
     async def send_message(
         self,
@@ -74,7 +169,7 @@ class OpenAICompatibleProvider(Provider):
         """Stream a chat completion from the OpenAI-compatible endpoint.
 
         Yields:
-            :data:`StreamEvent` instances mapped from SSE ``data:`` lines.
+            :data:`StreamEvent` instances mapped from chunk objects.
         """
         resolved_model = model or self._model
 
@@ -102,100 +197,114 @@ class OpenAICompatibleProvider(Provider):
         if extra_headers:
             headers.update(extra_headers)
 
-        # Resolve API key from environment.
-        if self._config.api_key_env:
+        # Resolve API key: first from direct parameter, then from env var.
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        elif self._config.api_key_env:
             api_key = os.environ.get(self._config.api_key_env, "")
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
-
-        url = f"{self._endpoint}/v1/chat/completions"
 
         # Track in-progress tool calls keyed by tool_call index within the
         # current choice.
         active_tools: dict[int, _ToolCallState] = {}
         sent_message_start = False
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
-            async with client.stream("POST", url, json=body, headers=headers) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
+        raw = self._create_stream(
+            model=resolved_model,
+            messages=openai_messages,
+            headers=headers,
+            body=body,
+        )
 
-                    payload = line[len("data: "):]
+        # Handle coroutine return from _create_stream
+        if hasattr(raw, "__await__") and not hasattr(raw, "__aiter__"):
+            raw = await raw
 
-                    if payload.strip() == "[DONE]":
-                        # Flush any remaining tool calls.
-                        for state in active_tools.values():
-                            yield _finish_tool(state)
-                        active_tools.clear()
-                        yield MessageEnd()
-                        return
+        async for chunk in raw:
+            # Emit MessageStart on the first chunk.
+            if not sent_message_start:
+                sent_message_start = True
+                chunk_id = getattr(chunk, "id", "") or ""
+                chunk_model = getattr(chunk, "model", resolved_model) or resolved_model
+                yield MessageStart(
+                    message_id=chunk_id,
+                    model=chunk_model,
+                    role="assistant",
+                )
 
-                    try:
-                        chunk = json.loads(payload)
-                    except json.JSONDecodeError:
-                        logger.warning("Skipping malformed SSE chunk: %r", payload)
-                        continue
+            choices = getattr(chunk, "choices", []) or []
+            for choice in choices:
+                delta = getattr(choice, "delta", None)
+                if delta is None:
+                    continue
 
-                    # Emit MessageStart on the first parseable chunk.
-                    if not sent_message_start:
-                        sent_message_start = True
-                        yield MessageStart(
-                            message_id=chunk.get("id", ""),
-                            model=chunk.get("model", resolved_model),
-                            role="assistant",
+                # Text content.
+                content = getattr(delta, "content", None)
+                if content:
+                    yield TextDelta(text=content)
+
+                # Tool calls.
+                tool_calls = getattr(delta, "tool_calls", None) or []
+                for tc in tool_calls:
+                    tc_index = getattr(tc, "index", 0)
+                    func = getattr(tc, "function", None)
+
+                    if tc_index not in active_tools:
+                        # New tool call.
+                        tc_id = getattr(tc, "id", None) or f"call_{uuid.uuid4().hex[:24]}"
+                        tc_name = getattr(func, "name", "") if func else ""
+                        active_tools[tc_index] = _ToolCallState(
+                            id=tc_id, name=tc_name
                         )
+                        yield ToolUseStart(id=tc_id, name=tc_name)
 
-                    choices = chunk.get("choices", [])
-                    for choice in choices:
-                        delta = choice.get("delta", {})
+                    if func:
+                        args_chunk = getattr(func, "arguments", "")
+                        if args_chunk:
+                            active_tools[tc_index].json_chunks.append(args_chunk)
+                            yield ToolUseInputDelta(partial_json=args_chunk)
 
-                        # Text content.
-                        content = delta.get("content")
-                        if content:
-                            yield TextDelta(text=content)
+                # Finish reason.
+                finish_reason = getattr(choice, "finish_reason", None)
+                if finish_reason is not None:
+                    # Flush active tool calls before emitting stop.
+                    for state in active_tools.values():
+                        yield _finish_tool(state)
+                    active_tools.clear()
 
-                        # Tool calls.
-                        tool_calls = delta.get("tool_calls", [])
-                        for tc in tool_calls:
-                            tc_index = tc.get("index", 0)
-                            func = tc.get("function", {})
+                    usage = getattr(chunk, "usage", None) or {}
+                    if isinstance(usage, dict):
+                        yield MessageDelta(stop_reason=finish_reason, usage=usage)
+                    else:
+                        yield MessageDelta(stop_reason=finish_reason, usage={})
 
-                            if tc_index not in active_tools:
-                                # New tool call.
-                                tc_id = tc.get("id") or f"call_{uuid.uuid4().hex[:24]}"
-                                tc_name = func.get("name", "")
-                                active_tools[tc_index] = _ToolCallState(
-                                    id=tc_id, name=tc_name
-                                )
-                                yield ToolUseStart(id=tc_id, name=tc_name)
-
-                            args_chunk = func.get("arguments", "")
-                            if args_chunk:
-                                active_tools[tc_index].json_chunks.append(args_chunk)
-                                yield ToolUseInputDelta(partial_json=args_chunk)
-
-                        # Finish reason.
-                        finish_reason = choice.get("finish_reason")
-                        if finish_reason is not None:
-                            # Flush active tool calls before emitting stop.
-                            for state in active_tools.values():
-                                yield _finish_tool(state)
-                            active_tools.clear()
-
-                            # Map OpenAI stop reasons to Anthropic-style.
-                            stop_reason = _map_stop_reason(finish_reason)
-                            usage = chunk.get("usage") or {}
-                            yield MessageDelta(
-                                stop_reason=stop_reason,
-                                usage=usage,
-                            )
+        # Flush any remaining tool calls.
+        for state in active_tools.values():
+            yield _finish_tool(state)
+        active_tools.clear()
+        yield MessageEnd()
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+class _DictObj:
+    """Wrapper that allows attribute-style access to a dict."""
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        for key, value in data.items():
+            if isinstance(value, dict):
+                setattr(self, key, _DictObj(value))
+            elif isinstance(value, list):
+                setattr(self, key, [
+                    _DictObj(item) if isinstance(item, dict) else item
+                    for item in value
+                ])
+            else:
+                setattr(self, key, value)
 
 
 class _ToolCallState:

@@ -93,6 +93,10 @@ def create_grep_tool() -> tuple[ToolDefinition, ToolHandler]:
         glob_filter: str | None = input.get("glob")
         head_limit: int = input.get("head_limit", _DEFAULT_HEAD_LIMIT)
         context: int | None = input.get("context")
+        file_type: str | None = input.get("file_type")
+        context_after: int | None = input.get("context_after")
+        context_before: int | None = input.get("context_before")
+        case_insensitive: bool = input.get("case_insensitive", False)
 
         # Build the rg command as a list of arguments (NEVER shell=True).
         cmd: list[str] = ["rg"]
@@ -104,13 +108,25 @@ def create_grep_tool() -> tuple[ToolDefinition, ToolHandler]:
             cmd.append("--count")
         # "content" is the default rg output mode — no flag needed.
 
+        # Case insensitive
+        if case_insensitive:
+            cmd.append("-i")
+
         # Context lines (only meaningful for content mode)
         if context is not None and output_mode == "content":
             cmd.extend(["-C", str(context)])
+        if context_after is not None and output_mode == "content":
+            cmd.extend(["-A", str(context_after)])
+        if context_before is not None and output_mode == "content":
+            cmd.extend(["-B", str(context_before)])
 
         # Line numbers for content mode
         if output_mode == "content":
             cmd.append("-n")
+
+        # File type filter (rg --type)
+        if file_type is not None:
+            cmd.extend(["--type", file_type])
 
         # Glob filter
         if glob_filter is not None:
@@ -157,17 +173,65 @@ def create_grep_tool() -> tuple[ToolDefinition, ToolHandler]:
             )
 
         if not stdout.strip():
-            return ToolResult(output="No matches found.")
+            return ToolResult(output="")
 
         # Apply head_limit
         lines = stdout.splitlines()
         if head_limit > 0 and len(lines) > head_limit:
             lines = lines[:head_limit]
-            lines.append(
-                f"\n[Output truncated to {head_limit} entries. "
-                f"Use head_limit to see more.]"
-            )
 
         return ToolResult(output="\n".join(lines))
 
     return definition, handler
+
+
+# ---------------------------------------------------------------------------
+# Synchronous convenience wrapper
+# ---------------------------------------------------------------------------
+
+
+def grep_files(
+    pattern: str,
+    *,
+    path: str | None = None,
+    output_mode: str = "files_with_matches",
+    glob: str | None = None,
+    head_limit: int = 250,
+    context: int | None = None,
+    # Aliases used by test suite
+    file_type: str | None = None,
+    context_after: int | None = None,
+    context_before: int | None = None,
+    case_insensitive: bool = False,
+) -> ToolResult:
+    """Synchronous convenience wrapper for grep search.
+
+    Supports aliases:
+        ``file_type`` -> ``--type`` flag
+        ``context_after`` -> ``-A`` flag
+        ``context_before`` -> ``-B`` flag
+        ``case_insensitive`` -> ``-i`` flag
+    """
+    import asyncio
+
+    _, handler = create_grep_tool()
+    params: dict[str, Any] = {
+        "pattern": pattern,
+        "output_mode": output_mode,
+        "head_limit": head_limit,
+    }
+    if path is not None:
+        params["path"] = path
+    if glob is not None:
+        params["glob"] = glob
+    if context is not None:
+        params["context"] = context
+    if file_type is not None:
+        params["file_type"] = file_type
+    if context_after is not None:
+        params["context_after"] = context_after
+    if context_before is not None:
+        params["context_before"] = context_before
+    if case_insensitive:
+        params["case_insensitive"] = True
+    return asyncio.run(handler(params))

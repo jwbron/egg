@@ -43,8 +43,8 @@ def create_read_tool() -> tuple[ToolDefinition, ToolHandler]:
                 "offset": {
                     "type": "integer",
                     "description": (
-                        "The line number to start reading from (0-based). "
-                        "Defaults to 0."
+                        "The line number to start reading from (1-based). "
+                        "Defaults to 0 (beginning of file)."
                     ),
                     "minimum": 0,
                 },
@@ -117,12 +117,15 @@ def create_read_tool() -> tuple[ToolDefinition, ToolHandler]:
 
         lines = text.splitlines(keepends=True)
 
-        # Apply offset and limit
-        selected = lines[offset : offset + limit]
+        # Apply offset and limit.
+        # offset is 1-based: offset=5 means start at line 5.
+        # offset=0 means start at the beginning.
+        start_idx = max(0, offset - 1) if offset > 0 else 0
+        selected = lines[start_idx : start_idx + limit]
 
         # Format with line numbers (1-based, matching offset)
         output_lines: list[str] = []
-        for i, line in enumerate(selected, start=offset + 1):
+        for i, line in enumerate(selected, start=start_idx + 1):
             # Strip the trailing newline for consistent formatting
             output_lines.append(f"{i}\t{line.rstrip(chr(10)).rstrip(chr(13))}")
 
@@ -131,3 +134,16 @@ def create_read_tool() -> tuple[ToolDefinition, ToolHandler]:
         return ToolResult(output=output)
 
     return definition, handler
+
+
+# ---------------------------------------------------------------------------
+# Synchronous convenience wrapper
+# ---------------------------------------------------------------------------
+
+
+def read_file(file_path: str, *, offset: int = 0, limit: int = 2000) -> ToolResult:
+    """Synchronous convenience wrapper for reading files."""
+    import asyncio
+
+    _, handler = create_read_tool()
+    return asyncio.run(handler({"file_path": file_path, "offset": offset, "limit": limit}))

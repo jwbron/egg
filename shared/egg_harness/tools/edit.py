@@ -136,3 +136,27 @@ def create_edit_tool() -> tuple[ToolDefinition, ToolHandler]:
         )
 
     return definition, handler
+
+
+# ---------------------------------------------------------------------------
+# Synchronous convenience wrapper
+# ---------------------------------------------------------------------------
+
+
+def edit_file(
+    file_path: str,
+    old_string: str,
+    new_string: str,
+    *,
+    replace_all: bool = False,
+) -> ToolResult:
+    """Synchronous convenience wrapper for editing files."""
+    import asyncio
+
+    _, handler = create_edit_tool()
+    return asyncio.run(handler({
+        "file_path": file_path,
+        "old_string": old_string,
+        "new_string": new_string,
+        "replace_all": replace_all,
+    }))

@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 import signal
+from dataclasses import dataclass
 from typing import Any
 
 from egg_harness.tools.registry import ToolDefinition, ToolHandler, ToolResult
@@ -129,3 +130,43 @@ def create_bash_tool(
             )
 
     return definition, handler
+
+
+# ---------------------------------------------------------------------------
+# Synchronous convenience wrapper
+# ---------------------------------------------------------------------------
+
+@dataclass
+class BashResult:
+    """Result from a synchronous bash command execution."""
+
+    output: str
+    exit_code: int
+
+
+def execute_bash(command: str, *, cwd: str | None = None, timeout: int = 120) -> BashResult:
+    """Synchronous convenience wrapper for bash command execution."""
+    import subprocess
+
+    try:
+        proc = subprocess.Popen(
+            ["bash", "-c", command],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            cwd=cwd,
+            start_new_session=True,
+        )
+        try:
+            stdout, _ = proc.communicate(timeout=timeout)
+            output = stdout.decode("utf-8", errors="replace")
+            return BashResult(output=output, exit_code=proc.returncode)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGTERM)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait()
+            return BashResult(output="Command timed out", exit_code=-1)
+    except Exception as e:
+        return BashResult(output=str(e), exit_code=-1)

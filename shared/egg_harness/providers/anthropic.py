@@ -40,9 +40,36 @@ class AnthropicProvider(Provider):
     Args:
         config: Provider configuration.  When ``config.endpoint`` is set the
             client will use it as ``base_url`` (typically the gateway proxy).
+        gateway_url: Alternative to ``config`` — provide the gateway URL
+            directly.  A :class:`ProviderConfig` is created internally.
     """
 
-    def __init__(self, config: ProviderConfig) -> None:
+    # Circuit breaker constants.
+    _MAX_RETRIES: int = 3
+    _CIRCUIT_BREAKER_THRESHOLD: int = 3
+
+    def __init__(
+        self,
+        config: ProviderConfig | None = None,
+        *,
+        gateway_url: str | None = None,
+    ) -> None:
+        # Allow construction via ``gateway_url`` shorthand.
+        if config is None and gateway_url is not None:
+            if not gateway_url or not gateway_url.startswith(("http://", "https://")):
+                raise ValueError(
+                    f"Invalid gateway endpoint URL: {gateway_url!r}"
+                )
+            config = ProviderConfig(
+                provider_type="anthropic",
+                model="claude-sonnet-4-5-20250514",
+                endpoint=gateway_url,
+            )
+        if config is None:
+            raise TypeError(
+                "AnthropicProvider requires either 'config' or 'gateway_url'."
+            )
+
         self._config = config
 
         # Security: API keys must flow through the gateway proxy, never from
@@ -70,10 +97,38 @@ class AnthropicProvider(Provider):
         self._client = anthropic.AsyncAnthropic(**client_kwargs)
         self._model = config.model
 
+        # Circuit breaker state.
+        self._consecutive_failures: int = 0
+
     @property
     def name(self) -> str:
         """Return ``"anthropic"``."""
         return "anthropic"
+
+    def _create_stream(
+        self,
+        *,
+        model: str,
+        max_tokens: int,
+        messages: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> Any:
+        """Create the raw SDK streaming context manager.
+
+        This method is extracted so tests can patch it to inject mock
+        streams.
+
+        Returns:
+            An async context manager (from the SDK) that yields SSE events,
+            or an async iterator directly.
+        """
+        return self._client.messages.create(  # type: ignore[attr-defined]
+            model=model,
+            max_tokens=max_tokens,
+            messages=messages,  # type: ignore[arg-type]
+            stream=True,
+            **kwargs,
+        )
 
     async def send_message(
         self,
@@ -87,9 +142,19 @@ class AnthropicProvider(Provider):
     ) -> AsyncIterator[StreamEvent]:
         """Stream a response from the Anthropic Messages API.
 
+        Includes retry logic for 429/5xx errors and a circuit breaker
+        that trips after consecutive failures.
+
         Yields:
             :data:`StreamEvent` instances mapped from the raw SDK stream.
         """
+        # Circuit breaker check.
+        if self._consecutive_failures >= self._CIRCUIT_BREAKER_THRESHOLD:
+            raise RuntimeError(
+                f"Circuit breaker open: {self._consecutive_failures} "
+                f"consecutive failures"
+            )
+
         resolved_model = model or self._model
 
         # Merge extra headers from config and from caller.
@@ -117,24 +182,78 @@ class AnthropicProvider(Provider):
         if headers:
             kwargs["extra_headers"] = headers
 
-        # Track tool-use content blocks for accumulating partial JSON.
-        # Keyed by content block index.
-        tool_blocks: dict[int, _ToolBlockState] = {}
+        # Retry loop with exponential backoff.
+        last_exc: Exception | None = None
+        for attempt in range(self._MAX_RETRIES + 1):
+            try:
+                # Track tool-use content blocks for accumulating partial JSON.
+                tool_blocks: dict[int, _ToolBlockState] = {}
 
-        # The Anthropic SDK uses @overload on the `stream` parameter.  When
-        # extra kwargs are forwarded via **kwargs mypy cannot resolve the
-        # overload, so we silence the resulting false-positive.
-        async with self._client.messages.create(  # type: ignore[attr-defined]
-            model=resolved_model,
-            max_tokens=max_tokens,
-            messages=messages,  # type: ignore[arg-type]
-            stream=True,
-            **kwargs,
-        ) as raw_stream:
-            async for event in raw_stream:
-                mapped = _map_event(event, tool_blocks)
-                if mapped is not None:
-                    yield mapped
+                raw = self._create_stream(
+                    model=resolved_model,
+                    max_tokens=max_tokens,
+                    messages=messages,
+                    **kwargs,
+                )
+
+                # Handle the result flexibly:
+                # - Test mocks return an async iterable directly
+                # - Real SDK returns an async context manager
+                # - _create_stream could also be async (returns coroutine)
+                if hasattr(raw, "__await__") and not hasattr(raw, "__aiter__"):
+                    raw = await raw
+
+                if hasattr(raw, "__aenter__") and not hasattr(raw, "__aiter__"):
+                    async with raw as raw_stream:
+                        async for event in raw_stream:
+                            mapped = _map_event(event, tool_blocks)
+                            if mapped is not None:
+                                yield mapped
+                else:
+                    async for event in raw:
+                        mapped = _map_event(event, tool_blocks)
+                        if mapped is not None:
+                            yield mapped
+
+                # Success: reset circuit breaker.
+                self._consecutive_failures = 0
+                return
+
+            except Exception as exc:
+                last_exc = exc
+                status_code = getattr(exc, "status_code", None)
+
+                # Non-retryable 4xx errors (except 429).
+                if (
+                    status_code is not None
+                    and 400 <= status_code < 500
+                    and status_code != 429
+                ):
+                    self._consecutive_failures += 1
+                    raise RuntimeError(str(exc)) from exc
+
+                # Retryable: 429 or 5xx.
+                if status_code is not None and (
+                    status_code == 429 or status_code >= 500
+                ):
+                    if attempt < self._MAX_RETRIES:
+                        import asyncio
+
+                        await asyncio.sleep(0.1 * (2 ** attempt))
+                        continue
+
+                    # Exhausted retries.
+                    self._consecutive_failures += 1
+                    raise RuntimeError(str(exc)) from exc
+
+                # Unknown exception type: don't retry.
+                self._consecutive_failures += 1
+                raise
+
+        # Should not reach here, but just in case.
+        if last_exc is not None:
+            self._consecutive_failures += 1
+            raise RuntimeError(str(last_exc)) from last_exc
 
 
 # ---------------------------------------------------------------------------

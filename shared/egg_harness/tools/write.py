@@ -68,3 +68,16 @@ def create_write_tool() -> tuple[ToolDefinition, ToolHandler]:
         return ToolResult(output=f"Successfully wrote to {file_path}")
 
     return definition, handler
+
+
+# ---------------------------------------------------------------------------
+# Synchronous convenience wrapper
+# ---------------------------------------------------------------------------
+
+
+def write_file(file_path: str, content: str) -> ToolResult:
+    """Synchronous convenience wrapper for writing files."""
+    import asyncio
+
+    _, handler = create_write_tool()
+    return asyncio.run(handler({"file_path": file_path, "content": content}))

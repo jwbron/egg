@@ -135,7 +135,10 @@ class ProviderConfig:
     extra_headers: dict[str, str] | None = None
 
 
-@dataclass
+_HARNESS_UNSET = object()  # sentinel for detecting bare HarnessConfig()
+
+
+@dataclass(init=False)
 class HarnessConfig:
     """Top-level configuration for an egg harness session.
 
@@ -144,6 +147,7 @@ class HarnessConfig:
         max_turns: Maximum number of agent turns before the session is
             terminated.
         timeout: Hard wall-clock timeout for the session in seconds.
+            Also accepted as ``timeout_seconds`` for backward compatibility.
         cwd: Working directory for the agent process.  ``None`` means use the
             current directory.
         env: Extra environment variables to inject into the agent process.
@@ -154,14 +158,77 @@ class HarnessConfig:
             harness triggers automatic context compaction.
         keep_recent_tokens: Number of recent tokens to preserve verbatim
             during compaction.
+        system_prompt: Optional system-level instructions for the agent.
     """
 
-    provider: ProviderConfig
-    max_turns: int = 200
-    timeout: int = 7200
-    cwd: str | None = None
-    env: dict[str, str] | None = field(default=None)
-    disallowed_tools: list[str] | None = field(default=None)
-    intercept_tools: bool = True
-    compaction_threshold: float = 0.8
-    keep_recent_tokens: int = 20_000
+    provider: ProviderConfig | None
+    max_turns: int
+    timeout: int
+    cwd: str | None
+    env: dict[str, str] | None
+    disallowed_tools: list[str] | None
+    intercept_tools: bool
+    compaction_threshold: float
+    keep_recent_tokens: int
+    system_prompt: str | None
+
+    def __init__(
+        self,
+        provider: ProviderConfig | None = _HARNESS_UNSET,  # type: ignore[assignment]
+        max_turns: int = 200,
+        timeout: int | None = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        disallowed_tools: list[str] | None = None,
+        intercept_tools: bool = True,
+        compaction_threshold: float = 0.8,
+        keep_recent_tokens: int = 20_000,
+        system_prompt: str | None = None,
+        *,
+        timeout_seconds: int | None = None,
+    ) -> None:
+        # HarnessConfig() with no arguments at all is a programming error.
+        if provider is _HARNESS_UNSET:
+            # Check whether the caller passed *any* explicit keyword.  If all
+            # positional/keyword args are still at their defaults we treat
+            # this as a bare HarnessConfig() call and raise.
+            _any_explicit = (
+                max_turns != 200
+                or timeout is not None
+                or cwd is not None
+                or env is not None
+                or disallowed_tools is not None
+                or intercept_tools is not True
+                or compaction_threshold != 0.8
+                or keep_recent_tokens != 20_000
+                or system_prompt is not None
+                or timeout_seconds is not None
+            )
+            if not _any_explicit:
+                raise TypeError(
+                    "HarnessConfig() requires at least one argument.  "
+                    "Pass provider=... or other configuration parameters."
+                )
+            provider = None
+
+        self.provider = provider
+        self.max_turns = max_turns
+        # timeout_seconds is an alias for timeout
+        if timeout is not None:
+            self.timeout = timeout
+        elif timeout_seconds is not None:
+            self.timeout = timeout_seconds
+        else:
+            self.timeout = 7200
+        self.cwd = cwd
+        self.env = env
+        self.disallowed_tools = disallowed_tools
+        self.intercept_tools = intercept_tools
+        self.compaction_threshold = compaction_threshold
+        self.keep_recent_tokens = keep_recent_tokens
+        self.system_prompt = system_prompt
+
+    @property
+    def timeout_seconds(self) -> int:
+        """Alias for :attr:`timeout`."""
+        return self.timeout

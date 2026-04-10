@@ -73,9 +73,25 @@ def create_glob_tool() -> tuple[ToolDefinition, ToolHandler]:
         files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
 
         if not files:
-            return ToolResult(output="No files matched the pattern.")
+            return ToolResult(output="No matches found.")
 
         output = "\n".join(str(f) for f in files)
         return ToolResult(output=output)
 
     return definition, handler
+
+
+# ---------------------------------------------------------------------------
+# Synchronous convenience wrapper
+# ---------------------------------------------------------------------------
+
+
+def glob_files(pattern: str, *, path: str | None = None) -> ToolResult:
+    """Synchronous convenience wrapper for glob file search."""
+    import asyncio
+
+    _, handler = create_glob_tool()
+    params: dict[str, Any] = {"pattern": pattern}
+    if path is not None:
+        params["path"] = path
+    return asyncio.run(handler(params))

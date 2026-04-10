@@ -127,9 +127,30 @@ class EventBus:
 
     @staticmethod
     def _dispatch(callbacks: list[Callable[..., None]], *args: Any) -> None:
-        """Invoke each callback, catching and logging any exceptions."""
+        """Invoke each callback, catching and logging any exceptions.
+
+        Callbacks may accept fewer arguments than are provided; the
+        dispatcher silently drops extra trailing arguments so that
+        callers that only care about (for example) the event *name* don't
+        have to accept the full argument tuple.
+        """
         for cb in callbacks:
             try:
                 cb(*args)
+            except TypeError:
+                # The callback may accept fewer args than we passed.
+                # Try progressively fewer trailing arguments.
+                _called = False
+                for n in range(len(args) - 1, -1, -1):
+                    try:
+                        cb(*args[:n])
+                        _called = True
+                        break
+                    except TypeError:
+                        continue
+                if not _called:
+                    logger.exception(
+                        "Event callback %r raised an exception", cb
+                    )
             except Exception:
                 logger.exception("Event callback %r raised an exception", cb)
