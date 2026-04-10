@@ -109,7 +109,6 @@ class TestPopulateContractEndpoint:
     ):
         """Returns 500 when the populate function raises an exception."""
         pipeline = _make_pipeline()
-        pipeline.config = None
         mock_store = MagicMock()
         mock_store.repo_path = Path("/home/egg/repos/egg")
         mock_get_store.return_value = (mock_store, pipeline)
@@ -165,7 +164,6 @@ class TestPopulateContractEndpoint:
     ):
         """When contract read-back fails, still return success without counts."""
         pipeline = _make_pipeline()
-        pipeline.config = None
         mock_store = MagicMock()
         mock_store.repo_path = Path("/home/egg/repos/egg")
         mock_get_store.return_value = (mock_store, pipeline)
@@ -191,7 +189,6 @@ class TestPopulateContractEndpoint:
     ):
         """Verify worktree path (not raw repo path) is passed to populate."""
         pipeline = _make_pipeline()
-        pipeline.config = None
         mock_store = MagicMock()
         mock_store.repo_path = Path("/home/egg/repos/egg")
         mock_get_store.return_value = (mock_store, pipeline)
