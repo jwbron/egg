@@ -40,11 +40,28 @@
     "active_agent_stall_extension_seconds": 120,
     "start_phase": "implement"
   },
-  "phases": {},
+  "phases": {
+    "implement": {
+      "phase": "implement",
+      "status": "running",
+      "started_at": "2026-04-10T17:52:33.031583Z",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": "0464e45e934f4de5ba8fa715d289306dc0d5d484"
+    }
+  },
   "decisions": [],
   "created_at": "2026-04-10T17:52:03.925495Z",
-  "updated_at": "2026-04-10T17:52:03.984231Z",
-  "contract_synced": false,
+  "updated_at": "2026-04-10T17:52:33.031654Z",
+  "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
@@ -54,5 +71,5 @@
   "source_branch": "egg/issue-1570-v3",
   "source_artifact_prefix": "1570",
   "run_epoch": null,
-  "version": 3
+  "version": 5
 }
