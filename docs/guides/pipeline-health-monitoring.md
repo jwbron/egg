@@ -417,8 +417,10 @@ When the overseer files a GitHub issue (decided by the Sonnet/Opus tier), it use
 ### Actions Taken
 {list of auto-nudges, redirect messages, HITL requests}
 
-### Container Logs
-{last 2 000 chars of Docker container logs for the agent, if available}
+### Container Logs          <!-- only present when logs exist -->
+````
+{last 2 000 chars of Docker container logs for the agent}
+````
 
 ### Suggested Remediation
 {what a human should do}
