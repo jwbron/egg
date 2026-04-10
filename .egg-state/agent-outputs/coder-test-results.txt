@@ -1,0 +1,33 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.13, pytest-9.0.3, pluggy-1.6.0 -- /usr/bin/python3.13
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: /home/egg/repos/egg
+configfile: pyproject.toml
+plugins: anyio-4.13.0, hypothesis-6.151.12, xdist-3.8.0, cov-7.1.0, asyncio-1.3.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 21 items
+
+orchestrator/tests/test_source_branch.py::TestPipelineModelSourceBranch::test_pipeline_with_source_branch PASSED [  4%]
+orchestrator/tests/test_source_branch.py::TestPipelineModelSourceBranch::test_pipeline_without_source_branch PASSED [  9%]
+orchestrator/tests/test_source_branch.py::TestPipelineModelSourceBranch::test_source_branch_serialization PASSED [ 14%]
+orchestrator/tests/test_source_branch.py::TestPipelineModelSourceBranch::test_source_branch_null_serialization PASSED [ 19%]
+orchestrator/tests/test_source_branch.py::TestSourceBranchMCPSchema::test_schema_includes_source_branch PASSED [ 23%]
+orchestrator/tests/test_source_branch.py::TestSourceBranchMCPSchema::test_handle_submit_task_passes_source_branch PASSED [ 28%]
+orchestrator/tests/test_source_branch.py::TestSourceBranchMCPSchema::test_handle_submit_task_omits_source_branch_when_not_provided PASSED [ 33%]
+orchestrator/tests/test_source_branch.py::TestSourceBranchStateStore::test_create_pipeline_with_source_branch PASSED [ 38%]
+orchestrator/tests/test_source_branch.py::TestSourceBranchStateStore::test_create_pipeline_without_source_branch PASSED [ 42%]
+orchestrator/tests/test_source_branch.py::TestReadSourceBranchArtifacts::test_reads_plan_and_analysis_with_correct_prefix PASSED [ 47%]
+orchestrator/tests/test_source_branch.py::TestReadSourceBranchArtifacts::test_falls_back_via_ls_tree_when_prefix_differs PASSED [ 52%]
+orchestrator/tests/test_source_branch.py::TestReadSourceBranchArtifacts::test_inline_values_take_precedence PASSED [ 57%]
+orchestrator/tests/test_source_branch.py::TestReadSourceBranchArtifacts::test_partial_inline_precedence PASSED [ 61%]
+orchestrator/tests/test_source_branch.py::TestReadSourceBranchArtifacts::test_no_artifacts_found PASSED [ 66%]
+orchestrator/tests/test_source_branch.py::TestReadSourceBranchArtifacts::test_uses_pipeline_id_prefix_when_no_issue_number PASSED [ 71%]
+orchestrator/tests/test_source_branch.py::TestBranchExistsRelaxation::test_branch_exists_with_terminal_pipeline_allows_reuse PASSED [ 76%]
+orchestrator/tests/test_source_branch.py::TestBranchExistsRelaxation::test_branch_exists_with_active_pipeline_blocks PASSED [ 80%]
+orchestrator/tests/test_source_branch.py::TestBranchExistsRelaxation::test_branch_exists_no_pipeline_state_allows_creation PASSED [ 85%]
+orchestrator/tests/test_source_branch.py::TestBranchExistsRelaxation::test_branch_does_not_exist_proceeds_normally PASSED [ 90%]
+orchestrator/tests/test_source_branch.py::TestBranchExistsRelaxation::test_cancelled_pipeline_allows_reuse PASSED [ 95%]
+orchestrator/tests/test_source_branch.py::TestBranchExistsRelaxation::test_complete_pipeline_allows_reuse PASSED [100%]
+
+============================== 21 passed in 0.55s ==============================
