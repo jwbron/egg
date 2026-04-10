@@ -5,6 +5,7 @@ Provides REST endpoints for queuing, polling, and resolving
 human-in-the-loop decisions.
 """
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -412,6 +413,11 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
     resolution = data.get("resolution")
     if not resolution:
         return make_error_response("Missing resolution")
+
+    # Ensure resolution is always a JSON string — callers may send a dict
+    # instead of a pre-serialized string (#1635).
+    if not isinstance(resolution, str):
+        resolution = json.dumps(resolution)
 
     try:
         store, _pipeline = get_state_store_for_pipeline(pipeline_id)

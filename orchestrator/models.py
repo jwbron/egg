@@ -204,6 +204,16 @@ class HITLDecision(BaseModel):
         description="Whether the phase output changed compared to the previous decision's context (literal string comparison, not semantic)",
     )
 
+    @field_validator("resolution", mode="before")
+    @classmethod
+    def _serialize_resolution(cls, v: Any) -> str | None:
+        """Ensure resolution is always stored as a JSON string, not a dict (#1635)."""
+        import json
+
+        if isinstance(v, dict | list):
+            return json.dumps(v)
+        return v
+
 
 class CycleTiming(BaseModel):
     """Timing for a single review cycle within a phase."""
