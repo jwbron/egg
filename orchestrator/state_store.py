@@ -731,6 +731,7 @@ class StateStore:
         pr_number: int | None = None,
         analysis: str | None = None,
         plan: str | None = None,
+        source_branch: str | None = None,
     ) -> Pipeline:
         """Create a new pipeline.
 
@@ -747,6 +748,7 @@ class StateStore:
             pr_number: PR number for babysit-mode pipelines (optional).
             analysis: Pre-generated analysis markdown for short flow pipelines (optional).
             plan: Pre-generated plan markdown with yaml-tasks appendix (optional).
+            source_branch: Source branch to read prior-run artifacts from (optional).
 
         Returns:
             Created pipeline
@@ -790,6 +792,7 @@ class StateStore:
                 "contract_synced": False,
                 "analysis": analysis,
                 "plan": plan,
+                "source_branch": source_branch,
             }
             if mode is not None:
                 pipeline_kwargs["mode"] = mode

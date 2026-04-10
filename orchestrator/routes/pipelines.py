@@ -657,6 +657,7 @@ def create_pipeline() -> tuple[Response, int]:
     pr_number = data.get("pr_number")
     analysis = data.get("analysis")
     plan = data.get("plan")
+    source_branch = data.get("source_branch")
 
     # Validate mode
     valid_modes = {m.value for m in PipelineMode}
@@ -685,7 +686,10 @@ def create_pipeline() -> tuple[Response, int]:
     repo_path = get_repo_path()
 
     # Check that the target branch does not already exist on the remote.
-    # This catches conflicts early (before spawning agents).
+    # This catches conflicts early (before spawning agents).  However,
+    # allow branch reuse when the pipeline is in a terminal state
+    # (CANCELLED/FAILED/COMPLETE) or doesn't exist at all — this lets
+    # callers resubmit against the same branch after a prior run ended.
     if branch:
         try:
             gw = get_gateway_client()
@@ -694,17 +698,40 @@ def create_pipeline() -> tuple[Response, int]:
                 repo_path=str(repo_path),
                 ref=f"refs/heads/{branch}",
             ):
-                hint = ""
-                if pipeline_id:
-                    hint = (
-                        f" Use a qualifier to create a separate pipeline"
-                        f" (e.g. '{pipeline_id}-<qualifier>')."
+                # Branch exists — only block if there is an active pipeline
+                _branch_store = get_state_store(repo_path)
+                _has_active_pipeline = False
+                if pipeline_id and _branch_store.pipeline_exists(pipeline_id):
+                    try:
+                        _existing = _branch_store.load_pipeline(pipeline_id)
+                        _terminal = {
+                            PipelineStatus.CANCELLED,
+                            PipelineStatus.FAILED,
+                            PipelineStatus.COMPLETE,
+                        }
+                        _has_active_pipeline = _existing.status not in _terminal
+                    except Exception:
+                        # If we can't load the pipeline, treat as no active pipeline
+                        pass
+
+                if _has_active_pipeline:
+                    hint = ""
+                    if pipeline_id:
+                        hint = (
+                            f" Use a qualifier to create a separate pipeline"
+                            f" (e.g. '{pipeline_id}-<qualifier>')."
+                        )
+                    return make_error_response(
+                        f"Branch '{branch}' already exists on remote.{hint}",
+                        status_code=409,
+                        details={"reason": "branch_exists", "branch": branch},
                     )
-                return make_error_response(
-                    f"Branch '{branch}' already exists on remote.{hint}",
-                    status_code=409,
-                    details={"reason": "branch_exists", "branch": branch},
-                )
+                else:
+                    logger.info(
+                        "Branch exists but no active pipeline — allowing reuse",
+                        branch=branch,
+                        pipeline_id=pipeline_id,
+                    )
         except Exception as e:
             # Non-fatal — if we can't reach the gateway, let creation proceed
             # and fail later on push.
@@ -762,6 +789,7 @@ def create_pipeline() -> tuple[Response, int]:
             pr_number=pr_number,
             analysis=analysis,
             plan=plan,
+            source_branch=source_branch,
         )
 
         # Contract creation is deferred to _run_pipeline so it writes
@@ -2468,6 +2496,110 @@ def _git_show_draft(
             error=str(exc),
         )
     return None
+
+
+def _read_source_branch_artifacts(
+    repo_path: Path,
+    source_branch: str,
+    issue_number: int | None,
+    pipeline_id: str,
+    store: Any,
+    pipeline: Any,
+) -> bool:
+    """Read plan and analysis artifacts from a source branch.
+
+    Reads draft files from ``origin/<source_branch>`` via ``git show``.
+    Only populates ``pipeline.plan`` and ``pipeline.analysis`` when they
+    are not already set (inline values take precedence).
+
+    Falls back to listing available files via ``git ls-tree`` when the
+    expected prefix doesn't match (e.g. source branch used a different
+    issue number or pipeline ID).
+
+    Args:
+        repo_path: Path to the repository (worktree or main).
+        source_branch: Branch name to read artifacts from.
+        issue_number: Pipeline issue number (for deriving prefix).
+        pipeline_id: Pipeline ID (fallback prefix).
+        store: StateStore instance for saving updated pipeline.
+        pipeline: Pipeline model instance to populate.
+
+    Returns:
+        True if any artifacts were read, False otherwise.
+    """
+    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(repo_path)]
+    prefix = _pipeline_identifier(issue_number, pipeline_id)
+    updated = False
+
+    # Mapping of pipeline field -> (expected filename, fallback glob suffix)
+    artifact_map = {
+        "analysis": (f"{prefix}-analysis.md", "-analysis.md"),
+        "plan": (f"{prefix}-plan.md", "-plan.md"),
+    }
+
+    for field_name, (expected_filename, fallback_suffix) in artifact_map.items():
+        # Skip if already populated (inline values take precedence)
+        if getattr(pipeline, field_name):
+            continue
+
+        drafts_prefix = ".egg-state/drafts/"
+        expected_path = f"{drafts_prefix}{expected_filename}"
+
+        # Try exact path first
+        content = _git_show_draft(repo_path, source_branch, expected_path)
+
+        if content is None:
+            # Fallback: list available files and find a match
+            try:
+                result = subprocess.run(
+                    [
+                        *git_base,
+                        "ls-tree",
+                        "--name-only",
+                        f"origin/{source_branch}:{drafts_prefix.rstrip('/')}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    check=False,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    for filename in result.stdout.strip().splitlines():
+                        if filename.endswith(fallback_suffix):
+                            fallback_path = f"{drafts_prefix}{filename}"
+                            content = _git_show_draft(repo_path, source_branch, fallback_path)
+                            if content:
+                                logger.info(
+                                    "Read artifact from source branch via fallback",
+                                    field=field_name,
+                                    source_branch=source_branch,
+                                    path=fallback_path,
+                                )
+                                break
+            except Exception as exc:
+                logger.debug(
+                    "git ls-tree failed for source branch drafts",
+                    source_branch=source_branch,
+                    error=str(exc),
+                )
+
+        if content:
+            setattr(pipeline, field_name, content)
+            updated = True
+            logger.info(
+                "Read artifact from source branch",
+                field=field_name,
+                source_branch=source_branch,
+                pipeline_id=pipeline_id,
+                length=len(content),
+            )
+
+    if updated:
+        store.save_pipeline(
+            pipeline, message=f"Populate artifacts from source branch {source_branch}"
+        )
+
+    return updated
 
 
 def _read_phase_draft(
@@ -7345,6 +7477,27 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             certs_volume = "egg-certs"
         else:
             certs_volume = certs_volume_raw
+
+        # Read artifacts from source branch if specified and inline values
+        # were not provided.  This populates pipeline.plan and
+        # pipeline.analysis so the contract creation block below can use them.
+        if pipeline.source_branch and not (pipeline.plan and pipeline.analysis):
+            try:
+                _read_source_branch_artifacts(
+                    repo_path=worktree_repo_path,
+                    source_branch=pipeline.source_branch,
+                    issue_number=pipeline.issue_number,
+                    pipeline_id=pipeline_id,
+                    store=store,
+                    pipeline=pipeline,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to read artifacts from source branch",
+                    source_branch=pipeline.source_branch,
+                    pipeline_id=pipeline_id,
+                    exc_info=True,
+                )
 
         # Create companion contract in the worktree (deferred from pipeline
         # creation so it doesn't pollute the main repo working directory).
