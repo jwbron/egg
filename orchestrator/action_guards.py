@@ -41,8 +41,8 @@ The following invariants must hold at all times:
    version for any assigned producer).
 3. No reviewer in CONFIRMED if any assigned producer has changes that
    haven't been reviewed (produced since the reviewer's last ACK).
-4. No reviewer in CONFIRMED if any assigned producer has never proposed
-   (proposal version == 0).
+4. No agent in CONFIRMED if any producer has never proposed
+   (proposal version == 0).  This is a global check (#1648).
 5. ``is_fully_acked`` must be consistent with the actual approval matrix
    state — every critical reviewer must have ACKED at the current proposal
    version.
@@ -620,7 +620,8 @@ def validate_invariants(
        version).
     3. No confirmed reviewer with unreviewed producer changes (producer has
        proposed at a version newer than the reviewer's ACK).
-    4. No confirmed reviewer with zero-proposal producers.
+    4. No confirmed agent with zero-proposal producers (#1648 — applies
+       globally, not just to reviewers).
     5. is_fully_acked consistency with approval matrix.
     6. ack_commit_sha consistency — when a reviewer's ACK is at the current
        proposal version, the recorded ack_commit_sha must match the
@@ -629,28 +630,40 @@ def validate_invariants(
 
     violations: list[InvariantViolation] = []
 
+    # Invariant 4 (global): No confirmed agent when ANY producer has never
+    # proposed (#1648).  Check all producers once, then flag every confirmed
+    # agent if any are at version 0.
+    all_producers = [r for r in graph.all_roles() if graph.is_producer(r)]
+    global_zero_producers = [
+        p for p in all_producers if matrix.get_proposal_version(p) == 0
+    ]
+    if global_zero_producers:
+        for agent in confirmed:
+            for producer in global_zero_producers:
+                violations.append(
+                    InvariantViolation(
+                        invariant="no_confirmed_with_zero_proposal_producer",
+                        agent=agent,
+                        description=(
+                            f"Agent {agent} is CONFIRMED but producer "
+                            f"{producer} has never proposed (version 0)"
+                        ),
+                        details={"producer": producer},
+                    )
+                )
+
     # Check each confirmed agent
     for agent in confirmed:
-        # Invariant 1 & 2 & 3 & 4: Reviewer-side checks
+        # Invariant 1 & 2 & 3: Reviewer-side checks
         if graph.is_reviewer(agent):
             producers = graph.producers_for(agent)
             for producer in producers:
                 entry = matrix.get_entry(agent, producer)
                 current_version = matrix.get_proposal_version(producer)
 
-                # Invariant 4: Zero-proposal producer
+                # Skip zero-proposal producers — already handled by
+                # the global INV-4 check above.
                 if current_version == 0:
-                    violations.append(
-                        InvariantViolation(
-                            invariant="no_confirmed_with_zero_proposal_producer",
-                            agent=agent,
-                            description=(
-                                f"Reviewer {agent} is CONFIRMED but producer "
-                                f"{producer} has never proposed (version 0)"
-                            ),
-                            details={"producer": producer},
-                        )
-                    )
                     continue
 
                 if entry is None:
