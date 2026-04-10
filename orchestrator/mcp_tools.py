@@ -1686,6 +1686,7 @@ class PipelineToolHandler:
         # When force=true, stop running containers before the transition
         # to avoid SIGTERM cascading into the new phase.
         stopped_containers: list[str] = []
+        failed_containers: list[str] = []
         if force:
             try:
                 containers_result = self._make_request(
@@ -1708,6 +1709,7 @@ class PipelineToolHandler:
                                 pipeline_id=args["task_id"],
                                 container_id=cid,
                             )
+                            failed_containers.append(cid)
             except Exception:
                 logger.warning(
                     "Failed to list containers before force-advance",
@@ -1722,6 +1724,8 @@ class PipelineToolHandler:
         )
         if stopped_containers:
             result["stopped_containers"] = stopped_containers
+        if failed_containers:
+            result["failed_containers"] = failed_containers
         return result
 
     def _handle_start_phase(self, args: dict[str, Any]) -> dict[str, Any]:

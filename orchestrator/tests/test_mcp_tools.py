@@ -1215,6 +1215,7 @@ class TestAdvancePhase:
         assert result["success"] is True
         # c1 was not successfully stopped, so not in stopped_containers
         assert "stopped_containers" not in result
+        assert result["failed_containers"] == ["c1"]
 
     def test_advance_force_container_list_fails(self, handler):
         """If listing containers fails, log warning and proceed with advance."""

@@ -2,12 +2,6 @@
 
 This endpoint wraps the internal _populate_contract_from_plan() function,
 resolving the worktree path and returning phase/task counts.
-
-BUG IDENTIFIED: The endpoint references ``pipeline.config.mode`` but
-PipelineConfig has no ``mode`` attribute — ``mode`` lives on Pipeline
-directly (``pipeline.mode``).  This causes an AttributeError whenever the
-pipeline has a config object (which is always, since PipelineConfig has
-defaults).  See test_config_mode_attribute_error for the regression test.
 """
 
 import json

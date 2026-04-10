@@ -542,7 +542,7 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
         _populate_contract_from_plan(
             repo_path=worktree_path,
             pipeline_id=pipeline_id,
-            pipeline_mode=pipeline.mode or "local",
+            pipeline_mode=pipeline.mode.value if pipeline.mode else "issue",
             issue_number=pipeline.issue_number,
         )
 
