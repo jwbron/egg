@@ -915,6 +915,60 @@ class TestReadSourceBranchArtifacts:
         assert pipeline.source_branch is None
         assert pipeline.source_artifact_prefix is None
 
+    @patch("routes.pipelines._git_show_draft")
+    def test_uses_gateway_fetch_when_spawner_provided(self, mock_git_show, worktree_path):
+        """Should use gateway.fetch_branch() instead of raw git fetch when spawner is provided."""
+        from routes.pipelines import _read_source_branch_artifacts
+
+        mock_git_show.return_value = "# Plan content"
+
+        pipeline = self._make_pipeline()
+        mock_store = MagicMock()
+        mock_spawner = MagicMock()
+        mock_spawner.gateway.fetch_branch.return_value = True
+
+        result = _read_source_branch_artifacts(
+            repo_path=worktree_path,
+            source_branch="egg/issue-1570-v3",
+            issue_number=pipeline.issue_number,
+            pipeline_id=pipeline.id,
+            store=mock_store,
+            pipeline=pipeline,
+            spawner=mock_spawner,
+            gateway_mode="public",
+        )
+
+        assert result is True
+        mock_spawner.gateway.fetch_branch.assert_called_once_with(
+            pipeline_id=pipeline.id,
+            repo_path=str(worktree_path),
+            args=["egg/issue-1570-v3"],
+            mode="public",
+        )
+
+    @patch("routes.pipelines._git_show_draft")
+    def test_logs_warning_when_no_artifacts_found(self, mock_git_show, worktree_path):
+        """Should log a WARNING when no artifacts are found on the source branch."""
+        from routes.pipelines import _read_source_branch_artifacts
+
+        mock_git_show.return_value = None
+
+        pipeline = self._make_pipeline()
+        mock_store = MagicMock()
+
+        result = _read_source_branch_artifacts(
+            repo_path=worktree_path,
+            source_branch="egg/issue-1570-v3",
+            issue_number=pipeline.issue_number,
+            pipeline_id=pipeline.id,
+            store=mock_store,
+            pipeline=pipeline,
+        )
+
+        assert result is False
+        # source_branch should NOT be cleared when no artifacts found
+        assert pipeline.source_branch == "egg/issue-1570-v3"
+
 
 # ---------------------------------------------------------------------------
 # 6. Branch-exists relaxation

@@ -2523,6 +2523,8 @@ def _read_source_branch_artifacts(
     store: Any,
     pipeline: Any,
     source_artifact_prefix: str | None = None,
+    spawner: Any | None = None,
+    gateway_mode: str = "public",
 ) -> bool:
     """Read plan and analysis artifacts from a source branch.
 
@@ -2550,6 +2552,12 @@ def _read_source_branch_artifacts(
             filenames on the source branch (e.g. ``"issue-1570-v3"``).
             When set, only this prefix is tried before the ls-tree
             fallback.
+        spawner: ContainerSpawner instance for gateway-authenticated git
+            operations.  When provided, the fetch uses the gateway API
+            (which injects GitHub credentials) instead of a raw
+            ``git fetch`` that lacks auth in the sandboxed environment.
+        gateway_mode: Network mode for the gateway session (``"public"``
+            or ``"private"``).
 
     Returns:
         True if any artifacts were read, False otherwise.
@@ -2559,21 +2567,39 @@ def _read_source_branch_artifacts(
     updated = False
 
     # Fetch the source branch so origin/{source_branch} is up-to-date.
-    # Without this, git show fails on a freshly restarted orchestrator
-    # because the remote ref isn't cached locally.
-    try:
-        subprocess.run(
-            [*git_base, "fetch", "origin", source_branch],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-    except Exception:
-        logger.debug(
-            "Failed to fetch source branch (will try git show anyway)",
-            source_branch=source_branch,
-        )
+    # Without this, git show fails because the remote ref isn't cached
+    # locally.  Use the gateway-authenticated fetch when available —
+    # raw git commands in the sandboxed environment lack GitHub
+    # credentials (the gateway sidecar injects them).
+    if spawner is not None:
+        try:
+            spawner.gateway.fetch_branch(
+                pipeline_id=pipeline_id,
+                repo_path=str(repo_path),
+                args=[source_branch],
+                mode=gateway_mode,
+            )
+        except Exception:
+            logger.warning(
+                "Gateway fetch of source branch failed (will try git show anyway)",
+                source_branch=source_branch,
+                pipeline_id=pipeline_id,
+            )
+    else:
+        # Fallback for tests or environments without a gateway.
+        try:
+            subprocess.run(
+                [*git_base, "fetch", "origin", source_branch],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except Exception:
+            logger.debug(
+                "Failed to fetch source branch (will try git show anyway)",
+                source_branch=source_branch,
+            )
 
     # Build ordered list of prefixes to try.  Duplicates are removed so
     # we don't hit git show twice for the same path.
@@ -2687,6 +2713,13 @@ def _read_source_branch_artifacts(
         pipeline.source_artifact_prefix = None
         store.save_pipeline(
             pipeline, message=f"Populate artifacts from source branch {source_branch}"
+        )
+    else:
+        logger.warning(
+            "No artifacts found on source branch",
+            source_branch=source_branch,
+            pipeline_id=pipeline_id,
+            source_artifact_prefix=source_artifact_prefix,
         )
 
     return updated
@@ -7585,6 +7618,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     store=store,
                     pipeline=pipeline,
                     source_artifact_prefix=pipeline.source_artifact_prefix,
+                    spawner=spawner,
+                    gateway_mode=gateway_mode,
                 )
             except Exception:
                 logger.warning(
