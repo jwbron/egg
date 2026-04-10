@@ -251,8 +251,32 @@
       "started_at": "2026-04-10T00:51:55.931976Z",
       "work_started_at": "2026-04-10T00:51:56.413084Z",
       "completed_at": "2026-04-10T01:28:45.771501Z",
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "51e72bafc56df58d0829d9e68975095025d34e81aeed2ce2a7129635cce3116e",
+          "container_name": "egg-sandbox-egg-issue-1579-reviewer_contract",
+          "status": "running",
+          "started_at": "2026-04-10T01:41:17.279725Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": null,
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "reviewer_contract",
+          "status": "running",
+          "container_id": "51e72bafc56df58d0829d9e68975095025d34e81aeed2ce2a7129635cce3116e",
+          "started_at": null,
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -414,7 +438,7 @@
     }
   ],
   "created_at": "2026-04-10T00:51:52.753575Z",
-  "updated_at": "2026-04-10T01:39:35.588345Z",
+  "updated_at": "2026-04-10T01:41:17.284216Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -422,5 +446,5 @@
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "analysis": null,
   "plan": null,
-  "version": 53
+  "version": 54
 }
