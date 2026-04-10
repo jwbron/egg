@@ -1,0 +1,167 @@
+{
+  "agent_role": "refiner",
+  "pipeline_id": "issue-1570-v3",
+  "issue": 1570,
+  "type": "analysis_decisions",
+  "note": "Gateway worktree mapping unavailable for this container. HITL decisions and feedback registered here as agent output. These should be applied to the contract by the pipeline.",
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Compaction summarization model: Should compaction summaries use the same model as the main conversation, or a cheaper/faster model (e.g., always Sonnet for summaries)? Pi uses the same model. Same model is simpler but costlier for Opus sessions.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Same model as conversation (simpler, Pi's approach)"
+        },
+        {
+          "id": "opt-2",
+          "label": "Dedicated cheaper model (e.g., Sonnet)"
+        },
+        {
+          "id": "opt-3",
+          "label": "Configurable per-provider (default same model)"
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)"
+        }
+      ]
+    },
+    {
+      "id": "decision-2",
+      "question": "Session storage location: Where should JSONL session files be persisted for conversation resume?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Container filesystem (/tmp/egg-sessions/)"
+        },
+        {
+          "id": "opt-2",
+          "label": "Repo .egg-state/sessions/"
+        },
+        {
+          "id": "opt-3",
+          "label": "Mounted volume ~/sharing/sessions/"
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)"
+        }
+      ]
+    },
+    {
+      "id": "decision-3",
+      "question": "HTML-to-markdown library for WebFetch tool: Which library for converting fetched HTML to markdown?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "markdownify (lightweight, pure Python)"
+        },
+        {
+          "id": "opt-2",
+          "label": "html2text (older, battle-tested)"
+        },
+        {
+          "id": "opt-3",
+          "label": "Custom minimal parser (no dependency)"
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)"
+        }
+      ]
+    },
+    {
+      "id": "decision-4",
+      "question": "Interactive mode scope for MVP: How much terminal UI capability should the interactive mode have?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Minimal readline (basic I/O, no colors)"
+        },
+        {
+          "id": "opt-2",
+          "label": "Rich library (colors, markdown, spinners)"
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer interactive to post-MVP (keep Claude Code CLI)"
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)"
+        }
+      ]
+    },
+    {
+      "id": "decision-5",
+      "question": "settings.json property handling: Should the harness replicate Claude Code's settings.json parsing, define its own config, or both?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Replicate settings.json parsing (behavioral parity)"
+        },
+        {
+          "id": "opt-2",
+          "label": "Own config only (HarnessConfig, ignore settings.json)"
+        },
+        {
+          "id": "opt-3",
+          "label": "Both (settings.json fallback, HarnessConfig precedence)"
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)"
+        }
+      ]
+    },
+    {
+      "id": "decision-6",
+      "question": "OpenAI-compatible provider minimum API surface: What minimum API surface should the provider require?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Require full tool_choice + streaming + system msgs"
+        },
+        {
+          "id": "opt-2",
+          "label": "Startup capability detection (probe endpoint)"
+        },
+        {
+          "id": "opt-3",
+          "label": "Explicit config per endpoint (declare features)"
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)"
+        }
+      ]
+    }
+  ],
+  "feedback_questions": [
+    {
+      "id": "Q1",
+      "question": "Which existing test pipelines should be used for parallel validation of the harness against the Claude SDK? What are the success criteria?"
+    },
+    {
+      "id": "Q2",
+      "question": "Are there any additional security review requirements beyond the 5 mandatory human review gates identified by the risk analyst?"
+    },
+    {
+      "id": "Q3",
+      "question": "Should the harness support extended thinking (Claude's thinking blocks) in MVP, or defer to post-MVP?"
+    }
+  ]
+}
