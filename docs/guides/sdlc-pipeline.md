@@ -248,7 +248,7 @@ Timing starts when actual work begins (`work_started_at`), excluding setup and H
 |-------|---------|-------------------|---------------|
 | **Refine** | Analyze issue, produce analysis document | `git push`, `egg-contract add-decision` | Auto-review pass + Human approval |
 | **Plan** | Create implementation plan with tasks | `git push`, `egg-contract add-decision` | Auto-review pass + Human approval |
-| **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
+| **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract complete-task/complete-phase` | All checks pass (CI + PR review) |
 | **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge (closes issue automatically) |
 
 ### Multi-Reviewer Architecture
@@ -1146,11 +1146,19 @@ The `source_branch` and `source_artifact_prefix` parameters are also accepted by
 
 ### Contract CLI Commands
 
+Update the contract incrementally after each commit — do not batch updates at the end.
+
 ```bash
 # View contract state
 egg-contract show
 
-# Link commit to task (implementer)
+# Mark task done and link commit (implementer)
+egg-contract complete-task --task task-1-1 --commit abc1234
+
+# Mark phase done and link commit (implementer)
+egg-contract complete-phase --phase phase-1 --commit abc1234
+
+# Link commit to task without marking done (implementer)
 egg-contract add-commit --task task-1-1 --commit abc1234
 
 # Add implementation notes (implementer)
