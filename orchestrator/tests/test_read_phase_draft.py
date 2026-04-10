@@ -379,12 +379,11 @@ class TestGitShowDraft:
         result = _git_show_draft(tmp_path, "egg/pid/work", ".egg-state/drafts/pid-analysis.md")
         assert result == "draft from remote"
 
-        # Verify the command includes the -- separator and correct ref:path
-        assert "--" in captured_cmd
+        # Verify the command includes show and the correct ref:path
         assert "show" in captured_cmd
-        separator_idx = captured_cmd.index("--")
+        show_idx = captured_cmd.index("show")
         assert (
-            captured_cmd[separator_idx + 1]
+            captured_cmd[show_idx + 1]
             == "origin/egg/pid/work:.egg-state/drafts/pid-analysis.md"
         )
 
