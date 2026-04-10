@@ -79,13 +79,12 @@ def implement_graph():
 
 @pytest.fixture
 def tracker(implement_graph):
-    """Tracker with auto-repropose ENABLED and zero debounce for fast tests."""
+    """Tracker with zero debounce for fast tests."""
     t = PeerConsensusTracker(
         "test-pipeline",
         implement_graph,
         cooldown_seconds=0,
         attestation_strictness=AttestationStrictness.RELAXED,
-        auto_repropose_enabled=True,
         auto_repropose_debounce_seconds=0,
     )
     t.register_agent("coder")
@@ -107,28 +106,13 @@ def simple_graph():
 
 @pytest.fixture
 def simple_tracker(simple_graph):
-    """Simple tracker with auto-repropose ENABLED and zero debounce."""
+    """Simple tracker with zero debounce for fast tests."""
     t = PeerConsensusTracker(
         "test-pipeline",
         simple_graph,
         cooldown_seconds=0,
         attestation_strictness=AttestationStrictness.RELAXED,
-        auto_repropose_enabled=True,
         auto_repropose_debounce_seconds=0,
-    )
-    t.register_agent("coder")
-    t.register_agent("reviewer_code")
-    return t
-
-
-@pytest.fixture
-def default_tracker(simple_graph):
-    """Simple tracker with DEFAULT settings (auto-repropose OFF)."""
-    t = PeerConsensusTracker(
-        "test-pipeline",
-        simple_graph,
-        cooldown_seconds=0,
-        attestation_strictness=AttestationStrictness.RELAXED,
     )
     t.register_agent("coder")
     t.register_agent("reviewer_code")
@@ -313,19 +297,6 @@ class TestProducerPushNoOp:
 class TestAutoReproposeSafety:
     """check_auto_repropose safety gates."""
 
-    def test_feature_flag_off_default(self, default_tracker):
-        """Default tracker has auto_repropose_enabled=False -> skipped."""
-        tracker = default_tracker
-
-        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
-        ack_producer(tracker, "reviewer_code", "coder")
-
-        result = tracker.handle_producer_push("coder", "sha2")
-
-        assert result["status"] == "skipped"
-        assert result["auto_re_propose"] is False
-        assert "feature flag OFF" in result["reason"]
-
     def test_same_commit_sha_skipped(self, simple_tracker):
         """Propose at sha1, push at sha1 -> skipped, reason mentions unchanged."""
         tracker = simple_tracker
@@ -345,7 +316,6 @@ class TestAutoReproposeSafety:
             graph,
             cooldown_seconds=0,
             attestation_strictness=AttestationStrictness.RELAXED,
-            auto_repropose_enabled=True,
             auto_repropose_debounce_seconds=600,
         )
         tracker.register_agent("coder")
@@ -370,7 +340,6 @@ class TestAutoReproposeSafety:
             graph,
             cooldown_seconds=0,
             attestation_strictness=AttestationStrictness.RELAXED,
-            auto_repropose_enabled=True,
             auto_repropose_debounce_seconds=0,
             max_auto_repropose=1,
         )
