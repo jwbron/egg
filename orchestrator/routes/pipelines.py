@@ -7578,6 +7578,46 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     exc_info=True,
                 )
 
+            # Write source-branch artifacts to disk so the safety-net
+            # _populate_contract_from_plan() call below can find them.
+            # The inline-plan path writes drafts inside the contract_synced
+            # block, but that block is skipped on pipeline restarts
+            # (contract already synced).  Writing here ensures the draft
+            # files exist regardless of contract_synced state.
+            if pipeline.plan or pipeline.analysis:
+                drafts_dir = worktree_repo_path / ".egg-state" / "drafts"
+                drafts_dir.mkdir(parents=True, exist_ok=True)
+
+                if pipeline.plan:
+                    plan_rel = _get_draft_path(
+                        "plan",
+                        issue_number=pipeline.issue_number,
+                        pipeline_id=pipeline_id,
+                    )
+                    if plan_rel:
+                        plan_path = worktree_repo_path / plan_rel
+                        plan_path.write_text(pipeline.plan, encoding="utf-8")
+                        logger.info(
+                            "Wrote source-branch plan draft to worktree",
+                            pipeline_id=pipeline_id,
+                            path=plan_rel,
+                        )
+
+                if pipeline.analysis:
+                    analysis_rel = _get_draft_path(
+                        "refine",
+                        issue_number=pipeline.issue_number,
+                        pipeline_id=pipeline_id,
+                    )
+                    if analysis_rel:
+                        analysis_path = worktree_repo_path / analysis_rel
+                        analysis_path.write_text(pipeline.analysis, encoding="utf-8")
+                        logger.info(
+                            "Wrote source-branch analysis draft to worktree",
+                            pipeline_id=pipeline_id,
+                            path=analysis_rel,
+                        )
+
         # Create companion contract in the worktree (deferred from pipeline
         # creation so it doesn't pollute the main repo working directory).
         if not pipeline.contract_synced:
