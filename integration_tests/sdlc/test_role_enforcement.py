@@ -89,15 +89,19 @@ class TestFieldOwnership:
         owner = get_field_owner("phases.0.tasks.0.notes")
         assert owner == Role.IMPLEMENTER
 
-    def test_task_status_owned_by_reviewer(self):
-        """Task status is owned by reviewer."""
+    def test_task_status_shared_ownership(self):
+        """Task status is shared between implementer and reviewer."""
         owner = get_field_owner("phases.0.tasks.0.status")
-        assert owner == Role.REVIEWER
+        assert isinstance(owner, frozenset)
+        assert Role.IMPLEMENTER in owner
+        assert Role.REVIEWER in owner
 
-    def test_phase_status_owned_by_reviewer(self):
-        """Phase status is owned by reviewer."""
+    def test_phase_status_shared_ownership(self):
+        """Phase status is shared between implementer and reviewer."""
         owner = get_field_owner("phases.0.status")
-        assert owner == Role.REVIEWER
+        assert isinstance(owner, frozenset)
+        assert Role.IMPLEMENTER in owner
+        assert Role.REVIEWER in owner
 
     def test_current_phase_owned_by_reviewer(self):
         """Current phase is owned by reviewer."""
@@ -117,9 +121,9 @@ class TestCanModify:
         """Implementer can modify commit field."""
         assert can_modify(Role.IMPLEMENTER, "phases.0.tasks.0.commit") is True
 
-    def test_implementer_cannot_modify_status(self):
-        """Implementer cannot modify task status."""
-        assert can_modify(Role.IMPLEMENTER, "phases.0.tasks.0.status") is False
+    def test_implementer_can_modify_status(self):
+        """Implementer can modify task status (shared ownership)."""
+        assert can_modify(Role.IMPLEMENTER, "phases.0.tasks.0.status") is True
 
     def test_reviewer_can_modify_status(self):
         """Reviewer can modify task status."""
@@ -146,7 +150,9 @@ class TestRolePermissionsSummary:
 
         assert "phases.*.tasks.*.commit" in perms["can_modify"]
         assert "phases.*.tasks.*.notes" in perms["can_modify"]
-        assert "phases.*.tasks.*.status" in perms["cannot_modify"]
+        # Shared ownership fields are accessible to implementer
+        assert "phases.*.tasks.*.status" in perms["can_modify"]
+        assert "phases.*.status" in perms["can_modify"]
 
     def test_reviewer_permissions(self):
         """Reviewer has review-specific permissions."""
@@ -176,12 +182,21 @@ class TestValidateMutation:
         )
         assert result.valid is True
 
-    def test_invalid_implementer_mutation(self):
-        """Invalid implementer mutation fails validation."""
+    def test_implementer_can_set_task_status(self):
+        """Implementer can set task status (shared ownership)."""
         result = validate_mutation(
             role=Role.IMPLEMENTER,
             field_path="phases.0.tasks.0.status",
             new_value="complete",
+        )
+        assert result.valid is True
+
+    def test_invalid_implementer_mutation(self):
+        """Invalid implementer mutation fails validation."""
+        result = validate_mutation(
+            role=Role.IMPLEMENTER,
+            field_path="acceptance_criteria.0.verified",
+            new_value=True,
         )
         assert result.valid is False
         assert result.required_role is not None
@@ -215,22 +230,21 @@ class TestApplyMutationRoleEnforcement:
         assert result.success is True
         assert result.contract.phases[0].tasks[0].commit == "abc1234"
 
-    def test_implementer_cannot_set_status(self, temp_repo, contract_with_tasks):
-        """Implementer cannot set task status."""
+    def test_implementer_can_set_status(self, temp_repo, contract_with_tasks):
+        """Implementer can set task status (shared ownership)."""
         save_contract(contract_with_tasks, temp_repo)
 
         contract = load_contract(500, temp_repo)
 
-        # First validate the mutation to get structured error info
+        # Validate the mutation is allowed
         validation = validate_mutation(
             role=Role.IMPLEMENTER,
             field_path="phases.0.tasks.0.status",
             new_value=TaskStatus.COMPLETE.value,
         )
-        assert validation.valid is False
-        assert validation.required_role == Role.REVIEWER.value
+        assert validation.valid is True
 
-        # Also verify apply_mutation rejects it
+        # Also verify apply_mutation succeeds
         result = apply_mutation(
             contract=contract,
             role=Role.IMPLEMENTER,
@@ -238,7 +252,7 @@ class TestApplyMutationRoleEnforcement:
             field_path="phases.0.tasks.0.status",
             new_value=TaskStatus.COMPLETE.value,
         )
-        assert result.success is False
+        assert result.success is True
 
     def test_reviewer_can_set_status(self, temp_repo, contract_with_tasks):
         """Reviewer can set task status."""

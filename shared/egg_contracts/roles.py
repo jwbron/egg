@@ -7,11 +7,6 @@ maps which fields each role is authorized to modify.
 
 from enum import StrEnum
 
-# Type alias for field ownership: a single role or a set of roles that share
-# write access to a field.  Using frozenset keeps FIELD_OWNERSHIP hashable and
-# immutable.
-FieldOwner = "Role | frozenset[Role]"
-
 
 class Role(StrEnum):
     """Roles that can interact with contracts.
@@ -26,13 +21,18 @@ class Role(StrEnum):
     SYSTEM = "system"
 
 
+# Type alias for field ownership: a single role or a set of roles that share
+# write access to a field.  Using frozenset keeps FIELD_OWNERSHIP hashable and
+# immutable.
+type FieldOwner = Role | frozenset[Role]
+
 # Field ownership mapping: maps JSON paths to the role that owns them
 # Paths use dot notation (e.g., "phases.*.tasks.*.status")
 # Wildcard (*) matches any array index
 #
 # Values may be a single Role or a frozenset of Roles.  When a frozenset is
 # used, any of the listed roles may write the field (shared ownership).
-FIELD_OWNERSHIP: dict[str, Role | frozenset[Role]] = {
+FIELD_OWNERSHIP: dict[str, FieldOwner] = {
     # Task fields owned by implementer
     "phases.*.tasks.*.commit": Role.IMPLEMENTER,
     "phases.*.tasks.*.notes": Role.IMPLEMENTER,
@@ -85,7 +85,7 @@ def normalize_path(path: str) -> str:
     return ".".join(normalized)
 
 
-def get_field_owner(path: str) -> Role | frozenset[Role]:
+def get_field_owner(path: str) -> FieldOwner:
     """
     Get the role (or set of roles) that owns a specific field path.
 
@@ -112,7 +112,7 @@ def get_field_owner(path: str) -> Role | frozenset[Role]:
     return DEFAULT_OWNER
 
 
-def _role_matches(role: Role, owner: Role | frozenset[Role]) -> bool:
+def _role_matches(role: Role, owner: FieldOwner) -> bool:
     """Check if a role matches a single owner or is in a shared ownership set."""
     if isinstance(owner, frozenset):
         return role in owner

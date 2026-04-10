@@ -391,6 +391,12 @@ class TestPhaseIdParsing:
             parse_phase_id("phase-0")
         assert "must be >= 1" in str(exc_info.value)
 
+    def test_phase_id_bare_number_rejected(self):
+        """Test that bare numbers without 'phase-' prefix are rejected."""
+        with pytest.raises(ValueError) as exc_info:
+            parse_phase_id("1")
+        assert "Invalid phase ID" in str(exc_info.value)
+
 
 class TestCompleteTaskParsing:
     """Tests for complete-task command argument parsing."""
