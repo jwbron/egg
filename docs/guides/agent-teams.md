@@ -100,18 +100,26 @@ When a producer has proposed and received ACKs from all assigned reviewers, it b
 
 ```
 WORKING → PROPOSED → CONFIRMED
-    ↑         |
-    ├─────────┘  (NACK received → address concern → re-propose)
-    └─────────┘  (WITHDRAW sent → cite new information → revise)
+    ↑         │  ▲
+    ├─────────┘  │  (NACK received → address concern → re-propose)
+    ├─────────┘  │  (WITHDRAW sent → cite new information → revise)
+    │            │
+    │            └── (push/commit triggers auto re-propose → back to PROPOSED,
+    │                 incrementing version and invalidating stale reviews)
+    └────────────────
 ```
 
 **Reviewer:**
 
 ```
 WORKING → REVIEWING → CONFIRMED
-             |   ↑
-             └───┘  (producer re-proposes → re-review if affected)
+             │   ▲          │
+             └───┘          │  (producer re-proposes → CONSENSUS_RE_REVIEW
+                     ▲      │   → un-confirms reviewer → back to REVIEWING)
+                     └──────┘
 ```
+
+> For the formal state machine with complete transition diagrams and action guard specifications, see [Concurrent Execution — Formal BRC State Machine](concurrent-execution.md#formal-brc-state-machine).
 
 Reviewers transition from WORKING to REVIEWING when they receive a `CONSENSUS_PROPOSE` message from a producer they're assigned to review. While waiting, reviewers may read the contract/plan to prepare, but MUST NOT inspect the filesystem for producer artifacts — the producer may not have started yet. Once the proposal arrives (initially as a redacted message with `delphi_redacted=True`), reviewers examine the referenced git artifacts (commits, files) to form their independent judgment. The producer's self-assessment metadata is withheld via Delphi redaction until the reviewer submits their evaluation (see Delphi-Style Ordering below).
 
@@ -198,11 +206,18 @@ When agents work at different speeds, a faster reviewer (e.g., tester) may send 
 
 1. **Propose-time invalidation**: When a producer proposes, `_invalidate_pre_proposal_acks()` detects any version-0 ACKs from non-confirmed reviewers and resets them to `PENDING`. Affected reviewers receive a `CONSENSUS_RE_REVIEW` notification to re-review.
 
-2. **Confirm-time guards**: When a reviewer attempts `CONSENSUS_CONFIRMED`, two checks are enforced:
-   - **Version guard**: All of the reviewer's ACKs must match the current proposal versions. Stale ACKs return `pending_acks` (exit code 2) with instructions to re-ACK the listed producers.
-   - **Unresolved-NACK guard**: If the reviewer has NACKed a producer that hasn't re-proposed since, confirmation returns `pending_acks` (exit code 2) — the reviewer must wait for the producer to re-propose and be re-reviewed before confirming. Without this guard, a reviewer could enter terminal CONFIRMED state while still holding an open review obligation, causing a deadlock where the producer re-proposes but finds no active reviewer.
+2. **Confirm-time guards**: The formal action guard system (`check_confirm_guard()` in `orchestrator/action_guards.py`) enforces multiple preconditions before allowing confirmation. See [Concurrent Execution — Action Guards](concurrent-execution.md#action-guards) for the complete guard table. Key guards include:
+   - **Version-match guard**: All of the reviewer's ACKs must match the current proposal versions. Stale ACKs return `pending_acks` (exit code 2) with instructions to re-ACK the listed producers.
+   - **Unresolved-NACK guard**: If the reviewer has NACKed a producer that hasn't re-proposed since, confirmation returns `pending_acks` (exit code 2) — the reviewer must wait for the producer to re-propose and be re-reviewed before confirming.
+   - **Zero-proposal guard** ([#1598](https://github.com/jwbron/egg/issues/1598)): If any assigned producer has never proposed (version 0), the reviewer cannot confirm — preventing consensus from completing without the primary deliverable.
 
-These two layers — proactive invalidation at propose time and defensive validation at confirm time — ensure that out-of-order ACKs and unresolved NACKs never create unrecoverable deadlocks, regardless of agent timing.
+These two layers — proactive invalidation at propose time and defensive validation at confirm time — ensure that out-of-order ACKs, unresolved NACKs, and non-delivering producers never create unrecoverable deadlocks, regardless of agent timing.
+
+### Auto Re-Propose on Push/Commit
+
+When a producer pushes new commits after proposing, existing reviews become stale. The protocol detects this via the `consensus_producer_push` signal and triggers an automatic re-proposal — incrementing the proposal version, invalidating stale ACKs, and sending `CONSENSUS_RE_REVIEW` to affected reviewers. If the producer hasn't proposed yet (still in WORKING state), the push is a no-op.
+
+This mechanism enforces the principle that **all changes must be reviewed**: post-proposal pushes cannot bypass the review process. The `check_confirm_guard()` provides a server-side blocking mechanism even if a reviewer misses the `CONSENSUS_RE_REVIEW` notification. See [Concurrent Execution — Auto Re-Propose on Push/Commit](concurrent-execution.md#auto-re-propose-on-pushcommit) for the full details.
 
 ### Agent Crash Mid-Protocol
 
@@ -212,8 +227,9 @@ An agent crashes after proposing but before the review phase completes.
 
 1. Detect crash via container exit event on the stream
 2. **Producer crashed:** Its proposal stands (already on the stream). Reviewers can still ACK/NACK. If reviewers NACK and the producer can't respond, escalate to HITL or restart.
-3. **Reviewer crashed:** Remove from the review graph. Re-evaluate whether remaining ACKs satisfy consensus. If the crashed reviewer was the only reviewer for a producer, restart or escalate.
-4. Restarted agents replay missed messages from Redis Stream and rejoin the protocol.
+3. **Reviewer crashed:** Remove from the review graph via `excuse_reviewer()`. Re-evaluate whether remaining ACKs satisfy consensus. If the crashed reviewer was the only reviewer for a producer, restart or escalate.
+4. **Non-delivering producer:** If a producer never proposes, the zero-proposal confirm guard prevents reviewers from confirming. The orchestrator escalates via HITL decision. See [Concurrent Execution — Excusing Non-Delivering Agents](concurrent-execution.md#excusing-non-delivering-agents).
+5. Restarted agents replay missed messages from Redis Stream and rejoin the protocol.
 
 ## Commitment Devices
 
