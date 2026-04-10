@@ -7972,8 +7972,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         _check_pip = store.load_pipeline(pipeline_id)
                         if _check_pip.created_at != run_created_at:
                             logger.info(
-                                "Pipeline was restarted during phase execution, "
-                                "exiting old thread",
+                                "Pipeline was restarted during phase execution, exiting old thread",
                                 pipeline_id=pipeline_id,
                             )
                             return
