@@ -17,6 +17,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | Document | Description |
 |----------|-------------|
 | [Architecture Overview](architecture/README.md) | High-level system design and security model |
+| [Custom Harness](architecture/custom-harness.md) | Custom coding harness: multi-provider LLM support, context management, session persistence |
 | [Orchestrator Architecture](architecture/orchestrator.md) | Orchestrator deployment modes and sandbox-to-orchestrator communication |
 | [Git Isolation](architecture/git-isolation.md) | Gateway sidecar design for worktree isolation and credential separation |
 | [Credential Injection](architecture/credential-injection.md) | Zero-credential sandbox with API key proxy via gateway |
@@ -89,7 +90,9 @@ Each major component has detailed documentation:
 | [Gateway Sidecar](../gateway/README.md) | `gateway/` | Policy enforcement, credential injection, API endpoints |
 | [Orchestrator](../orchestrator/README.md) | `orchestrator/` | Local SDLC pipeline execution, state management, container lifecycle |
 | [Sandbox Container](../sandbox/README.md) | `sandbox/` | Agent environment, tools, entrypoint |
-| [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, git utilities, SDLC contracts, and babysit-pr loop |
+| [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, git utilities, SDLC contracts, babysit-pr loop, custom harness |
+| [Custom Harness](../shared/egg_harness/README.md) | `shared/egg_harness/` | Provider-abstracted agent runtime with context management |
+| [Harness Integration](../shared/egg_harness_integration/README.md) | `shared/egg_harness_integration/` | Egg-specific harness wiring (tools, permissions, prompt, compaction) |
 | [Configuration](../config/README.md) | `config/` | Repository and host configuration |
 | [CLI Entry Points](../bin/README.md) | `bin/` | `egg` and `egg-sdlc` commands |
 | [GitHub Action](../action/README.md) | `action/` | Composite action for GitHub Actions |
@@ -124,6 +127,8 @@ Each major component has detailed documentation:
 | **Checkpoint redaction** | [Redaction Reference](reference/redaction.md) | [Checkpoint Access](guides/checkpoint-access.md), [Architecture Overview](architecture/README.md) |
 | **Health check framework** | [Health Checks README](../orchestrator/health_checks/README.md) | [Orchestrator Architecture](architecture/orchestrator.md), [Orchestrator README](../orchestrator/README.md) |
 | **Pipeline health monitoring** | [Pipeline Health Monitoring](guides/pipeline-health-monitoring.md) | [Health Checks README](../orchestrator/health_checks/README.md), [Agent Roles](reference/agent-roles.md), [Orchestrator Architecture](architecture/orchestrator.md) |
+| **Custom harness / multi-provider** | [Custom Harness Architecture](architecture/custom-harness.md) | [egg_harness README](../shared/egg_harness/README.md), [egg_harness_integration README](../shared/egg_harness_integration/README.md), [Credential Injection](architecture/credential-injection.md) |
+| **Harness selection / EGG_HARNESS** | [egg_harness_integration README](../shared/egg_harness_integration/README.md) | [Custom Harness Architecture](architecture/custom-harness.md), [Sandbox README](../sandbox/README.md) |
 | **Generating repository documentation** | [GitHub Automation: Documentation Onboarding](guides/github-automation.md#documentation-onboarding) | [Onboarding prompt](../shared/prompts/onboarding-docs-prompt.md), `egg-onboarding-docs` CLI |
 
 ## Quick Navigation

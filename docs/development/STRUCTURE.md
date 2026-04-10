@@ -215,10 +215,45 @@ sandbox/
 
 ```
 shared/
-├── egg_agent/              # Claude Agent SDK wrapper (in-sandbox agent calls + command builder)
+├── egg_harness/            # Custom coding harness — provider-abstracted agent runtime (extractable, no egg imports)
+│   ├── __init__.py         # Public API exports
+│   ├── __main__.py         # CLI entry point (python3 -m egg_harness)
+│   ├── client.py           # run_agent(), run_agent_async() high-level API
+│   ├── loop.py             # Core agent loop with compaction support
+│   ├── session.py          # Session persistence (JSONL serialize/resume)
+│   ├── compaction.py       # Context management / compaction strategy
+│   ├── events.py           # Event bus / callback system
+│   ├── config.py           # Provider config, model aliases, context window lookup
+│   ├── prompt.py           # System prompt assembly (generic)
+│   ├── cost.py             # Token cost tracking with hardcoded rates
+│   ├── result.py           # AgentResult dataclass (backward-compatible + compaction_count)
+│   ├── interactive.py      # Interactive terminal REPL mode
+│   ├── providers/          # LLM provider abstractions
+│   │   ├── base.py         # Provider ABC, StreamEvent union type (8 event types)
+│   │   ├── anthropic.py    # Anthropic Messages API (via SDK, gateway-routed)
+│   │   └── openai_compat.py # OpenAI-compatible endpoints (via httpx SSE)
+│   ├── tools/              # Standard tool implementations
+│   │   ├── registry.py     # Tool registration, dispatch, permission callbacks
+│   │   ├── bash.py         # Shell execution (process group timeout, no shell=true)
+│   │   ├── read.py         # File reading (line numbers, offset/limit, binary detection)
+│   │   ├── write.py        # File creation/overwrite
+│   │   ├── edit.py         # Exact string replacement editing
+│   │   ├── glob_tool.py    # File pattern matching (pathlib/fd)
+│   │   ├── grep.py         # Content search (ripgrep)
+│   │   ├── web_fetch.py    # URL fetch + HTML-to-markdown
+│   │   └── web_search.py   # Web search
+│   └── pyproject.toml      # Package metadata and dependencies
+├── egg_harness_integration/ # Egg-specific harness wiring (tools, permissions, prompt, compaction)
+│   ├── __init__.py
+│   ├── egg_tools.py        # Egg-native tool registration (EggOrch, EggContract, EggCheckpoint, GitOps, GhCli)
+│   ├── egg_prompt.py       # CLAUDE.md rule-merging replicating setup_agent_rules()
+│   ├── egg_permissions.py  # Role-based file access via egg_restrictions
+│   ├── egg_compaction.py   # Anchor-based compaction (#1032 integration)
+│   └── harness_factory.py  # Factory wiring all egg integrations into AgentLoop
+├── egg_agent/              # Agent SDK wrapper with harness selection (routes via EGG_HARNESS)
 │   ├── __init__.py         # Public API: AgentResult, build_agent_command
 │   ├── __main__.py         # CLI entry point (python3 -m egg_agent)
-│   ├── client.py           # run_agent(), run_agent_async() via claude-agent-sdk
+│   ├── client.py           # run_agent(), run_agent_async() with harness selection routing
 │   ├── command.py          # build_agent_command() for orchestrator-spawned containers
 │   ├── result.py           # AgentResult dataclass
 │   └── tool_interceptor.py # Pre-execution file write checks (Write/Edit/NotebookEdit) against role restrictions
