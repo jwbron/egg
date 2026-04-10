@@ -664,6 +664,13 @@ def create_pipeline() -> tuple[Response, int]:
                 f"Invalid source_branch: {source_branch!r}",
                 status_code=400,
             )
+    source_artifact_prefix = data.get("source_artifact_prefix")
+    if source_artifact_prefix is not None:
+        if not re.match(r"^[a-zA-Z0-9_.-]+$", source_artifact_prefix):
+            return make_error_response(
+                f"Invalid source_artifact_prefix: {source_artifact_prefix!r}",
+                status_code=400,
+            )
 
     # Validate mode
     valid_modes = {m.value for m in PipelineMode}
@@ -800,6 +807,7 @@ def create_pipeline() -> tuple[Response, int]:
             analysis=analysis,
             plan=plan,
             source_branch=source_branch,
+            source_artifact_prefix=source_artifact_prefix,
         )
 
         # Contract creation is deferred to _run_pipeline so it writes
@@ -2515,6 +2523,7 @@ def _read_source_branch_artifacts(
     pipeline_id: str,
     store: Any,
     pipeline: Any,
+    source_artifact_prefix: str | None = None,
 ) -> bool:
     """Read plan and analysis artifacts from a source branch.
 
@@ -2522,42 +2531,69 @@ def _read_source_branch_artifacts(
     Only populates ``pipeline.plan`` and ``pipeline.analysis`` when they
     are not already set (inline values take precedence).
 
-    Falls back to listing available files via ``git ls-tree`` when the
-    expected prefix doesn't match (e.g. source branch used a different
-    issue number or pipeline ID).
+    Prefix resolution order for the exact-path lookup:
+
+    1. ``source_artifact_prefix`` (explicit override, e.g. ``"issue-1570-v3"``)
+    2. ``pipeline_id`` (includes qualifier, e.g. ``"issue-1570-v7"``)
+    3. ``_pipeline_identifier(issue_number, pipeline_id)`` (bare issue number)
+
+    Falls back to listing available files via ``git ls-tree`` when none
+    of the prefixes match.
 
     Args:
         repo_path: Path to the repository (worktree or main).
         source_branch: Branch name to read artifacts from.
         issue_number: Pipeline issue number (for deriving prefix).
-        pipeline_id: Pipeline ID (fallback prefix).
+        pipeline_id: Pipeline ID (includes qualifier when present).
         store: StateStore instance for saving updated pipeline.
         pipeline: Pipeline model instance to populate.
+        source_artifact_prefix: Explicit prefix override for draft
+            filenames on the source branch (e.g. ``"issue-1570-v3"``).
+            When set, only this prefix is tried before the ls-tree
+            fallback.
 
     Returns:
         True if any artifacts were read, False otherwise.
     """
     git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(repo_path)]
-    prefix = _pipeline_identifier(issue_number, pipeline_id)
+    bare_prefix = _pipeline_identifier(issue_number, pipeline_id)
     updated = False
 
-    # Mapping of pipeline field -> (expected filename, fallback glob suffix)
-    artifact_map = {
-        "analysis": (f"{prefix}-analysis.md", "-analysis.md"),
-        "plan": (f"{prefix}-plan.md", "-plan.md"),
-    }
+    # Build ordered list of prefixes to try.  Duplicates are removed so
+    # we don't hit git show twice for the same path.
+    if source_artifact_prefix is not None:
+        # Explicit override — try only this prefix before ls-tree fallback.
+        prefixes: list[str | int] = [source_artifact_prefix]
+    else:
+        # Default: try pipeline_id first (includes qualifier), then bare
+        # issue number.  When pipeline_id == bare_prefix (e.g. no qualifier
+        # and no issue number), the dedup below collapses them.
+        prefixes = []
+        if pipeline_id and str(pipeline_id) != str(bare_prefix):
+            prefixes.append(pipeline_id)
+        prefixes.append(bare_prefix)
 
-    for field_name, (expected_filename, fallback_suffix) in artifact_map.items():
+    for field_name, suffix in [("analysis", "-analysis.md"), ("plan", "-plan.md")]:
         # Skip if already populated (inline values take precedence).
         # Use ``is not None`` so empty strings are not silently overwritten.
         if getattr(pipeline, field_name) is not None:
             continue
 
         drafts_prefix = ".egg-state/drafts/"
-        expected_path = f"{drafts_prefix}{expected_filename}"
+        content = None
 
-        # Try exact path first
-        content = _git_show_draft(repo_path, source_branch, expected_path)
+        # Try each prefix in order (exact path lookup).
+        for pfx in prefixes:
+            expected_path = f"{drafts_prefix}{pfx}{suffix}"
+            content = _git_show_draft(repo_path, source_branch, expected_path)
+            if content:
+                logger.info(
+                    "Read artifact from source branch (exact prefix)",
+                    field=field_name,
+                    source_branch=source_branch,
+                    path=expected_path,
+                )
+                break
 
         if content is None:
             # Fallback: list available files and find a match
@@ -2576,7 +2612,7 @@ def _read_source_branch_artifacts(
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     matches = [
-                        f for f in result.stdout.strip().splitlines() if f.endswith(fallback_suffix)
+                        f for f in result.stdout.strip().splitlines() if f.endswith(suffix)
                     ]
                     # Filter by issue number to avoid picking up artifacts
                     # from other issues on the same branch (#1654).
@@ -2634,6 +2670,7 @@ def _read_source_branch_artifacts(
         # pipeline restart (same pattern as plan/analysis clearing after
         # draft files are pushed).
         pipeline.source_branch = None
+        pipeline.source_artifact_prefix = None
         store.save_pipeline(
             pipeline, message=f"Populate artifacts from source branch {source_branch}"
         )
@@ -7533,6 +7570,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     pipeline_id=pipeline_id,
                     store=store,
                     pipeline=pipeline,
+                    source_artifact_prefix=pipeline.source_artifact_prefix,
                 )
             except Exception:
                 logger.warning(

@@ -113,6 +113,12 @@ PIPELINE_TOOLS = [
                     "When set, the orchestrator reads drafts from this branch via git show "
                     "instead of requiring inline content. Inline plan/analysis values take precedence.",
                 },
+                "source_artifact_prefix": {
+                    "type": "string",
+                    "description": "Explicit prefix for draft filenames on the source branch "
+                    "(e.g. 'issue-1570-v3'). Overrides the default pipeline_id-based "
+                    "prefix when reading artifacts. Only used with source_branch.",
+                },
             },
             "required": ["description", "repo"],
         },
@@ -672,6 +678,8 @@ class PipelineToolHandler:
             data["plan"] = args["plan"]
         if args.get("source_branch"):
             data["source_branch"] = args["source_branch"]
+        if args.get("source_artifact_prefix"):
+            data["source_artifact_prefix"] = args["source_artifact_prefix"]
 
         try:
             result = self._make_request("/api/v1/pipelines", method="POST", data=data)

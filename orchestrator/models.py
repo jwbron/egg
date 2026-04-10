@@ -482,6 +482,12 @@ class Pipeline(BaseModel):
         "When set, the orchestrator reads drafts from this branch via git show "
         "instead of requiring inline content.",
     )
+    source_artifact_prefix: str | None = Field(
+        default=None,
+        description="Explicit prefix for draft filenames on the source branch "
+        "(e.g. 'issue-1570-v3'). Overrides the default pipeline_id-based "
+        "prefix resolution when reading artifacts from source_branch.",
+    )
     run_epoch: datetime | None = Field(
         default=None,
         description="Thread ownership epoch — bumped on restart_phase and start_pipeline "
