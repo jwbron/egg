@@ -1120,11 +1120,16 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
     if getattr(args, "push", False):
         repo_path = os.environ.get("EGG_REPO_PATH")
         try:
+            # Mark this push as originating from the consensus protocol so the
+            # gateway allows it even in concurrent mode (where direct pushes are
+            # blocked).
+            push_env = {**os.environ, "EGG_CONSENSUS_PUSH": "1"}
             subprocess.check_output(
                 ["git", "push"],
                 text=True,
                 cwd=repo_path,
                 stderr=subprocess.STDOUT,
+                env=push_env,
             )
         except subprocess.CalledProcessError as e:
             print(f"Error: git push failed: {e.output.strip()}", file=sys.stderr)

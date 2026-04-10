@@ -813,6 +813,44 @@ def git_push() -> tuple[Response, int] | Response:
                         },
                     )
 
+    # SECURITY: Concurrent-mode push enforcement.
+    # In concurrent/BRC mode, agents must push through the consensus protocol
+    # (egg-orch consensus propose --push) which sets a consensus_push marker.
+    # Direct pushes are blocked to ensure all changes go through peer review.
+    # Killswitch: set CONCURRENT_PUSH_ENFORCEMENT=false to disable.
+    if not is_infrastructure_push:
+        concurrent_push_enforcement = os.environ.get(
+            "CONCURRENT_PUSH_ENFORCEMENT", "true"
+        ).lower() not in ("false", "0", "no")
+        concurrent_mode = os.environ.get("EGG_CONCURRENT_MODE", "").lower() == "true"
+        if concurrent_push_enforcement and concurrent_mode:
+            session_pipeline_id = None
+            if hasattr(g, "session") and g.session:
+                session_pipeline_id = getattr(g.session, "pipeline_id", None)
+            if isinstance(session_pipeline_id, str) and session_pipeline_id:
+                if not data.get("consensus_push"):
+                    audit_log(
+                        "push_denied_concurrent_mode",
+                        "git_push",
+                        success=False,
+                        details={
+                            "repo": repo,
+                            "branch": branch,
+                            "pipeline_id": session_pipeline_id,
+                            "reason": "Direct push blocked in concurrent mode",
+                        },
+                    )
+                    return make_error(
+                        "Direct push blocked in concurrent mode. "
+                        "Use: egg-orch consensus propose --push",
+                        status_code=403,
+                        details={
+                            "mode": "concurrent",
+                            "pipeline_id": session_pipeline_id,
+                            "requirement": "consensus_push",
+                        },
+                    )
+
     # Check branch ownership policy (pass auth mode for relaxed policy in user mode)
     policy = get_policy_engine()
     policy_result = policy.check_branch_ownership(repo, branch, auth_mode=auth_mode)
