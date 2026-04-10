@@ -634,9 +634,7 @@ def validate_invariants(
     # proposed (#1648).  Check all producers once, then flag every confirmed
     # agent if any are at version 0.
     all_producers = [r for r in graph.all_roles() if graph.is_producer(r)]
-    global_zero_producers = [
-        p for p in all_producers if matrix.get_proposal_version(p) == 0
-    ]
+    global_zero_producers = [p for p in all_producers if matrix.get_proposal_version(p) == 0]
     if global_zero_producers:
         for agent in confirmed:
             for producer in global_zero_producers:
