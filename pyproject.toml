@@ -121,6 +121,10 @@ module = ["claude_agent_sdk", "claude_agent_sdk.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["anthropic", "anthropic.*", "markdownify"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = [
     "repo_config",
     "repo_config.*",

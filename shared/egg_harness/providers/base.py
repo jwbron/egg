@@ -49,7 +49,7 @@ def _ToolUseStart_init(
     _ToolUseStart_orig_init(self, id=resolved_id, name=name)
 
 
-ToolUseStart.__init__ = _ToolUseStart_init  # type: ignore[attr-defined]
+ToolUseStart.__init__ = _ToolUseStart_init  # type: ignore[method-assign]
 
 # Add tool_use_id as a read-only property alias for id.
 ToolUseStart.tool_use_id = property(lambda self: self.id)  # type: ignore[attr-defined]
@@ -99,7 +99,7 @@ def _ToolUseEnd_init(
     _ToolUseEnd_orig_init(self, id=resolved_id, name=name, input=input)
 
 
-ToolUseEnd.__init__ = _ToolUseEnd_init  # type: ignore[attr-defined]
+ToolUseEnd.__init__ = _ToolUseEnd_init  # type: ignore[method-assign]
 
 # Add tool_use_id as a read-only property alias for id.
 ToolUseEnd.tool_use_id = property(lambda self: self.id)  # type: ignore[attr-defined]
@@ -179,7 +179,7 @@ class Provider(ABC):
         """A short, unique identifier for this provider (e.g. ``"anthropic"``)."""
 
     @abstractmethod
-    def send_message(
+    async def send_message(
         self,
         *,
         messages: list[dict[str, Any]],
@@ -209,4 +209,4 @@ class Provider(ABC):
         """
         # The yield annotation is required so that Python treats this as an
         # async generator even though the body is abstract.
-        yield  # type: ignore[misc]  # pragma: no cover
+        yield  # pragma: no cover

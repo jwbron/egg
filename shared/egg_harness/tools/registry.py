@@ -7,9 +7,8 @@ their handlers, enforces permission checks, and truncates oversized output.
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Data types
 # ---------------------------------------------------------------------------
 
-ToolHandler = Callable[[dict[str, Any]], Awaitable["ToolResult"]]
+ToolHandler = Callable[[dict[str, Any]], Coroutine[Any, Any, "ToolResult"]]
 """Async callable that executes a tool and returns a :class:`ToolResult`."""
 
 
@@ -51,7 +50,7 @@ class ToolResult:
     is_error: bool = False
 
 
-class _AttrDict(dict):
+class _AttrDict(dict[str, Any]):
     """A dict subclass that allows attribute-style access to keys."""
 
     def __getattr__(self, key: str) -> Any:
@@ -158,9 +157,7 @@ class ToolRegistry:
         _, handler = self._tools[name]
 
         try:
-            raw_result = handler(input)
-            if inspect.isawaitable(raw_result):
-                raw_result = await raw_result
+            raw_result = await handler(input)
         except Exception as exc:
             logger.exception("Tool %s raised an exception", name)
             return ToolResult(
@@ -200,7 +197,7 @@ class ToolRegistry:
 
     # -- introspection ------------------------------------------------------
 
-    def get_definitions(self) -> list[_AttrDict]:
+    def get_definitions(self) -> list[dict[str, Any]]:
         """Return tool definitions in Anthropic API format.
 
         Each entry is an :class:`_AttrDict` with ``name``, ``description``,
@@ -210,7 +207,7 @@ class ToolRegistry:
         Returns:
             A list of tool definition dicts with attribute access.
         """
-        definitions: list[_AttrDict] = []
+        definitions: list[dict[str, Any]] = []
         for defn, _ in self._tools.values():
             definitions.append(
                 _AttrDict(

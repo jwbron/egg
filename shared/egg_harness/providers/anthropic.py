@@ -174,10 +174,10 @@ class AnthropicProvider(Provider):
             An async context manager (from the SDK) that yields SSE events,
             or an async iterator directly.
         """
-        return self._client.messages.create(  # type: ignore[attr-defined]
+        return self._client.messages.create(
             model=model,
             max_tokens=max_tokens,
-            messages=messages,  # type: ignore[arg-type]
+            messages=messages,
             stream=True,
             **kwargs,
         )

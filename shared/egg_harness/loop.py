@@ -379,13 +379,9 @@ class AgentLoop:
     # -----------------------------------------------------------------
 
     async def _execute_tool(self, name: str, tool_input: dict[str, Any]) -> ToolResult:
-        """Execute a tool, handling both sync and async registry.execute()."""
-        import inspect
-
+        """Execute a tool via the registry."""
         try:
-            result = self._tool_registry.execute(name, tool_input)
-            if inspect.isawaitable(result):
-                result = await result
+            result = await self._tool_registry.execute(name, tool_input)
         except Exception as exc:
             logger.exception("Tool %s raised an exception", name)
             return ToolResult(

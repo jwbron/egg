@@ -121,7 +121,7 @@ async def run_agent_async(
             sdk="egg_harness",
         )
 
-        return await loop.run(prompt, system_prompt=system_prompt)
+        return await loop.run(prompt, system_prompt=system_prompt)  # type: ignore[return-value]
 
     # --- Default: claude_agent_sdk path ---
     try:
