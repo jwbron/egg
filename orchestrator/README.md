@@ -114,7 +114,7 @@ All endpoints are prefixed with `/api/v1`.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/pipelines` | List all pipelines |
-| `POST` | `/pipelines` | Create new pipeline |
+| `POST` | `/pipelines` | Create new pipeline (supports `source_branch` for artifact reuse) |
 | `GET` | `/pipelines/{id}` | Get pipeline details |
 | `PATCH` | `/pipelines/{id}` | Update pipeline (async container cleanup) |
 | `DELETE` | `/pipelines/{id}` | Delete pipeline |
@@ -125,6 +125,10 @@ All endpoints are prefixed with `/api/v1`.
 | `GET` | `/pipelines/stream` | Unified SSE stream for all active pipelines |
 
 **PATCH cancel/fail behavior:** When a pipeline is updated to `cancelled` or `failed` status, the PATCH handler cancels pending HITL decisions and marks agent records as terminated synchronously, then returns the response immediately. Container and worktree cleanup runs in a background daemon thread so the caller is not blocked by slow Docker/gateway operations. The response includes `cleanup_pending: true` to indicate that container teardown is still in progress. The DELETE handler re-runs `cleanup_pipeline()` as a safety net, so any containers not yet removed by the background thread will be caught there.
+
+**POST `source_branch` parameter:** The `POST /pipelines` endpoint accepts an optional `source_branch` field. When provided, the orchestrator reads plan and analysis artifacts from the specified branch during pipeline setup via `git show`, avoiding the need to pass large (50-80KB+) content inline. The orchestrator falls back to `git ls-tree` prefix matching when the pipeline ID prefix doesn't match files on the source branch. Inline `analysis`/`plan` values take precedence. See the [SDLC Pipeline guide](../docs/guides/sdlc-pipeline.md#creating-a-pipeline) for usage examples.
+
+**POST branch-exists relaxation:** The branch existence check in `POST /pipelines` now allows reusing branches from prior terminal (cancelled/failed/complete) pipelines. A 409 is only returned when the branch exists AND an active pipeline is running for that ID.
 
 ### Signals
 
@@ -305,6 +309,8 @@ Both checkpoint tools accept an optional `repo` parameter (string, `owner/repo` 
 ### Orchestrator-Backed Tools
 
 `submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `validate_config`, `restart_agent`, `restart_phase`
+
+The `submit_task` tool accepts an optional `source_branch` parameter (string) to load plan and analysis artifacts from a prior run's branch server-side, instead of passing them inline. This avoids MCP transport size limits for large artifacts. See the [SDLC Pipeline guide](../docs/guides/sdlc-pipeline.md#creating-a-pipeline) for details.
 
 The `restart_agent` tool accepts `task_id`, `agent_role`, and optional `reason` parameters. It proxies to the agent restart API endpoint. The `restart_phase` tool accepts `task_id`, `phase`, and optional `reason`/`context` parameters. It proxies to the phase restart API endpoint. Both are available to HITL operators via the MCP server.
 
