@@ -73,6 +73,19 @@ def _build_issue_body(
         anomaly.get("recommended_action", "Investigate the agent logs and pipeline state"),
     )
 
+    # Build container logs section (if available)
+    container_logs_section = ""
+    raw_container_logs = context.get("container_logs", "")
+    if raw_container_logs:
+        # Truncate to last 2000 chars to keep issue body manageable
+        truncated = raw_container_logs[-2000:]
+        if len(raw_container_logs) > 2000:
+            truncated = f"... (truncated, showing last 2000 chars)\n{truncated}"
+        container_logs_section = (
+            f"\n### Container Logs\n"
+            f"```\n{truncated}\n```\n"
+        )
+
     body = f"""## Pipeline Diagnostic: {anomaly_type}
 
 **Pipeline**: `{pipeline_id}`
@@ -91,7 +104,7 @@ def _build_issue_body(
 
 ### Actions Taken
 {actions_lines}
-
+{container_logs_section}
 ### Suggested Remediation
 - {remediation}
 """

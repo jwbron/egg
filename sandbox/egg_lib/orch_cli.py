@@ -877,7 +877,7 @@ def cmd_container_logs(args: argparse.Namespace) -> int:
     cid = validate_id(args.container_id, "container_id")
     params: dict[str, str] = {}
     if args.lines:
-        params["lines"] = str(args.lines)
+        params["tail"] = str(args.lines)
 
     endpoint = f"/api/v1/pipelines/{pid}/containers/{cid}/logs"
     if params:

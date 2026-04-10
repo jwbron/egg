@@ -81,6 +81,7 @@ async def classify_stall(
     logs: list[dict],
     progress: list[dict],
     consensus: dict | None = None,
+    container_logs: str | None = None,
 ) -> dict:
     """Classify whether an agent is stuck or doing legitimate work.
 
@@ -90,6 +91,9 @@ async def classify_stall(
         consensus: Optional current BRC consensus status from the orchestrator.
             When provided, the classifier uses this authoritative state instead
             of inferring agent status solely from progress events.
+        container_logs: Optional raw Docker container logs for the agent.
+            Provides additional runtime context (stderr, tracebacks, etc.)
+            that may not appear in structured progress events.
 
     Returns:
         A dict with keys:
@@ -97,7 +101,7 @@ async def classify_stall(
             confidence: float between 0.0 and 1.0
             reasoning: str explaining the classification
     """
-    key = _cache_key("classify_stall", logs, progress, consensus)
+    key = _cache_key("classify_stall", logs, progress, consensus, container_logs)
     if key in _cache:
         return _cache[key]  # type: ignore[no-any-return]
 
@@ -110,11 +114,21 @@ async def classify_stall(
             "stalled. Progress events may be stale; prefer consensus state.\n"
         )
 
+    container_log_instruction = ""
+    if container_logs:
+        container_log_instruction = (
+            "\n\nThe 'container_logs' field contains recent Docker container "
+            "logs for this agent. Look for errors, tracebacks, repeated "
+            "failures, OOM kills, or signs of infrastructure problems that "
+            "may not appear in structured progress events.\n"
+        )
+
     prompt = (
         "You are a pipeline health classifier. Analyze the following agent "
         "logs and progress events to determine if the agent is stuck, doing "
         "legitimate work, or needs help.\n\n"
         f"{consensus_instruction}"
+        f"{container_log_instruction}"
         "Use 'infrastructure_error' when the agent is blocked by an infrastructure "
         "issue it cannot resolve itself (e.g., git failures, permission denied, "
         "EROFS, gateway errors, .gitignore blocking files, 403/500 HTTP errors). "
@@ -127,6 +141,9 @@ async def classify_stall(
     context_data: dict[str, Any] = {"logs": logs, "progress": progress}
     if consensus:
         context_data["consensus"] = consensus
+    if container_logs:
+        # Truncate to last 8000 chars to stay within classifier context limits
+        context_data["container_logs"] = container_logs[-8000:]
     context = json.dumps(context_data, default=str)
 
     raw = await _call_classifier(prompt, context)
@@ -139,11 +156,16 @@ async def classify_stall(
     return result
 
 
-async def classify_error(error_context: dict) -> dict:
+async def classify_error(
+    error_context: dict,
+    container_logs: str | None = None,
+) -> dict:
     """Classify the severity and type of an error.
 
     Args:
         error_context: Dict describing the error (message, code, traceback, etc.).
+        container_logs: Optional raw Docker container logs for the agent.
+            Provides additional runtime context for diagnosis.
 
     Returns:
         A dict with keys:
@@ -151,13 +173,22 @@ async def classify_error(error_context: dict) -> dict:
             severity: ``"low"`` | ``"medium"`` | ``"high"`` | ``"critical"``
             recommended_action: str with a suggested next step
     """
-    key = _cache_key("classify_error", error_context)
+    key = _cache_key("classify_error", error_context, container_logs)
     if key in _cache:
         return _cache[key]  # type: ignore[no-any-return]
+
+    container_log_instruction = ""
+    if container_logs:
+        container_log_instruction = (
+            "\n\nThe 'container_logs' field in the context contains recent "
+            "Docker container logs. Use these to identify root causes such "
+            "as OOM kills, segfaults, network errors, or repeated failures.\n"
+        )
 
     prompt = (
         "You are a pipeline error classifier. Analyze the following error "
         "context and classify its severity and type.\n\n"
+        f"{container_log_instruction}"
         "Classify as 'infrastructure_error' when the error is caused by "
         "infrastructure the agent cannot fix (git failures, permission denied, "
         "EROFS, gateway errors, .gitignore issues, 403/500 HTTP errors). "
@@ -168,7 +199,10 @@ async def classify_error(error_context: dict) -> dict:
         '  "severity": one of "low", "medium", "high", "critical"\n'
         '  "recommended_action": brief suggestion for remediation\n'
     )
-    context = json.dumps(error_context, default=str)
+    enriched_context = dict(error_context)
+    if container_logs:
+        enriched_context["container_logs"] = container_logs[-8000:]
+    context = json.dumps(enriched_context, default=str)
 
     raw = await _call_classifier(prompt, context)
     result = _parse_json_or_fallback(
