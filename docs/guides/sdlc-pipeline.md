@@ -754,6 +754,16 @@ When a pipeline phase fails (container exit code non-zero), the orchestrator:
 - Worktrees remain intact across restarts — `spawn_agent_container()` calls the gateway's idempotent `create_worktrees` API which rediscovers existing worktrees keyed by `{pipeline_id}-{role}`, so agents resume with all prior committed work
 - Uncommitted changes from the previous container are not preserved in the restart flow; agents should commit work incrementally
 
+**Manual recovery via MCP tools**:
+
+When automatic restart is insufficient (e.g., phase stuck in transition, HITL gate not created), use the phase management MCP tools for manual intervention:
+- `advance_phase` with `force=true` — force-advance past a stuck phase (stops running containers first to prevent SIGTERM cascading)
+- `start_phase` — start a phase that is in state but has no running containers
+- `complete_phase` — manually mark a stuck phase as complete
+- `populate_contract` — populate the contract from plan artifacts when it's empty after manual phase setup
+
+See [Phase Management MCP Tools](../reference/orchestrator-cli.md#phase-management-mcp-tools) for full parameter reference and recovery workflow examples.
+
 ### External Failure Handling
 
 The pipeline handles external failures gracefully:
