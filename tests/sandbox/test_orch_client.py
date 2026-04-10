@@ -654,10 +654,20 @@ class TestOrchCliConsensusProposePush:
             rc = cmd_consensus_propose(args)
 
         assert rc == 0
-        # git push was called
-        mock_subprocess.assert_any_call(
-            ["git", "push"], text=True, cwd="/tmp/repo", stderr=subprocess.STDOUT
-        )
+        # git push was called — the coder's change in #1669 now passes
+        # env={**os.environ, "EGG_CONSENSUS_PUSH": "1"} so we check the
+        # call args manually instead of assert_any_call which requires exact match.
+        push_calls = [
+            c for c in mock_subprocess.call_args_list if c[0] and c[0][0] == ["git", "push"]
+        ]
+        assert len(push_calls) == 1, "Expected exactly one git push call"
+        push_call = push_calls[0]
+        assert push_call[1].get("text") is True
+        assert push_call[1].get("cwd") == "/tmp/repo"
+        assert push_call[1].get("stderr") == subprocess.STDOUT
+        # Verify the consensus push marker is in the env (#1669)
+        push_env = push_call[1].get("env", {})
+        assert push_env.get("EGG_CONSENSUS_PUSH") == "1"
         # proposal was sent
         mock_request.assert_called_once()
 
