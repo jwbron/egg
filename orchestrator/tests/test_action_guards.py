@@ -194,6 +194,23 @@ class TestCheckAckGuard:
         assert "No review edge" in result.reason
         assert result.details["guard"] == "no_review_edge"
 
+    def test_version_match_allowed(self, graph, matrix):
+        """ACK version matches current proposal version -> allowed."""
+        matrix.record_proposal("coder")  # v1
+        result = check_ack_guard("reviewer_code", "coder", graph, matrix=matrix, ack_version=1)
+        assert result.allowed is True
+
+    def test_version_mismatch_rejected(self, graph, matrix):
+        """ACK version does not match current proposal version -> rejected."""
+        matrix.record_proposal("coder")  # v1
+        matrix.record_proposal("coder")  # v2
+        result = check_ack_guard("reviewer_code", "coder", graph, matrix=matrix, ack_version=1)
+        assert result.allowed is False
+        assert "version mismatch" in result.reason.lower()
+        assert result.details["guard"] == "version_mismatch"
+        assert result.details["ack_version"] == 1
+        assert result.details["current_version"] == 2
+
 
 # ---------------------------------------------------------------------------
 # check_nack_guard

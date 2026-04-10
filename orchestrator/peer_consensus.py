@@ -254,13 +254,18 @@ class PeerConsensusTracker:
     ) -> dict[str, Any]:
         """Handle a CONSENSUS_ACK from a reviewer."""
         with self._lock:
-            version = self.matrix.get_proposal_version(producer_role)
+            # Use the version from the reviewer's payload so the guard can
+            # detect stale ACKs (reviewer reviewed v1 but producer is now v2).
+            # Falls back to the current version for backward compatibility.
+            ack_version = payload.get(
+                "ack_version", self.matrix.get_proposal_version(producer_role)
+            )
             guard = check_ack_guard(
                 reviewer_role,
                 producer_role,
                 self.graph,
                 matrix=self.matrix,
-                ack_version=version,
+                ack_version=ack_version,
             )
             if not guard.allowed:
                 raise ValueError(guard.reason)
@@ -280,7 +285,7 @@ class PeerConsensusTracker:
             self.matrix.record_ack(
                 reviewer_role,
                 producer_role,
-                version,
+                ack_version,
                 artifact_refs=review.artifact_references,
             )
 
@@ -296,7 +301,7 @@ class PeerConsensusTracker:
                 data={
                     "reviewer": reviewer_role,
                     "producer": producer_role,
-                    "version": version,
+                    "version": ack_version,
                     "fully_acked": fully_acked,
                 },
             )
@@ -306,7 +311,7 @@ class PeerConsensusTracker:
             return {
                 "status": "acked",
                 "fully_acked": fully_acked,
-                "version": version,
+                "version": ack_version,
             }
 
     def handle_nack(

@@ -1003,6 +1003,11 @@ def handle_consensus_ack_signal(
 
     payload = data.get("payload", {})
 
+    # Forward ack_version from signal data into the payload so the
+    # version-match guard can detect stale ACKs.
+    if "ack_version" in data and "ack_version" not in payload:
+        payload["ack_version"] = data["ack_version"]
+
     try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
@@ -1403,6 +1408,18 @@ def handle_consensus_excuse_producer_signal(
                 f"Decision {decision_id} is not resolved "
                 f"(status: {decision.status.value}). Only resolved HITL "
                 f"decisions can authorize producer excusal.",
+                status_code=403,
+            )
+
+        # Scope validation: the decision must be specifically about
+        # excusing *this* producer, not just any resolved decision.
+        # Mirrors the excuse_reviewer pattern in decisions.py.
+        expected_context = f"failed_role:{producer_role}"
+        if not hasattr(decision, "context") or decision.context != expected_context:
+            return make_error_response(
+                f"Decision {decision_id} is not authorized for excusing "
+                f"producer {producer_role} (expected context: "
+                f"'{expected_context}', got: '{getattr(decision, 'context', '')}').",
                 status_code=403,
             )
     except DecisionNotFoundError:
