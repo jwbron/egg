@@ -86,6 +86,7 @@ orchestrator/
 ├── container_spawner.py    # Sandbox container lifecycle
 ├── container_monitor.py    # Container health monitoring
 ├── concurrent_executor.py  # Concurrent phase executor (spawns all agents simultaneously)
+├── action_guards.py        # Formal BRC state machine action guards (preconditions for propose/ack/nack/confirm/withdraw)
 ├── approval_matrix.py      # Per-reviewer ACK/NACK matrix for BRC consensus
 ├── attestation_schemas.py  # Attestation payload validation for BRC proposals
 ├── consensus.py            # Legacy READY-tallying consensus (deprecated, kept for transition)
