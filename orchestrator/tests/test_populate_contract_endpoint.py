@@ -109,7 +109,6 @@ class TestPopulateContractEndpoint:
     ):
         """Returns 500 when the populate function raises an exception."""
         pipeline = _make_pipeline()
-        # Set config to None so config.mode check uses 'local' fallback
         pipeline.config = None
         mock_store = MagicMock()
         mock_store.repo_path = Path("/home/egg/repos/egg")

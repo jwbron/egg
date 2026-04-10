@@ -1281,6 +1281,36 @@ class TestAdvancePhase:
         assert mock_req.call_count == 3
         assert result["stopped_containers"] == ["running1"]
 
+    def test_advance_force_phase_post_fails_preserves_container_info(self, handler):
+        """If phase advance fails after containers stopped, response includes container info."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                # GET containers
+                {
+                    "data": {
+                        "containers": [
+                            {"container_id": "c1", "status": "running"},
+                            {"container_id": "c2", "status": "running"},
+                        ]
+                    }
+                },
+                # POST stop c1 succeeds
+                {"success": True},
+                # POST stop c2 fails
+                Exception("container stop timeout"),
+                # POST phase advance fails
+                Exception("phase advance endpoint unavailable"),
+            ]
+            result = handler.handle_tool_call(
+                "advance_phase",
+                {"task_id": "issue-42", "target_phase": "implement", "force": True},
+            )
+
+        assert "error" in result
+        assert "Phase advance failed" in result["error"]
+        assert result["stopped_containers"] == ["c1"]
+        assert result["failed_containers"] == ["c2"]
+
 
 class TestStartPhase:
     """Tests for the start_phase MCP tool handler."""

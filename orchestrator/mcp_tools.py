@@ -1717,11 +1717,19 @@ class PipelineToolHandler:
                 )
 
         data: dict[str, Any] = {"target_phase": target_phase, "force": force}
-        result = self._make_request(
-            f"/api/v1/pipelines/{task_id}/phase",
-            method="POST",
-            data=data,
-        )
+        try:
+            result = self._make_request(
+                f"/api/v1/pipelines/{task_id}/phase",
+                method="POST",
+                data=data,
+            )
+        except Exception as e:
+            error_result: dict[str, Any] = {"error": f"Phase advance failed: {e}"}
+            if stopped_containers:
+                error_result["stopped_containers"] = stopped_containers
+            if failed_containers:
+                error_result["failed_containers"] = failed_containers
+            return error_result
         if stopped_containers:
             result["stopped_containers"] = stopped_containers
         if failed_containers:
