@@ -688,7 +688,9 @@ class TestValidateInvariants:
             confirmed={"reviewer_code"},
         )
         # Version < current -> reported as INV-3 (unreviewed changes), not INV-2
-        unreviewed = [v for v in violations if v.invariant == "no_confirmed_with_unreviewed_changes"]
+        unreviewed = [
+            v for v in violations if v.invariant == "no_confirmed_with_unreviewed_changes"
+        ]
         assert len(unreviewed) == 1
         assert unreviewed[0].agent == "reviewer_code"
         assert unreviewed[0].details["producer"] == "coder"
