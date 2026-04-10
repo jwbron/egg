@@ -537,13 +537,28 @@ class TestCreatePipelineJiraAndQualifier:
         assert call_kwargs["branch"] == "egg/KORE-1234-backend"
 
     @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_state_store")
     @patch("routes.pipelines.get_repo_path")
-    def test_create_pipeline_rejects_existing_branch(self, mock_repo_path, mock_gw_client, client):
-        """409 when the target branch already exists on the remote."""
+    def test_create_pipeline_rejects_existing_branch(
+        self, mock_repo_path, mock_get_store, mock_gw_client, client
+    ):
+        """409 when the target branch already exists and pipeline is active."""
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
         mock_gw = MagicMock()
         mock_gw.ls_remote_branch.return_value = True
         mock_gw_client.return_value = mock_gw
+
+        # Simulate an active pipeline — the branch-exists check now
+        # only returns 409 when an active pipeline exists for that ID.
+        mock_store = MagicMock()
+        mock_store.pipeline_exists.return_value = True
+        existing = Pipeline(
+            id="KORE-1234",
+            repo="Khan/webapp",
+            status=PipelineStatus.RUNNING,
+        )
+        mock_store.load_pipeline.return_value = existing
+        mock_get_store.return_value = mock_store
 
         response = client.post(
             "/api/v1/pipelines",
