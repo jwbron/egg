@@ -1,0 +1,631 @@
+{
+  "issue": 1579,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 1,
+  "title": "Formal BRC Protocol State Machine with Action Guards",
+  "summary": "The BRC consensus protocol in peer_consensus.py has accumulated ad-hoc guards for specific deadlock scenarios (#1405, #1576, #1411, #1598) without a formal specification of valid action preconditions. This analysis proposes formalizing the protocol as a guard-table-driven state machine integrated into the existing PeerConsensusTracker, adding two new capabilities (auto-re-propose on push/commit and all-changes-reviewed confirmation guard), and retaining existing recovery mechanisms as defense-in-depth safety nets.",
+  "revision_notes": "",
+  "problem_statement": {
+    "description": "The BRC peer consensus tracker manages producer and reviewer state machines through scattered inline guards in individual handler methods (handle_propose, handle_ack, handle_nack, handle_confirmed, handle_withdraw). Each guard was added reactively to fix a specific deadlock scenario. There is no central specification of when each protocol action is valid, which state transitions it triggers, or what invariants must hold. This makes it difficult to reason about protocol correctness, leads to gaps (e.g., reviewer confirming with unresolved NACKs against non-delivering producers), and creates maintenance burden when new edge cases surface.",
+    "root_causes": [
+      {
+        "id": "RC-1",
+        "title": "No formal action preconditions for confirm",
+        "description": "The handle_confirmed() method has three sequential guards (fully-ACKed for producers, version-match for reviewers, unresolved-NACK for reviewers) but lacks a guard for producers with zero proposals. A reviewer can NACK a non-delivering producer, then confirm — allowing consensus to complete without the primary deliverable. Additionally, no guard checks whether a producer has pushed new changes since the reviewer's last review.",
+        "location": "orchestrator/peer_consensus.py:382-529 (handle_confirmed)"
+      },
+      {
+        "id": "RC-2",
+        "title": "No auto-re-propose on producer push/commit",
+        "description": "When a producer pushes new code after their initial proposal, existing reviewer ACKs remain valid despite covering stale code. The protocol has no mechanism to detect that a producer's latest commit SHA differs from the commit SHA at proposal time, leaving a window where consensus completes on unreviewed changes.",
+        "location": "orchestrator/peer_consensus.py:97-98 (_proposal_commit_shas tracking exists but is passive), orchestrator/routes/signals.py:855-986 (propose signal handler has commit verification but no push-triggered re-propose)"
+      },
+      {
+        "id": "RC-3",
+        "title": "Guards are inline and order-dependent",
+        "description": "Each handler method embeds its guards as sequential if-statements. The guard logic is not reusable, not independently testable, and the ordering creates implicit dependencies. For example, handle_confirmed() checks fully-ACKed before version-match before unresolved-NACKs — but the interaction between these conditions is not documented.",
+        "location": "orchestrator/peer_consensus.py:386-498 (three guards in sequence)"
+      },
+      {
+        "id": "RC-4",
+        "title": "Recovery mechanisms may mask guard gaps",
+        "description": "Two recovery methods (_un_confirm_stale_reviewers at proposal-time, _invalidate_pre_proposal_acks at proposal-time) exist as reactive fixes for deadlocks. With comprehensive entry guards on confirm, some of these may be redundant. However, without a formal analysis of which guards cover which scenarios, it is unclear whether they can be safely removed or should remain as defense-in-depth.",
+        "location": "orchestrator/peer_consensus.py:950-1032 (_un_confirm_stale_reviewers, _invalidate_pre_proposal_acks)"
+      },
+      {
+        "id": "RC-5",
+        "title": "No invariant enforcement or runtime validation",
+        "description": "Critical invariants (e.g., no agent in CONFIRMED with an unresolved NACK where producer hasn't re-proposed) are only enforced at action boundaries. There is no periodic invariant checker or post-transition assertion framework to catch violations introduced by race conditions or reconstruction errors.",
+        "location": "orchestrator/peer_consensus.py (entire file — invariants are implicit, never asserted)"
+      }
+    ]
+  },
+  "current_architecture": {
+    "state_tracking": {
+      "description": "State is tracked in three parallel structures: _producer_phases (dict[str, ConsensusPhase]) for the producer state machine (WORKING→PROPOSED→CONFIRMED), _reviewer_phases (dict[str, ConsensusPhase]) for the reviewer state machine (WORKING→REVIEWING→CONFIRMED), and _confirmed (set[str]) for the terminal combined state. Dual-role agents (e.g., tester) must have both producer and reviewer phases reach CONFIRMED before being added to _confirmed.",
+      "files": [
+        "orchestrator/peer_consensus.py:86-90",
+        "shared/egg_orchestrator/types.py:81-94 (ConsensusPhase enum)"
+      ]
+    },
+    "approval_matrix": {
+      "description": "The ApprovalMatrix stores per-edge (reviewer, producer) approval entries with state (PENDING/ACKED/NACKED), version, artifact references, and timestamps. is_fully_acked() returns True only when all critical reviewers have ACKed at the current proposal version. Versions increment on each record_proposal() call. Scoped invalidation via invalidate_overlapping_acks() allows targeted re-review when only specific artifacts change.",
+      "files": [
+        "orchestrator/approval_matrix.py:52-298"
+      ]
+    },
+    "review_graph": {
+      "description": "The ReviewGraph defines the asymmetric directed review topology. Edges are CRITICAL (blocks consensus) or ADVISORY (informational). Default plan graph: reviewer_plan reviews architect (CRITICAL), task_planner (CRITICAL), risk_analyst (ADVISORY). Supports runtime edge demotion (CRITICAL→ADVISORY) for stall recovery and edge removal for HITL-gated reviewer excusal.",
+      "files": [
+        "orchestrator/review_graph.py:38-287"
+      ]
+    },
+    "signal_routing": {
+      "description": "Signal handlers in routes/signals.py receive agent signals via REST, validate them, call the appropriate PeerConsensusTracker method, and write structured messages to the message bus for inter-agent communication. Commit verification (_verify_commit_on_branch) ensures proposed SHAs exist on the expected branch. Tester check coverage validation (_validate_tester_check_coverage) runs before proposal acceptance.",
+      "files": [
+        "orchestrator/routes/signals.py:148-167 (dispatch table)",
+        "orchestrator/routes/signals.py:855-986 (propose handler)",
+        "orchestrator/routes/signals.py:1185-1347 (confirmed handler)"
+      ]
+    },
+    "existing_guards": {
+      "propose": {
+        "description": "Rejects proposal when producer is already fully ACKed and in PROPOSED state (prevents unnecessary re-proposal after all reviewers approved). Skipped for handle_re_propose() path. Validates attestation payload against role-specific schema.",
+        "location": "orchestrator/peer_consensus.py:134-160"
+      },
+      "ack": {
+        "description": "Validates reviewer exists in graph, edge exists, review payload is valid, and attestation matches role-specific schema. Records ACK at current proposal version.",
+        "location": "orchestrator/peer_consensus.py:204-258"
+      },
+      "nack": {
+        "description": "Same validation as ACK. Additionally detects context-change NACKs (different artifact refs than prior NACK) and enforces bounded revision rounds with hard cap at 3x max_revision_rounds.",
+        "location": "orchestrator/peer_consensus.py:260-327"
+      },
+      "confirm_producer": {
+        "description": "Single guard: producer must be is_fully_acked() — all critical reviewers have ACKed at current proposal version.",
+        "location": "orchestrator/peer_consensus.py:386-411"
+      },
+      "confirm_reviewer": {
+        "description": "Three sequential guards: (1) all assigned producers must have been reviewed (has_reviewed check), (2) version-match — all ACKs must be at current proposal version, (3) unresolved-NACK — no NACKed producers where current_version > 0 without re-proposal.",
+        "location": "orchestrator/peer_consensus.py:413-500",
+        "gaps": [
+          "No guard for producers with version == 0 (zero proposals). A reviewer can NACK a non-delivering producer then confirm. The unresolved-NACK guard only triggers when current_version > 0.",
+          "No guard for producers who pushed new commits after proposal. The commit SHA from the proposal is tracked (_proposal_commit_shas) but never compared against the producer's latest commit on the branch.",
+          "No guard ensuring all producer changes have been reviewed — a producer could push after the reviewer's last ACK."
+        ]
+      },
+      "withdraw": {
+        "description": "Cooldown guard (default 30s between proposal and withdraw), flip-flop lockout guard (max 3 proposal-withdraw cycles before CONSENSUS_FAILURE event).",
+        "location": "orchestrator/peer_consensus.py:329-380"
+      }
+    },
+    "recovery_mechanisms": {
+      "_un_confirm_stale_reviewers": {
+        "description": "Called at proposal time. When a producer re-proposes, any confirmed reviewer whose ACK is stale (not at new version) is un-confirmed and reset to REVIEWING phase. Their old ACK is invalidated. This prevents permanent deadlock where confirmed reviewers never re-review.",
+        "location": "orchestrator/peer_consensus.py:950-995",
+        "still_needed": "Yes — even with confirm-time guards, this is needed to actively pull reviewers out of CONFIRMED state when a producer re-proposes. The confirm-time guards only prevent entry; this mechanism handles exit."
+      },
+      "_invalidate_pre_proposal_acks": {
+        "description": "Called at proposal time. Clears version-0 ACKs from non-confirmed reviewers. Handles the race where a reviewer ACKs before the producer's first proposal.",
+        "location": "orchestrator/peer_consensus.py:997-1032",
+        "still_needed": "Yes — this handles a timing edge case that confirm-time version-match guards would also catch, but clearing the stale ACKs early is cleaner than letting reviewers discover the mismatch at confirm time."
+      },
+      "tracker_reconstruction": {
+        "description": "Recovers in-memory tracker state from Redis message store after orchestrator restart. Replays messages in timestamp order with RELAXED attestation strictness and zero cooldown.",
+        "location": "orchestrator/peer_consensus.py:1081-1233",
+        "still_needed": "Yes — orthogonal to guard formalization. Required for orchestrator restart resilience."
+      }
+    },
+    "test_coverage": {
+      "description": "Primary test suite: test_peer_consensus_integration.py covers full lifecycle, NACK-re-propose cycles, flip-flop lockout, timeout handling, crash handling, scoped re-evaluation, concurrent NACKs, cascading re-proposals, and commit SHA tracking. Additional test files cover NACK iteration (test_brc_nack_iteration.py), phase propagation (test_brc_phase_propagation.py), and various consensus edge cases. Approximately 13+ test files with BRC-related coverage.",
+      "files": [
+        "orchestrator/tests/test_peer_consensus_integration.py",
+        "orchestrator/tests/test_brc_nack_iteration.py",
+        "orchestrator/tests/test_brc_phase_propagation.py",
+        "orchestrator/tests/test_consensus.py",
+        "orchestrator/tests/test_consensus_stall_check.py",
+        "orchestrator/tests/test_consensus_race_on_exit.py",
+        "orchestrator/tests/test_consensus_complete_with_failures.py"
+      ]
+    }
+  },
+  "approaches_considered": [
+    {
+      "id": "A",
+      "name": "Full State Machine Class replacement",
+      "description": "Replace the dict-based state tracking in PeerConsensusTracker with a dedicated BRCStateMachine class that encapsulates all states, transitions, guards, and invariants. Each protocol action would go through a transition() method that checks preconditions, executes the transition, verifies postconditions, and records the event. The PeerConsensusTracker would become a thin orchestration layer delegating to the state machine.",
+      "pros": [
+        "Clean separation of protocol logic from business logic",
+        "State machine is independently testable with property-based tests",
+        "Self-documenting: the transition table IS the protocol specification",
+        "Invariant checking built into every transition"
+      ],
+      "cons": [
+        "Significant refactor — PeerConsensusTracker has 1000+ lines of tightly coupled logic",
+        "High risk of regression during migration — all existing tests would need updating",
+        "The current handlers do more than state transitions (event emission, message bus interaction, attestation validation) — these would need careful factoring",
+        "Dual-role agents (tester) make the state machine non-trivial since one agent has two independent state machines that must both reach CONFIRMED"
+      ],
+      "estimated_effort": "Large (3-4 days implementation + testing)"
+    },
+    {
+      "id": "B",
+      "name": "Guard Functions Extraction only",
+      "description": "Extract all guard logic from handler methods into standalone, independently testable guard functions. Create a guard registry mapping (action, role_type) → list[GuardFn]. Each handler calls its guards via the registry before proceeding. No structural change to state tracking.",
+      "pros": [
+        "Minimal structural change — existing handler flow preserved",
+        "Guards become independently testable",
+        "Incremental adoption — can extract one guard at a time",
+        "Low regression risk"
+      ],
+      "cons": [
+        "Guards are separated from the transitions they protect — no formal transition table",
+        "Invariants still implicit, not checked systematically",
+        "Doesn't address the fundamental issue: no single place to see all valid transitions",
+        "Auto-re-propose on push/commit still requires new signal handling infrastructure"
+      ],
+      "estimated_effort": "Medium (1-2 days)"
+    },
+    {
+      "id": "C",
+      "name": "Hybrid: Transition Guard Table + New Capabilities",
+      "description": "Define a formal transition guard table as a data structure (dict mapping (action, role_type) → list of guard functions with names and descriptions). Integrate this table into the existing PeerConsensusTracker without replacing it. Add the two new capabilities: (1) auto-re-propose on push/commit detection via a new signal handler that compares branch HEAD against last proposal commit SHA, and (2) an all-changes-reviewed guard on reviewer confirm that rejects confirmation when any producer has commits newer than the reviewer's last ACK. Add an assert_invariants() method called after every state-mutating operation (debug/test only) to verify protocol invariants. Retain existing recovery mechanisms as defense-in-depth.",
+      "pros": [
+        "Formal specification without full rewrite — the guard table is the spec",
+        "Guard table is a single source of truth for 'when is action X valid?'",
+        "Existing handler methods preserved — they call guard table before proceeding",
+        "assert_invariants() catches violations early in tests and development",
+        "Recovery mechanisms retained as safety nets (defense-in-depth)",
+        "Auto-re-propose and all-changes-reviewed are cleanly scoped additions",
+        "Moderate effort with high impact on correctness"
+      ],
+      "cons": [
+        "Two representations of truth during transition (guard table + inline code) until fully migrated",
+        "Auto-re-propose requires gateway/orchestrator integration for push event detection",
+        "Invariant assertions add overhead (mitigated by debug/test-only flag)"
+      ],
+      "estimated_effort": "Medium (2-3 days)"
+    }
+  ],
+  "recommended_approach": {
+    "id": "C",
+    "name": "Hybrid: Transition Guard Table + New Capabilities",
+    "justification": "Approach C delivers the formal specification that the issue requests (guard table as the protocol spec) without the regression risk of a full rewrite (Approach A). It addresses all four scope items from the issue: (1) action preconditions via the guard table, (2) state transitions via documentation derived from the table, (3) invariants via assert_invariants(), and (4) recovery mechanism evaluation via explicit documentation of which guards cover which scenarios. The two new capabilities (auto-re-propose on push, all-changes-reviewed guard) close the gaps identified in #1576 and #1598."
+  },
+  "technical_design": {
+    "component_1_guard_table": {
+      "description": "A formal guard table defined as a module-level data structure in peer_consensus.py. Each entry maps an (action, role_type) pair to a list of named guard functions. Guards return either None (pass) or a dict with rejection details. The table is the authoritative specification of when each action is valid.",
+      "location": "orchestrator/peer_consensus.py (new module-level constant + guard functions)",
+      "guard_definitions": {
+        "propose": {
+          "producer_guards": [
+            {
+              "name": "not_already_fully_acked",
+              "description": "Reject if producer is already fully ACKed in PROPOSED state (issue #1185). Skipped for re-proposals.",
+              "existing": true,
+              "location": "peer_consensus.py:134-148"
+            },
+            {
+              "name": "valid_attestation",
+              "description": "Proposal payload and role-specific attestation must validate against schema.",
+              "existing": true,
+              "location": "peer_consensus.py:151-160"
+            }
+          ]
+        },
+        "re_propose": {
+          "producer_guards": [
+            {
+              "name": "valid_attestation",
+              "description": "Same attestation validation as propose.",
+              "existing": true
+            }
+          ],
+          "notes": "Re-propose is always legitimate after NACK. The not_already_fully_acked guard is intentionally skipped."
+        },
+        "ack": {
+          "reviewer_guards": [
+            {
+              "name": "reviewer_in_graph",
+              "description": "Reviewer role must exist in review graph.",
+              "existing": true,
+              "location": "peer_consensus.py:212"
+            },
+            {
+              "name": "edge_exists",
+              "description": "Review edge must exist from reviewer to target producer.",
+              "existing": true,
+              "location": "peer_consensus.py:214"
+            },
+            {
+              "name": "valid_review_payload",
+              "description": "Review payload and attestation must validate.",
+              "existing": true,
+              "location": "peer_consensus.py:218-227"
+            }
+          ]
+        },
+        "nack": {
+          "reviewer_guards": [
+            {
+              "name": "reviewer_in_graph",
+              "description": "Same as ACK.",
+              "existing": true
+            },
+            {
+              "name": "edge_exists",
+              "description": "Same as ACK.",
+              "existing": true
+            },
+            {
+              "name": "valid_review_payload",
+              "description": "Same as ACK.",
+              "existing": true
+            }
+          ]
+        },
+        "confirm": {
+          "producer_guards": [
+            {
+              "name": "is_fully_acked",
+              "description": "All critical reviewers must have ACKed at current proposal version.",
+              "existing": true,
+              "location": "peer_consensus.py:386-410"
+            }
+          ],
+          "reviewer_guards": [
+            {
+              "name": "all_producers_reviewed",
+              "description": "Reviewer must have submitted a review (ACK or NACK) for every assigned producer.",
+              "existing": true,
+              "location": "peer_consensus.py:414-420"
+            },
+            {
+              "name": "no_stale_acks",
+              "description": "All ACKs must be at the current proposal version. Prevents confirming with pre-proposal or pre-re-proposal ACKs.",
+              "existing": true,
+              "location": "peer_consensus.py:422-459"
+            },
+            {
+              "name": "no_unresolved_nacks",
+              "description": "No NACKed producers where current_version > 0. Reviewer must wait for NACKed producers to re-propose.",
+              "existing": true,
+              "location": "peer_consensus.py:461-498"
+            },
+            {
+              "name": "no_zero_proposal_producers",
+              "description": "NEW GUARD: Reject confirmation if any assigned producer has proposal_version == 0 (never proposed). Prevents consensus completion without primary deliverables. Closes the gap identified in #1598.",
+              "existing": false,
+              "rationale": "Currently, the unresolved-NACK guard only triggers when current_version > 0. A reviewer can NACK a non-delivering producer (version 0) and still confirm, because the NACK check skips version-0 entries. This guard explicitly blocks confirmation when any producer has never proposed."
+            },
+            {
+              "name": "all_changes_reviewed",
+              "description": "NEW GUARD: Reject confirmation if any producer has pushed new commits since the reviewer's last ACK. Compares the producer's latest proposal commit SHA (or branch HEAD if auto-re-propose is active) against the commit SHA at the time the reviewer's ACK was recorded. Forces re-review of post-ACK changes.",
+              "existing": false,
+              "rationale": "Without this, a producer can push fixes after receiving an ACK, and the reviewer confirms without reviewing the new changes. The proposal_commit_shas tracking already exists but is never compared against reviewer ACK state."
+            }
+          ]
+        },
+        "withdraw": {
+          "producer_guards": [
+            {
+              "name": "cooldown_elapsed",
+              "description": "Minimum time between proposal and withdrawal (default 30s).",
+              "existing": true,
+              "location": "peer_consensus.py:342-350"
+            },
+            {
+              "name": "flip_flop_limit",
+              "description": "Maximum proposal-withdraw cycles (default 3) before lockout.",
+              "existing": true,
+              "location": "peer_consensus.py:352-368"
+            },
+            {
+              "name": "reason_required",
+              "description": "Withdrawal must include a reason citing specific new information.",
+              "existing": true,
+              "location": "peer_consensus.py:339-340"
+            }
+          ]
+        }
+      }
+    },
+    "component_2_auto_repropose": {
+      "description": "Detect when a producer pushes new commits after proposing, and automatically trigger a re-proposal. This invalidates existing reviewer ACKs for that producer and forces re-review.",
+      "mechanism": {
+        "option_a_signal_based": {
+          "description": "Add a new signal type 'commit_push' that the gateway sidecar or complete signal handler can emit when a producer's branch advances. The propose signal handler compares the incoming commit SHA against the stored _proposal_commit_shas. If different and producer is in PROPOSED state, treat it as an implicit re-proposal.",
+          "pros": ["Leverages existing signal infrastructure", "Gateway already intercepts git push"],
+          "cons": ["Requires gateway changes to emit push events"]
+        },
+        "option_b_confirm_time_check": {
+          "description": "At reviewer confirm time, verify that the producer's latest commit on the branch matches the commit SHA from the proposal. If mismatched, reject confirmation and notify the producer to re-propose (or auto-trigger re-proposal). Uses existing _verify_commit_on_branch infrastructure.",
+          "pros": ["No gateway changes needed", "Leverages existing branch verification"],
+          "cons": ["Reactive rather than proactive — mismatch only detected at confirm time"]
+        },
+        "recommended": "option_b_confirm_time_check for the initial implementation. It closes the safety gap without gateway changes. Option A (signal-based) can be added later for proactive notification. The all_changes_reviewed confirm guard (component 1) provides the blocking mechanism; auto-re-propose provides the proactive notification."
+      },
+      "implementation_detail": "When the all_changes_reviewed guard detects a commit SHA mismatch, it returns a rejection with status 'stale_review' and includes the mismatched producer(s). The confirm signal handler in routes/signals.py writes a CONSENSUS_RE_REVIEW message to the affected reviewer, prompting them to re-review. If auto-re-propose is enabled, it also calls tracker.handle_re_propose() on behalf of the producer and writes a CONSENSUS_PROPOSE message.",
+      "files_affected": [
+        "orchestrator/peer_consensus.py (new guard in handle_confirmed, optional auto-re-propose helper)",
+        "orchestrator/routes/signals.py (confirm handler to check branch HEAD, write re-review messages)",
+        "orchestrator/approval_matrix.py (store ACK commit SHA in ApprovalEntry for comparison)"
+      ]
+    },
+    "component_3_invariant_checker": {
+      "description": "An assert_invariants() method on PeerConsensusTracker that validates protocol invariants after every state-mutating operation. Enabled via a flag (default: on in tests, off in production for performance).",
+      "invariants": [
+        {
+          "id": "INV-1",
+          "description": "No agent in _confirmed with an unresolved NACK against a producer that hasn't re-proposed.",
+          "formal": "∀ agent ∈ _confirmed, ∀ (agent, producer) edge: ¬(entry.state == NACKED ∧ producer.version == entry.version)"
+        },
+        {
+          "id": "INV-2",
+          "description": "No agent in _confirmed with a stale ACK (version mismatch).",
+          "formal": "∀ agent ∈ _confirmed, ∀ (agent, producer) edge where entry.state == ACKED: entry.version == current_proposal_version(producer)"
+        },
+        {
+          "id": "INV-3",
+          "description": "No reviewer in _confirmed if any assigned producer has version == 0 (never proposed).",
+          "formal": "∀ reviewer ∈ _confirmed ∩ reviewers: ∀ producer ∈ producers_for(reviewer): proposal_version(producer) > 0"
+        },
+        {
+          "id": "INV-4",
+          "description": "is_fully_acked(producer) is consistent with the actual matrix state — all critical reviewers have ACKED at current version.",
+          "formal": "is_fully_acked(p) ⟺ ∀ critical_reviewer r of p: entry(r,p).state == ACKED ∧ entry(r,p).version == proposal_version(p)"
+        },
+        {
+          "id": "INV-5",
+          "description": "_confirmed set is consistent with phase dictionaries — an agent is in _confirmed only if all its phase roles are CONFIRMED.",
+          "formal": "∀ agent ∈ _confirmed: (is_producer(agent) ⟹ _producer_phases[agent] == CONFIRMED) ∧ (is_reviewer(agent) ⟹ _reviewer_phases[agent] == CONFIRMED)"
+        },
+        {
+          "id": "INV-6",
+          "description": "No reviewer in CONFIRMED phase if any assigned producer has pushed commits after the reviewer's ACK.",
+          "formal": "∀ reviewer in CONFIRMED, ∀ producer ∈ producers_for(reviewer): proposal_commit_sha(producer) == ack_commit_sha(reviewer, producer)"
+        }
+      ],
+      "files_affected": [
+        "orchestrator/peer_consensus.py (new assert_invariants method)",
+        "orchestrator/approval_matrix.py (expose ack_commit_sha per entry if needed)"
+      ]
+    },
+    "component_4_state_transition_documentation": {
+      "description": "A formal state transition table derived from the guard table, documenting every valid transition with its guards, side effects, and events emitted. This serves as the protocol specification referenced by the issue.",
+      "producer_transitions": [
+        {
+          "from": "WORKING",
+          "action": "propose",
+          "to": "PROPOSED",
+          "guards": ["not_already_fully_acked", "valid_attestation"],
+          "side_effects": ["record_proposal (version++)", "record timestamp", "record artifacts", "record commit SHA", "_un_confirm_stale_reviewers", "_invalidate_pre_proposal_acks"],
+          "events": ["CONSENSUS_PROPOSE_RECEIVED"],
+          "messages": ["CONSENSUS_PROPOSE to all", "CONSENSUS_RE_REVIEW to stale reviewers"]
+        },
+        {
+          "from": "PROPOSED",
+          "action": "nack_received",
+          "to": "WORKING",
+          "guards": [],
+          "side_effects": ["record NACK in matrix", "increment revision count"],
+          "events": ["CONSENSUS_NACK_RECEIVED"],
+          "messages": ["CONSENSUS_NACK to producer"]
+        },
+        {
+          "from": "WORKING",
+          "action": "re_propose",
+          "to": "PROPOSED",
+          "guards": ["valid_attestation"],
+          "side_effects": ["invalidate overlapping or all ACKs", "same as propose"],
+          "events": ["CONSENSUS_PROPOSE_RECEIVED"],
+          "messages": ["CONSENSUS_PROPOSE to all", "CONSENSUS_RE_REVIEW to invalidated reviewers"]
+        },
+        {
+          "from": "PROPOSED",
+          "action": "confirm",
+          "to": "CONFIRMED",
+          "guards": ["is_fully_acked"],
+          "side_effects": ["add to _confirmed if both roles confirmed"],
+          "events": ["CONSENSUS_CONFIRMED_RECEIVED"],
+          "messages": ["CONSENSUS_CONFIRMED"]
+        },
+        {
+          "from": "PROPOSED",
+          "action": "withdraw",
+          "to": "WORKING",
+          "guards": ["cooldown_elapsed", "flip_flop_limit", "reason_required"],
+          "side_effects": ["increment flip-flop count", "clear confirmed status"],
+          "events": ["CONSENSUS_WITHDRAW_RECEIVED"],
+          "messages": ["CONSENSUS_WITHDRAW to all"]
+        },
+        {
+          "from": "PROPOSED",
+          "action": "auto_re_propose (push detected)",
+          "to": "PROPOSED",
+          "guards": [],
+          "side_effects": ["same as re_propose — invalidate ACKs, record new commit SHA"],
+          "events": ["CONSENSUS_PROPOSE_RECEIVED"],
+          "messages": ["CONSENSUS_PROPOSE to all", "CONSENSUS_RE_REVIEW to all reviewers"],
+          "notes": "NEW: Triggered when branch HEAD advances past proposal commit SHA. Version increments. All existing ACKs invalidated."
+        }
+      ],
+      "reviewer_transitions": [
+        {
+          "from": "WORKING",
+          "action": "ack",
+          "to": "REVIEWING",
+          "guards": ["reviewer_in_graph", "edge_exists", "valid_review_payload"],
+          "side_effects": ["record ACK in matrix at current version"],
+          "events": ["CONSENSUS_ACK_RECEIVED"],
+          "messages": ["CONSENSUS_ACK to producer"]
+        },
+        {
+          "from": "WORKING",
+          "action": "nack",
+          "to": "REVIEWING",
+          "guards": ["reviewer_in_graph", "edge_exists", "valid_review_payload"],
+          "side_effects": ["record NACK in matrix", "transition producer to WORKING"],
+          "events": ["CONSENSUS_NACK_RECEIVED"],
+          "messages": ["CONSENSUS_NACK to producer"]
+        },
+        {
+          "from": "REVIEWING",
+          "action": "ack",
+          "to": "REVIEWING",
+          "guards": ["reviewer_in_graph", "edge_exists", "valid_review_payload"],
+          "side_effects": ["record ACK in matrix at current version (replaces previous review for this edge)"],
+          "events": ["CONSENSUS_ACK_RECEIVED"],
+          "messages": ["CONSENSUS_ACK to producer"]
+        },
+        {
+          "from": "REVIEWING",
+          "action": "nack",
+          "to": "REVIEWING",
+          "guards": ["reviewer_in_graph", "edge_exists", "valid_review_payload"],
+          "side_effects": ["record NACK in matrix", "transition producer to WORKING", "check revision bounds"],
+          "events": ["CONSENSUS_NACK_RECEIVED"],
+          "messages": ["CONSENSUS_NACK to producer"]
+        },
+        {
+          "from": "REVIEWING",
+          "action": "confirm",
+          "to": "CONFIRMED",
+          "guards": ["all_producers_reviewed", "no_stale_acks", "no_unresolved_nacks", "no_zero_proposal_producers", "all_changes_reviewed"],
+          "side_effects": ["add to _confirmed if both roles confirmed"],
+          "events": ["CONSENSUS_CONFIRMED_RECEIVED"],
+          "messages": ["CONSENSUS_CONFIRMED"]
+        },
+        {
+          "from": "CONFIRMED",
+          "action": "un_confirm (producer re-proposed)",
+          "to": "REVIEWING",
+          "guards": [],
+          "side_effects": ["remove from _confirmed", "invalidate stale ACK"],
+          "events": [],
+          "messages": ["CONSENSUS_RE_REVIEW"],
+          "notes": "Triggered by _un_confirm_stale_reviewers when a producer re-proposes and this reviewer's ACK is stale."
+        }
+      ]
+    },
+    "component_5_recovery_evaluation": {
+      "description": "Formal evaluation of whether existing recovery mechanisms are still needed with comprehensive guards.",
+      "analysis": [
+        {
+          "mechanism": "_un_confirm_stale_reviewers",
+          "verdict": "KEEP as defense-in-depth",
+          "rationale": "Confirm-time guards prevent a reviewer from ENTERING CONFIRMED with stale ACKs. But _un_confirm_stale_reviewers handles EXITING CONFIRMED when a producer re-proposes after the reviewer already confirmed. These are complementary: guards prevent bad entry, un-confirm handles the case where the world changes after valid entry. Both are needed."
+        },
+        {
+          "mechanism": "_invalidate_pre_proposal_acks",
+          "verdict": "KEEP as defense-in-depth",
+          "rationale": "The version-match confirm guard would catch version-0 ACKs at confirm time. However, _invalidate_pre_proposal_acks clears them proactively at propose time, which triggers CONSENSUS_RE_REVIEW messages so reviewers know to re-review. Without it, reviewers would only discover the mismatch when they try to confirm — a worse UX. Keep for proactive notification."
+        },
+        {
+          "mechanism": "tracker_reconstruction",
+          "verdict": "KEEP (orthogonal)",
+          "rationale": "Handles orchestrator restart resilience. Unrelated to guard formalization."
+        }
+      ]
+    }
+  },
+  "affected_files": {
+    "primary_changes": [
+      {
+        "file": "orchestrator/peer_consensus.py",
+        "changes": [
+          "Add guard table data structure (module-level dict)",
+          "Extract inline guards into standalone functions",
+          "Add no_zero_proposal_producers guard",
+          "Add all_changes_reviewed guard",
+          "Add assert_invariants() method",
+          "Wire guard table into handler methods",
+          "Add auto-re-propose helper (optional, for proactive push detection)"
+        ]
+      },
+      {
+        "file": "orchestrator/approval_matrix.py",
+        "changes": [
+          "Add ack_commit_sha field to ApprovalEntry (tracks which commit SHA the ACK covers)",
+          "Pass commit_sha through record_ack()",
+          "Update to_dict/from_dict for new field"
+        ]
+      },
+      {
+        "file": "orchestrator/routes/signals.py",
+        "changes": [
+          "Update handle_consensus_confirmed_signal to check branch HEAD vs proposal commit SHA",
+          "Add CONSENSUS_RE_REVIEW messages when all_changes_reviewed guard triggers",
+          "Optionally: handle push events from gateway to trigger auto-re-propose"
+        ]
+      }
+    ],
+    "secondary_changes": [
+      {
+        "file": "orchestrator/attestation_schemas.py",
+        "changes": ["No changes needed — existing schemas are sufficient"]
+      },
+      {
+        "file": "orchestrator/review_graph.py",
+        "changes": ["No changes needed — topology is orthogonal to guard formalization"]
+      },
+      {
+        "file": "shared/egg_orchestrator/types.py",
+        "changes": ["No changes needed — ConsensusPhase enum is sufficient"]
+      }
+    ],
+    "test_changes": [
+      {
+        "file": "orchestrator/tests/test_peer_consensus_integration.py",
+        "changes": [
+          "Add tests for no_zero_proposal_producers guard",
+          "Add tests for all_changes_reviewed guard",
+          "Add tests for assert_invariants()",
+          "Add tests for guard table completeness"
+        ]
+      },
+      {
+        "file": "orchestrator/tests/test_guard_table.py",
+        "changes": ["NEW: Unit tests for individual guard functions, parametrized by state"]
+      },
+      {
+        "file": "orchestrator/tests/test_invariants.py",
+        "changes": ["NEW: Property-based tests that invariants hold after arbitrary action sequences"]
+      }
+    ]
+  },
+  "dependencies_and_constraints": {
+    "backward_compatibility": "The guard table is additive — existing handler methods continue to work. Guards are extracted, not replaced. The two new guards (no_zero_proposal_producers, all_changes_reviewed) are new restrictions that could reject previously-valid confirm actions. This is the intended behavior (closing safety gaps) but needs careful rollout.",
+    "gateway_integration": "Auto-re-propose on push (option A) requires gateway changes to emit push events. The recommended initial approach (option B — confirm-time check) does NOT require gateway changes, using existing _verify_commit_on_branch infrastructure.",
+    "performance": "assert_invariants() scans all matrix entries and graph edges. For typical pipelines (5-8 agents, 10-15 edges), this is negligible. Gate behind a flag (default on in tests, off in production) for safety.",
+    "dual_role_agents": "The tester agent is both producer and reviewer. Guard table entries must be keyed by (action, role_type) not (action, agent_role) to handle this correctly. A dual-role agent running 'confirm' must pass both producer AND reviewer guards.",
+    "message_bus_ordering": "Auto-re-propose generates CONSENSUS_PROPOSE and CONSENSUS_RE_REVIEW messages. Message ordering in Redis Streams is guaranteed (XADD is sequential), so reviewers will see re-review notifications in order.",
+    "existing_issue_resolutions": {
+      "#1576": "Addressed by existing _un_confirm_stale_reviewers + new all_changes_reviewed guard. The un-confirm mechanism pulls reviewers out of CONFIRMED when producers re-propose; the all_changes_reviewed guard prevents confirming while changes are unreviewed.",
+      "#1405": "Already addressed by existing _invalidate_pre_proposal_acks + version-match guard. Formalized in guard table.",
+      "#1411": "Already addressed by _confirmed.discard() in handle_propose. Verified by INV-5 invariant.",
+      "#1598": "Addressed by new no_zero_proposal_producers guard. Reviewer cannot confirm if any assigned producer has proposal_version == 0."
+    }
+  },
+  "open_questions": [
+    {
+      "id": "OQ-1",
+      "question": "Should the no_zero_proposal_producers guard apply to ADVISORY review edges or only CRITICAL?",
+      "recommendation": "Only CRITICAL. Advisory producers (like risk_analyst in the plan graph) may legitimately have nothing to propose if the risk assessment is not relevant. Critical producers must always deliver.",
+      "impact": "Low — affects guard function signature (needs access to edge criticality)"
+    },
+    {
+      "id": "OQ-2",
+      "question": "Should auto-re-propose on push be implemented in this issue or deferred?",
+      "recommendation": "Implement the confirm-time detection (option B) in this issue. Defer the proactive gateway-based push event (option A) to a follow-up issue. Option B closes the safety gap; option A improves UX but is not required for correctness.",
+      "impact": "Medium — determines scope of gateway changes"
+    },
+    {
+      "id": "OQ-3",
+      "question": "Should assert_invariants() run in production (with a performance flag) or only in tests?",
+      "recommendation": "Default on in tests, off in production. Add an environment variable (EGG_BRC_INVARIANT_CHECK=1) to enable in production for debugging specific pipeline runs.",
+      "impact": "Low — performance impact is negligible for typical pipeline sizes"
+    }
+  ]
+}
