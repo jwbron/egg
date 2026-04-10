@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1647,
+    "title": "Issue #1647",
+    "url": "https://github.com/jwbron/egg/issues/1647"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/models.py`, add `source_branch: str | None = Field(default=None, description='Source branch to read prior-run artifacts from.')` to the Pipeline model after the `plan` field (~line 478)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Pipeline model accepts and persists source_branch field",
+          "files_affected": [
+            "orchestrator/models.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Thread source_branch through the submission stack: add to submit_task MCP tool schema in mcp_tools.py (after qualifier param); pass through in _handle_submit_task handler; extract from request data in create_pipeline() REST handler and forward to store.create_pipeline(); accept in StateStore.create_pipeline() and pass to Pipeline constructor",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "source_branch value reaches the Pipeline model when passed to submit_task MCP tool",
+          "files_affected": [
+            "orchestrator/mcp_tools.py",
+            "orchestrator/routes/pipelines.py",
+            "orchestrator/state_store.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In orchestrator/routes/pipelines.py, add _read_source_branch_artifacts() helper that reads plan and analysis from origin/<source_branch> via git show, with prefix fallback via git ls-tree. Call it before the contract creation block in _run_pipeline (~line 7349). Only populate fields not already set (inline values take precedence). Save updated pipeline state.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "submit_task(source_branch='egg/issue-X-v3') populates pipeline.plan and pipeline.analysis from the source branch drafts, and the contract is correctly populated via _populate_contract_from_plan()",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "In orchestrator/routes/pipelines.py:687-715, relax branch-exists check: move store creation before the check, then when branch exists on remote, check if pipeline_id has an active (non-terminal) pipeline. Only 409 when both branch exists AND active pipeline exists. Allow reuse when pipeline is terminal or missing.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Resubmitting with same pipeline_id after cancelled/failed run no longer 409s on the branch-exists check when no active pipeline exists",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add tests covering: source_branch parameter threading through MCP/REST/store; _read_source_branch_artifacts with prefix match and fallback; inline values taking precedence over source_branch; branch-exists relaxation allowing terminal pipeline reuse",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All new tests pass and cover the key behaviors",
+          "files_affected": [
+            "orchestrator/tests/test_source_branch.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Add source_branch param to submit_task for artifact reuse",
+    "description": "Adds a `source_branch` parameter to `submit_task` so the orchestrator can load\nlarge artifacts (plan, analysis) from a prior run's git branch server-side,\navoiding the need to pass 50-80KB content through MCP tool parameters.\nAlso relaxes the branch-exists check to allow reusing branches when no active\npipeline state exists.",
+    "test_plan": "- Automated: New unit tests for source_branch parameter threading, artifact reading, prefix fallback, and branch-exists relaxation\n- Manual: Submit a task with source_branch pointing to a prior run's branch, verify plan and analysis are loaded and contract is populated",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
