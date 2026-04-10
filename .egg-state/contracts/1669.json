@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1669,
+    "title": "Issue #1669",
+    "url": "https://github.com/jwbron/egg/issues/1669"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `sandbox/egg_lib/orch_cli.py:cmd_consensus_propose()`, pass `EGG_CONSENSUS_PUSH=1` in the subprocess env when executing `git push` via `env={**os.environ, 'EGG_CONSENSUS_PUSH': '1'}` \u2014 marks the push as consensus-protocol-originated",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "cmd_consensus_propose() with --push flag passes EGG_CONSENSUS_PUSH=1 to the git subprocess",
+          "files_affected": [
+            "sandbox/egg_lib/orch_cli.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `sandbox/bin/git:push_via_gateway()`, read `EGG_CONSENSUS_PUSH` env var and include `consensus_push: true` in the JSON payload to the gateway when set to '1'",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Git wrapper includes consensus_push: true in push payload when EGG_CONSENSUS_PUSH=1",
+          "files_affected": [
+            "sandbox/bin/git"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In `gateway/gateway.py:git_push()`, add concurrent-mode push enforcement after push target enforcement (~line 814). Block when EGG_CONCURRENT_MODE=true AND session has pipeline_id AND not infrastructure push AND no consensus_push in request. Return 403 with descriptive error. Add CONCURRENT_PUSH_ENFORCEMENT killswitch following PUSH_TARGET_ENFORCEMENT pattern.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Gateway returns 403 for direct pushes in concurrent mode; passes consensus-marked pushes through",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add tests in gateway/tests/test_concurrent_push_block.py: push blocked without marker, allowed with marker, allowed when not concurrent, allowed without pipeline_id, killswitch disables, infrastructure exempt",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All 6 test scenarios pass",
+          "files_affected": [
+            "gateway/tests/test_concurrent_push_block.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Update sandbox/agent-config/rules/mission.md line 66 to reflect enforcement (not just recommendation). Update sandbox/bin/git 403 message for concurrent mode case.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Agent rules describe enforcement; git wrapper shows helpful concurrent-mode error",
+          "files_affected": [
+            "sandbox/agent-config/rules/mission.md",
+            "sandbox/bin/git"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Block direct git push in concurrent mode, require consensus protocol",
+    "description": "Adds gateway-level enforcement that blocks direct `git push` in concurrent/BRC mode.\nAgents must use `egg-orch consensus propose --push` to push changes, ensuring all\nmodifications go through the BRC peer review protocol. Introduces a `consensus_push`\nmarker that flows from orch_cli through the git wrapper to the gateway.",
+    "test_plan": "- Automated: gateway/tests/test_concurrent_push_block.py covers all enforcement scenarios\n- Manual: Deploy to a test pipeline in concurrent mode and verify that direct push is blocked while consensus propose --push succeeds",
+    "manual_steps": "Pre-merge: None\nPost-merge: Verify existing concurrent pipelines still function correctly with the new enforcement"
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}

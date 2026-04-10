@@ -1108,6 +1108,120 @@ def cmd_signal_readiness(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _consensus_push() -> int:
+    """Push code via the gateway with the consensus_push marker.
+
+    Calls the gateway push API directly (instead of ``git push``) so that
+    the ``consensus_push`` flag is included in the JSON payload.  This
+    allows the gateway to distinguish consensus-protocol pushes from
+    direct pushes in concurrent mode.
+
+    Returns 0 on success, 1 on failure.
+    """
+    import urllib.error
+    import urllib.request
+
+    repo_path = os.environ.get("EGG_REPO_PATH", "")
+    gateway_url = os.environ.get("GATEWAY_URL", "")
+    session_token = os.environ.get("EGG_SESSION_TOKEN", "")
+    container_id = os.environ.get("CONTAINER_ID", "")
+
+    if not gateway_url:
+        # Fallback: use plain git push when gateway URL is not set
+        # (e.g. local development). No concurrent-mode enforcement exists
+        # in this path — the gateway is not running to enforce it.
+        try:
+            subprocess.check_output(
+                ["git", "push"],
+                text=True,
+                cwd=repo_path or None,
+                stderr=subprocess.STDOUT,
+            )
+            return 0
+        except subprocess.CalledProcessError as e:
+            print(f"Error: git push failed: {e.output.strip()}", file=sys.stderr)
+            return 1
+        except FileNotFoundError:
+            print("Error: git not found", file=sys.stderr)
+            return 1
+
+    # Resolve refspec: current branch tracking info or just the branch name.
+    try:
+        branch = subprocess.check_output(
+            ["git", "branch", "--show-current"],
+            text=True,
+            cwd=repo_path or None,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        branch = ""
+
+    if not branch:
+        print("Error: could not determine current branch for push", file=sys.stderr)
+        return 1
+
+    # Resolve the remote tracking refspec (e.g. local:remote)
+    try:
+        tracking = subprocess.check_output(
+            ["git", "config", f"branch.{branch}.merge"],
+            text=True,
+            cwd=repo_path or None,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        # tracking is like "refs/heads/egg/issue-123"
+        remote_branch = tracking.removeprefix("refs/heads/")
+        refspec = f"{branch}:{remote_branch}" if remote_branch != branch else branch
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        refspec = branch
+
+    payload = json.dumps(
+        {
+            "repo_path": repo_path,
+            "remote": "origin",
+            "refspec": refspec,
+            "force": False,
+            "container_id": container_id,
+            "consensus_push": True,
+        }
+    ).encode()
+
+    req = urllib.request.Request(
+        f"{gateway_url}/api/v1/git/push",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {session_token}",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            body = json.loads(resp.read())
+            stdout = body.get("data", {}).get("stdout", "")
+            stderr = body.get("data", {}).get("stderr", "")
+            if stdout:
+                print(stdout)
+            if stderr:
+                print(stderr, file=sys.stderr)
+            return 0
+    except urllib.error.HTTPError as e:
+        try:
+            body = json.loads(e.read())
+            msg = body.get("message", "Unknown error")
+            details = body.get("data", {})
+        except Exception:
+            msg = f"HTTP {e.code}"
+            details = {}
+        print(f"Error: git push failed: {msg}", file=sys.stderr)
+        if details:
+            print(f"Details: {json.dumps(details)}", file=sys.stderr)
+        return 1
+    except urllib.error.URLError as e:
+        print(f"Error: gateway unreachable: {e.reason}", file=sys.stderr)
+        return 1
+
+
 def cmd_consensus_propose(args: argparse.Namespace) -> int:
     """Send CONSENSUS_PROPOSE signal, optionally pushing code first."""
     pid = require_pipeline_id(args)
@@ -1118,20 +1232,9 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
     # together, auto-repropose is suppressed (the explicit proposal covers
     # the push within the debounce window).
     if getattr(args, "push", False):
-        repo_path = os.environ.get("EGG_REPO_PATH")
-        try:
-            subprocess.check_output(
-                ["git", "push"],
-                text=True,
-                cwd=repo_path,
-                stderr=subprocess.STDOUT,
-            )
-        except subprocess.CalledProcessError as e:
-            print(f"Error: git push failed: {e.output.strip()}", file=sys.stderr)
-            return 1
-        except FileNotFoundError:
-            print("Error: git not found", file=sys.stderr)
-            return 1
+        push_result = _consensus_push()
+        if push_result != 0:
+            return push_result
 
     # Read payload from file or construct from args
     payload: dict[str, Any]

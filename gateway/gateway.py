@@ -776,11 +776,12 @@ def git_push() -> tuple[Response, int] | Response:
                     details=priv_result.to_dict(),
                 )
 
-    # SECURITY: Pipeline push-target enforcement.
-    # In pipeline mode, agents must push only to their assigned branch.
-    # This prevents agents from improvising branch names on push failure.
-    # Killswitch: set PUSH_TARGET_ENFORCEMENT=false to disable.
+    # SECURITY: Pipeline and concurrent-mode push enforcement.
+    # Infrastructure pushes (checkpoint branches, etc.) are exempt from both checks.
     if not is_infrastructure_push:
+        # Push-target enforcement: in pipeline mode, agents must push only to
+        # their assigned branch. Prevents improvising branch names on push failure.
+        # Killswitch: set PUSH_TARGET_ENFORCEMENT=false to disable.
         push_target_enforcement = os.environ.get("PUSH_TARGET_ENFORCEMENT", "true").lower() not in (
             "false",
             "0",
@@ -810,6 +811,43 @@ def git_push() -> tuple[Response, int] | Response:
                             "assigned_branch": session_assigned_branch,
                             "attempted_branch": branch,
                             "pipeline_id": session_pipeline_id,
+                        },
+                    )
+
+        # Concurrent-mode enforcement: in concurrent/BRC mode, agents must push
+        # through the consensus protocol (egg-orch consensus propose --push)
+        # which sets a consensus_push marker. Direct pushes are blocked to ensure
+        # all changes go through peer review.
+        # Killswitch: set CONCURRENT_PUSH_ENFORCEMENT=false to disable.
+        concurrent_push_enforcement = os.environ.get(
+            "CONCURRENT_PUSH_ENFORCEMENT", "true"
+        ).lower() not in ("false", "0", "no")
+        concurrent_mode = os.environ.get("EGG_CONCURRENT_MODE", "").lower() == "true"
+        if concurrent_push_enforcement and concurrent_mode:
+            session_pipeline_id = None
+            if hasattr(g, "session") and g.session:
+                session_pipeline_id = getattr(g.session, "pipeline_id", None)
+            if isinstance(session_pipeline_id, str) and session_pipeline_id:
+                if not data.get("consensus_push"):
+                    audit_log(
+                        "push_denied_concurrent_mode",
+                        "git_push",
+                        success=False,
+                        details={
+                            "repo": repo,
+                            "branch": branch,
+                            "pipeline_id": session_pipeline_id,
+                            "reason": "Direct push blocked in concurrent mode",
+                        },
+                    )
+                    return make_error(
+                        "Direct push blocked in concurrent mode. "
+                        "Use: egg-orch consensus propose --push",
+                        status_code=403,
+                        details={
+                            "mode": "concurrent",
+                            "pipeline_id": session_pipeline_id,
+                            "requirement": "consensus_push",
                         },
                     )
 
