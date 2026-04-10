@@ -127,82 +127,11 @@ class ToolRegistry:
 
     # -- execution ----------------------------------------------------------
 
-    def execute(self, name: str, input: dict[str, Any]) -> ToolResult:
-        """Execute a tool by name (synchronous).
+    async def execute(self, name: str, input: dict[str, Any]) -> ToolResult:
+        """Execute a tool by name.
 
-        Supports both sync and async handlers.  If the handler is async,
-        it is executed via :func:`asyncio.run` (or the running loop).
-
-        The method checks permissions, dispatches to the handler, and
-        truncates output that exceeds the configured max output size.
-
-        Args:
-            name: The registered tool name.
-            input: Input parameters for the tool.
-
-        Returns:
-            A :class:`ToolResult` with the tool's output (possibly truncated).
-        """
-        # Unknown tool?
-        if name not in self._tools:
-            return ToolResult(
-                output=f"Unknown tool: {name}",
-                is_error=True,
-            )
-
-        # Permission check
-        if self._permission_callback is not None:
-            error = self._permission_callback(name, input)
-            if error is not None:
-                return ToolResult(output=error, is_error=True)
-
-        _, handler = self._tools[name]
-
-        try:
-            raw_result = handler(input)
-            # If the handler is async or returns a coroutine, await it
-            if inspect.isawaitable(raw_result):
-                try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    loop = None
-                if loop and loop.is_running():
-                    # We are inside an event loop already; create a task
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor() as pool:
-                        raw_result = pool.submit(asyncio.run, raw_result).result()
-                else:
-                    raw_result = asyncio.run(raw_result)
-        except Exception as exc:
-            logger.exception("Tool %s raised an exception", name)
-            return ToolResult(
-                output=f"Tool execution error: {exc}",
-                is_error=True,
-            )
-
-        # Normalize result: if handler returned a string, wrap in ToolResult
-        if isinstance(raw_result, str):
-            result = ToolResult(output=raw_result)
-        elif isinstance(raw_result, ToolResult):
-            result = raw_result
-        else:
-            result = ToolResult(output=str(raw_result))
-
-        # Truncate oversized output
-        if len(result.output.encode("utf-8", errors="replace")) > self._max_output_size:
-            truncated = result.output[: self._max_output_size]
-            result = ToolResult(
-                output=(
-                    truncated
-                    + f"\n\n[Output truncated — exceeded {self._max_output_size} bytes]"
-                ),
-                is_error=result.is_error,
-            )
-
-        return result
-
-    async def execute_async(self, name: str, input: dict[str, Any]) -> ToolResult:
-        """Execute a tool by name (async version).
+        The primary interface is async.  Use :meth:`execute_sync` when
+        a synchronous call is needed (e.g. from non-async test helpers).
 
         Args:
             name: The registered tool name.
@@ -259,7 +188,14 @@ class ToolRegistry:
         return result
 
     # Alias for backward compatibility
-    execute_sync = execute
+    execute_async = execute
+
+    def execute_sync(self, name: str, input: dict[str, Any]) -> ToolResult:
+        """Execute a tool by name (synchronous wrapper).
+
+        Convenience method for non-async callers.
+        """
+        return asyncio.run(self.execute(name, input))
 
     # -- introspection ------------------------------------------------------
 
