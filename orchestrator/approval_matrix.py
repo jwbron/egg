@@ -286,11 +286,7 @@ class ApprovalMatrix:
         for reviewer in self._graph.reviewers_for(producer):
             key = (reviewer, producer)
             entry = self._entries.get(key)
-            if (
-                entry
-                and entry.state == ApprovalState.NACKED
-                and entry.version == current_version
-            ):
+            if entry and entry.state == ApprovalState.NACKED and entry.version == current_version:
                 return True
         return False
 
