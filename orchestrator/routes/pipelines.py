@@ -2334,7 +2334,7 @@ def _cleanup_stale_generic_drafts(worktree_path: Path) -> bool:
     if not drafts_dir.is_dir():
         return False
 
-    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_path)]
+    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-c", f"safe.directory={worktree_path}", "-C", str(worktree_path)]
     removed = False
 
     stale_names = ("analysis.md", "plan.md")
@@ -2417,7 +2417,7 @@ def _cleanup_drafts_for_pr(
     if not matches:
         return False
 
-    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_path)]
+    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-c", f"safe.directory={worktree_path}", "-C", str(worktree_path)]
     removed = False
 
     for draft in matches:
@@ -2494,7 +2494,7 @@ def _git_show_draft(
     responsible for ensuring ``origin/{branch}`` is fresh (e.g., by
     running ``git fetch origin {branch}`` before calling this helper).
     """
-    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(repo_path)]
+    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-c", f"safe.directory={repo_path}", "-C", str(repo_path)]
     try:
         result = subprocess.run(
             [*git_base, "show", "--", f"origin/{branch}:{rel_path}"],
@@ -2505,6 +2505,14 @@ def _git_show_draft(
         )
         if result.returncode == 0 and result.stdout:
             return result.stdout
+        if result.returncode != 0:
+            logger.debug(
+                "git show returned non-zero",
+                branch=branch,
+                rel_path=rel_path,
+                returncode=result.returncode,
+                stderr=result.stderr.strip()[:200],
+            )
     except Exception as exc:
         logger.debug(
             "git show failed for draft",
@@ -2562,7 +2570,7 @@ def _read_source_branch_artifacts(
     Returns:
         True if any artifacts were read, False otherwise.
     """
-    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(repo_path)]
+    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-c", f"safe.directory={repo_path}", "-C", str(repo_path)]
     bare_prefix = _pipeline_identifier(issue_number, pipeline_id)
     updated = False
 
@@ -3527,7 +3535,7 @@ def _sync_worktree_with_remote(
     Safe to call on every pipeline start because it is idempotent when the
     local branch is already up to date.
     """
-    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_repo_path)]
+    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-c", f"safe.directory={worktree_repo_path}", "-C", str(worktree_repo_path)]
 
     # Step 1: Authenticated fetch via gateway (gateway holds GitHub credentials)
     fetch_ok = spawner.gateway.fetch_worktree_branch(
@@ -3727,7 +3735,7 @@ def _commit_statefiles_to_worktree(
     if not state_dir.exists():
         return  # Nothing to commit yet
 
-    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_path)]
+    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-c", f"safe.directory={worktree_path}", "-C", str(worktree_path)]
 
     if pipeline_identifier is not None:
         # Scope to files belonging to this pipeline only (#1390).
@@ -3846,6 +3854,8 @@ def _ensure_statefiles_on_branch(
                 "git",
                 "-c",
                 "core.hooksPath=/dev/null",
+                "-c",
+                f"safe.directory={worktree_repo_path}",
                 "-C",
                 str(worktree_repo_path),
             ]
