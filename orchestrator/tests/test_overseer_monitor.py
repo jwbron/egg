@@ -2266,3 +2266,379 @@ class TestIncompleteConsensusActivityAware:
         # Nudge SHOULD have been sent despite active agents — cap exceeded
         monitor._send_message.assert_awaited()
         assert monitor._incomplete_consensus_nudged is True
+
+
+# ===================================================================
+# test_query_container_list
+# ===================================================================
+
+
+class TestQueryContainerList:
+    """Tests for _query_container_list."""
+
+    def test_returns_containers_from_data_envelope(self) -> None:
+        """Parses containers from {data: {containers: [...]}} envelope."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-cl-1",
+            config=_MockConfig(),
+            classifier=_MockClassifier(),
+            decision_maker=_MockDecisionMaker(),
+        )
+        payload = json.dumps({"data": {"containers": [{"container_id": "c1"}]}})
+        monitor._run_cli = AsyncMock(return_value=(0, payload, ""))
+
+        result = _run(monitor._query_container_list())
+        assert result == [{"container_id": "c1"}]
+
+    def test_returns_containers_from_raw_list(self) -> None:
+        """Parses containers from a raw JSON list."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-cl-2",
+            config=_MockConfig(),
+            classifier=_MockClassifier(),
+            decision_maker=_MockDecisionMaker(),
+        )
+        payload = json.dumps([{"container_id": "c1"}, {"container_id": "c2"}])
+        monitor._run_cli = AsyncMock(return_value=(0, payload, ""))
+
+        result = _run(monitor._query_container_list())
+        assert result == [{"container_id": "c1"}, {"container_id": "c2"}]
+
+    def test_returns_empty_on_cli_failure(self) -> None:
+        """Returns empty list when CLI returns non-zero."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-cl-3",
+            config=_MockConfig(),
+            classifier=_MockClassifier(),
+            decision_maker=_MockDecisionMaker(),
+        )
+        monitor._run_cli = AsyncMock(return_value=(1, "", "error"))
+
+        result = _run(monitor._query_container_list())
+        assert result == []
+
+    def test_returns_empty_on_exception(self) -> None:
+        """Returns empty list when CLI raises an exception."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-cl-4",
+            config=_MockConfig(),
+            classifier=_MockClassifier(),
+            decision_maker=_MockDecisionMaker(),
+        )
+        monitor._run_cli = AsyncMock(side_effect=RuntimeError("boom"))
+
+        result = _run(monitor._query_container_list())
+        assert result == []
+
+    def test_returns_empty_on_empty_stdout(self) -> None:
+        """Returns empty list when CLI returns empty stdout."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-cl-5",
+            config=_MockConfig(),
+            classifier=_MockClassifier(),
+            decision_maker=_MockDecisionMaker(),
+        )
+        monitor._run_cli = AsyncMock(return_value=(0, "", ""))
+
+        result = _run(monitor._query_container_list())
+        assert result == []
+
+
+# ===================================================================
+# test_query_container_logs
+# ===================================================================
+
+
+class TestQueryContainerLogs:
+    """Tests for _query_container_logs."""
+
+    def _make_monitor(self) -> OverseerMonitor:
+        return OverseerMonitor(
+            pipeline_id="test-ql-1",
+            config=_MockConfig(),
+            classifier=_MockClassifier(),
+            decision_maker=_MockDecisionMaker(),
+        )
+
+    def test_selects_running_container(self) -> None:
+        """Prefers a running container over a stopped one."""
+        monitor = self._make_monitor()
+        containers = [
+            {
+                "container_id": "stopped1",
+                "agent_role": "coder",
+                "status": "stopped",
+                "started_at": "2026-04-10T10:00:00Z",
+            },
+            {
+                "container_id": "running1",
+                "agent_role": "coder",
+                "status": "running",
+                "started_at": "2026-04-10T09:00:00Z",
+            },
+        ]
+        log_payload = json.dumps({"data": {"logs": "some log output"}})
+
+        async def mock_run_cli(*args, **kwargs):
+            if "list" in args:
+                return (0, json.dumps({"data": {"containers": containers}}), "")
+            if "logs" in args:
+                # Verify we're fetching from the running container
+                assert "running1" in args
+                return (0, log_payload, "")
+            return (0, "[]", "")
+
+        monitor._run_cli = mock_run_cli
+
+        result = _run(monitor._query_container_logs("coder"))
+        assert result == "some log output"
+
+    def test_selects_newest_running_container(self) -> None:
+        """When multiple running containers exist, selects newest by started_at."""
+        monitor = self._make_monitor()
+        containers = [
+            {
+                "container_id": "old",
+                "agent_role": "coder",
+                "status": "running",
+                "started_at": "2026-04-10T08:00:00Z",
+            },
+            {
+                "container_id": "new",
+                "agent_role": "coder",
+                "status": "running",
+                "started_at": "2026-04-10T10:00:00Z",
+            },
+        ]
+        log_payload = json.dumps({"data": {"logs": "newest logs"}})
+
+        async def mock_run_cli(*args, **kwargs):
+            if "list" in args:
+                return (0, json.dumps({"data": {"containers": containers}}), "")
+            if "logs" in args:
+                assert "new" in args
+                return (0, log_payload, "")
+            return (0, "[]", "")
+
+        monitor._run_cli = mock_run_cli
+
+        result = _run(monitor._query_container_logs("coder"))
+        assert result == "newest logs"
+
+    def test_falls_back_to_most_recent_stopped(self) -> None:
+        """When no running containers, selects most recently started stopped one."""
+        monitor = self._make_monitor()
+        containers = [
+            {
+                "container_id": "old_stopped",
+                "agent_role": "coder",
+                "status": "stopped",
+                "started_at": "2026-04-10T08:00:00Z",
+            },
+            {
+                "container_id": "new_stopped",
+                "agent_role": "coder",
+                "status": "stopped",
+                "started_at": "2026-04-10T10:00:00Z",
+            },
+        ]
+        log_payload = json.dumps({"data": {"logs": "stopped logs"}})
+
+        async def mock_run_cli(*args, **kwargs):
+            if "list" in args:
+                return (0, json.dumps({"data": {"containers": containers}}), "")
+            if "logs" in args:
+                assert "new_stopped" in args
+                return (0, log_payload, "")
+            return (0, "[]", "")
+
+        monitor._run_cli = mock_run_cli
+
+        result = _run(monitor._query_container_logs("coder"))
+        assert result == "stopped logs"
+
+    def test_returns_empty_when_no_containers(self) -> None:
+        """Returns empty string when no containers exist."""
+        monitor = self._make_monitor()
+        monitor._run_cli = AsyncMock(return_value=(0, json.dumps({"data": {"containers": []}}), ""))
+
+        result = _run(monitor._query_container_logs("coder"))
+        assert result == ""
+
+    def test_returns_empty_when_no_matching_role(self) -> None:
+        """Returns empty string when no containers match the requested role."""
+        monitor = self._make_monitor()
+        containers = [{"container_id": "c1", "agent_role": "tester", "status": "running"}]
+        monitor._run_cli = AsyncMock(
+            return_value=(0, json.dumps({"data": {"containers": containers}}), "")
+        )
+
+        result = _run(monitor._query_container_logs("coder"))
+        assert result == ""
+
+    def test_returns_empty_when_container_has_no_id(self) -> None:
+        """Returns empty string when matching container has no container_id."""
+        monitor = self._make_monitor()
+        containers = [{"agent_role": "coder", "status": "running"}]
+        monitor._run_cli = AsyncMock(
+            return_value=(0, json.dumps({"data": {"containers": containers}}), "")
+        )
+
+        result = _run(monitor._query_container_logs("coder"))
+        assert result == ""
+
+    def test_returns_empty_on_log_fetch_failure(self) -> None:
+        """Returns empty string when log fetch CLI call fails."""
+        monitor = self._make_monitor()
+        containers = [{"container_id": "c1", "agent_role": "coder", "status": "running"}]
+
+        async def mock_run_cli(*args, **kwargs):
+            if "list" in args:
+                return (0, json.dumps({"data": {"containers": containers}}), "")
+            if "logs" in args:
+                return (1, "", "error")
+            return (0, "[]", "")
+
+        monitor._run_cli = mock_run_cli
+
+        result = _run(monitor._query_container_logs("coder"))
+        assert result == ""
+
+    def test_returns_empty_on_exception(self) -> None:
+        """Returns empty string when an exception is raised."""
+        monitor = self._make_monitor()
+        monitor._run_cli = AsyncMock(side_effect=RuntimeError("boom"))
+
+        result = _run(monitor._query_container_logs("coder"))
+        assert result == ""
+
+    def test_parses_logs_from_raw_stdout(self) -> None:
+        """Falls back to raw stdout when response is not a dict."""
+        monitor = self._make_monitor()
+        containers = [{"container_id": "c1", "agent_role": "coder", "status": "running"}]
+
+        async def mock_run_cli(*args, **kwargs):
+            if "list" in args:
+                return (0, json.dumps({"data": {"containers": containers}}), "")
+            if "logs" in args:
+                return (0, '"just a string"', "")
+            return (0, "[]", "")
+
+        monitor._run_cli = mock_run_cli
+
+        result = _run(monitor._query_container_logs("coder"))
+        assert result == '"just a string"'
+
+    def test_parses_logs_key_fallback(self) -> None:
+        """Handles {logs: ...} response without data envelope."""
+        monitor = self._make_monitor()
+        containers = [{"container_id": "c1", "agent_role": "coder", "status": "running"}]
+        log_payload = json.dumps({"logs": "fallback logs"})
+
+        async def mock_run_cli(*args, **kwargs):
+            if "list" in args:
+                return (0, json.dumps({"data": {"containers": containers}}), "")
+            if "logs" in args:
+                return (0, log_payload, "")
+            return (0, "[]", "")
+
+        monitor._run_cli = mock_run_cli
+
+        result = _run(monitor._query_container_logs("coder"))
+        assert result == "fallback logs"
+
+    def test_returns_raw_stdout_on_json_decode_error(self) -> None:
+        """Falls back to raw stdout when CLI output is not valid JSON."""
+        monitor = self._make_monitor()
+        containers = [{"container_id": "c1", "agent_role": "coder", "status": "running"}]
+        raw_log_text = (
+            "2026-04-10 ERROR: connection refused\nTraceback (most recent call last):\n  ..."
+        )
+
+        async def mock_run_cli(*args, **kwargs):
+            if "list" in args:
+                return (0, json.dumps({"data": {"containers": containers}}), "")
+            if "logs" in args:
+                return (0, raw_log_text, "")
+            return (0, "[]", "")
+
+        monitor._run_cli = mock_run_cli
+
+        result = _run(monitor._query_container_logs("coder"))
+        assert result == raw_log_text
+
+    def test_passes_tail_as_lines_arg(self) -> None:
+        """Verifies --lines <tail> is passed to the container logs CLI call."""
+        monitor = self._make_monitor()
+        containers = [{"container_id": "c1", "agent_role": "coder", "status": "running"}]
+        captured_args: list[tuple] = []
+
+        async def mock_run_cli(*args, **kwargs):
+            captured_args.append(args)
+            if "list" in args:
+                return (0, json.dumps({"data": {"containers": containers}}), "")
+            if "logs" in args:
+                return (0, json.dumps({"data": {"logs": "ok"}}), "")
+            return (0, "[]", "")
+
+        monitor._run_cli = mock_run_cli
+
+        _run(monitor._query_container_logs("coder", tail=500))
+        # Find the logs call and verify --lines and the tail value are present
+        logs_call = [a for a in captured_args if "logs" in a]
+        assert len(logs_call) == 1
+        assert "--lines" in logs_call[0]
+        lines_idx = logs_call[0].index("--lines")
+        assert logs_call[0][lines_idx + 1] == "500"
+
+    def test_container_logs_cache_dedup_in_poll_cycle(self) -> None:
+        """Two alerts for the same agent should only fetch container logs once."""
+        monitor = self._make_monitor()
+
+        # Track how many times _query_container_logs is called
+        query_count = 0
+
+        async def counting_query(agent_role: str, tail: int = 200) -> str:
+            nonlocal query_count
+            query_count += 1
+            return "some logs"
+
+        monitor._query_container_logs = counting_query
+
+        alerts = [
+            {"agent_role": "coder", "alert_type": "heartbeat_stale", "agent_id": "coder"},
+            {"agent_role": "coder", "alert_type": "progress_stall", "agent_id": "coder"},
+        ]
+
+        # Mock all the other _poll_cycle dependencies to isolate the cache behavior
+        monitor._query_consensus_status = AsyncMock(return_value={})
+        monitor._query_current_phase = AsyncMock(return_value="implement")
+        monitor._query_progress = AsyncMock(return_value=[])
+        monitor._query_health_alerts = AsyncMock(return_value=alerts)
+        monitor._query_pipeline_data = AsyncMock(
+            return_value={"status": "running", "phase": "implement", "agents": [{"role": "coder"}]}
+        )
+        monitor._check_orchestrator_reachability = AsyncMock()
+        monitor._query_decisions = AsyncMock(return_value=[])
+        monitor._check_rerun_anomaly = AsyncMock()
+        monitor._check_status_consistency = AsyncMock()
+        monitor._check_hitl_resolution_propagation = AsyncMock()
+        monitor._poll_escalation_messages = AsyncMock(return_value=[])
+        monitor._check_post_consensus_stalls = AsyncMock()
+        monitor._check_incomplete_consensus_stalls = AsyncMock()
+        monitor._check_cross_phase_consistency = AsyncMock()
+        monitor._is_infra_error_deduped = MagicMock(return_value=False)
+        monitor._record_infra_error_dedup = MagicMock()
+        monitor._resolve_alert = AsyncMock()
+        monitor._execute_action = AsyncMock()
+
+        _run(monitor._poll_cycle())
+
+        # Despite two alerts for "coder", logs should be fetched only once
+        assert query_count == 1
+
+        # Both alerts should have received the cached container_logs value
+        classify_calls = monitor._classifier.classify_stall.call_args_list
+        assert len(classify_calls) == 2
+        for call in classify_calls:
+            assert call.kwargs.get("container_logs") == "some logs"

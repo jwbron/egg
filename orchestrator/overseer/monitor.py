@@ -186,15 +186,22 @@ class OverseerMonitor:
         logs: list[dict],
         progress: list[dict],
         consensus: dict | None = None,
+        container_logs: str | None = None,
     ) -> dict:
         if self._classifier and hasattr(self._classifier, "classify_stall"):
-            return await self._classifier.classify_stall(logs, progress, consensus=consensus)
-        return await classify_stall(logs, progress, consensus=consensus)
+            return await self._classifier.classify_stall(
+                logs, progress, consensus=consensus, container_logs=container_logs
+            )
+        return await classify_stall(
+            logs, progress, consensus=consensus, container_logs=container_logs
+        )
 
-    async def _classify_error(self, error_context: dict) -> dict:
+    async def _classify_error(self, error_context: dict, container_logs: str | None = None) -> dict:
         if self._classifier and hasattr(self._classifier, "classify_error"):
-            return await self._classifier.classify_error(error_context)
-        return await classify_error(error_context)
+            return await self._classifier.classify_error(
+                error_context, container_logs=container_logs
+            )
+        return await classify_error(error_context, container_logs=container_logs)
 
     async def _detect_loop(self, recent_actions: list[dict]) -> dict:
         if self._classifier and hasattr(self._classifier, "detect_loop"):
@@ -230,14 +237,16 @@ class OverseerMonitor:
         return await compose_redirect_message(agent_role, issue, context, model=model)
 
     async def _decide_escalation_level(
-        self, classification: dict, redirect_history: list[dict]
+        self, classification: dict, redirect_history: list[dict], context: dict | None = None
     ) -> dict:
         model = getattr(self.config, "overseer_decision_maker_model", "sonnet")
         if self._decision_maker and hasattr(self._decision_maker, "decide_escalation_level"):
             return await self._decision_maker.decide_escalation_level(
-                classification, redirect_history, model=model
+                classification, redirect_history, context=context, model=model
             )
-        return await decide_escalation_level(classification, redirect_history, model=model)
+        return await decide_escalation_level(
+            classification, redirect_history, context=context, model=model
+        )
 
     # -----------------------------------------------------------------
     # Lifecycle
@@ -326,10 +335,16 @@ class OverseerMonitor:
             # 5. Check for escalation messages
             escalations = await self._poll_escalation_messages()
 
-            # 6 & 7. Process any anomalies (with consensus context)
+            # 6 & 7. Process any anomalies (with consensus context + container logs)
+            container_logs_cache: dict[str, str] = {}
             for alert in alerts:
                 agent_role = alert.get("agent_role", alert.get("agent_id", "unknown"))
                 alert_type = alert.get("alert_type", "")
+
+                # Fetch container logs for the alerted agent (best-effort, cached per cycle)
+                if agent_role not in container_logs_cache:
+                    container_logs_cache[agent_role] = await self._query_container_logs(agent_role)
+                container_logs = container_logs_cache[agent_role]
 
                 if alert_type == "infrastructure_error":
                     # Tier 1 infrastructure_error alerts: skip LLM classification,
@@ -363,6 +378,7 @@ class OverseerMonitor:
                         logs=alert.get("logs", []),
                         progress=progress_events,
                         consensus=consensus or None,
+                        container_logs=container_logs or None,
                     )
 
                     # Dedup: if classifier detected infra error, check dedup window.
@@ -382,19 +398,29 @@ class OverseerMonitor:
                             continue
                         self._record_infra_error_escalation(agent_role, dedup_key)
 
+                # Include container logs in context for the decision maker
+                action_context: dict = {
+                    "alert": alert,
+                    "pipeline_id": self.pipeline_id,
+                }
+                if container_logs:
+                    action_context["container_logs"] = container_logs[-4000:]
+
                 decision = await self._decide_corrective_action(
                     classification,
-                    {"alert": alert, "pipeline_id": self.pipeline_id},
+                    action_context,
                 )
-                await self._execute_action(decision, agent_role)
+                await self._execute_action(decision, agent_role, container_logs=container_logs)
                 await self._resolve_alert(
                     agent_id=alert.get("agent_id", agent_role),
                     alert_type=alert.get("alert_type", "unknown"),
                 )
 
-            # Process escalation messages (with consensus context)
+            # Process escalation messages (with consensus context, reusing log cache)
             for escalation in escalations:
-                await self.handle_escalation(escalation, consensus=consensus)
+                await self.handle_escalation(
+                    escalation, consensus=consensus, container_logs_cache=container_logs_cache
+                )
 
             # 8. Check pipeline status for terminal state
             if status in ("complete", "failed", "cancelled"):
@@ -434,7 +460,12 @@ class OverseerMonitor:
     # Escalation handling
     # -----------------------------------------------------------------
 
-    async def handle_escalation(self, escalation: dict, consensus: dict | None = None) -> None:
+    async def handle_escalation(
+        self,
+        escalation: dict,
+        consensus: dict | None = None,
+        container_logs_cache: dict[str, str] | None = None,
+    ) -> None:
         """Handle an escalation from the orchestrator's tripwire processor.
 
         Implements a hallucination guard: the Sonnet decision tier only
@@ -443,14 +474,23 @@ class OverseerMonitor:
         Args:
             escalation: Dict with escalation details from the orchestrator.
             consensus: Optional current BRC consensus status.
+            container_logs_cache: Optional per-cycle cache to avoid redundant fetches.
         """
         agent_role = escalation.get("agent_role", escalation.get("agent_id", "unknown"))
+
+        # Fetch container logs for the escalated agent (best-effort, cached per cycle)
+        if container_logs_cache is None:
+            container_logs_cache = {}
+        if agent_role not in container_logs_cache:
+            container_logs_cache[agent_role] = await self._query_container_logs(agent_role)
+        container_logs = container_logs_cache[agent_role]
 
         # Hallucination guard: always classify first, then decide
         classification = await self._classify_stall(
             logs=escalation.get("logs", []),
             progress=escalation.get("progress", []),
             consensus=consensus,
+            container_logs=container_logs or None,
         )
 
         # Check redirect history for this agent
@@ -459,9 +499,19 @@ class OverseerMonitor:
 
         redirect_count = sum(1 for h in history if h.get("action") == "redirect")
 
+        # Include container logs in context for the decision maker
+        action_context: dict = {
+            "escalation": escalation,
+            "pipeline_id": self.pipeline_id,
+        }
+        if container_logs:
+            action_context["container_logs"] = container_logs[-4000:]
+
         if redirect_count >= max_redirects:
             # Too many redirects -- escalate
-            escalation_decision = await self._decide_escalation_level(classification, history)
+            escalation_decision = await self._decide_escalation_level(
+                classification, history, context=action_context
+            )
             decision = {
                 "action": escalation_decision.get("level", "hitl"),
                 "message": escalation_decision.get("reasoning", ""),
@@ -470,10 +520,10 @@ class OverseerMonitor:
         else:
             decision = await self._decide_corrective_action(
                 classification,
-                {"escalation": escalation, "pipeline_id": self.pipeline_id},
+                action_context,
             )
 
-        await self._execute_action(decision, agent_role)
+        await self._execute_action(decision, agent_role, container_logs=container_logs)
 
         # Record in escalation history (bounded per agent)
         if agent_role not in self._escalation_history:
@@ -490,7 +540,9 @@ class OverseerMonitor:
     # Action execution
     # -----------------------------------------------------------------
 
-    async def _execute_action(self, decision: dict, agent_role: str) -> None:
+    async def _execute_action(
+        self, decision: dict, agent_role: str, container_logs: str | None = None
+    ) -> None:
         """Execute a corrective action based on a decision.
 
         Includes a safety net: if the decision message indicates human
@@ -500,6 +552,7 @@ class OverseerMonitor:
         Args:
             decision: Output from decide_corrective_action.
             agent_role: The target agent role.
+            container_logs: Optional container logs to include in diagnostic issues.
         """
         action = decision.get("action", "nudge")
         message = decision.get("message", "")
@@ -557,11 +610,14 @@ class OverseerMonitor:
             self.self_monitor.record_message_sent()
 
         elif action == "issue":
+            issue_context: dict = {"pipeline_id": self.pipeline_id}
+            if container_logs:
+                issue_context["container_logs"] = container_logs[-4000:]
             await file_diagnostic_issue(
                 pipeline_id=self.pipeline_id,
                 agent_role=agent_role,
                 anomaly={"type": "escalation", "description": message},
-                context={"pipeline_id": self.pipeline_id},
+                context=issue_context,
             )
 
         elif action == "slack":
@@ -874,6 +930,89 @@ class OverseerMonitor:
         except Exception:
             logger.debug("Failed to query contract data", exc_info=True)
         return {}
+
+    async def _query_container_list(self) -> list[dict]:
+        """List containers for the pipeline via ``egg-orch container list``."""
+        try:
+            rc, stdout, _ = await self._run_cli(
+                "egg-orch",
+                "container",
+                "list",
+                self.pipeline_id,
+                "--json",
+            )
+            if rc == 0 and stdout.strip():
+                data = json.loads(stdout)
+                if isinstance(data, dict):
+                    return data.get("data", {}).get("containers", [])
+                if isinstance(data, list):
+                    return data
+        except Exception:
+            logger.debug("Failed to list containers", exc_info=True)
+        return []
+
+    async def _query_container_logs(self, agent_role: str, tail: int = 200) -> str:
+        """Fetch recent container logs for an agent role.
+
+        Auto-selects the best container for the role: prefers running
+        containers, then falls back to the most recently started one.
+
+        Args:
+            agent_role: The agent role whose container logs to fetch.
+            tail: Number of log lines from the end (default 200).
+
+        Returns:
+            Log output as a string, or empty string on failure.
+        """
+        try:
+            containers = await self._query_container_list()
+            if not containers:
+                return ""
+
+            # Filter to containers matching the target agent role
+            role_containers = [c for c in containers if c.get("agent_role") == agent_role]
+            if not role_containers:
+                return ""
+
+            # Prefer running containers (newest first), then most recently started
+            running = [c for c in role_containers if c.get("status") == "running"]
+            if running:
+                running.sort(key=lambda c: c.get("started_at", ""), reverse=True)
+                selected = running[0]
+            else:
+                role_containers.sort(key=lambda c: c.get("started_at", ""), reverse=True)
+                selected = role_containers[0]
+
+            container_id = selected.get("container_id", "")
+            if not container_id:
+                return ""
+
+            rc, stdout, _ = await self._run_cli(
+                "egg-orch",
+                "container",
+                "logs",
+                self.pipeline_id,
+                container_id,
+                "--lines",
+                str(tail),
+                "--json",
+                timeout=30,
+            )
+            if rc == 0 and stdout.strip():
+                try:
+                    data = json.loads(stdout)
+                except json.JSONDecodeError:
+                    return stdout.strip()
+                if isinstance(data, dict):
+                    return data.get("data", {}).get("logs", data.get("logs", ""))
+                return stdout.strip()
+        except Exception:
+            logger.debug(
+                "Failed to fetch container logs for %s",
+                agent_role,
+                exc_info=True,
+            )
+        return ""
 
     def _filter_current_phase_agents(self, alerts: list[dict], pipeline_status: dict) -> list[dict]:
         """Filter alerts to only include agents in the current phase.

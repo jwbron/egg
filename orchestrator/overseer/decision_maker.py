@@ -123,6 +123,7 @@ async def decide_escalation_level(
     classification: dict,
     redirect_history: list[dict],
     *,
+    context: dict | None = None,
     model: str | None = None,
 ) -> dict:
     """Decide whether to escalate further based on prior redirect attempts.
@@ -131,6 +132,7 @@ async def decide_escalation_level(
         classification: Latest classifier output.
         redirect_history: List of prior redirects sent to this agent, each
             with keys like ``action``, ``timestamp``, ``outcome``.
+        context: Optional additional context (e.g. container logs).
         model: Override the default decision model.
 
     Returns:
@@ -160,8 +162,11 @@ async def decide_escalation_level(
         '  "level": one of the levels above\n'
         '  "reasoning": brief explanation of why\n'
     )
+    ctx_data: dict = {"classification": classification, "redirect_history": redirect_history}
+    if context:
+        ctx_data["context"] = context
     ctx = json.dumps(
-        {"classification": classification, "redirect_history": redirect_history},
+        ctx_data,
         default=str,
     )
 
