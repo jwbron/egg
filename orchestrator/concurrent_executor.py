@@ -426,13 +426,13 @@ class ConcurrentPhaseExecutor:
                 )
 
                 # Safety net (#1671): if the tracker has all roles in
-                # _confirmed but evaluate() returned False due to stale
+                # confirmed_roles but evaluate() returned False due to stale
                 # NACK edges in the approval matrix (common after NACK →
                 # re-propose cycles), trust the confirmed set.
-                tracker_confirmed = getattr(tracker, "_confirmed", set())
+                tracker_confirmed = tracker.confirmed_roles
                 if all_roles and all_roles.issubset(tracker_confirmed):
                     logger.warning(
-                        "All roles in tracker._confirmed but evaluate() "
+                        "All roles in tracker.confirmed_roles but evaluate() "
                         "returned incomplete — overriding (#1671)",
                         pipeline_id=self.pipeline.id,
                         confirmed_roles=sorted(tracker_confirmed),

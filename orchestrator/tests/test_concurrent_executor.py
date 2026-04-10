@@ -626,8 +626,8 @@ class TestCheckConsensusMessageBusFallback:
         finally:
             remove_peer_consensus_tracker("KORE-1234")
 
-    def test_fallback_counts_pending_acks_when_tracker_confirmed(self):
-        """pending_acks messages should count when the tracker has the role in _confirmed (#1671)."""
+    def test_tracker_confirmed_safety_net_preempts_message_bus(self):
+        """When all roles are in _confirmed, the tracker safety net fires before message-bus fallback (#1671)."""
         from concurrent_executor import ConcurrentPhaseExecutor
         from message_store import Message, MessageType
         from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
