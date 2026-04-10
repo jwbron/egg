@@ -528,6 +528,37 @@ class TestResolveDecisionEndpoint:
         assert data["success"] is True
         assert data["data"]["decision"]["status"] == "resolved"
 
+    @patch("routes.decisions.get_state_store_for_pipeline")
+    @patch("routes.decisions.get_decision_queue")
+    def test_resolve_dict_resolution_serialized_to_json_string(
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path
+    ):
+        """POST resolve with dict resolution serializes it to a JSON string (#1635)."""
+        import json
+
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
+        mock_queue = MagicMock()
+
+        resolved_decision = _make_decision(
+            status="resolved",
+            resolution='{"action": "select", "selected": "approve"}',
+        )
+        mock_queue.resolve_decision.return_value = resolved_decision
+        mock_get_queue.return_value = mock_queue
+
+        # Send resolution as a dict (not a string) — this is the bug trigger
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            json={"resolution": {"action": "select", "selected": "approve"}},
+        )
+
+        assert response.status_code == 200
+        # The route handler should have serialized the dict to a JSON string
+        call_args = mock_queue.resolve_decision.call_args
+        actual_resolution = call_args[0][1]
+        assert isinstance(actual_resolution, str)
+        assert json.loads(actual_resolution) == {"action": "select", "selected": "approve"}
+
     def test_resolve_missing_resolution_returns_400(self, client, tmp_path):
         """POST resolve without resolution field returns 400."""
         response = client.post(

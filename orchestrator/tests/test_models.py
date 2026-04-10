@@ -148,6 +148,65 @@ class TestHITLDecision:
         assert len(decision.questions) == 2
         assert decision.questions[0]["id"] == "q-1"
 
+    def test_dict_resolution_serialized_to_json_string(self):
+        """Dict resolution is auto-serialized to a JSON string (#1635)."""
+        import json
+
+        decision = HITLDecision(
+            id="decision-1",
+            question="Approve?",
+            resolution={"action": "select", "selected": "approve"},
+        )
+        assert isinstance(decision.resolution, str)
+        assert json.loads(decision.resolution) == {
+            "action": "select",
+            "selected": "approve",
+        }
+
+    def test_list_resolution_serialized_to_json_string(self):
+        """List resolution is auto-serialized to a JSON string (#1635)."""
+        import json
+
+        decision = HITLDecision(
+            id="decision-1",
+            question="Approve?",
+            resolution=["option-a", "option-b"],
+        )
+        assert isinstance(decision.resolution, str)
+        assert json.loads(decision.resolution) == ["option-a", "option-b"]
+
+    def test_string_resolution_unchanged(self):
+        """String resolution passes through unchanged (#1635)."""
+        decision = HITLDecision(
+            id="decision-1",
+            question="Approve?",
+            resolution='{"action": "approve"}',
+        )
+        assert decision.resolution == '{"action": "approve"}'
+
+    def test_none_resolution_unchanged(self):
+        """None resolution passes through unchanged (#1635)."""
+        decision = HITLDecision(
+            id="decision-1",
+            question="Approve?",
+            resolution=None,
+        )
+        assert decision.resolution is None
+
+    def test_dict_resolution_serialized_on_assignment(self):
+        """Dict resolution is serialized when assigned to an existing instance (#1635)."""
+        import json
+
+        decision = HITLDecision(
+            id="decision-1",
+            question="Approve?",
+            resolution=None,
+        )
+        # Direct attribute assignment — requires validate_assignment=True
+        decision.resolution = {"action": "select", "selected": "approve"}
+        assert isinstance(decision.resolution, str)
+        assert json.loads(decision.resolution) == {"action": "select", "selected": "approve"}
+
 
 class TestPhaseExecution:
     """Tests for PhaseExecution model."""
