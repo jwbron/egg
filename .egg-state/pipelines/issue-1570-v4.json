@@ -71,10 +71,10 @@
         {
           "container_id": "ebaa6decc5ada41160f59978bc288e072aaf657e9b937f1d07201ae0b7b97ba3",
           "container_name": "issue-1570-v4-coder",
-          "status": "removed",
+          "status": "failed",
           "started_at": "2026-04-10T06:02:42.768858Z",
-          "exited_at": "2026-04-10T06:02:56.793200Z",
-          "exit_code": null,
+          "exited_at": "2026-04-10T06:03:43.106822Z",
+          "exit_code": -1,
           "agent_role": "coder",
           "session_token": null
         },
@@ -129,10 +129,10 @@
           "status": "failed",
           "container_id": "ebaa6decc5ada41160f59978bc288e072aaf657e9b937f1d07201ae0b7b97ba3",
           "started_at": "2026-04-10T06:02:42.768860Z",
-          "completed_at": "2026-04-10T06:02:56.793200Z",
+          "completed_at": "2026-04-10T06:03:43.108116Z",
           "commit": null,
           "outputs": {},
-          "error": "Pipeline cancelled",
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -179,7 +179,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-10T06:02:08.006407Z",
-  "updated_at": "2026-04-10T06:03:23.067976Z",
+  "updated_at": "2026-04-10T06:03:43.108193Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -187,5 +187,5 @@
   "error": null,
   "analysis": "See /tmp/1570-analysis.md - the full v3 refine analysis covering: problem statement, current behavior (Agent SDK, Claude Code CLI, gateway proxy paths), constraints (security/CVEs, business, dependencies), options considered (A-D), recommended hybrid approach (Anthropic SDK + httpx), compaction strategy, harness selection, migration path, and security mitigations. All 12 v1 HITL decisions resolved. 6 additional v3 decisions pending (compaction model, session storage, HTML lib, interactive scope, settings.json, OpenAI API surface).",
   "plan": "See /tmp/1570-plan.md - the full v3 plan with 10 implementation phases, yaml-tasks appendix, PR template, acceptance criteria, and risk mitigations. Phases: Foundation Types, Providers, Tools, Agent Loop, Context Management, Prompt/Permissions, Client/CLI, Egg Integration, Harness Selection, Tests.",
-  "version": 13
+  "version": 14
 }
