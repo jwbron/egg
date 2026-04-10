@@ -158,6 +158,45 @@ egg-orch anchor show --team
 egg-orch anchor validate
 ```
 
+## BRC Consensus Protocol
+
+The BRC (Broadcast-Review-Converge) protocol is used during concurrent execution for multi-agent consensus. All protocol actions are gated by formal **action guards** defined in `orchestrator/action_guards.py` — see [Concurrent Execution — Action Guards](../guides/concurrent-execution.md#action-guards) for the complete guard table.
+
+**Consensus commands:**
+```bash
+# Producer: propose work for review (commit SHA defaults to HEAD if omitted)
+egg-orch consensus propose --summary "Implemented feature X" --artifacts src/feature.py --commit-sha $(git rev-parse HEAD)
+
+# Reviewer: ACK a producer's proposal
+egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py
+
+# Reviewer: NACK a producer's proposal
+egg-orch consensus nack coder --reason "Missing error handling" --files-reviewed src/feature.py
+
+# Producer: withdraw proposal (requires reason citing new information)
+egg-orch consensus withdraw --reason "Addressing NACK: adding error handling"
+
+# Agent: confirm after all reviews complete
+# Exit 0 = confirmed. Exit 1 = error. Exit 2 = waiting for reviewer re-ACKs (retry after polling).
+egg-orch consensus confirmed
+
+# Check overall consensus status
+egg-orch consensus status
+```
+
+**Signal types for consensus:**
+
+| Signal type | Purpose |
+|-------------|---------|
+| `consensus_propose` | Producer proposes artifacts for review |
+| `consensus_ack` | Reviewer ACKs a producer's proposal |
+| `consensus_nack` | Reviewer NACKs a producer's proposal |
+| `consensus_withdraw` | Producer withdraws proposal (cooldown + flip-flop limits apply) |
+| `consensus_confirmed` | Agent confirms consensus (action guards enforced) |
+| `consensus_producer_push` | Triggers auto re-proposal when a producer pushes new commits after proposing — invalidates stale ACKs and notifies reviewers |
+
+The `consensus_producer_push` signal accepts `agent_role`, `commit_sha`, and optional `changed_files` parameters. When the producer is still in `WORKING` state, the signal is a no-op. See [Auto Re-Propose on Push/Commit](../guides/concurrent-execution.md#auto-re-propose-on-pushcommit).
+
 ## Related CLIs
 
 - `egg-contract` — SDLC contract operations (tasks, decisions, feedback)
