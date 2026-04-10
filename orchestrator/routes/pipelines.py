@@ -8743,7 +8743,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # Safety-net: clean up any orphaned containers for this pipeline.
         # If the pipeline failed during startup or cleanup timed out, Docker
         # containers may persist.  This is a no-op when no containers exist.
-        # Skip when the pipeline was restarted (created_at changed) so the
+        # Skip when the pipeline was restarted (run_epoch changed) so the
         # new thread's containers are not killed.  See #1386, #1638.
         if not pipeline_was_restarted:
             try:

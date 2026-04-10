@@ -850,9 +850,12 @@ class TestRunPipelineFatalErrorOnRestart:
     throws), the pipeline must not be stuck in RUNNING forever.
     """
 
+    @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines.get_state_store")
-    def test_run_pipeline_marks_failed_on_exception(self, mock_get_store, mock_get_spawner):
+    def test_run_pipeline_marks_failed_on_exception(
+        self, mock_get_store, mock_get_spawner, mock_get_lock
+    ):
         """_run_pipeline must mark the pipeline FAILED when it hits a fatal error."""
         from routes.pipelines import _run_pipeline
 
@@ -860,34 +863,21 @@ class TestRunPipelineFatalErrorOnRestart:
         pipeline.run_epoch = datetime.now(UTC)
 
         mock_store = MagicMock()
-        # First call succeeds (initial load), second call raises (simulating fatal error)
-        mock_store.load_pipeline.side_effect = [pipeline, RuntimeError("store corrupted")]
+        # Always return the pipeline — the fatal error comes from _run_pipeline's
+        # own logic (e.g., missing repo volumes), not from load_pipeline.
+        mock_store.load_pipeline.return_value = pipeline
         mock_get_store.return_value = mock_store
 
         mock_spawner = MagicMock()
         mock_get_spawner.return_value = mock_spawner
 
-        # _run_pipeline catches exceptions and marks pipeline as FAILED.
-        # The second load_pipeline call (in the except handler) needs to
-        # return the pipeline so it can be marked FAILED.
-        def load_with_recovery(pid):
-            """First call raises to trigger except, handler load returns pipeline."""
-            call_count = mock_store.load_pipeline.call_count
-            if call_count <= 1:
-                return pipeline
-            if call_count == 2:
-                raise RuntimeError("store corrupted")
-            # Handler tries to load again to mark FAILED
-            return pipeline
-
-        mock_store.load_pipeline.side_effect = load_with_recovery
-
         _run_pipeline(pipeline.id, Path("/repo"))
 
-        # The pipeline should eventually be marked FAILED
-        # (either via save_pipeline in the except handler or via the error path)
-        if mock_store.save_pipeline.called:
-            saved = mock_store.save_pipeline.call_args[0][0]
-            assert saved.status == PipelineStatus.FAILED, (
-                "Expected pipeline to be marked FAILED after fatal error in _run_pipeline"
-            )
+        # The pipeline must be marked FAILED — unconditional assertion.
+        assert mock_store.save_pipeline.called, (
+            "Expected save_pipeline to be called to mark pipeline FAILED"
+        )
+        saved = mock_store.save_pipeline.call_args[0][0]
+        assert saved.status == PipelineStatus.FAILED, (
+            "Expected pipeline to be marked FAILED after fatal error in _run_pipeline"
+        )

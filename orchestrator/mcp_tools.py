@@ -1570,6 +1570,8 @@ class PipelineToolHandler:
             return {
                 "restarted": True,
                 "phase": args["phase"],
+                # API response uses future-tense "agents_to_restart" (not yet spawned);
+                # MCP interface uses past-tense "agents_restarted" for caller convenience.
                 "agents_restarted": result.get("data", {}).get("agents_to_restart", []),
                 "message": f"Phase {args['phase']} restarted successfully",
             }
