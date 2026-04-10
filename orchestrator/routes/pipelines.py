@@ -1784,6 +1784,14 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
                 "created_at": d.created_at.isoformat(),
             }
 
+        # Include PR info once the PR phase has created a PR (#1625) so
+        # monitoring clients don't need to scrape `gh pr list` by title.
+        pr_url, pr_number = _get_pr_info(pipeline)
+        if pr_url:
+            data["pr_url"] = pr_url
+            if pr_number is not None:
+                data["pr_number"] = pr_number
+
         # Include concurrent execution monitoring when enabled
         concurrent_data = _get_concurrent_status(pipeline)
         if concurrent_data:
@@ -1801,6 +1809,27 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
             f"Pipeline {pipeline_id} not found",
             status_code=404,
         )
+
+
+def _get_pr_info(pipeline: "Pipeline") -> tuple[str | None, int | None]:
+    """Extract PR URL and number from the PR phase artifacts.
+
+    Returns ``(pr_url, pr_number)`` or ``(None, None)`` when no PR has
+    been created. The single source of truth is
+    ``phases["pr"].artifacts["pr_url"]``, written after ``_auto_create_pr``
+    succeeds (see the PR phase completion path). ``pr_number`` is parsed
+    from the URL; callers get ``None`` for unusually shaped URLs but
+    ``pr_url`` is still returned so they can fall back gracefully.
+    """
+    pr_phase = pipeline.phases.get(PipelinePhase.PR.value)
+    if not pr_phase or not pr_phase.artifacts:
+        return None, None
+    pr_url = pr_phase.artifacts.get("pr_url")
+    if not pr_url:
+        return None, None
+    match = re.search(r"/pull/(\d+)", pr_url)
+    pr_number = int(match.group(1)) if match else None
+    return pr_url, pr_number
 
 
 def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
@@ -1843,10 +1872,13 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
     # This module is implemented in phase-1 of the concurrent execution feature;
     # ImportError is expected until that phase lands.
     try:
-        from ..message_store import get_message_store  # type: ignore[import-not-found]
+        from message_store import get_message_store
     except ImportError:
-        logger.debug("Message store not available for status")
-        get_message_store = None  # type: ignore[assignment]
+        try:
+            from ..message_store import get_message_store  # type: ignore[no-redef]
+        except ImportError:
+            logger.debug("Message store not available for status")
+            get_message_store = None  # type: ignore[assignment]
 
     if get_message_store is not None:
         store = get_message_store()
@@ -1863,7 +1895,10 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
     # blocking_agents lists roles that are not yet READY (WORKING or BLOCKED).
     # BRC peer consensus (preferred) or legacy readiness-based
     try:
-        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+        except ImportError:
+            from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
         tracker = get_peer_consensus_tracker(pipeline.id)
         if not tracker:
@@ -1871,8 +1906,12 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
             try:
                 from review_graph import get_review_graph_for_phase
 
-                from ..concurrent_executor import is_concurrent_execution
-                from ..peer_consensus import reconstruct_tracker_from_messages
+                try:
+                    from peer_consensus import reconstruct_tracker_from_messages
+                except ImportError:
+                    from ..peer_consensus import (
+                        reconstruct_tracker_from_messages,  # type: ignore[no-redef]
+                    )
 
                 if is_concurrent_execution(pipeline, pipeline.current_phase):
                     graph = get_review_graph_for_phase(
@@ -1890,13 +1929,19 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
         if tracker:
             consensus_state = tracker.get_state()
         else:
-            from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
+            try:
+                from consensus import get_consensus_evaluator
+            except ImportError:
+                from ..consensus import get_consensus_evaluator  # type: ignore[no-redef]
 
             evaluator = get_consensus_evaluator()
             consensus_state = evaluator.get_state(pipeline.id)
     except ImportError:
         try:
-            from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
+            try:
+                from consensus import get_consensus_evaluator
+            except ImportError:
+                from ..consensus import get_consensus_evaluator  # type: ignore[no-redef]
 
             evaluator = get_consensus_evaluator()
             consensus_state = evaluator.get_state(pipeline.id)

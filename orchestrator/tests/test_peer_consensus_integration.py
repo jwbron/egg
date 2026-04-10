@@ -2599,6 +2599,146 @@ class TestUnresolvedNackGuard:
         assert "tester" not in t._confirmed
 
 
+class TestJiraPipelineConsensus:
+    """Test consensus lifecycle with JIRA-format pipeline IDs (#1615).
+
+    JIRA-ticket pipelines use pipeline IDs like 'KORE-1234' instead of
+    'issue-123'. This verifies the consensus tracker works correctly
+    with these IDs.
+    """
+
+    @pytest.fixture
+    def jira_tracker(self, simple_graph):
+        """Tracker with a JIRA-format pipeline ID."""
+        t = PeerConsensusTracker("KORE-1234", simple_graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("tester")
+        t.register_agent("reviewer_code")
+        t.register_agent("reviewer_contract")
+        return t
+
+    def test_jira_pipeline_full_lifecycle(self, jira_tracker):
+        """Full BRC lifecycle completes with a JIRA-format pipeline ID."""
+        t = jira_tracker
+        assert t.pipeline_id == "KORE-1234"
+
+        # Coder proposes
+        result = t.handle_propose(
+            "coder",
+            {
+                "summary": "Implemented feature",
+                "artifacts": ["src/feature.py"],
+                "commit_sha": "abc123",
+                "attestation": {
+                    "commit_shas": ["abc123"],
+                    "files_changed": ["src/feature.py"],
+                    "test_summary": "All pass",
+                    "risk_considered": "None",
+                },
+            },
+        )
+        assert result["status"] == "proposed"
+
+        # Tester proposes
+        result = t.handle_propose(
+            "tester",
+            {
+                "summary": "Added tests",
+                "artifacts": ["tests/test_feature.py"],
+                "commit_sha": "abc123",
+                "attestation": {
+                    "tests_written": 3,
+                    "tests_run": 3,
+                    "checks_passed": ["test"],
+                    "coverage_delta": "+5%",
+                    "edge_cases": ["empty input"],
+                    "concern_considered": "None",
+                },
+            },
+        )
+        assert result["status"] == "proposed"
+
+        # reviewer_code ACKs coder
+        t.handle_ack(
+            "reviewer_code",
+            "coder",
+            {
+                "attestation": {
+                    "files_reviewed": ["src/feature.py"],
+                    "issues_found": 0,
+                    "issues_resolved": 0,
+                    "risk_considered": "None",
+                },
+                "artifact_references": ["src/feature.py"],
+            },
+        )
+
+        # reviewer_contract ACKs coder
+        t.handle_ack(
+            "reviewer_contract",
+            "coder",
+            {
+                "attestation": {
+                    "tasks_verified": ["task-1"],
+                    "acceptance_criteria_checked": ["feature works"],
+                    "gaps_identified": [],
+                },
+                "artifact_references": ["src/feature.py"],
+            },
+        )
+
+        # reviewer_code ACKs tester
+        t.handle_ack(
+            "reviewer_code",
+            "tester",
+            {
+                "attestation": {
+                    "files_reviewed": ["tests/test_feature.py"],
+                    "issues_found": 0,
+                    "issues_resolved": 0,
+                    "risk_considered": "None",
+                },
+                "artifact_references": ["tests/test_feature.py"],
+            },
+        )
+
+        # All confirm
+        t.handle_confirmed("coder")
+        t.handle_confirmed("tester")
+        t.handle_confirmed("reviewer_code")
+        result = t.handle_confirmed("reviewer_contract")
+
+        assert result["consensus_reached"] is True
+
+        state = t.evaluate()
+        assert state["is_complete"] is True
+        assert state["protocol"] == "brc"
+
+    def test_jira_pipeline_tracker_registered_globally(self, simple_graph):
+        """Tracker with JIRA pipeline ID is findable via get_peer_consensus_tracker."""
+        from peer_consensus import (
+            create_peer_consensus_tracker,
+            get_peer_consensus_tracker,
+            remove_peer_consensus_tracker,
+        )
+
+        try:
+            t = create_peer_consensus_tracker("KORE-5678", simple_graph)
+            found = get_peer_consensus_tracker("KORE-5678")
+            assert found is t
+        finally:
+            remove_peer_consensus_tracker("KORE-5678")
+
+    def test_pending_acks_returns_blocking_details(self, jira_tracker):
+        """handle_confirmed returns pending_acks with details before any proposals."""
+        # Try to confirm coder before any proposals — should get pending_acks
+        result = jira_tracker.handle_confirmed("coder")
+
+        assert result["status"] == "pending_acks"
+        assert "not fully ACKed" in result["message"]
+        assert "reviewer_code" in result["message"]
+
+
 # ---------------------------------------------------------------------------
 # Tests: get_earliest_proposal_time (#1613 — task-1-1)
 # ---------------------------------------------------------------------------
