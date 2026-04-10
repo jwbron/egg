@@ -507,6 +507,86 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
         )
 
 
+@phases_bp.route("/<pipeline_id>/phase/populate-contract", methods=["POST"])
+def populate_contract(pipeline_id: str) -> tuple[Response, int]:
+    """
+    Populate a pipeline's SDLC contract from its plan draft.
+
+    Reads the plan document from the pipeline's worktree, extracts task
+    structure, and writes tasks and acceptance criteria to the contract.
+
+    URL params:
+        pipeline_id: Pipeline ID
+
+    Response:
+        {
+            "success": true,
+            "message": "Contract populated from plan",
+            "data": {
+                "phase_count": 2,
+                "task_count": 6
+            }
+        }
+    """
+    try:
+        store, pipeline = get_state_store_for_pipeline(pipeline_id)
+
+        # Resolve worktree path for contract/draft access
+        from routes import resolve_worktree_path
+
+        worktree_path = resolve_worktree_path(pipeline_id, store.repo_path)
+
+        # Import and call the populate function
+        from routes.pipelines import _populate_contract_from_plan
+
+        _populate_contract_from_plan(
+            repo_path=worktree_path,
+            pipeline_id=pipeline_id,
+            pipeline_mode=pipeline.config.mode if pipeline.config else "local",
+            issue_number=pipeline.issue_number,
+        )
+
+        # Read back the contract to report counts
+        try:
+            from egg_contracts.loader import load_contract
+            from routes.pipelines import _pipeline_identifier
+
+            contract_id = _pipeline_identifier(pipeline.issue_number, pipeline_id)
+            contract = load_contract(contract_id, worktree_path)
+            task_count = sum(len(p.tasks) for p in contract.phases)
+            return make_success_response(
+                "Contract populated from plan",
+                data={
+                    "phase_count": len(contract.phases),
+                    "task_count": task_count,
+                },
+            )
+        except Exception:
+            # Populate succeeded but we can't read counts — still success
+            return make_success_response("Contract populated from plan")
+
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
+    except PipelineNotFoundError:
+        return make_error_response(
+            f"Pipeline {pipeline_id} not found",
+            status_code=404,
+        )
+    except Exception as e:
+        logger.error(
+            "Failed to populate contract",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+        return make_error_response(
+            f"Failed to populate contract: {e}",
+            status_code=500,
+        )
+
+
 @phases_bp.route("/<pipeline_id>/phase/fail", methods=["POST"])
 def fail_phase(pipeline_id: str) -> tuple[Response, int]:
     """
