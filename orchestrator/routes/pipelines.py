@@ -2523,6 +2523,8 @@ def _read_source_branch_artifacts(
     store: Any,
     pipeline: Any,
     source_artifact_prefix: str | None = None,
+    gateway: Any | None = None,
+    gateway_mode: str = "public",
 ) -> bool:
     """Read plan and analysis artifacts from a source branch.
 
@@ -2550,6 +2552,12 @@ def _read_source_branch_artifacts(
             filenames on the source branch (e.g. ``"issue-1570-v3"``).
             When set, only this prefix is tried before the ls-tree
             fallback.
+        gateway: Optional GatewayClient instance.  When provided the
+            fetch is routed through the gateway (which injects
+            credentials).  Falls back to a raw ``git fetch`` subprocess
+            when *None*.
+        gateway_mode: Gateway session mode (``"public"`` or
+            ``"private"``).  Only used when *gateway* is not None.
 
     Returns:
         True if any artifacts were read, False otherwise.
@@ -2561,19 +2569,36 @@ def _read_source_branch_artifacts(
     # Fetch the source branch so origin/{source_branch} is up-to-date.
     # Without this, git show fails on a freshly restarted orchestrator
     # because the remote ref isn't cached locally.
-    try:
-        subprocess.run(
-            [*git_base, "fetch", "origin", source_branch],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-    except Exception:
-        logger.debug(
-            "Failed to fetch source branch (will try git show anyway)",
-            source_branch=source_branch,
-        )
+    if gateway is not None:
+        try:
+            gateway.fetch_branch(
+                pipeline_id=pipeline_id,
+                repo_path=str(repo_path),
+                args=[source_branch],
+                mode=gateway_mode,
+            )
+        except Exception:
+            logger.warning(
+                "Gateway fetch of source branch failed (will try git show anyway)",
+                source_branch=source_branch,
+                pipeline_id=pipeline_id,
+                exc_info=True,
+            )
+    else:
+        try:
+            subprocess.run(
+                [*git_base, "fetch", "origin", source_branch],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except Exception:
+            logger.debug(
+                "Failed to fetch source branch (will try git show anyway)",
+                source_branch=source_branch,
+                exc_info=True,
+            )
 
     # Build ordered list of prefixes to try.  Duplicates are removed so
     # we don't hit git show twice for the same path.
@@ -7585,6 +7610,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     store=store,
                     pipeline=pipeline,
                     source_artifact_prefix=pipeline.source_artifact_prefix,
+                    gateway=spawner.gateway,
+                    gateway_mode=gateway_mode,
                 )
             except Exception:
                 logger.warning(
