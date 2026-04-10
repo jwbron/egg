@@ -5,12 +5,13 @@ These models represent the orchestrator's view of pipeline execution,
 including container state, HITL decisions, and agent coordination.
 """
 
+import json
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal, NamedTuple
 
 from egg_contracts.models import PipelinePhase
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class PipelineStatus(StrEnum):
@@ -176,6 +177,8 @@ class AgentExecution(BaseModel):
 class HITLDecision(BaseModel):
     """A human-in-the-loop decision request."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     id: str = Field(..., description="Unique decision ID")
     question: str = Field(..., min_length=1, description="Question for human")
     context: str = Field(default="", description="Additional context")
@@ -208,8 +211,6 @@ class HITLDecision(BaseModel):
     @classmethod
     def _serialize_resolution(cls, v: Any) -> str | None:
         """Ensure resolution is always stored as a JSON string, not a dict (#1635)."""
-        import json
-
         if isinstance(v, dict | list):
             return json.dumps(v)
         return v

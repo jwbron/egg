@@ -193,6 +193,20 @@ class TestHITLDecision:
         )
         assert decision.resolution is None
 
+    def test_dict_resolution_serialized_on_assignment(self):
+        """Dict resolution is serialized when assigned to an existing instance (#1635)."""
+        import json
+
+        decision = HITLDecision(
+            id="decision-1",
+            question="Approve?",
+            resolution=None,
+        )
+        # Direct attribute assignment — requires validate_assignment=True
+        decision.resolution = {"action": "select", "selected": "approve"}
+        assert isinstance(decision.resolution, str)
+        assert json.loads(decision.resolution) == {"action": "select", "selected": "approve"}
+
 
 class TestPhaseExecution:
     """Tests for PhaseExecution model."""
