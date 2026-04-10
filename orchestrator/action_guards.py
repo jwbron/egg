@@ -330,10 +330,7 @@ def check_confirm_guard(
     # closes that gap by checking all producers regardless of review
     # assignments.  Applies to both producers and reviewers. ---
     all_producers = [r for r in graph.all_roles() if graph.is_producer(r)]
-    global_zero_producers: list[str] = []
-    for p in all_producers:
-        if matrix.get_proposal_version(p) == 0:
-            global_zero_producers.append(p)
+    global_zero_producers = [p for p in all_producers if matrix.get_proposal_version(p) == 0]
     if global_zero_producers:
         return GuardResult(
             allowed=False,
@@ -391,6 +388,10 @@ def check_confirm_guard(
         # producer has never proposed (version == 0).  A reviewer can NACK a
         # non-delivering producer then confirm, which allows consensus to
         # complete without the primary deliverable.
+        # NOTE: This guard is unreachable for zero-proposal cases since the
+        # global guard above (Guard #1648) fires first and is strictly
+        # stronger.  Retained as defense-in-depth in case the global guard
+        # is ever refactored or removed.
         zero_proposal_producers: list[str] = []
         for producer in producers:
             if matrix.get_proposal_version(producer) == 0:

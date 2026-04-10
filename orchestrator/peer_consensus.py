@@ -455,9 +455,10 @@ class PeerConsensusTracker:
         (``check_confirm_guard``) which encapsulates all producer and
         reviewer confirmation guards:
 
+        - Global: all producers must have proposed (proposal_version > 0).
         - Producer: must be fully ACKed.
         - Reviewer: must have reviewed all producers, ACK versions must match,
-          no unresolved NACKs, no zero-proposal producers.
+          no unresolved NACKs, no zero-proposal producers (defense-in-depth).
         """
         with self._lock:
             guard = check_confirm_guard(
