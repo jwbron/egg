@@ -237,14 +237,16 @@ class OverseerMonitor:
         return await compose_redirect_message(agent_role, issue, context, model=model)
 
     async def _decide_escalation_level(
-        self, classification: dict, redirect_history: list[dict]
+        self, classification: dict, redirect_history: list[dict], context: dict | None = None
     ) -> dict:
         model = getattr(self.config, "overseer_decision_maker_model", "sonnet")
         if self._decision_maker and hasattr(self._decision_maker, "decide_escalation_level"):
             return await self._decision_maker.decide_escalation_level(
-                classification, redirect_history, model=model
+                classification, redirect_history, context=context, model=model
             )
-        return await decide_escalation_level(classification, redirect_history, model=model)
+        return await decide_escalation_level(
+            classification, redirect_history, context=context, model=model
+        )
 
     # -----------------------------------------------------------------
     # Lifecycle
@@ -495,7 +497,9 @@ class OverseerMonitor:
 
         if redirect_count >= max_redirects:
             # Too many redirects -- escalate
-            escalation_decision = await self._decide_escalation_level(classification, history)
+            escalation_decision = await self._decide_escalation_level(
+                classification, history, context=action_context
+            )
             decision = {
                 "action": escalation_decision.get("level", "hitl"),
                 "message": escalation_decision.get("reasoning", ""),
@@ -983,7 +987,10 @@ class OverseerMonitor:
                 timeout=30,
             )
             if rc == 0 and stdout.strip():
-                data = json.loads(stdout)
+                try:
+                    data = json.loads(stdout)
+                except json.JSONDecodeError:
+                    return stdout.strip()
                 if isinstance(data, dict):
                     return data.get("data", {}).get("logs", data.get("logs", ""))
                 return stdout

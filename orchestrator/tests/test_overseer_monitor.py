@@ -2379,11 +2379,7 @@ class TestQueryContainerLogs:
         ]
         log_payload = json.dumps({"data": {"logs": "some log output"}})
 
-        call_count = 0
-
         async def mock_run_cli(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
             if "list" in args:
                 return (0, json.dumps({"data": {"containers": containers}}), "")
             if "logs" in args:
@@ -2550,3 +2546,23 @@ class TestQueryContainerLogs:
 
         result = _run(monitor._query_container_logs("coder"))
         assert result == "fallback logs"
+
+    def test_returns_raw_stdout_on_json_decode_error(self) -> None:
+        """Falls back to raw stdout when CLI output is not valid JSON."""
+        monitor = self._make_monitor()
+        containers = [{"container_id": "c1", "agent_role": "coder", "status": "running"}]
+        raw_log_text = (
+            "2026-04-10 ERROR: connection refused\nTraceback (most recent call last):\n  ..."
+        )
+
+        async def mock_run_cli(*args, **kwargs):
+            if "list" in args:
+                return (0, json.dumps({"data": {"containers": containers}}), "")
+            if "logs" in args:
+                return (0, raw_log_text, "")
+            return (0, "[]", "")
+
+        monitor._run_cli = mock_run_cli
+
+        result = _run(monitor._query_container_logs("coder"))
+        assert result == raw_log_text
