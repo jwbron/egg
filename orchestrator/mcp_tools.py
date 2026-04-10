@@ -127,7 +127,7 @@ PIPELINE_TOOLS = [
                     "description": "Pipeline/task ID to check",
                 },
                 "wait": {
-                    "type": "integer",
+                    "type": "number",
                     "description": (
                         "Seconds to wait before fetching status. Use this for "
                         "polling delays instead of external sleep commands. "
