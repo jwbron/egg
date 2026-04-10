@@ -78,30 +78,34 @@ class TestPopulateContractEndpoint:
         data = json.loads(resp.data)
         assert data["success"] is False
 
-    def test_config_mode_attribute_error(self, client):
-        """BUG: endpoint reads pipeline.config.mode but PipelineConfig has no mode attr.
+    @patch("routes.pipelines._pipeline_identifier", return_value="42")
+    @patch("routes.pipelines._populate_contract_from_plan")
+    @patch("routes.resolve_worktree_path")
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_pipeline_mode_from_pipeline_not_config(
+        self, mock_get_store, mock_resolve_wt, mock_populate, mock_identifier, client
+    ):
+        """pipeline.mode (not pipeline.config.mode) is used for pipeline_mode.
 
-        Pipeline.mode exists but Pipeline.config (a PipelineConfig) has no mode.
-        This causes AttributeError for every pipeline with a config, returning 500.
-        The fix should change ``pipeline.config.mode`` to ``pipeline.mode``.
+        Regression test: originally pipeline.config.mode was used but
+        PipelineConfig has no mode attribute — mode lives on Pipeline directly.
         """
         pipeline = _make_pipeline()
+        # pipeline.mode defaults to 'issue' from PipelineMode.ISSUE
         mock_store = MagicMock()
         mock_store.repo_path = Path("/home/egg/repos/egg")
+        mock_get_store.return_value = (mock_store, pipeline)
+        mock_resolve_wt.return_value = Path("/tmp/wt")
 
-        with (
-            patch(
-                "routes.phases.get_state_store_for_pipeline",
-                return_value=(mock_store, pipeline),
-            ),
-            patch("routes.resolve_worktree_path", return_value=Path("/tmp/wt")),
+        with patch(
+            "egg_contracts.loader.load_contract",
+            side_effect=Exception("skip"),
         ):
             resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
 
-        # Bug: pipeline.config.mode raises AttributeError -> 500
-        assert resp.status_code == 500
-        data = json.loads(resp.data)
-        assert "mode" in data["message"]
+        assert resp.status_code == 200
+        call_kwargs = mock_populate.call_args[1]
+        assert call_kwargs["pipeline_mode"] == "issue"
 
     @patch("routes.pipelines._populate_contract_from_plan")
     @patch("routes.resolve_worktree_path")
@@ -130,12 +134,11 @@ class TestPopulateContractEndpoint:
     @patch("routes.pipelines._populate_contract_from_plan")
     @patch("routes.resolve_worktree_path")
     @patch("routes.phases.get_state_store_for_pipeline")
-    def test_success_with_config_none(
+    def test_success_with_counts_and_issue_number(
         self, mock_get_store, mock_resolve_wt, mock_populate, mock_identifier, client
     ):
-        """When config is None, pipeline_mode defaults to 'local'."""
+        """Successful populate returns phase/task counts and forwards issue_number."""
         pipeline = _make_pipeline()
-        pipeline.config = None
         mock_store = MagicMock()
         mock_store.repo_path = Path("/home/egg/repos/egg")
         mock_get_store.return_value = (mock_store, pipeline)
@@ -156,9 +159,9 @@ class TestPopulateContractEndpoint:
         assert data["data"]["phase_count"] == 1
         assert data["data"]["task_count"] == 2
 
-        # Verify populate was called with 'local' mode
+        # Verify populate was called with pipeline.mode (defaults to 'issue')
         call_kwargs = mock_populate.call_args[1]
-        assert call_kwargs["pipeline_mode"] == "local"
+        assert str(call_kwargs["pipeline_mode"]) == "issue"
         assert call_kwargs["issue_number"] == 42
 
     @patch("routes.pipelines._populate_contract_from_plan")
