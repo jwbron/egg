@@ -209,4 +209,4 @@ class Provider(ABC):
         """
         # The yield annotation is required so that Python treats this as an
         # async generator even though the body is abstract.
-        yield  # pragma: no cover
+        yield  # type: ignore[misc]  # pragma: no cover
