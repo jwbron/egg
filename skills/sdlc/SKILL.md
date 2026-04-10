@@ -427,15 +427,15 @@ The `concurrent.consensus` object may not be present in all `get_status` respons
    - Unresolved NACKs: `CONSENSUS_NACK` messages not followed by a `CONSENSUS_PROPOSE` from the producer
 6. Use `subject` only for supplementary detail (e.g., extracting NACK reasons or human-readable context for the dashboard)
 
-**Stall detection** — Track agent phase progression across consecutive polls. Flag an agent as potentially stalled when:
-- It has been in `producer_phase: WORKING` for 3+ consecutive polls (~3 minutes) while other agents have progressed
-- It has been in `producer_phase: PROPOSED` for 3+ consecutive polls with no reviewer activity (reviewers still in `WORKING`)
-- A NACK has been unresolved for 3+ consecutive polls (producer hasn't re-proposed)
+**Stall detection** — Track agent phase progression using wall-clock time (not poll counts, since poll interval varies). Flag an agent as potentially stalled when:
+- It has been in `producer_phase: WORKING` for 3+ minutes while other agents have progressed
+- It has been in `producer_phase: PROPOSED` for 3+ minutes with no reviewer activity (reviewers still in `WORKING`)
+- A NACK has been unresolved for 3+ minutes (producer hasn't re-proposed)
 
-Note: 3 polls × 60s = ~3 minutes is a baseline threshold. Code generation, test execution, and large diffs can legitimately exceed this. Adjust the threshold based on pipeline complexity — for pipelines with heavy test suites or large codebases, consider using 5+ polls before flagging. The "Wait longer" option mitigates false positives.
+Note: 3 minutes is a baseline threshold. Code generation, test execution, and large diffs can legitimately exceed this. Adjust the threshold based on pipeline complexity — for pipelines with heavy test suites or large codebases, consider using 5+ minutes before flagging. The "Wait longer" option mitigates false positives.
 
 **Silent agent detection** — Separately from phase-based stall detection, track agents that never enter the consensus protocol at all. Flag an agent as "silent" when:
-- It has been in `running_agents` for 10+ polls (~10 minutes)
+- It has been in `running_agents` for 10+ minutes of elapsed wall-clock time (computed from `now - first_seen_at`)
 - It has **zero messages** in `recent_messages` (no proposals, ACKs, NACKs, or confirmations)
 - This catches agents that are running but not participating in BRC — a different failure mode from agents stuck in a specific phase
 
@@ -466,10 +466,10 @@ Then use `AskUserQuestion` to offer options:
 
 Handle each response:
 - **Check agent logs** → Call the `get_container_logs` MCP tool with `task_id` and `agent_role` set to the stalled agent's role (lines: 50). Show the user the output and let them decide next steps.
-- **Wait longer** → Reset the stall counter for this agent. Resume monitoring.
-- **Nudge agent** → Call the `send_message` MCP tool with `task_id`, `to_role` set to the stalled role, `message_type: "STATUS"`, and `body: "Overseer check: you appear stalled in <phase>. Please send a heartbeat or progress update."` Resume monitoring. If the agent remains stalled for another 3 polls after the nudge, re-alert the user with stronger options (see escalation below).
+- **Wait longer** → Reset `phase_entered_at` to the current time for this agent. Resume monitoring.
+- **Nudge agent** → Call the `send_message` MCP tool with `task_id`, `to_role` set to the stalled role, `message_type: "STATUS"`, and `body: "Overseer check: you appear stalled in <phase>. Please send a heartbeat or progress update."` Record the nudge timestamp (`nudged_at`). Resume monitoring. If the agent remains stalled for another 3+ minutes after the nudge, re-alert the user with stronger options (see escalation below).
 
-**NACK escalation** — When an unresolved NACK persists for 3+ polls, surface it prominently:
+**NACK escalation** — When an unresolved NACK persists for 3+ minutes, surface it prominently:
 
 ```
 ### Unresolved NACK
@@ -491,22 +491,22 @@ Handle each response:
 - **Check producer logs** → Call the `get_container_logs` MCP tool with `task_id` and `agent_role` set to the producer's role (lines: 50). Show the output and let the user decide next steps.
 - **Check reviewer logs** → Call the `get_container_logs` MCP tool with `task_id` and `agent_role` set to the reviewer's role (lines: 50). Show the output and let the user decide next steps.
 - **Nudge producer** → Call the `send_message` MCP tool with `task_id`, `to_role` set to the producer role, `message_type: "STATUS"`, and `body: "Overseer check: unresolved NACK from <reviewer> — please address and re-propose."` Resume monitoring.
-- **Wait longer** → Reset the NACK stall counter. Resume monitoring.
+- **Wait longer** → Reset `phase_entered_at` to the current time for the NACK tracking. Resume monitoring.
 
-**Post-nudge escalation** — If an agent remains stalled after a nudge (3+ more polls with no change), use `AskUserQuestion` to offer stronger actions:
+**Post-nudge escalation** — If an agent remains stalled after a nudge (3+ minutes since the nudge with no change, computed from `now - nudged_at`), use `AskUserQuestion` to offer stronger actions:
 - **Question**: "Agent '<role>' is still unresponsive after nudge (~<N> minutes total). How would you like to proceed?"
 - **Header**: "Escalate"
 - **Options**:
   - **"View full agent logs"** — description: "Show extended logs (`egg-orch container logs` with `--lines 200`) to diagnose the issue"
   - **"Restart pipeline"** — description: "Cancel this pipeline and re-submit the task to get a fresh agent"
-  - **"Continue waiting"** — description: "Reset the counter and keep monitoring"
+  - **"Continue waiting"** — description: "Reset the stall timer and keep monitoring"
 
 Handle each response:
 - **View full agent logs** → Call the `get_container_logs` MCP tool with `task_id` and `agent_role` set to the stalled agent's role (lines: 200). Show the output and let the user decide next steps.
 - **Restart pipeline** → Confirm with the user, then call `cancel_task` with `task_id` and `cleanup: true`, followed by `submit_task` with the original parameters. Resume from Phase 3 with the new `task_id`.
-- **Continue waiting** → Reset the stall counter. Resume monitoring.
+- **Continue waiting** → Reset `phase_entered_at` to the current time. Resume monitoring.
 
-**State tracking** — Maintain a simple in-memory map of `{role: {phase, polls_in_phase, nudged, total_polls_seen, has_any_messages}}` across poll cycles, plus a top-level `running_agent_count` to track the number of running agents between polls (for detecting post-consensus reviewer spawns). Reset a role's `polls_in_phase` counter whenever its phase changes or new messages appear from it in `recent_messages`. Increment `total_polls_seen` on every poll. Set `has_any_messages` to true when any message from the role appears in `recent_messages`. This is lightweight — no persistence needed since it only matters during the active monitoring session.
+**State tracking** — Maintain a simple in-memory map of `{role: {phase, phase_entered_at, nudged_at, first_seen_at, has_any_messages}}` across poll cycles, plus a top-level `running_agent_count` to track the number of running agents between polls (for detecting post-consensus reviewer spawns). All timestamps are wall-clock times. Set `first_seen_at` when a role first appears in `running_agents`. Set `phase_entered_at` to the current time when the role is first tracked or when its phase changes. Reset `phase_entered_at` whenever a role's phase changes or new messages appear from it in `recent_messages`. Set `nudged_at` when a nudge is sent (null otherwise). Set `has_any_messages` to true when any message from the role appears in `recent_messages`. This is lightweight — no persistence needed since it only matters during the active monitoring session.
 
 ### Long-Running Phase Detection
 
@@ -536,7 +536,7 @@ This threshold is configurable — adjust based on task complexity. The 60-minut
 
 ### Stuck Pipeline Rescue
 
-When monitoring detects a stuck pipeline (no progress for 10+ polls after consensus appears complete, or the user selects "Open PR with current work"), follow this workflow to extract completed work:
+When monitoring detects a stuck pipeline (no progress for 10+ minutes after consensus appears complete, or the user selects "Open PR with current work"), follow this workflow to extract completed work:
 
 **Step 1: Check for committed work on the branch**
 
@@ -574,7 +574,7 @@ Handle each response:
 
 - **Cancel and retry** → Confirm with the user, then call `cancel_task` with `task_id` and `cleanup: true`, followed by `submit_task` with the original parameters. Resume from Phase 3 with the new `task_id`. If `cancel_task` fails, inform the user and offer to retry. If `cancel_task` succeeds but `submit_task` fails, inform the user that the previous pipeline was cancelled and offer to retry the submission.
 
-- **Keep waiting** → Resume monitoring. Reset the rescue counter.
+- **Keep waiting** → Resume monitoring. Reset `phase_entered_at` to the current time.
 
 ## Phase 4 — HITL (Human-in-the-Loop)
 
@@ -1158,7 +1158,7 @@ During phase cycle transitions (e.g., review cycles), the orchestrator may brief
 
 ### Stall detection
 
-Track the `current_phase` and latest `recent_messages` entry across polls. If **10 consecutive polls** (~10 minutes) pass with no phase change and no new messages, surface a warning:
+Track the `current_phase`, latest `recent_messages` entry, and wall-clock timestamps across polls. If **10 minutes of elapsed wall-clock time** (computed from `now - phase_entered_at`) pass with no phase change and no new messages, surface a warning:
 
 ```
 ### Potential Stall Detected
@@ -1169,10 +1169,10 @@ Pipeline has shown no progress for ~10 minutes.
 Then offer three options via `AskUserQuestion`:
 
 - **"Check logs"** — description: "View agent logs to diagnose the issue" — call the `get_container_logs` MCP tool with `task_id` and the agent's role (lines: 50). Show the user the output.
-- **"Wait longer"** — description: "Give the agent more time (resets the stall counter)"
+- **"Wait longer"** — description: "Give the agent more time (resets the stall timer)"
 - **"Cancel"** — description: "Cancel this pipeline"
 
-If "Wait longer" is selected, reset the stall counter and resume monitoring. If "Cancel", call `cancel_task` and move to Phase S6 failure handling.
+If "Wait longer" is selected, reset `phase_entered_at` to the current time and resume monitoring. If "Cancel", call `cancel_task` and move to Phase S6 failure handling.
 
 ### NACK handling
 
@@ -1180,7 +1180,7 @@ If the status shows unresolved NACKs in the consensus data, surface them to the 
 
 > **Reviewer raised concerns** — the coder is iterating on feedback. This is normal BRC behavior.
 
-Only escalate if NACKs persist across 5+ consecutive polls with no progress, at which point offer the same stall detection options.
+Only escalate if NACKs persist for 5+ minutes with no progress, at which point offer the same stall detection options.
 
 ### Handling unexpected decisions
 
