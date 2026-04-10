@@ -102,9 +102,14 @@ class TestGetConcurrentStatusUnit:
         See issue #1229.
         """
         pipeline = _make_concurrent_pipeline()
-        result = _get_concurrent_status(pipeline)
 
-        # Phase 3 not implemented yet, so consensus import will fail
+        # Patch both BRC tracker and legacy evaluator to simulate unavailability
+        with (
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=None),
+            patch("consensus.get_consensus_evaluator", side_effect=ImportError("not available")),
+        ):
+            result = _get_concurrent_status(pipeline)
+
         assert "consensus" not in result
 
     def test_max_concurrent_agents_custom_value(self):
@@ -249,7 +254,11 @@ class TestPipelineStatusConcurrentEndpoint:
         mock_store = MagicMock()
         mock_resolve.return_value = (mock_store, pipeline)
 
-        resp = client.get("/api/v1/pipelines/issue-999/status")
+        with (
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=None),
+            patch("consensus.get_consensus_evaluator", side_effect=ImportError("not available")),
+        ):
+            resp = client.get("/api/v1/pipelines/issue-999/status")
         data = json.loads(resp.data)
 
         assert "consensus" not in data["data"]["concurrent"]
@@ -345,3 +354,58 @@ class TestPipelineStatusPrInfo:
         data = json.loads(resp.data)["data"]
         assert data["pr_url"] == "https://github.acme.com/owner/repo/pull/42"
         assert data["pr_number"] == 42
+
+
+class TestJiraPipelineConcurrentStatus:
+    """Tests that _get_concurrent_status works with JIRA-format pipeline IDs (#1615)."""
+
+    def test_jira_pipeline_message_store_returns_counts(self):
+        """_get_concurrent_status should return message counts for JIRA pipelines."""
+        pipeline = _make_concurrent_pipeline(pipeline_id="KORE-1234")
+
+        with (
+            patch("concurrent_executor.is_concurrent_execution", return_value=True),
+            patch("message_store.get_message_store") as mock_get_store,
+        ):
+            mock_store = MagicMock()
+            mock_store.get_status.return_value = {
+                "total": 15,
+                "by_type": {"CONSENSUS_PROPOSE": 5, "CONSENSUS_ACK": 5, "CONSENSUS_CONFIRMED": 5},
+            }
+            mock_get_store.return_value = mock_store
+
+            result = _get_concurrent_status(pipeline)
+
+        assert result is not None
+        assert result["messages"]["total"] == 15
+        assert result["messages"]["by_type"]["CONSENSUS_PROPOSE"] == 5
+        mock_store.get_status.assert_called_once_with("KORE-1234")
+
+    def test_jira_pipeline_consensus_state_returned(self):
+        """_get_concurrent_status should return consensus state for JIRA pipelines."""
+        pipeline = _make_concurrent_pipeline(pipeline_id="KORE-1234")
+
+        mock_tracker = MagicMock()
+        mock_tracker.get_state.return_value = {
+            "is_complete": True,
+            "blocking_agents": [],
+            "agents": {
+                "coder": {"producer_phase": "CONFIRMED", "confirmed": True},
+            },
+            "protocol": "brc",
+        }
+
+        with (
+            patch("concurrent_executor.is_concurrent_execution", return_value=True),
+            patch("message_store.get_message_store") as mock_get_store,
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+        ):
+            mock_store = MagicMock()
+            mock_store.get_status.return_value = {"total": 0, "by_type": {}}
+            mock_get_store.return_value = mock_store
+
+            result = _get_concurrent_status(pipeline)
+
+        assert result is not None
+        assert "consensus" in result
+        assert result["consensus"]["is_complete"] is True
