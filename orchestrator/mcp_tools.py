@@ -784,17 +784,21 @@ class PipelineToolHandler:
                 pr_number = int(match.group(1))
 
         # Build status from pipeline data
+        pipeline_info: dict[str, Any] = {
+            "id": pipeline_data.get("id", ""),
+            "repo": pipeline_data.get("repo", ""),
+            "issue_number": pipeline_data.get("issue_number"),
+            "created_at": pipeline_data.get("created_at", ""),
+        }
+        if pr_url:
+            pipeline_info["pr_url"] = pr_url
+            if pr_number is not None:
+                pipeline_info["pr_number"] = pr_number
+
         status: dict[str, Any] = {
             "current_phase": pipeline_data.get("current_phase", ""),
             "status": pipeline_data.get("status", ""),
-            "pipeline": {
-                "id": pipeline_data.get("id", ""),
-                "repo": pipeline_data.get("repo", ""),
-                "issue_number": pipeline_data.get("issue_number"),
-                "created_at": pipeline_data.get("created_at", ""),
-                "pr_url": pr_url,
-                "pr_number": pr_number,
-            },
+            "pipeline": pipeline_info,
         }
 
         # Extract agent info from phases

@@ -1015,8 +1015,8 @@ class TestGetStatus:
         ):
             result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
 
-        assert result["pipeline"]["pr_url"] is None
-        assert result["pipeline"]["pr_number"] is None
+        assert "pr_url" not in result["pipeline"]
+        assert "pr_number" not in result["pipeline"]
 
     def test_pr_info_populated_from_pr_phase_artifact(self, handler):
         """pr_url / pr_number are extracted from phases.pr.artifacts.pr_url (#1625)."""
@@ -1042,4 +1042,4 @@ class TestGetStatus:
             result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
 
         assert result["pipeline"]["pr_url"] == "not-a-valid-pr-url"
-        assert result["pipeline"]["pr_number"] is None
+        assert "pr_number" not in result["pipeline"]
