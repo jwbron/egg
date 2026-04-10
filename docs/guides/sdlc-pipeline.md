@@ -122,7 +122,7 @@ Returns the current pipeline status for polling-based monitoring.
 }
 ```
 
-Once the PR phase completes and a pull request is created, two additional fields appear in `data`:
+Once a pull request is created during the PR phase, two additional fields appear in `data`:
 
 - `pr_url` — full GitHub URL of the created PR (e.g. `"https://github.com/owner/repo/pull/42"`)
 - `pr_number` — integer PR number parsed from the URL (e.g. `42`); omitted if the URL has an unexpected shape
