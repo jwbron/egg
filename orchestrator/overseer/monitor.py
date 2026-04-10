@@ -196,9 +196,7 @@ class OverseerMonitor:
             logs, progress, consensus=consensus, container_logs=container_logs
         )
 
-    async def _classify_error(
-        self, error_context: dict, container_logs: str | None = None
-    ) -> dict:
+    async def _classify_error(self, error_context: dict, container_logs: str | None = None) -> dict:
         if self._classifier and hasattr(self._classifier, "classify_error"):
             return await self._classifier.classify_error(
                 error_context, container_logs=container_logs
@@ -934,9 +932,7 @@ class OverseerMonitor:
             logger.debug("Failed to list containers", exc_info=True)
         return []
 
-    async def _query_container_logs(
-        self, agent_role: str, tail: int = 200
-    ) -> str:
+    async def _query_container_logs(self, agent_role: str, tail: int = 200) -> str:
         """Fetch recent container logs for an agent role.
 
         Auto-selects the best container for the role: prefers running
@@ -955,9 +951,7 @@ class OverseerMonitor:
                 return ""
 
             # Filter to containers matching the target agent role
-            role_containers = [
-                c for c in containers if c.get("agent_role") == agent_role
-            ]
+            role_containers = [c for c in containers if c.get("agent_role") == agent_role]
             if not role_containers:
                 return ""
 
@@ -966,9 +960,7 @@ class OverseerMonitor:
             if running:
                 selected = running[0]
             else:
-                role_containers.sort(
-                    key=lambda c: c.get("started_at", ""), reverse=True
-                )
+                role_containers.sort(key=lambda c: c.get("started_at", ""), reverse=True)
                 selected = role_containers[0]
 
             container_id = selected.get("container_id", "")
@@ -989,9 +981,7 @@ class OverseerMonitor:
             if rc == 0 and stdout.strip():
                 data = json.loads(stdout)
                 if isinstance(data, dict):
-                    return data.get("data", {}).get(
-                        "logs", data.get("logs", "")
-                    )
+                    return data.get("data", {}).get("logs", data.get("logs", ""))
                 return stdout
         except Exception:
             logger.debug(
