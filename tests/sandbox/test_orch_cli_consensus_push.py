@@ -26,6 +26,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
 
+from egg_config.constants import GATEWAY_PORT
+
 from egg_lib.orch_cli import _consensus_push, cmd_consensus_propose
 
 
@@ -75,7 +77,7 @@ def gateway_env(base_env):
     with patch.dict(
         os.environ,
         {
-            "GATEWAY_URL": "http://egg-gateway:9848",
+            "GATEWAY_URL": f"http://egg-gateway:{GATEWAY_PORT}",
             "EGG_SESSION_TOKEN": "test-session-token",
             "CONTAINER_ID": "test-container-123",
         },
@@ -227,7 +229,7 @@ class TestConsensusPushDirectGatewayAPI:
             {"message": "Direct push blocked", "data": {"mode": "concurrent"}}
         ).encode()
         http_error = urllib.error.HTTPError(
-            url="http://egg-gateway:9848/api/v1/git/push",
+            url=f"http://egg-gateway:{GATEWAY_PORT}/api/v1/git/push",
             code=403,
             msg="Forbidden",
             hdrs={},
