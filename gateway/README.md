@@ -137,10 +137,13 @@ In concurrent/BRC mode (`EGG_CONCURRENT_MODE=true`), the gateway blocks direct `
 **Marker flow:**
 ```
 egg-orch consensus propose --push
+  └─→ calls gateway push API directly (bypasses git wrapper)
+       └─→ includes "consensus_push": true in JSON payload
+            └─→ gateway: allows push (marker present)
+
+Fallback (no GATEWAY_URL, e.g. local dev):
   └─→ sets EGG_CONSENSUS_PUSH=1 in subprocess env
-       └─→ git push (sandbox wrapper)
-            └─→ reads EGG_CONSENSUS_PUSH, adds "consensus_push": true to payload
-                 └─→ gateway: allows push (marker present)
+       └─→ git push via git wrapper
 ```
 
 **Killswitch:** Set `CONCURRENT_PUSH_ENFORCEMENT=false` to disable (for emergency bypass). Follows the same pattern as `PUSH_TARGET_ENFORCEMENT`.
