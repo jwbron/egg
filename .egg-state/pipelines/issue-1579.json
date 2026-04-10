@@ -5,7 +5,7 @@
   "branch": "egg/issue-1579",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -285,10 +285,10 @@
         {
           "container_id": "cd8c25a25e6e8bf6b9ef31072c67a0a89122d9f5b0bb1f84f591b96193fc24e2",
           "container_name": "egg-sandbox-egg-issue-1579-coder",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-10T01:33:03.466993Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-10T01:33:05.061920Z",
+          "exit_code": 1,
           "agent_role": null,
           "session_token": null
         },
@@ -342,13 +342,13 @@
         },
         {
           "role": "coder",
-          "status": "running",
+          "status": "failed",
           "container_id": "cd8c25a25e6e8bf6b9ef31072c67a0a89122d9f5b0bb1f84f591b96193fc24e2",
           "started_at": null,
-          "completed_at": null,
+          "completed_at": "2026-04-10T01:33:06.301964Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited unexpectedly during execution — detected by runtime container monitor",
           "retry_count": 0,
           "conflicts": []
         },
@@ -526,13 +526,13 @@
     }
   ],
   "created_at": "2026-04-10T00:51:52.753575Z",
-  "updated_at": "2026-04-10T01:33:04.435977Z",
+  "updated_at": "2026-04-10T01:33:06.302241Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
-  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-10T01:28:45.560059505Z     Status: healthy\n2026-04-10T01:28:45.560061880Z     GitHub token valid: True\n2026-04-10T01:28:45.560064338Z     Auth configured: True\n2026-04-10T01:28:45.560066755Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-10T01:28:45.560069380Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-10T01:28:45.560072046Z   Credentials injected by gateway (not in container)\n2026-04-10T01:28:45.560074588Z Signaled error to orchestrator\n2026-04-10T01:28:45.560077046Z \n2026-04-10T01:28:45.560079380Z Cleaning up on container exit...\n2026-04-10T01:28:45.560081880Z ✓ Cleanup complete",
+  "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "analysis": null,
   "plan": null,
-  "version": 51
+  "version": 52
 }
