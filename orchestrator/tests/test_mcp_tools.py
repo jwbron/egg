@@ -591,10 +591,25 @@ class TestSearchCheckpoints:
 
 
 class TestGetContract:
-    def test_with_issue_number(self, handler):
-        with patch.object(handler, "_make_gateway_request") as mock_gw:
-            mock_gw.return_value = {"success": True, "data": {"contract": {}}}
-            handler.handle_tool_call("get_contract", {"issue_number": 42})
+    def test_with_issue_number_and_active_pipeline(self, handler):
+        """issue_number resolves pipeline_id from active pipelines list."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {
+                "data": {"pipelines": [{"id": "issue-42", "issue_number": 42}]}
+            }
+            with patch.object(handler, "_make_gateway_request") as mock_gw:
+                mock_gw.return_value = {"success": True, "data": {"contract": {}}}
+                handler.handle_tool_call("get_contract", {"issue_number": 42})
+
+        mock_gw.assert_called_once_with("/api/v1/contract/42?pipeline_id=issue-42")
+
+    def test_with_issue_number_no_active_pipeline(self, handler):
+        """issue_number without matching active pipeline omits pipeline_id."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"data": {"pipelines": []}}
+            with patch.object(handler, "_make_gateway_request") as mock_gw:
+                mock_gw.return_value = {"success": True, "data": {"contract": {}}}
+                handler.handle_tool_call("get_contract", {"issue_number": 42})
 
         mock_gw.assert_called_once_with("/api/v1/contract/42")
 
@@ -605,7 +620,7 @@ class TestGetContract:
                 mock_gw.return_value = {"success": True, "data": {"contract": {}}}
                 handler.handle_tool_call("get_contract", {"task_id": "issue-42"})
 
-        mock_gw.assert_called_once_with("/api/v1/contract/42")
+        mock_gw.assert_called_once_with("/api/v1/contract/42?pipeline_id=issue-42")
 
     def test_missing_both_params(self, handler):
         result = handler.handle_tool_call("get_contract", {})
@@ -617,6 +632,16 @@ class TestGetContract:
             result = handler.handle_tool_call("get_contract", {"task_id": "prompt-based"})
 
         assert "error" in result
+
+    def test_pipeline_lookup_failure_is_graceful(self, handler):
+        """If listing pipelines fails, the request proceeds without pipeline_id."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = Exception("connection refused")
+            with patch.object(handler, "_make_gateway_request") as mock_gw:
+                mock_gw.return_value = {"success": True, "data": {"contract": {}}}
+                handler.handle_tool_call("get_contract", {"issue_number": 42})
+
+        mock_gw.assert_called_once_with("/api/v1/contract/42")
 
 
 class TestGatewayAuth:

@@ -59,6 +59,46 @@ logger = get_logger("gateway.contract")
 # Blueprint for contract endpoints
 contract_bp = Blueprint("contract", __name__, url_prefix="/api/v1/contract")
 
+# Must match orchestrator/routes/__init__.py _WORKTREE_BASE_DIR and
+# docker-compose volume mounts.
+_WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
+
+# Matches the pipeline_id format used in worktree directory names.
+_VALID_PIPELINE_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _resolve_pipeline_worktree(pipeline_id: str, repo_path: Path) -> Path | None:
+    """Try to find the contract in a pipeline's worktree.
+
+    Pipeline worktrees live at ``/home/egg/.egg-worktrees/<pipeline_id>/<repo>/``.
+    This mirrors :func:`orchestrator.routes.resolve_worktree_path` but lives in
+    the gateway to avoid cross-package imports.
+
+    Returns the worktree repo path if found, otherwise ``None``.
+    """
+    if not _VALID_PIPELINE_ID_RE.match(pipeline_id):
+        return None
+
+    wt_pipeline_dir = _WORKTREE_BASE_DIR / pipeline_id
+    if not wt_pipeline_dir.is_dir():
+        return None
+
+    # Match by repo directory name (last component of the original repo_path)
+    repo_name = repo_path.name
+    candidate = wt_pipeline_dir / repo_name
+    if candidate.is_dir():
+        return candidate
+
+    # Fallback: take the first existing subdirectory (matches orchestrator logic)
+    try:
+        for entry in wt_pipeline_dir.iterdir():
+            if entry.is_dir():
+                return entry
+    except OSError:
+        pass
+
+    return None
+
 
 _cached_worktree_helpers: (
     tuple[
@@ -251,12 +291,32 @@ def _get_contract_impl(identifier: int | str) -> tuple[Response, int]:
     repo_path = Path(mapped_path)
 
     include_audit = request.args.get("include_audit_log", "false").lower() == "true"
+    pipeline_id = request.args.get("pipeline_id")
 
     try:
         contract = load_contract(identifier, repo_path)
         data = export_contract(contract, include_audit_log=include_audit)
         return make_contract_success("Contract retrieved", data=data)
     except ContractNotFoundError:
+        # Fallback: try the pipeline's worktree if pipeline_id is provided.
+        # Contracts are written into per-pipeline worktrees, which differ
+        # from the gateway's CWD or the calling agent's worktree.
+        if pipeline_id:
+            wt_path = _resolve_pipeline_worktree(pipeline_id, repo_path)
+            if wt_path:
+                try:
+                    contract = load_contract(identifier, wt_path)
+                    data = export_contract(contract, include_audit_log=include_audit)
+                    logger.info(
+                        "Contract found via pipeline worktree fallback",
+                        identifier=str(identifier),
+                        pipeline_id=pipeline_id,
+                        worktree_path=str(wt_path),
+                    )
+                    return make_contract_success("Contract retrieved", data=data)
+                except (ContractNotFoundError, ContractValidationError):
+                    pass  # fall through to 404
+
         return make_contract_error(
             f"Contract for {'#' + str(identifier) if isinstance(identifier, int) else identifier} not found",
             status_code=404,

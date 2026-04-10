@@ -1267,3 +1267,133 @@ class TestGetWorktreeHelpers:
         map_fn, err_fn = contract_api._get_worktree_helpers()
         assert callable(map_fn)
         assert callable(err_fn)
+
+
+# ---------------------------------------------------------------------------
+# Pipeline worktree fallback tests
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineWorktreeFallback:
+    """Tests for pipeline_id worktree fallback in GET /api/v1/contract/."""
+
+    def test_fallback_finds_contract_in_pipeline_worktree(self, client, auth_headers, tmp_path):
+        """GET contract falls back to pipeline worktree when primary path misses."""
+        from egg_contracts import ContractNotFoundError
+
+        mock_contract = MagicMock()
+        mock_exported = {"issue": 1570, "phases": [{"name": "implement"}]}
+
+        # First call (primary path) raises not found; second call (worktree) succeeds
+        def load_side_effect(identifier, repo_root):
+            if str(repo_root) == "/home/egg/repos/test":
+                raise ContractNotFoundError(identifier, repo_root)
+            return mock_contract
+
+        worktree_repo = tmp_path / "issue-1570-v17" / "test"
+        worktree_repo.mkdir(parents=True)
+
+        with (
+            patch.object(contract_api, "load_contract", side_effect=load_side_effect),
+            patch.object(contract_api, "export_contract", return_value=mock_exported),
+            patch.object(contract_api, "_WORKTREE_BASE_DIR", tmp_path),
+        ):
+            response = client.get(
+                "/api/v1/contract/1570?repo_path=/home/egg/repos/test&pipeline_id=issue-1570-v17",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["success"] is True
+        assert data["data"]["issue"] == 1570
+
+    def test_fallback_not_triggered_without_pipeline_id(self, client, auth_headers):
+        """GET contract returns 404 without pipeline_id even when worktree exists."""
+        from pathlib import Path
+
+        from egg_contracts import ContractNotFoundError
+
+        with patch.object(
+            contract_api,
+            "load_contract",
+            side_effect=ContractNotFoundError(999, Path("/home/egg/repos/test")),
+        ):
+            response = client.get(
+                "/api/v1/contract/999?repo_path=/home/egg/repos/test",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 404
+
+    def test_fallback_returns_404_for_nonexistent_worktree(self, client, auth_headers, tmp_path):
+        """GET contract returns 404 when pipeline_id worktree directory doesn't exist."""
+        from pathlib import Path
+
+        from egg_contracts import ContractNotFoundError
+
+        with (
+            patch.object(
+                contract_api,
+                "load_contract",
+                side_effect=ContractNotFoundError(1570, Path("/home/egg/repos/test")),
+            ),
+            patch.object(contract_api, "_WORKTREE_BASE_DIR", tmp_path),
+        ):
+            response = client.get(
+                "/api/v1/contract/1570?repo_path=/home/egg/repos/test&pipeline_id=no-such-pipeline",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 404
+
+    def test_fallback_rejects_invalid_pipeline_id(self, client, auth_headers, tmp_path):
+        """GET contract ignores pipeline_id with path traversal characters."""
+        from pathlib import Path
+
+        from egg_contracts import ContractNotFoundError
+
+        with (
+            patch.object(
+                contract_api,
+                "load_contract",
+                side_effect=ContractNotFoundError(1570, Path("/home/egg/repos/test")),
+            ),
+            patch.object(contract_api, "_WORKTREE_BASE_DIR", tmp_path),
+        ):
+            response = client.get(
+                "/api/v1/contract/1570?repo_path=/home/egg/repos/test&pipeline_id=../../etc",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 404
+
+    def test_fallback_uses_first_subdir_when_repo_name_mismatch(
+        self, client, auth_headers, tmp_path
+    ):
+        """Fallback resolves to first subdirectory if repo name doesn't match."""
+        from egg_contracts import ContractNotFoundError
+
+        mock_contract = MagicMock()
+        mock_exported = {"issue": 42, "phases": []}
+
+        def load_side_effect(identifier, repo_root):
+            if str(repo_root) == "/home/egg/repos/test":
+                raise ContractNotFoundError(identifier, repo_root)
+            return mock_contract
+
+        # Worktree has a differently-named repo directory
+        worktree_repo = tmp_path / "my-pipeline" / "other-repo"
+        worktree_repo.mkdir(parents=True)
+
+        with (
+            patch.object(contract_api, "load_contract", side_effect=load_side_effect),
+            patch.object(contract_api, "export_contract", return_value=mock_exported),
+            patch.object(contract_api, "_WORKTREE_BASE_DIR", tmp_path),
+        ):
+            response = client.get(
+                "/api/v1/contract/42?repo_path=/home/egg/repos/test&pipeline_id=my-pipeline",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 200
