@@ -6,8 +6,9 @@ Tests cover the 10 new tools added for comprehensive platform interface:
 - list_checkpoints, search_checkpoints, get_contract (gateway-backed)
 """
 
+import asyncio
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.error import HTTPError
 
 import pytest
@@ -924,8 +925,13 @@ class TestSubmitTaskErrorPropagation:
         assert "HTTP 500" in result["error"]
 
 
-class TestGetStatus:
-    """Tests for the get_status tool's wait parameter."""
+class TestGetStatusSyncHandler:
+    """The sync ``_handle_get_status`` must not perform any blocking sleep.
+
+    The ``wait`` parameter is handled in the async tool wrapper
+    (``mcp_server._apply_get_status_wait``) so the anyio worker thread pool
+    is not held during polling delays.  These tests pin that invariant.
+    """
 
     def _pipeline_response(self):
         return {
@@ -971,40 +977,13 @@ class TestGetStatus:
             side_effect=[self._pipeline_response(), self._messages_response()],
         )
 
-    @patch("mcp_tools.time")
-    def test_wait_parameter_sleeps(self, mock_time, handler):
-        """wait parameter triggers time.sleep before fetching status."""
-        with self._mock_requests(handler):
-            handler.handle_tool_call("get_status", {"task_id": "issue-42", "wait": 60})
-        mock_time.sleep.assert_called_once_with(60)
-
-    @patch("mcp_tools.time")
-    def test_wait_capped_at_300(self, mock_time, handler):
-        """wait values above 300 are capped."""
-        with self._mock_requests(handler):
-            handler.handle_tool_call("get_status", {"task_id": "issue-42", "wait": 600})
-        mock_time.sleep.assert_called_once_with(300)
-
-    @patch("mcp_tools.time")
-    def test_wait_zero_no_sleep(self, mock_time, handler):
-        """wait=0 (default) does not call time.sleep."""
-        with self._mock_requests(handler):
-            handler.handle_tool_call("get_status", {"task_id": "issue-42"})
-        mock_time.sleep.assert_not_called()
-
-    @patch("mcp_tools.time")
-    def test_wait_negative_no_sleep(self, mock_time, handler):
-        """Negative wait values do not trigger sleep."""
-        with self._mock_requests(handler):
-            handler.handle_tool_call("get_status", {"task_id": "issue-42", "wait": -10})
-        mock_time.sleep.assert_not_called()
-
-    @patch("mcp_tools.time")
-    def test_wait_string_no_sleep(self, mock_time, handler):
-        """Non-numeric wait values (e.g. string) are ignored — no sleep."""
-        with self._mock_requests(handler):
-            handler.handle_tool_call("get_status", {"task_id": "issue-42", "wait": "60"})
-        mock_time.sleep.assert_not_called()
+    @patch("time.sleep")
+    def test_handler_ignores_wait_no_sleep(self, mock_sleep, handler):
+        """The sync handler never calls time.sleep, even when wait is set."""
+        for wait_val in (0, 5, 60, 600, -10, "30", None):
+            with self._mock_requests(handler):
+                handler.handle_tool_call("get_status", {"task_id": "issue-42", "wait": wait_val})
+        mock_sleep.assert_not_called()
 
     def test_pr_info_null_when_no_pr_phase(self, handler):
         """pr_url / pr_number are None while the pipeline is still pre-PR (#1625)."""
@@ -1043,3 +1022,77 @@ class TestGetStatus:
 
         assert result["pipeline"]["pr_url"] == "not-a-valid-pr-url"
         assert "pr_number" not in result["pipeline"]
+
+
+class TestGetStatusWait:
+    """Tests for the async ``wait`` handling in ``mcp_server``.
+
+    The wait delay moved from ``time.sleep`` in the sync tool handler to
+    ``asyncio.sleep`` in the async wrapper so polling loops no longer hold
+    anyio worker threads for the full delay.
+    """
+
+    @patch("mcp_server.asyncio.sleep", new_callable=AsyncMock)
+    def test_wait_sleeps_on_event_loop(self, mock_sleep):
+        """wait > 0 awaits asyncio.sleep for the requested value."""
+        from mcp_server import _apply_get_status_wait
+
+        kwargs = {"task_id": "issue-42", "wait": 10}
+        asyncio.run(_apply_get_status_wait("get_status", kwargs))
+
+        mock_sleep.assert_awaited_once_with(10)
+        assert "wait" not in kwargs  # consumed before dispatch to sync handler
+
+    @patch("mcp_server.asyncio.sleep", new_callable=AsyncMock)
+    def test_wait_capped_at_max(self, mock_sleep):
+        """wait values above GET_STATUS_MAX_WAIT are capped; cap is 25s."""
+        from mcp_server import GET_STATUS_MAX_WAIT, _apply_get_status_wait
+
+        assert GET_STATUS_MAX_WAIT == 25
+
+        asyncio.run(_apply_get_status_wait("get_status", {"task_id": "issue-42", "wait": 300}))
+        mock_sleep.assert_awaited_once_with(GET_STATUS_MAX_WAIT)
+
+    @patch("mcp_server.asyncio.sleep", new_callable=AsyncMock)
+    def test_wait_zero_no_sleep(self, mock_sleep):
+        """wait=0 (default) does not await asyncio.sleep."""
+        from mcp_server import _apply_get_status_wait
+
+        asyncio.run(_apply_get_status_wait("get_status", {"task_id": "issue-42", "wait": 0}))
+        mock_sleep.assert_not_called()
+
+    @patch("mcp_server.asyncio.sleep", new_callable=AsyncMock)
+    def test_wait_missing_no_sleep(self, mock_sleep):
+        """Omitting wait (absent key) does not await asyncio.sleep."""
+        from mcp_server import _apply_get_status_wait
+
+        asyncio.run(_apply_get_status_wait("get_status", {"task_id": "issue-42"}))
+        mock_sleep.assert_not_called()
+
+    @patch("mcp_server.asyncio.sleep", new_callable=AsyncMock)
+    def test_wait_negative_no_sleep(self, mock_sleep):
+        """Negative wait values are ignored."""
+        from mcp_server import _apply_get_status_wait
+
+        asyncio.run(_apply_get_status_wait("get_status", {"task_id": "issue-42", "wait": -5}))
+        mock_sleep.assert_not_called()
+
+    @patch("mcp_server.asyncio.sleep", new_callable=AsyncMock)
+    def test_wait_non_numeric_no_sleep(self, mock_sleep):
+        """Non-numeric wait values (str, None, bool, list) are ignored."""
+        from mcp_server import _apply_get_status_wait
+
+        for bad in ("30", None, True, False, [10]):
+            asyncio.run(_apply_get_status_wait("get_status", {"task_id": "issue-42", "wait": bad}))
+        mock_sleep.assert_not_called()
+
+    @patch("mcp_server.asyncio.sleep", new_callable=AsyncMock)
+    def test_other_tools_ignore_wait(self, mock_sleep):
+        """Wait handling only applies to get_status; other tools pass through."""
+        from mcp_server import _apply_get_status_wait
+
+        kwargs = {"task_id": "issue-42", "wait": 10}
+        asyncio.run(_apply_get_status_wait("restart_phase", kwargs))
+
+        mock_sleep.assert_not_called()
+        assert kwargs["wait"] == 10  # preserved — non-get_status tools own it
