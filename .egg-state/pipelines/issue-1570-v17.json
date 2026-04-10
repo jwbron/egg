@@ -93,10 +93,10 @@
         {
           "container_id": "3c28bf40d0551f6b5d2d005a352bbfcdd512655227ecad698a8f910fb8d35ca6",
           "container_name": "issue-1570-v17-tester",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-10T21:46:56.653184Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-10T23:16:59.802315Z",
+          "exit_code": -1,
           "agent_role": "tester",
           "session_token": null
         }
@@ -152,13 +152,13 @@
         },
         {
           "role": "tester",
-          "status": "running",
+          "status": "failed",
           "container_id": "3c28bf40d0551f6b5d2d005a352bbfcdd512655227ecad698a8f910fb8d35ca6",
           "started_at": "2026-04-10T21:46:56.653185Z",
-          "completed_at": null,
+          "completed_at": "2026-04-10T23:16:59.853041Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         }
@@ -234,7 +234,7 @@
     }
   ],
   "created_at": "2026-04-10T18:59:13.603188Z",
-  "updated_at": "2026-04-10T23:16:59.832971Z",
+  "updated_at": "2026-04-10T23:16:59.853156Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -245,5 +245,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-10T21:46:50.963938Z",
-  "version": 26
+  "version": 27
 }
