@@ -179,9 +179,28 @@
       "phase_start_sha": "fa77c794ffacc7b6a0f24c02c9ccd8f0b29f5038"
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Tester agent (container 3c28bf40d055) has been silent for 19+ minutes (last event: 21:53:38 UTC, 'reviewing phase 1, writing tests'). Two overseer messages sent (STATUS + QUESTION) with no response. heartbeat_timeout and progress_stall alerts remain outstanding. Coder is now in phase-10 (running tests, about to propose). Tester must review coder's proposal for BRC consensus to complete. What action should be taken?",
+      "context": "",
+      "options": [
+        "Wait — tester may be in a long blocking test run and will wake up when coder proposes",
+        "Investigate tester container logs for errors/stall cause",
+        "Accept tester partial participation — note gap in consensus record"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-10T22:12:58.308425Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "implement",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-04-10T18:59:13.603188Z",
-  "updated_at": "2026-04-10T21:46:56.653256Z",
+  "updated_at": "2026-04-10T22:12:58.317456Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -192,5 +211,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-10T21:46:50.963938Z",
-  "version": 18
+  "version": 19
 }
