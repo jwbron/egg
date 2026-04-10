@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from models import Pipeline
+from models import Pipeline, PipelineMode
 from state_store import StateStore
 
 # Sample plan with yaml-tasks appendix matching the format parse_plan expects
@@ -182,7 +182,7 @@ class TestEnsureStatefilesRestoresPRMetadata:
         pipeline.issue_number = None
         pipeline.repo = "owner/repo"
         pipeline.prompt = "Test task"
-        pipeline.mode = "local"
+        pipeline.mode = PipelineMode.ISSUE
         pipeline.plan = None
         pipeline.analysis = None
 
@@ -213,7 +213,7 @@ class TestEnsureStatefilesRestoresPRMetadata:
         pipeline.issue_number = issue_number
         pipeline.repo = "owner/repo"
         pipeline.prompt = "Test task"
-        pipeline.mode = "local"
+        pipeline.mode = PipelineMode.ISSUE
         pipeline.plan = None
         pipeline.analysis = None
 
@@ -252,7 +252,7 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
         pipeline.issue_number = None
         pipeline.repo = "owner/repo"
         pipeline.prompt = "Test task"
-        pipeline.mode = "local"
+        pipeline.mode = PipelineMode.ISSUE
         pipeline.branch = "egg/pipeline-short-remote"
         pipeline.plan = None
         pipeline.analysis = None
@@ -303,7 +303,7 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
         pipeline.issue_number = None
         pipeline.repo = "owner/repo"
         pipeline.prompt = "Test task"
-        pipeline.mode = "local"
+        pipeline.mode = PipelineMode.ISSUE
         pipeline.branch = None  # No branch
         pipeline.plan = None
         pipeline.analysis = None
@@ -328,7 +328,7 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
         pipeline.issue_number = None
         pipeline.repo = "owner/repo"
         pipeline.prompt = "Test task"
-        pipeline.mode = "local"
+        pipeline.mode = PipelineMode.ISSUE
         pipeline.branch = "egg/pipeline-git-fail"
         pipeline.plan = None
         pipeline.analysis = None
@@ -364,7 +364,7 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
         pipeline.issue_number = issue_number
         pipeline.repo = "owner/repo"
         pipeline.prompt = "Test task"
-        pipeline.mode = "local"
+        pipeline.mode = PipelineMode.ISSUE
         pipeline.branch = "egg/pipeline-issue-remote"
         pipeline.plan = None
         pipeline.analysis = None
