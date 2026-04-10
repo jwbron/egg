@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 
 from egg_harness.config import ProviderConfig
+from egg_harness.providers.anthropic import _validate_endpoint_url
 from egg_harness.providers.base import (
     MessageDelta,
     MessageEnd,
@@ -67,6 +68,7 @@ class OpenAICompatibleProvider(Provider):
                 raise ValueError(
                     "OpenAICompatibleProvider requires a non-empty base_url."
                 )
+            _validate_endpoint_url(base_url)
             config = ProviderConfig(
                 provider_type="openai_compatible",
                 model=model or "default",
@@ -85,6 +87,7 @@ class OpenAICompatibleProvider(Provider):
             raise ValueError(
                 "OpenAICompatibleProvider requires config.endpoint to be set."
             )
+        _validate_endpoint_url(config.endpoint)
         self._endpoint = config.endpoint.rstrip("/")
         self._base_url = self._endpoint
 

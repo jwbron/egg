@@ -6,11 +6,13 @@ the raw SSE events to the harness's :data:`StreamEvent` types.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
 from collections.abc import AsyncIterator
 from typing import Any
+from urllib.parse import urlparse
 
 import anthropic
 
@@ -29,6 +31,63 @@ from egg_harness.providers.base import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Known-safe gateway hostnames (egg-gateway is the standard sidecar name).
+_ALLOWED_GATEWAY_HOSTS = frozenset({
+    "egg-gateway",
+    "localhost",
+    "127.0.0.1",
+    "::1",
+})
+
+
+def _validate_endpoint_url(url: str) -> None:
+    """Validate that an endpoint URL is safe (SSRF mitigation).
+
+    Allows:
+    - Known gateway hostnames (egg-gateway, localhost)
+    - HTTPS to any host (public APIs)
+    - HTTP only to known gateway hosts
+
+    Raises:
+        ValueError: If the URL fails validation.
+    """
+    if not url or not url.startswith(("http://", "https://")):
+        raise ValueError(f"Invalid endpoint URL (must be http/https): {url!r}")
+
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+
+    # HTTPS is always allowed (external API endpoints).
+    if parsed.scheme == "https":
+        return
+
+    # HTTP: only allow known gateway hosts.
+    if hostname in _ALLOWED_GATEWAY_HOSTS:
+        return
+
+    # HTTP to an IP: block private/reserved ranges.
+    try:
+        addr = ipaddress.ip_address(hostname)
+        if addr.is_private or addr.is_reserved or addr.is_loopback:
+            # Allow loopback (localhost already covered above for named hosts).
+            if addr.is_loopback:
+                return
+            raise ValueError(
+                f"HTTP endpoint points to private/reserved IP: {hostname}. "
+                "Use HTTPS or the gateway proxy instead."
+            )
+    except ValueError as exc:
+        if "private/reserved" in str(exc):
+            raise
+        # Not a valid IP — it's a hostname. Block HTTP to unknown hosts.
+        pass
+
+    # HTTP to an unknown hostname: block to prevent SSRF.
+    raise ValueError(
+        f"HTTP endpoint to unknown host {hostname!r} is not allowed. "
+        "Use HTTPS or route through the gateway proxy (egg-gateway)."
+    )
 
 
 class AnthropicProvider(Provider):
@@ -56,10 +115,7 @@ class AnthropicProvider(Provider):
     ) -> None:
         # Allow construction via ``gateway_url`` shorthand.
         if config is None and gateway_url is not None:
-            if not gateway_url or not gateway_url.startswith(("http://", "https://")):
-                raise ValueError(
-                    f"Invalid gateway endpoint URL: {gateway_url!r}"
-                )
+            _validate_endpoint_url(gateway_url)
             config = ProviderConfig(
                 provider_type="anthropic",
                 model="claude-sonnet-4-5-20250514",
@@ -83,11 +139,7 @@ class AnthropicProvider(Provider):
         # Build client kwargs.
         client_kwargs: dict[str, Any] = {}
         if config.endpoint:
-            # Validate it looks like a URL.
-            if not config.endpoint.startswith(("http://", "https://")):
-                raise ValueError(
-                    f"Invalid gateway endpoint URL: {config.endpoint!r}"
-                )
+            _validate_endpoint_url(config.endpoint)
             client_kwargs["base_url"] = config.endpoint
 
         # The gateway injects the real API key via a proxy header; the SDK
