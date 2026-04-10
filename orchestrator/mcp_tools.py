@@ -1619,10 +1619,17 @@ class PipelineToolHandler:
         if not pipeline_id:
             try:
                 pipelines_resp = self._make_request("/api/v1/pipelines?active_only=true")
+                # If multiple active pipelines exist for this issue (e.g. a retry
+                # started before the previous one was cancelled), we pick the most
+                # recently created one.  The API response order is not guaranteed,
+                # so we scan all matching entries and keep the latest by created_at.
+                best: dict[str, Any] | None = None
                 for p in pipelines_resp.get("data", {}).get("pipelines", []):
                     if p.get("issue_number") == int(issue_number):
-                        pipeline_id = p["id"]
-                        break
+                        if best is None or p.get("created_at", "") > best.get("created_at", ""):
+                            best = p
+                if best is not None:
+                    pipeline_id = best["id"]
             except Exception:
                 pass  # best-effort; proceed without pipeline_id
 

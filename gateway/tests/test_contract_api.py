@@ -1397,3 +1397,31 @@ class TestPipelineWorktreeFallback:
             )
 
         assert response.status_code == 200
+
+    def test_fallback_returns_500_for_corrupt_contract_in_worktree(
+        self, client, auth_headers, tmp_path
+    ):
+        """GET contract returns 500 when worktree fallback finds a corrupt contract."""
+        from egg_contracts import ContractNotFoundError, ContractValidationError
+
+        def load_side_effect(identifier, repo_root):
+            if str(repo_root) == "/home/egg/repos/test":
+                raise ContractNotFoundError(identifier, repo_root)
+            # Worktree path — contract exists but is malformed
+            raise ContractValidationError(identifier, ["corrupt YAML"])
+
+        worktree_repo = tmp_path / "pipe-99" / "test"
+        worktree_repo.mkdir(parents=True)
+
+        with (
+            patch.object(contract_api, "load_contract", side_effect=load_side_effect),
+            patch.object(contract_api, "_WORKTREE_BASE_DIR", tmp_path),
+        ):
+            response = client.get(
+                "/api/v1/contract/99?repo_path=/home/egg/repos/test&pipeline_id=pipe-99",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 500
+        data = json.loads(response.data)
+        assert "validation failed" in data["message"].lower()

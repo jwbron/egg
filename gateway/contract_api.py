@@ -74,6 +74,8 @@ def _resolve_pipeline_worktree(pipeline_id: str, repo_path: Path) -> Path | None
     This mirrors :func:`orchestrator.routes.resolve_worktree_path` but lives in
     the gateway to avoid cross-package imports.
 
+    # TODO: consolidate with orchestrator.routes.resolve_worktree_path into shared/
+
     Returns the worktree repo path if found, otherwise ``None``.
     """
     if not _VALID_PIPELINE_ID_RE.match(pipeline_id):
@@ -89,10 +91,17 @@ def _resolve_pipeline_worktree(pipeline_id: str, repo_path: Path) -> Path | None
     if candidate.is_dir():
         return candidate
 
-    # Fallback: take the first existing subdirectory (matches orchestrator logic)
+    # Fallback: take the first existing subdirectory (matches orchestrator logic).
+    # This heuristic can mask misconfigurations — log so operators can detect them.
     try:
         for entry in wt_pipeline_dir.iterdir():
             if entry.is_dir():
+                logger.warning(
+                    "Worktree repo name mismatch, using first subdirectory",
+                    expected_repo=repo_name,
+                    actual_subdir=entry.name,
+                    pipeline_id=pipeline_id,
+                )
                 return entry
     except OSError:
         pass
@@ -314,8 +323,19 @@ def _get_contract_impl(identifier: int | str) -> tuple[Response, int]:
                         worktree_path=str(wt_path),
                     )
                     return make_contract_success("Contract retrieved", data=data)
-                except (ContractNotFoundError, ContractValidationError):
-                    pass  # fall through to 404
+                except ContractNotFoundError:
+                    pass  # genuinely not found, fall through to 404
+                except ContractValidationError:
+                    logger.warning(
+                        "Contract found in pipeline worktree but validation failed",
+                        identifier=str(identifier),
+                        pipeline_id=pipeline_id,
+                        worktree_path=str(wt_path),
+                    )
+                    return make_contract_error(
+                        f"Contract validation failed in pipeline worktree for {identifier}",
+                        status_code=500,
+                    )
 
         return make_contract_error(
             f"Contract for {'#' + str(identifier) if isinstance(identifier, int) else identifier} not found",
