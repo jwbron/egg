@@ -214,7 +214,7 @@
           "description": "Phase status",
           "enum": ["pending", "in_progress", "complete", "blocked"],
           "default": "pending",
-          "x-role-owner": "reviewer"
+          "x-role-owner": ["implementer", "reviewer"]
         },
         "review_cycles": {
           "type": "integer",
@@ -255,6 +255,13 @@
           },
           "default": []
         },
+        "commit": {
+          "type": ["string", "null"],
+          "description": "Git commit SHA linked to this phase",
+          "pattern": "^[a-f0-9]{7,40}$",
+          "default": null,
+          "x-role-owner": "implementer"
+        },
         "review_feedback": {
           "type": "array",
           "description": "Feedback from reviewer",
@@ -286,7 +293,7 @@
           "description": "Task status",
           "enum": ["pending", "in_progress", "complete", "incomplete", "blocked"],
           "default": "pending",
-          "x-role-owner": "reviewer"
+          "x-role-owner": ["implementer", "reviewer"]
         },
         "commit": {
           "type": ["string", "null"],

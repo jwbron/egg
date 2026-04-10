@@ -4775,8 +4775,10 @@ def _build_phase_prompt(
                     "Implement the required changes — when working with third-party "
                     "libraries or APIs, use WebSearch and WebFetch (when available) to "
                     "look up current documentation, usage examples, and best practices",
-                    "Run tests to verify correctness",
-                    "Commit with descriptive messages",
+                    "After completing each plan phase or task group, commit and push "
+                    "immediately — do not batch all work into a final commit. Mark "
+                    "tasks done: `egg-contract complete-task --task <id> --commit <sha>`",
+                    "Run tests to verify correctness, then commit any fixes",
                 ]
             )
             for i, step in enumerate(steps, 1):
@@ -4803,11 +4805,12 @@ def _build_phase_prompt(
             )
             lines.append(
                 "- Subagents should only edit files — do NOT stage or commit from subagents. "
-                "After all subagents complete, stage and commit the combined changes yourself."
+                "After each group of parallel subagents completes, **immediately** commit and "
+                "push their combined changes before launching the next group."
             )
             lines.append(
                 "- After subagents complete, verify the combined changes compile, pass tests, "
-                "and integrate correctly."
+                "and integrate correctly. Do NOT defer all commits to the end."
             )
             lines.append(
                 "- For small or sequential tasks, just implement directly — don't over-parallelize."
@@ -4872,9 +4875,12 @@ def _build_phase_prompt(
         # Contract CLI instructions for both local and issue mode
         lines.extend(
             [
-                "Use the contract CLI to track progress:",
+                "Use the contract CLI to track progress incrementally — update after "
+                "each commit, not in a batch at the end:",
                 "- `egg-contract show` — View current contract state",
-                "- `egg-contract add-commit --task <id> --commit <sha>` — Link commit to task",
+                "- `egg-contract complete-task --task <id> --commit <sha>` — Mark task done and link commit",
+                "- `egg-contract complete-phase --phase <id> --commit <sha>` — Mark phase done and link commit",
+                "- `egg-contract add-commit --task <id> --commit <sha>` — Link commit to task without marking done",
                 "",
             ]
         )

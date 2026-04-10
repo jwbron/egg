@@ -28,6 +28,7 @@ from egg_lib.contract_cli import (
     main,
     make_gateway_request,
     parse_criterion_id,
+    parse_phase_id,
     parse_task_id,
     validate_commit_sha,
     validate_decision_id,
@@ -333,6 +334,12 @@ class TestTaskIdParsing:
         with pytest.raises(ValueError):
             parse_task_id("task--1")
 
+    def test_task_id_bare_number_rejected(self):
+        """Test that bare numbers without 'task-' prefix are rejected."""
+        with pytest.raises(ValueError) as exc_info:
+            parse_task_id("1")
+        assert "Invalid task ID" in str(exc_info.value)
+
 
 class TestCriterionIdParsing:
     """Tests for criterion ID parsing."""
@@ -358,6 +365,83 @@ class TestCriterionIdParsing:
         with pytest.raises(ValueError) as exc_info:
             parse_criterion_id("ac-0")
         assert "must be >= 1" in str(exc_info.value)
+
+
+class TestPhaseIdParsing:
+    """Tests for phase ID parsing."""
+
+    def test_valid_phase_id(self):
+        """Test parsing valid phase ID."""
+        phase_idx = parse_phase_id("phase-1")
+        assert phase_idx == 0
+
+    def test_phase_id_higher_number(self):
+        """Test parsing phase ID with higher number."""
+        phase_idx = parse_phase_id("phase-5")
+        assert phase_idx == 4
+
+    def test_phase_id_case_insensitive(self):
+        """Test that phase ID parsing is case insensitive."""
+        phase_idx = parse_phase_id("PHASE-2")
+        assert phase_idx == 1
+
+    def test_phase_id_non_numeric(self):
+        """Test that non-numeric phase ID raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            parse_phase_id("phase-abc")
+        assert "Invalid phase ID" in str(exc_info.value)
+
+    def test_phase_id_zero(self):
+        """Test that phase number 0 raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            parse_phase_id("phase-0")
+        assert "must be >= 1" in str(exc_info.value)
+
+    def test_phase_id_bare_number_rejected(self):
+        """Test that bare numbers without 'phase-' prefix are rejected."""
+        with pytest.raises(ValueError) as exc_info:
+            parse_phase_id("1")
+        assert "Invalid phase ID" in str(exc_info.value)
+
+
+class TestCompleteTaskParsing:
+    """Tests for complete-task command argument parsing."""
+
+    def test_complete_task_command(self):
+        """Test parsing complete-task command."""
+        parser = create_parser()
+        args = parser.parse_args(["complete-task", "--task", "task-1"])
+        assert args.command == "complete-task"
+        assert args.task == "task-1"
+        assert args.commit is None
+
+    def test_complete_task_with_commit(self):
+        """Test parsing complete-task with optional commit."""
+        parser = create_parser()
+        args = parser.parse_args(["complete-task", "--task", "task-2-3", "--commit", "abc1234"])
+        assert args.command == "complete-task"
+        assert args.task == "task-2-3"
+        assert args.commit == "abc1234"
+
+
+class TestCompletePhaseParsing:
+    """Tests for complete-phase command argument parsing."""
+
+    def test_complete_phase_command(self):
+        """Test parsing complete-phase command."""
+        parser = create_parser()
+        args = parser.parse_args(["complete-phase", "--phase", "phase-1"])
+        assert args.command == "complete-phase"
+        assert args.phase == "phase-1"
+        assert args.commit is None
+
+    def test_complete_phase_with_commit(self):
+        """Test parsing complete-phase with optional commit."""
+        parser = create_parser()
+        args = parser.parse_args(["complete-phase", "--phase", "phase-2", "--commit", "def5678"])
+        assert args.command == "complete-phase"
+        assert args.phase == "phase-2"
+        assert args.commit == "def5678"
 
 
 class TestMainNoCommand:

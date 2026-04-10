@@ -6,6 +6,7 @@ auto re-propose fires, producer excusal, and new ApprovalMatrix helpers.
 """
 
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -308,6 +309,52 @@ class TestAutoReproposeSafety:
         assert result["status"] == "skipped"
         assert "unchanged" in result["reason"].lower()
 
+    def test_push_covered_by_recent_explicit_proposal(self):
+        """Propose then immediately push -> skipped (covered by explicit proposal)."""
+        graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
+        tracker = PeerConsensusTracker(
+            "test-pipeline",
+            graph,
+            cooldown_seconds=0,
+            attestation_strictness=AttestationStrictness.RELAXED,
+            auto_repropose_debounce_seconds=60,
+        )
+        tracker.register_agent("coder")
+        tracker.register_agent("reviewer_code")
+
+        # Explicit proposal sets _proposal_timestamps
+        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+
+        # Push immediately after -> covered by the recent proposal
+        result = tracker.handle_producer_push("coder", "sha2")
+        assert result["status"] == "skipped"
+        assert "explicit proposal" in result["reason"].lower()
+
+    def test_push_not_covered_by_stale_proposal(self):
+        """Propose long ago, push now -> auto re-propose fires."""
+
+        graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
+        tracker = PeerConsensusTracker(
+            "test-pipeline",
+            graph,
+            cooldown_seconds=0,
+            attestation_strictness=AttestationStrictness.RELAXED,
+            auto_repropose_debounce_seconds=60,
+        )
+        tracker.register_agent("coder")
+        tracker.register_agent("reviewer_code")
+
+        tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+
+        # Backdate explicit proposal timestamp to simulate time passage
+        tracker._last_explicit_propose_timestamp["coder"] = datetime.now(UTC) - timedelta(
+            seconds=120
+        )
+
+        # Push now -> proposal is stale, auto re-propose should fire
+        result = tracker.handle_producer_push("coder", "sha2")
+        assert result["auto_re_propose"] is True
+
     def test_debounce_window_active(self):
         """Set debounce=600, push once (succeeds), push again -> skipped."""
         graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
@@ -322,6 +369,12 @@ class TestAutoReproposeSafety:
         tracker.register_agent("reviewer_code")
 
         tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+
+        # Backdate explicit proposal timestamp so the explicit-proposal
+        # check doesn't suppress the first push (we're testing debounce here)
+        tracker._last_explicit_propose_timestamp["coder"] = datetime.now(UTC) - timedelta(
+            seconds=700
+        )
 
         # First push succeeds (no prior auto-repropose timestamp)
         result1 = tracker.handle_producer_push("coder", "sha2")

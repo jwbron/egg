@@ -105,6 +105,13 @@ class ReviewFeedback(BaseModel):
     status: TaskStatus | None = Field(default=None, description="Status assigned by reviewer")
 
 
+def _normalize_commit(v: Any) -> str | None:
+    """Normalize commit SHA values: treat None and empty string as None."""
+    if v is None or v == "":
+        return None
+    return str(v)
+
+
 class Task(BaseModel):
     """A task within a phase."""
 
@@ -142,9 +149,7 @@ class Task(BaseModel):
     @field_validator("commit", mode="before")
     @classmethod
     def validate_commit(cls, v: Any) -> str | None:
-        if v is None or v == "":
-            return None
-        return str(v)
+        return _normalize_commit(v)
 
 
 class Phase(BaseModel):
@@ -162,9 +167,19 @@ class Phase(BaseModel):
         default_factory=list,
         description="Phase IDs this phase depends on (e.g., ['phase-1', 'phase-2'])",
     )
+    commit: str | None = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{7,40}$",
+        description="Git commit SHA linked to this phase",
+    )
     review_feedback: list[ReviewFeedback] = Field(
         default_factory=list, description="Feedback from reviewer"
     )
+
+    @field_validator("commit", mode="before")
+    @classmethod
+    def validate_commit(cls, v: Any) -> str | None:
+        return _normalize_commit(v)
 
 
 class DecisionOption(BaseModel):

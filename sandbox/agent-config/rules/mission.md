@@ -55,6 +55,16 @@ gh pr create --head egg/<description> --title "Brief description" --body "..." -
 
 **Commit Attribution**: Author is `egg <egg@localhost>`. NEVER include "Claude Code" or "Co-Authored-By: Claude".
 
+### Incremental Commits (CRITICAL)
+
+**Commit and push after each logical unit of work** (plan phase, task group, feature module). Uncommitted code in a dead container is unrecoverable; a failing test on the branch is fixable.
+
+- **Don't wait for all tests to pass** before committing code. Commit the implementation, then fix test failures in subsequent commits.
+- **Push before long-running operations** — test suites, sub-agent spawns, or anything that could consume remaining turns.
+- **For multi-phase plans**: commit and push after completing each phase before starting the next. Never batch all phases into a single final commit.
+- **Update the contract as you go**: after each commit, mark the task done with `egg-contract complete-task --task <id> --commit <sha>`. After completing all tasks in a phase, mark the phase done with `egg-contract complete-phase --phase <id> --commit <sha>`.
+- **In concurrent/BRC mode**: use `egg-orch consensus propose --push` to bundle push + proposal in one operation. This prevents redundant auto-repropose cycles from triggering on each incremental push.
+
 **If push/PR fails**: Notify user via Slack with branch name, repo, and summary.
 
 ### Preventing PR Cross-Contamination (CRITICAL)

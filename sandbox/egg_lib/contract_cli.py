@@ -139,7 +139,11 @@ def parse_task_id(task_id: str) -> tuple[int, int]:
     Raises:
         ValueError: If task ID format is invalid or numbers are out of range
     """
-    task_parts = task_id.lower().replace("task-", "").split("-")
+    lower = task_id.lower()
+    stripped = lower.removeprefix("task-")
+    if stripped == lower:
+        raise ValueError(f"Invalid task ID '{task_id}': expected format 'task-N' or 'task-P-T'")
+    task_parts = stripped.split("-")
     try:
         if len(task_parts) == 1:
             # Simple format: task-N (assumes phase-1)
@@ -182,6 +186,34 @@ def parse_criterion_id(criterion_id: str) -> int:
         if "must be >= 1" in str(e):
             raise
         raise ValueError(f"Invalid criterion ID '{criterion_id}': expected format 'ac-N'") from e
+
+
+def parse_phase_id(phase_id: str) -> int:
+    """Parse phase ID and return phase_idx.
+
+    Args:
+        phase_id: Phase ID in format "phase-N"
+
+    Returns:
+        Phase index as 0-based
+
+    Raises:
+        ValueError: If phase ID format is invalid or number is out of range
+    """
+    lower = phase_id.lower()
+    stripped = lower.removeprefix("phase-")
+    if stripped == lower:
+        # prefix was not present
+        raise ValueError(f"Invalid phase ID '{phase_id}': expected format 'phase-N'")
+    try:
+        phase_num = int(stripped)
+        if phase_num < 1:
+            raise ValueError(f"Phase number must be >= 1: {phase_id}")
+        return phase_num - 1
+    except ValueError as e:
+        if "must be >= 1" in str(e):
+            raise
+        raise ValueError(f"Invalid phase ID '{phase_id}': expected format 'phase-N'") from e
 
 
 def validate_commit_sha(commit: str) -> str:
@@ -444,6 +476,160 @@ def cmd_update_notes(args: argparse.Namespace) -> int:
     else:
         print(f"Error: {result.get('message')}", file=sys.stderr)
         return 1
+
+
+def cmd_complete_task(args: argparse.Namespace) -> int:
+    """Mark a task as complete, optionally linking a commit."""
+    identifier = get_contract_identifier(args)
+    if identifier is None:
+        print(
+            "Error: Contract identifier required. "
+            "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        phase_idx, task_idx = parse_task_id(args.task)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    repo_path = args.repo_path or get_repo_path()
+
+    # Set task status to complete
+    status_path = f"phases.{phase_idx}.tasks.{task_idx}.status"
+    result = make_gateway_request(
+        "/api/v1/contract/mutate",
+        method="POST",
+        data={
+            "identifier": identifier,
+            "repo_path": repo_path,
+            "field_path": status_path,
+            "new_value": "complete",
+            "actor": "egg",
+            "reason": f"Marked {args.task} as complete",
+            **_container_id_field(),
+        },
+    )
+
+    if not result.get("success"):
+        print(f"Error setting status: {result.get('message')}", file=sys.stderr)
+        return 1
+
+    # Optionally link a commit
+    if args.commit:
+        try:
+            validate_commit_sha(args.commit)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+
+        commit_path = f"phases.{phase_idx}.tasks.{task_idx}.commit"
+        commit_result = make_gateway_request(
+            "/api/v1/contract/mutate",
+            method="POST",
+            data={
+                "identifier": identifier,
+                "repo_path": repo_path,
+                "field_path": commit_path,
+                "new_value": args.commit,
+                "actor": "egg",
+                "reason": f"Linked commit {args.commit[:7]} to {args.task}",
+                **_container_id_field(),
+            },
+        )
+
+        if not commit_result.get("success"):
+            print(
+                f"Warning: Task marked complete but failed to link commit: "
+                f"{commit_result.get('message')}",
+                file=sys.stderr,
+            )
+            return 1
+
+        print(f"Completed {args.task} (commit {args.commit[:7]})")
+    else:
+        print(f"Completed {args.task}")
+
+    return 0
+
+
+def cmd_complete_phase(args: argparse.Namespace) -> int:
+    """Mark a phase as complete, optionally linking a commit."""
+    identifier = get_contract_identifier(args)
+    if identifier is None:
+        print(
+            "Error: Contract identifier required. "
+            "Set EGG_ISSUE_NUMBER or EGG_PIPELINE_ID, or use --issue/--pipeline-id",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        phase_idx = parse_phase_id(args.phase)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    repo_path = args.repo_path or get_repo_path()
+
+    # Set phase status to complete
+    status_path = f"phases.{phase_idx}.status"
+    result = make_gateway_request(
+        "/api/v1/contract/mutate",
+        method="POST",
+        data={
+            "identifier": identifier,
+            "repo_path": repo_path,
+            "field_path": status_path,
+            "new_value": "complete",
+            "actor": "egg",
+            "reason": f"Marked {args.phase} as complete",
+            **_container_id_field(),
+        },
+    )
+
+    if not result.get("success"):
+        print(f"Error setting status: {result.get('message')}", file=sys.stderr)
+        return 1
+
+    # Optionally link a commit
+    if args.commit:
+        try:
+            validate_commit_sha(args.commit)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+
+        commit_path = f"phases.{phase_idx}.commit"
+        commit_result = make_gateway_request(
+            "/api/v1/contract/mutate",
+            method="POST",
+            data={
+                "identifier": identifier,
+                "repo_path": repo_path,
+                "field_path": commit_path,
+                "new_value": args.commit,
+                "actor": "egg",
+                "reason": f"Linked commit {args.commit[:7]} to {args.phase}",
+                **_container_id_field(),
+            },
+        )
+
+        if not commit_result.get("success"):
+            print(
+                f"Warning: Phase marked complete but failed to link commit: "
+                f"{commit_result.get('message')}",
+                file=sys.stderr,
+            )
+            return 1
+
+        print(f"Completed {args.phase} (commit {args.commit[:7]})")
+    else:
+        print(f"Completed {args.phase}")
+
+    return 0
 
 
 def validate_decision_id(decision_id: str) -> None:
@@ -1247,6 +1433,20 @@ def create_parser() -> argparse.ArgumentParser:
     notes_parser.add_argument("--task", required=True, help="Task ID")
     notes_parser.add_argument("--notes", required=True, help="Implementation notes")
     notes_parser.set_defaults(func=cmd_update_notes)
+
+    # complete-task command
+    complete_task_parser = subparsers.add_parser("complete-task", help="Mark a task as complete")
+    complete_task_parser.add_argument(
+        "--task", required=True, help="Task ID (e.g., task-1 or task-1-2)"
+    )
+    complete_task_parser.add_argument("--commit", help="Git commit SHA to link to the task")
+    complete_task_parser.set_defaults(func=cmd_complete_task)
+
+    # complete-phase command
+    complete_phase_parser = subparsers.add_parser("complete-phase", help="Mark a phase as complete")
+    complete_phase_parser.add_argument("--phase", required=True, help="Phase ID (e.g., phase-1)")
+    complete_phase_parser.add_argument("--commit", help="Git commit SHA to link to the phase")
+    complete_phase_parser.set_defaults(func=cmd_complete_phase)
 
     # verify-criterion command (requires REVIEWER role)
     verify_criterion_parser = subparsers.add_parser(

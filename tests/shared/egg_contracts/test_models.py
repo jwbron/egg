@@ -197,6 +197,30 @@ class TestPhase:
                 name="Test",
             )
 
+    def test_phase_commit_field(self):
+        """Test that phase can have a commit SHA linked."""
+        phase = Phase(
+            id="phase-1",
+            name="Foundation",
+            commit="abc1234def5678",
+        )
+        assert phase.commit == "abc1234def5678"
+
+    def test_phase_commit_defaults_to_none(self):
+        """Test that phase commit defaults to None."""
+        phase = Phase(id="phase-1", name="Setup")
+        assert phase.commit is None
+
+    def test_phase_commit_empty_string_becomes_none(self):
+        """Test that empty string commit is normalized to None."""
+        phase = Phase(id="phase-1", name="Setup", commit="")
+        assert phase.commit is None
+
+    def test_phase_commit_invalid_pattern(self):
+        """Test that invalid commit SHA is rejected."""
+        with pytest.raises(ValidationError):
+            Phase(id="phase-1", name="Setup", commit="not-a-sha")
+
 
 class TestDecision:
     """Tests for Decision model."""

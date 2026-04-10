@@ -1,6 +1,8 @@
 """Tests for sandbox/egg_lib/orch_client.py - Orchestrator HTTP client."""
 
 import json
+import os
+import subprocess
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -611,3 +613,127 @@ class TestOrchCliDecisionCreate:
         data = call_args.kwargs.get("data") or call_args[1].get("data")
         assert "phase" not in data
         assert "decision_type" not in data
+
+
+# ---------------------------------------------------------------------------
+# orch_cli: consensus propose --push
+# ---------------------------------------------------------------------------
+
+from egg_lib.orch_cli import cmd_consensus_propose
+
+
+class TestOrchCliConsensusProposePush:
+    """Tests for the --push flag on `consensus propose`."""
+
+    def _parse_args(self, argv: list[str]):
+        parser = create_parser()
+        return parser.parse_args(argv)
+
+    @patch("egg_lib.orch_cli.orch_request")
+    @patch("egg_lib.orch_cli.subprocess.check_output")
+    def test_push_success_then_propose(self, mock_subprocess, mock_request):
+        """--push runs git push before sending the proposal."""
+        mock_subprocess.return_value = "Everything up-to-date\n"
+        mock_request.return_value = {"success": True, "data": {}}
+
+        args = self._parse_args(
+            [
+                "consensus",
+                "propose",
+                "pipe-1",
+                "--role",
+                "coder",
+                "--commit-sha",
+                "abc123",
+                "--summary",
+                "test",
+                "--push",
+            ]
+        )
+        with patch.dict(os.environ, {"EGG_REPO_PATH": "/tmp/repo"}):
+            rc = cmd_consensus_propose(args)
+
+        assert rc == 0
+        # git push was called
+        mock_subprocess.assert_any_call(
+            ["git", "push"], text=True, cwd="/tmp/repo", stderr=subprocess.STDOUT
+        )
+        # proposal was sent
+        mock_request.assert_called_once()
+
+    @patch("egg_lib.orch_cli.subprocess.check_output")
+    def test_push_called_process_error_returns_1(self, mock_subprocess):
+        """--push returns 1 when git push fails with CalledProcessError."""
+        mock_subprocess.side_effect = subprocess.CalledProcessError(
+            1, "git push", output="fatal: remote rejected"
+        )
+
+        args = self._parse_args(
+            [
+                "consensus",
+                "propose",
+                "pipe-1",
+                "--role",
+                "coder",
+                "--commit-sha",
+                "abc123",
+                "--summary",
+                "test",
+                "--push",
+            ]
+        )
+        with patch.dict(os.environ, {"EGG_REPO_PATH": "/tmp/repo"}):
+            rc = cmd_consensus_propose(args)
+
+        assert rc == 1
+
+    @patch("egg_lib.orch_cli.subprocess.check_output")
+    def test_push_git_not_found_returns_1(self, mock_subprocess):
+        """--push returns 1 when git binary is not found."""
+        mock_subprocess.side_effect = FileNotFoundError("git not found")
+
+        args = self._parse_args(
+            [
+                "consensus",
+                "propose",
+                "pipe-1",
+                "--role",
+                "coder",
+                "--commit-sha",
+                "abc123",
+                "--summary",
+                "test",
+                "--push",
+            ]
+        )
+        with patch.dict(os.environ, {"EGG_REPO_PATH": "/tmp/repo"}):
+            rc = cmd_consensus_propose(args)
+
+        assert rc == 1
+
+    @patch("egg_lib.orch_cli.orch_request")
+    @patch("egg_lib.orch_cli.subprocess.check_output")
+    def test_no_push_flag_skips_git_push(self, mock_subprocess, mock_request):
+        """Without --push, git push is not called (only rev-parse for commit)."""
+        mock_subprocess.return_value = "abc123\n"
+        mock_request.return_value = {"success": True, "data": {}}
+
+        args = self._parse_args(
+            [
+                "consensus",
+                "propose",
+                "pipe-1",
+                "--role",
+                "coder",
+                "--commit-sha",
+                "abc123",
+                "--summary",
+                "test",
+            ]
+        )
+        rc = cmd_consensus_propose(args)
+
+        assert rc == 0
+        # git push should NOT have been called
+        for call in mock_subprocess.call_args_list:
+            assert call[0][0] != ["git", "push"]
