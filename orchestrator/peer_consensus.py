@@ -83,6 +83,9 @@ class PeerConsensusTracker:
         cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS,
         max_flip_flops: int = DEFAULT_MAX_FLIP_FLOPS,
         max_revision_rounds: int = DEFAULT_MAX_REVISION_ROUNDS,
+        auto_repropose_enabled: bool = False,
+        auto_repropose_debounce_seconds: int = 60,
+        max_auto_repropose: int = 5,
     ) -> None:
         self.pipeline_id = pipeline_id
         self.graph = graph
@@ -91,6 +94,9 @@ class PeerConsensusTracker:
         self.cooldown_seconds = cooldown_seconds
         self.max_flip_flops = max_flip_flops
         self.max_revision_rounds = max_revision_rounds
+        self.auto_repropose_enabled = auto_repropose_enabled
+        self.auto_repropose_debounce_seconds = auto_repropose_debounce_seconds
+        self.max_auto_repropose = max_auto_repropose
 
         self._lock = threading.RLock()
 
@@ -110,6 +116,9 @@ class PeerConsensusTracker:
         self._proposal_commit_shas: dict[str, str] = {}
         # Whether handle_timeout() has already processed the timeout
         self._timeout_handled: bool = False
+        # Auto re-propose safety: debounce timestamps and counters
+        self._last_auto_repropose_timestamp: dict[str, datetime] = {}
+        self._auto_repropose_counts: dict[str, int] = {}
 
     def register_agent(self, role: str) -> None:
         """Register an agent for consensus tracking."""
@@ -545,6 +554,77 @@ class PeerConsensusTracker:
             result["invalidated_reviewers"] = invalidated
             return result
 
+    def check_auto_repropose(
+        self,
+        producer_role: str,
+        new_commit_sha: str,
+        changed_files: list[str] | None = None,
+    ) -> tuple[bool, str]:
+        """Check whether auto re-propose should trigger for a producer push.
+
+        Safety mechanisms:
+        - Feature flag must be enabled (auto_repropose_enabled)
+        - Debounce: skip if within auto_repropose_debounce_seconds of last auto re-propose
+        - Max counter: skip if auto_repropose_counts >= max_auto_repropose
+        - Overlap: skip if changed_files don't overlap with any existing ACK artifacts
+
+        Args:
+            producer_role: The producer that pushed.
+            new_commit_sha: The new commit SHA.
+            changed_files: Optional list of changed files for overlap check.
+
+        Returns:
+            Tuple of (should_trigger, reason) where reason explains the decision.
+        """
+        # Check feature flag
+        if not self.auto_repropose_enabled:
+            return False, "auto_repropose_enabled is False (feature flag OFF)"
+
+        # Check debounce window
+        last_ts = self._last_auto_repropose_timestamp.get(producer_role)
+        if last_ts is not None:
+            elapsed = (datetime.now(UTC) - last_ts).total_seconds()
+            if elapsed < self.auto_repropose_debounce_seconds:
+                return False, (
+                    f"Debounce active: {self.auto_repropose_debounce_seconds - elapsed:.0f}s "
+                    f"remaining (last auto re-propose {elapsed:.0f}s ago)"
+                )
+
+        # Check max counter
+        count = self._auto_repropose_counts.get(producer_role, 0)
+        if count >= self.max_auto_repropose:
+            return False, (
+                f"Max auto re-propose limit reached ({count}/{self.max_auto_repropose}). "
+                f"Producer must explicitly re-propose."
+            )
+
+        # Check commit SHA difference
+        current_sha = self._proposal_commit_shas.get(producer_role, "")
+        if current_sha and current_sha == new_commit_sha:
+            return False, "Commit SHA unchanged — no new changes to re-propose"
+
+        # Check overlap with proposed artifacts (if changed_files provided)
+        if changed_files:
+            proposed_artifacts = self._proposal_artifacts.get(producer_role, [])
+            if proposed_artifacts:
+                overlap = set(changed_files) & set(proposed_artifacts)
+                if not overlap:
+                    # Also check if any reviewer has ACKed artifacts that overlap
+                    has_overlapping_acks = False
+                    for reviewer in self.graph.reviewers_for(producer_role):
+                        entry = self.matrix.get_entry(reviewer, producer_role)
+                        if entry and entry.state == ApprovalState.ACKED:
+                            if set(entry.artifact_refs) & set(changed_files):
+                                has_overlapping_acks = True
+                                break
+                    if not has_overlapping_acks:
+                        return False, (
+                            "Changed files don't overlap with proposed artifacts "
+                            "or any existing ACK artifacts"
+                        )
+
+        return True, "All safety checks passed"
+
     def handle_producer_push(
         self,
         agent_role: str,
@@ -590,6 +670,24 @@ class PeerConsensusTracker:
                     ),
                 }
 
+            # Check auto re-propose safety mechanisms
+            should_trigger, reason = self.check_auto_repropose(
+                agent_role, commit_sha, changed_files
+            )
+            if not should_trigger:
+                logger.info(
+                    "Auto re-propose skipped by safety mechanism",
+                    producer=agent_role,
+                    commit_sha=commit_sha,
+                    reason=reason,
+                    pipeline_id=self.pipeline_id,
+                )
+                return {
+                    "status": "skipped",
+                    "reason": reason,
+                    "auto_re_propose": False,
+                }
+
             # Build a minimal payload for the auto re-proposal.
             # Use changed_files if available, otherwise fall back to the
             # previous proposal's artifacts (ProposalPayload requires at
@@ -620,6 +718,13 @@ class PeerConsensusTracker:
             )
             result["invalidated_reviewers"] = invalidated
             result["auto_re_propose"] = True
+            result["auto_trigger"] = "auto_push"
+
+            # Update auto re-propose tracking state
+            self._last_auto_repropose_timestamp[agent_role] = datetime.now(UTC)
+            self._auto_repropose_counts[agent_role] = (
+                self._auto_repropose_counts.get(agent_role, 0) + 1
+            )
 
             logger.info(
                 "Auto re-proposed on producer push",
@@ -797,6 +902,65 @@ class PeerConsensusTracker:
             self._confirmed.discard(role)
             self._reviewer_phases.pop(role, None)
             return {"status": "excused", "role": role, "affected_producers": producers}
+
+    def excuse_producer(self, producer_role: str, reason: str = "") -> dict[str, Any]:
+        """Remove a non-delivering producer from the review graph (HITL-gated).
+
+        Called when a human decides to continue without a failed producer.
+        Removes all edges targeting this producer, allowing reviewers to
+        confirm without reviewing this producer's (non-existent) deliverable.
+
+        Must be called only after HITL approval — this permanently removes
+        the producer from the consensus protocol for this phase.
+
+        Raises ValueError if the role is not a producer in the graph.
+        """
+        with self._lock:
+            if not self.graph.is_producer(producer_role):
+                raise ValueError(f"Cannot excuse '{producer_role}': not a producer in the review graph")
+
+            reviewers = self.graph.reviewers_for(producer_role)
+            for reviewer in reviewers:
+                self.graph.remove_edge(reviewer, producer_role)
+
+            self._producer_phases.pop(producer_role, None)
+            self._confirmed.discard(producer_role)
+
+            self._proposal_timestamps.pop(producer_role, None)
+            self._flip_flop_counts.pop(producer_role, None)
+            self._proposal_artifacts.pop(producer_role, None)
+            self._proposal_commit_shas.pop(producer_role, None)
+
+            # Remaining producers may now be fully_acked if the excused
+            # producer held a dual role (producer + reviewer).  The next
+            # call to is_fully_acked / try_confirm will pick this up
+            # automatically via the updated graph edges.
+
+            emit_event(
+                EventType.CONSENSUS_FAILURE,
+                self.pipeline_id,
+                data={
+                    "type": "producer_excused",
+                    "role": producer_role,
+                    "reason": reason,
+                    "affected_reviewers": reviewers,
+                },
+            )
+
+            logger.info(
+                "Excused non-delivering producer",
+                producer=producer_role,
+                reason=reason,
+                affected_reviewers=reviewers,
+                pipeline_id=self.pipeline_id,
+            )
+
+            return {
+                "status": "excused",
+                "role": producer_role,
+                "reason": reason,
+                "affected_reviewers": reviewers,
+            }
 
     def is_timeout_handled(self) -> bool:
         """Check whether the BRC tracker has already handled the timeout."""
@@ -1042,6 +1206,8 @@ class PeerConsensusTracker:
             self._flip_flop_counts.clear()
             self._proposal_artifacts.clear()
             self._timeout_handled = False
+            self._last_auto_repropose_timestamp.clear()
+            self._auto_repropose_counts.clear()
 
     def _un_confirm_stale_reviewers(
         self,
@@ -1247,14 +1413,23 @@ def reconstruct_tracker_from_messages(
         if role in all_graph_roles:
             tracker.register_agent(role)
 
-    # Sort by timestamp for deterministic replay
-    consensus_msgs.sort(key=lambda m: m.timestamp)
+    # Sort by timestamp for deterministic replay.  Use message sequence
+    # number as tiebreaker when timestamps match, ensuring stable replay
+    # order for auto-re-propose deduplication.
+    consensus_msgs.sort(key=lambda m: (m.timestamp, getattr(m, "id", "")))
+
+    # Track auto-re-propose timestamps per producer for debounce during
+    # replay — prevents redundant version inflation from rapid auto-re-
+    # propose messages within the debounce window.
+    _replay_auto_repropose_ts: dict[str, datetime] = {}
+    _auto_repropose_debounce = 60  # seconds — match default debounce
 
     # Replay messages
     for msg in consensus_msgs:
         try:
             if msg.message_type == "CONSENSUS_PROPOSE":
-                payload = msg.metadata.get("payload", {})
+                metadata = msg.metadata or {}
+                payload = metadata.get("payload", {})
                 if not payload:
                     # Minimal payload for reconstruction
                     payload = {"summary": msg.body or "reconstructed", "artifacts": []}
@@ -1264,6 +1439,27 @@ def reconstruct_tracker_from_messages(
                 # get_proposal_commit_sha() can distinguish it from a real SHA.
                 if not payload.get("commit_sha"):
                     payload["commit_sha"] = "RECONSTRUCTED_NO_SHA"
+
+                # Debounce auto-re-propose messages during replay:
+                # If this is an auto-triggered re-propose (trigger=auto_push),
+                # check the debounce window to avoid inflating proposal versions
+                # from rapid pushes during a single development session.
+                is_auto = metadata.get("auto_re_propose") or metadata.get("trigger") == "auto_push"
+                if is_auto:
+                    producer = msg.from_role
+                    last_auto_ts = _replay_auto_repropose_ts.get(producer)
+                    if last_auto_ts is not None:
+                        elapsed = (msg.timestamp - last_auto_ts).total_seconds()
+                        if elapsed < _auto_repropose_debounce:
+                            logger.debug(
+                                "Skipping debounced auto-re-propose during reconstruction",
+                                producer=producer,
+                                elapsed_seconds=elapsed,
+                                pipeline_id=pipeline_id,
+                            )
+                            continue
+                    _replay_auto_repropose_ts[producer] = msg.timestamp
+
                 tracker.handle_propose(msg.from_role, payload)
 
             elif msg.message_type == "CONSENSUS_ACK":

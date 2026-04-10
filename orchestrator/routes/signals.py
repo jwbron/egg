@@ -1348,6 +1348,82 @@ def handle_consensus_confirmed_signal(
         return make_error_response(str(e), 500)
 
 
+def handle_consensus_excuse_producer_signal(
+    pipeline_id: str,
+    data: dict[str, Any],
+    repo_path: Path,
+) -> tuple[Response, int]:
+    """Handle EXCUSE_PRODUCER signal (HITL-gated).
+
+    Removes a non-delivering producer from the review graph so that
+    reviewers can proceed without its deliverable.  Must be triggered by
+    a HITL decision resolution — callers must verify HITL approval before
+    invoking this handler.
+
+    Request data:
+        producer_role: The producer role to excuse.
+        reason: Why the producer is being excused.
+    """
+    producer_role = data.get("producer_role")
+    if not producer_role:
+        return make_error_response("Missing producer_role")
+
+    reason = data.get("reason", "")
+
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+    except ImportError:
+        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
+
+    tracker = get_peer_consensus_tracker(pipeline_id)
+    if not tracker:
+        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+
+    try:
+        result = tracker.excuse_producer(producer_role, reason)
+
+        from message_store import Message, MessageType, get_message_store
+
+        store = get_message_store()
+        phase = _resolve_pipeline_phase(pipeline_id, repo_path)
+
+        # Notify all agents that the producer has been excused
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="orchestrator",
+                to_role="all",
+                message_type=MessageType.STATUS,
+                subject=f"Producer {producer_role} excused from consensus",
+                body=(
+                    f"Producer {producer_role} has been excused from the consensus "
+                    f"protocol (reason: {reason or 'HITL decision'}). Reviewers "
+                    f"assigned to this producer are no longer blocked by it."
+                ),
+                phase=phase,
+                metadata={
+                    "excuse_producer": True,
+                    "producer_role": producer_role,
+                    "reason": reason,
+                    "affected_reviewers": result.get("affected_reviewers", []),
+                },
+            )
+        )
+
+        return make_success_response(
+            f"Producer {producer_role} excused from consensus",
+            data=result,
+        )
+    except (ValueError, Exception) as e:
+        logger.error(
+            "Failed to excuse producer",
+            pipeline_id=pipeline_id,
+            producer_role=producer_role,
+            error=str(e),
+        )
+        return make_error_response(str(e), 400 if isinstance(e, ValueError) else 500)
+
+
 def handle_consensus_producer_push_signal(
     pipeline_id: str,
     data: dict[str, Any],
@@ -1407,6 +1483,7 @@ def handle_consensus_producer_push_signal(
                     phase=phase,
                     metadata={
                         "auto_re_propose": True,
+                        "trigger": "auto_push",
                         "commit_sha": commit_sha,
                         "version": result.get("version"),
                         "changed_files": changed_files,
@@ -1510,6 +1587,7 @@ def handle_batch_signals(pipeline_id: str) -> tuple[Response, int]:
                 "consensus_withdraw": handle_consensus_withdraw_signal,
                 "consensus_confirmed": handle_consensus_confirmed_signal,
                 "consensus_producer_push": handle_consensus_producer_push_signal,
+                "consensus_excuse_producer": handle_consensus_excuse_producer_signal,
             }
 
             handler = handlers.get(signal_type)
