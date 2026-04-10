@@ -248,9 +248,11 @@ The BRC protocol is defined by a formal state machine with explicit **action gua
               ┌─────────┐    propose    ┌──────────┐  │  confirm    ┌───────────┐
               │ WORKING ├──────────────►│ PROPOSED ├──┼────────────►│ CONFIRMED │
               └────┬────┘               └─────┬────┘  │             └───────────┘
-                   ▲                          │       │
-                   │    NACK / withdraw       │       │
-                   └──────────────────────────┘       │
+                   ▲                          │  │    │
+                   │  NACK (auto-transition)  │  │    │
+                   ├──────────────────────────┘  │    │
+                   │  withdraw (voluntary)       │    │
+                   ├─────────────────────────────┘    │
                    │                                  │
                    │    auto re-propose on push       │
                    │    (back to PROPOSED)             │
@@ -258,7 +260,8 @@ The BRC protocol is defined by a formal state machine with explicit **action gua
 ```
 
 - `WORKING → PROPOSED`: Producer calls `propose` after completing work and pushing commits.
-- `PROPOSED → WORKING`: Producer receives a NACK and calls `withdraw` to address feedback.
+- `PROPOSED → WORKING` (on NACK): Producer receives a NACK; the handler auto-transitions the producer back to WORKING so it can address feedback and re-propose.
+- `PROPOSED → WORKING` (on withdraw): Producer voluntarily calls `withdraw` to retract its proposal (e.g., to address feedback proactively). Subject to cooldown and flip-flop limits.
 - `PROPOSED → PROPOSED`: Producer pushes new commits, triggering auto re-propose (when enabled), which increments the proposal version and invalidates stale reviews.
 - `PROPOSED → CONFIRMED`: All critical reviewers ACK and the producer calls `confirmed`.
 
