@@ -122,6 +122,13 @@ Returns the current pipeline status for polling-based monitoring.
 }
 ```
 
+Once the PR phase completes and a pull request is created, two additional fields appear in `data`:
+
+- `pr_url` — full GitHub URL of the created PR (e.g. `"https://github.com/owner/repo/pull/42"`)
+- `pr_number` — integer PR number parsed from the URL (e.g. `42`); omitted if the URL has an unexpected shape
+
+This avoids a separate `gh pr list` call by monitoring clients.
+
 When `pending_decisions > 0`, the `data` object includes an additional `pending_decision` field with the first pending decision's details, so consumers don't need a second round-trip to fetch it:
 
 ```json
