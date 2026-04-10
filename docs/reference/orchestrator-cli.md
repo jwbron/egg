@@ -173,10 +173,10 @@ Four MCP tools expose phase management operations for pipeline recovery and manu
 
 All tools require `task_id` (the pipeline ID). Additional parameters:
 
-- **`advance_phase`**: `target_phase` (string, required) — the phase to advance to (e.g., `"implement"`, `"test"`). `force` (boolean, optional) — bypass validation and stop running containers before advancing. **Important:** When `force=true`, containers from the current phase are stopped before the transition to prevent their SIGTERM signals from being misinterpreted as failures in the new phase.
+- **`advance_phase`**: `target_phase` (string, required) — the phase to advance to (e.g., `"plan"`, `"implement"`, `"pr"`). `force` (boolean, optional, default `false`) — skip validation and stop running containers before advancing. **Important:** When `force=true`, containers from the current phase are stopped before the transition to prevent their SIGTERM signals from being misinterpreted as failures in the new phase.
 - **`start_phase`**: No additional parameters.
-- **`complete_phase`**: `artifacts` (object, optional) — phase completion artifacts to include.
-- **`populate_contract`**: No additional parameters. Resolves the pipeline's worktree path and parses plan draft yaml-tasks into contract structure.
+- **`complete_phase`**: `artifacts` (object, optional) — phase completion artifacts to store (e.g., commit SHAs, PR URLs).
+- **`populate_contract`**: No additional parameters. Resolves the pipeline's worktree path, reads the plan document, extracts task structure, and writes tasks and acceptance criteria to the contract. Returns phase and task counts on success.
 
 **Recovery workflow example (stuck pipeline):**
 ```bash
