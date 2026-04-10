@@ -254,17 +254,14 @@
       "questions": [],
       "status": "resolved",
       "created_at": "2026-04-09T23:56:24.035018Z",
-      "resolved_at": "2026-04-09T23:57:45.326408Z",
-      "resolution": {
-        "action": "select",
-        "selected": "approve"
-      },
+      "resolved_at": "2026-04-10T00:05:00.504901Z",
+      "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-09T23:37:30.329498Z",
-  "updated_at": "2026-04-09T23:57:45.328824Z",
+  "updated_at": "2026-04-10T00:05:00.507708Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -272,5 +269,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 24
+  "version": 25
 }
