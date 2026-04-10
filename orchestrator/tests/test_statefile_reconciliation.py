@@ -125,7 +125,7 @@ class TestEnsureStatefilesOnBranch:
         mock_populate.assert_called_once_with(
             tmp_path,
             pipeline.id,
-            pipeline.mode or "local",
+            pipeline.mode.value if pipeline.mode else "issue",
             42,
         )
         mock_commit.assert_called_once_with(
@@ -154,7 +154,7 @@ class TestEnsureStatefilesOnBranch:
         mock_populate.assert_called_once_with(
             tmp_path,
             "pipe-abc",
-            pipeline.mode or "local",
+            pipeline.mode.value if pipeline.mode else "issue",
             None,
         )
         mock_commit.assert_called_once_with(

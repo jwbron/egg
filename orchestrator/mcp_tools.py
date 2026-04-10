@@ -542,6 +542,84 @@ PIPELINE_TOOLS = [
             "required": ["task_id", "phase"],
         },
     },
+    # --- Phase management tools ---
+    {
+        "name": "advance_phase",
+        "description": (
+            "Advance a pipeline to a target phase. When force=true, stops all "
+            "running containers before advancing to prevent SIGTERM cascading "
+            "into the new phase."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+                "target_phase": {
+                    "type": "string",
+                    "description": "Target phase to advance to (e.g. 'plan', 'implement', 'pr')",
+                },
+                "force": {
+                    "type": "boolean",
+                    "description": "Skip validation and force the transition. Also stops running containers before advancing.",
+                    "default": False,
+                },
+            },
+            "required": ["task_id", "target_phase"],
+        },
+    },
+    {
+        "name": "start_phase",
+        "description": "Start execution of the current phase for a pipeline.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "complete_phase",
+        "description": "Mark the current phase as complete for a pipeline, with optional artifacts.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+                "artifacts": {
+                    "type": "object",
+                    "description": "Optional phase artifacts to store (e.g. commit SHAs, PR URLs)",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "populate_contract",
+        "description": (
+            "Populate a pipeline's SDLC contract from its plan draft. Reads the "
+            "plan document, extracts task structure, and writes tasks and acceptance "
+            "criteria to the contract."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
 ]
 
 
@@ -588,6 +666,10 @@ class PipelineToolHandler:
             "validate_config": self._handle_validate_config,
             "restart_agent": self._handle_restart_agent,
             "restart_phase": self._handle_restart_phase,
+            "advance_phase": self._handle_advance_phase,
+            "start_phase": self._handle_start_phase,
+            "complete_phase": self._handle_complete_phase,
+            "populate_contract": self._handle_populate_contract,
         }
 
         handler = handlers.get(tool_name)
@@ -1606,3 +1688,94 @@ class PipelineToolHandler:
             }
         except Exception as e:
             return {"error": f"Failed to restart phase: {e}"}
+
+    def _handle_advance_phase(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Advance pipeline to a target phase.
+
+        When force=true, stops all running containers before advancing
+        to prevent SIGTERM cascading into the new phase (#1570).
+        """
+        task_id = quote(args["task_id"], safe="")
+        target_phase = args["target_phase"]
+        force = args.get("force", False)
+
+        # When force=true, stop running containers before the transition
+        # to avoid SIGTERM cascading into the new phase.
+        stopped_containers: list[str] = []
+        failed_containers: list[str] = []
+        if force:
+            try:
+                containers_result = self._make_request(
+                    f"/api/v1/pipelines/{task_id}/containers?all=false"
+                )
+                containers = containers_result.get("data", {}).get("containers", [])
+                for container in containers:
+                    cid = container.get("container_id", "")
+                    if cid and container.get("status") == "running":
+                        try:
+                            self._make_request(
+                                f"/api/v1/pipelines/{task_id}/containers/{quote(cid, safe='')}/stop",
+                                method="POST",
+                                timeout=30,
+                            )
+                            stopped_containers.append(cid)
+                        except Exception:
+                            logger.warning(
+                                "Failed to stop container before force-advance",
+                                pipeline_id=args["task_id"],
+                                container_id=cid,
+                            )
+                            failed_containers.append(cid)
+            except Exception:
+                logger.warning(
+                    "Failed to list containers before force-advance",
+                    pipeline_id=args["task_id"],
+                )
+
+        data: dict[str, Any] = {"target_phase": target_phase, "force": force}
+        try:
+            result = self._make_request(
+                f"/api/v1/pipelines/{task_id}/phase",
+                method="POST",
+                data=data,
+            )
+        except Exception as e:
+            error_result: dict[str, Any] = {"error": f"Phase advance failed: {e}"}
+            if stopped_containers:
+                error_result["stopped_containers"] = stopped_containers
+            if failed_containers:
+                error_result["failed_containers"] = failed_containers
+            return error_result
+        if stopped_containers:
+            result["stopped_containers"] = stopped_containers
+        if failed_containers:
+            result["failed_containers"] = failed_containers
+        return result
+
+    def _handle_start_phase(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Start execution of the current phase."""
+        task_id = quote(args["task_id"], safe="")
+        return self._make_request(
+            f"/api/v1/pipelines/{task_id}/phase/start",
+            method="POST",
+        )
+
+    def _handle_complete_phase(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Mark the current phase as complete."""
+        task_id = quote(args["task_id"], safe="")
+        data: dict[str, Any] = {}
+        if args.get("artifacts"):
+            data["artifacts"] = args["artifacts"]
+        return self._make_request(
+            f"/api/v1/pipelines/{task_id}/phase/complete",
+            method="POST",
+            data=data if data else None,
+        )
+
+    def _handle_populate_contract(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Populate pipeline contract from plan draft."""
+        task_id = quote(args["task_id"], safe="")
+        return self._make_request(
+            f"/api/v1/pipelines/{task_id}/phase/populate-contract",
+            method="POST",
+        )

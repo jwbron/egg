@@ -158,6 +158,54 @@ egg-orch anchor show --team
 egg-orch anchor validate
 ```
 
+## Phase Management MCP Tools
+
+Four MCP tools expose phase management operations for pipeline recovery and manual intervention, eliminating the need for raw `curl` calls during stuck pipeline scenarios (see [#1570](https://github.com/jwbron/egg/issues/1570) for motivation).
+
+| MCP Tool | REST Endpoint | Description |
+|----------|---------------|-------------|
+| `advance_phase` | `POST /pipelines/{id}/phase` | Advance pipeline to a target phase. With `force=true`, stops running containers first to prevent SIGTERM cascading |
+| `start_phase` | `POST /pipelines/{id}/phase/start` | Start the current phase (spawns agents). Use when a phase is in state but no containers are running |
+| `complete_phase` | `POST /pipelines/{id}/phase/complete` | Mark a phase as complete. Use when automatic transition is stuck |
+| `populate_contract` | `POST /pipelines/{id}/phase/populate-contract` | Populate contract from plan artifacts. Parses yaml-tasks from the plan draft into contract phases/tasks |
+
+**Parameters:**
+
+All tools require `task_id` (the pipeline ID). Additional parameters:
+
+- **`advance_phase`**: `target_phase` (string, required) — the phase to advance to (e.g., `"plan"`, `"implement"`, `"pr"`). `force` (boolean, optional, default `false`) — skip validation and stop running containers before advancing. **Important:** When `force=true`, containers from the current phase are stopped before the transition to prevent their SIGTERM signals from being misinterpreted as failures in the new phase.
+- **`start_phase`**: No additional parameters.
+- **`complete_phase`**: `artifacts` (object, optional) — phase completion artifacts to store (e.g., commit SHAs, PR URLs).
+- **`populate_contract`**: No additional parameters. Resolves the pipeline's worktree path, reads the plan document, extracts task structure, and writes tasks and acceptance criteria to the contract. Returns phase and task counts on success.
+
+**Recovery workflow example (stuck pipeline):**
+```bash
+# 1. Check current state
+egg-orch phase get <pipeline-id>
+
+# 2. Force-advance past a stuck phase (stops running containers first)
+# Via MCP tool: advance_phase(task_id="<id>", target_phase="implement", force=true)
+# Via REST:
+curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/phase \
+  -H "Content-Type: application/json" \
+  -d '{"target_phase": "implement", "force": true}'
+
+# 3. Populate contract if it's empty after manual phase setup
+# Via MCP tool: populate_contract(task_id="<id>")
+# Via REST:
+curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/phase/populate-contract
+
+# 4. Start the phase (spawn agents)
+# Via MCP tool: start_phase(task_id="<id>")
+# Via REST:
+curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/phase/start
+
+# 5. If needed, manually complete a phase
+# Via MCP tool: complete_phase(task_id="<id>")
+# Via REST:
+curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/phase/complete
+```
+
 ## BRC Consensus Protocol
 
 The BRC (Broadcast-Review-Converge) protocol is used during concurrent execution for multi-agent consensus. All protocol actions are gated by formal **action guards** defined in `orchestrator/action_guards.py` — see [Concurrent Execution — Action Guards](../guides/concurrent-execution.md#action-guards) for the complete guard table.

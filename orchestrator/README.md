@@ -180,6 +180,7 @@ All endpoints are prefixed with `/api/v1`.
 | `POST` | `/pipelines/{id}/phase/start` | Start current phase |
 | `POST` | `/pipelines/{id}/phase/complete` | Complete current phase |
 | `POST` | `/pipelines/{id}/phase/fail` | Fail current phase |
+| `POST` | `/pipelines/{id}/phase/populate-contract` | Populate contract from plan artifacts |
 
 ### Structured Progress
 
@@ -308,11 +309,13 @@ Both checkpoint tools accept an optional `repo` parameter (string, `owner/repo` 
 
 ### Orchestrator-Backed Tools
 
-`submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `validate_config`, `restart_agent`, `restart_phase`
+`submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `validate_config`, `restart_agent`, `restart_phase`, `advance_phase`, `start_phase`, `complete_phase`, `populate_contract`
 
 The `submit_task` tool accepts an optional `source_branch` parameter (string) to load plan and analysis artifacts from a prior run's branch server-side, instead of passing them inline. This avoids MCP transport size limits for large artifacts. See the [SDLC Pipeline guide](../docs/guides/sdlc-pipeline.md#creating-a-pipeline) for details.
 
 The `restart_agent` tool accepts `task_id`, `agent_role`, and optional `reason` parameters. It proxies to the agent restart API endpoint. The `restart_phase` tool accepts `task_id`, `phase`, and optional `reason`/`context` parameters. It proxies to the phase restart API endpoint. Both are available to HITL operators via the MCP server.
+
+The `advance_phase` tool accepts `task_id`, `target_phase` (required), and `force` (boolean, optional) parameters. When `force=true`, it first stops all running containers from the current phase before advancing to prevent SIGTERM cascading into the new phase. The `start_phase` tool accepts `task_id` to start the current phase and spawn agents. The `complete_phase` tool accepts `task_id` and optional `artifacts` to manually mark a phase as complete. The `populate_contract` tool accepts `task_id` and populates the SDLC contract from plan artifacts by parsing yaml-tasks from the plan draft. These four tools are designed for pipeline recovery and manual intervention — see [#1646](https://github.com/jwbron/egg/issues/1646) for motivation.
 
 ## Health Check Framework
 

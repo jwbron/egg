@@ -3281,7 +3281,7 @@ def _read_review_verdict(
     repo_path: Path,
     phase: str,
     reviewer_type: str = "code",
-    pipeline_mode: str = "local",
+    pipeline_mode: str = "issue",
     issue_number: int | None = None,
     pipeline_id: str | None = None,
 ) -> ReviewVerdict | None:
@@ -3875,7 +3875,7 @@ def _ensure_statefiles_on_branch(
         _populate_contract_from_plan(
             worktree_repo_path,
             pipeline.id,
-            pipeline.mode or "local",
+            pipeline.mode.value if pipeline.mode else "issue",
             pipeline.issue_number,
         )
 
@@ -6850,7 +6850,7 @@ _MIN_PLAN_DRAFT_CONTENT_LENGTH = 50
 def _synthesize_plan_draft(
     repo_path: Path,
     pipeline_id: str,
-    pipeline_mode: str = "local",
+    pipeline_mode: str = "issue",
     issue_number: int | None = None,
 ) -> None:
     """Synthesize a plan draft from multi-agent plan outputs.
@@ -6964,7 +6964,7 @@ def _synthesize_plan_draft(
 def _populate_contract_from_plan(
     repo_path: Path,
     pipeline_id: str,
-    pipeline_mode: str = "local",
+    pipeline_mode: str = "issue",
     issue_number: int | None = None,
 ) -> None:
     """Read the plan draft and populate the contract with tasks.
@@ -7063,7 +7063,7 @@ def _populate_contract_from_plan(
 def _sync_pipeline_decisions_to_contract(
     repo_path: Path,
     pipeline_id: str,
-    pipeline_mode: str = "local",
+    pipeline_mode: str = "issue",
     issue_number: int | None = None,
 ) -> None:
     """Sync resolved non-phase-gate pipeline decisions to the contract.
