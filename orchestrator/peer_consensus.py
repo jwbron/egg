@@ -119,6 +119,10 @@ class PeerConsensusTracker:
         # Auto re-propose safety: debounce timestamps and counters
         self._last_auto_repropose_timestamp: dict[str, datetime] = {}
         self._auto_repropose_counts: dict[str, int] = {}
+        # Track when producers explicitly propose (via handle_propose, NOT via
+        # auto-repropose).  Used by check_auto_repropose to suppress redundant
+        # auto-reproposals when a push arrives shortly after an explicit proposal.
+        self._last_explicit_propose_timestamp: dict[str, datetime] = {}
 
     def register_agent(self, role: str) -> None:
         """Register an agent for consensus tracking."""
@@ -168,7 +172,12 @@ class PeerConsensusTracker:
         in approval matrix.
         """
         with self._lock:
-            return self._handle_propose_inner(agent_role, payload)
+            result = self._handle_propose_inner(agent_role, payload)
+            # Record explicit proposal timestamp (not updated by auto-repropose)
+            # so check_auto_repropose can suppress redundant re-reviews when a
+            # push arrives shortly after an explicit proposal.
+            self._last_explicit_propose_timestamp[agent_role] = datetime.now(UTC)
+            return result
 
     def _handle_propose_inner(
         self,
@@ -648,6 +657,8 @@ class PeerConsensusTracker:
         """Check whether auto re-propose should trigger for a producer push.
 
         Safety mechanisms:
+        - Explicit proposal cover: skip if producer explicitly proposed within
+          the debounce window (the push is already covered by the proposal)
         - Debounce: skip if within auto_repropose_debounce_seconds of last auto re-propose
         - Max counter: skip if auto_repropose_counts >= max_auto_repropose
         - Overlap: skip if changed_files don't overlap with any existing ACK artifacts
@@ -660,6 +671,19 @@ class PeerConsensusTracker:
         Returns:
             Tuple of (should_trigger, reason) where reason explains the decision.
         """
+        # Check if producer explicitly proposed recently — the push is already
+        # covered by the explicit proposal and doesn't need an auto re-propose.
+        # This prevents redundant re-reviews when push + propose happen together
+        # (e.g. via "egg-orch consensus propose --push").
+        explicit_ts = self._last_explicit_propose_timestamp.get(producer_role)
+        if explicit_ts is not None:
+            elapsed = (datetime.now(UTC) - explicit_ts).total_seconds()
+            if elapsed < self.auto_repropose_debounce_seconds:
+                return False, (
+                    f"Push covered by recent explicit proposal "
+                    f"({elapsed:.0f}s ago, within {self.auto_repropose_debounce_seconds}s window)"
+                )
+
         # Check debounce window
         last_ts = self._last_auto_repropose_timestamp.get(producer_role)
         if last_ts is not None:
@@ -1288,6 +1312,7 @@ class PeerConsensusTracker:
             self._timeout_handled = False
             self._last_auto_repropose_timestamp.clear()
             self._auto_repropose_counts.clear()
+            self._last_explicit_propose_timestamp.clear()
 
     def _un_confirm_stale_reviewers(
         self,

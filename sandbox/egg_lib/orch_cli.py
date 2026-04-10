@@ -1109,9 +1109,29 @@ def cmd_signal_readiness(args: argparse.Namespace) -> int:
 
 
 def cmd_consensus_propose(args: argparse.Namespace) -> int:
-    """Send CONSENSUS_PROPOSE signal."""
+    """Send CONSENSUS_PROPOSE signal, optionally pushing code first."""
     pid = require_pipeline_id(args)
     role = _require_role(args)
+
+    # If --push, run git push before proposing so the code is on the remote
+    # before the proposal is sent.  Because the proposal and push happen
+    # together, auto-repropose is suppressed (the explicit proposal covers
+    # the push within the debounce window).
+    if getattr(args, "push", False):
+        repo_path = os.environ.get("EGG_REPO_PATH")
+        try:
+            subprocess.check_output(
+                ["git", "push"],
+                text=True,
+                cwd=repo_path,
+                stderr=subprocess.STDOUT,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"Error: git push failed: {e.output.strip()}", file=sys.stderr)
+            return 1
+        except FileNotFoundError:
+            print("Error: git not found", file=sys.stderr)
+            return 1
 
     # Read payload from file or construct from args
     payload: dict[str, Any]
@@ -1701,6 +1721,12 @@ def create_parser() -> argparse.ArgumentParser:
         "--changed-artifacts",
         nargs="*",
         help="Changed artifacts (for re-proposals after NACK)",
+    )
+    cons_propose.add_argument(
+        "--push",
+        action="store_true",
+        help="Run git push before sending the proposal (bundles push+propose "
+        "so auto-repropose is suppressed)",
     )
     _add_json_flag(cons_propose)
     cons_propose.set_defaults(func=cmd_consensus_propose)
