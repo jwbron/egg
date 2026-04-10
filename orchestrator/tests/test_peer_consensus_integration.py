@@ -2508,15 +2508,11 @@ class TestUnresolvedNackGuard:
         t.register_agent("coder")
         t.register_agent("rev")
 
-        # rev NACKs coder before coder proposes (version 0)
-        t.handle_nack("rev", "coder", {"artifact_references": ["a.py"], "reason": "preemptive"})
-
-        # Zero-proposal guard now catches this: coder has never proposed
-        # (version 0), so the reviewer cannot confirm.
-        result = t.handle_confirmed("rev")
-        assert result["status"] == "pending_acks"
-        assert "zero_proposal_producers" in result
-        assert "coder" in result["zero_proposal_producers"]
+        # rev attempts to NACK coder before coder proposes (version 0).
+        # The zero-version NACK guard now prevents this — NACKing a
+        # producer that hasn't proposed is meaningless.
+        with pytest.raises(ValueError, match="no proposal exists"):
+            t.handle_nack("rev", "coder", {"artifact_references": ["a.py"], "reason": "preemptive"})
 
     def test_nack_guard_response_includes_nacked_producers(self):
         """The rejection response should identify which producers have

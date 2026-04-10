@@ -146,6 +146,7 @@ class PeerConsensusTracker:
             self._producer_phases,
             self._reviewer_phases,
             self._confirmed,
+            proposal_commit_shas=self._proposal_commit_shas,
         )
         for v in violations:
             logger.warning(
@@ -253,7 +254,14 @@ class PeerConsensusTracker:
     ) -> dict[str, Any]:
         """Handle a CONSENSUS_ACK from a reviewer."""
         with self._lock:
-            guard = check_ack_guard(reviewer_role, producer_role, self.graph)
+            version = self.matrix.get_proposal_version(producer_role)
+            guard = check_ack_guard(
+                reviewer_role,
+                producer_role,
+                self.graph,
+                matrix=self.matrix,
+                ack_version=version,
+            )
             if not guard.allowed:
                 raise ValueError(guard.reason)
 
@@ -269,7 +277,6 @@ class PeerConsensusTracker:
                     is_producer=False,
                 )
 
-            version = self.matrix.get_proposal_version(producer_role)
             self.matrix.record_ack(
                 reviewer_role,
                 producer_role,
@@ -310,7 +317,12 @@ class PeerConsensusTracker:
     ) -> dict[str, Any]:
         """Handle a CONSENSUS_NACK from a reviewer."""
         with self._lock:
-            guard = check_nack_guard(reviewer_role, producer_role, self.graph)
+            guard = check_nack_guard(
+                reviewer_role,
+                producer_role,
+                self.graph,
+                matrix=self.matrix,
+            )
             if not guard.allowed:
                 raise ValueError(guard.reason)
 
@@ -590,6 +602,9 @@ class PeerConsensusTracker:
             # Skip the ACK guard — re-propose is always legitimate.
             result = self._handle_propose_inner(agent_role, payload, _skip_ack_guard=True)
             result["invalidated_reviewers"] = invalidated
+
+            self._run_invariant_checks("re_propose")
+
             return result
 
     def check_auto_repropose(
@@ -784,6 +799,7 @@ class PeerConsensusTracker:
         3. No confirmed reviewer with unreviewed producer changes.
         4. No confirmed reviewer with zero-proposal producers.
         5. is_fully_acked consistency with matrix state.
+        6. ack_commit_sha consistency with proposal commit SHA.
         """
         with self._lock:
             return _validate_invariants(
@@ -792,6 +808,7 @@ class PeerConsensusTracker:
                 self._producer_phases,
                 self._reviewer_phases,
                 self._confirmed,
+                proposal_commit_shas=self._proposal_commit_shas,
             )
 
     def handle_agent_crash(self, role: str) -> dict[str, Any]:

@@ -46,6 +46,9 @@ The following invariants must hold at all times:
 5. ``is_fully_acked`` must be consistent with the actual approval matrix
    state — every critical reviewer must have ACKED at the current proposal
    version.
+6. ``ack_commit_sha`` consistency — when a reviewer's ACK is at the current
+   proposal version, the recorded ``ack_commit_sha`` must match the
+   producer's proposal commit SHA.
 """
 
 from __future__ import annotations
@@ -91,6 +94,7 @@ def check_propose_guard(
 
     Preconditions:
     - Agent must be a producer in the review graph.
+    - Agent must be in WORKING state (not already PROPOSED or CONFIRMED).
     - Agent must not be fully ACKed while still in PROPOSED state
       (issue #1185).  If fully ACKed, the agent should confirm instead.
     """
@@ -103,22 +107,37 @@ def check_propose_guard(
             details={"guard": "not_producer"},
         )
 
-    # Reject when already fully ACKed and in PROPOSED state.
-    if (
-        matrix.is_fully_acked(agent_role)
-        and producer_phases.get(agent_role) == ConsensusPhase.PROPOSED
-    ):
-        version = matrix.get_proposal_version(agent_role)
+    # Working-state guard: producers must be in WORKING to propose.
+    # Re-proposals after NACK go through handle_re_propose / check_re_propose_guard.
+    current_phase = producer_phases.get(agent_role)
+    if current_phase is not None and current_phase != ConsensusPhase.WORKING:
+        # Reject when already fully ACKed and in PROPOSED state.
+        if matrix.is_fully_acked(agent_role) and current_phase == ConsensusPhase.PROPOSED:
+            version = matrix.get_proposal_version(agent_role)
+            return GuardResult(
+                allowed=False,
+                reason=(
+                    f"Producer {agent_role} is already fully ACKed "
+                    f"(v{version}). "
+                    f"Call `egg-orch consensus confirmed` instead of re-proposing. "
+                    f"Re-proposing when fully ACKed is not allowed — confirm to "
+                    f"complete the BRC protocol."
+                ),
+                details={"guard": "fully_acked_rejection", "version": version},
+            )
+
         return GuardResult(
             allowed=False,
             reason=(
-                f"Producer {agent_role} is already fully ACKed "
-                f"(v{version}). "
-                f"Call `egg-orch consensus confirmed` instead of re-proposing. "
-                f"Re-proposing when fully ACKed is not allowed — confirm to "
-                f"complete the BRC protocol."
+                f"Producer {agent_role} cannot propose: currently in "
+                f"{current_phase.value} state. Proposals are only allowed "
+                f"from WORKING state. Use re-propose to update an existing "
+                f"proposal."
             ),
-            details={"guard": "fully_acked_rejection", "version": version},
+            details={
+                "guard": "not_in_working_state",
+                "current_phase": current_phase.value,
+            },
         )
 
     return GuardResult(allowed=True)
@@ -156,12 +175,16 @@ def check_ack_guard(
     reviewer_role: str,
     producer_role: str,
     graph: ReviewGraph,
+    matrix: ApprovalMatrix | None = None,
+    ack_version: int | None = None,
 ) -> GuardResult:
     """Check whether a reviewer is allowed to ACK a producer.
 
     Preconditions:
     - Agent must be a reviewer in the review graph.
     - A review edge must exist from reviewer to producer.
+    - If ``ack_version`` is provided, it must match the producer's current
+      proposal version (version-match guard).
     """
     if not graph.is_reviewer(reviewer_role):
         return GuardResult(
@@ -176,6 +199,25 @@ def check_ack_guard(
             reason=f"No review edge: {reviewer_role} -> {producer_role}",
             details={"guard": "no_review_edge"},
         )
+
+    # Version-match guard: ACK version must match the producer's current
+    # proposal version to prevent stale ACKs.
+    if matrix is not None and ack_version is not None:
+        current_version = matrix.get_proposal_version(producer_role)
+        if current_version > 0 and ack_version != current_version:
+            return GuardResult(
+                allowed=False,
+                reason=(
+                    f"ACK version mismatch: reviewer {reviewer_role} is ACKing "
+                    f"v{ack_version} but producer {producer_role} is at "
+                    f"v{current_version}. Re-review the latest proposal."
+                ),
+                details={
+                    "guard": "version_mismatch",
+                    "ack_version": ack_version,
+                    "current_version": current_version,
+                },
+            )
 
     return GuardResult(allowed=True)
 
@@ -189,12 +231,15 @@ def check_nack_guard(
     reviewer_role: str,
     producer_role: str,
     graph: ReviewGraph,
+    matrix: ApprovalMatrix | None = None,
 ) -> GuardResult:
     """Check whether a reviewer is allowed to NACK a producer.
 
     Preconditions:
     - Agent must be a reviewer in the review graph.
     - A review edge must exist from reviewer to producer.
+    - Producer must have proposed at least once (version > 0) — NACKing
+      a producer that hasn't proposed is meaningless.
     """
     if not graph.is_reviewer(reviewer_role):
         return GuardResult(
@@ -209,6 +254,23 @@ def check_nack_guard(
             reason=f"No review edge: {reviewer_role} -> {producer_role}",
             details={"guard": "no_review_edge"},
         )
+
+    # Zero-version NACK rejection: cannot NACK a producer that hasn't
+    # proposed yet.
+    if matrix is not None:
+        current_version = matrix.get_proposal_version(producer_role)
+        if current_version == 0:
+            return GuardResult(
+                allowed=False,
+                reason=(
+                    f"Cannot NACK producer {producer_role}: no proposal exists "
+                    f"(version 0). Wait for the producer to propose before NACKing."
+                ),
+                details={
+                    "guard": "zero_version_nack",
+                    "producer": producer_role,
+                },
+            )
 
     return GuardResult(allowed=True)
 
@@ -355,13 +417,20 @@ def check_confirm_guard(
                 },
             )
 
-        # Guard 4: Unresolved-NACK guard — reject when the reviewer has NACKed
-        # a producer that hasn't re-proposed since
+        # Guard 4a: Unresolved-NACK guard — reject when the reviewer has
+        # NACKed a producer that hasn't re-proposed since the NACK.
+        # Only matches when entry.version == current_version (producer
+        # hasn't re-proposed since the NACK).
         unresolved_nacks: list[dict[str, Any]] = []
         for producer in producers:
             entry = matrix.get_entry(agent_role, producer)
             current_version = matrix.get_proposal_version(producer)
-            if entry is not None and entry.state == ApprovalState.NACKED and current_version > 0:
+            if (
+                entry is not None
+                and entry.state == ApprovalState.NACKED
+                and current_version > 0
+                and entry.version == current_version
+            ):
                 unresolved_nacks.append(
                     {
                         "producer": producer,
@@ -381,6 +450,41 @@ def check_confirm_guard(
                 details={
                     "guard": "unresolved_nacks",
                     "unresolved_nacks": unresolved_nacks,
+                },
+            )
+
+        # Guard 4b: Stale-NACK guard — reject when the reviewer NACKed at
+        # an old version but the producer has since re-proposed.  The
+        # reviewer must re-review the new proposal before confirming.
+        stale_nacks: list[dict[str, Any]] = []
+        for producer in producers:
+            entry = matrix.get_entry(agent_role, producer)
+            current_version = matrix.get_proposal_version(producer)
+            if (
+                entry is not None
+                and entry.state == ApprovalState.NACKED
+                and current_version > 0
+                and entry.version < current_version
+            ):
+                stale_nacks.append(
+                    {
+                        "producer": producer,
+                        "nack_version": entry.version,
+                        "current_version": current_version,
+                    }
+                )
+        if stale_nacks:
+            stale_nack_producers = [s["producer"] for s in stale_nacks]
+            return GuardResult(
+                allowed=False,
+                reason=(
+                    f"Reviewer {agent_role} cannot confirm: NACKed producers have "
+                    f"re-proposed since your NACK. Re-review their latest proposal "
+                    f"before confirming: {stale_nack_producers}"
+                ),
+                details={
+                    "guard": "stale_nacks",
+                    "stale_nacks": stale_nacks,
                 },
             )
 
@@ -478,6 +582,7 @@ def validate_invariants(
     producer_phases: dict[str, ConsensusPhase],
     reviewer_phases: dict[str, ConsensusPhase],
     confirmed: set[str],
+    proposal_commit_shas: dict[str, str] | None = None,
 ) -> list[InvariantViolation]:
     """Validate that all protocol invariants hold.
 
@@ -492,6 +597,9 @@ def validate_invariants(
        proposed at a version newer than the reviewer's ACK).
     4. No confirmed reviewer with zero-proposal producers.
     5. is_fully_acked consistency with approval matrix.
+    6. ack_commit_sha consistency — when a reviewer's ACK is at the current
+       proposal version, the recorded ack_commit_sha must match the
+       producer's proposal commit SHA.
     """
 
     violations: list[InvariantViolation] = []
@@ -541,48 +649,83 @@ def validate_invariants(
                         )
                     )
 
-                # Invariant 2: Stale ACK
+                # Invariant 2: Stale ACK (version mismatch)
+                # Invariant 3 (unreviewed changes) is a strict subset — only
+                # report the more specific one to avoid double-reporting.
                 if entry.state == ApprovalState.ACKED and entry.version != current_version:
-                    violations.append(
-                        InvariantViolation(
-                            invariant="no_confirmed_with_stale_ack",
-                            agent=agent,
-                            description=(
-                                f"Reviewer {agent} is CONFIRMED with stale ACK "
-                                f"for producer {producer} "
-                                f"(ACK v{entry.version} != current v{current_version})"
-                            ),
-                            details={
-                                "producer": producer,
-                                "ack_version": entry.version,
-                                "current_version": current_version,
-                            },
+                    if entry.version < current_version:
+                        # Invariant 3: Unreviewed changes (ACK at older version)
+                        violations.append(
+                            InvariantViolation(
+                                invariant="no_confirmed_with_unreviewed_changes",
+                                agent=agent,
+                                description=(
+                                    f"Reviewer {agent} is CONFIRMED but producer "
+                                    f"{producer} has new changes since last review "
+                                    f"(reviewed v{entry.version}, current v{current_version})"
+                                ),
+                                details={
+                                    "producer": producer,
+                                    "reviewed_version": entry.version,
+                                    "current_version": current_version,
+                                },
+                            )
                         )
-                    )
+                    else:
+                        # Invariant 2: Stale ACK (future version — shouldn't
+                        # happen but catch it)
+                        violations.append(
+                            InvariantViolation(
+                                invariant="no_confirmed_with_stale_ack",
+                                agent=agent,
+                                description=(
+                                    f"Reviewer {agent} is CONFIRMED with stale ACK "
+                                    f"for producer {producer} "
+                                    f"(ACK v{entry.version} != current v{current_version})"
+                                ),
+                                details={
+                                    "producer": producer,
+                                    "ack_version": entry.version,
+                                    "current_version": current_version,
+                                },
+                            )
+                        )
 
-                # Invariant 3: Unreviewed changes (ACK at older version)
-                # This is a variant of invariant 2 but focused on "has new
-                # changes since last review"
-                if entry.state == ApprovalState.ACKED and entry.version < current_version:
-                    violations.append(
-                        InvariantViolation(
-                            invariant="no_confirmed_with_unreviewed_changes",
-                            agent=agent,
-                            description=(
-                                f"Reviewer {agent} is CONFIRMED but producer "
-                                f"{producer} has new changes since last review "
-                                f"(reviewed v{entry.version}, current v{current_version})"
-                            ),
-                            details={
-                                "producer": producer,
-                                "reviewed_version": entry.version,
-                                "current_version": current_version,
-                            },
+                # Invariant 6: ack_commit_sha consistency — when ACK is at
+                # current version, the ack_commit_sha must match the
+                # producer's proposal commit SHA.
+                if (
+                    entry.state == ApprovalState.ACKED
+                    and entry.version == current_version
+                    and proposal_commit_shas is not None
+                ):
+                    expected_sha = proposal_commit_shas.get(producer, "")
+                    if (
+                        expected_sha
+                        and entry.ack_commit_sha
+                        and entry.ack_commit_sha != expected_sha
+                    ):
+                        violations.append(
+                            InvariantViolation(
+                                invariant="ack_commit_sha_consistency",
+                                agent=agent,
+                                description=(
+                                    f"Reviewer {agent} ACKed producer {producer} "
+                                    f"at v{entry.version} but ack_commit_sha "
+                                    f"({entry.ack_commit_sha[:8]}) does not match "
+                                    f"proposal commit ({expected_sha[:8]})"
+                                ),
+                                details={
+                                    "producer": producer,
+                                    "ack_commit_sha": entry.ack_commit_sha,
+                                    "proposal_commit_sha": expected_sha,
+                                    "version": entry.version,
+                                },
+                            )
                         )
-                    )
 
     # Invariant 5: is_fully_acked consistency
-    for producer in graph._producer_roles:
+    for producer in [r for r in graph.all_roles() if graph.is_producer(r)]:
         is_acked = matrix.is_fully_acked(producer)
         current_version = matrix.get_proposal_version(producer)
         if current_version == 0:

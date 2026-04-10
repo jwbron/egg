@@ -134,15 +134,16 @@ class TestCheckProposeGuard:
         result = check_propose_guard("coder", graph, matrix, producer_phases)
         assert result.allowed is True
 
-    def test_allowed_when_not_fully_acked_proposed_phase(self, graph, matrix):
-        """Producer not fully ACKed, PROPOSED phase -> allowed."""
+    def test_rejected_when_in_proposed_phase(self, graph, matrix):
+        """Producer in PROPOSED phase -> rejected (must use re-propose)."""
         matrix.record_proposal("coder")
         # Only one reviewer ACKed, not all
         matrix.record_ack("reviewer_code", "coder", 1)
 
         producer_phases = {"coder": ConsensusPhase.PROPOSED}
         result = check_propose_guard("coder", graph, matrix, producer_phases)
-        assert result.allowed is True
+        assert result.allowed is False
+        assert result.details["guard"] == "not_in_working_state"
 
 
 # ---------------------------------------------------------------------------
@@ -663,7 +664,13 @@ class TestValidateInvariants:
         assert nack_violations[0].details["producer"] == "coder"
 
     def test_invariant_2_confirmed_with_stale_ack(self, graph, matrix):
-        """Confirmed reviewer with stale ACK -> violation."""
+        """Confirmed reviewer with stale ACK (version < current) -> INV-3 violation.
+
+        When ACK version < current version, this reports as
+        'no_confirmed_with_unreviewed_changes' (INV-3) which is the more
+        specific invariant.  INV-2 ('no_confirmed_with_stale_ack') only
+        fires for the anomalous case where ACK version > current version.
+        """
         v1 = matrix.record_proposal("coder")
         matrix.record_ack("reviewer_code", "coder", v1)
         # Coder re-proposes, ACK is now stale
@@ -680,12 +687,16 @@ class TestValidateInvariants:
             reviewer_phases={"reviewer_code": ConsensusPhase.REVIEWING},
             confirmed={"reviewer_code"},
         )
-        stale_violations = [v for v in violations if v.invariant == "no_confirmed_with_stale_ack"]
-        assert len(stale_violations) == 1
-        assert stale_violations[0].agent == "reviewer_code"
-        assert stale_violations[0].details["producer"] == "coder"
-        assert stale_violations[0].details["ack_version"] == 1
-        assert stale_violations[0].details["current_version"] == 2
+        # Version < current -> reported as INV-3 (unreviewed changes), not INV-2
+        unreviewed = [v for v in violations if v.invariant == "no_confirmed_with_unreviewed_changes"]
+        assert len(unreviewed) == 1
+        assert unreviewed[0].agent == "reviewer_code"
+        assert unreviewed[0].details["producer"] == "coder"
+        assert unreviewed[0].details["reviewed_version"] == 1
+        assert unreviewed[0].details["current_version"] == 2
+        # No double-reporting: INV-2 should NOT fire for this case
+        stale = [v for v in violations if v.invariant == "no_confirmed_with_stale_ack"]
+        assert len(stale) == 0
 
     def test_invariant_3_confirmed_with_unreviewed_changes(self, graph, matrix):
         """Confirmed reviewer with unreviewed producer changes -> violation."""

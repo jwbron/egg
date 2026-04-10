@@ -1357,19 +1357,60 @@ def handle_consensus_excuse_producer_signal(
     """Handle EXCUSE_PRODUCER signal (HITL-gated).
 
     Removes a non-delivering producer from the review graph so that
-    reviewers can proceed without its deliverable.  Must be triggered by
-    a HITL decision resolution — callers must verify HITL approval before
-    invoking this handler.
+    reviewers can proceed without its deliverable.  Requires a resolved
+    HITL decision — the ``decision_id`` field must reference a RESOLVED
+    decision to prevent unauthorized producer removal.
 
     Request data:
         producer_role: The producer role to excuse.
         reason: Why the producer is being excused.
+        decision_id: ID of the resolved HITL decision authorizing this action.
     """
     producer_role = data.get("producer_role")
     if not producer_role:
         return make_error_response("Missing producer_role")
 
     reason = data.get("reason", "")
+
+    # --- HITL gate: require a resolved decision ---
+    decision_id = data.get("decision_id")
+    if not decision_id:
+        return make_error_response(
+            "Missing decision_id. consensus_excuse_producer requires a "
+            "resolved HITL decision. Create a decision via the decisions "
+            "API and resolve it before calling this signal.",
+            status_code=403,
+        )
+
+    try:
+        from decision_queue import DecisionNotFoundError, get_decision_queue
+    except ImportError:
+        from ..decision_queue import (  # type: ignore[no-redef]
+            DecisionNotFoundError,
+            get_decision_queue,
+        )
+
+    try:
+        from models import DecisionStatus
+    except ImportError:
+        from ..models import DecisionStatus  # type: ignore[no-redef]
+
+    try:
+        queue = get_decision_queue(pipeline_id, repo_path)
+        decision = queue.get_decision(decision_id)
+        if decision.status != DecisionStatus.RESOLVED:
+            return make_error_response(
+                f"Decision {decision_id} is not resolved "
+                f"(status: {decision.status.value}). Only resolved HITL "
+                f"decisions can authorize producer excusal.",
+                status_code=403,
+            )
+    except DecisionNotFoundError:
+        return make_error_response(
+            f"Decision {decision_id} not found. A valid resolved HITL "
+            f"decision is required to excuse a producer.",
+            status_code=404,
+        )
 
     try:
         from peer_consensus import get_peer_consensus_tracker
@@ -1492,10 +1533,12 @@ def handle_consensus_producer_push_signal(
                 )
             )
 
-            # Notify invalidated reviewers
-            for reviewer in result.get("stale_reviewers", []) + result.get(
-                "invalidated_reviewers", []
-            ):
+            # Notify invalidated reviewers (deduplicate in case a reviewer
+            # appears in both lists)
+            notified_reviewers = set(
+                result.get("stale_reviewers", []) + result.get("invalidated_reviewers", [])
+            )
+            for reviewer in notified_reviewers:
                 store.add_message(
                     Message(
                         pipeline_id=pipeline_id,
