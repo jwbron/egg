@@ -34,6 +34,18 @@ except ImportError:
         return logging.getLogger(name)
 
 
+from action_guards import (
+    InvariantViolation,
+    check_ack_guard,
+    check_confirm_guard,
+    check_nack_guard,
+    check_propose_guard,
+    check_re_propose_guard,
+    check_withdraw_guard,
+)
+from action_guards import (
+    validate_invariants as _validate_invariants,
+)
 from approval_matrix import ApprovalMatrix, ApprovalState
 from attestation_schemas import (
     AttestationStrictness,
@@ -128,24 +140,17 @@ class PeerConsensusTracker:
         _skip_ack_guard: bool = False,
     ) -> dict[str, Any]:
         """Inner propose logic. Caller MUST hold self._lock."""
-        if not self.graph.is_producer(agent_role):
-            raise ValueError(f"{agent_role} is not a producer in this review graph")
-
-        # Guard: reject proposal when already fully ACKed and still in
-        # PROPOSED state (issue #1185). Skipped for handle_re_propose() which
-        # is always a legitimate path (after NACK or with new artifacts).
-        if (
-            not _skip_ack_guard
-            and self.matrix.is_fully_acked(agent_role)
-            and self._producer_phases.get(agent_role) == ConsensusPhase.PROPOSED
-        ):
-            raise ValueError(
-                f"Producer {agent_role} is already fully ACKed "
-                f"(v{self.matrix.get_proposal_version(agent_role)}). "
-                f"Call `egg-orch consensus confirmed` instead of re-proposing. "
-                f"Re-proposing when fully ACKed is not allowed — confirm to "
-                f"complete the BRC protocol."
+        if not _skip_ack_guard:
+            guard = check_propose_guard(
+                agent_role, self.graph, self.matrix, self._producer_phases
             )
+            if not guard.allowed:
+                raise ValueError(guard.reason)
+        else:
+            # Even with skip_ack_guard, must still be a producer
+            guard = check_re_propose_guard(agent_role, self.graph)
+            if not guard.allowed:
+                raise ValueError(guard.reason)
 
         # Validate payload
         proposal = ProposalPayload(**payload)
@@ -209,10 +214,9 @@ class PeerConsensusTracker:
     ) -> dict[str, Any]:
         """Handle a CONSENSUS_ACK from a reviewer."""
         with self._lock:
-            if not self.graph.is_reviewer(reviewer_role):
-                raise ValueError(f"{reviewer_role} is not a reviewer in this review graph")
-            if not self.graph.get_edge(reviewer_role, producer_role):
-                raise ValueError(f"No review edge: {reviewer_role} -> {producer_role}")
+            guard = check_ack_guard(reviewer_role, producer_role, self.graph)
+            if not guard.allowed:
+                raise ValueError(guard.reason)
 
             # Validate review payload
             review = ReviewPayload(verdict="ACK", **payload)
@@ -265,10 +269,9 @@ class PeerConsensusTracker:
     ) -> dict[str, Any]:
         """Handle a CONSENSUS_NACK from a reviewer."""
         with self._lock:
-            if not self.graph.is_reviewer(reviewer_role):
-                raise ValueError(f"{reviewer_role} is not a reviewer")
-            if not self.graph.get_edge(reviewer_role, producer_role):
-                raise ValueError(f"No review edge: {reviewer_role} -> {producer_role}")
+            guard = check_nack_guard(reviewer_role, producer_role, self.graph)
+            if not guard.allowed:
+                raise ValueError(guard.reason)
 
             # Validate review payload
             review = ReviewPayload(verdict="NACK", **payload)
@@ -333,39 +336,41 @@ class PeerConsensusTracker:
     ) -> dict[str, Any]:
         """Handle a CONSENSUS_WITHDRAW from a producer."""
         with self._lock:
-            if not self.graph.is_producer(agent_role):
-                raise ValueError(f"{agent_role} is not a producer")
+            guard = check_withdraw_guard(
+                agent_role,
+                self.graph,
+                self._proposal_timestamps,
+                self._flip_flop_counts,
+                self.cooldown_seconds,
+                self.max_flip_flops,
+                reason,
+            )
 
-            if not reason:
-                raise ValueError("Withdrawal requires a reason citing specific new information")
-
-            # Check cooldown
-            last_proposal = self._proposal_timestamps.get(agent_role)
-            if last_proposal:
-                elapsed = (datetime.now(UTC) - last_proposal).total_seconds()
-                if elapsed < self.cooldown_seconds:
-                    raise ValueError(
-                        f"Cooldown active: {self.cooldown_seconds - elapsed:.0f}s remaining. "
-                        f"Cannot withdraw within {self.cooldown_seconds}s of proposing."
+            if not guard.allowed:
+                guard_type = guard.details.get("guard", "unknown")
+                if guard_type == "flip_flop_lockout":
+                    # Increment the counter since the guard only peeked
+                    self._flip_flop_counts[agent_role] = (
+                        self._flip_flop_counts.get(agent_role, 0) + 1
                     )
+                    emit_event(
+                        EventType.CONSENSUS_FAILURE,
+                        self.pipeline_id,
+                        data={
+                            "type": "flip_flop_lockout",
+                            "role": agent_role,
+                            "flip_flops": self._flip_flop_counts[agent_role],
+                        },
+                    )
+                    return {
+                        "status": "locked_out",
+                        "reason": guard.reason,
+                        "needs_escalation": True,
+                    }
+                raise ValueError(guard.reason)
 
-            # Check flip-flop count
+            # Increment flip-flop counter
             self._flip_flop_counts[agent_role] = self._flip_flop_counts.get(agent_role, 0) + 1
-            if self._flip_flop_counts[agent_role] >= self.max_flip_flops:
-                emit_event(
-                    EventType.CONSENSUS_FAILURE,
-                    self.pipeline_id,
-                    data={
-                        "type": "flip_flop_lockout",
-                        "role": agent_role,
-                        "flip_flops": self._flip_flop_counts[agent_role],
-                    },
-                )
-                return {
-                    "status": "locked_out",
-                    "reason": f"Locked out after {self._flip_flop_counts[agent_role]} flip-flops",
-                    "needs_escalation": True,
-                }
 
             # Transition back to WORKING
             self._producer_phases[agent_role] = ConsensusPhase.WORKING
@@ -380,97 +385,104 @@ class PeerConsensusTracker:
             return {"status": "withdrawn", "reason": reason}
 
     def handle_confirmed(self, agent_role: str) -> dict[str, Any]:
-        """Handle a CONSENSUS_CONFIRMED from an agent."""
+        """Handle a CONSENSUS_CONFIRMED from an agent.
+
+        Delegates precondition checking to the formal action guard
+        (``check_confirm_guard``) which encapsulates all producer and
+        reviewer confirmation guards:
+
+        - Producer: must be fully ACKed.
+        - Reviewer: must have reviewed all producers, ACK versions must match,
+          no unresolved NACKs, no zero-proposal producers.
+        """
         with self._lock:
-            # Check if agent can confirm
-            if self.graph.is_producer(agent_role):
-                if not self.matrix.is_fully_acked(agent_role):
-                    blocking = self.matrix.get_blocking_edges(agent_role)
-                    pending_reviewers = [e.reviewer_role for e in blocking]
+            guard = check_confirm_guard(
+                agent_role,
+                self.graph,
+                self.matrix,
+                self._producer_phases,
+                self._reviewer_phases,
+                self._confirmed,
+            )
+
+            if not guard.allowed:
+                guard_type = guard.details.get("guard", "unknown")
+
+                # Producer guard failures return pending_acks status
+                if guard_type == "producer_not_fully_acked":
+                    logger.warning(
+                        "handle_confirmed rejected: producer not fully ACKed",
+                        pipeline_id=self.pipeline_id,
+                        role=agent_role,
+                        pending_reviewers=guard.details.get("pending_reviewers"),
+                        blocking_states=guard.details.get("blocking_states"),
+                    )
                     return {
                         "status": "pending_acks",
-                        "message": (
-                            f"Producer {agent_role} cannot confirm: not fully ACKed. "
-                            f"Pending reviewers: {pending_reviewers}"
-                        ),
+                        "message": guard.reason,
                     }
+
+                # Reviewer guard failures
+                if guard_type == "must_have_reviewed":
+                    raise ValueError(guard.reason)
+
+                if guard_type == "zero_proposal_producers":
+                    logger.warning(
+                        "handle_confirmed rejected: zero-proposal producers",
+                        pipeline_id=self.pipeline_id,
+                        role=agent_role,
+                        producers=guard.details.get("producers"),
+                    )
+                    return {
+                        "status": "pending_acks",
+                        "message": guard.reason,
+                        "zero_proposal_producers": guard.details.get("producers"),
+                    }
+
+                if guard_type == "stale_acks":
+                    logger.warning(
+                        "handle_confirmed rejected: reviewer ACK version mismatch",
+                        pipeline_id=self.pipeline_id,
+                        role=agent_role,
+                        stale_acks=guard.details.get("stale_acks"),
+                    )
+                    return {
+                        "status": "pending_acks",
+                        "message": guard.reason,
+                        "stale_acks": guard.details.get("stale_acks"),
+                    }
+
+                if guard_type == "unresolved_nacks":
+                    logger.warning(
+                        "handle_confirmed rejected: reviewer has unresolved NACKs",
+                        pipeline_id=self.pipeline_id,
+                        role=agent_role,
+                        unresolved_nacks=guard.details.get("unresolved_nacks"),
+                    )
+                    return {
+                        "status": "pending_acks",
+                        "message": guard.reason,
+                        "unresolved_nacks": guard.details.get("unresolved_nacks"),
+                    }
+
+                # Fallback for any unhandled guard type
+                logger.warning(
+                    "handle_confirmed rejected by guard",
+                    pipeline_id=self.pipeline_id,
+                    role=agent_role,
+                    guard=guard_type,
+                    reason=guard.reason,
+                )
+                return {
+                    "status": "pending_acks",
+                    "message": guard.reason,
+                }
+
+            # Guards passed — apply state transitions
+            if self.graph.is_producer(agent_role):
                 self._producer_phases[agent_role] = ConsensusPhase.CONFIRMED
 
             if self.graph.is_reviewer(agent_role):
-                # Check all assigned producers have been reviewed
-                producers = self.graph.producers_for(agent_role)
-                for producer in producers:
-                    if not self.matrix.has_reviewed(agent_role, producer):
-                        raise ValueError(
-                            f"Reviewer {agent_role} cannot confirm: hasn't reviewed {producer}"
-                        )
-
-                # Version-match guard: reject confirmation when any ACK is
-                # stale (recorded against an older proposal version).  This
-                # prevents a deadlock where a reviewer ACKed before the
-                # producer proposed (version 0) or before a re-proposal.
-                stale_acks: list[dict[str, Any]] = []
-                for producer in producers:
-                    entry = self.matrix.get_entry(agent_role, producer)
-                    current_version = self.matrix.get_proposal_version(producer)
-                    if (
-                        entry is not None
-                        and entry.state == ApprovalState.ACKED
-                        and current_version > 0
-                        and entry.version != current_version
-                    ):
-                        stale_acks.append(
-                            {
-                                "producer": producer,
-                                "ack_version": entry.version,
-                                "current_version": current_version,
-                            }
-                        )
-                if stale_acks:
-                    stale_producers = [s["producer"] for s in stale_acks]
-                    return {
-                        "status": "pending_acks",
-                        "message": (
-                            f"Reviewer {agent_role} cannot confirm: ACK version mismatch. "
-                            f"Re-ACK the following producers at their current proposal "
-                            f"version: {stale_producers}"
-                        ),
-                        "stale_acks": stale_acks,
-                    }
-
-                # Unresolved-NACK guard: reject confirmation when the reviewer
-                # has NACKed a producer that hasn't re-proposed since.  Without
-                # this, the reviewer enters terminal CONFIRMED state while still
-                # holding an open review obligation, causing a deadlock where
-                # the producer re-proposes but the reviewer never re-reviews.
-                unresolved_nacks: list[dict[str, Any]] = []
-                for producer in producers:
-                    entry = self.matrix.get_entry(agent_role, producer)
-                    current_version = self.matrix.get_proposal_version(producer)
-                    if (
-                        entry is not None
-                        and entry.state == ApprovalState.NACKED
-                        and current_version > 0
-                    ):
-                        unresolved_nacks.append(
-                            {
-                                "producer": producer,
-                                "nack_version": entry.version,
-                                "current_version": current_version,
-                            }
-                        )
-                if unresolved_nacks:
-                    nacked_producers = [n["producer"] for n in unresolved_nacks]
-                    return {
-                        "status": "pending_acks",
-                        "message": (
-                            f"Reviewer {agent_role} cannot confirm: unresolved NACKs. "
-                            f"Wait for these producers to re-propose before confirming: "
-                            f"{nacked_producers}"
-                        ),
-                        "unresolved_nacks": unresolved_nacks,
-                    }
-
                 self._reviewer_phases[agent_role] = ConsensusPhase.CONFIRMED
 
             # For dual-role agents (tester), both must be CONFIRMED
@@ -532,6 +544,116 @@ class PeerConsensusTracker:
             result = self._handle_propose_inner(agent_role, payload, _skip_ack_guard=True)
             result["invalidated_reviewers"] = invalidated
             return result
+
+    def handle_producer_push(
+        self,
+        agent_role: str,
+        commit_sha: str,
+        changed_files: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Handle a producer pushing new commits after proposing.
+
+        When a producer pushes or commits new changes after having already
+        proposed, this triggers an automatic re-proposal.  This invalidates
+        existing ACKs and forces reviewers back to REVIEWING state so they
+        re-review the updated work before confirming.
+
+        This is the key mechanism for the "all changes must be reviewed"
+        principle — without it, a producer could push new code after
+        consensus and bypass review entirely.
+
+        Args:
+            agent_role: The producer role that pushed.
+            commit_sha: The new commit SHA.
+            changed_files: Optional list of changed files for scoped
+                re-evaluation.
+
+        Returns:
+            Dict with re-proposal result, or no-op status if producer
+            hasn't proposed yet.
+        """
+        with self._lock:
+            guard = check_re_propose_guard(agent_role, self.graph)
+            if not guard.allowed:
+                raise ValueError(guard.reason)
+
+            # Only auto re-propose if the producer has already proposed.
+            # If they're still in WORKING phase, the push is just normal
+            # development work — not a protocol event.
+            current_phase = self._producer_phases.get(agent_role, ConsensusPhase.WORKING)
+            if current_phase == ConsensusPhase.WORKING:
+                return {
+                    "status": "no_op",
+                    "reason": (
+                        f"Producer {agent_role} is still in WORKING phase. "
+                        f"Push registered but no re-proposal needed."
+                    ),
+                }
+
+            # Build a minimal payload for the auto re-proposal.
+            # Use changed_files if available, otherwise fall back to the
+            # previous proposal's artifacts (ProposalPayload requires at
+            # least one artifact).
+            artifacts = changed_files or self._proposal_artifacts.get(agent_role, [])
+            if not artifacts:
+                artifacts = [commit_sha]  # Last resort: use the commit SHA itself
+            payload = {
+                "summary": f"Auto re-proposal: new push by {agent_role} ({commit_sha[:8]})",
+                "artifacts": artifacts,
+                "commit_sha": commit_sha,
+            }
+
+            # Use changed_files for scoped invalidation if available
+            if changed_files:
+                invalidated = self.matrix.invalidate_overlapping_acks(
+                    agent_role, changed_files
+                )
+            else:
+                # Conservative: invalidate all ACKs
+                invalidated = []
+                for reviewer in self.graph.reviewers_for(agent_role):
+                    if self.matrix.invalidate_ack(reviewer, agent_role):
+                        invalidated.append(reviewer)
+
+            result = self._handle_propose_inner(
+                agent_role, payload, _skip_ack_guard=True
+            )
+            result["invalidated_reviewers"] = invalidated
+            result["auto_re_propose"] = True
+
+            logger.info(
+                "Auto re-proposed on producer push",
+                producer=agent_role,
+                commit_sha=commit_sha,
+                version=result.get("version"),
+                invalidated_reviewers=invalidated,
+                pipeline_id=self.pipeline_id,
+            )
+
+            return result
+
+    def validate_invariants(self) -> list[InvariantViolation]:
+        """Validate that all protocol invariants hold.
+
+        Returns a list of violations (empty means all invariants hold).
+        This method is intended for defensive checks — call it periodically
+        or after state transitions to catch bugs early.
+
+        Invariants checked:
+        1. No confirmed agent with unresolved NACK.
+        2. No confirmed reviewer with stale ACK.
+        3. No confirmed reviewer with unreviewed producer changes.
+        4. No confirmed reviewer with zero-proposal producers.
+        5. is_fully_acked consistency with matrix state.
+        """
+        with self._lock:
+            return _validate_invariants(
+                self.graph,
+                self.matrix,
+                self._producer_phases,
+                self._reviewer_phases,
+                self._confirmed,
+            )
 
     def handle_agent_crash(self, role: str) -> dict[str, Any]:
         """Handle an agent crash mid-protocol."""

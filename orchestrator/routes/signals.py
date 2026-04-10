@@ -156,6 +156,7 @@ def handle_signal(pipeline_id: str) -> tuple[Response, int]:
         "consensus_nack": handle_consensus_nack_signal,
         "consensus_withdraw": handle_consensus_withdraw_signal,
         "consensus_confirmed": handle_consensus_confirmed_signal,
+        "consensus_producer_push": handle_consensus_producer_push_signal,
     }
 
     handler = handlers.get(signal_type)
@@ -1239,7 +1240,10 @@ def handle_consensus_confirmed_signal(
                 store = get_message_store()
                 messages = store.get_messages(pipeline_id, limit=10000)
                 confirmed_roles = {
-                    m.from_role for m in messages if m.message_type == "CONSENSUS_CONFIRMED"
+                    m.from_role
+                    for m in messages
+                    if m.message_type == "CONSENSUS_CONFIRMED"
+                    and not (m.metadata or {}).get("pending_acks")
                 }
                 # Agent sending this signal is also confirming
                 confirmed_roles.add(agent_role)
@@ -1290,10 +1294,26 @@ def handle_consensus_confirmed_signal(
         # If the producer is waiting for reviewer re-ACKs (e.g. after a
         # re-proposal invalidated stale ACKs), return 202 so the agent
         # knows to retry later instead of treating it as an error.
-        # Note: we intentionally skip writing a CONSENSUS_CONFIRMED message
-        # to the message store here — the agent hasn't actually confirmed,
-        # so peers polling for CONSENSUS_CONFIRMED won't see a premature one.
+        # We still write a CONSENSUS_CONFIRMED message to the store (with
+        # pending_acks=True metadata) so the message-bus fallback in
+        # check_consensus() can detect when all agents have *attempted*
+        # confirmation even if the tracker rejected some (#1615).
         if result.get("status") == "pending_acks":
+            from message_store import Message, MessageType, get_message_store
+
+            store = get_message_store()
+            store.add_message(
+                Message(
+                    pipeline_id=pipeline_id,
+                    from_role=agent_role,
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject=f"Confirmed by {agent_role} (pending_acks)",
+                    body=result.get("message", ""),
+                    phase=_resolve_pipeline_phase(pipeline_id, repo_path),
+                    metadata={"pending_acks": True},
+                )
+            )
             return make_success_response(result["message"], data=result, status_code=202)
 
         from message_store import Message, MessageType, get_message_store
@@ -1326,6 +1346,114 @@ def handle_consensus_confirmed_signal(
     except Exception as e:
         logger.error("Failed to process consensus confirmed", pipeline_id=pipeline_id, error=str(e))
         return make_error_response(str(e), 500)
+
+
+def handle_consensus_producer_push_signal(
+    pipeline_id: str,
+    data: dict[str, Any],
+    repo_path: Path,
+) -> tuple[Response, int]:
+    """Handle a producer push/commit that should trigger auto re-proposal.
+
+    When a producer pushes new commits after having already proposed, this
+    signal triggers an automatic re-proposal in the consensus tracker.
+    Existing ACKs are invalidated and reviewers are notified to re-review.
+
+    Request data:
+        agent_role: The producer role that pushed.
+        commit_sha: The new commit SHA.
+        changed_files: Optional list of changed file paths for scoped
+            re-evaluation.
+    """
+    agent_role = data.get("agent_role")
+    if not agent_role:
+        return make_error_response("Missing agent_role")
+
+    commit_sha = data.get("commit_sha", "")
+    if not commit_sha:
+        return make_error_response("Missing commit_sha")
+
+    changed_files = data.get("changed_files")
+
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+    except ImportError:
+        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
+
+    tracker = get_peer_consensus_tracker(pipeline_id)
+    if not tracker:
+        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+
+    try:
+        result = tracker.handle_producer_push(agent_role, commit_sha, changed_files)
+
+        # If auto re-propose happened, write a message and notify reviewers
+        if result.get("auto_re_propose"):
+            from message_store import Message, MessageType, get_message_store
+
+            store = get_message_store()
+            phase = _resolve_pipeline_phase(pipeline_id, repo_path)
+            store.add_message(
+                Message(
+                    pipeline_id=pipeline_id,
+                    from_role=agent_role,
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_PROPOSE,
+                    subject=f"Auto re-proposal from {agent_role} (push)",
+                    body=(
+                        f"Producer {agent_role} pushed new commit {commit_sha}. "
+                        f"Existing ACKs invalidated; re-review required."
+                    ),
+                    phase=phase,
+                    metadata={
+                        "auto_re_propose": True,
+                        "commit_sha": commit_sha,
+                        "version": result.get("version"),
+                        "changed_files": changed_files,
+                    },
+                )
+            )
+
+            # Notify invalidated reviewers
+            for reviewer in result.get("stale_reviewers", []) + result.get(
+                "invalidated_reviewers", []
+            ):
+                store.add_message(
+                    Message(
+                        pipeline_id=pipeline_id,
+                        from_role="orchestrator",
+                        to_role=reviewer,
+                        message_type=MessageType.CONSENSUS_RE_REVIEW,
+                        subject=(
+                            f"Re-review required: {agent_role} pushed new changes "
+                            f"(v{result.get('version')})"
+                        ),
+                        body=(
+                            f"Producer {agent_role} has pushed new commits after "
+                            f"proposing. Your previous review is invalidated. "
+                            f"Please re-review and ACK/NACK the updated work."
+                        ),
+                        phase=phase,
+                        metadata={
+                            "producer_role": agent_role,
+                            "version": result.get("version"),
+                            "commit_sha": commit_sha,
+                        },
+                    )
+                )
+
+        return make_success_response(
+            f"Producer push processed for {agent_role}",
+            data=result,
+        )
+    except (ValueError, Exception) as e:
+        logger.error(
+            "Failed to process consensus producer push",
+            pipeline_id=pipeline_id,
+            role=agent_role,
+            error=str(e),
+        )
+        return make_error_response(str(e), 400 if isinstance(e, ValueError) else 500)
 
 
 @signals_bp.route("/<pipeline_id>/signal/batch", methods=["POST"])
@@ -1381,6 +1509,7 @@ def handle_batch_signals(pipeline_id: str) -> tuple[Response, int]:
                 "consensus_nack": handle_consensus_nack_signal,
                 "consensus_withdraw": handle_consensus_withdraw_signal,
                 "consensus_confirmed": handle_consensus_confirmed_signal,
+                "consensus_producer_push": handle_consensus_producer_push_signal,
             }
 
             handler = handlers.get(signal_type)
