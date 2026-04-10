@@ -7,8 +7,8 @@ When working in the SDLC pipeline, use the `egg-contract` CLI to track progress.
 | Command | Purpose |
 |---------|---------|
 | `egg-contract show` | View current contract state |
-| `egg-contract complete-task --task <id> --commit <sha>` | Mark task done and link commit |
-| `egg-contract complete-phase --phase <id> --commit <sha>` | Mark phase done and link commit |
+| `egg-contract complete-task --task <id> [--commit <sha>]` | Mark task done (optionally link commit) |
+| `egg-contract complete-phase --phase <id> [--commit <sha>]` | Mark phase done (optionally link commit) |
 | `egg-contract add-commit --task <id> --commit <sha>` | Link commit to task without marking done |
 | `egg-contract update-notes --task <id> --notes <text>` | Add implementation notes |
 | `egg-contract add-decision --question <text>` | Create HITL decision (multiple choice) |

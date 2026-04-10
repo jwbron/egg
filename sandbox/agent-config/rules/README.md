@@ -51,7 +51,7 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
   - `egg-orch` command reference (health, pipeline, signal, phase, decision, container, gateway)
 
 - **contract.md** - SDLC contract CLI commands
-  - `egg-contract` command reference (show, add-commit, update-notes, add-decision, add-feedback)
+  - `egg-contract` command reference (show, complete-task, complete-phase, add-commit, update-notes, add-decision, add-feedback)
 
 - **checkpoint.md** - Checkpoint browser CLI commands
   - `egg-checkpoint` command reference (list, show, browse, context)
