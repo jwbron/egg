@@ -271,6 +271,16 @@
           "exit_code": null,
           "agent_role": null,
           "session_token": null
+        },
+        {
+          "container_id": "9a51b7536e4ee0e7ace31750632cb14ffe276fd273b92f00af2a6f4ced0eb217",
+          "container_name": "egg-sandbox-egg-issue-1579-tester",
+          "status": "running",
+          "started_at": "2026-04-10T01:41:17.590236Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": null,
+          "session_token": null
         }
       ],
       "agents": [
@@ -290,6 +300,18 @@
           "role": "documenter",
           "status": "running",
           "container_id": "3e3921dfebf45b712d9cabc7968ed8d1748808b4e063b224bd0325d7c82cb65c",
+          "started_at": null,
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "tester",
+          "status": "running",
+          "container_id": "9a51b7536e4ee0e7ace31750632cb14ffe276fd273b92f00af2a6f4ced0eb217",
           "started_at": null,
           "completed_at": null,
           "commit": null,
@@ -460,7 +482,7 @@
     }
   ],
   "created_at": "2026-04-10T00:51:52.753575Z",
-  "updated_at": "2026-04-10T01:41:17.448617Z",
+  "updated_at": "2026-04-10T01:41:17.598449Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -468,5 +490,5 @@
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "analysis": null,
   "plan": null,
-  "version": 55
+  "version": 56
 }
