@@ -956,6 +956,17 @@ class TestGetStatusSyncHandler:
             }
         }
 
+    def _pipeline_response_with_pr(self, pr_url: str):
+        """Pipeline fixture with a PR phase artifact containing ``pr_url``."""
+        resp = self._pipeline_response()
+        resp["data"]["pipeline"]["current_phase"] = "pr"
+        resp["data"]["pipeline"]["status"] = "complete"
+        resp["data"]["pipeline"]["phases"]["pr"] = {
+            "agents": [],
+            "artifacts": {"pr_url": pr_url},
+        }
+        return resp
+
     def _messages_response(self):
         return {"data": {"messages": []}}
 
@@ -973,6 +984,44 @@ class TestGetStatusSyncHandler:
             with self._mock_requests(handler):
                 handler.handle_tool_call("get_status", {"task_id": "issue-42", "wait": wait_val})
         mock_sleep.assert_not_called()
+
+    def test_pr_info_null_when_no_pr_phase(self, handler):
+        """pr_url / pr_number are None while the pipeline is still pre-PR (#1625)."""
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[self._pipeline_response(), self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert "pr_url" not in result["pipeline"]
+        assert "pr_number" not in result["pipeline"]
+
+    def test_pr_info_populated_from_pr_phase_artifact(self, handler):
+        """pr_url / pr_number are extracted from phases.pr.artifacts.pr_url (#1625)."""
+        pr_response = self._pipeline_response_with_pr("https://github.com/owner/repo/pull/1624")
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[pr_response, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert result["pipeline"]["pr_url"] == "https://github.com/owner/repo/pull/1624"
+        assert result["pipeline"]["pr_number"] == 1624
+
+    def test_pr_number_null_for_malformed_url(self, handler):
+        """A URL without /pull/N still surfaces pr_url; pr_number stays None (#1625)."""
+        pr_response = self._pipeline_response_with_pr("not-a-valid-pr-url")
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[pr_response, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert result["pipeline"]["pr_url"] == "not-a-valid-pr-url"
+        assert "pr_number" not in result["pipeline"]
 
 
 class TestGetStatusWait:

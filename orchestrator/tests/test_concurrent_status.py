@@ -264,6 +264,98 @@ class TestPipelineStatusConcurrentEndpoint:
         assert "consensus" not in data["data"]["concurrent"]
 
 
+def _make_pipeline_with_pr_artifact(pr_url: str | None) -> Pipeline:
+    """Build a pipeline in the PR phase with optional ``pr_url`` artifact."""
+    pipeline = Pipeline(
+        id="issue-1613",
+        issue_number=1613,
+        repo="owner/repo",
+        branch="egg/issue-1613",
+        status=PipelineStatus.COMPLETE,
+        current_phase=PipelinePhase.PR,
+    )
+    if pr_url is not None:
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.PR)
+        phase_exec.artifacts = {"pr_url": pr_url}
+    return pipeline
+
+
+class TestPipelineStatusPrInfo:
+    """Tests for the PR URL/number fields in the pipeline status response (#1625)."""
+
+    @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
+    @patch("routes.pipelines._resolve_pipeline")
+    def test_pr_info_present_when_pr_phase_has_artifact(self, mock_resolve, mock_repo_path, client):
+        """pr_url and pr_number are included once the PR phase has created a PR."""
+        pipeline = _make_pipeline_with_pr_artifact("https://github.com/owner/repo/pull/1624")
+        mock_resolve.return_value = (MagicMock(), pipeline)
+
+        resp = client.get("/api/v1/pipelines/issue-1613/status")
+        assert resp.status_code == 200
+
+        data = json.loads(resp.data)["data"]
+        assert data["pr_url"] == "https://github.com/owner/repo/pull/1624"
+        assert data["pr_number"] == 1624
+
+    @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
+    @patch("routes.pipelines._resolve_pipeline")
+    def test_pr_info_absent_when_no_pr_phase(self, mock_resolve, mock_repo_path, client):
+        """No pr_url/pr_number keys when the pipeline has not reached the PR phase."""
+        pipeline = Pipeline(
+            id="issue-1613",
+            issue_number=1613,
+            repo="owner/repo",
+            branch="egg/issue-1613",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        mock_resolve.return_value = (MagicMock(), pipeline)
+
+        resp = client.get("/api/v1/pipelines/issue-1613/status")
+        data = json.loads(resp.data)["data"]
+        assert "pr_url" not in data
+        assert "pr_number" not in data
+
+    @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
+    @patch("routes.pipelines._resolve_pipeline")
+    def test_pr_info_absent_when_artifacts_empty(self, mock_resolve, mock_repo_path, client):
+        """Post-reset (request_changes / recovery) leaves artifacts empty; no stale URL leaks."""
+        pipeline = _make_pipeline_with_pr_artifact("https://github.com/owner/repo/pull/1624")
+        pipeline.get_phase_execution(PipelinePhase.PR).artifacts = {}
+        mock_resolve.return_value = (MagicMock(), pipeline)
+
+        resp = client.get("/api/v1/pipelines/issue-1613/status")
+        data = json.loads(resp.data)["data"]
+        assert "pr_url" not in data
+        assert "pr_number" not in data
+
+    @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
+    @patch("routes.pipelines._resolve_pipeline")
+    def test_pr_url_present_but_pr_number_absent_for_malformed_url(
+        self, mock_resolve, mock_repo_path, client
+    ):
+        """A URL without a /pull/N segment still surfaces pr_url; pr_number is omitted."""
+        pipeline = _make_pipeline_with_pr_artifact("not-a-valid-pr-url")
+        mock_resolve.return_value = (MagicMock(), pipeline)
+
+        resp = client.get("/api/v1/pipelines/issue-1613/status")
+        data = json.loads(resp.data)["data"]
+        assert data["pr_url"] == "not-a-valid-pr-url"
+        assert "pr_number" not in data
+
+    @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
+    @patch("routes.pipelines._resolve_pipeline")
+    def test_pr_info_works_with_enterprise_github_url(self, mock_resolve, mock_repo_path, client):
+        """Enterprise GitHub URLs still match /pull/(\\d+) and yield a pr_number."""
+        pipeline = _make_pipeline_with_pr_artifact("https://github.acme.com/owner/repo/pull/42")
+        mock_resolve.return_value = (MagicMock(), pipeline)
+
+        resp = client.get("/api/v1/pipelines/issue-1613/status")
+        data = json.loads(resp.data)["data"]
+        assert data["pr_url"] == "https://github.acme.com/owner/repo/pull/42"
+        assert data["pr_number"] == 42
+
+
 class TestJiraPipelineConcurrentStatus:
     """Tests that _get_concurrent_status works with JIRA-format pipeline IDs (#1615)."""
 
