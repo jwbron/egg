@@ -211,3 +211,4 @@ This keeps agents working with familiar tools in a predictable way, without burn
 
 - [Local Quickstart](../guides/local-quickstart.md) - Installation and configuration
 - [Project Structure](../development/STRUCTURE.md) - Directory layout
+- [Harness Configuration](../guides/harness-configuration.md) - Agent runtime selection and configuration

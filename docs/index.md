@@ -53,6 +53,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Pipeline Health Monitoring](guides/pipeline-health-monitoring.md) | Two-tier health monitoring: orchestrator tripwires + overseer agent |
 | [Babysit-PR](guides/babysit-pr.md) | Autonomous PR review/fix loop: conflict resolution, CI fixing, code review, feedback addressing |
 | [Anchor Recovery](guides/anchor-recovery.md) | Agent post-compaction state recovery via persistent anchors |
+| [Harness Configuration](guides/harness-configuration.md) | Selecting and configuring agent runtime harness (egg, claude-sdk, claude-code) |
 
 ### Reference
 
@@ -127,8 +128,8 @@ Each major component has detailed documentation:
 | **Checkpoint redaction** | [Redaction Reference](reference/redaction.md) | [Checkpoint Access](guides/checkpoint-access.md), [Architecture Overview](architecture/README.md) |
 | **Health check framework** | [Health Checks README](../orchestrator/health_checks/README.md) | [Orchestrator Architecture](architecture/orchestrator.md), [Orchestrator README](../orchestrator/README.md) |
 | **Pipeline health monitoring** | [Pipeline Health Monitoring](guides/pipeline-health-monitoring.md) | [Health Checks README](../orchestrator/health_checks/README.md), [Agent Roles](reference/agent-roles.md), [Orchestrator Architecture](architecture/orchestrator.md) |
-| **Custom harness / multi-provider** | [Custom Harness Architecture](architecture/custom-harness.md) | [egg_harness README](../shared/egg_harness/README.md), [egg_harness_integration README](../shared/egg_harness_integration/README.md), [Credential Injection](architecture/credential-injection.md) |
-| **Harness selection / EGG_HARNESS** | [egg_harness_integration README](../shared/egg_harness_integration/README.md) | [Custom Harness Architecture](architecture/custom-harness.md), [Sandbox README](../sandbox/README.md) |
+| **Custom harness / multi-provider** | [Custom Harness Architecture](architecture/custom-harness.md) | [Harness Configuration](guides/harness-configuration.md), [egg_harness README](../shared/egg_harness/README.md), [egg_harness_integration README](../shared/egg_harness_integration/README.md), [Credential Injection](architecture/credential-injection.md) |
+| **Harness selection / EGG_HARNESS** | [Harness Configuration](guides/harness-configuration.md) | [egg_harness_integration README](../shared/egg_harness_integration/README.md), [Custom Harness Architecture](architecture/custom-harness.md), [Sandbox README](../sandbox/README.md) |
 | **Generating repository documentation** | [GitHub Automation: Documentation Onboarding](guides/github-automation.md#documentation-onboarding) | [Onboarding prompt](../shared/prompts/onboarding-docs-prompt.md), `egg-onboarding-docs` CLI |
 
 ## Quick Navigation
