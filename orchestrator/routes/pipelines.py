@@ -7764,17 +7764,19 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     store.save_pipeline(pipeline)
                 return
 
-        # Safety net: when start_phase skips the plan phase (e.g.
-        # start_phase=implement), the plan-completion hook at the end of
-        # the phase loop never fires.  The inline-plan path above calls
+        # Safety net: when start_phase=implement, the plan phase is
+        # skipped so the plan-completion hook at the end of the phase loop
+        # never fires.  The inline-plan path above calls
         # _populate_contract_from_plan inside the contract_synced block,
         # but that block is skipped on pipeline restarts (contract already
         # synced) and when _read_source_branch_artifacts writes the draft
         # file to the worktree without going through the inline-plan
         # branch.  This catch-all ensures the contract has phases and
-        # tasks before agents spawn, regardless of how the plan draft
-        # arrived on disk.
-        if pipeline.config.start_phase in ("plan", "implement"):
+        # tasks before agents spawn when the plan phase was skipped.
+        # When start_phase=plan, the plan phase runs normally and the
+        # plan-completion hook populates the contract, so no safety net
+        # is needed.
+        if pipeline.config.start_phase == "implement":
             plan_draft_rel = _get_draft_path(
                 "plan",
                 issue_number=pipeline.issue_number,

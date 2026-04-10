@@ -515,9 +515,7 @@ class TestStartPhaseImplementContractPopulation:
         draft_path.parent.mkdir(parents=True, exist_ok=True)
         draft_path.write_text(SAMPLE_PLAN)
 
-        # Simulate the safety net: check file exists, then populate
-        if draft_rel and (tmp_path / draft_rel).exists():
-            _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
 
         # Verify contract was populated with phases and tasks
         contract = load_contract(pipeline_id, tmp_path)
@@ -556,20 +554,21 @@ class TestStartPhaseImplementContractPopulation:
         assert contract.pr.title == "Add retry logic to API client"
 
     def test_no_plan_draft_skips_population(self, tmp_path: Path):
-        """When plan draft does not exist, _populate_contract_from_plan is a no-op."""
+        """When plan draft does not exist, _populate_contract_from_plan
+        returns early and the contract remains empty.
+
+        This tests the helper's internal guard (plan_path.exists() check),
+        which is the last line of defense if the safety-net's outer guard
+        in _run_pipeline is bypassed or removed.
+        """
         from egg_contracts.loader import create_contract, load_contract
-        from routes.pipelines import _get_draft_path, _populate_contract_from_plan
+        from routes.pipelines import _populate_contract_from_plan
 
         pipeline_id = "pipeline-no-draft"
 
         create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
 
-        draft_rel = _get_draft_path("plan", pipeline_id=pipeline_id)
-        # File does NOT exist — safety net should not call populate
-        assert draft_rel is not None
-        assert not (tmp_path / draft_rel).exists()
-
-        # This is a no-op when the file doesn't exist
+        # Call the helper directly — no draft file on disk
         _populate_contract_from_plan(tmp_path, pipeline_id, "local")
 
         contract = load_contract(pipeline_id, tmp_path)
