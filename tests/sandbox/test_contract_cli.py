@@ -334,6 +334,12 @@ class TestTaskIdParsing:
         with pytest.raises(ValueError):
             parse_task_id("task--1")
 
+    def test_task_id_bare_number_rejected(self):
+        """Test that bare numbers without 'task-' prefix are rejected."""
+        with pytest.raises(ValueError) as exc_info:
+            parse_task_id("1")
+        assert "Invalid task ID" in str(exc_info.value)
+
 
 class TestCriterionIdParsing:
     """Tests for criterion ID parsing."""

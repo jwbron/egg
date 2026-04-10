@@ -139,7 +139,11 @@ def parse_task_id(task_id: str) -> tuple[int, int]:
     Raises:
         ValueError: If task ID format is invalid or numbers are out of range
     """
-    task_parts = task_id.lower().replace("task-", "").split("-")
+    lower = task_id.lower()
+    stripped = lower.removeprefix("task-")
+    if stripped == lower:
+        raise ValueError(f"Invalid task ID '{task_id}': expected format 'task-N' or 'task-P-T'")
+    task_parts = stripped.split("-")
     try:
         if len(task_parts) == 1:
             # Simple format: task-N (assumes phase-1)
