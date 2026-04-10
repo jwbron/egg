@@ -627,9 +627,13 @@ class TestSourceBranchArtifactWriteToDisk:
         pipeline = Pipeline(id=pipeline_id, repo="owner/repo")
         store = MagicMock()
 
-        # Mock git show to return plan content from source branch
+        # Mock git commands: fetch succeeds, show returns plan/analysis content
         def fake_subprocess_run(cmd, **kwargs):
             result = MagicMock()
+            if "fetch" in cmd:
+                result.returncode = 0
+                result.stdout = ""
+                return result
             if "show" in cmd:
                 ref_arg = next((a for a in cmd if a.startswith("origin/")), "")
                 if "-plan.md" in ref_arg:
@@ -707,6 +711,10 @@ class TestSourceBranchArtifactWriteToDisk:
 
         def fake_subprocess_run(cmd, **kwargs):
             result = MagicMock()
+            if "fetch" in cmd:
+                result.returncode = 0
+                result.stdout = ""
+                return result
             if "show" in cmd:
                 ref_arg = next((a for a in cmd if a.startswith("origin/")), "")
                 if "-plan.md" in ref_arg:
@@ -770,6 +778,10 @@ class TestSourceBranchArtifactWriteToDisk:
 
         def fake_subprocess_run(cmd, **kwargs):
             result = MagicMock()
+            if "fetch" in cmd:
+                result.returncode = 0
+                result.stdout = ""
+                return result
             result.returncode = 1
             result.stdout = ""
             return result

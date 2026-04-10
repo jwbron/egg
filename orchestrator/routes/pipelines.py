@@ -2490,10 +2490,9 @@ def _git_show_draft(
     not exist on the remote ref or the git command fails.  This is a
     read-only operation that does not modify the worktree.
 
-    Note: this does **not** ``git fetch`` before reading.  It relies on
-    ``origin/{branch}`` being reasonably fresh from periodic fetches
-    performed by the health monitor and other pipeline flows.  If stale
-    refs become a problem, consider adding an optional fetch here.
+    Note: this function does **not** ``git fetch`` itself.  The caller is
+    responsible for ensuring ``origin/{branch}`` is fresh (e.g., by
+    running ``git fetch origin {branch}`` before calling this helper).
     """
     git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(repo_path)]
     try:
@@ -7601,11 +7600,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # block, but that block is skipped on pipeline restarts
             # (contract already synced).  Writing here ensures the draft
             # files exist regardless of contract_synced state.
-            if pipeline.plan or pipeline.analysis:
+            if pipeline.plan is not None or pipeline.analysis is not None:
                 drafts_dir = worktree_repo_path / ".egg-state" / "drafts"
                 drafts_dir.mkdir(parents=True, exist_ok=True)
 
-                if pipeline.plan:
+                if pipeline.plan is not None:
                     plan_rel = _get_draft_path(
                         "plan",
                         issue_number=pipeline.issue_number,
@@ -7620,7 +7619,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             path=plan_rel,
                         )
 
-                if pipeline.analysis:
+                if pipeline.analysis is not None:
                     analysis_rel = _get_draft_path(
                         "refine",
                         issue_number=pipeline.issue_number,
