@@ -220,6 +220,8 @@ When a producer pushes new commits after proposing, existing reviews become stal
 
 This mechanism enforces the principle that **all changes must be reviewed**: post-proposal pushes cannot bypass the review process. The `check_confirm_guard()` provides a server-side blocking mechanism even if a reviewer misses the `CONSENSUS_RE_REVIEW` notification. See [Concurrent Execution — Auto Re-Propose on Push/Commit](concurrent-execution.md#auto-re-propose-on-pushcommit) for the full details.
 
+Additionally, the gateway enforces that **direct `git push` is blocked** in concurrent mode — agents must use `egg-orch consensus propose --push` to bundle the push with a BRC proposal. This makes the review invariant structural rather than relying on auto-repropose detection. See [Concurrent Execution — Gateway-Level Push Enforcement](concurrent-execution.md#gateway-level-push-enforcement-concurrent-mode) for details.
+
 ### Agent Crash Mid-Protocol
 
 An agent crashes after proposing but before the review phase completes.

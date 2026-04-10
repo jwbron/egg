@@ -351,6 +351,29 @@ When a producer pushes new commits after proposing, existing reviews become stal
 | `auto_repropose_debounce_seconds` | `60` | Minimum seconds between consecutive auto re-proposals for the same producer. Prevents proposal storms on rapid-fire pushes. |
 | `max_auto_repropose` | `5` | Maximum automatic re-proposals per producer per review cycle. Set to `0` to disable auto re-propose entirely. Once the limit is reached, the producer must explicitly re-propose via `egg-orch consensus propose`. |
 
+### Gateway-Level Push Enforcement (Concurrent Mode)
+
+While auto re-propose provides a **safety net** for stale reviews, it relies on the orchestrator detecting post-proposal pushes. A stronger guarantee comes from the gateway itself: in concurrent mode, **direct `git push` is blocked** — all pushes must go through `egg-orch consensus propose --push`.
+
+**How the marker flows:**
+
+1. Agent runs `egg-orch consensus propose --push`
+2. The orch CLI sets `EGG_CONSENSUS_PUSH=1` in the subprocess environment before invoking `git push`
+3. The sandbox git wrapper reads the env var and includes `"consensus_push": true` in the JSON payload sent to the gateway
+4. The gateway checks: if `EGG_CONCURRENT_MODE=true` AND the session has a `pipeline_id` AND the push is not infrastructure (checkpoints/pipeline state), then `consensus_push` must be present
+5. Pushes without the marker are rejected with HTTP 403
+
+**Relationship to auto re-propose:** Gateway enforcement makes auto re-propose less critical in concurrent mode — every push IS a proposal, so there are no "orphan pushes" to detect. Auto re-propose remains as defense-in-depth for edge cases (e.g., if an agent manages to push through an alternative path).
+
+**Killswitch:** Set `CONCURRENT_PUSH_ENFORCEMENT=false` on the gateway to disable. Use only for emergency bypass.
+
+**Error message for agents:**
+```
+Direct push blocked in concurrent mode. Use: egg-orch consensus propose --push
+```
+
+See [Gateway README — Concurrent-Mode Push Enforcement](../../gateway/README.md#concurrent-mode-push-enforcement-brc-sessions) for implementation details. See [#1669](https://github.com/jwbron/egg/issues/1669) for the motivating incident and design rationale.
+
 ### Excusing Non-Delivering Agents
 
 When an agent fails to deliver (crashes, stalls, or exhausts restarts), it can block other agents from confirming. The protocol provides HITL-gated escape hatches to unblock consensus:

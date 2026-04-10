@@ -63,7 +63,7 @@ gh pr create --head egg/<description> --title "Brief description" --body "..." -
 - **Push before long-running operations** — test suites, sub-agent spawns, or anything that could consume remaining turns.
 - **For multi-phase plans**: commit and push after completing each phase before starting the next. Never batch all phases into a single final commit.
 - **Update the contract as you go**: after each commit, mark the task done with `egg-contract complete-task --task <id> --commit <sha>`. After completing all tasks in a phase, mark the phase done with `egg-contract complete-phase --phase <id> --commit <sha>`.
-- **In concurrent/BRC mode**: use `egg-orch consensus propose --push` to bundle push + proposal in one operation. This prevents redundant auto-repropose cycles from triggering on each incremental push.
+- **In concurrent/BRC mode**: use `egg-orch consensus propose --push` to bundle push + proposal in one operation. **The gateway enforces this** — direct `git push` is blocked in concurrent mode and will return a 403 error. All pushes must go through the consensus protocol.
 
 **If push/PR fails**: Notify user via Slack with branch name, repo, and summary.
 
