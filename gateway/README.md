@@ -38,7 +38,7 @@ The gateway sidecar is the **trusted** component that holds credentials and vali
 
 | Operation | Policy | Check |
 |-----------|--------|-------|
-| `git push` | Branch ownership + Phase filter | Branch has open PR authored by egg, OR branch starts with `egg-` or `egg/`, AND operation is allowed in current phase |
+| `git push` | Branch ownership + Phase filter + Concurrent-mode consensus | Branch has open PR authored by egg, OR branch starts with `egg-` or `egg/`, AND operation is allowed in current phase, AND in concurrent mode push must come through consensus protocol (`consensus_push` marker) |
 | `gh pr create` | Phase filter + mode policy | Operation is allowed in current phase (typically only in 'pr' phase)<br>In user mode, PR is forced to draft<br>Blocked in reviewer mode |
 | `gh pr comment` | Allowed on any PR | PR must exist and be accessible |
 | `gh pr merge` | **BLOCKED** | No merge endpoint - human must merge via GitHub UI |
@@ -121,6 +121,37 @@ Pipeline sessions must push only to their assigned branch. This prevents agents 
 
 **Error message:**
 - `Pipeline sessions must push to their assigned branch '<assigned>'. Got '<attempted>'.` (HTTP 403)
+
+### Concurrent-Mode Push Enforcement (BRC Sessions)
+
+In concurrent/BRC mode (`EGG_CONCURRENT_MODE=true`), the gateway blocks direct `git push` operations from pipeline agents. All pushes must go through the BRC consensus protocol via `egg-orch consensus propose --push`, which bundles the push with a proposal so that all changes are peer-reviewed before landing on the branch.
+
+**How it works:**
+- After push-target enforcement and before branch ownership checks, the gateway checks whether the push originates from the consensus protocol
+- The check activates when all of the following are true: `EGG_CONCURRENT_MODE=true` (environment variable), the session has a `pipeline_id`, and the push is not an infrastructure push (checkpoints, pipeline state)
+- When `egg-orch consensus propose --push` runs, it sets `EGG_CONSENSUS_PUSH=1` in the subprocess environment. The git wrapper reads this and includes `"consensus_push": true` in the JSON payload to the gateway
+- Pushes without the `consensus_push` marker are rejected with HTTP 403
+
+**Why this matters:** Without this enforcement, agents can bypass the BRC review protocol by calling `git push` directly — changes land on the branch without peer review, breaking the "all changes must be reviewed" invariant. This was observed in pipeline #1570 v17, where the coder agent pushed 7 incremental commits without ever entering BRC consensus. The auto-repropose mechanism (#1666/#1667) provides a safety net, but gateway-level enforcement makes the invariant structural rather than relying on agent compliance.
+
+**Marker flow:**
+```
+egg-orch consensus propose --push
+  └─→ sets EGG_CONSENSUS_PUSH=1 in subprocess env
+       └─→ git push (sandbox wrapper)
+            └─→ reads EGG_CONSENSUS_PUSH, adds "consensus_push": true to payload
+                 └─→ gateway: allows push (marker present)
+```
+
+**Killswitch:** Set `CONCURRENT_PUSH_ENFORCEMENT=false` to disable (for emergency bypass). Follows the same pattern as `PUSH_TARGET_ENFORCEMENT`.
+
+**Error message:**
+- `Direct push blocked in concurrent mode. Use: egg-orch consensus propose --push` (HTTP 403)
+
+**Exempt scenarios:**
+- Infrastructure pushes (checkpoint branches, pipeline state branches) — already exempted before this check
+- Non-concurrent pipelines (`EGG_CONCURRENT_MODE` not set or not `"true"`)
+- Sessions without a `pipeline_id` (interactive/local sessions)
 
 **Pipeline-aware push error messages:** When a push is rejected due to phase file restrictions (e.g., branch history contains files from prior phases), pipeline sessions receive a targeted error message directing the agent to signal the error via `egg-orch signal error` rather than attempting workarounds. Non-pipeline sessions continue to see the original generic hint about creating a clean branch.
 
@@ -468,6 +499,7 @@ gateway/
 │   ├── test_transcript_buffer.py
 │   ├── test_phase_worktree.py
 │   ├── test_assigned_branch.py  # Push-target enforcement and branch lock tests
+│   ├── test_concurrent_push_block.py  # Concurrent-mode push enforcement tests
 │   ├── integration_test.sh
 │   └── README-integration.md
 └── README.md               # This file
@@ -513,6 +545,8 @@ Both methods clear all in-memory config caches so the next access re-reads from 
 8. **Branch lock for pipeline sessions**: Pipeline agents are locked to their worktree branch to ensure deterministic post-agent commit/push. The `Session.assigned_branch` field is set during session creation when a pipeline ID is present.
 
 9. **Push-target enforcement**: Pipeline agents must push to their assigned branch only. When a push to the assigned branch fails (e.g., due to phase file restrictions from branch history contamination), agents must signal an error rather than improvise a new branch name. This prevents commits from landing on unexpected branches where the pipeline cannot find them.
+
+10. **Concurrent-mode push enforcement**: In BRC mode, direct `git push` is blocked — agents must use `egg-orch consensus propose --push`. This makes the "all changes must be reviewed" invariant structural rather than relying on agent compliance. A `consensus_push` marker flows from the orch CLI through the git wrapper to the gateway, distinguishing protocol-originated pushes from direct pushes. A `CONCURRENT_PUSH_ENFORCEMENT` killswitch follows the same pattern as `PUSH_TARGET_ENFORCEMENT` for emergency bypass.
 
 ## Testing
 
