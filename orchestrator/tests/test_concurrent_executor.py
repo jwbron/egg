@@ -691,7 +691,7 @@ class TestCheckConsensusMessageBusFallback:
                 result = executor.check_consensus()
 
             # The tracker-confirmed safety net should fire first since
-            # all roles are in _confirmed.
+            # all roles are in confirmed_roles.
             assert result["is_complete"] is True
             assert result.get("fallback") == "tracker_confirmed"
         finally:
