@@ -1419,7 +1419,7 @@ def handle_consensus_excuse_producer_signal(
             return make_error_response(
                 f"Decision {decision_id} is not authorized for excusing "
                 f"producer {producer_role} (expected context: "
-                f"'{expected_context}', got: '{getattr(decision, 'context', '')}').",
+                f"'{expected_context}', got: '{decision.context}').",
                 status_code=403,
             )
     except DecisionNotFoundError:

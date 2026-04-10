@@ -9,7 +9,7 @@ Covers:
 - check_confirm_guard (producer/reviewer paths, version-match, zero-proposal,
   unresolved-NACK, stale-ACK, dual-role agents)
 - check_withdraw_guard (producer check, reason, cooldown, flip-flop lockout)
-- validate_invariants (all 5 invariants, multiple violations)
+- validate_invariants (all 6 invariants, multiple violations)
 """
 
 from datetime import UTC, datetime, timedelta
