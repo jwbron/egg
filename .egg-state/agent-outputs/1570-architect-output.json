@@ -1,0 +1,802 @@
+{
+  "issue": 1570,
+  "pipeline_id": "issue-1570-v3",
+  "agent_role": "architect",
+  "phase": "plan",
+  "timestamp": "2026-04-10T05:30:00Z",
+  "version": "v3",
+
+  "summary": "Architecture analysis for building a custom coding harness (egg_harness) with multi-provider LLM support, context management/compaction, session persistence, and an event system. This v3 analysis builds on the ACKed v2 architect output, incorporates expanded Pi-parity scope (compaction, session management, context management), addresses all v2 reviewer feedback, and updates technical decisions based on current SDK versions and CVE landscape.",
+
+  "problem_statement": {
+    "description": "egg currently depends on two Anthropic-maintained runtimes (Claude Code CLI for interactive, Claude Agent SDK for headless) that are opaque, evolve independently, and can break egg on update. The project needs a custom coding harness that owns the full agent execution lifecycle — tool loop, context management, permission enforcement, streaming — while supporting multiple LLM providers and remaining extractable as a standalone package.",
+    "expanded_scope_v3": [
+      "Compaction / context management with anchor integration (#1032)",
+      "Session persistence and resume for consensus wrapper restart recovery",
+      "Event system for monitoring, logging, and extension",
+      "Modularity requirement: isolated package extractable from egg"
+    ],
+    "key_constraints": [
+      "Gateway remains the security boundary — all API calls must route through it",
+      "Zero-credential sandbox must be preserved (CVE-2026-35022 reinforces this)",
+      "Drop-in replacement for python3 -m egg_agent (same CLI args, same AgentResult)",
+      "Consumers (consensus_wrapper, babysit fixer/reviewer) need zero changes",
+      "Both headless and interactive modes required in MVP",
+      "Must support both Anthropic and OpenAI-compatible providers in MVP"
+    ]
+  },
+
+  "hitl_decisions_summary": {
+    "note": "All 12 HITL decisions were resolved in the refine phase. Key decisions that constrain the architecture:",
+    "decisions": [
+      {
+        "id": 1,
+        "summary": "Custom thin adapter wrapping anthropic and openai Python SDKs. No LiteLLM.",
+        "architectural_impact": "Two provider classes implementing a shared Provider interface. Anthropic SDK for Anthropic API, httpx for OpenAI-compatible."
+      },
+      {
+        "id": 2,
+        "summary": "Both headless and interactive in MVP — full feature parity from start.",
+        "architectural_impact": "Interactive mode (REPL) shares same agent loop and tool registry. Minimal TUI for MVP."
+      },
+      {
+        "id": 3,
+        "summary": "Shell out to CLIs initially for egg-native tools.",
+        "architectural_impact": "EggOrch, EggContract, EggCheckpoint, GitOps, GhCli implemented as subprocess shells. Registered via tool registry interface, not hardcoded."
+      },
+      {
+        "id": 4,
+        "summary": "Default claude-sdk, opt-in egg harness via EGG_HARNESS env var and PipelineConfig.",
+        "architectural_impact": "Harness selection as routing layer in egg_agent.client. build_agent_command() routes to correct module. TOS warning for subscription users."
+      },
+      {
+        "id": 7,
+        "summary": "Hardcoded per-model rates for cost tracking.",
+        "architectural_impact": "cost.py with MODEL_RATES dict. Anthropic SDK returns token counts; multiply by known rates."
+      },
+      {
+        "id": 8,
+        "summary": "Basic retries with exponential backoff in harness for transient API failures. Full restart-on-exit stays in consensus wrapper.",
+        "architectural_impact": "Separation of concerns: harness handles 429/5xx retries, consensus_wrapper handles BRC restart-on-exit."
+      },
+      {
+        "id": 9,
+        "summary": "Replicate exact CLAUDE.md rule-merging from sandbox/agent-config/rules/.",
+        "architectural_impact": "Shared rule assembly function extracted from entrypoint.py. Both harnesses use same function for identical prompts."
+      },
+      {
+        "id": 10,
+        "summary": "Support opus[1m] suffix syntax for backwards compatibility.",
+        "architectural_impact": "Model alias parser handles suffix syntax. Separate max_tokens config also supported. Suffix takes precedence."
+      },
+      {
+        "id": 12,
+        "summary": "Multi-model routing (#1571) is post-MVP but Provider abstraction must support it.",
+        "architectural_impact": "ProviderConfig and Provider base class designed for extensibility. Adding a new provider = implementing one class."
+      }
+    ]
+  },
+
+  "approaches_considered": [
+    {
+      "id": "A",
+      "name": "Anthropic SDK only",
+      "description": "Use the anthropic Python SDK for all providers by mapping OpenAI-compatible endpoints through Anthropic's format.",
+      "pros": ["Single SDK dependency", "Proven streaming handling", "Less code"],
+      "cons": ["Cannot call OpenAI-compatible /v1/chat/completions endpoints", "Would need format translation layer", "Locks to Anthropic's API evolution"],
+      "verdict": "REJECTED — fundamentally incompatible with OpenAI-compatible provider requirement"
+    },
+    {
+      "id": "B",
+      "name": "Raw httpx only",
+      "description": "Build everything from scratch with httpx for all providers, including Anthropic.",
+      "pros": ["No SDK dependency", "Full control", "Uniform implementation"],
+      "cons": ["High risk for Anthropic streaming (8+ SSE event types, partial JSON accumulation, thinking blocks, cache control)", "Must handle all edge cases the SDK already handles", "More code to maintain"],
+      "verdict": "REJECTED — too much risk reimplementing Anthropic's complex streaming protocol"
+    },
+    {
+      "id": "C",
+      "name": "LiteLLM unified abstraction",
+      "description": "Use LiteLLM as the provider abstraction layer for all LLM backends.",
+      "pros": ["Supports 100+ providers", "Tool calling support", "Active community"],
+      "cons": ["50+ transitive dependencies", "Conflicts with gateway credential model (LiteLLM wants to manage API keys)", "Contradicts 'reduce external dependencies' motivation", "Opaque provider-specific quirk handling"],
+      "verdict": "REJECTED — contradicts core motivation; dependency weight unacceptable"
+    },
+    {
+      "id": "D",
+      "name": "Hybrid: Anthropic SDK + httpx for OpenAI-compatible",
+      "description": "Use the anthropic Python SDK (v0.79.x) for Anthropic API calls, and raw httpx for OpenAI-compatible endpoints. The SDK handles Anthropic's complex streaming protocol reliably; OpenAI's SSE format is simpler and well-handled by httpx.",
+      "pros": [
+        "Best reliability for the critical Anthropic path (SDK handles 8+ event types, thinking, cache control, structured outputs)",
+        "Manageable complexity for simpler OpenAI chat completions format",
+        "Minimal new dependencies (anthropic SDK already installed, httpx is a dependency of anthropic)",
+        "SDK stays current with Anthropic API changes automatically",
+        "Proven in production — current egg_agent uses the SDK successfully"
+      ],
+      "cons": [
+        "Two different streaming implementations to maintain",
+        "SDK version coupling (mitigated by pinning range)",
+        "Slight asymmetry in provider implementations"
+      ],
+      "verdict": "SELECTED — best risk/reward tradeoff. Proven reliability for the critical path, acceptable complexity for the simpler path."
+    }
+  ],
+
+  "recommended_approach": {
+    "id": "D",
+    "name": "Hybrid: Anthropic SDK + httpx for OpenAI-compatible",
+    "justification": "The Anthropic Messages API streaming protocol involves 8+ distinct SSE event types (message_start, content_block_start, content_block_delta, content_block_stop, message_delta, message_stop, ping, error) with complex accumulation semantics for thinking blocks, tool use input deltas, and cache control headers. Reimplementing this reliably would be high-risk and duplicate work the SDK already does well. The OpenAI chat completions streaming format is significantly simpler (data: {choices: [{delta: {...}}]} with a [DONE] sentinel) and well-served by httpx SSE parsing. The hybrid approach gives us SDK-grade reliability for the critical Anthropic path while keeping the OpenAI path simple and dependency-light."
+  },
+
+  "architecture": {
+    "overview": "7-subsystem architecture organized as two packages: egg_harness (core, extractable) and egg_harness_integration (egg-specific wiring). The core harness is provider-agnostic and tool-registry-driven. Egg-specific integrations (orchestrator tools, anchor-based compaction, CLAUDE.md assembly) are injected via clean interfaces.",
+
+    "subsystems": [
+      {
+        "id": 1,
+        "name": "Providers",
+        "location": "shared/egg_harness/providers/",
+        "description": "Provider-abstracted LLM client layer. Abstract Provider base class defines the streaming interface. Two concrete implementations for MVP.",
+        "components": [
+          {
+            "file": "base.py",
+            "description": "Abstract Provider class with send_message() -> AsyncIterator[StreamEvent]. StreamEvent is a tagged union: TextDelta, ToolUseStart, ToolUseInputDelta, ToolUseEnd, ThinkingDelta, UsageUpdate, MessageStart, MessageDelta, MessageEnd. Provider also exposes model_info() for context window size, supports_thinking, etc."
+          },
+          {
+            "file": "anthropic.py",
+            "description": "Anthropic provider using AsyncAnthropic(base_url=gateway_url). Uses client.messages.create(stream=True) for raw SSE iteration (lower memory than .stream() helper). Maps SDK RawMessageStreamEvent types to harness StreamEvent union. Handles extended thinking, cache control (anthropic-beta: prompt-caching), structured outputs beta. Token counts extracted from usage in message_delta events."
+          },
+          {
+            "file": "openai_compat.py",
+            "description": "OpenAI-compatible provider using httpx.AsyncClient for /v1/chat/completions. Translates Anthropic message format to OpenAI format (system -> system message, tools -> functions/tools). Parses SSE chunks with data: prefix. Handles tool_choice mapping. Model passed as-is (no alias resolution — endpoint determines model)."
+          }
+        ],
+        "key_decisions": [
+          {
+            "id": "TD-1",
+            "decision": "Use client.messages.create(stream=True) instead of client.messages.stream() for the Anthropic provider",
+            "rationale": "The .create(stream=True) method returns a raw AsyncStream that yields RawMessageStreamEvent objects without accumulating a final message. This gives us full control over event processing and memory usage — important for long-running agents that may process thousands of tool calls. The .stream() helper accumulates everything into a Message object we'd then discard."
+          },
+          {
+            "id": "TD-2",
+            "decision": "AsyncIterator[StreamEvent] as the universal provider interface",
+            "rationale": "Composable stream processing via async generators. Enables middleware patterns (logging, metrics, throttling) as stream transformers. Better than callbacks for complex event flows. Both providers emit the same StreamEvent types despite different underlying protocols."
+          },
+          {
+            "id": "TD-3",
+            "decision": "Gateway URL as the Anthropic base_url (AsyncAnthropic(base_url=...))",
+            "rationale": "Preserves zero-credential sandbox. Gateway injects Anthropic API key into request headers. Harness never imports or reads ANTHROPIC_API_KEY. Startup assertion validates ANTHROPIC_API_KEY is NOT in os.environ (defense-in-depth per RISK-1)."
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "name": "Tools",
+        "location": "shared/egg_harness/tools/",
+        "description": "Tool registry with register/execute pattern. Standard tools implement Claude Code's tool schemas. Egg-native tools registered via the same interface but live in the integration layer.",
+        "components": [
+          {
+            "file": "registry.py",
+            "description": "ToolRegistry class: register(name, definition, handler), execute(name, input) -> ToolResult, list_definitions() -> list[dict]. Applies permission callback before execution. Supports tool disabling (WebFetch/WebSearch in private mode). ToolResult dataclass: content (str), is_error (bool), truncated (bool)."
+          },
+          {
+            "file": "bash.py",
+            "description": "Shell command execution with timeout, working directory, output truncation. Uses subprocess with os.setpgrp/os.killpg for process group cleanup on timeout. NEVER uses shell=True (CVE-2026-35022 mitigation). Output capped at configurable limit (default 100KB)."
+          },
+          {
+            "file": "read.py",
+            "description": "File reading with offset/limit, line numbering (cat -n format). Binary detection, encoding handling, image/PDF support via content type detection."
+          },
+          {
+            "file": "write.py",
+            "description": "File creation/overwrite with parent directory creation. Validates path is not in blocked patterns."
+          },
+          {
+            "file": "edit.py",
+            "description": "String replacement in files (old_string -> new_string). Exact match semantics — fails if old_string not found or not unique. Supports replace_all flag. Critical behavioral parity item per RISK-2."
+          },
+          {
+            "file": "glob_tool.py",
+            "description": "File pattern matching using pathlib.glob or fd binary. Returns paths sorted by modification time."
+          },
+          {
+            "file": "grep.py",
+            "description": "Content search using ripgrep (rg) binary. Supports regex, file type filtering, context lines, output modes (content, files_with_matches, count). Shells out to rg rather than reimplementing."
+          },
+          {
+            "file": "web_fetch.py",
+            "description": "URL fetching with HTML-to-markdown conversion. Uses httpx for fetching, markdownify for conversion. Conditionally disabled in private mode."
+          },
+          {
+            "file": "web_search.py",
+            "description": "Web search integration. Implementation depends on available search API. Conditionally disabled in private mode."
+          }
+        ],
+        "key_decisions": [
+          {
+            "id": "TD-4",
+            "decision": "Shell out to rg (ripgrep) and fd for Grep/Glob rather than reimplementing",
+            "rationale": "These binaries are already installed in the sandbox container. Shelling out gives exact behavioral parity with Claude Code (which also uses rg). Reimplementing regex search in Python would be slower and risk behavioral differences."
+          },
+          {
+            "id": "TD-5",
+            "decision": "Tool definitions match Claude Code's JSON schemas exactly",
+            "rationale": "The LLM is trained on Claude Code's tool schemas. Using identical schemas ensures the model generates correct tool calls. Deviation would cause tool call failures or suboptimal usage."
+          },
+          {
+            "id": "TD-6",
+            "decision": "Never use shell=True in any subprocess call (CI linter rule enforced)",
+            "rationale": "CVE-2026-35022 (CVSS 9.8) demonstrated OS command injection via shell=True in the Claude CLI/SDK auth helper. All subprocess calls use shell=False with explicit argument lists. A CI linter rule (bandit B602 or custom) enforces this across the codebase."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "name": "Agent Loop",
+        "location": "shared/egg_harness/loop.py",
+        "description": "Core agentic loop replacing claude_agent_sdk.query(). Manages the send-parse-execute-feedback cycle with context tracking, compaction integration, and graceful shutdown.",
+        "responsibilities": [
+          "Build messages array (system prompt + conversation history + tool definitions)",
+          "Call provider.send_message() and consume StreamEvent async iterator",
+          "Accumulate text blocks and tool use blocks from stream",
+          "Execute tool calls sequentially via ToolRegistry (matching Claude Code behavior)",
+          "Append tool results as user messages and loop",
+          "Track token usage per turn from UsageUpdate events",
+          "Trigger compaction when context exceeds threshold (delegates to compaction subsystem)",
+          "Enforce max_turns limit and wall-clock timeout (default 2h)",
+          "Handle all stop_reasons: end_turn (continue if tools pending), max_tokens (warn + continue), stop_sequence (stop), tool_use (execute tools)",
+          "Graceful SIGTERM handling with 30s grace period (finish current tool, then exit)",
+          "Fire event callbacks: on_output, on_tool_call, on_tool_result, on_turn_complete, on_compaction, on_error",
+          "Retry with exponential backoff + jitter for 429/5xx (per HITL-8). Circuit breaker: 3 consecutive failures -> exit.",
+          "Return AgentResult with success, stdout, stderr, returncode, cost_usd, num_turns, duration_ms, session_id, compaction_count"
+        ],
+        "key_decisions": [
+          {
+            "id": "TD-7",
+            "decision": "Sequential tool execution within a turn (not parallel)",
+            "rationale": "Matches Claude Code behavior. Claude's tool use blocks within a single response are sequentially dependent (e.g., write file then read it). Parallel execution would break these implicit dependencies."
+          },
+          {
+            "id": "TD-8",
+            "decision": "Separate API-level retries (harness) from process-level restarts (consensus wrapper)",
+            "rationale": "Per HITL-8. The harness retries transient API errors (429, 500, 502, 503, 529) with exponential backoff. The consensus wrapper handles full process restart for BRC protocol recovery. These are orthogonal concerns."
+          },
+          {
+            "id": "TD-9",
+            "decision": "Explicit stop_reason handling for all known values",
+            "rationale": "Per RISK-3 (agent loop reliability). end_turn with pending tools -> execute tools. end_turn without tools -> agent complete. max_tokens -> log warning, continue. tool_use -> execute tools. stop_sequence -> stop. Unknown -> log error, stop."
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "name": "Context Management / Compaction",
+        "location": "shared/egg_harness/compaction.py",
+        "description": "Context-aware compaction system inspired by Pi's implementation but integrated with egg's anchor mechanism (#1032). Owns the summarize-clear-reload cycle that keeps long-running agents within context limits.",
+        "components": [
+          {
+            "file": "compaction.py",
+            "description": "Core compaction logic in the harness package. Token budget tracking, threshold detection, summary generation, conversation clearing. Provider-agnostic — uses token counts from provider responses."
+          }
+        ],
+        "design": {
+          "token_budget_tracking": "Each turn, calculate total context size from API response usage fields (input_tokens + output_tokens from message_delta UsageUpdate). Maintain running total. Context window size from provider.model_info().context_window.",
+          "compaction_trigger": "When total context tokens > (context_window - reserve_tokens), trigger compaction before the next API call. Default reserve_tokens: 16384 (matching Pi). Configurable via HarnessConfig.",
+          "compaction_strategy": "1) Generate summary of conversation history using the LLM itself (a separate API call with a compaction prompt). Summary captures: current task state, key decisions made, progress (done/in-progress/blocked), errors encountered, files read/modified. 2) Persist state to agent anchor file via anchor integration callback. 3) Clear conversation history. 4) Inject summary as the new conversation start (system prompt + summary + recent messages).",
+          "keep_recent": "Preserve the most recent N tokens of conversation (default 20000, matching Pi). Walk backwards from newest message until accumulating keep_recent_tokens. Everything before that boundary gets summarized.",
+          "anchor_integration": "On compaction, the compaction callback (injected by egg_harness_integration) persists key state to the agent's anchor file (.egg-state/agent-anchors/<agent-id>.json). Post-compaction, the agent loop reads the anchor + polls the message bus for missed messages (BRC recovery).",
+          "anti_infinite_loop": "If compaction fires twice within N turns (default: 3), abort with error rather than re-compacting. This prevents infinite compaction loops when the compacted summary itself exceeds the threshold.",
+          "manual_compaction": "Agents can trigger compaction explicitly via a CompactContext tool or by calling the compaction API directly. Useful for compacting at natural checkpoints (e.g., after completing a subtask).",
+          "compaction_event": "Fires on_compaction callback with summary text and compaction metadata. Consumers (consensus wrapper, monitoring) observe compaction events for logging and recovery."
+        },
+        "key_decisions": [
+          {
+            "id": "TD-10",
+            "decision": "Summarize-then-clear compaction strategy (not incremental truncation)",
+            "rationale": "Matches Pi's approach and aligns with #1032 anchor-based recovery. Incremental truncation (dropping oldest messages) loses context about early decisions. Summarization preserves semantic content. The LLM generates a structured summary capturing what matters for continued work."
+          },
+          {
+            "id": "TD-11",
+            "decision": "Compaction uses a separate LLM call (not inline)",
+            "rationale": "Generating a summary requires the LLM to read the full conversation history and produce a structured output. This is a distinct API call with a compaction-specific system prompt. The summary call uses the same provider but with a shorter max_tokens budget."
+          },
+          {
+            "id": "TD-12",
+            "decision": "Keep recent 20k tokens un-summarized",
+            "rationale": "Recent context is the most relevant for ongoing work. Summarizing everything would lose detail about the current task state. 20k tokens (matching Pi's default) preserves enough recent context for continuity while summarizing older history."
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "name": "Session Management",
+        "location": "shared/egg_harness/session.py",
+        "description": "Session persistence and resume for conversation state. Enables the consensus wrapper's restart-on-exit to preserve conversation context across restarts rather than starting fresh.",
+        "design": {
+          "format": "JSONL file with one entry per conversation turn. Each entry contains: role, content (text + tool_use/tool_result blocks), timestamp, token_count. Compaction entries stored as type='compaction' with summary and metadata.",
+          "auto_save": "Conversation state auto-saved after each turn to a configurable location (default: /tmp/egg-sessions/<session-id>.jsonl). Also saved on compaction events.",
+          "resume": "Support resuming a session from a persisted file via --session-file CLI flag. On resume, the harness loads the conversation history and continues from where it left off. Critical for consensus wrapper restart recovery — instead of starting fresh with just a recovery system prompt, the restarted agent has full conversation history.",
+          "session_metadata": "SessionMetadata dataclass: session_id (UUID), model, start_time, total_cost_usd, turn_count, duration_ms, compaction_count, anchor_id (optional). Serialized as the first line of the JSONL file.",
+          "cleanup": "Sessions auto-cleaned after configurable TTL (default 24h). Consensus wrapper cleans session file after CONFIRMED state."
+        },
+        "key_decisions": [
+          {
+            "id": "TD-13",
+            "decision": "JSONL format for session persistence (not SQLite or pickle)",
+            "rationale": "JSONL is append-only, human-readable, and crash-safe (partial writes don't corrupt the file). It's also easily parseable for debugging and checkpoint capture. SQLite would add a dependency; pickle is not human-readable and has security concerns."
+          },
+          {
+            "id": "TD-14",
+            "decision": "Auto-save after each turn, not on explicit save calls",
+            "rationale": "Agents can crash at any point. Auto-save ensures no more than one turn of work is lost. The JSONL append pattern is fast enough (~1ms per turn) to not impact performance."
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "name": "Config, Prompts, and Cost Tracking",
+        "location": "shared/egg_harness/config.py, prompt.py, cost.py",
+        "description": "Configuration models, model alias resolution, system prompt assembly, and token cost tracking.",
+        "components": [
+          {
+            "file": "config.py",
+            "description": "HarnessConfig (model, max_turns, timeout, compaction settings, session settings) and ProviderConfig (provider type, model, endpoint, api_key_env). Model alias resolution: opus -> claude-opus-4-6, sonnet -> claude-sonnet-4-6, haiku -> claude-haiku-4-5 (updated per reviewer feedback — Haiku 3 retires 2026-04-19). Suffix parsing: opus[1m] -> model=claude-opus-4-6, max_tokens=1000000. Beta header management for 1M context and output-300k features."
+          },
+          {
+            "file": "prompt.py",
+            "description": "System prompt assembly. Generic implementation accepts a list of prompt sources (strings or callables). Does NOT hardcode CLAUDE.md paths — the egg integration layer provides the rule-merging callable. Also handles settings.json properties (defaultPermissionMode, etc.) that the current SDK reads via setting_sources."
+          },
+          {
+            "file": "cost.py",
+            "description": "Token cost tracking with hardcoded per-model rates (per HITL-7). MODEL_RATES dict maps model IDs to (input_rate_per_1m, output_rate_per_1m). Calculates cost from API response usage fields. Tracks cumulative cost across turns. Includes cache_read and cache_creation token costs."
+          }
+        ],
+        "key_decisions": [
+          {
+            "id": "TD-15",
+            "decision": "Haiku alias maps to claude-haiku-4-5 (not claude-haiku-3-5-20241022)",
+            "rationale": "Per reviewer feedback from v2 run: Haiku 3 retires 2026-04-19. The default alias must point to the current model."
+          },
+          {
+            "id": "TD-16",
+            "decision": "Extract shared rule assembly function from entrypoint.py",
+            "rationale": "Per RISK-6 (CLAUDE.md loading divergence) and reviewer M-6-1. Both the egg harness and Claude Code must use the same function to assemble system prompts from rule files. This guarantees identical prompts during parallel validation."
+          },
+          {
+            "id": "TD-17",
+            "decision": "Pin anthropic SDK to >=0.79,<1.0",
+            "rationale": "Per risk analyst RISK-10 and reviewer feedback. v0.79.0 is the latest (Feb 2026) and includes Claude Opus 4.6 support. Pin range allows patch updates but blocks breaking major version changes."
+          },
+          {
+            "id": "TD-18",
+            "decision": "settings.json handling: replicate key properties inline rather than depending on setting_sources",
+            "rationale": "Per reviewer feedback — the current SDK uses setting_sources=['project','user'] to read settings.json. The harness reads the same properties (defaultPermissionMode, disallowedTools, defaultModel) but applies them programmatically rather than through an opaque SDK mechanism. This gives us full control and visibility."
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "name": "Event System",
+        "location": "shared/egg_harness/events.py",
+        "description": "Observable event bus for tool calls, model responses, compaction events, errors, and lifecycle events. Enables monitoring, logging, and extension without modifying core loop code.",
+        "design": {
+          "event_types": [
+            "on_output(text: str) — real-time text streaming from assistant",
+            "on_tool_call(name: str, tool_use_id: str, input: dict) — before tool execution",
+            "on_tool_result(tool_use_id: str, result: ToolResult) — after tool execution",
+            "on_turn_complete(turn_number: int, usage: Usage) — after each complete turn",
+            "on_compaction(summary: str, tokens_before: int, tokens_after: int) — after compaction",
+            "on_error(error: Exception, recoverable: bool) — on any error",
+            "on_session_start(session_id: str, model: str) — session initialization",
+            "on_session_end(result: AgentResult) — session completion"
+          ],
+          "registration": "EventBus class with register(event_type, callback) method. Multiple callbacks per event. Callbacks are sync or async (auto-detected). Errors in callbacks are logged but don't break the agent loop.",
+          "composability": "Callbacks are composable — register multiple handlers for the same event. Common patterns: logging handler, metrics handler, checkpoint handler, consensus handler."
+        }
+      },
+      {
+        "id": 8,
+        "name": "CLI and Entry Points",
+        "location": "shared/egg_harness/__main__.py, client.py, result.py",
+        "description": "Drop-in replacement for python3 -m egg_agent with identical CLI interface and AgentResult type.",
+        "components": [
+          {
+            "file": "__main__.py",
+            "description": "CLI entry point: python3 -m egg_harness. Same argparse as egg_agent: --model, --max-turns, --system-prompt, --timeout, plus new: --session-file (resume), --provider (anthropic|openai-compatible), --endpoint (for openai-compatible). Prompt from positional arg or stdin."
+          },
+          {
+            "file": "client.py",
+            "description": "High-level API: run_agent_async() and run_agent() with identical signature to egg_agent.client. Accepts same parameters: prompt, model, max_turns, system_prompt, cwd, timeout, on_output, env, intercept_tools. Returns same AgentResult type. Added: provider config, compaction config, session config, event callbacks."
+          },
+          {
+            "file": "result.py",
+            "description": "AgentResult dataclass: success, stdout, stderr, returncode, error, metadata, cost_usd, num_turns, duration_ms, session_id. New field: compaction_count (int). Fully compatible with existing consumers."
+          }
+        ],
+        "key_decisions": [
+          {
+            "id": "TD-19",
+            "decision": "Identical CLI interface to python3 -m egg_agent",
+            "rationale": "Zero changes needed in consensus_wrapper.py, babysit fixer/reviewer, or any other consumer. build_agent_command() just changes the module name from egg_agent to egg_harness when EGG_HARNESS=egg."
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "name": "Interactive Mode",
+        "location": "shared/egg_harness/interactive.py",
+        "description": "Multi-turn terminal REPL replacing claude --dangerously-skip-permissions for interactive sessions.",
+        "design": {
+          "repl_loop": "Read prompt from stdin -> run agent loop for one turn -> print response -> repeat. Uses same AgentLoop and ToolRegistry as headless mode.",
+          "ui": "Minimal for MVP — no rich TUI. Plain text input/output with streaming. Ctrl-C interrupts current turn, Ctrl-D exits session.",
+          "session_support": "Interactive sessions auto-save to JSONL. Can resume via --session-file flag.",
+          "multi_turn": "Maintains conversation history across prompts. Compaction triggers when context fills."
+        }
+      },
+      {
+        "id": 10,
+        "name": "Harness Selection Layer",
+        "location": "Modifications to shared/egg_agent/client.py, shared/egg_agent/command.py, sandbox/entrypoint.py",
+        "description": "Routing layer that selects between egg_harness, claude-sdk, or claude-code based on EGG_HARNESS configuration.",
+        "design": {
+          "selection_logic": "EGG_HARNESS env var or PipelineConfig field. Values: 'egg' (new harness), 'claude-sdk' (current Agent SDK), 'claude-code' (Claude Code CLI). Default: 'claude-sdk' during transition period.",
+          "routing_in_client": "run_agent_async() checks EGG_HARNESS. If 'egg', imports and delegates to egg_harness.client.run_agent_async(). If 'claude-sdk', uses current claude_agent_sdk.query() path. Transparent to all consumers.",
+          "routing_in_command": "build_agent_command() returns 'python3 -m egg_harness' when EGG_HARNESS=egg, 'python3 -m egg_agent' otherwise.",
+          "routing_in_entrypoint": "For interactive mode, EGG_HARNESS=egg invokes egg_harness interactive mode instead of os.execvpe('claude', ...). EGG_HARNESS=claude-code uses current Claude Code CLI path.",
+          "tos_warning": "When subscription account users select the egg harness, log a TOS warning about using a non-Anthropic runtime."
+        }
+      },
+      {
+        "id": 11,
+        "name": "Egg Integration Layer",
+        "location": "shared/egg_harness_integration/",
+        "description": "Thin integration layer that wires egg-specific functionality into the harness via clean interfaces. This is the ONLY package that imports from both egg_harness and egg-specific packages.",
+        "components": [
+          {
+            "file": "egg_tools.py",
+            "description": "Registers egg-native tools (EggOrch, EggContract, EggCheckpoint, GitOps, GhCli) with the harness ToolRegistry. Each tool shells out to the corresponding CLI. Tool definitions are JSON schemas matching the CLI arg structure."
+          },
+          {
+            "file": "egg_prompt.py",
+            "description": "CLAUDE.md rule-merging implementation. Reads rule files from /opt/claude-rules/ (or configured path), joins with section separators, returns assembled system prompt. Uses the shared rule assembly function extracted from entrypoint.py (TD-16)."
+          },
+          {
+            "file": "egg_permissions.py",
+            "description": "Wraps egg_restrictions.check_agent_file_access() as a can_use_tool callback for the harness ToolRegistry. Translates between harness ToolResult format and egg restriction patterns."
+          },
+          {
+            "file": "egg_compaction.py",
+            "description": "Anchor-based compaction callback for #1032 integration. On compaction: persist state to .egg-state/agent-anchors/<agent-id>.json via egg_anchor.save_anchor(). On post-compaction recovery: read anchor + poll message bus via egg-orch message poll."
+          },
+          {
+            "file": "harness_factory.py",
+            "description": "Creates a fully-configured harness instance with all egg integrations wired up. Reads EGG_AGENT_ROLE, EGG_PRIVATE_MODE, AGENT_ANCHOR_ID, etc. Registers egg tools, sets up permissions callback, configures compaction with anchor integration, sets up event handlers for structured logging."
+          }
+        ]
+      }
+    ],
+
+    "package_structure": {
+      "egg_harness": {
+        "location": "shared/egg_harness/",
+        "description": "Core harness package. Self-contained, no egg imports. Extractable as standalone package.",
+        "dependencies": ["anthropic>=0.79,<1.0", "httpx (transitive via anthropic)", "pydantic>=2.0"],
+        "files": [
+          "__init__.py",
+          "__main__.py",
+          "client.py",
+          "loop.py",
+          "compaction.py",
+          "session.py",
+          "events.py",
+          "config.py",
+          "prompt.py",
+          "cost.py",
+          "result.py",
+          "interactive.py",
+          "providers/__init__.py",
+          "providers/base.py",
+          "providers/anthropic.py",
+          "providers/openai_compat.py",
+          "tools/__init__.py",
+          "tools/registry.py",
+          "tools/bash.py",
+          "tools/read.py",
+          "tools/write.py",
+          "tools/edit.py",
+          "tools/glob_tool.py",
+          "tools/grep.py",
+          "tools/web_fetch.py",
+          "tools/web_search.py"
+        ]
+      },
+      "egg_harness_integration": {
+        "location": "shared/egg_harness_integration/",
+        "description": "Egg-specific integration layer. Wires egg tools, permissions, prompts, and compaction into the harness.",
+        "dependencies": ["egg_harness", "egg_anchor", "egg_restrictions", "egg_logging", "egg_orchestrator"],
+        "files": [
+          "__init__.py",
+          "egg_tools.py",
+          "egg_prompt.py",
+          "egg_permissions.py",
+          "egg_compaction.py",
+          "harness_factory.py"
+        ]
+      }
+    }
+  },
+
+  "technical_decisions": [
+    {
+      "id": "TD-1",
+      "decision": "Use client.messages.create(stream=True) for Anthropic provider",
+      "rationale": "Raw SSE iteration without accumulation. Full control over event processing and memory."
+    },
+    {
+      "id": "TD-2",
+      "decision": "AsyncIterator[StreamEvent] as universal provider interface",
+      "rationale": "Composable, middleware-friendly. Both providers emit same event types."
+    },
+    {
+      "id": "TD-3",
+      "decision": "Gateway URL as Anthropic base_url — credentials never in sandbox",
+      "rationale": "Zero-credential sandbox preserved. CVE-2026-35022 reinforces this pattern."
+    },
+    {
+      "id": "TD-4",
+      "decision": "Shell out to rg/fd for Grep/Glob tools",
+      "rationale": "Exact behavioral parity with Claude Code. Faster than Python reimplementation."
+    },
+    {
+      "id": "TD-5",
+      "decision": "Tool definitions match Claude Code JSON schemas exactly",
+      "rationale": "LLM trained on these schemas. Deviation causes tool call failures."
+    },
+    {
+      "id": "TD-6",
+      "decision": "Never shell=True in subprocess calls + CI linter enforcement",
+      "rationale": "CVE-2026-35022 (CVSS 9.8) mitigation. Bandit B602 rule."
+    },
+    {
+      "id": "TD-7",
+      "decision": "Sequential tool execution within a turn",
+      "rationale": "Matches Claude Code. Tool blocks have implicit sequential dependencies."
+    },
+    {
+      "id": "TD-8",
+      "decision": "Harness retries transient API errors; consensus wrapper handles process restarts",
+      "rationale": "Per HITL-8. Orthogonal concerns with clear separation."
+    },
+    {
+      "id": "TD-9",
+      "decision": "Explicit stop_reason handling for all known values",
+      "rationale": "Per RISK-3. Prevents undefined behavior on unexpected stop reasons."
+    },
+    {
+      "id": "TD-10",
+      "decision": "Summarize-then-clear compaction (not incremental truncation)",
+      "rationale": "Preserves semantic content. Aligns with Pi and #1032 anchor recovery."
+    },
+    {
+      "id": "TD-11",
+      "decision": "Compaction uses separate LLM call for summary generation",
+      "rationale": "Distinct task requiring full conversation context. Dedicated compaction prompt."
+    },
+    {
+      "id": "TD-12",
+      "decision": "Keep recent 20k tokens un-summarized during compaction",
+      "rationale": "Recent context most relevant. Matches Pi's default. Preserves task continuity."
+    },
+    {
+      "id": "TD-13",
+      "decision": "JSONL format for session persistence",
+      "rationale": "Append-only, crash-safe, human-readable, no additional dependencies."
+    },
+    {
+      "id": "TD-14",
+      "decision": "Auto-save session after each turn",
+      "rationale": "Crash resilience. At most one turn of work lost. JSONL append is ~1ms."
+    },
+    {
+      "id": "TD-15",
+      "decision": "Haiku alias -> claude-haiku-4-5",
+      "rationale": "Haiku 3 retires 2026-04-19. Must use current model."
+    },
+    {
+      "id": "TD-16",
+      "decision": "Extract shared rule assembly function from entrypoint.py",
+      "rationale": "Both harnesses must produce identical system prompts. Single source of truth."
+    },
+    {
+      "id": "TD-17",
+      "decision": "Pin anthropic SDK >=0.79,<1.0",
+      "rationale": "Latest version with Opus 4.6. Range allows patches, blocks breaking changes."
+    },
+    {
+      "id": "TD-18",
+      "decision": "Replicate settings.json properties programmatically",
+      "rationale": "Full control vs opaque SDK setting_sources mechanism."
+    },
+    {
+      "id": "TD-19",
+      "decision": "Identical CLI interface to python3 -m egg_agent",
+      "rationale": "Zero consumer changes. Only module name changes in build_agent_command()."
+    }
+  ],
+
+  "component_interaction_flow": {
+    "headless_flow": [
+      "1. Entry: python3 -m egg_harness --model opus --max-turns 200 'prompt'",
+      "2. __main__.py parses args, calls client.run_agent_async()",
+      "3. client creates HarnessConfig + ProviderConfig + Provider + ToolRegistry + EventBus + Session + AgentLoop",
+      "4. AgentLoop.run(): build initial messages, enter loop",
+      "5. Each turn: provider.send_message(messages, tools, system) -> AsyncIterator[StreamEvent]",
+      "6. Loop consumes events: TextDelta -> on_output callback + accumulate. ToolUseStart/InputDelta/End -> accumulate tool call. UsageUpdate -> update token budget.",
+      "7. For each accumulated tool call: registry.execute(name, input) -> ToolResult. Fires on_tool_call and on_tool_result events.",
+      "8. Tool results appended as user messages. Session auto-saved.",
+      "9. Check token budget. If exceeds threshold: trigger compaction (summarize, persist anchor, clear, reload).",
+      "10. Continue loop until end_turn with no tools, max_turns reached, or timeout.",
+      "11. Calculate final cost, return AgentResult with all metadata.",
+      "12. Gateway proxy (unchanged): intercepts /v1/messages on all API calls, injects credentials, captures transcripts."
+    ],
+    "interactive_flow": [
+      "1. Entry: python3 -m egg_harness --interactive",
+      "2. Creates same Provider + ToolRegistry + Session as headless",
+      "3. REPL loop: read prompt -> run AgentLoop for one multi-turn sequence -> print -> repeat",
+      "4. Conversation history maintained across REPL iterations. Compaction when context fills.",
+      "5. Session auto-saved to JSONL. Ctrl-C interrupts, Ctrl-D exits."
+    ],
+    "consensus_wrapper_flow": [
+      "1. consensus_wrapper calls build_agent_command() -> gets 'python3 -m egg_harness ...' when EGG_HARNESS=egg",
+      "2. Wraps in bash BRC monitoring script (no changes to wrapper logic)",
+      "3. On clean exit without CONFIRMED: restart with --system-prompt for recovery context",
+      "4. NEW: If --session-file provided, restarted agent resumes from persisted session instead of starting fresh",
+      "5. Agent reads anchor + polls message bus for BRC recovery (same as current flow)"
+    ]
+  },
+
+  "key_files_affected": {
+    "new_files": {
+      "count": "28-32",
+      "packages": [
+        "shared/egg_harness/ (20-24 files)",
+        "shared/egg_harness_integration/ (6 files)",
+        "shared/egg_harness/tests/ (8-10 files)"
+      ]
+    },
+    "modified_files": {
+      "count": "5-7",
+      "files": [
+        "shared/egg_agent/client.py — add harness selection routing",
+        "shared/egg_agent/command.py — route build_agent_command() based on EGG_HARNESS",
+        "sandbox/entrypoint.py — extract rule assembly function, add harness selection for interactive mode",
+        "sandbox/llm/runner.py — add egg harness interactive mode path",
+        "shared/pyproject.toml — add egg_harness and egg_harness_integration dependencies",
+        "Dockerfile or sandbox build — ensure markdownify, rg, fd are available"
+      ]
+    }
+  },
+
+  "scope_estimate": {
+    "new_lines": "4500-6000",
+    "test_lines": "1500-2000",
+    "complexity": "HIGH",
+    "parallelizable_work_streams": [
+      "Stream 1: Providers + Config (anthropic.py, openai_compat.py, config.py, cost.py)",
+      "Stream 2: Tools + Registry (all tool implementations, registry.py)",
+      "Stream 3: Agent Loop + Compaction + Session (loop.py, compaction.py, session.py, events.py)",
+      "Stream 4: CLI + Interactive + Harness Selection (entry points, routing, interactive.py)",
+      "Stream 5: Integration Layer (egg_tools.py, egg_prompt.py, egg_permissions.py, egg_compaction.py, harness_factory.py)"
+    ]
+  },
+
+  "security_considerations": {
+    "credential_isolation": {
+      "description": "All API calls route through gateway proxy (ANTHROPIC_BASE_URL). Harness NEVER reads ANTHROPIC_API_KEY. Startup assertion: assert 'ANTHROPIC_API_KEY' not in os.environ.",
+      "cve_reference": "CVE-2026-35022 (CVSS 9.8) — OS command injection via shell=True in auth helper. Harness uses shell=False exclusively.",
+      "additional_cves": "CVE-2025-59536, CVE-2026-21852 — ANTHROPIC_BASE_URL redirect for key exfiltration. Mitigated by gateway proxy being on localhost/Docker network (not externally redirectable)."
+    },
+    "subprocess_safety": {
+      "description": "All subprocess calls use shell=False with explicit argument lists. CI linter rule (bandit B602) enforced. Bash tool uses os.setpgrp/os.killpg for process group cleanup on timeout.",
+      "enforcement": "Bandit B602 or custom rule in CI pipeline blocks any shell=True usage."
+    },
+    "tool_permission_enforcement": {
+      "description": "Two-layer permission enforcement: 1) ToolRegistry applies can_use_tool callback before execution (role-based file restrictions via egg_restrictions). 2) Gateway strips blocked tools in private mode (WebFetch/WebSearch). Defense-in-depth: both layers must agree.",
+      "compatibility": "Uses existing tool_interceptor.py logic via egg_permissions.py wrapper."
+    }
+  },
+
+  "compatibility_requirements": {
+    "gateway_proxy": "Continue routing through gateway /v1/messages proxy. Anthropic provider sets base_url to gateway URL. Request/response format compatible with gateway's transcript capture and tool filtering.",
+    "transcript_capture": "Gateway transcript buffer expects standard Anthropic Messages API request/response format. Harness uses the same format (via Anthropic SDK). No changes needed to gateway transcript parsing.",
+    "session_manager": "Gateway session manager uses IP-based lookup. No changes — harness runs in same container with same IP.",
+    "consensus_wrapper": "build_agent_command() returns compatible command. Same CLI args, same exit code semantics (0 = clean exit, non-zero = failure). Recovery system prompt via --system-prompt. NEW: Optional --session-file for session resume on restart.",
+    "babysit_agents": "Fixer/reviewer use build_agent_command() and subprocess.run(). Transparent — they get egg_harness command when EGG_HARNESS=egg.",
+    "orchestrator_cli": "Egg-native tools shell out to egg-orch, egg-contract, egg-checkpoint. No changes to CLI interfaces.",
+    "checkpoint_system": "Session metadata and compaction events can be included in checkpoint captures. Anchor data already captured in v2 checkpoints."
+  },
+
+  "open_decisions": [
+    {
+      "id": "OD-1",
+      "question": "HTML-to-markdown library for WebFetch tool",
+      "recommendation": "markdownify (lightweight, pure Python, BSD license). Alternative: html2text (GPL, more mature but heavier).",
+      "impact": "Low — isolated to one tool implementation."
+    },
+    {
+      "id": "OD-2",
+      "question": "Web search API for WebSearch tool",
+      "recommendation": "Depends on available search provider. Options: Brave Search API, SerpAPI, or pass-through to gateway search endpoint if one exists.",
+      "impact": "Low — isolated to one tool implementation. Can be a stub initially."
+    },
+    {
+      "id": "OD-3",
+      "question": "Whether to add a CompactContext tool for manual compaction",
+      "recommendation": "Include in MVP. Simple tool that triggers compaction on demand. Useful for agents that want to compact at natural checkpoints (e.g., after completing a subtask in BRC).",
+      "impact": "Low — small addition to tool registry."
+    },
+    {
+      "id": "OD-4",
+      "question": "Structured outputs beta support in MVP",
+      "recommendation": "Include if the Anthropic SDK v0.79.x makes it straightforward (it does via response_format parameter). No need for custom implementation.",
+      "impact": "Low — SDK handles the complexity."
+    }
+  ],
+
+  "v2_feedback_addressed": [
+    {
+      "feedback": "Haiku model alias maps to retired Haiku 3",
+      "resolution": "TD-15: haiku -> claude-haiku-4-5. Haiku 3 retires 2026-04-19."
+    },
+    {
+      "feedback": "Context window management tension — risk analyst says must_be_enforced, architect's v2 design said 'no context management in MVP'",
+      "resolution": "Compaction is now fully in-scope (subsystem 4). Summarize-clear-reload with anchor integration. Matches Pi's approach."
+    },
+    {
+      "feedback": "settings.json handling gap — architect covers CLAUDE.md but not settings.json properties",
+      "resolution": "TD-18: settings.json properties (defaultPermissionMode, autoApproveEdits, disallowedTools, defaultModel) replicated programmatically in harness config."
+    },
+    {
+      "feedback": "Shared rule assembly function (M-6-1) should be a task",
+      "resolution": "TD-16: Extract rule assembly from entrypoint.py into shared function used by both harnesses."
+    },
+    {
+      "feedback": "SDK version pinning recommendation",
+      "resolution": "TD-17: Pin anthropic>=0.79,<1.0."
+    },
+    {
+      "feedback": "1M beta retirement needs task for opus[1m] suffix parsing",
+      "resolution": "Included in config.py component: beta header management for 1M context and output-300k features. Suffix parser uses correct beta headers."
+    },
+    {
+      "feedback": "Task planner did not produce consolidated plan file in v2",
+      "resolution": "This v3 run has a dedicated task_planner agent. Architecture analysis provides sufficient detail for task breakdown."
+    }
+  ],
+
+  "risk_cross_references": {
+    "note": "The risk analyst is producing a separate detailed risk assessment. These are the key risk-architecture intersections:",
+    "critical_mitigations_in_architecture": [
+      {
+        "risk": "RISK-1: Security regression in credential handling",
+        "mitigation_in_architecture": "TD-3 (gateway base_url), TD-6 (no shell=True), startup ANTHROPIC_API_KEY assertion, two-layer permission enforcement"
+      },
+      {
+        "risk": "RISK-2: Behavioral parity gaps in tool implementations",
+        "mitigation_in_architecture": "TD-4 (shell out to rg/fd), TD-5 (exact JSON schemas), compliance test suite comparing same inputs"
+      },
+      {
+        "risk": "RISK-3: Agent loop reliability",
+        "mitigation_in_architecture": "TD-7 (sequential tools), TD-8 (retry separation), TD-9 (explicit stop_reason handling), circuit breaker, token budget tracking"
+      }
+    ]
+  },
+
+  "migration_strategy": {
+    "phase_1": "Build harness with identical run_agent_async() interface and CLI args",
+    "phase_2": "Add EGG_HARNESS selection — 'egg' (new) vs 'claude-sdk' (current default)",
+    "phase_3": "Run both in parallel on test pipelines, compare cost_usd, num_turns, duration_ms, task success rate (per HITL-11)",
+    "phase_4": "Switch default to 'egg' after metrics show parity",
+    "phase_5": "Claude Code CLI and Agent SDK remain installed for subscription users. Not deprecated."
+  }
+}
