@@ -2566,3 +2566,74 @@ class TestQueryContainerLogs:
 
         result = _run(monitor._query_container_logs("coder"))
         assert result == raw_log_text
+
+    def test_passes_tail_as_lines_arg(self) -> None:
+        """Verifies --lines <tail> is passed to the container logs CLI call."""
+        monitor = self._make_monitor()
+        containers = [{"container_id": "c1", "agent_role": "coder", "status": "running"}]
+        captured_args: list[tuple] = []
+
+        async def mock_run_cli(*args, **kwargs):
+            captured_args.append(args)
+            if "list" in args:
+                return (0, json.dumps({"data": {"containers": containers}}), "")
+            if "logs" in args:
+                return (0, json.dumps({"data": {"logs": "ok"}}), "")
+            return (0, "[]", "")
+
+        monitor._run_cli = mock_run_cli
+
+        _run(monitor._query_container_logs("coder", tail=500))
+        # Find the logs call and verify --lines and the tail value are present
+        logs_call = [a for a in captured_args if "logs" in a]
+        assert len(logs_call) == 1
+        assert "--lines" in logs_call[0]
+        lines_idx = logs_call[0].index("--lines")
+        assert logs_call[0][lines_idx + 1] == "500"
+
+    def test_container_logs_cache_dedup_in_poll_cycle(self) -> None:
+        """Two alerts for the same agent should only fetch container logs once."""
+        monitor = self._make_monitor()
+
+        # Track how many times _query_container_logs is called
+        query_count = 0
+
+        async def counting_query(agent_role: str, tail: int = 200) -> str:
+            nonlocal query_count
+            query_count += 1
+            return "some logs"
+
+        monitor._query_container_logs = counting_query
+
+        alerts = [
+            {"agent_role": "coder", "alert_type": "heartbeat_stale", "agent_id": "coder"},
+            {"agent_role": "coder", "alert_type": "progress_stall", "agent_id": "coder"},
+        ]
+
+        # Mock all the other _poll_cycle dependencies to isolate the cache behavior
+        monitor._query_consensus_status = AsyncMock(return_value={})
+        monitor._query_current_phase = AsyncMock(return_value="implement")
+        monitor._query_progress = AsyncMock(return_value=[])
+        monitor._query_health_alerts = AsyncMock(return_value=alerts)
+        monitor._query_pipeline_data = AsyncMock(
+            return_value={"status": "running", "phase": "implement", "agents": [{"role": "coder"}]}
+        )
+        monitor._check_orchestrator_reachability = AsyncMock()
+        monitor._query_decisions = AsyncMock(return_value=[])
+        monitor._check_rerun_anomaly = AsyncMock()
+        monitor._check_status_consistency = AsyncMock()
+        monitor._check_hitl_resolution_propagation = AsyncMock()
+        monitor._poll_escalation_messages = AsyncMock(return_value=[])
+        monitor._classify_and_act = AsyncMock()
+        monitor._check_post_consensus_stalls = AsyncMock()
+        monitor._check_incomplete_consensus_stalls = AsyncMock()
+        monitor._check_cross_phase_consistency = AsyncMock()
+        monitor._is_infra_error_deduped = MagicMock(return_value=False)
+        monitor._record_infra_error_dedup = MagicMock()
+        monitor._resolve_alert = AsyncMock()
+        monitor._execute_action = AsyncMock()
+
+        _run(monitor._poll_cycle())
+
+        # Despite two alerts for "coder", logs should be fetched only once
+        assert query_count == 1

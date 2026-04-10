@@ -993,7 +993,7 @@ class OverseerMonitor:
                     return stdout.strip()
                 if isinstance(data, dict):
                     return data.get("data", {}).get("logs", data.get("logs", ""))
-                return stdout
+                return stdout.strip()
         except Exception:
             logger.debug(
                 "Failed to fetch container logs for %s",
