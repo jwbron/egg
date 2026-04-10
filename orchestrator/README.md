@@ -76,6 +76,7 @@ Pipeline state is stored on a dedicated `egg/pipeline-state` orphan branch acces
 By default, agents within the refine, plan, and implement phases run simultaneously via BRC consensus (configurable via `concurrent_phases`). When `concurrent_execution: true` is set, this extends to all phases. Agents coordinate through:
 
 - **Message bus** — Agents exchange typed messages (PROGRESS, QUESTION, RESPONSE, STATUS, AGENT_FAILED) via the orchestrator's message API. Messages can target a specific role or broadcast to all agents.
+- **BRC action guards** — Each protocol action (propose, ACK, NACK, confirm, withdraw) has formal preconditions defined in `orchestrator/action_guards.py`. Guards are the canonical protocol specification — `PeerConsensusTracker` delegates to them before mutating state. See [Concurrent Execution — Action Guards](../docs/guides/concurrent-execution.md#action-guards).
 - **Readiness consensus** — Each agent signals its readiness state (WORKING, READY, BLOCKED, OBJECTING). The phase advances only when all agents reach READY. Any OBJECTING agent blocks phase completion.
 - **Shared pipeline branch** — All concurrent agents operate on the pipeline's shared branch (e.g., `egg/issue-999`). Agents coordinate commits via the message bus.
 
@@ -133,6 +134,8 @@ All endpoints are prefixed with `/api/v1`.
 | `POST` | `/pipelines/{id}/signal/batch` | Batch multiple signals |
 
 **Completion signal branch verification:** When an agent signals completion with a `commit` SHA, the orchestrator verifies the commit exists on the pipeline's expected branch. If the commit is not found on the expected branch (e.g., the agent pushed to an improvised branch name), the signal is rejected with HTTP 409. Verification failures (network issues, git errors) are non-blocking — the signal is accepted when verification cannot be performed. Additionally, the orchestrator logs a warning if no new commits have been pushed since the phase started (detected via `phase_start_sha` recorded at phase start).
+
+**Signal types include:** `complete`, `progress`, `error`, `heartbeat`, `readiness`, `consensus_propose`, `consensus_ack`, `consensus_nack`, `consensus_withdraw`, `consensus_confirmed`, `consensus_producer_push`. The `consensus_producer_push` signal triggers automatic re-proposal when a producer pushes new commits after proposing — see [Auto Re-Propose on Push/Commit](../docs/guides/concurrent-execution.md#auto-re-propose-on-pushcommit).
 
 ### Restart
 
@@ -253,7 +256,8 @@ orchestrator/
 ├── dag_visualizer.py       # Pipeline DAG visualization
 ├── consensus_wrapper.py    # BRC consensus wrapper script builder (transient crash detection and restart with backoff)
 ├── concurrent_executor.py  # Concurrent phase execution with BRC consensus
-├── peer_consensus.py       # Peer consensus tracker for BRC protocol
+├── action_guards.py        # Formal action guards (preconditions) for BRC protocol actions — canonical protocol specification
+├── peer_consensus.py       # Peer consensus tracker for BRC protocol (delegates to action_guards.py)
 ├── resilience.py           # Retry, circuit breaker, and resilience patterns
 ├── metrics.py              # Metrics collection and reporting
 ├── status_reporter.py      # Status reporting utilities
