@@ -285,10 +285,10 @@
         {
           "container_id": "4797bb192d2b2d4b60c0dfdbc3f2c1782547b8556eca6a78e3deb90f38a7a6cb",
           "container_name": "issue-1579-coder",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-10T00:51:58.865106Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-10T01:27:29.883234Z",
+          "exit_code": 1,
           "agent_role": "coder",
           "session_token": null
         },
@@ -342,13 +342,13 @@
         },
         {
           "role": "coder",
-          "status": "running",
+          "status": "failed",
           "container_id": "4797bb192d2b2d4b60c0dfdbc3f2c1782547b8556eca6a78e3deb90f38a7a6cb",
           "started_at": "2026-04-10T00:51:58.865110Z",
-          "completed_at": null,
+          "completed_at": "2026-04-10T01:27:29.897371Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -526,7 +526,7 @@
     }
   ],
   "created_at": "2026-04-10T00:51:52.753575Z",
-  "updated_at": "2026-04-10T01:27:24.343942Z",
+  "updated_at": "2026-04-10T01:27:29.897442Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -534,5 +534,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 42
+  "version": 43
 }
