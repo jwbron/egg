@@ -5,7 +5,7 @@
   "branch": "egg/issue-1570-v9",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "cancelled",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -179,7 +179,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-10T17:52:03.925495Z",
-  "updated_at": "2026-04-10T17:52:39.244785Z",
+  "updated_at": "2026-04-10T17:52:47.492989Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -190,5 +190,5 @@
   "source_branch": "egg/issue-1570-v3",
   "source_artifact_prefix": "1570",
   "run_epoch": null,
-  "version": 7
+  "version": 8
 }
