@@ -264,11 +264,13 @@ class TestCheckConfirmGuardProducer:
     """Tests for check_confirm_guard — producer path."""
 
     def test_producer_allowed_when_fully_acked(self, graph, matrix):
-        """Producer fully ACKed -> allowed."""
+        """Producer fully ACKed -> allowed (all producers must have proposed)."""
         version = matrix.record_proposal("coder")
         matrix.record_ack("reviewer_code", "coder", version)
         matrix.record_ack("reviewer_contract", "coder", version)
         matrix.record_ack("tester", "coder", version)
+        # tester must also have proposed to pass the global zero-proposal guard (#1648)
+        matrix.record_proposal("tester")
 
         result = check_confirm_guard(
             "coder",
@@ -283,6 +285,8 @@ class TestCheckConfirmGuardProducer:
         matrix.record_proposal("coder")
         # Only one ACK
         matrix.record_ack("reviewer_code", "coder", 1)
+        # tester must also have proposed to pass the global zero-proposal guard (#1648)
+        matrix.record_proposal("tester")
 
         result = check_confirm_guard(
             "coder",
@@ -334,7 +338,12 @@ class TestCheckConfirmGuardReviewer:
         assert result.details["guard"] == "must_have_reviewed"
 
     def test_zero_proposal_producers(self, graph, matrix):
-        """Producer has version 0 (never proposed) -> not allowed (#1598)."""
+        """Producer has version 0 (never proposed) -> not allowed (#1598).
+
+        Since #1648, the global zero-proposal guard fires before the
+        per-reviewer guard, returning 'global_zero_proposal' instead of
+        'zero_proposal_producers'.
+        """
         # Coder proposed and reviewer_code ACKed
         version = matrix.record_proposal("coder")
         matrix.record_ack("reviewer_code", "coder", version)
@@ -352,7 +361,8 @@ class TestCheckConfirmGuardReviewer:
             confirmed=set(),
         )
         assert result.allowed is False
-        assert result.details["guard"] == "zero_proposal_producers"
+        # Global zero-proposal guard (#1648) fires before the per-reviewer guard
+        assert result.details["guard"] == "global_zero_proposal"
         assert "tester" in result.details["producers"]
 
     def test_stale_ack(self, graph, matrix):
@@ -427,7 +437,11 @@ class TestCheckConfirmGuardReviewer:
         assert stale[0]["current_version"] == 2
 
     def test_guard_priority_zero_proposal_before_stale_acks(self, graph, matrix):
-        """Zero-proposal guard fires before stale_acks guard."""
+        """Zero-proposal guard fires before stale_acks guard.
+
+        Since #1648, the global zero-proposal guard fires first (before the
+        per-reviewer zero-proposal guard and stale_acks guard).
+        """
         # reviewer_code reviews coder (stale ACK) and tester (never proposed)
         v1 = matrix.record_proposal("coder")
         matrix.record_ack("reviewer_code", "coder", v1)
@@ -443,8 +457,8 @@ class TestCheckConfirmGuardReviewer:
             confirmed=set(),
         )
         assert result.allowed is False
-        # zero_proposal fires first because it's checked before stale_acks
-        assert result.details["guard"] == "zero_proposal_producers"
+        # Global zero-proposal guard (#1648) fires before per-reviewer guard
+        assert result.details["guard"] == "global_zero_proposal"
 
     def test_guard_priority_stale_acks_before_unresolved_nacks(self):
         """Stale ACKs guard fires before unresolved NACKs guard."""
@@ -530,6 +544,211 @@ class TestCheckConfirmGuardReviewer:
         )
         assert result.allowed is False
         assert result.details["guard"] == "must_have_reviewed"
+
+
+class TestCheckConfirmGuardGlobalZeroProposal:
+    """Tests for the global zero-proposal guard (#1648).
+
+    The global guard prevents ANY agent from confirming when ANY producer
+    in the review graph has never proposed (proposal_version == 0), regardless
+    of review assignments.  This fixes the bypass where reviewer_contract
+    (who only reviews coder) could confirm even when tester had never proposed.
+    """
+
+    def test_global_zero_proposal_blocks_unassigned_reviewer(self, graph, matrix):
+        """reviewer_contract blocked when tester has v0, even though
+        reviewer_contract doesn't review tester (#1648 exact scenario)."""
+        # Coder proposed and reviewer_contract ACKed coder
+        c_version = matrix.record_proposal("coder")
+        matrix.record_ack("reviewer_contract", "coder", c_version)
+        # tester never proposed — version stays at 0
+
+        result = check_confirm_guard(
+            "reviewer_contract",
+            graph,
+            matrix,
+            confirmed=set(),
+        )
+        assert result.allowed is False
+        assert result.details["guard"] == "global_zero_proposal"
+        assert "tester" in result.details["producers"]
+        assert "proposal_version == 0" in result.reason
+
+    def test_global_zero_proposal_blocks_producer(self, graph, matrix):
+        """coder (a producer) blocked when peer producer tester has v0."""
+        # Coder proposed and got all ACKs (fully ACKed)
+        c_version = matrix.record_proposal("coder")
+        matrix.record_ack("reviewer_code", "coder", c_version)
+        matrix.record_ack("reviewer_contract", "coder", c_version)
+        matrix.record_ack("tester", "coder", c_version)
+        assert matrix.is_fully_acked("coder")
+        # tester never proposed — version stays at 0
+
+        result = check_confirm_guard(
+            "coder",
+            graph,
+            matrix,
+            confirmed=set(),
+        )
+        assert result.allowed is False
+        assert result.details["guard"] == "global_zero_proposal"
+        assert "tester" in result.details["producers"]
+
+    def test_global_zero_proposal_clears_when_all_proposed(self, graph, matrix):
+        """Guard passes once all producers have proposed."""
+        # Both producers propose
+        c_version = matrix.record_proposal("coder")
+        matrix.record_proposal("tester")
+        # reviewer_contract ACKs coder (its only assigned producer)
+        matrix.record_ack("reviewer_contract", "coder", c_version)
+
+        result = check_confirm_guard(
+            "reviewer_contract",
+            graph,
+            matrix,
+            confirmed=set(),
+        )
+        # Global guard passes; may still fail on other guards but NOT on
+        # global_zero_proposal.
+        assert result.details.get("guard") != "global_zero_proposal"
+
+    def test_global_zero_proposal_blocks_dual_role_agent(self, graph, matrix):
+        """Dual-role agent (tester) blocked by global guard when coder hasn't proposed."""
+        # tester proposed and is fully ACKed as a producer
+        t_version = matrix.record_proposal("tester")
+        matrix.record_ack("reviewer_code", "tester", t_version)
+        # coder never proposed — version stays at 0
+
+        result = check_confirm_guard(
+            "tester",
+            graph,
+            matrix,
+            confirmed=set(),
+        )
+        assert result.allowed is False
+        assert result.details["guard"] == "global_zero_proposal"
+        assert "coder" in result.details["producers"]
+
+    def test_global_guard_fires_before_per_reviewer_guard(self, graph, matrix):
+        """Global zero-proposal guard fires before the per-reviewer zero-proposal guard.
+
+        Both guards would reject, but the global one is checked first.
+        """
+        # reviewer_code reviews both coder and tester
+        # Neither has proposed, so both would trigger the per-reviewer guard.
+        # But the global guard should fire first.
+        # We need to make reviewer_code pass the must_have_reviewed guard
+        # first — record NACKs at v0 so has_reviewed returns True.
+        matrix.record_nack("reviewer_code", "coder", 0, reason="No proposal")
+        matrix.record_nack("reviewer_code", "tester", 0, reason="No proposal")
+
+        result = check_confirm_guard(
+            "reviewer_code",
+            graph,
+            matrix,
+            confirmed=set(),
+        )
+        assert result.allowed is False
+        # The global guard fires first, not the per-reviewer guard
+        assert result.details["guard"] == "global_zero_proposal"
+        # Both producers are listed
+        assert "coder" in result.details["producers"]
+        assert "tester" in result.details["producers"]
+
+    def test_global_guard_fires_before_producer_not_fully_acked(self, graph, matrix):
+        """Global zero-proposal fires before producer_not_fully_acked.
+
+        When a producer tries to confirm but another producer hasn't proposed,
+        the global guard should fire before the fully-acked check.
+        """
+        # Coder proposed but has no ACKs (not fully ACKed)
+        matrix.record_proposal("coder")
+        # tester never proposed
+
+        result = check_confirm_guard(
+            "coder",
+            graph,
+            matrix,
+            confirmed=set(),
+        )
+        assert result.allowed is False
+        assert result.details["guard"] == "global_zero_proposal"
+        assert "tester" in result.details["producers"]
+
+    def test_global_guard_lists_multiple_zero_producers(self, graph, matrix):
+        """When multiple producers have never proposed, all are listed."""
+        # Neither coder nor tester have proposed
+
+        result = check_confirm_guard(
+            "reviewer_contract",
+            graph,
+            matrix,
+            confirmed=set(),
+        )
+        assert result.allowed is False
+        assert result.details["guard"] == "global_zero_proposal"
+        producers = result.details["producers"]
+        assert "coder" in producers
+        assert "tester" in producers
+
+    def test_global_guard_does_not_fire_for_phantom_agent(self):
+        """Phantom agent guard fires before global zero-proposal guard."""
+        g = ReviewGraph(
+            [
+                ReviewEdge("reviewer", "producer", ReviewCriticality.CRITICAL),
+            ]
+        )
+        m = ApprovalMatrix(g)
+        # producer never proposed, but "stranger" is not in the graph at all
+
+        result = check_confirm_guard(
+            "stranger",
+            g,
+            m,
+            confirmed=set(),
+        )
+        assert result.allowed is False
+        assert result.details["guard"] == "phantom_agent"
+
+    def test_global_guard_with_single_producer_graph(self):
+        """Global guard works correctly with single-producer graph."""
+        g = ReviewGraph(
+            [
+                ReviewEdge("reviewer", "producer", ReviewCriticality.CRITICAL),
+            ]
+        )
+        m = ApprovalMatrix(g)
+        # producer never proposed
+
+        result = check_confirm_guard(
+            "reviewer",
+            g,
+            m,
+            confirmed=set(),
+        )
+        assert result.allowed is False
+        assert result.details["guard"] == "global_zero_proposal"
+        assert result.details["producers"] == ["producer"]
+
+    def test_global_guard_passes_single_producer_proposed(self):
+        """Global guard passes when the only producer has proposed."""
+        g = ReviewGraph(
+            [
+                ReviewEdge("reviewer", "producer", ReviewCriticality.CRITICAL),
+            ]
+        )
+        m = ApprovalMatrix(g)
+        v1 = m.record_proposal("producer")
+        m.record_ack("reviewer", "producer", v1)
+
+        result = check_confirm_guard(
+            "reviewer",
+            g,
+            m,
+            confirmed=set(),
+        )
+        # Global guard passes; should be fully allowed
+        assert result.allowed is True
 
 
 # ---------------------------------------------------------------------------
