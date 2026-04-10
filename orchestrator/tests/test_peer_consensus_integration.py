@@ -2042,19 +2042,28 @@ class TestPreProposalACKDeadlock:
             t.handle_confirmed("reviewer_code")
 
     def test_confirmed_reviewer_with_pre_proposal_ack_unconfirmed(self, deadlock_tracker):
-        """A reviewer who ACKed at version 0 and confirmed should be un-confirmed
-        when the producer proposes."""
+        """A reviewer who ACKed at version 0 cannot confirm due to the
+        zero-proposal guard (#1598).
+
+        Previously this test expected the reviewer to confirm and then be
+        un-confirmed when the producer proposes.  With the zero-proposal
+        guard, the reviewer is blocked from confirming in the first place
+        — which is the correct behavior: there's nothing to confirm if the
+        producer hasn't delivered.
+        """
         t = deadlock_tracker
 
         # reviewer_code ACKs before coder proposes (version 0)
         t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
 
-        # reviewer_code confirms (has_reviewed returns True for the ACK entry)
-        t.handle_confirmed("reviewer_code")
-        assert "reviewer_code" in t._confirmed
+        # reviewer_code tries to confirm — blocked by zero-proposal guard
+        result = t.handle_confirmed("reviewer_code")
+        assert result["status"] == "pending_acks"
+        assert "zero_proposal_producers" in result
+        assert "coder" in result["zero_proposal_producers"]
+        assert "reviewer_code" not in t._confirmed
 
-        # Coder proposes — the confirmed reviewer with stale version-0 ACK
-        # should be un-confirmed via _un_confirm_stale_reviewers
+        # Coder proposes — the stale version-0 ACK is invalidated
         result = t.handle_propose(
             "coder",
             {"summary": "Implementation", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
@@ -2486,11 +2495,13 @@ class TestUnresolvedNackGuard:
         assert "rev" not in t._confirmed
 
     def test_nack_guard_with_version_zero_nack(self):
-        """NACK at version 0 (before proposal) should not trigger the guard
-        because current_version == 0 means no proposal has been made yet.
+        """NACK at version 0 (before proposal) triggers the zero-proposal
+        guard (#1598) when the reviewer tries to confirm.
 
-        The guard condition requires current_version > 0 to avoid false
-        positives when reviewers NACK before any proposal exists.
+        Previously, the unresolved-NACK guard skipped version-0 NACKs and
+        the reviewer could confirm.  With the zero-proposal guard, the
+        reviewer is blocked because the producer has never proposed —
+        confirming without a deliverable is not allowed.
         """
         graph = ReviewGraph([ReviewEdge("rev", "coder", ReviewCriticality.CRITICAL)])
         t = PeerConsensusTracker("test-v0", graph, cooldown_seconds=0)
@@ -2500,11 +2511,12 @@ class TestUnresolvedNackGuard:
         # rev NACKs coder before coder proposes (version 0)
         t.handle_nack("rev", "coder", {"artifact_references": ["a.py"], "reason": "preemptive"})
 
-        # has_reviewed returns True for NACK, so the has_reviewed guard passes.
-        # The NACK guard requires current_version > 0, which is 0 here, so it
-        # doesn't fire. Confirm succeeds.
+        # Zero-proposal guard now catches this: coder has never proposed
+        # (version 0), so the reviewer cannot confirm.
         result = t.handle_confirmed("rev")
-        assert result["status"] in ("confirmed", "partially_confirmed")
+        assert result["status"] == "pending_acks"
+        assert "zero_proposal_producers" in result
+        assert "coder" in result["zero_proposal_producers"]
 
     def test_nack_guard_response_includes_nacked_producers(self):
         """The rejection response should identify which producers have
