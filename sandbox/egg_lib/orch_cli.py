@@ -1118,8 +1118,8 @@ def _consensus_push() -> int:
 
     Returns 0 on success, 1 on failure.
     """
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     repo_path = os.environ.get("EGG_REPO_PATH", "")
     gateway_url = os.environ.get("GATEWAY_URL", "")
