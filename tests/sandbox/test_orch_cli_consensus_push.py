@@ -27,7 +27,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
 
 from egg_config.constants import GATEWAY_PORT
-
 from egg_lib.orch_cli import _consensus_push, cmd_consensus_propose
 
 
