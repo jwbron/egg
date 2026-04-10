@@ -2,7 +2,6 @@
 
 import json
 import os
-import subprocess
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -630,10 +629,16 @@ class TestOrchCliConsensusProposePush:
         return parser.parse_args(argv)
 
     @patch("egg_lib.orch_cli.orch_request")
-    @patch("egg_lib.orch_cli.subprocess.check_output")
-    def test_push_success_then_propose(self, mock_subprocess, mock_request):
-        """--push runs git push before sending the proposal."""
-        mock_subprocess.return_value = "Everything up-to-date\n"
+    @patch("egg_lib.orch_cli._consensus_push")
+    def test_push_success_then_propose(self, mock_push, mock_request):
+        """--push calls _consensus_push() before sending the proposal.
+
+        As of #1669, the push logic is delegated to _consensus_push() which
+        handles the consensus_push marker (direct gateway API or env var
+        fallback).  Detailed tests for _consensus_push() live in
+        test_orch_cli_consensus_push.py.
+        """
+        mock_push.return_value = 0
         mock_request.return_value = {"success": True, "data": {}}
 
         args = self._parse_args(
@@ -654,29 +659,13 @@ class TestOrchCliConsensusProposePush:
             rc = cmd_consensus_propose(args)
 
         assert rc == 0
-        # git push was called — the coder's change in #1669 now passes
-        # env={**os.environ, "EGG_CONSENSUS_PUSH": "1"} so we check the
-        # call args manually instead of assert_any_call which requires exact match.
-        push_calls = [
-            c for c in mock_subprocess.call_args_list if c[0] and c[0][0] == ["git", "push"]
-        ]
-        assert len(push_calls) == 1, "Expected exactly one git push call"
-        push_call = push_calls[0]
-        assert push_call[1].get("text") is True
-        assert push_call[1].get("cwd") == "/tmp/repo"
-        assert push_call[1].get("stderr") == subprocess.STDOUT
-        # Verify the consensus push marker is in the env (#1669)
-        push_env = push_call[1].get("env", {})
-        assert push_env.get("EGG_CONSENSUS_PUSH") == "1"
-        # proposal was sent
+        mock_push.assert_called_once()
         mock_request.assert_called_once()
 
-    @patch("egg_lib.orch_cli.subprocess.check_output")
-    def test_push_called_process_error_returns_1(self, mock_subprocess):
-        """--push returns 1 when git push fails with CalledProcessError."""
-        mock_subprocess.side_effect = subprocess.CalledProcessError(
-            1, "git push", output="fatal: remote rejected"
-        )
+    @patch("egg_lib.orch_cli._consensus_push")
+    def test_push_called_process_error_returns_1(self, mock_push):
+        """--push returns 1 when _consensus_push() fails."""
+        mock_push.return_value = 1
 
         args = self._parse_args(
             [
@@ -697,10 +686,10 @@ class TestOrchCliConsensusProposePush:
 
         assert rc == 1
 
-    @patch("egg_lib.orch_cli.subprocess.check_output")
-    def test_push_git_not_found_returns_1(self, mock_subprocess):
-        """--push returns 1 when git binary is not found."""
-        mock_subprocess.side_effect = FileNotFoundError("git not found")
+    @patch("egg_lib.orch_cli._consensus_push")
+    def test_push_git_not_found_returns_1(self, mock_push):
+        """--push returns 1 when _consensus_push() fails (e.g. git not found)."""
+        mock_push.return_value = 1
 
         args = self._parse_args(
             [
