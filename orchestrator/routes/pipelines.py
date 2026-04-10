@@ -2334,7 +2334,15 @@ def _cleanup_stale_generic_drafts(worktree_path: Path) -> bool:
     if not drafts_dir.is_dir():
         return False
 
-    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_path)]
+    git_base = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        f"safe.directory={worktree_path}",
+        "-C",
+        str(worktree_path),
+    ]
     removed = False
 
     stale_names = ("analysis.md", "plan.md")
@@ -2417,7 +2425,15 @@ def _cleanup_drafts_for_pr(
     if not matches:
         return False
 
-    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_path)]
+    git_base = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        f"safe.directory={worktree_path}",
+        "-C",
+        str(worktree_path),
+    ]
     removed = False
 
     for draft in matches:
@@ -2494,10 +2510,18 @@ def _git_show_draft(
     responsible for ensuring ``origin/{branch}`` is fresh (e.g., by
     running ``git fetch origin {branch}`` before calling this helper).
     """
-    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(repo_path)]
+    git_base = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        f"safe.directory={repo_path}",
+        "-C",
+        str(repo_path),
+    ]
     try:
         result = subprocess.run(
-            [*git_base, "show", "--", f"origin/{branch}:{rel_path}"],
+            [*git_base, "show", f"origin/{branch}:{rel_path}"],
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -2505,6 +2529,14 @@ def _git_show_draft(
         )
         if result.returncode == 0 and result.stdout:
             return result.stdout
+        if result.returncode != 0:
+            logger.debug(
+                "git show returned non-zero",
+                branch=branch,
+                rel_path=rel_path,
+                returncode=result.returncode,
+                stderr=result.stderr.strip()[:200],
+            )
     except Exception as exc:
         logger.debug(
             "git show failed for draft",
@@ -2523,6 +2555,8 @@ def _read_source_branch_artifacts(
     store: Any,
     pipeline: Any,
     source_artifact_prefix: str | None = None,
+    spawner: Any | None = None,
+    gateway_mode: str = "public",
 ) -> bool:
     """Read plan and analysis artifacts from a source branch.
 
@@ -2550,30 +2584,64 @@ def _read_source_branch_artifacts(
             filenames on the source branch (e.g. ``"issue-1570-v3"``).
             When set, only this prefix is tried before the ls-tree
             fallback.
+        spawner: ContainerSpawner instance for gateway-authenticated git
+            operations.  When provided, the fetch uses the gateway API
+            (which injects GitHub credentials) instead of a raw
+            ``git fetch`` that lacks auth in the sandboxed environment.
+        gateway_mode: Network mode for the gateway session (``"public"``
+            or ``"private"``).
 
     Returns:
         True if any artifacts were read, False otherwise.
     """
-    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(repo_path)]
+    git_base = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        f"safe.directory={repo_path}",
+        "-C",
+        str(repo_path),
+    ]
     bare_prefix = _pipeline_identifier(issue_number, pipeline_id)
     updated = False
 
     # Fetch the source branch so origin/{source_branch} is up-to-date.
-    # Without this, git show fails on a freshly restarted orchestrator
-    # because the remote ref isn't cached locally.
-    try:
-        subprocess.run(
-            [*git_base, "fetch", "origin", source_branch],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-    except Exception:
-        logger.debug(
-            "Failed to fetch source branch (will try git show anyway)",
-            source_branch=source_branch,
-        )
+    # Without this, git show fails because the remote ref isn't cached
+    # locally.  Use the gateway-authenticated fetch when available —
+    # raw git commands in the sandboxed environment lack GitHub
+    # credentials (the gateway sidecar injects them).
+    if spawner is not None:
+        try:
+            spawner.gateway.fetch_branch(
+                pipeline_id=pipeline_id,
+                repo_path=str(repo_path),
+                args=[source_branch],
+                mode=gateway_mode,
+            )
+        except Exception:
+            logger.warning(
+                "Gateway fetch of source branch failed (will try git show anyway)",
+                source_branch=source_branch,
+                pipeline_id=pipeline_id,
+                exc_info=True,
+            )
+    else:
+        # Fallback for tests or environments without a gateway.
+        try:
+            subprocess.run(
+                [*git_base, "fetch", "origin", source_branch],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except Exception:
+            logger.debug(
+                "Failed to fetch source branch (will try git show anyway)",
+                source_branch=source_branch,
+                exc_info=True,
+            )
 
     # Build ordered list of prefixes to try.  Duplicates are removed so
     # we don't hit git show twice for the same path.
@@ -2687,6 +2755,13 @@ def _read_source_branch_artifacts(
         pipeline.source_artifact_prefix = None
         store.save_pipeline(
             pipeline, message=f"Populate artifacts from source branch {source_branch}"
+        )
+    else:
+        logger.warning(
+            "No artifacts found on source branch",
+            source_branch=source_branch,
+            pipeline_id=pipeline_id,
+            source_artifact_prefix=source_artifact_prefix,
         )
 
     return updated
@@ -3492,7 +3567,15 @@ def _sync_worktree_with_remote(
     Safe to call on every pipeline start because it is idempotent when the
     local branch is already up to date.
     """
-    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_repo_path)]
+    git_base = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        f"safe.directory={worktree_repo_path}",
+        "-C",
+        str(worktree_repo_path),
+    ]
 
     # Step 1: Authenticated fetch via gateway (gateway holds GitHub credentials)
     fetch_ok = spawner.gateway.fetch_worktree_branch(
@@ -3692,7 +3775,15 @@ def _commit_statefiles_to_worktree(
     if not state_dir.exists():
         return  # Nothing to commit yet
 
-    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_path)]
+    git_base = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        f"safe.directory={worktree_path}",
+        "-C",
+        str(worktree_path),
+    ]
 
     if pipeline_identifier is not None:
         # Scope to files belonging to this pipeline only (#1390).
@@ -3811,6 +3902,8 @@ def _ensure_statefiles_on_branch(
                 "git",
                 "-c",
                 "core.hooksPath=/dev/null",
+                "-c",
+                f"safe.directory={worktree_repo_path}",
                 "-C",
                 str(worktree_repo_path),
             ]
@@ -3838,7 +3931,7 @@ def _ensure_statefiles_on_branch(
                     continue
                 try:
                     result = subprocess.run(
-                        [*git_base, "show", "--", f"origin/{pipeline.branch}:{draft_rel}"],
+                        [*git_base, "show", f"origin/{pipeline.branch}:{draft_rel}"],
                         capture_output=True,
                         text=True,
                         timeout=15,
@@ -7585,6 +7678,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     store=store,
                     pipeline=pipeline,
                     source_artifact_prefix=pipeline.source_artifact_prefix,
+                    spawner=spawner,
+                    gateway_mode=gateway_mode,
                 )
             except Exception:
                 logger.warning(
