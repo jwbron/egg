@@ -274,7 +274,7 @@ Lightweight Haiku agents handle classification tasks. They run only when the orc
 
 **Consensus-aware stall classification**: The stall classifier receives BRC consensus state as authoritative context when available. The classifier is instructed that an agent with confirmed consensus is not stalled — this prevents false stall diagnoses during the window between consensus confirmation and phase transition.
 
-**Container-log-aware classification**: The overseer automatically fetches recent Docker container logs (last 200 lines, truncated to 8 000 chars) for each alerted agent at the start of every monitoring cycle and passes them to both the stall and error classifiers. This surfaces runtime failures — OOM kills, segfaults, tracebacks, repeated permission errors — that never appear in structured progress events. These logs are also forwarded (truncated further) to the Sonnet/Opus decision-maker when determining escalation level.
+**Container-log-aware classification**: The overseer automatically fetches recent Docker container logs (last 200 lines, truncated to 8 000 chars) for each alerted agent at the start of every monitoring cycle and passes them to the stall classifier. This surfaces runtime failures — OOM kills, segfaults, tracebacks, repeated permission errors — that never appear in structured progress events. These logs are also forwarded (truncated further) to the Sonnet/Opus decision-maker when determining escalation level.
 
 Characteristics:
 - Short, focused prompts — single-purpose classification
@@ -398,37 +398,29 @@ When a Tier 1 `infrastructure_error` alert reaches the overseer monitor, it is r
 When the overseer files a GitHub issue (decided by the Sonnet/Opus tier), it uses a structured diagnostic template:
 
 ```markdown
-## Pipeline Health Alert
+## Pipeline Diagnostic: {anomaly_type}
 
-**Pipeline:** {pipeline_id}
-**Issue:** #{issue_number}
-**Filed by:** Overseer (automated)
+**Pipeline**: `{pipeline_id}`
+**Phase**: `{phase}`
+**Agent**: `{agent_role}`
+**Detected**: `{timestamp}`
 
-### Failing Agent
-- **Role:** {agent_role}
-- **Container:** {container_id}
-- **Last known state:** {readiness_state}
-
-### Error Pattern
-**Category:** {stall | repeated_error | circular_loop | off_track}
-**Description:** {human-readable description}
+### Anomaly
+{anomaly description}
 
 ### Timeline
 {chronological events leading to this alert}
 
-### Corrective Actions Attempted
+### Classification
+{Haiku classifier output}
+
+### Actions Taken
 {list of auto-nudges, redirect messages, HITL requests}
-
-### Haiku Analysis
-{classification of the agent's state}
-
-### Sonnet/Opus Decision
-{reasoning for the corrective action}
 
 ### Container Logs
 {last 2 000 chars of Docker container logs for the agent, if available}
 
-### Suggested Next Step
+### Suggested Remediation
 {what a human should do}
 ```
 
