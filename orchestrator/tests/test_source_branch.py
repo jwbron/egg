@@ -435,6 +435,8 @@ class TestReadSourceBranchArtifacts:
         assert result is True
         assert pipeline.plan == plan_content
         assert pipeline.analysis == analysis_content
+        # source_branch should be cleared after successful artifact read
+        assert pipeline.source_branch is None
         mock_store.save_pipeline.assert_called_once()
 
     @patch("routes.pipelines._git_show_draft")
@@ -596,6 +598,8 @@ class TestReadSourceBranchArtifacts:
             )
 
         assert result is False
+        # source_branch should be preserved when no artifacts were found
+        assert pipeline.source_branch == "egg/issue-1570-v3"
         mock_store.save_pipeline.assert_not_called()
 
     @patch("routes.pipelines._git_show_draft")

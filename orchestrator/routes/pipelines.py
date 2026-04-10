@@ -2615,6 +2615,10 @@ def _read_source_branch_artifacts(
             )
 
     if updated:
+        # Clear source_branch after successful read to avoid re-reading on
+        # pipeline restart (same pattern as plan/analysis clearing after
+        # draft files are pushed).
+        pipeline.source_branch = None
         store.save_pipeline(
             pipeline, message=f"Populate artifacts from source branch {source_branch}"
         )
@@ -7521,11 +7525,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     exc_info=True,
                 )
             else:
-                # Clear source_branch after successful read to avoid
-                # re-reading on pipeline restart (same pattern as plan/
-                # analysis clearing after draft files are pushed).
-                pipeline.source_branch = None
-                store.save_pipeline(pipeline, message="Clear source_branch after artifact read")
+                # source_branch is cleared inside
+                # _read_source_branch_artifacts when artifacts are
+                # actually found — no action needed here.
+                pass
 
         # Create companion contract in the worktree (deferred from pipeline
         # creation so it doesn't pollute the main repo working directory).
