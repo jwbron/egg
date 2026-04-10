@@ -2,13 +2,804 @@
   "schemaVersion": "1.0",
   "issue": {
     "number": 1570,
-    "title": "Issue #1570",
+    "title": "Build custom coding harness with multi-provider support",
     "url": "https://github.com/jwbron/egg/issues/1570"
   },
   "pipeline_id": null,
-  "current_phase": "refine",
+  "current_phase": "implement",
   "acceptance_criteria": [],
-  "phases": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Foundation & Types",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create shared/egg_harness/ package with pyproject.toml, __init__.py. Define StreamEvent union type and Provider ABC in providers/base.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Package importable. All 8 StreamEvent dataclasses exist. Provider ABC has abstract send_message method returning AsyncIterator[StreamEvent].",
+          "files_affected": [
+            "shared/egg_harness/__init__.py",
+            "shared/egg_harness/pyproject.toml",
+            "shared/egg_harness/providers/__init__.py",
+            "shared/egg_harness/providers/base.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Implement config.py with ProviderConfig, HarnessConfig, model alias resolution (opus\u2192claude-opus-4-6, haiku\u2192claude-haiku-4-5), opus[1m] suffix parser, and context window lookup",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "resolve_model and parse_model_spec return correct values. HarnessConfig defaults match current behavior. haiku maps to claude-haiku-4-5 (not deprecated haiku-3).",
+          "files_affected": [
+            "shared/egg_harness/config.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Implement cost.py with hardcoded per-model token rates and CostTracker class that accumulates usage and computes total cost",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "CostTracker computes correct USD cost for known models. Rate table matches published Anthropic pricing.",
+          "files_affected": [
+            "shared/egg_harness/cost.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Implement result.py with AgentResult dataclass matching existing egg_agent.result.AgentResult plus compaction_count field",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All existing AgentResult fields preserved. New compaction_count field present. Backward-compatible.",
+          "files_affected": [
+            "shared/egg_harness/result.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Implement events.py with EventBus class supporting typed callback registration (on_output, on_tool_call, on_tool_result, on_compaction, on_error, on_turn_complete)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Multiple callbacks per event type supported. Emit calls all registered callbacks. Callback exceptions caught and logged.",
+          "files_affected": [
+            "shared/egg_harness/events.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Provider Layer",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Implement providers/anthropic.py using anthropic.AsyncAnthropic with gateway URL validation, ANTHROPIC_API_KEY absence assertion, streaming, cache control, and extended thinking support",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Provider streams via gateway proxy. StreamEvents correctly mapped. Gateway URL validated. ANTHROPIC_API_KEY not in os.environ asserted at init.",
+          "files_affected": [
+            "shared/egg_harness/providers/anthropic.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-2",
+          "description": "Implement providers/openai_compat.py using raw httpx SSE for OpenAI-compatible endpoints with capability declaration config",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Provider streams from OpenAI-compatible endpoint. SSE chunks parsed into StreamEvents. Capability config respected.",
+          "files_affected": [
+            "shared/egg_harness/providers/openai_compat.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add exponential backoff retry (429, 5xx, connection reset) to both providers with jitter, max 3 retries, and circuit breaker (3 consecutive non-retryable failures)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Transient errors retried with backoff. 4xx (except 429) not retried. Circuit breaker trips after 3 consecutive failures.",
+          "files_affected": [
+            "shared/egg_harness/providers/anthropic.py",
+            "shared/egg_harness/providers/openai_compat.py",
+            "shared/egg_harness/providers/base.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Tool System",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Implement tools/registry.py with ToolRegistry (register, execute, get_definitions), permission callback interface, and output truncation",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tools registered and executed by name. Permission callback blocks tools. Output truncated at configurable limit. Unknown tools return error.",
+          "files_affected": [
+            "shared/egg_harness/tools/__init__.py",
+            "shared/egg_harness/tools/registry.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-2",
+          "description": "Implement tools/bash.py with subprocess execution, process group management for timeout, working directory support. No shell=true (CVE mitigation).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Commands execute in working directory. Timeout kills process group. No shell=true. Exit code preserved.",
+          "files_affected": [
+            "shared/egg_harness/tools/bash.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-3",
+          "description": "Implement tools/read.py with offset/limit, line numbers, binary detection, image passthrough, symlink resolution",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Files read with correct line numbers. Offset/limit work. Binary files rejected. Non-existent files return error.",
+          "files_affected": [
+            "shared/egg_harness/tools/read.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-4",
+          "description": "Implement tools/write.py and tools/edit.py with exact string replacement, replace_all, parent directory creation, permission preservation",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Write creates/overwrites files. Edit replaces exact strings. Non-unique old_string errors. replace_all works. Parent dirs created.",
+          "files_affected": [
+            "shared/egg_harness/tools/write.py",
+            "shared/egg_harness/tools/edit.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-5",
+          "description": "Implement tools/glob_tool.py (pathlib/fd) and tools/grep.py (ripgrep) with file type filtering, context lines, output modes, head_limit",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Glob matches patterns and returns sorted paths. Grep finds regex matches with context. Head limit caps output.",
+          "files_affected": [
+            "shared/egg_harness/tools/glob_tool.py",
+            "shared/egg_harness/tools/grep.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-6",
+          "description": "Implement tools/web_fetch.py (HTML-to-markdown conversion) and tools/web_search.py, both conditionally disabled in private mode",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "WebFetch converts HTML to markdown. Both disabled in private mode. Tool schemas match Claude Code definitions.",
+          "files_affected": [
+            "shared/egg_harness/tools/web_fetch.py",
+            "shared/egg_harness/tools/web_search.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Agent Loop Core",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Implement loop.py AgentLoop with core loop logic (messages\u2192provider\u2192stream\u2192tools\u2192repeat), sequential tool execution, EventBus integration",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Loop executes multi-turn tool use. Text streamed via on_output. Tool calls executed and results fed back. Loop terminates on end_turn.",
+          "files_affected": [
+            "shared/egg_harness/loop.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-2",
+          "description": "Add max_turns limit, wall-clock timeout, all stop_reason handling (end_turn, max_tokens, stop_sequence, tool_use), and circuit breaker to AgentLoop",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Loop stops at max_turns. Timeout triggers graceful stop. All stop_reasons handled correctly. Circuit breaker fires after 3 tool failures.",
+          "files_affected": [
+            "shared/egg_harness/loop.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-3",
+          "description": "Add SIGTERM graceful shutdown to AgentLoop with 30s grace period, process group cleanup, and partial AgentResult return",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "SIGTERM during tool execution waits up to 30s. SIGTERM during API call cancels. No orphaned subprocesses. Partial result returned.",
+          "files_affected": [
+            "shared/egg_harness/loop.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Context Management & Session Persistence",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Implement compaction.py with token budget tracking, threshold-based trigger (80% default), cut-point selection preserving tool call/result pairs, and structured summary generation",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Token tracking accurate. Compaction triggers at threshold. Cut point never splits tool pairs. Summary captures key context.",
+          "files_affected": [
+            "shared/egg_harness/compaction.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-2",
+          "description": "Add compaction loop protection (abort if 2 compactions within 3 turns), manual compact_now() trigger, and on_compaction event emission",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Double compaction within N turns raises error. Manual compaction works. Compaction count tracked.",
+          "files_affected": [
+            "shared/egg_harness/compaction.py",
+            "shared/egg_harness/loop.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-3",
+          "description": "Implement session.py with JSONL serialization, session metadata tracking, auto-save on compaction and intervals, and resume-from-file",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Session saves to JSONL with metadata. Resume reconstructs state. Auto-save triggers correctly. Session ID stable across saves.",
+          "files_affected": [
+            "shared/egg_harness/session.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-6",
+      "name": "System Prompt & Permissions",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Implement prompt.py with generic system prompt assembly accepting list of sources (strings/callables), concatenated with --- separators",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "build_system_prompt concatenates sources with separators. Callables invoked. Empty sources skipped.",
+          "files_affected": [
+            "shared/egg_harness/prompt.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-6-2",
+          "description": "Wire permission callback in AgentLoop \u2014 can_use_tool check before each tool execution, tool disallow list from config",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Disallowed tools return error. Permission callback blocks specific invocations. Error messages clear.",
+          "files_affected": [
+            "shared/egg_harness/loop.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-7",
+      "name": "Client, CLI & Interactive Mode",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-7-1",
+          "description": "Implement client.py with run_agent_async() matching egg_agent.client signature, assembling all components, and synchronous run_agent() wrapper",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "run_agent_async() has identical signature to egg_agent version. Returns populated AgentResult. on_output streams text.",
+          "files_affected": [
+            "shared/egg_harness/client.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-7-2",
+          "description": "Implement __main__.py CLI entry point with --model, --max-turns, --system-prompt, --timeout args, stdin prompt reading, stdout streaming",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "python3 -m egg_harness works with all CLI args. Stdin prompt reading works. Output streams. Exit code correct.",
+          "files_affected": [
+            "shared/egg_harness/__main__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-7-3",
+          "description": "Implement interactive.py with minimal readline REPL, multi-turn conversation, Ctrl-C interrupt, Ctrl-D exit",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "REPL reads input and streams responses. Ctrl-C interrupts. Ctrl-D exits. Multi-turn maintains context.",
+          "files_affected": [
+            "shared/egg_harness/interactive.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-8",
+      "name": "Egg Integration Layer",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-8-1",
+          "description": "Create shared/egg_harness_integration/ package with egg_tools.py registering 5 egg-native tools (EggOrch, EggContract, EggCheckpoint, GitOps, GhCli) via CLI shell-out",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All 5 tools registered and executable. CLI commands invoked correctly. Tool results returned.",
+          "files_affected": [
+            "shared/egg_harness_integration/__init__.py",
+            "shared/egg_harness_integration/egg_tools.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-8-2",
+          "description": "Implement egg_prompt.py replicating exact CLAUDE.md rule-merging from setup_agent_rules() plus settings.json parsing with HarnessConfig precedence",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Rule assembly matches setup_agent_rules() output for same input files. settings.json properties applied as defaults.",
+          "files_affected": [
+            "shared/egg_harness_integration/egg_prompt.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-8-3",
+          "description": "Implement egg_permissions.py adapting egg_restrictions.check_agent_file_access() as can_use_tool callback matching tool_interceptor.py behavior",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Permission callback blocks out-of-scope file writes. Error messages match existing format. Roles loaded from EGG_AGENT_ROLE.",
+          "files_affected": [
+            "shared/egg_harness_integration/egg_permissions.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-8-4",
+          "description": "Implement egg_compaction.py with anchor-based compaction integration persisting to .egg-state/agent-anchors/ and post-compaction message bus recovery",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Compaction persists anchor with correct schema. Post-compaction reads anchor and polls message bus.",
+          "files_affected": [
+            "shared/egg_harness_integration/egg_compaction.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-8-5",
+          "description": "Implement harness_factory.py factory function creating fully-configured AgentLoop with gateway routing, all tools, permissions, prompt assembly, and compaction",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Factory creates working AgentLoop. Provider routes through gateway. All tools registered. Permissions enforced.",
+          "files_affected": [
+            "shared/egg_harness_integration/harness_factory.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-9",
+      "name": "Harness Selection & Wiring",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-9-1",
+          "description": "Update shared/egg_agent/client.py to route run_agent_async() to egg_harness when EGG_HARNESS=egg, default to existing claude-sdk path",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "EGG_HARNESS=egg routes to new harness. Unset uses SDK. Both return AgentResult. Zero changes to consumers.",
+          "files_affected": [
+            "shared/egg_agent/client.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-9-2",
+          "description": "Update shared/egg_agent/command.py to route build_agent_command() to python3 -m egg_harness when EGG_HARNESS=egg, propagate env var to children",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "build_agent_command returns egg_harness module when EGG_HARNESS=egg. Child agents inherit harness selection.",
+          "files_affected": [
+            "shared/egg_agent/command.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-9-3",
+          "description": "Update sandbox/entrypoint.py to support EGG_HARNESS for interactive mode, configure gateway URL, add startup validation",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Entrypoint respects EGG_HARNESS for interactive. Gateway URL configured. API key absence validated.",
+          "files_affected": [
+            "sandbox/entrypoint.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-9-4",
+          "description": "Update shared/pyproject.toml to include egg_harness and egg_harness_integration packages, add anthropic>=0.50,<1.0 and markdownify dependencies",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Both packages discoverable. Dependencies installable. pip install -e shared/ works.",
+          "files_affected": [
+            "shared/pyproject.toml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-10",
+      "name": "Tests",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-10-1",
+          "description": "Unit tests for config, cost, events, and result types covering model aliases, cost calculation, EventBus, and AgentResult compatibility",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Config edge cases tested. Cost rates accurate. EventBus error handling verified. All tests pass.",
+          "files_affected": [
+            "shared/egg_harness/tests/__init__.py",
+            "shared/egg_harness/tests/test_config.py",
+            "shared/egg_harness/tests/test_cost.py",
+            "shared/egg_harness/tests/test_events.py",
+            "shared/egg_harness/tests/test_result.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-10-2",
+          "description": "Unit tests for providers with mock HTTP responses, testing streaming, retry logic, circuit breaker, and gateway URL validation",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Both providers parse mocked streams correctly. Retry and circuit breaker tested. Gateway URL validation tested.",
+          "files_affected": [
+            "shared/egg_harness/tests/test_providers.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-10-3",
+          "description": "Unit tests for tool registry and standard tools covering permission blocking, output truncation, Bash timeout, Edit exact-match semantics",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Permission blocking tested. Truncation works. Bash process group cleanup verified. Edit semantics correct.",
+          "files_affected": [
+            "shared/egg_harness/tests/test_registry.py",
+            "shared/egg_harness/tests/test_tools.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-10-4",
+          "description": "Unit tests for agent loop covering multi-turn execution, max_turns, timeout, stop_reasons, circuit breaker, SIGTERM, compaction trigger, and session save/resume",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Loop tested with mock provider. All stop_reasons verified. Timeout and SIGTERM tested. Compaction and session round-trip tested.",
+          "files_affected": [
+            "shared/egg_harness/tests/test_loop.py",
+            "shared/egg_harness/tests/test_compaction.py",
+            "shared/egg_harness/tests/test_session.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-10-5",
+          "description": "Integration test for end-to-end harness execution with mock HTTP endpoint, tool execution, streaming, and harness selection routing",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "End-to-end test passes. Streaming captured. Metadata populated. Harness selection routes correctly.",
+          "files_affected": [
+            "shared/egg_harness/tests/integration/__init__.py",
+            "shared/egg_harness/tests/integration/test_harness_e2e.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-10-6",
+          "description": "Tool behavioral parity compliance tests comparing harness tool outputs against Claude Code for edge cases (Edit non-unique, Read binary, Bash timeout, Grep large dirs)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "At least 5 test cases per tool. Known differences documented. Critical differences (Edit, Bash) have exact parity.",
+          "files_affected": [
+            "shared/egg_harness/tests/compliance/__init__.py",
+            "shared/egg_harness/tests/compliance/test_tool_parity.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "workflow_owner": null,
   "audit_log": [],
@@ -16,7 +807,12 @@
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
-  "pr": null,
+  "pr": {
+    "title": "Add custom coding harness with multi-provider LLM support",
+    "description": "Egg currently depends on the Claude Agent SDK and Claude Code CLI as its\nagent runtimes \u2014 both are opaque, evolve on Anthropic's release schedule,\nand have been targets of recent critical CVEs (CVE-2026-35022, CVE-2025-59536).\nContext window exhaustion is handled opaquely with no integration into egg's\nanchor mechanism. Neither runtime supports non-Anthropic models.\n\nThis PR introduces a custom coding harness (`shared/egg_harness/`) as an\nopt-in alternative runtime, organized into two packages:\n\n1. **Core harness** (`egg_harness/`): Provider-abstracted LLM client\n   supporting Anthropic (via SDK) and OpenAI-compatible endpoints (via httpx),\n   8 standard tools (Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch),\n   a core agent loop with streaming, context management with threshold-based\n   compaction aligned with Pi's approach, JSONL session persistence for\n   consensus wrapper restarts, and an event system for monitoring.\n2. **Egg integration layer** (`egg_harness_integration/`): Egg-native tools\n   (EggOrch, EggContract, EggCheckpoint, GitOps, GhCli) shelling out to CLIs,\n   CLAUDE.md rule-merging replicating exact existing behavior, role-based\n   permission enforcement via egg_restrictions, anchor-based compaction\n   integration (#1032), and a factory function wiring everything together.\n\nHarness selection is controlled by the `EGG_HARNESS` environment variable:\n`egg` (new harness), `claude-sdk` (current default), or `claude-code`\n(interactive CLI). The new harness is opt-in during the transition period \u2014\nit must prove parity on parallel validation before becoming the default.\nExisting consumers (consensus_wrapper, babysit agents) require zero changes.\n\nKey security mitigations: all API calls routed through gateway (zero-credential\nsandbox preserved), startup assertion that ANTHROPIC_API_KEY is absent,\ngateway URL validation (CVE-2026-21852), no shell=true in subprocess calls\n(CVE-2026-35022), and ported role-based tool interception.",
+    "test_plan": "- Automated: Unit tests for all harness subsystems (config, providers, tools,\n  loop, compaction, session, events, client) in shared/egg_harness/tests/.\n  Integration test with mock HTTP endpoint for end-to-end agent loop.\n  Tool compliance tests comparing harness vs Claude Code tool outputs.\n  Existing make test suite must continue to pass (no regressions).\n- Manual: Security review of credential flow (gateway routing, no API key\n  in container). Parallel validation on 10+ test pipelines comparing\n  cost_usd, num_turns, duration_ms, and task success rate between harness\n  and Claude SDK. Interactive mode manual test (multi-turn, tool use,\n  Ctrl-C/Ctrl-D). System prompt parity check comparing harness rule-merging\n  output against setup_agent_rules() for sample runs.",
+    "manual_steps": "Pre-merge:\n- Resolve 6 pending HITL decisions from v3 refine phase (compaction model,\n  session location, HTML library, interactive scope, settings.json handling,\n  OpenAI API surface)\n- Security review of credential flow and agent loop implementation\n- Parallel validation on test pipelines must show metric parity\nPost-merge:\n- No immediate action required \u2014 harness defaults to disabled (claude-sdk)\n- To enable: set EGG_HARNESS=egg in pipeline config or container env\n- Monitor parallel validation metrics before switching default"
+  },
   "feedback": null,
   "phase_configs": null,
   "agent_executions": []
