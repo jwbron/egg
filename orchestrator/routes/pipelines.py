@@ -1441,7 +1441,7 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
             "success": true,
             "data": {
                 "phase": "implement",
-                "agents_restarted": ["coder", "tester", "documenter", ...]
+                "agents_to_restart": ["coder", "tester", "documenter", ...]
             }
         }
     """
@@ -1534,14 +1534,25 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
         # 2. Snapshot container IDs for teardown outside the lock
         old_container_ids = [c.container_id for c in phase_exec.containers]
 
-        # 3. Reset phase execution state and pipeline status EARLY so
-        #    get_status returns "running" before slow container teardown.
+        # 3. Fully reset phase execution state so the new _run_pipeline
+        #    thread treats this as a fresh phase.  Set pipeline status to
+        #    RUNNING and bump run_epoch so any lingering old _run_pipeline
+        #    thread detects the restart and exits (see #1638).
+        #    NOTE: artifacts are intentionally preserved — they may contain
+        #    outputs from partial work useful as context for the retry.
         phase_exec.containers = []
         phase_exec.agents = []
         phase_exec.review_cycles = 0
-        phase_exec.status = PipelineStatus.RUNNING
-        if pipeline.status == PipelineStatus.FAILED:
-            pipeline.status = PipelineStatus.RUNNING
+        phase_exec.hitl_review_cycles = 0
+        phase_exec.status = PipelineStatus.PENDING
+        phase_exec.started_at = None
+        phase_exec.work_started_at = None
+        phase_exec.completed_at = None
+        phase_exec.error = None
+        phase_exec.cycle_timings = []
+        pipeline.status = PipelineStatus.RUNNING
+        pipeline.error = None
+        pipeline.run_epoch = datetime.now(UTC)
         pipeline.updated_at = datetime.now(UTC)
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
 
@@ -1608,132 +1619,35 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     # 6. Reset restart counts for this pipeline
     spawner.reset_restart_counts(pipeline_id)
 
-    # 7. Reconstruct prompts/env for concurrent mode and respawn all agents
-    agent_commands: dict[AgentRole, list[str] | None] = {}
-    agent_envs: dict[AgentRole, dict[str, str]] = {}
-    try:
-        try:
-            from concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
-        except ImportError:
-            from ..concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
+    # 7. Launch a new _run_pipeline thread to monitor the restarted phase.
+    #    Container spawning is handled by _run_concurrent_phase within the
+    #    thread, matching the recovery pattern used by start_pipeline.
+    #    See #1638: the original polling thread died when the pipeline
+    #    failed; without this, consensus completion is never detected.
+    agents_to_restart = [role.value for role in agent_roles]
+    repo_path_for_thread = store.repo_path
 
-        if is_concurrent_execution(pipeline, phase=phase):
-            executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=lambda **kw: None)  # type: ignore[arg-type]
-            env_path = os.environ.get("EGG_REPO_PATH", "/home/egg/repos")
-            base_path = Path(env_path)
-            repo_name = (pipeline.repo or "").split("/")[-1]
-            worktree_repo_path = (
-                base_path / repo_name if not (base_path / ".git").exists() else base_path
-            )
-            _resolved_base = None
-            try:
-                _resolved_base = get_default_branch(worktree_repo_path)
-            except Exception:
-                pass
-
-            for role in agent_roles:
-                try:
-                    agent_envs[role] = executor.get_agent_env(role)
-                    prompt_text = _build_agent_prompt(
-                        role_value=role.value,
-                        phase=phase,
-                        pipeline_id=pipeline_id,
-                        pipeline_mode=pipeline.mode.value if pipeline.mode else "issue",
-                        prompt=pipeline.prompt,
-                        issue_number=pipeline.issue_number,
-                        repo=pipeline.repo,
-                        branch=pipeline.branch,
-                        base_branch=_resolved_base,
-                        repo_path=str(worktree_repo_path),
-                        concurrent=True,
-                        network_mode=gateway_mode,
-                    )
-                    if prompt_text:
-                        from consensus_wrapper import build_consensus_wrapped_command
-
-                        agent_commands[role] = build_consensus_wrapped_command(prompt_text)
-                except Exception as e:
-                    logger.warning(
-                        "Failed to reconstruct prompt for %s during phase restart",
-                        role.value,
-                        error=str(e),
-                    )
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.warning("Failed to reconstruct concurrent env for phase restart", error=str(e))
-
-    restarted_agents = []
-    for role in agent_roles:
-        try:
-            spawned = spawner.spawn_agent_container(
-                pipeline_id=pipeline_id,
-                agent_role=role,
-                issue_number=pipeline.issue_number,
-                mode=gateway_mode,
-                extra_env=agent_envs.get(role) or None,
-                repos=[pipeline.repo] if pipeline.repo else None,
-                phase=phase,
-                command=agent_commands.get(role),
-                branch=pipeline.branch,
-                base_branch=pipeline.branch,
-                preserve_worktree_on_failure=True,
-            )
-
-            # Update state with new container/agent
-            with lock:
-                pipeline = store.load_pipeline(pipeline_id)
-                phase_exec = pipeline.phases.get(phase)
-                if phase_exec is not None:
-                    phase_exec.containers.append(spawned.container_info)
-                    from models import AgentExecution  # type: ignore
-
-                    phase_exec.agents.append(
-                        AgentExecution(
-                            role=role,
-                            container_id=spawned.container_info.container_id,
-                            status=AgentExecutionStatus.RUNNING,
-                        )
-                    )
-                pipeline.updated_at = datetime.now(UTC)
-                store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
-
-            restarted_agents.append(role.value)
-        except ContainerSpawnError as e:
-            logger.error(
-                "Failed to respawn agent during phase restart",
-                pipeline_id=pipeline_id,
-                role=role.value,
-                error=str(e),
-            )
-
-    if not restarted_agents:
-        # Revert early status update — no agents are actually running.
-        with lock:
-            pipeline = store.load_pipeline(pipeline_id)
-            pipeline.status = PipelineStatus.FAILED
-            phase_exec = pipeline.phases.get(phase)
-            if phase_exec is not None:
-                phase_exec.status = PipelineStatus.FAILED
-            pipeline.updated_at = datetime.now(UTC)
-            store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
-        return make_error_response(
-            "Phase restart failed: no agents could be respawned", status_code=500
-        )
+    thread = threading.Thread(
+        target=_run_pipeline,
+        args=(pipeline_id, repo_path_for_thread),
+        daemon=True,
+        name=f"pipeline-{pipeline_id}-{int(datetime.now(UTC).timestamp())}",
+    )
+    thread.start()
 
     logger.info(
         "Phase restarted",
         pipeline_id=pipeline_id,
         phase=phase,
-        agents_restarted=restarted_agents,
+        agents_to_restart=agents_to_restart,
         reason=reason,
     )
 
     return make_success_response(
-        f"Phase {phase} restarted with {len(restarted_agents)} agent(s)",
+        f"Phase {phase} restarted with {len(agents_to_restart)} agent(s)",
         data={
             "phase": phase,
-            "agents_restarted": restarted_agents,
+            "agents_to_restart": agents_to_restart,
         },
     )
 
@@ -7199,7 +7113,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     # is deleted and recreated with the same ID while we're still running,
     # the new run creates its own worktrees under the same path.  Without
     # this guard, our finally block would delete the *new* run's worktrees.
-    run_created_at: datetime | None = None
+    run_epoch: datetime | None = None
     overseer_container_id: str | None = None
     phase_overseer_active: bool = False
     overseer_lock = threading.Lock()
@@ -7211,7 +7125,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         store = get_state_store(repo_path)
         spawner = get_container_spawner()
         pipeline = store.load_pipeline(pipeline_id)
-        run_created_at = pipeline.created_at
+        run_epoch = pipeline.run_epoch or pipeline.created_at
         pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
         transitions = PHASE_TRANSITIONS
 
@@ -7729,8 +7643,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 )
                 return
 
-            # Detect recreation: another run now owns this pipeline ID
-            if pipeline.created_at != run_created_at:
+            # Detect recreation/restart: another run now owns this pipeline ID
+            _current_epoch = pipeline.run_epoch or pipeline.created_at
+            if _current_epoch != run_epoch:
                 logger.info(
                     "Pipeline was recreated, exiting old thread",
                     pipeline_id=pipeline_id,
@@ -8052,6 +7967,19 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         break
 
                     if exit_code != 0:
+                        # Check if pipeline was restarted while this thread
+                        # was running (e.g. restart_phase bumped run_epoch).
+                        # If so, a new _run_pipeline thread owns this pipeline
+                        # — exit without marking the phase FAILED.  See #1638.
+                        _check_pip = store.load_pipeline(pipeline_id)
+                        _check_epoch = _check_pip.run_epoch or _check_pip.created_at
+                        if _check_epoch != run_epoch:
+                            logger.info(
+                                "Pipeline was restarted during phase execution, exiting old thread",
+                                pipeline_id=pipeline_id,
+                            )
+                            return
+
                         error_msg = f"Container exited with code {exit_code}"
                         if container_logs:
                             log_lines = container_logs.strip().splitlines()
@@ -8659,7 +8587,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 pipeline = store.load_pipeline(pipeline_id)
 
                 # Don't corrupt a recreated pipeline's state
-                if run_created_at and pipeline.created_at != run_created_at:
+                _fail_epoch = pipeline.run_epoch or pipeline.created_at
+                if run_epoch and _fail_epoch != run_epoch:
                     logger.info(
                         "Pipeline was recreated, not marking new run as failed",
                         pipeline_id=pipeline_id,
@@ -8737,15 +8666,18 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             _spawner = get_container_spawner()
             _store = get_state_store(repo_path)
             skip_cleanup = False
+            pipeline_was_restarted = False
             try:
                 current = _store.load_pipeline(pipeline_id)
-                if run_created_at and current.created_at != run_created_at:
+                _cleanup_epoch = current.run_epoch or current.created_at
+                if run_epoch and _cleanup_epoch != run_epoch:
                     skip_cleanup = True
+                    pipeline_was_restarted = True
                     logger.info(
-                        "Pipeline was recreated, skipping worktree cleanup",
+                        "Pipeline was recreated/restarted, skipping worktree cleanup",
                         pipeline_id=pipeline_id,
-                        old_created_at=run_created_at.isoformat(),
-                        new_created_at=current.created_at.isoformat(),
+                        old_epoch=run_epoch.isoformat(),
+                        new_epoch=_cleanup_epoch.isoformat(),
                     )
                 elif current.status == PipelineStatus.FAILED:
                     skip_cleanup = True
@@ -8800,6 +8732,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             agent_container_id=agent_container_id,
                             error=str(agent_wt_err),
                         )
+
         except Exception as wt_err:
             logger.warning(
                 "Failed to clean up worktrees",
@@ -8810,21 +8743,23 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # Safety-net: clean up any orphaned containers for this pipeline.
         # If the pipeline failed during startup or cleanup timed out, Docker
         # containers may persist.  This is a no-op when no containers exist.
-        # See #1386.
-        try:
-            removed = _spawner.cleanup_pipeline(pipeline_id, force=True)
-            if removed > 0:
-                logger.info(
-                    "Safety-net cleanup removed orphaned containers",
+        # Skip when the pipeline was restarted (run_epoch changed) so the
+        # new thread's containers are not killed.  See #1386, #1638.
+        if not pipeline_was_restarted:
+            try:
+                removed = _spawner.cleanup_pipeline(pipeline_id, force=True)
+                if removed > 0:
+                    logger.info(
+                        "Safety-net cleanup removed orphaned containers",
+                        pipeline_id=pipeline_id,
+                        containers_removed=removed,
+                    )
+            except Exception as cleanup_err:
+                logger.warning(
+                    "Safety-net container cleanup failed",
                     pipeline_id=pipeline_id,
-                    containers_removed=removed,
+                    error=str(cleanup_err),
                 )
-        except Exception as cleanup_err:
-            logger.warning(
-                "Safety-net container cleanup failed",
-                pipeline_id=pipeline_id,
-                error=str(cleanup_err),
-            )
 
 
 @pipelines_bp.route("/<pipeline_id>/start", methods=["POST"])
@@ -8963,11 +8898,11 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
                     if not next_phases:
                         # Terminal phase — pipeline complete.
-                        # Bump created_at so any lingering old _run_pipeline
+                        # Bump run_epoch so any lingering old _run_pipeline
                         # thread (e.g. stuck in its finally block) detects the
                         # recreation and exits without double-cleaning up.
                         pipeline.status = PipelineStatus.COMPLETE
-                        pipeline.created_at = datetime.now(UTC)
+                        pipeline.run_epoch = datetime.now(UTC)
                         store.save_pipeline(pipeline)
                         return make_success_response(
                             "Pipeline recovered and completed",
@@ -9024,7 +8959,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         phase_execution.hitl_feedback = revision_feedback
 
                 pipeline.error = None
-                pipeline.created_at = datetime.now(UTC)
+                pipeline.run_epoch = datetime.now(UTC)
                 pipeline.status = PipelineStatus.RUNNING
                 store.save_pipeline(pipeline)
 
@@ -9092,9 +9027,9 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     )
                 pipeline.error = None
 
-                # Bump created_at so the old _run_pipeline thread's finally block
+                # Bump run_epoch so the old _run_pipeline thread's finally block
                 # detects the restart and skips worktree cleanup.
-                pipeline.created_at = datetime.now(UTC)
+                pipeline.run_epoch = datetime.now(UTC)
 
             # Mark pipeline as running
             pipeline.status = PipelineStatus.RUNNING
