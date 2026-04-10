@@ -129,7 +129,7 @@ In concurrent/BRC mode (`EGG_CONCURRENT_MODE=true`), the gateway blocks direct `
 **How it works:**
 - After push-target enforcement and before branch ownership checks, the gateway checks whether the push originates from the consensus protocol
 - The check activates when all of the following are true: `EGG_CONCURRENT_MODE=true` (environment variable), the session has a `pipeline_id`, and the push is not an infrastructure push (checkpoints, pipeline state)
-- When `egg-orch consensus propose --push` runs, it sets `EGG_CONSENSUS_PUSH=1` in the subprocess environment. The git wrapper reads this and includes `"consensus_push": true` in the JSON payload to the gateway
+- When `egg-orch consensus propose --push` runs, it calls the gateway's `/api/v1/git/push` endpoint directly (bypassing the git wrapper) with `"consensus_push": true` in the JSON payload
 - Pushes without the `consensus_push` marker are rejected with HTTP 403
 
 **Why this matters:** Without this enforcement, agents can bypass the BRC review protocol by calling `git push` directly — changes land on the branch without peer review, breaking the "all changes must be reviewed" invariant. This was observed in pipeline #1570 v17, where the coder agent pushed 7 incremental commits without ever entering BRC consensus. The auto-repropose mechanism (#1666/#1667) provides a safety net, but gateway-level enforcement makes the invariant structural rather than relying on agent compliance.
@@ -142,8 +142,7 @@ egg-orch consensus propose --push
             └─→ gateway: allows push (marker present)
 
 Fallback (no GATEWAY_URL, e.g. local dev):
-  └─→ sets EGG_CONSENSUS_PUSH=1 in subprocess env
-       └─→ git push via git wrapper
+  └─→ plain git push (no concurrent-mode enforcement)
 ```
 
 **Killswitch:** Set `CONCURRENT_PUSH_ENFORCEMENT=false` to disable (for emergency bypass). Follows the same pattern as `PUSH_TARGET_ENFORCEMENT`.
@@ -549,7 +548,7 @@ Both methods clear all in-memory config caches so the next access re-reads from 
 
 9. **Push-target enforcement**: Pipeline agents must push to their assigned branch only. When a push to the assigned branch fails (e.g., due to phase file restrictions from branch history contamination), agents must signal an error rather than improvise a new branch name. This prevents commits from landing on unexpected branches where the pipeline cannot find them.
 
-10. **Concurrent-mode push enforcement**: In BRC mode, direct `git push` is blocked — agents must use `egg-orch consensus propose --push`. This makes the "all changes must be reviewed" invariant structural rather than relying on agent compliance. A `consensus_push` marker flows from the orch CLI through the git wrapper to the gateway, distinguishing protocol-originated pushes from direct pushes. A `CONCURRENT_PUSH_ENFORCEMENT` killswitch follows the same pattern as `PUSH_TARGET_ENFORCEMENT` for emergency bypass.
+10. **Concurrent-mode push enforcement**: In BRC mode, direct `git push` is blocked — agents must use `egg-orch consensus propose --push`. This makes the "all changes must be reviewed" invariant structural rather than relying on agent compliance. A `consensus_push` marker flows from the orch CLI directly to the gateway API (bypassing the git wrapper), distinguishing protocol-originated pushes from direct pushes. A `CONCURRENT_PUSH_ENFORCEMENT` killswitch follows the same pattern as `PUSH_TARGET_ENFORCEMENT` for emergency bypass.
 
 ## Testing
 

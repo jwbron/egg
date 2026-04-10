@@ -271,7 +271,25 @@ print(json.dumps({
         case "$http_code" in
             401) echo "Authentication failed - check session token" >&2 ;;
             403)
-                cat >&2 << 'EOF'
+                # Check if this is a concurrent-mode block
+                concurrent_block=$(echo "$response" | python3 -c "import sys, json; print('concurrent' in json.load(sys.stdin).get('message', '').lower())" 2>/dev/null)
+                if [ "$concurrent_block" = "True" ]; then
+                    cat >&2 << 'EOF'
+
+================================================================================
+  PUSH BLOCKED — CONCURRENT MODE
+================================================================================
+
+Direct git push is blocked in concurrent mode.
+Use: egg-orch consensus propose --push
+
+See error details above for more information.
+
+================================================================================
+
+EOF
+                else
+                    cat >&2 << 'EOF'
 
 ================================================================================
   PUSH BLOCKED BY POLICY
@@ -283,9 +301,12 @@ To push, ensure one of the following:
   1. Use a bot-prefixed branch name: egg-* or egg/*
   2. Create a PR from this branch first (the branch will then be owned by egg)
 
+See error details above for more information.
+
 ================================================================================
 
 EOF
+                fi
                 ;;
             429) echo "Rate limit exceeded - please wait before trying again" >&2 ;;
         esac

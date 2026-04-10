@@ -363,7 +363,7 @@ While auto re-propose provides a **safety net** for stale reviews, it relies on 
 2. The orch CLI calls the gateway push API directly (bypassing the git wrapper) with `"consensus_push": true` in the JSON payload
 3. The gateway checks: if `EGG_CONCURRENT_MODE=true` AND the session has a `pipeline_id` AND the push is not infrastructure (checkpoints/pipeline state), then `consensus_push` must be present
 4. Pushes without the marker are rejected with HTTP 403
-5. Fallback: when `GATEWAY_URL` is not set (e.g., local development), the orch CLI falls back to `git push` with `EGG_CONSENSUS_PUSH=1` in the subprocess environment
+5. Fallback: when `GATEWAY_URL` is not set (e.g., local development), the orch CLI falls back to plain `git push`. No concurrent-mode enforcement exists in this path — the gateway is not running to enforce it
 
 **Relationship to auto re-propose:** Gateway enforcement makes auto re-propose less critical in concurrent mode — every push IS a proposal, so there are no "orphan pushes" to detect. Auto re-propose remains as defense-in-depth for edge cases (e.g., if an agent manages to push through an alternative path).
 

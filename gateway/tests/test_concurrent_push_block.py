@@ -197,11 +197,9 @@ class TestConcurrentPushBlock:
         ):
             with patch.dict(os.environ, env):
                 response = _do_push(client, consensus_push=True)
-                # Should not be blocked by concurrent check — may succeed or
-                # fail later for other reasons, but NOT 403 concurrent block
-                if response.status_code == 403:
-                    data = json.loads(response.data)
-                    assert "concurrent mode" not in data["message"].lower()
+                assert response.status_code == 200, (
+                    f"Expected 200 for consensus push, got {response.status_code}"
+                )
 
     def test_push_allowed_when_not_concurrent_mode(self, client):
         """Push without concurrent mode should not be blocked by this check."""
@@ -225,9 +223,9 @@ class TestConcurrentPushBlock:
         ):
             with patch.dict(os.environ, env):
                 response = _do_push(client)
-                if response.status_code == 403:
-                    data = json.loads(response.data)
-                    assert "concurrent mode" not in data["message"].lower()
+                assert response.status_code == 200, (
+                    f"Expected 200 when not in concurrent mode, got {response.status_code}"
+                )
 
     def test_push_allowed_without_pipeline_id(self, client):
         """Push in concurrent mode but without pipeline_id should not be blocked."""
@@ -250,9 +248,9 @@ class TestConcurrentPushBlock:
         ):
             with patch.dict(os.environ, env):
                 response = _do_push(client)
-                if response.status_code == 403:
-                    data = json.loads(response.data)
-                    assert "concurrent mode" not in data["message"].lower()
+                assert response.status_code == 200, (
+                    f"Expected 200 without pipeline_id, got {response.status_code}"
+                )
 
     def test_killswitch_disables_enforcement(self, client):
         """CONCURRENT_PUSH_ENFORCEMENT=false should bypass the check."""
@@ -276,9 +274,9 @@ class TestConcurrentPushBlock:
         ):
             with patch.dict(os.environ, env):
                 response = _do_push(client)
-                if response.status_code == 403:
-                    data = json.loads(response.data)
-                    assert "concurrent mode" not in data["message"].lower()
+                assert response.status_code == 200, (
+                    f"Expected 200 with killswitch, got {response.status_code}"
+                )
 
     def test_infrastructure_push_exempt(self, client):
         """Pushes to infrastructure branches should bypass concurrent check."""
@@ -302,11 +300,12 @@ class TestConcurrentPushBlock:
             patches[7],
         ):
             with patch.dict(os.environ, env):
-                # Push to infrastructure branch
+                # Push to infrastructure branch — should not be blocked by
+                # concurrent mode (infrastructure is exempt)
                 response = _do_push(client, refspec=CHECKPOINT_BRANCH)
-                if response.status_code == 403:
-                    data = json.loads(response.data)
-                    assert "concurrent mode" not in data["message"].lower()
+                assert response.status_code != 403 or (
+                    "concurrent mode" not in json.loads(response.data)["message"].lower()
+                ), "Infrastructure push should not be blocked by concurrent mode enforcement"
 
 
 class TestConcurrentPushBlockEdgeCases:
@@ -435,9 +434,9 @@ class TestConcurrentPushBlockEdgeCases:
             with patch.dict(os.environ, env_clear):
                 os.environ.pop("EGG_CONCURRENT_MODE", None)
                 response = _do_push(client)
-                if response.status_code == 403:
-                    data = json.loads(response.data)
-                    assert "concurrent mode" not in data["message"].lower()
+                assert response.status_code == 200, (
+                    f"Expected 200 when EGG_CONCURRENT_MODE not set, got {response.status_code}"
+                )
 
     def test_killswitch_values(self, client):
         """Killswitch should accept '0' and 'no' in addition to 'false'."""
@@ -462,11 +461,9 @@ class TestConcurrentPushBlockEdgeCases:
             ):
                 with patch.dict(os.environ, env):
                     response = _do_push(client)
-                    if response.status_code == 403:
-                        data = json.loads(response.data)
-                        assert "concurrent mode" not in data["message"].lower(), (
-                            f"Killswitch value '{killswitch_val}' did not disable enforcement"
-                        )
+                    assert response.status_code == 200, (
+                        f"Expected 200 with killswitch='{killswitch_val}', got {response.status_code}"
+                    )
 
     def test_different_agent_roles_all_blocked(self, client):
         """All agent roles (coder, tester, documenter) should be blocked equally."""

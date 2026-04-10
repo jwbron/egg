@@ -1127,16 +1127,15 @@ def _consensus_push() -> int:
     container_id = os.environ.get("CONTAINER_ID", "")
 
     if not gateway_url:
-        # Fallback: use git push with env var when gateway URL is not set
-        # (e.g. local development).
+        # Fallback: use plain git push when gateway URL is not set
+        # (e.g. local development). No concurrent-mode enforcement exists
+        # in this path — the gateway is not running to enforce it.
         try:
-            push_env = {**os.environ, "EGG_CONSENSUS_PUSH": "1"}
             subprocess.check_output(
                 ["git", "push"],
                 text=True,
                 cwd=repo_path or None,
                 stderr=subprocess.STDOUT,
-                env=push_env,
             )
             return 0
         except subprocess.CalledProcessError as e:

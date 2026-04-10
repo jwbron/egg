@@ -4,8 +4,8 @@ When `egg-orch consensus propose --push` is used, the orch_cli calls
 _consensus_push() which either:
   1. Calls the gateway API directly with consensus_push=true in the payload
      (when GATEWAY_URL is set), or
-  2. Falls back to `git push` with EGG_CONSENSUS_PUSH=1 in the subprocess
-     environment (when GATEWAY_URL is not set, e.g. local development).
+  2. Falls back to plain `git push` (when GATEWAY_URL is not set, e.g. local
+     development). No concurrent-mode enforcement exists in this path.
 
 This ensures the push is marked as originating from the consensus protocol
 so the gateway allows it in concurrent mode.
@@ -283,36 +283,21 @@ class TestConsensusPushDirectGatewayAPI:
 class TestConsensusPushFallbackGitPush:
     """Test _consensus_push() when GATEWAY_URL is not set — falls back to git push."""
 
-    def test_fallback_passes_consensus_env_var(self, no_gateway_env):
-        """Fallback git push should set EGG_CONSENSUS_PUSH=1 in the subprocess env."""
-        captured_env = {}
+    def test_fallback_uses_plain_git_push(self, no_gateway_env):
+        """Fallback git push should use plain git push without custom env."""
+        captured_kwargs = {}
 
         def mock_check_output(cmd, text=False, cwd=None, stderr=None, env=None):
             if cmd == ["git", "push"]:
-                captured_env.update(env or {})
+                captured_kwargs["env"] = env
                 return "Everything up-to-date"
             return ""
 
         with patch("egg_lib.orch_cli.subprocess.check_output", side_effect=mock_check_output):
             result = _consensus_push()
             assert result == 0
-            assert captured_env.get("EGG_CONSENSUS_PUSH") == "1"
-
-    def test_fallback_includes_parent_env(self, no_gateway_env):
-        """Fallback git push env should include parent env plus marker."""
-        captured_env = {}
-
-        def mock_check_output(cmd, text=False, cwd=None, stderr=None, env=None):
-            if cmd == ["git", "push"]:
-                captured_env.update(env or {})
-                return "Everything up-to-date"
-            return ""
-
-        with patch("egg_lib.orch_cli.subprocess.check_output", side_effect=mock_check_output):
-            result = _consensus_push()
-            assert result == 0
-            assert captured_env.get("EGG_CONSENSUS_PUSH") == "1"
-            assert captured_env.get("EGG_PIPELINE_ID") == "issue-1669"
+            # Fallback should not pass a custom env (no EGG_CONSENSUS_PUSH)
+            assert captured_kwargs.get("env") is None
 
     def test_fallback_push_failure_returns_1(self, no_gateway_env):
         """Fallback git push CalledProcessError should return 1."""
