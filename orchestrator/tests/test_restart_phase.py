@@ -4,17 +4,15 @@ Covers:
 - POST /<pipeline_id>/phases/<phase>/restart endpoint (task-1-3)
 - Full consensus reset on phase restart
 - Phase review cycle counter reset
-- All containers stopped and respawned
+- All containers stopped; polling thread launched (#1638)
 - Edge cases: missing pipeline, invalid phase, artifact preservation
 """
 
+from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from container_spawner import (
-    ContainerSpawnError,
-    SpawnedContainer,
-)
 from models import (
     AgentExecution,
     AgentExecutionStatus,
@@ -131,31 +129,23 @@ def client(app):
 class TestRestartPhaseEndpoint:
     """Tests for POST /<pipeline_id>/phases/<phase>/restart endpoint."""
 
+    @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_restart_phase_success(self, mock_repo, mock_resolve, mock_spawner_fn, client):
+    def test_restart_phase_success(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
+    ):
         """Successful phase restart returns 200."""
         mock_repo.return_value = "/repo"
         pipeline = _make_pipeline_with_phase_agents()
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.cleanup_pipeline.return_value = 3
-        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-coder-xyz",
-                container_name="egg-issue-200-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-200",
-            environment={},
-        )
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -199,10 +189,13 @@ class TestRestartPhaseEndpoint:
 
         assert response.status_code == 400
 
+    @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_restart_phase_failed_pipeline(self, mock_repo, mock_resolve, mock_spawner_fn, client):
+    def test_restart_phase_failed_pipeline(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
+    ):
         """Phase restart succeeds on a failed pipeline and resets status to running."""
         mock_repo.return_value = "/repo"
         pipeline = _make_pipeline_with_phase_agents()
@@ -211,21 +204,10 @@ class TestRestartPhaseEndpoint:
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.cleanup_pipeline.return_value = 3
-        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-coder-xyz",
-                container_name="egg-issue-200-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-200",
-            environment={},
-        )
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -235,36 +217,27 @@ class TestRestartPhaseEndpoint:
 
         assert response.status_code == 200
         assert pipeline.status == PipelineStatus.RUNNING
-        assert pipeline.phases["implement"].status == PipelineStatus.RUNNING
+        # Phase is set to PENDING for the new _run_pipeline thread
+        assert pipeline.phases["implement"].status == PipelineStatus.PENDING
 
+    @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_running_pipeline_status_unchanged(
-        self, mock_repo, mock_resolve, mock_spawner_fn, client
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
     ):
-        """Phase restart on a running pipeline does not change pipeline status."""
+        """Phase restart on a running pipeline keeps pipeline status as RUNNING."""
         mock_repo.return_value = "/repo"
         pipeline = _make_pipeline_with_phase_agents()
         assert pipeline.status == PipelineStatus.RUNNING  # precondition
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.cleanup_pipeline.return_value = 3
-        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-coder-xyz",
-                container_name="egg-issue-200-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-200",
-            environment={},
-        )
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -275,35 +248,28 @@ class TestRestartPhaseEndpoint:
         assert response.status_code == 200
         assert pipeline.status == PipelineStatus.RUNNING
 
+    @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_restart_phase_awaiting_human_pipeline_status_unchanged(
-        self, mock_repo, mock_resolve, mock_spawner_fn, client
+    def test_restart_phase_awaiting_human_pipeline_set_to_running(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
     ):
-        """Phase restart on an AWAITING_HUMAN pipeline does not change pipeline status."""
+        """Phase restart on an AWAITING_HUMAN pipeline sets status to RUNNING.
+
+        The phase restart launches a new _run_pipeline thread, so the pipeline
+        must be in RUNNING state.
+        """
         mock_repo.return_value = "/repo"
         pipeline = _make_pipeline_with_phase_agents()
         pipeline.status = PipelineStatus.AWAITING_HUMAN
-        assert pipeline.status == PipelineStatus.AWAITING_HUMAN  # precondition
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.cleanup_pipeline.return_value = 3
-        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-coder-xyz",
-                container_name="egg-issue-200-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-200",
-            environment={},
-        )
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -312,7 +278,7 @@ class TestRestartPhaseEndpoint:
         )
 
         assert response.status_code == 200
-        assert pipeline.status == PipelineStatus.AWAITING_HUMAN
+        assert pipeline.status == PipelineStatus.RUNNING
 
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
@@ -335,11 +301,12 @@ class TestRestartPhaseEndpoint:
 
         assert response.status_code == 409
 
+    @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_stops_all_containers(
-        self, mock_repo, mock_resolve, mock_spawner_fn, client
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
     ):
         """Phase restart should stop and remove all containers for the phase."""
         mock_repo.return_value = "/repo"
@@ -347,6 +314,7 @@ class TestRestartPhaseEndpoint:
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
@@ -354,17 +322,6 @@ class TestRestartPhaseEndpoint:
             container_id="any",
             container_name="any",
             status=ContainerStatus.EXITED,
-        )
-        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-xyz",
-                container_name="egg-issue-200-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-200",
-            environment={},
         )
         mock_spawner_fn.return_value = mock_spawner
 
@@ -382,10 +339,13 @@ class TestRestartPhaseEndpoint:
             f"Expected 3+ remove calls for 3 containers, got {mock_spawner.remove_agent_container.call_count}"
         )
 
+    @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_restart_phase_resets_consensus(self, mock_repo, mock_resolve, mock_spawner_fn, client):
+    def test_restart_phase_resets_consensus(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
+    ):
         """Phase restart should attempt to clear consensus state.
 
         The endpoint uses a relative import to get the consensus tracker,
@@ -397,20 +357,10 @@ class TestRestartPhaseEndpoint:
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-xyz",
-                container_name="egg-issue-200-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-200",
-            environment={},
-        )
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -421,11 +371,12 @@ class TestRestartPhaseEndpoint:
         # Should succeed — consensus reset failures are handled gracefully
         assert response.status_code == 200
 
+    @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_resets_review_cycle_counter(
-        self, mock_repo, mock_resolve, mock_spawner_fn, client
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
     ):
         """Phase restart should reset the review cycle counter."""
         mock_repo.return_value = "/repo"
@@ -435,20 +386,10 @@ class TestRestartPhaseEndpoint:
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-xyz",
-                container_name="egg-issue-200-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-200",
-            environment={},
-        )
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -460,11 +401,12 @@ class TestRestartPhaseEndpoint:
         # Pipeline state should be saved after reset
         assert mock_store.update_pipeline.called, "Expected pipeline state to be persisted"
 
+    @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_preserves_prior_phase_artifacts(
-        self, mock_repo, mock_resolve, mock_spawner_fn, client
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
     ):
         """Phase restart should preserve artifacts from prior phases."""
         mock_repo.return_value = "/repo"
@@ -478,20 +420,10 @@ class TestRestartPhaseEndpoint:
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-xyz",
-                container_name="egg-issue-200-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-200",
-            environment={},
-        )
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -502,50 +434,6 @@ class TestRestartPhaseEndpoint:
         assert response.status_code == 200
         # Prior phase artifacts should be preserved
         assert pipeline.phases["refine"].artifacts == {"analysis": "analysis.md"}
-
-    @patch("routes.pipelines.get_container_spawner")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    def test_restart_phase_respawns_all_agents(
-        self, mock_repo, mock_resolve, mock_spawner_fn, client
-    ):
-        """Phase restart should respawn all agents for the phase."""
-        mock_repo.return_value = "/repo"
-        pipeline = _make_pipeline_with_phase_agents()
-
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_resolve.return_value = (mock_store, pipeline)
-
-        spawn_count = 0
-
-        def mock_spawn(*args, **kwargs):
-            nonlocal spawn_count
-            spawn_count += 1
-            return SpawnedContainer(
-                container_info=ContainerInfo(
-                    container_id=f"new-{spawn_count}",
-                    container_name=f"egg-issue-200-agent-{spawn_count}",
-                    status=ContainerStatus.RUNNING,
-                ),
-                session_info=None,
-                agent_role=kwargs.get("agent_role", AgentRole.CODER),
-                pipeline_id="issue-200",
-                environment={},
-            )
-
-        mock_spawner = MagicMock()
-        mock_spawner.spawn_agent_container.side_effect = mock_spawn
-        mock_spawner_fn.return_value = mock_spawner
-
-        response = client.post(
-            "/api/v1/pipelines/issue-200/phases/implement/restart",
-            json={},
-        )
-
-        assert response.status_code == 200
-        # All 3 agents should be respawned
-        assert spawn_count >= 3, f"Expected 3+ agent respawns, got {spawn_count}"
 
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
@@ -608,17 +496,15 @@ class TestRestartPhaseEndpoint:
             "Expected 409 when pipeline advances between initial check and lock acquisition"
         )
 
+    @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines._compute_gateway_mode")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_uses_computed_gateway_mode(
-        self, mock_repo, mock_resolve, mock_spawner_fn, mock_gateway_mode, client
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_gateway_mode, mock_thread, client
     ):
-        """Phase restart should use _compute_gateway_mode, not hardcoded 'public'.
-
-        This ensures private-repo pipelines get the correct gateway mode on restart.
-        """
+        """Phase restart should use _compute_gateway_mode, not hardcoded 'public'."""
         mock_repo.return_value = "/repo"
         mock_gateway_mode.return_value = ("private", "private")
 
@@ -626,20 +512,10 @@ class TestRestartPhaseEndpoint:
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-xyz",
-                container_name="egg-issue-200-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-200",
-            environment={},
-        )
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -649,62 +525,13 @@ class TestRestartPhaseEndpoint:
 
         assert response.status_code == 200
         mock_gateway_mode.assert_called_once_with(pipeline)
-        # Verify spawn calls use the computed mode, not hardcoded "public"
-        for spawn_call in mock_spawner.spawn_agent_container.call_args_list:
-            assert spawn_call[1].get("mode") == "private", (
-                "Expected computed gateway mode 'private', not hardcoded 'public'"
-            )
 
-    @patch("routes.pipelines.get_container_spawner")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    def test_restart_phase_passes_preserve_worktree_on_failure(
-        self, mock_repo, mock_resolve, mock_spawner_fn, client
-    ):
-        """Phase restart should pass preserve_worktree_on_failure=True to spawn.
-
-        This ensures that a transient Docker failure during phase restart does
-        not destroy agents' worktrees containing committed work.
-        """
-        mock_repo.return_value = "/repo"
-        pipeline = _make_pipeline_with_phase_agents()
-
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = pipeline
-        mock_resolve.return_value = (mock_store, pipeline)
-
-        mock_spawner = MagicMock()
-        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-xyz",
-                container_name="egg-issue-200-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-200",
-            environment={},
-        )
-        mock_spawner_fn.return_value = mock_spawner
-
-        response = client.post(
-            "/api/v1/pipelines/issue-200/phases/implement/restart",
-            json={},
-        )
-
-        assert response.status_code == 200
-        # Every spawn call during phase restart must preserve worktrees on failure
-        for spawn_call in mock_spawner.spawn_agent_container.call_args_list:
-            assert spawn_call[1].get("preserve_worktree_on_failure") is True, (
-                "Phase restart must pass preserve_worktree_on_failure=True to "
-                "protect existing worktrees from transient Docker failures"
-            )
-
+    @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_updates_status_before_container_teardown(
-        self, mock_repo, mock_resolve, mock_spawner_fn, client
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
     ):
         """Status should be set to RUNNING before slow container stop/remove calls.
 
@@ -719,6 +546,7 @@ class TestRestartPhaseEndpoint:
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
 
         # Track the order of update_pipeline vs stop_agent_container calls
@@ -734,17 +562,6 @@ class TestRestartPhaseEndpoint:
 
         mock_spawner = MagicMock()
         mock_spawner.stop_agent_container.side_effect = track_stop
-        mock_spawner.spawn_agent_container.return_value = SpawnedContainer(
-            container_info=ContainerInfo(
-                container_id="new-coder-xyz",
-                container_name="egg-issue-200-coder",
-                status=ContainerStatus.RUNNING,
-            ),
-            session_info=None,
-            agent_role=AgentRole.CODER,
-            pipeline_id="issue-200",
-            environment={},
-        )
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -762,18 +579,137 @@ class TestRestartPhaseEndpoint:
             f"Expected status update before container stop. Call order: {call_order}"
         )
 
+
+# ---------------------------------------------------------------------------
+# New tests for #1638: polling thread launch, epoch bump, state reset
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")
+class TestRestartPhaseLaunchesPollingThread:
+    """Tests that restart_phase launches a _run_pipeline polling thread (#1638)."""
+
+    @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_restart_phase_reverts_status_when_all_spawns_fail(
-        self, mock_repo, mock_resolve, mock_spawner_fn, client
+    def test_restart_phase_launches_polling_thread(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread_cls, client
     ):
-        """Total spawn failure must revert pipeline status back to FAILED.
+        """Phase restart must launch a _run_pipeline thread.
 
-        Regression test for review feedback on #1594: the early status update
-        sets RUNNING before container teardown and respawn. If every agent
-        spawn fails, the status must be reverted so monitoring doesn't see a
-        'running' pipeline with no running containers.
+        This is the root cause of #1638: without a polling thread, consensus
+        completion is never detected and the pipeline hangs.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_thread_instance = MagicMock()
+        mock_thread_cls.return_value = mock_thread_instance
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 200
+        # Verify thread was created and started
+        mock_thread_cls.assert_called_once()
+        call_kwargs = mock_thread_cls.call_args
+        assert call_kwargs[1]["daemon"] is True
+        assert "pipeline-issue-200" in call_kwargs[1]["name"]
+        mock_thread_instance.start.assert_called_once()
+
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_bumps_created_at(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
+    ):
+        """Phase restart must bump pipeline.created_at for old thread detection.
+
+        The epoch bump ensures any lingering old _run_pipeline thread detects
+        the restart via the created_at != run_created_at check and exits.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+        original_created_at = pipeline.created_at
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 200
+        # created_at must have been bumped
+        assert pipeline.created_at != original_created_at, (
+            "Expected created_at to be bumped for old thread detection"
+        )
+
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_resets_completed_at(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
+    ):
+        """Phase restart must clear completed_at.
+
+        Root cause of stale timestamp in #1638: completed_at from the first
+        failure persisted across restarts.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+        pipeline.status = PipelineStatus.FAILED
+        pipeline.phases["implement"].status = PipelineStatus.FAILED
+        pipeline.phases["implement"].completed_at = datetime(2026, 4, 1, 1, 28, tzinfo=UTC)
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 200
+        assert pipeline.phases["implement"].completed_at is None, (
+            "Expected completed_at to be cleared on phase restart"
+        )
+
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_sets_phase_pending(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
+    ):
+        """Phase restart must set phase status to PENDING.
+
+        The _run_pipeline thread expects PENDING to start the phase fresh,
+        including spawning containers via _run_concurrent_phase.
         """
         mock_repo.return_value = "/repo"
         pipeline = _make_pipeline_with_phase_agents()
@@ -782,11 +718,10 @@ class TestRestartPhaseEndpoint:
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
 
         mock_spawner = MagicMock()
-        # All spawn attempts fail
-        mock_spawner.spawn_agent_container.side_effect = ContainerSpawnError("Failed to spawn")
         mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
@@ -794,10 +729,69 @@ class TestRestartPhaseEndpoint:
             json={},
         )
 
-        assert response.status_code == 500
-        # Verify status was reverted to FAILED after total spawn failure
-        assert pipeline.status == PipelineStatus.FAILED
-        assert pipeline.phases["implement"].status == PipelineStatus.FAILED
-        # Verify update_pipeline was called at least twice:
-        # once for the early RUNNING update, once for the FAILED revert
-        assert mock_store.update_pipeline.call_count >= 2
+        assert response.status_code == 200
+        assert pipeline.phases["implement"].status == PipelineStatus.PENDING, (
+            "Expected phase status to be PENDING for _run_pipeline thread"
+        )
+
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_clears_error(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
+    ):
+        """Phase restart must clear pipeline and phase error fields."""
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+        pipeline.status = PipelineStatus.FAILED
+        pipeline.error = "All agents died from token exhaustion"
+        pipeline.phases["implement"].status = PipelineStatus.FAILED
+        pipeline.phases["implement"].error = "Container exited with code 1"
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 200
+        assert pipeline.error is None, "Expected pipeline error to be cleared"
+        assert pipeline.phases["implement"].error is None, "Expected phase error to be cleared"
+
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_returns_agent_roles(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
+    ):
+        """Phase restart should return the list of agent roles to be restarted."""
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+        agents = data["data"]["agents_restarted"]
+        assert len(agents) == 3
+        assert set(agents) == {"coder", "tester", "documenter"}
