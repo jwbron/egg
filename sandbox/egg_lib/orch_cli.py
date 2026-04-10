@@ -1933,7 +1933,7 @@ def create_parser() -> argparse.ArgumentParser:
     prog_query.set_defaults(func=cmd_progress_query)
 
     # --- push ---
-    from .cli_push import register_push_subcommand
+    from egg_lib.cli_push import register_push_subcommand
 
     register_push_subcommand(subparsers)
 
