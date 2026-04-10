@@ -7,7 +7,7 @@ along with model alias resolution and context window lookup utilities.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
 # Model alias table
@@ -35,9 +35,7 @@ _DEFAULT_CONTEXT_WINDOW: int = 128_000
 # Regex for parsing model specs like "opus[1m]" or "sonnet[200k]"
 # ---------------------------------------------------------------------------
 
-_MODEL_SPEC_RE = re.compile(
-    r"^(?P<model>[A-Za-z0-9._-]+?)(?:\[(?P<size>\d+)(?P<unit>[km])\])?$"
-)
+_MODEL_SPEC_RE = re.compile(r"^(?P<model>[A-Za-z0-9._-]+?)(?:\[(?P<size>\d+)(?P<unit>[km])\])?$")
 
 
 # ---------------------------------------------------------------------------

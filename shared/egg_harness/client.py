@@ -18,7 +18,6 @@ from egg_harness.config import HarnessConfig, ProviderConfig, parse_model_spec
 from egg_harness.events import EventBus
 from egg_harness.loop import AgentLoop
 from egg_harness.permissions import (
-    compose_permissions,
     create_disallow_list_callback,
 )
 from egg_harness.result import AgentResult
@@ -142,9 +141,7 @@ async def run_agent_async(
 
     # -- Permission enforcement ----------------------------------------
     if intercept_tools:
-        private_mode = os.environ.get(
-            "EGG_PRIVATE_MODE", ""
-        ).lower() in ("true", "1")
+        private_mode = os.environ.get("EGG_PRIVATE_MODE", "").lower() in ("true", "1")
         disallowed: list[str] = []
         if private_mode:
             disallowed.extend(["WebFetch", "WebSearch"])

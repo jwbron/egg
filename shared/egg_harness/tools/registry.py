@@ -90,7 +90,9 @@ class ToolRegistry:
         self._tools: dict[str, tuple[ToolDefinition, ToolHandler]] = {}
         self._permission_callback: Callable[[str, dict[str, Any]], str | None] | None = None
         # max_output_bytes is an alias for max_output_size
-        self._max_output_size = max_output_bytes if max_output_bytes is not None else max_output_size
+        self._max_output_size = (
+            max_output_bytes if max_output_bytes is not None else max_output_size
+        )
         # can_use_tool is an alias for set_permission_callback
         if can_use_tool is not None:
             self._permission_callback = can_use_tool
@@ -179,8 +181,7 @@ class ToolRegistry:
             truncated = result.output[: self._max_output_size]
             result = ToolResult(
                 output=(
-                    truncated
-                    + f"\n\n[Output truncated — exceeded {self._max_output_size} bytes]"
+                    truncated + f"\n\n[Output truncated — exceeded {self._max_output_size} bytes]"
                 ),
                 is_error=result.is_error,
             )

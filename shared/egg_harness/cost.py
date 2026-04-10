@@ -6,7 +6,7 @@ usage across multiple API calls.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # Rates are expressed in USD **per token** (i.e. the published per-million
 # rate divided by 1_000_000).  Keeping them in per-token form avoids a

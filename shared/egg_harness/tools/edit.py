@@ -44,10 +44,7 @@ def create_edit_tool() -> tuple[ToolDefinition, ToolHandler]:
                 },
                 "replace_all": {
                     "type": "boolean",
-                    "description": (
-                        "Replace all occurrences of old_string. "
-                        "Defaults to false."
-                    ),
+                    "description": ("Replace all occurrences of old_string. Defaults to false."),
                     "default": False,
                 },
             },
@@ -131,9 +128,7 @@ def create_edit_tool() -> tuple[ToolDefinition, ToolHandler]:
             )
 
         replacements = count if replace_all else 1
-        return ToolResult(
-            output=f"Successfully edited {file_path} ({replacements} replacement(s))"
-        )
+        return ToolResult(output=f"Successfully edited {file_path} ({replacements} replacement(s))")
 
     return definition, handler
 
@@ -154,9 +149,13 @@ def edit_file(
     import asyncio
 
     _, handler = create_edit_tool()
-    return asyncio.run(handler({
-        "file_path": file_path,
-        "old_string": old_string,
-        "new_string": new_string,
-        "replace_all": replace_all,
-    }))
+    return asyncio.run(
+        handler(
+            {
+                "file_path": file_path,
+                "old_string": old_string,
+                "new_string": new_string,
+                "replace_all": replace_all,
+            }
+        )
+    )

@@ -50,9 +50,7 @@ def create_read_tool() -> tuple[ToolDefinition, ToolHandler]:
                 },
                 "limit": {
                     "type": "integer",
-                    "description": (
-                        "The number of lines to read. Defaults to 2000."
-                    ),
+                    "description": ("The number of lines to read. Defaults to 2000."),
                     "exclusiveMinimum": 0,
                 },
             },

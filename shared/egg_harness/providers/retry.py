@@ -117,10 +117,9 @@ class RetryProvider(Provider):
 
                 # Retryable error -- back off and try again (unless exhausted).
                 if attempt < self._max_retries:
-                    delay = self._base_delay * (2 ** attempt) + random.uniform(0, 1)
+                    delay = self._base_delay * (2**attempt) + random.uniform(0, 1)
                     logger.info(
-                        "Retryable error on provider %r (attempt %d/%d), "
-                        "retrying in %.2fs: %s",
+                        "Retryable error on provider %r (attempt %d/%d), retrying in %.2fs: %s",
                         self.name,
                         attempt + 1,
                         self._max_retries + 1,

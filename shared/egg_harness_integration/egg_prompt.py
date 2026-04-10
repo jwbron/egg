@@ -80,9 +80,7 @@ def build_egg_system_prompt(
                 if text.strip():
                     content_parts.append(text)
             except OSError:
-                logger.warning(
-                    "Failed to read project CLAUDE.md: %s", project_path
-                )
+                logger.warning("Failed to read project CLAUDE.md: %s", project_path)
 
     return _SECTION_SEPARATOR.join(content_parts)
 

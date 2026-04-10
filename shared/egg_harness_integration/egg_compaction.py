@@ -81,9 +81,7 @@ def create_compaction_callback(
             progress_item = ProgressItem(
                 step="context_compaction",
                 state=ProgressState.COMPLETE,
-                detail=(
-                    f"Compacted context: {tokens_before} -> {tokens_after} tokens"
-                ),
+                detail=(f"Compacted context: {tokens_before} -> {tokens_after} tokens"),
                 timestamp=datetime.now(UTC),
             )
 
@@ -119,9 +117,7 @@ def create_compaction_callback(
 
         except Exception:
             # Never let anchor update failures disrupt the agent loop.
-            logger.exception(
-                "Failed to update anchor %s after compaction", resolved_id
-            )
+            logger.exception("Failed to update anchor %s after compaction", resolved_id)
 
     return _on_compaction
 

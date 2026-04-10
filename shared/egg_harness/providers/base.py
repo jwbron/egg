@@ -11,7 +11,6 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, Union
 
-
 # ---------------------------------------------------------------------------
 # Stream event dataclasses
 # ---------------------------------------------------------------------------
@@ -41,7 +40,9 @@ class ToolUseStart:
 _ToolUseStart_orig_init = ToolUseStart.__init__
 
 
-def _ToolUseStart_init(self: Any, id: str | None = None, name: str = "", *, tool_use_id: str | None = None) -> None:
+def _ToolUseStart_init(
+    self: Any, id: str | None = None, name: str = "", *, tool_use_id: str | None = None
+) -> None:
     resolved_id = tool_use_id if id is None else id
     if resolved_id is None:
         raise TypeError("ToolUseStart requires 'id' or 'tool_use_id'")

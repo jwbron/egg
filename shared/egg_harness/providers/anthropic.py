@@ -33,12 +33,14 @@ from egg_harness.providers.base import (
 logger = logging.getLogger(__name__)
 
 # Known-safe gateway hostnames (egg-gateway is the standard sidecar name).
-_ALLOWED_GATEWAY_HOSTS = frozenset({
-    "egg-gateway",
-    "localhost",
-    "127.0.0.1",
-    "::1",
-})
+_ALLOWED_GATEWAY_HOSTS = frozenset(
+    {
+        "egg-gateway",
+        "localhost",
+        "127.0.0.1",
+        "::1",
+    }
+)
 
 
 def _validate_endpoint_url(url: str) -> None:
@@ -122,9 +124,7 @@ class AnthropicProvider(Provider):
                 endpoint=gateway_url,
             )
         if config is None:
-            raise TypeError(
-                "AnthropicProvider requires either 'config' or 'gateway_url'."
-            )
+            raise TypeError("AnthropicProvider requires either 'config' or 'gateway_url'.")
 
         self._config = config
 
@@ -203,8 +203,7 @@ class AnthropicProvider(Provider):
         # Circuit breaker check.
         if self._consecutive_failures >= self._CIRCUIT_BREAKER_THRESHOLD:
             raise RuntimeError(
-                f"Circuit breaker open: {self._consecutive_failures} "
-                f"consecutive failures"
+                f"Circuit breaker open: {self._consecutive_failures} consecutive failures"
             )
 
         resolved_model = model or self._model
@@ -276,22 +275,16 @@ class AnthropicProvider(Provider):
                 status_code = getattr(exc, "status_code", None)
 
                 # Non-retryable 4xx errors (except 429).
-                if (
-                    status_code is not None
-                    and 400 <= status_code < 500
-                    and status_code != 429
-                ):
+                if status_code is not None and 400 <= status_code < 500 and status_code != 429:
                     self._consecutive_failures += 1
                     raise RuntimeError(str(exc)) from exc
 
                 # Retryable: 429 or 5xx.
-                if status_code is not None and (
-                    status_code == 429 or status_code >= 500
-                ):
+                if status_code is not None and (status_code == 429 or status_code >= 500):
                     if attempt < self._MAX_RETRIES:
                         import asyncio
 
-                        await asyncio.sleep(0.1 * (2 ** attempt))
+                        await asyncio.sleep(0.1 * (2**attempt))
                         continue
 
                     # Exhausted retries.

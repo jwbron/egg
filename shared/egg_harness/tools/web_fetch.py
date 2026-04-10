@@ -54,8 +54,7 @@ def create_web_fetch_tool() -> tuple[ToolDefinition, ToolHandler]:
                 "prompt": {
                     "type": "string",
                     "description": (
-                        "A prompt describing what information to extract "
-                        "from the page."
+                        "A prompt describing what information to extract from the page."
                     ),
                 },
             },

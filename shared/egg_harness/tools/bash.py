@@ -48,15 +48,13 @@ def create_bash_tool(
                 "timeout": {
                     "type": "integer",
                     "description": (
-                        "Optional timeout in seconds. Defaults to the tool's "
-                        "configured timeout."
+                        "Optional timeout in seconds. Defaults to the tool's configured timeout."
                     ),
                 },
                 "description": {
                     "type": "string",
                     "description": (
-                        "A short human-readable description of what this "
-                        "command does."
+                        "A short human-readable description of what this command does."
                     ),
                 },
             },
@@ -135,6 +133,7 @@ def create_bash_tool(
 # ---------------------------------------------------------------------------
 # Synchronous convenience wrapper
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class BashResult:

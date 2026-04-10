@@ -148,9 +148,7 @@ class CompactionManager:
         self._last_compaction_turn = self._current_turn
 
         if self._event_bus is not None:
-            self._event_bus.emit_compaction(
-                summary, tokens_before, tokens_after
-            )
+            self._event_bus.emit_compaction(summary, tokens_before, tokens_after)
 
         logger.info(
             "Compacted context: %d -> %d tokens (compaction #%d)",
@@ -207,9 +205,7 @@ class CompactionManager:
         self._last_compaction_turn = self._current_turn
 
         if self._event_bus is not None:
-            self._event_bus.emit_compaction(
-                summary, tokens_before, tokens_after
-            )
+            self._event_bus.emit_compaction(summary, tokens_before, tokens_after)
 
         logger.info(
             "Manual compaction: %d -> %d tokens (compaction #%d)",
@@ -283,9 +279,7 @@ class CompactionManager:
         content = msg.get("content")
         if isinstance(content, list):
             return any(
-                isinstance(block, dict)
-                and block.get("type") == "tool_result"
-                for block in content
+                isinstance(block, dict) and block.get("type") == "tool_result" for block in content
             )
         return False
 
@@ -297,9 +291,7 @@ class CompactionManager:
         content = msg.get("content")
         if isinstance(content, list):
             return any(
-                isinstance(block, dict)
-                and block.get("type") == "tool_use"
-                for block in content
+                isinstance(block, dict) and block.get("type") == "tool_use" for block in content
             )
         return False
 
@@ -325,23 +317,27 @@ class CompactionManager:
         sections.append(f"## Goal/Task\n{goal}")
         sections.append(
             "## Progress\n"
-            + ("\n".join(f"- {item}" for item in progress) if progress
-               else "- No significant progress recorded")
+            + (
+                "\n".join(f"- {item}" for item in progress)
+                if progress
+                else "- No significant progress recorded"
+            )
         )
         sections.append(
             "## Key Decisions\n"
-            + ("\n".join(f"- {item}" for item in decisions) if decisions
-               else "- No key decisions recorded")
+            + (
+                "\n".join(f"- {item}" for item in decisions)
+                if decisions
+                else "- No key decisions recorded"
+            )
         )
         sections.append(
             "## Files Modified\n"
-            + ("\n".join(f"- `{f}`" for f in sorted(files)) if files
-               else "- No files modified")
+            + ("\n".join(f"- `{f}`" for f in sorted(files)) if files else "- No files modified")
         )
         sections.append(
             "## Errors Encountered\n"
-            + ("\n".join(f"- {err}" for err in errors) if errors
-               else "- No errors encountered")
+            + ("\n".join(f"- {err}" for err in errors) if errors else "- No errors encountered")
         )
 
         return "\n\n".join(sections)
@@ -397,8 +393,13 @@ class CompactionManager:
         """Extract key decision markers from messages."""
         decisions: list[str] = []
         decision_keywords = (
-            "decided", "choosing", "chose", "going with",
-            "decision:", "approach:", "strategy:",
+            "decided",
+            "choosing",
+            "chose",
+            "going with",
+            "decision:",
+            "approach:",
+            "strategy:",
         )
         for msg in messages:
             text = _extract_text(msg)
@@ -471,9 +472,7 @@ class CompactionManager:
         # For structured content (tool blocks, etc.), serialise roughly.
         content = msg.get("content")
         if isinstance(content, list):
-            total_chars = sum(
-                len(str(block)) for block in content
-            )
+            total_chars = sum(len(str(block)) for block in content)
             return max(1, total_chars // 4)
         return 1
 
@@ -488,9 +487,7 @@ class CompactionManager:
         Returns:
             Estimated total token count.
         """
-        return sum(
-            self._estimate_message_tokens(msg) for msg in messages
-        )
+        return sum(self._estimate_message_tokens(msg) for msg in messages)
 
 
 # ---------------------------------------------------------------------------

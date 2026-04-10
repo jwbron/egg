@@ -22,10 +22,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "prompt",
         nargs="?",
         default=None,
-        help=(
-            "The prompt to send to the agent.  "
-            "If omitted, reads from stdin."
-        ),
+        help=("The prompt to send to the agent.  If omitted, reads from stdin."),
     )
     parser.add_argument(
         "--model",

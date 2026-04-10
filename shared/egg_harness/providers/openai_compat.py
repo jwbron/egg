@@ -65,9 +65,7 @@ class OpenAICompatibleProvider(Provider):
         # Allow construction via base_url shorthand.
         if config is None and base_url is not None:
             if not base_url:
-                raise ValueError(
-                    "OpenAICompatibleProvider requires a non-empty base_url."
-                )
+                raise ValueError("OpenAICompatibleProvider requires a non-empty base_url.")
             _validate_endpoint_url(base_url)
             config = ProviderConfig(
                 provider_type="openai_compatible",
@@ -76,17 +74,13 @@ class OpenAICompatibleProvider(Provider):
                 api_key_env=api_key_env,
             )
         if config is None:
-            raise TypeError(
-                "OpenAICompatibleProvider requires either 'config' or 'base_url'."
-            )
+            raise TypeError("OpenAICompatibleProvider requires either 'config' or 'base_url'.")
 
         self._config = config
         self._model = config.model
 
         if not config.endpoint:
-            raise ValueError(
-                "OpenAICompatibleProvider requires config.endpoint to be set."
-            )
+            raise ValueError("OpenAICompatibleProvider requires config.endpoint to be set.")
         _validate_endpoint_url(config.endpoint)
         self._endpoint = config.endpoint.rstrip("/")
         self._base_url = self._endpoint
@@ -145,7 +139,7 @@ class OpenAICompatibleProvider(Provider):
                     if not line.startswith("data: "):
                         continue
 
-                    payload = line[len("data: "):]
+                    payload = line[len("data: ") :]
 
                     if payload.strip() == "[DONE]":
                         return
@@ -257,9 +251,7 @@ class OpenAICompatibleProvider(Provider):
                         # New tool call.
                         tc_id = getattr(tc, "id", None) or f"call_{uuid.uuid4().hex[:24]}"
                         tc_name = getattr(func, "name", "") if func else ""
-                        active_tools[tc_index] = _ToolCallState(
-                            id=tc_id, name=tc_name
-                        )
+                        active_tools[tc_index] = _ToolCallState(id=tc_id, name=tc_name)
                         yield ToolUseStart(id=tc_id, name=tc_name)
 
                     if func:
@@ -302,10 +294,11 @@ class _DictObj:
             if isinstance(value, dict):
                 setattr(self, key, _DictObj(value))
             elif isinstance(value, list):
-                setattr(self, key, [
-                    _DictObj(item) if isinstance(item, dict) else item
-                    for item in value
-                ])
+                setattr(
+                    self,
+                    key,
+                    [_DictObj(item) if isinstance(item, dict) else item for item in value],
+                )
             else:
                 setattr(self, key, value)
 
@@ -369,11 +362,13 @@ def _convert_messages(
 
         # Tool result messages (Anthropic format).
         if role == "tool":
-            result.append({
-                "role": "tool",
-                "tool_call_id": msg.get("tool_use_id", ""),
-                "content": _flatten_content(content),
-            })
+            result.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": msg.get("tool_use_id", ""),
+                    "content": _flatten_content(content),
+                }
+            )
             continue
 
         # Assistant messages with tool_use content blocks.
@@ -388,14 +383,16 @@ def _convert_messages(
                 if block_type == "text":
                     text_parts.append(block.get("text", ""))
                 elif block_type == "tool_use":
-                    tool_calls.append({
-                        "id": block.get("id", ""),
-                        "type": "function",
-                        "function": {
-                            "name": block.get("name", ""),
-                            "arguments": json.dumps(block.get("input", {})),
-                        },
-                    })
+                    tool_calls.append(
+                        {
+                            "id": block.get("id", ""),
+                            "type": "function",
+                            "function": {
+                                "name": block.get("name", ""),
+                                "arguments": json.dumps(block.get("input", {})),
+                            },
+                        }
+                    )
 
             openai_msg: dict[str, Any] = {"role": "assistant"}
             combined_text = "".join(text_parts)
@@ -409,10 +406,12 @@ def _convert_messages(
             continue
 
         # Standard user / assistant messages.
-        result.append({
-            "role": role,
-            "content": _flatten_content(content),
-        })
+        result.append(
+            {
+                "role": role,
+                "content": _flatten_content(content),
+            }
+        )
 
     return result
 
@@ -445,12 +444,14 @@ def _convert_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     result: list[dict[str, Any]] = []
     for tool in tools:
-        result.append({
-            "type": "function",
-            "function": {
-                "name": tool.get("name", ""),
-                "description": tool.get("description", ""),
-                "parameters": tool.get("input_schema", {}),
-            },
-        })
+        result.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.get("name", ""),
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get("input_schema", {}),
+                },
+            }
+        )
     return result

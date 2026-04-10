@@ -156,7 +156,6 @@ class AgentLoop:
         max_turns = config.max_turns
         timeout = config.timeout
         model = config.provider.model if config.provider else "claude-sonnet-4-5-20250514"
-        max_tokens = 16384
 
         # Use system_prompt from run() arg, falling back to config.
         if system_prompt is None:
@@ -213,11 +212,9 @@ class AgentLoop:
             )
 
             try:
-                turn_text, tool_calls, stop_reason, usage = (
-                    await asyncio.wait_for(
-                        self._consume_stream(stream),
-                        timeout=remaining,
-                    )
+                turn_text, tool_calls, stop_reason, usage = await asyncio.wait_for(
+                    self._consume_stream(stream),
+                    timeout=remaining,
                 )
             except TimeoutError:
                 return self._build_result(
@@ -250,12 +247,8 @@ class AgentLoop:
                 cost_tracker.add_usage(
                     input_tokens=usage.get("input_tokens", 0),
                     output_tokens=usage.get("output_tokens", 0),
-                    cache_read_tokens=usage.get(
-                        "cache_read_input_tokens", 0
-                    ),
-                    cache_write_tokens=usage.get(
-                        "cache_creation_input_tokens", 0
-                    ),
+                    cache_read_tokens=usage.get("cache_read_input_tokens", 0),
+                    cache_write_tokens=usage.get("cache_creation_input_tokens", 0),
                     model=model,
                 )
 
@@ -265,9 +258,7 @@ class AgentLoop:
             # -- build assistant message content blocks ----------------
             assistant_content: list[dict[str, Any]] = []
             if turn_text:
-                assistant_content.append(
-                    {"type": "text", "text": turn_text}
-                )
+                assistant_content.append({"type": "text", "text": turn_text})
             for tc in tool_calls:
                 assistant_content.append(
                     {
@@ -280,9 +271,7 @@ class AgentLoop:
 
             # Append assistant message to conversation.
             if assistant_content:
-                conversation.append(
-                    {"role": "assistant", "content": assistant_content}
-                )
+                conversation.append({"role": "assistant", "content": assistant_content})
 
             # -- decide what to do next --------------------------------
             if not tool_calls:
@@ -351,9 +340,7 @@ class AgentLoop:
                 )
 
             # Append tool results as a user message.
-            conversation.append(
-                {"role": "user", "content": tool_result_blocks}
-            )
+            conversation.append({"role": "user", "content": tool_result_blocks})
 
             # -- circuit breaker for consecutive failures --------------
             if turn_had_failure:
@@ -437,16 +424,12 @@ class AgentLoop:
                 self._event_bus.emit_output(event.text)
 
             elif isinstance(event, ToolUseStart):
-                current_tool = _PendingToolCall(
-                    id=event.id, name=event.name
-                )
+                current_tool = _PendingToolCall(id=event.id, name=event.name)
                 tool_calls.append(current_tool)
 
             elif isinstance(event, ToolUseInputDelta):
                 if current_tool is not None:
-                    current_tool.input_json_parts.append(
-                        event.partial_json
-                    )
+                    current_tool.input_json_parts.append(event.partial_json)
 
             elif isinstance(event, ToolUseEnd):
                 # ToolUseEnd may carry the final parsed input; when
@@ -457,9 +440,7 @@ class AgentLoop:
                 if event.input is not None:
                     for tc in tool_calls:
                         if tc.id == event.id:
-                            tc.input_json_parts = [
-                                json.dumps(event.input)
-                            ]
+                            tc.input_json_parts = [json.dumps(event.input)]
                             break
                 current_tool = None
 
@@ -514,9 +495,7 @@ class AgentLoop:
     def _install_sigterm_handler(self) -> None:
         """Register a SIGTERM handler that requests graceful shutdown."""
         try:
-            self._original_sigterm_handler = signal.getsignal(
-                signal.SIGTERM
-            )
+            self._original_sigterm_handler = signal.getsignal(signal.SIGTERM)
             signal.signal(signal.SIGTERM, self._handle_sigterm)
         except (OSError, ValueError):
             # signal.signal() can only be called from the main thread;
@@ -536,7 +515,9 @@ class AgentLoop:
             self._original_sigterm_handler = None
 
     def _handle_sigterm(
-        self, signum: int, frame: Any  # noqa: ARG002
+        self,
+        signum: int,
+        frame: Any,  # noqa: ARG002
     ) -> None:
         """SIGTERM handler: request graceful shutdown."""
         logger.info("SIGTERM received -- requesting graceful shutdown")

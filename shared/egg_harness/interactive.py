@@ -23,10 +23,7 @@ from egg_harness.tools import ToolRegistry
 logger = logging.getLogger(__name__)
 
 # Welcome banner displayed on REPL start.
-_WELCOME = (
-    "egg harness interactive mode\n"
-    "Type your message and press Enter. Ctrl-D to exit.\n"
-)
+_WELCOME = "egg harness interactive mode\nType your message and press Enter. Ctrl-D to exit.\n"
 
 
 async def run_interactive(
@@ -71,13 +68,9 @@ async def run_interactive(
         registry.register(defn, handler)
 
     # Apply private-mode restrictions if active.
-    private_mode = os.environ.get(
-        "EGG_PRIVATE_MODE", ""
-    ).lower() in ("true", "1")
+    private_mode = os.environ.get("EGG_PRIVATE_MODE", "").lower() in ("true", "1")
     if private_mode:
-        callback = create_disallow_list_callback(
-            ["WebFetch", "WebSearch"]
-        )
+        callback = create_disallow_list_callback(["WebFetch", "WebSearch"])
         registry.set_permission_callback(callback)
 
     # -- Event bus (stream output to stdout) ---------------------------
@@ -141,9 +134,7 @@ async def run_interactive(
 
         # Append assistant response to history for context continuity.
         if result.stdout:
-            messages.append(
-                {"role": "assistant", "content": result.stdout}
-            )
+            messages.append({"role": "assistant", "content": result.stdout})
             # Ensure a trailing newline after the streamed response.
             if not result.stdout.endswith("\n"):
                 print()

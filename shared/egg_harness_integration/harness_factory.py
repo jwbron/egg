@@ -21,8 +21,8 @@ from egg_harness.config import HarnessConfig, ProviderConfig, parse_model_spec
 from egg_harness.events import EventBus
 from egg_harness.loop import AgentLoop
 from egg_harness.permissions import compose_permissions, create_disallow_list_callback
-from egg_harness.tools import ToolRegistry
 from egg_harness.tools import (
+    ToolRegistry,
     create_bash_tool,
     create_edit_tool,
     create_glob_tool,
@@ -142,13 +142,9 @@ def create_egg_harness(
             callbacks.append(egg_perm)
 
         # Private-mode web tool blocking.
-        private_mode = os.environ.get(
-            "EGG_PRIVATE_MODE", ""
-        ).lower() in ("true", "1")
+        private_mode = os.environ.get("EGG_PRIVATE_MODE", "").lower() in ("true", "1")
         if private_mode:
-            callbacks.append(
-                create_disallow_list_callback(["WebFetch", "WebSearch"])
-            )
+            callbacks.append(create_disallow_list_callback(["WebFetch", "WebSearch"]))
 
         if callbacks:
             registry.set_permission_callback(compose_permissions(*callbacks))

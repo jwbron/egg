@@ -8,8 +8,9 @@ without coupling to a specific provider implementation.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -107,9 +108,7 @@ class EventBus:
         """Emit a tool-result event."""
         self._dispatch(self._tool_result_callbacks, name, output)
 
-    def emit_compaction(
-        self, summary: str, tokens_before: int, tokens_after: int
-    ) -> None:
+    def emit_compaction(self, summary: str, tokens_before: int, tokens_after: int) -> None:
         """Emit a context-compaction event."""
         self._dispatch(self._compaction_callbacks, summary, tokens_before, tokens_after)
 
@@ -117,9 +116,7 @@ class EventBus:
         """Emit an error event."""
         self._dispatch(self._error_callbacks, exc)
 
-    def emit_turn_complete(
-        self, turn_number: int, usage: dict[str, int]
-    ) -> None:
+    def emit_turn_complete(self, turn_number: int, usage: dict[str, int]) -> None:
         """Emit a turn-complete event."""
         self._dispatch(self._turn_complete_callbacks, turn_number, usage)
 
@@ -149,8 +146,6 @@ class EventBus:
                     except TypeError:
                         continue
                 if not _called:
-                    logger.exception(
-                        "Event callback %r raised an exception", cb
-                    )
+                    logger.exception("Event callback %r raised an exception", cb)
             except Exception:
                 logger.exception("Event callback %r raised an exception", cb)

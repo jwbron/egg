@@ -17,7 +17,7 @@ import logging
 import os
 import uuid
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -54,10 +54,10 @@ class SessionState:
     duration_ms: int = 0
     compaction_count: int = 0
     created_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat(),
+        default_factory=lambda: datetime.now(UTC).isoformat(),
     )
     updated_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat(),
+        default_factory=lambda: datetime.now(UTC).isoformat(),
     )
 
 
@@ -124,7 +124,7 @@ class SessionManager:
         messages = state_dict.pop("messages", [])
 
         # Update timestamp on save.
-        state_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
+        state_dict["updated_at"] = datetime.now(UTC).isoformat()
 
         with open(filepath, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(state_dict, separators=(",", ":")) + "\n")
@@ -153,7 +153,7 @@ class SessionManager:
             logger.debug("Session file not found: %s", filepath)
             return None
 
-        with open(filepath, "r", encoding="utf-8") as fh:
+        with open(filepath, encoding="utf-8") as fh:
             lines = fh.read().splitlines()
 
         if not lines:
@@ -161,9 +161,7 @@ class SessionManager:
             return None
 
         metadata: dict[str, Any] = json.loads(lines[0])
-        messages: list[dict[str, Any]] = [
-            json.loads(line) for line in lines[1:] if line.strip()
-        ]
+        messages: list[dict[str, Any]] = [json.loads(line) for line in lines[1:] if line.strip()]
 
         return SessionState(
             session_id=metadata.get("session_id", session_id),

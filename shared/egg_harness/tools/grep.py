@@ -39,15 +39,13 @@ def create_grep_tool() -> tuple[ToolDefinition, ToolHandler]:
                 "pattern": {
                     "type": "string",
                     "description": (
-                        "The regular expression pattern to search for in "
-                        "file contents."
+                        "The regular expression pattern to search for in file contents."
                     ),
                 },
                 "path": {
                     "type": "string",
                     "description": (
-                        "File or directory to search in. Defaults to the "
-                        "current working directory."
+                        "File or directory to search in. Defaults to the current working directory."
                     ),
                 },
                 "output_mode": {
@@ -61,17 +59,11 @@ def create_grep_tool() -> tuple[ToolDefinition, ToolHandler]:
                 },
                 "glob": {
                     "type": "string",
-                    "description": (
-                        "Glob pattern to filter files "
-                        "(e.g. '*.js', '*.{ts,tsx}')."
-                    ),
+                    "description": ("Glob pattern to filter files (e.g. '*.js', '*.{ts,tsx}')."),
                 },
                 "head_limit": {
                     "type": "integer",
-                    "description": (
-                        "Limit output to first N lines/entries. "
-                        "Defaults to 250."
-                    ),
+                    "description": ("Limit output to first N lines/entries. Defaults to 250."),
                 },
                 "context": {
                     "type": "integer",
