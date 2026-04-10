@@ -1175,14 +1175,16 @@ def _consensus_push() -> int:
     except (subprocess.CalledProcessError, FileNotFoundError):
         refspec = branch
 
-    payload = json.dumps({
-        "repo_path": repo_path,
-        "remote": "origin",
-        "refspec": refspec,
-        "force": False,
-        "container_id": container_id,
-        "consensus_push": True,
-    }).encode()
+    payload = json.dumps(
+        {
+            "repo_path": repo_path,
+            "remote": "origin",
+            "refspec": refspec,
+            "force": False,
+            "container_id": container_id,
+            "consensus_push": True,
+        }
+    ).encode()
 
     req = urllib.request.Request(
         f"{gateway_url}/api/v1/git/push",
