@@ -2559,6 +2559,23 @@ def _read_source_branch_artifacts(
     bare_prefix = _pipeline_identifier(issue_number, pipeline_id)
     updated = False
 
+    # Fetch the source branch so origin/{source_branch} is up-to-date.
+    # Without this, git show fails on a freshly restarted orchestrator
+    # because the remote ref isn't cached locally.
+    try:
+        subprocess.run(
+            [*git_base, "fetch", "origin", source_branch],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except Exception:
+        logger.debug(
+            "Failed to fetch source branch (will try git show anyway)",
+            source_branch=source_branch,
+        )
+
     # Build ordered list of prefixes to try.  Duplicates are removed so
     # we don't hit git show twice for the same path.
     if source_artifact_prefix is not None:
