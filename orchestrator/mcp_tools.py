@@ -107,6 +107,12 @@ PIPELINE_TOOLS = [
                     "type": "string",
                     "description": "Optional qualifier suffix for the pipeline/branch (e.g. 'backend'). Enables multiple pipelines per ticket/issue.",
                 },
+                "source_branch": {
+                    "type": "string",
+                    "description": "Source branch to read prior-run artifacts from (plan, analysis). "
+                    "When set, the orchestrator reads drafts from this branch via git show "
+                    "instead of requiring inline content. Inline plan/analysis values take precedence.",
+                },
             },
             "required": ["description", "repo"],
         },
@@ -664,6 +670,8 @@ class PipelineToolHandler:
             data["analysis"] = args["analysis"]
         if args.get("plan"):
             data["plan"] = args["plan"]
+        if args.get("source_branch"):
+            data["source_branch"] = args["source_branch"]
 
         try:
             result = self._make_request("/api/v1/pipelines", method="POST", data=data)

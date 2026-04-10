@@ -1052,7 +1052,7 @@ egg-orch pipeline create --issue 123
 
 **JIRA ticket-based pipelines**: Pass `jira_ticket` (e.g. `KORE-1234`) to the `submit_task` MCP tool, which translates it into `pipeline_id` and `branch` for the API. When using the REST API directly, pass `"pipeline_id": "KORE-1234"` and `"branch": "egg/KORE-1234"` explicitly (as shown above).
 
-**Qualifier support**: The `submit_task` MCP tool accepts an optional `"qualifier"` suffix for both issue-driven and JIRA-driven pipelines (e.g. `"qualifier": "backend"` produces pipeline ID `issue-123-backend` / branch `egg/issue-123-backend`). When using the REST API directly, append the qualifier to `pipeline_id` and `branch` manually (e.g. `"pipeline_id": "KORE-1234-backend"`, `"branch": "egg/KORE-1234-backend"`). If the target branch already exists, the orchestrator returns HTTP 409 with a hint to use a qualifier.
+**Qualifier support**: The `submit_task` MCP tool accepts an optional `"qualifier"` suffix for both issue-driven and JIRA-driven pipelines (e.g. `"qualifier": "backend"` produces pipeline ID `issue-123-backend` / branch `egg/issue-123-backend`). When using the REST API directly, append the qualifier to `pipeline_id` and `branch` manually (e.g. `"pipeline_id": "KORE-1234-backend"`, `"branch": "egg/KORE-1234-backend"`). If the target branch already exists and an active pipeline is running for that ID, the orchestrator returns HTTP 409 with a hint to use a qualifier. Branches from prior terminal (cancelled/failed/complete) pipelines are reused automatically.
 
 Pipeline ID formats:
 - `issue-{number}[-qualifier]` — GitHub issue-driven
@@ -1076,6 +1076,41 @@ curl -X POST http://localhost:9849/api/v1/pipelines \
 ````
 
 The `analysis` and `plan` fields are also accepted by the `submit_task` MCP tool. Both are cleared from pipeline state after the first run once the draft files are pushed to the feature branch.
+
+**Source branch artifact loading** — instead of passing large `analysis` and `plan` content inline (which can be 50-80KB+ and strain MCP transport limits), pass a `source_branch` parameter pointing to a prior run's branch. The orchestrator reads artifacts server-side from the source branch during pipeline setup:
+
+- `.egg-state/drafts/{prefix}-plan.md` → pipeline plan (parsed to populate the contract)
+- `.egg-state/drafts/{prefix}-analysis.md` → pipeline analysis
+
+If the exact pipeline-ID prefix doesn't match files on the source branch (e.g., the source used a different issue number or qualifier), the orchestrator falls back to listing available draft files via `git ls-tree` and reads the first matching `*-plan.md` / `*-analysis.md`. Inline `analysis` and `plan` values always take precedence over `source_branch` — explicit content wins.
+
+````bash
+# Via REST API — load artifacts from a prior run's branch
+curl -X POST http://localhost:9849/api/v1/pipelines \
+  -H "Content-Type: application/json" \
+  -d '{
+    "issue_number": 123,
+    "repo": "owner/repo",
+    "branch": "egg/issue-123-v2",
+    "config": {"start_phase": "implement"},
+    "source_branch": "egg/issue-123-v1"
+  }'
+````
+
+The `source_branch` parameter is also accepted by the `submit_task` MCP tool:
+
+```json
+{
+  "description": "Implement auth middleware",
+  "repo": "owner/repo",
+  "issue_number": 123,
+  "qualifier": "v2",
+  "config": {"start_phase": "implement"},
+  "source_branch": "egg/issue-123-v1"
+}
+```
+
+**Branch reuse for resubmissions** — when resubmitting a pipeline after a prior run was cancelled or failed, the orchestrator no longer returns HTTP 409 if the branch already exists on the remote. The check now considers whether an active (non-terminal) pipeline exists for that pipeline ID. If the prior pipeline is in a terminal state (cancelled, failed, or complete) or no pipeline state exists, the branch is reused. A 409 is only returned when both the branch exists AND an active pipeline is running.
 
 ### Contract CLI Commands
 

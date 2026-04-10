@@ -476,6 +476,12 @@ class Pipeline(BaseModel):
         description="Pre-generated plan with yaml-tasks appendix for short flow pipelines "
         "(written to drafts and parsed into contract on first run)",
     )
+    source_branch: str | None = Field(
+        default=None,
+        description="Source branch to read prior-run artifacts from (plan, analysis). "
+        "When set, the orchestrator reads drafts from this branch via git show "
+        "instead of requiring inline content.",
+    )
     run_epoch: datetime | None = Field(
         default=None,
         description="Thread ownership epoch — bumped on restart_phase and start_pipeline "
