@@ -1250,9 +1250,7 @@ def handle_consensus_confirmed_signal(
                 # so be lenient.  Matches the consensus_stall health
                 # check which also doesn't filter pending_acks (#1671).
                 confirmed_roles = {
-                    m.from_role
-                    for m in messages
-                    if m.message_type == "CONSENSUS_CONFIRMED"
+                    m.from_role for m in messages if m.message_type == "CONSENSUS_CONFIRMED"
                 }
                 # Agent sending this signal is also confirming
                 confirmed_roles.add(agent_role)
