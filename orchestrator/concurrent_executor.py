@@ -417,50 +417,76 @@ class ConcurrentPhaseExecutor:
                 all_roles = tracker.graph.all_roles()
                 confirmed_in_tracker = len(all_roles) - len(result.get("blocking_agents", []))
                 logger.info(
-                    "Consensus incomplete — checking message-bus fallback",
+                    "Consensus incomplete — checking fallbacks",
                     pipeline_id=self.pipeline.id,
                     confirmed=confirmed_in_tracker,
                     total=len(all_roles),
                     blocking_agents=result.get("blocking_agents", []),
                     has_unresolved_nacks=result.get("has_unresolved_nacks", False),
                 )
-                try:
-                    from message_store import get_message_store
 
-                    store = get_message_store()
-                    messages = store.get_messages(self.pipeline.id, limit=10000)
-                    confirmed_roles = {
-                        m.from_role
-                        for m in messages
-                        if m.message_type == "CONSENSUS_CONFIRMED"
-                        and not (m.metadata or {}).get("pending_acks")
-                    }
-                    if all_roles and all_roles.issubset(confirmed_roles):
-                        logger.warning(
-                            "Tracker state inconsistent with message bus — "
-                            "tracker says incomplete but all roles confirmed "
-                            "via messages (#1471/#1615)",
-                            pipeline_id=self.pipeline.id,
-                            confirmed_roles=sorted(confirmed_roles),
-                            tracker_blocking=result.get("blocking_agents", []),
-                        )
-                        result["is_complete"] = True
-                        result["fallback"] = "message_bus"
-                    else:
-                        missing = all_roles - confirmed_roles if all_roles else set()
-                        logger.info(
-                            "Message-bus fallback: not all roles confirmed",
-                            pipeline_id=self.pipeline.id,
-                            confirmed_roles=sorted(confirmed_roles),
-                            missing_roles=sorted(missing),
-                            total_messages=len(messages),
-                        )
-                except Exception as e:
+                # Safety net (#1671): if the tracker has all roles in
+                # confirmed_roles but evaluate() returned False due to stale
+                # NACK edges in the approval matrix (common after NACK →
+                # re-propose cycles), trust the confirmed set.
+                tracker_confirmed = tracker.confirmed_roles
+                if all_roles and all_roles.issubset(tracker_confirmed):
                     logger.warning(
-                        "Message-bus fallback in check_consensus failed",
+                        "All roles in tracker.confirmed_roles but evaluate() "
+                        "returned incomplete — overriding (#1671)",
                         pipeline_id=self.pipeline.id,
-                        error=str(e),
+                        confirmed_roles=sorted(tracker_confirmed),
+                        has_unresolved_nacks=result.get("has_unresolved_nacks", False),
+                        blocking_agents=result.get("blocking_agents", []),
                     )
+                    result["is_complete"] = True
+                    result["fallback"] = "tracker_confirmed"
+                else:
+                    # Message-bus fallback: scan message store for
+                    # CONSENSUS_CONFIRMED messages (#1471/#1615).
+                    try:
+                        from message_store import get_message_store
+
+                        store = get_message_store()
+                        messages = store.get_messages(self.pipeline.id, limit=10000)
+                        # Count a role as confirmed if it has a clean
+                        # CONFIRMED message, or a pending_acks CONFIRMED
+                        # message where the tracker later accepted the
+                        # confirmation (#1671).
+                        confirmed_roles: set[str] = set()
+                        for m in messages:
+                            if m.message_type != "CONSENSUS_CONFIRMED":
+                                continue
+                            if not (m.metadata or {}).get("pending_acks"):
+                                confirmed_roles.add(m.from_role)
+                            elif m.from_role in tracker_confirmed:
+                                confirmed_roles.add(m.from_role)
+                        if all_roles and all_roles.issubset(confirmed_roles):
+                            logger.warning(
+                                "Tracker state inconsistent with message bus — "
+                                "tracker says incomplete but all roles confirmed "
+                                "via messages (#1471/#1615)",
+                                pipeline_id=self.pipeline.id,
+                                confirmed_roles=sorted(confirmed_roles),
+                                tracker_blocking=result.get("blocking_agents", []),
+                            )
+                            result["is_complete"] = True
+                            result["fallback"] = "message_bus"
+                        else:
+                            missing = all_roles - confirmed_roles if all_roles else set()
+                            logger.info(
+                                "Message-bus fallback: not all roles confirmed",
+                                pipeline_id=self.pipeline.id,
+                                confirmed_roles=sorted(confirmed_roles),
+                                missing_roles=sorted(missing),
+                                total_messages=len(messages),
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            "Message-bus fallback in check_consensus failed",
+                            pipeline_id=self.pipeline.id,
+                            error=str(e),
+                        )
             return result
         return {"is_complete": False, "blocking_agents": [], "has_objections": False, "agents": {}}
 

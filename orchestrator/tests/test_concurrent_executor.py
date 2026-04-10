@@ -620,7 +620,188 @@ class TestCheckConsensusMessageBusFallback:
             with patch("message_store.get_message_store", return_value=mock_store):
                 result = executor.check_consensus()
 
+            # pending_acks messages excluded when tracker hasn't confirmed the role
             assert result["is_complete"] is False
             assert "fallback" not in result
+        finally:
+            remove_peer_consensus_tracker("KORE-1234")
+
+    def test_tracker_confirmed_safety_net_preempts_message_bus(self):
+        """When all roles are in confirmed_roles, the tracker safety net fires before message-bus fallback (#1671)."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from message_store import Message, MessageType
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+
+        pipeline = _make_pipeline("KORE-1234")
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock(), review_graph=graph)
+
+        from peer_consensus import create_peer_consensus_tracker, remove_peer_consensus_tracker
+
+        try:
+            tracker = create_peer_consensus_tracker("KORE-1234", graph)
+            tracker.register_agent("coder")
+            tracker.register_agent("reviewer_code")
+
+            # Simulate: tracker accepted confirmations (via retries) but
+            # only pending_acks messages exist in the store.
+            tracker._confirmed.add("coder")
+            tracker._confirmed.add("reviewer_code")
+
+            # Force evaluate() to return incomplete (e.g. stale NACK edge)
+            # by patching evaluate to return a custom result.
+            original_evaluate = tracker.evaluate
+
+            def _evaluate_incomplete():
+                result = original_evaluate()
+                result["is_complete"] = False
+                result["blocking_agents"] = ["coder"]
+                return result
+
+            tracker.evaluate = _evaluate_incomplete
+
+            pending_messages = [
+                Message(
+                    pipeline_id="KORE-1234",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="Confirmed by coder (pending_acks)",
+                    metadata={"pending_acks": True},
+                ),
+                Message(
+                    pipeline_id="KORE-1234",
+                    from_role="reviewer_code",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="Confirmed by reviewer_code (pending_acks)",
+                    metadata={"pending_acks": True},
+                ),
+            ]
+
+            mock_store = MagicMock()
+            mock_store.get_messages.return_value = pending_messages
+
+            with patch("message_store.get_message_store", return_value=mock_store):
+                result = executor.check_consensus()
+
+            # The tracker-confirmed safety net should fire first since
+            # all roles are in confirmed_roles.
+            assert result["is_complete"] is True
+            assert result.get("fallback") == "tracker_confirmed"
+        finally:
+            remove_peer_consensus_tracker("KORE-1234")
+
+    def test_tracker_confirmed_overrides_stale_nacks(self):
+        """All roles in confirmed_roles but evaluate() says False due to stale NACKs → override (#1671)."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+
+        pipeline = _make_pipeline("KORE-1234")
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock(), review_graph=graph)
+
+        from peer_consensus import create_peer_consensus_tracker, remove_peer_consensus_tracker
+
+        try:
+            tracker = create_peer_consensus_tracker("KORE-1234", graph)
+            tracker.register_agent("coder")
+            tracker.register_agent("reviewer_code")
+
+            # Manually set all roles as confirmed in the tracker
+            tracker._confirmed.add("coder")
+            tracker._confirmed.add("reviewer_code")
+
+            # Simulate stale NACK edges by patching evaluate()
+            original_evaluate = tracker.evaluate
+
+            def _evaluate_with_stale_nacks():
+                result = original_evaluate()
+                result["is_complete"] = False
+                result["has_unresolved_nacks"] = True
+                result["blocking_agents"] = []
+                return result
+
+            tracker.evaluate = _evaluate_with_stale_nacks
+
+            result = executor.check_consensus()
+
+            assert result["is_complete"] is True
+            assert result["fallback"] == "tracker_confirmed"
+        finally:
+            remove_peer_consensus_tracker("KORE-1234")
+
+    def test_message_bus_fallback_with_mixed_pending_and_clean(self):
+        """Fallback counts roles with clean messages even when others have pending_acks only."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from message_store import Message, MessageType
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+
+        pipeline = _make_pipeline("KORE-1234")
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock(), review_graph=graph)
+
+        from peer_consensus import create_peer_consensus_tracker, remove_peer_consensus_tracker
+
+        try:
+            tracker = create_peer_consensus_tracker("KORE-1234", graph)
+            tracker.register_agent("coder")
+            tracker.register_agent("reviewer_code")
+
+            # Coder confirmed in tracker, reviewer_code not confirmed
+            tracker._confirmed.add("coder")
+
+            original_evaluate = tracker.evaluate
+
+            def _evaluate_incomplete():
+                result = original_evaluate()
+                result["is_complete"] = False
+                result["blocking_agents"] = ["reviewer_code"]
+                return result
+
+            tracker.evaluate = _evaluate_incomplete
+
+            # Coder has pending_acks only (but tracker confirmed), reviewer has clean message
+            messages = [
+                Message(
+                    pipeline_id="KORE-1234",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="Confirmed by coder (pending_acks)",
+                    metadata={"pending_acks": True},
+                ),
+                Message(
+                    pipeline_id="KORE-1234",
+                    from_role="reviewer_code",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="Confirmed by reviewer_code",
+                ),
+            ]
+
+            mock_store = MagicMock()
+            mock_store.get_messages.return_value = messages
+
+            with patch("message_store.get_message_store", return_value=mock_store):
+                result = executor.check_consensus()
+
+            assert result["is_complete"] is True
+            assert result["fallback"] == "message_bus"
         finally:
             remove_peer_consensus_tracker("KORE-1234")

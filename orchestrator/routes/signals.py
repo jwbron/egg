@@ -1245,11 +1245,12 @@ def handle_consensus_confirmed_signal(
 
                 store = get_message_store()
                 messages = store.get_messages(pipeline_id, limit=10000)
+                # Count ANY CONSENSUS_CONFIRMED message — when the
+                # tracker is lost we can't cross-reference _confirmed,
+                # so be lenient.  Matches the consensus_stall health
+                # check which also doesn't filter pending_acks (#1671).
                 confirmed_roles = {
-                    m.from_role
-                    for m in messages
-                    if m.message_type == "CONSENSUS_CONFIRMED"
-                    and not (m.metadata or {}).get("pending_acks")
+                    m.from_role for m in messages if m.message_type == "CONSENSUS_CONFIRMED"
                 }
                 # Agent sending this signal is also confirming
                 confirmed_roles.add(agent_role)

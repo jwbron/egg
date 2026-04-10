@@ -124,6 +124,12 @@ class PeerConsensusTracker:
         # auto-reproposals when a push arrives shortly after an explicit proposal.
         self._last_explicit_propose_timestamp: dict[str, datetime] = {}
 
+    @property
+    def confirmed_roles(self) -> frozenset[str]:
+        """Read-only view of roles that have completed the full confirmation flow."""
+        with self._lock:
+            return frozenset(self._confirmed)
+
     def register_agent(self, role: str) -> None:
         """Register an agent for consensus tracking."""
         with self._lock:
@@ -1619,7 +1625,7 @@ def reconstruct_tracker_from_messages(
             "Reconstructed consensus tracker from messages",
             pipeline_id=pipeline_id,
             messages_replayed=len(consensus_msgs),
-            confirmed_roles=sorted(tracker._confirmed),
+            confirmed_roles=sorted(tracker.confirmed_roles),
         )
     else:
         logger.info(
