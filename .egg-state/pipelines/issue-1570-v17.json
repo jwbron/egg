@@ -83,10 +83,10 @@
         {
           "container_id": "94cfcd5eb7ee9d222525750cefbf41e1dc7e2ebf0e3b87d2895144643fa9c722",
           "container_name": "issue-1570-v17-coder",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-10T21:46:56.653180Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-10T23:16:59.800969Z",
+          "exit_code": -1,
           "agent_role": "coder",
           "session_token": null
         },
@@ -140,13 +140,13 @@
         },
         {
           "role": "coder",
-          "status": "running",
+          "status": "failed",
           "container_id": "94cfcd5eb7ee9d222525750cefbf41e1dc7e2ebf0e3b87d2895144643fa9c722",
           "started_at": "2026-04-10T21:46:56.653182Z",
-          "completed_at": null,
+          "completed_at": "2026-04-10T23:16:59.870529Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -234,7 +234,7 @@
     }
   ],
   "created_at": "2026-04-10T18:59:13.603188Z",
-  "updated_at": "2026-04-10T23:16:59.853156Z",
+  "updated_at": "2026-04-10T23:16:59.870751Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -245,5 +245,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-10T21:46:50.963938Z",
-  "version": 27
+  "version": 28
 }
