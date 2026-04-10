@@ -3669,7 +3669,7 @@ def _ensure_statefiles_on_branch(
         _populate_contract_from_plan(
             worktree_repo_path,
             pipeline.id,
-            pipeline.mode or "local",
+            pipeline.mode.value if pipeline.mode else "issue",
             pipeline.issue_number,
         )
 
