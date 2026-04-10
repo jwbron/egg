@@ -732,6 +732,7 @@ class StateStore:
         analysis: str | None = None,
         plan: str | None = None,
         source_branch: str | None = None,
+        source_artifact_prefix: str | None = None,
     ) -> Pipeline:
         """Create a new pipeline.
 
@@ -749,6 +750,9 @@ class StateStore:
             analysis: Pre-generated analysis markdown for short flow pipelines (optional).
             plan: Pre-generated plan markdown with yaml-tasks appendix (optional).
             source_branch: Source branch to read prior-run artifacts from (optional).
+            source_artifact_prefix: Explicit prefix for draft filenames on
+                the source branch (e.g. ``"issue-1570-v3"``).  Overrides
+                the default pipeline_id-based prefix when reading artifacts.
 
         Returns:
             Created pipeline
@@ -793,6 +797,7 @@ class StateStore:
                 "analysis": analysis,
                 "plan": plan,
                 "source_branch": source_branch,
+                "source_artifact_prefix": source_artifact_prefix,
             }
             if mode is not None:
                 pipeline_kwargs["mode"] = mode
