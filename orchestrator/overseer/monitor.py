@@ -416,9 +416,11 @@ class OverseerMonitor:
                     alert_type=alert.get("alert_type", "unknown"),
                 )
 
-            # Process escalation messages (with consensus context)
+            # Process escalation messages (with consensus context, reusing log cache)
             for escalation in escalations:
-                await self.handle_escalation(escalation, consensus=consensus)
+                await self.handle_escalation(
+                    escalation, consensus=consensus, container_logs_cache=container_logs_cache
+                )
 
             # 8. Check pipeline status for terminal state
             if status in ("complete", "failed", "cancelled"):
@@ -458,7 +460,12 @@ class OverseerMonitor:
     # Escalation handling
     # -----------------------------------------------------------------
 
-    async def handle_escalation(self, escalation: dict, consensus: dict | None = None) -> None:
+    async def handle_escalation(
+        self,
+        escalation: dict,
+        consensus: dict | None = None,
+        container_logs_cache: dict[str, str] | None = None,
+    ) -> None:
         """Handle an escalation from the orchestrator's tripwire processor.
 
         Implements a hallucination guard: the Sonnet decision tier only
@@ -467,11 +474,16 @@ class OverseerMonitor:
         Args:
             escalation: Dict with escalation details from the orchestrator.
             consensus: Optional current BRC consensus status.
+            container_logs_cache: Optional per-cycle cache to avoid redundant fetches.
         """
         agent_role = escalation.get("agent_role", escalation.get("agent_id", "unknown"))
 
-        # Fetch container logs for the escalated agent (best-effort)
-        container_logs = await self._query_container_logs(agent_role)
+        # Fetch container logs for the escalated agent (best-effort, cached per cycle)
+        if container_logs_cache is None:
+            container_logs_cache = {}
+        if agent_role not in container_logs_cache:
+            container_logs_cache[agent_role] = await self._query_container_logs(agent_role)
+        container_logs = container_logs_cache[agent_role]
 
         # Hallucination guard: always classify first, then decide
         classification = await self._classify_stall(

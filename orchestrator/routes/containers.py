@@ -398,7 +398,10 @@ def get_container_logs(pipeline_id: str, container_id: str) -> tuple[Response, i
             }
         }
     """
-    tail = int(request.args.get("tail", request.args.get("lines", 100)))
+    try:
+        tail = int(request.args.get("tail", request.args.get("lines", 100)))
+    except (ValueError, TypeError):
+        tail = 100
 
     try:
         docker_client = get_docker_client()
