@@ -152,10 +152,10 @@
         {
           "container_id": "b09f85da65b8fcaffe2f7f2441a4f4c35fab2e4e15c5af5231b13292c7cb1d05",
           "container_name": "issue-1570-v3-task_planner",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-10T05:06:32.999251Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-10T05:49:38.536066Z",
+          "exit_code": 143,
           "agent_role": "task_planner",
           "session_token": null
         },
@@ -205,13 +205,13 @@
         },
         {
           "role": "task_planner",
-          "status": "running",
+          "status": "failed",
           "container_id": "b09f85da65b8fcaffe2f7f2441a4f4c35fab2e4e15c5af5231b13292c7cb1d05",
           "started_at": "2026-04-10T05:06:32.999253Z",
-          "completed_at": null,
+          "completed_at": "2026-04-10T05:49:38.552068Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 143",
           "retry_count": 0,
           "conflicts": []
         },
@@ -292,7 +292,7 @@
     }
   ],
   "created_at": "2026-04-10T04:37:54.202478Z",
-  "updated_at": "2026-04-10T05:49:38.526507Z",
+  "updated_at": "2026-04-10T05:49:38.552174Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -300,5 +300,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 22
+  "version": 23
 }
