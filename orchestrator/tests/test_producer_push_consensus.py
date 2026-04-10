@@ -525,6 +525,8 @@ class TestExcuseProducer:
         """excuse_producer clears _producer_phases, _confirmed, _proposal_artifacts, etc."""
         # Setup: coder proposes and gets confirmed
         tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
+        # tester must also propose to pass global zero-proposal guard (#1648)
+        tracker.handle_propose("tester", make_proposal(commit_sha="sha2"))
         ack_producer(tracker, "reviewer_code", "coder")
         ack_producer(tracker, "reviewer_contract", "coder")
         ack_producer(tracker, "tester", "coder")

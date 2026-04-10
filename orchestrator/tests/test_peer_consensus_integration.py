@@ -1166,6 +1166,11 @@ class TestPrematureConfirmReturnsPending:
                 "commit_sha": "abc123",
             },
         )
+        # tester must also propose to pass global zero-proposal guard (#1648)
+        tracker.handle_propose(
+            "tester",
+            {"summary": "Tests", "artifacts": ["tests/test.py"], "commit_sha": "def456"},
+        )
 
         # Only reviewer_code ACKs, but reviewer_contract hasn't ACKed yet
         tracker.handle_ack(
@@ -1218,6 +1223,74 @@ class TestPrematureConfirmReturnsPending:
         # Now coder tries to confirm — should get pending_acks
         result = tracker.handle_confirmed("coder")
         assert result["status"] == "pending_acks"
+
+
+class TestGlobalZeroProposalHandleConfirmed:
+    """Test that handle_confirmed blocks agents when any producer has never proposed (#1648).
+
+    The global zero-proposal guard prevents any agent from confirming when
+    ANY producer in the review graph has proposal_version == 0, regardless
+    of review assignments.
+    """
+
+    def test_reviewer_blocked_by_unassigned_producer(self, tracker):
+        """reviewer_contract blocked when tester hasn't proposed,
+        even though reviewer_contract only reviews coder."""
+        # Coder proposes
+        tracker.handle_propose(
+            "coder",
+            {"summary": "impl", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
+        )
+        # reviewer_contract ACKs coder
+        tracker.handle_ack(
+            "reviewer_contract",
+            "coder",
+            {"artifact_references": ["src/auth.py"]},
+        )
+        # tester never proposed — global guard blocks
+        result = tracker.handle_confirmed("reviewer_contract")
+        assert result["status"] == "pending_acks"
+        assert "zero_proposal_producers" in result
+        assert "tester" in result["zero_proposal_producers"]
+
+    def test_producer_blocked_by_peer_producer(self, tracker):
+        """coder blocked when tester hasn't proposed."""
+        # Coder proposes
+        tracker.handle_propose(
+            "coder",
+            {"summary": "impl", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
+        )
+        # All reviewers ACK coder
+        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+        tracker.handle_ack("reviewer_contract", "coder", {"artifact_references": ["src/auth.py"]})
+        # Note: tester also reviews coder in the 5-agent graph, but we need
+        # to handle the simple_graph case where tester is an advisory reviewer.
+        # tester never proposed — global guard blocks coder from confirming
+        result = tracker.handle_confirmed("coder")
+        assert result["status"] == "pending_acks"
+        assert "zero_proposal_producers" in result
+        assert "tester" in result["zero_proposal_producers"]
+
+    def test_guard_clears_after_all_propose(self, tracker):
+        """After all producers propose, global zero-proposal guard passes."""
+        # Both producers propose
+        tracker.handle_propose(
+            "coder",
+            {"summary": "impl", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
+        )
+        tracker.handle_propose(
+            "tester",
+            {"summary": "tests", "artifacts": ["tests/test.py"], "commit_sha": "def456"},
+        )
+        # reviewer_contract ACKs coder
+        tracker.handle_ack(
+            "reviewer_contract",
+            "coder",
+            {"artifact_references": ["src/auth.py"]},
+        )
+        # reviewer_contract should be able to confirm now (it only reviews coder)
+        result = tracker.handle_confirmed("reviewer_contract")
+        assert result["status"] in ("confirmed", "partially_confirmed")
 
 
 class TestReProposalGuard:
@@ -1466,6 +1539,11 @@ class TestConfirmErrorListsPendingReviewers:
         tracker.handle_propose(
             "coder",
             {"summary": "v1", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
+        )
+        # tester must also propose to pass global zero-proposal guard (#1648)
+        tracker.handle_propose(
+            "tester",
+            {"summary": "Tests", "artifacts": ["tests/test.py"], "commit_sha": "def456"},
         )
 
         # Only reviewer_code ACKs
@@ -2726,13 +2804,30 @@ class TestJiraPipelineConsensus:
             remove_peer_consensus_tracker("KORE-5678")
 
     def test_pending_acks_returns_blocking_details(self, jira_tracker):
-        """handle_confirmed returns pending_acks with details before any proposals."""
-        # Try to confirm coder before any proposals — should get pending_acks
+        """handle_confirmed returns pending_acks with details before full ACKs.
+
+        Since #1648, the global zero-proposal guard fires before the
+        producer_not_fully_acked guard when no producers have proposed.
+        To test the producer-specific guard, we ensure all producers have
+        proposed first.
+        """
+        # Both producers must propose to pass global zero-proposal guard (#1648)
+        jira_tracker.handle_propose(
+            "coder",
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc123"},
+        )
+        jira_tracker.handle_propose(
+            "tester",
+            {"summary": "tests", "artifacts": ["tests/t.py"], "commit_sha": "def456"},
+        )
+        # Only reviewer_code ACKs coder (reviewer_contract hasn't)
+        jira_tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/a.py"]})
+        # Try to confirm coder — should get pending_acks for producer_not_fully_acked
         result = jira_tracker.handle_confirmed("coder")
 
         assert result["status"] == "pending_acks"
         assert "not fully ACKed" in result["message"]
-        assert "reviewer_code" in result["message"]
+        assert "reviewer_contract" in result["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -2860,6 +2955,11 @@ class TestGetFullyAckedProducers:
         tracker.handle_propose(
             "coder",
             {"summary": "test", "artifacts": ["a.py"], "commit_sha": "abc123"},
+        )
+        # tester must also propose to pass global zero-proposal guard (#1648)
+        tracker.handle_propose(
+            "tester",
+            {"summary": "tests", "artifacts": ["tests/t.py"], "commit_sha": "def456"},
         )
         tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
         tracker.handle_ack("reviewer_contract", "coder", {"artifact_references": ["a.py"]})
