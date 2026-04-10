@@ -14,6 +14,7 @@ import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
+from egg_config import GATEWAY_PORT
 from flask import Flask
 from models import Pipeline, PipelineStatus
 from state_store import StateStore
@@ -272,7 +273,7 @@ class TestMCPSubmitTaskSourceBranch:
 
         return PipelineToolHandler(
             orchestrator_url="http://localhost:9849",
-            gateway_url="http://test-gateway:9848",
+            gateway_url=f"http://test-gateway:{GATEWAY_PORT}",
         )
 
     @patch("urllib.request.build_opener")
