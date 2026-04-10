@@ -5,6 +5,7 @@ Provides REST endpoints for advancing pipeline phases with validation.
 """
 
 import sys
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,7 @@ from state_store import (
     InvalidPipelineIdError,
     PipelineNotFoundError,
     VersionConflictError,
+    get_pipeline_state_lock,
 )
 
 logger = get_logger("orchestrator.phases")
@@ -312,26 +314,54 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     error=str(hc_err),
                 )
 
-        # Mark previous phase as complete
-        prev_execution = pipeline.get_phase_execution(previous_phase)
-        prev_execution.status = PipelineStatus.COMPLETE
-        prev_execution.completed_at = datetime.now(UTC)
+        # Acquire the pipeline state lock so the phase transition and
+        # run_epoch bump are atomic with respect to any running
+        # _run_pipeline thread.  This matches restart_phase's pattern.
+        with get_pipeline_state_lock(pipeline_id):
+            # Re-load pipeline under the lock to guard against concurrent
+            # modifications between the earlier read and lock acquisition.
+            pipeline = store.load_pipeline(pipeline_id)
+            original_version = pipeline.version
 
-        # Transition to target phase
-        pipeline.current_phase = target_phase
-        pipeline.status = PipelineStatus.RUNNING
+            # Mark previous phase as complete
+            prev_execution = pipeline.get_phase_execution(previous_phase)
+            prev_execution.status = PipelineStatus.COMPLETE
+            prev_execution.completed_at = datetime.now(UTC)
 
-        # Initialize target phase execution
-        target_execution = pipeline.get_phase_execution(target_phase)
-        target_execution.status = PipelineStatus.RUNNING
-        target_execution.started_at = datetime.now(UTC)
-        target_execution.work_started_at = datetime.now(UTC)
+            # Transition to target phase
+            pipeline.current_phase = target_phase
+            pipeline.status = PipelineStatus.RUNNING
 
-        # Save updated pipeline with optimistic locking
-        store.save_pipeline(pipeline, expected_version=original_version)
+            # Initialize target phase execution
+            target_execution = pipeline.get_phase_execution(target_phase)
+            target_execution.status = PipelineStatus.RUNNING
+            target_execution.started_at = datetime.now(UTC)
+            target_execution.work_started_at = datetime.now(UTC)
+
+            # Bump run_epoch so any stale _run_pipeline thread from the
+            # previous phase detects the advance and exits gracefully.
+            pipeline.run_epoch = datetime.now(UTC)
+            pipeline.updated_at = datetime.now(UTC)
+
+            # Save updated pipeline with optimistic locking
+            store.save_pipeline(pipeline, expected_version=original_version)
 
         # Clear ephemeral inter-agent messaging and consensus state
         _clear_concurrent_state(pipeline_id)
+
+        # Launch a new _run_pipeline thread to process the target phase.
+        # Without this, the pipeline stays in RUNNING state with no thread
+        # driving agent spawning or consensus detection.  See #1672.
+        from routes.pipelines import _run_pipeline
+
+        repo_path_for_thread = store.repo_path
+        thread = threading.Thread(
+            target=_run_pipeline,
+            args=(pipeline_id, repo_path_for_thread),
+            daemon=True,
+            name=f"pipeline-{pipeline_id}-{int(datetime.now(UTC).timestamp())}",
+        )
+        thread.start()
 
         logger.info(
             "Phase advanced",
