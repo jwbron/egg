@@ -12,9 +12,11 @@ File format (JSONL)::
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
+import tempfile
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -126,10 +128,22 @@ class SessionManager:
         # Update timestamp on save.
         state_dict["updated_at"] = datetime.now(UTC).isoformat()
 
-        with open(filepath, "w", encoding="utf-8") as fh:
-            fh.write(json.dumps(state_dict, separators=(",", ":")) + "\n")
-            for msg in messages:
-                fh.write(json.dumps(msg, separators=(",", ":")) + "\n")
+        # Atomic write: write to a temp file, fsync, then rename.
+        # This prevents data loss if the process crashes mid-write.
+        fd, tmp_path = tempfile.mkstemp(dir=self._storage_dir, suffix=".tmp", prefix=".session-")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(state_dict, separators=(",", ":")) + "\n")
+                for msg in messages:
+                    fh.write(json.dumps(msg, separators=(",", ":")) + "\n")
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp_path, filepath)
+        except BaseException:
+            # Clean up the temp file on any failure.
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+            raise
 
         logger.info(
             "Saved session %s (%d messages) to %s",
@@ -193,5 +207,12 @@ class SessionManager:
     # -- internal helpers -----------------------------------------------------
 
     def _session_path(self, session_id: str) -> str:
-        """Return the filesystem path for a session's JSONL file."""
-        return os.path.join(self._storage_dir, f"{session_id}.jsonl")
+        """Return the filesystem path for a session's JSONL file.
+
+        The session_id is sanitised to prevent path traversal.
+        """
+        # Strip directory separators and parent references.
+        safe_id = os.path.basename(session_id)
+        if not safe_id or safe_id.startswith("."):
+            safe_id = f"session-{safe_id.lstrip('.')}" if safe_id else "session-unknown"
+        return os.path.join(self._storage_dir, f"{safe_id}.jsonl")

@@ -121,7 +121,10 @@ async def run_agent_async(
             sdk="egg_harness",
         )
 
-        return await loop.run(prompt, system_prompt=system_prompt)  # type: ignore[return-value]
+        # system_prompt is already stored in the HarnessConfig (set by
+        # create_egg_harness).  Do not pass it again to loop.run() to
+        # avoid overriding the assembled prompt with None.
+        return await loop.run(prompt)  # type: ignore[return-value]
 
     # --- Default: claude_agent_sdk path ---
     try:

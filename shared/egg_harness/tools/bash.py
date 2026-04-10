@@ -17,6 +17,9 @@ from egg_harness.tools.registry import ToolDefinition, ToolHandler, ToolResult
 
 logger = logging.getLogger(__name__)
 
+# Hard upper bound for command timeout (seconds) to prevent agent-controlled DoS.
+_MAX_TIMEOUT: int = 600
+
 
 def create_bash_tool(
     cwd: str | None = None,
@@ -65,7 +68,7 @@ def create_bash_tool(
 
     async def handler(input: dict[str, Any]) -> ToolResult:
         command: str = input["command"]
-        cmd_timeout: int = input.get("timeout", timeout)
+        cmd_timeout: int = min(input.get("timeout", timeout), _MAX_TIMEOUT)
 
         effective_cwd = cwd or os.getcwd()
 

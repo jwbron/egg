@@ -6,13 +6,11 @@ the raw SSE events to the harness's :data:`StreamEvent` types.
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import logging
 import os
 from collections.abc import AsyncIterator
 from typing import Any
-from urllib.parse import urlparse
 
 import anthropic  # noqa: EGG200 - harness provider wraps the Anthropic SDK by design
 
@@ -32,16 +30,6 @@ from egg_harness.providers.base import (
 
 logger = logging.getLogger(__name__)
 
-# Known-safe gateway hostnames (egg-gateway is the standard sidecar name).
-_ALLOWED_GATEWAY_HOSTS = frozenset(
-    {
-        "egg-gateway",
-        "localhost",
-        "127.0.0.1",
-        "::1",
-    }
-)
-
 
 def _validate_endpoint_url(url: str) -> None:
     """Validate that an endpoint URL is safe (SSRF mitigation).
@@ -51,45 +39,15 @@ def _validate_endpoint_url(url: str) -> None:
     - HTTPS to any host (public APIs)
     - HTTP only to known gateway hosts
 
+    Blocks IPv6-mapped IPv4 addresses, link-local ranges, and DNS
+    rebinding via the shared :func:`validate_url_ssrf` helper.
+
     Raises:
         ValueError: If the URL fails validation.
     """
-    if not url or not url.startswith(("http://", "https://")):
-        raise ValueError(f"Invalid endpoint URL (must be http/https): {url!r}")
+    from egg_harness.url_validation import validate_url_ssrf
 
-    parsed = urlparse(url)
-    hostname = parsed.hostname or ""
-
-    # HTTPS is always allowed (external API endpoints).
-    if parsed.scheme == "https":
-        return
-
-    # HTTP: only allow known gateway hosts.
-    if hostname in _ALLOWED_GATEWAY_HOSTS:
-        return
-
-    # HTTP to an IP: block private/reserved ranges.
-    try:
-        addr = ipaddress.ip_address(hostname)
-        if addr.is_private or addr.is_reserved or addr.is_loopback:
-            # Allow loopback (localhost already covered above for named hosts).
-            if addr.is_loopback:
-                return
-            raise ValueError(
-                f"HTTP endpoint points to private/reserved IP: {hostname}. "
-                "Use HTTPS or the gateway proxy instead."
-            )
-    except ValueError as exc:
-        if "private/reserved" in str(exc):
-            raise
-        # Not a valid IP — it's a hostname. Block HTTP to unknown hosts.
-        pass
-
-    # HTTP to an unknown hostname: block to prevent SSRF.
-    raise ValueError(
-        f"HTTP endpoint to unknown host {hostname!r} is not allowed. "
-        "Use HTTPS or route through the gateway proxy (egg-gateway)."
-    )
+    validate_url_ssrf(url, allow_gateway=True, resolve_dns=False)
 
 
 class AnthropicProvider(Provider):
@@ -105,8 +63,7 @@ class AnthropicProvider(Provider):
             directly.  A :class:`ProviderConfig` is created internally.
     """
 
-    # Circuit breaker constants.
-    _MAX_RETRIES: int = 3
+    # Circuit breaker: trip after consecutive non-retryable failures.
     _CIRCUIT_BREAKER_THRESHOLD: int = 3
 
     def __init__(
@@ -194,8 +151,13 @@ class AnthropicProvider(Provider):
     ) -> AsyncIterator[StreamEvent]:
         """Stream a response from the Anthropic Messages API.
 
-        Includes retry logic for 429/5xx errors and a circuit breaker
-        that trips after consecutive failures.
+        This provider does **not** retry internally — retries are handled
+        by :class:`RetryProvider` which wraps this provider.  Keeping
+        retry outside the generator avoids the impossible problem of
+        retracting already-yielded stream events after a partial failure.
+
+        A simple circuit breaker trips after consecutive non-retryable
+        failures to prevent cascading calls to a broken endpoint.
 
         Yields:
             :data:`StreamEvent` instances mapped from the raw SDK stream.
@@ -233,72 +195,42 @@ class AnthropicProvider(Provider):
         if headers:
             kwargs["extra_headers"] = headers
 
-        # Retry loop with exponential backoff.
-        last_exc: Exception | None = None
-        for attempt in range(self._MAX_RETRIES + 1):
-            try:
-                # Track tool-use content blocks for accumulating partial JSON.
-                tool_blocks: dict[int, _ToolBlockState] = {}
+        try:
+            # Track tool-use content blocks for accumulating partial JSON.
+            tool_blocks: dict[int, _ToolBlockState] = {}
 
-                raw = self._create_stream(
-                    model=resolved_model,
-                    max_tokens=max_tokens,
-                    messages=messages,
-                    **kwargs,
-                )
+            raw = self._create_stream(
+                model=resolved_model,
+                max_tokens=max_tokens,
+                messages=messages,
+                **kwargs,
+            )
 
-                # Handle the result flexibly:
-                # - Test mocks return an async iterable directly
-                # - Real SDK returns an async context manager
-                # - _create_stream could also be async (returns coroutine)
-                if hasattr(raw, "__await__") and not hasattr(raw, "__aiter__"):
-                    raw = await raw
+            # Handle the result flexibly:
+            # - Test mocks return an async iterable directly
+            # - Real SDK returns an async context manager
+            # - _create_stream could also be async (returns coroutine)
+            if hasattr(raw, "__await__") and not hasattr(raw, "__aiter__"):
+                raw = await raw
 
-                if hasattr(raw, "__aenter__") and not hasattr(raw, "__aiter__"):
-                    async with raw as raw_stream:
-                        async for event in raw_stream:
-                            mapped = _map_event(event, tool_blocks)
-                            if mapped is not None:
-                                yield mapped
-                else:
-                    async for event in raw:
+            if hasattr(raw, "__aenter__") and not hasattr(raw, "__aiter__"):
+                async with raw as raw_stream:
+                    async for event in raw_stream:
                         mapped = _map_event(event, tool_blocks)
                         if mapped is not None:
                             yield mapped
+            else:
+                async for event in raw:
+                    mapped = _map_event(event, tool_blocks)
+                    if mapped is not None:
+                        yield mapped
 
-                # Success: reset circuit breaker.
-                self._consecutive_failures = 0
-                return
+            # Success: reset circuit breaker.
+            self._consecutive_failures = 0
 
-            except Exception as exc:
-                last_exc = exc
-                status_code = getattr(exc, "status_code", None)
-
-                # Non-retryable 4xx errors (except 429).
-                if status_code is not None and 400 <= status_code < 500 and status_code != 429:
-                    self._consecutive_failures += 1
-                    raise RuntimeError(str(exc)) from exc
-
-                # Retryable: 429 or 5xx.
-                if status_code is not None and (status_code == 429 or status_code >= 500):
-                    if attempt < self._MAX_RETRIES:
-                        import asyncio
-
-                        await asyncio.sleep(0.1 * (2**attempt))
-                        continue
-
-                    # Exhausted retries.
-                    self._consecutive_failures += 1
-                    raise RuntimeError(str(exc)) from exc
-
-                # Unknown exception type: don't retry.
-                self._consecutive_failures += 1
-                raise
-
-        # Should not reach here, but just in case.
-        if last_exc is not None:
+        except Exception:
             self._consecutive_failures += 1
-            raise RuntimeError(str(last_exc)) from last_exc
+            raise
 
 
 # ---------------------------------------------------------------------------

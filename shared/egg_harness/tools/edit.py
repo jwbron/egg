@@ -59,6 +59,13 @@ def create_edit_tool() -> tuple[ToolDefinition, ToolHandler]:
         new_string: str = input["new_string"]
         replace_all: bool = input.get("replace_all", False)
 
+        # Path traversal / symlink protection (defense-in-depth).
+        from egg_harness.path_validation import validate_file_path  # noqa: PLC0415
+
+        path_error = validate_file_path(file_path)
+        if path_error is not None:
+            return ToolResult(output=path_error, is_error=True)
+
         path = Path(file_path)
 
         # Read existing content

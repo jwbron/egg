@@ -17,7 +17,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from egg_harness.config import HarnessConfig, ProviderConfig
+from egg_harness.compaction import CompactionLoopError, CompactionManager
+from egg_harness.config import HarnessConfig, ProviderConfig, resolve_model
 from egg_harness.cost import CostTracker
 from egg_harness.events import EventBus
 from egg_harness.providers.base import (
@@ -94,6 +95,16 @@ class AgentLoop:
         )
         self._shutdown_requested = False
         self._original_sigterm_handler: Any = None
+
+        # Build compaction manager from config.
+        model = self._config.provider.model if self._config.provider else "sonnet"
+        resolved = resolve_model(model)
+        self._compaction = CompactionManager(
+            model=resolved,
+            threshold=self._config.compaction_threshold,
+            keep_recent_tokens=self._config.keep_recent_tokens,
+            event_bus=self._event_bus,
+        )
 
     # -----------------------------------------------------------------
     # Public API
@@ -172,6 +183,7 @@ class AgentLoop:
         response_text_parts: list[str] = []
         turn = 0
         consecutive_failures = 0
+        total_tokens = 0
 
         while turn < max_turns:
             # -- timeout check -----------------------------------------
@@ -251,9 +263,21 @@ class AgentLoop:
                     cache_write_tokens=usage.get("cache_creation_input_tokens", 0),
                     model=model,
                 )
+                total_tokens = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
 
             # -- emit turn complete ------------------------------------
             self._event_bus.emit_turn_complete(turn, usage or {})
+
+            # -- context compaction ------------------------------------
+            self._compaction.current_turn = turn
+            if self._compaction.should_compact(total_tokens):
+                try:
+                    conversation, _summary = self._compaction.compact(conversation, system_prompt)
+                except CompactionLoopError:
+                    logger.warning(
+                        "Compaction loop protection triggered on turn %d",
+                        turn,
+                    )
 
             # -- build assistant message content blocks ----------------
             assistant_content: list[dict[str, Any]] = []

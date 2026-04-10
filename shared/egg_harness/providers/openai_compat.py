@@ -269,10 +269,11 @@ class OpenAICompatibleProvider(Provider):
                     active_tools.clear()
 
                     usage = getattr(chunk, "usage", None) or {}
+                    mapped_reason = _map_stop_reason(finish_reason)
                     if isinstance(usage, dict):
-                        yield MessageDelta(stop_reason=finish_reason, usage=usage)
+                        yield MessageDelta(stop_reason=mapped_reason, usage=usage)
                     else:
-                        yield MessageDelta(stop_reason=finish_reason, usage={})
+                        yield MessageDelta(stop_reason=mapped_reason, usage={})
 
         # Flush any remaining tool calls.
         for state in active_tools.values():
@@ -360,7 +361,7 @@ def _convert_messages(
         role = msg.get("role", "user")
         content = msg.get("content")
 
-        # Tool result messages (Anthropic format).
+        # Tool result messages (Anthropic format: role="tool").
         if role == "tool":
             result.append(
                 {
@@ -370,6 +371,26 @@ def _convert_messages(
                 }
             )
             continue
+
+        # User messages with tool_result content blocks (harness loop format).
+        if role == "user" and isinstance(content, list):
+            has_tool_results = any(
+                isinstance(block, dict) and block.get("type") == "tool_result" for block in content
+            )
+            if has_tool_results:
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "tool_result":
+                        tool_content = block.get("content", "")
+                        if isinstance(tool_content, list):
+                            tool_content = _flatten_content(tool_content)
+                        result.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": block.get("tool_use_id", ""),
+                                "content": str(tool_content),
+                            }
+                        )
+                continue
 
         # Assistant messages with tool_use content blocks.
         if role == "assistant" and isinstance(content, list):

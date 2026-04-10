@@ -181,6 +181,7 @@ def create_egg_harness(
         cwd=cwd_str,
         env=env,
         intercept_tools=intercept_tools,
+        system_prompt=system_prompt,
     )
 
     # -- Agent loop --------------------------------------------------------

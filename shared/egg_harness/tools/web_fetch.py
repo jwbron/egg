@@ -73,6 +73,17 @@ def create_web_fetch_tool() -> tuple[ToolDefinition, ToolHandler]:
         url: str = input["url"]
         prompt: str = input["prompt"]
 
+        # SSRF protection: block private IPs, cloud metadata, internal services.
+        try:
+            from egg_harness.url_validation import validate_url_ssrf  # noqa: PLC0415
+
+            validate_url_ssrf(url, allow_gateway=False, resolve_dns=True)
+        except ValueError as exc:
+            return ToolResult(
+                output=f"URL blocked by security policy: {exc}",
+                is_error=True,
+            )
+
         try:
             import httpx  # noqa: PLC0415
         except ImportError:
