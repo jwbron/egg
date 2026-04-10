@@ -467,7 +467,7 @@ Then use `AskUserQuestion` to offer options:
 Handle each response:
 - **Check agent logs** → Call the `get_container_logs` MCP tool with `task_id` and `agent_role` set to the stalled agent's role (lines: 50). Show the user the output and let them decide next steps.
 - **Wait longer** → Reset the stall counter for this agent. Resume monitoring.
-- **Nudge agent** → Call the `send_message` MCP tool with `task_id`, `to_role` set to the stalled role, `message_type: "STATUS"`, and `body: "Overseer check: you appear stalled in <phase>. Please send a heartbeat or progress update."` Resume monitoring. If the agent remains stalled for another 3 polls after the nudge, re-alert the user with stronger options (see escalation below).
+- **Nudge agent** → Call the `send_message` MCP tool with `task_id`, `to_role` set to the stalled role, `message_type: "STATUS"`, and `body: "Overseer check: you appear stalled in <phase>. Please send a heartbeat or progress update."` Set `nudged = true` and reset `polls_in_phase` to 0 (so the same 3-poll threshold detects post-nudge stalls). Resume monitoring. If the agent remains stalled for another 3 polls after the nudge, re-alert the user with stronger options (see escalation below).
 
 **NACK escalation** — When an unresolved NACK persists for 3+ polls, surface it prominently:
 
@@ -506,7 +506,7 @@ Handle each response:
 - **Restart pipeline** → Confirm with the user, then call `cancel_task` with `task_id` and `cleanup: true`, followed by `submit_task` with the original parameters. Resume from Phase 3 with the new `task_id`.
 - **Continue waiting** → Reset the stall counter. Resume monitoring.
 
-**State tracking** — Maintain a simple in-memory map of `{role: {phase, polls_in_phase, nudged, total_polls_seen, has_any_messages}}` across poll cycles, plus a top-level `running_agent_count` to track the number of running agents between polls (for detecting post-consensus reviewer spawns). Reset a role's `polls_in_phase` counter whenever its phase changes or new messages appear from it in `recent_messages`. Increment `total_polls_seen` on every poll. Set `has_any_messages` to true when any message from the role appears in `recent_messages`. This is lightweight — no persistence needed since it only matters during the active monitoring session.
+**State tracking** — Maintain a simple in-memory map of `{role: {phase, polls_in_phase, nudged, total_polls_seen, has_any_messages}}` across poll cycles, plus a top-level `running_agent_count` to track the number of running agents between polls (for detecting post-consensus reviewer spawns). Reset a role's `polls_in_phase` counter whenever its phase changes, new messages appear from it in `recent_messages`, or a nudge is sent (so the same 3-poll threshold naturally detects post-nudge stalls). Increment `total_polls_seen` on every poll. Set `has_any_messages` to true when any message from the role appears in `recent_messages`. This is lightweight — no persistence needed since it only matters during the active monitoring session.
 
 ### Long-Running Phase Detection
 
