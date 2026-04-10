@@ -5,7 +5,7 @@
   "branch": "egg/issue-1570-v3",
   "base_branch": null,
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -257,10 +257,10 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "complete",
-      "started_at": "2026-04-10T05:48:41.399405Z",
-      "work_started_at": "2026-04-10T05:48:41.399406Z",
-      "completed_at": "2026-04-10T05:51:11.171759Z",
+      "status": "running",
+      "started_at": "2026-04-10T05:51:30.193609Z",
+      "work_started_at": "2026-04-10T05:51:30.193610Z",
+      "completed_at": "2026-04-10T05:51:30.193603Z",
       "containers": [],
       "agents": [],
       "review_cycles": 0,
@@ -292,7 +292,7 @@
     }
   ],
   "created_at": "2026-04-10T04:37:54.202478Z",
-  "updated_at": "2026-04-10T05:51:11.171998Z",
+  "updated_at": "2026-04-10T05:51:30.193857Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -300,5 +300,5 @@
   "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-10T05:49:38.391266982Z     Status: healthy\n2026-04-10T05:49:38.391269316Z     GitHub token valid: True\n2026-04-10T05:49:38.391271732Z     Auth configured: True\n2026-04-10T05:49:38.391274149Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-10T05:49:38.391276774Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-10T05:49:38.391279357Z   Credentials injected by gateway (not in container)\n2026-04-10T05:49:38.391281982Z Signaled error to orchestrator\n2026-04-10T05:49:38.391284399Z \n2026-04-10T05:49:38.391286607Z Cleaning up on container exit...\n2026-04-10T05:49:38.391289066Z ✓ Cleanup complete",
   "analysis": null,
   "plan": null,
-  "version": 26
+  "version": 27
 }
