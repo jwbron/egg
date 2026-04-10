@@ -1,0 +1,54 @@
+{
+  "agent_role": "coder",
+  "pipeline_id": "issue-1570-v15",
+  "status": "completed",
+  "commit_sha": "$(git rev-parse HEAD)",
+  "summary": "Implemented egg_harness custom coding harness with multi-provider LLM support",
+  "artifacts": {
+    "new_packages": [
+      "shared/egg_harness/ (26 files, ~2800 lines) - Core harness package",
+      "shared/egg_harness_integration/ (6 files, ~500 lines) - Egg integration layer"
+    ],
+    "modified_files": [
+      "shared/egg_agent/command.py - Added harness selection via EGG_HARNESS env var",
+      "shared/pyproject.toml - Added egg_harness* to package discovery, added anthropic/httpx deps"
+    ],
+    "test_files": [
+      "shared/tests/test_egg_harness_*.py (7 files, 76 tests) - Available for tester agent"
+    ]
+  },
+  "architecture": {
+    "provider_layer": {
+      "base": "shared/egg_harness/providers/base.py - Provider ABC, StreamEvent types",
+      "anthropic": "shared/egg_harness/providers/anthropic.py - Anthropic SDK provider",
+      "openai_compat": "shared/egg_harness/providers/openai_compat.py - httpx provider"
+    },
+    "tool_system": {
+      "registry": "shared/egg_harness/tools/registry.py - ToolRegistry, ToolImpl",
+      "standard_tools": "Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch",
+      "egg_tools": "EggOrch, EggContract, EggCheckpoint, GitOps, GhCli (via integration layer)"
+    },
+    "agent_loop": "shared/egg_harness/loop.py - Core agentic loop with compaction",
+    "context_management": "shared/egg_harness/compaction.py - Token tracking, auto-compaction",
+    "events": "shared/egg_harness/events.py - Observable event bus",
+    "session": "shared/egg_harness/session.py - JSONL persistence",
+    "config": "shared/egg_harness/config.py - Model aliases, suffix parsing",
+    "cost": "shared/egg_harness/cost.py - Per-model token pricing"
+  },
+  "hitl_decisions_implemented": [
+    "HITL-1: Custom thin adapter wrapping anthropic SDK directly",
+    "HITL-3: Shell out to CLIs for egg-native tools",
+    "HITL-4: Default claude-sdk, opt-in egg harness via EGG_HARNESS",
+    "HITL-5: WebFetch and WebSearch included, disabled in private mode",
+    "HITL-7: Hardcoded per-model rates for cost tracking",
+    "HITL-8: Basic retries with exponential backoff",
+    "HITL-9: CLAUDE.md rule-merging replicated",
+    "HITL-10: opus[1m] suffix syntax supported"
+  ],
+  "security_mitigations": [
+    "RISK-1: All API calls route through gateway proxy, ANTHROPIC_API_KEY check",
+    "CVE-2026-35022: Never use shell=True in subprocess calls",
+    "CVE-2026-21852: API key never imported directly, gateway is trust boundary"
+  ],
+  "test_results": "76 tests passing, ruff lint clean, ruff format clean"
+}
