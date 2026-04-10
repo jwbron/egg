@@ -971,9 +971,7 @@ class TestGetStatusSyncHandler:
         """The sync handler never calls time.sleep, even when wait is set."""
         for wait_val in (0, 5, 60, 600, -10, "30", None):
             with self._mock_requests(handler):
-                handler.handle_tool_call(
-                    "get_status", {"task_id": "issue-42", "wait": wait_val}
-                )
+                handler.handle_tool_call("get_status", {"task_id": "issue-42", "wait": wait_val})
         mock_sleep.assert_not_called()
 
 
@@ -1003,9 +1001,7 @@ class TestGetStatusWait:
 
         assert GET_STATUS_MAX_WAIT == 25
 
-        asyncio.run(
-            _apply_get_status_wait("get_status", {"task_id": "issue-42", "wait": 300})
-        )
+        asyncio.run(_apply_get_status_wait("get_status", {"task_id": "issue-42", "wait": 300}))
         mock_sleep.assert_awaited_once_with(GET_STATUS_MAX_WAIT)
 
     @patch("mcp_server.asyncio.sleep", new_callable=AsyncMock)
@@ -1013,9 +1009,7 @@ class TestGetStatusWait:
         """wait=0 (default) does not await asyncio.sleep."""
         from mcp_server import _apply_get_status_wait
 
-        asyncio.run(
-            _apply_get_status_wait("get_status", {"task_id": "issue-42", "wait": 0})
-        )
+        asyncio.run(_apply_get_status_wait("get_status", {"task_id": "issue-42", "wait": 0}))
         mock_sleep.assert_not_called()
 
     @patch("mcp_server.asyncio.sleep", new_callable=AsyncMock)
@@ -1031,9 +1025,7 @@ class TestGetStatusWait:
         """Negative wait values are ignored."""
         from mcp_server import _apply_get_status_wait
 
-        asyncio.run(
-            _apply_get_status_wait("get_status", {"task_id": "issue-42", "wait": -5})
-        )
+        asyncio.run(_apply_get_status_wait("get_status", {"task_id": "issue-42", "wait": -5}))
         mock_sleep.assert_not_called()
 
     @patch("mcp_server.asyncio.sleep", new_callable=AsyncMock)
@@ -1042,11 +1034,7 @@ class TestGetStatusWait:
         from mcp_server import _apply_get_status_wait
 
         for bad in ("30", None, True, False, [10]):
-            asyncio.run(
-                _apply_get_status_wait(
-                    "get_status", {"task_id": "issue-42", "wait": bad}
-                )
-            )
+            asyncio.run(_apply_get_status_wait("get_status", {"task_id": "issue-42", "wait": bad}))
         mock_sleep.assert_not_called()
 
     @patch("mcp_server.asyncio.sleep", new_callable=AsyncMock)
