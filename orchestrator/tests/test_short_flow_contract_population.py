@@ -486,6 +486,326 @@ def state_store(tmp_path, mock_git):
     return store
 
 
+class TestStartPhaseImplementContractPopulation:
+    """Contract is populated from plan draft when start_phase=implement.
+
+    When start_phase=implement, the plan phase is skipped so the
+    plan-completion hook never fires.  The safety net in _run_pipeline
+    must call _populate_contract_from_plan() whenever the plan draft
+    exists on disk and start_phase is set.
+
+    This exercises the code path added to fix the missing contract
+    population when pipelines skip directly to implement.
+    """
+
+    def test_contract_populated_with_start_phase_implement(self, tmp_path: Path):
+        """Contract gets phases and tasks when start_phase=implement and plan draft exists."""
+        from egg_contracts.loader import create_contract, load_contract
+        from routes.pipelines import _get_draft_path, _populate_contract_from_plan
+
+        pipeline_id = "pipeline-impl-only"
+
+        # Create blank contract (as _run_pipeline would)
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        # Write plan draft to disk (simulating source_branch or inline plan)
+        draft_rel = _get_draft_path("plan", pipeline_id=pipeline_id)
+        assert draft_rel is not None
+        draft_path = tmp_path / draft_rel
+        draft_path.parent.mkdir(parents=True, exist_ok=True)
+        draft_path.write_text(SAMPLE_PLAN)
+
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        # Verify contract was populated with phases and tasks
+        contract = load_contract(pipeline_id, tmp_path)
+        assert len(contract.phases) == 1
+        assert contract.phases[0].name == "Implement"
+        assert len(contract.phases[0].tasks) == 2
+        assert contract.phases[0].tasks[0].id == "task-1-1"
+        assert contract.phases[0].tasks[1].id == "task-1-2"
+
+    def test_contract_populated_with_issue_number(self, tmp_path: Path):
+        """Contract populated correctly with issue_number-based draft path."""
+        from egg_contracts.loader import create_contract, load_contract
+        from routes.pipelines import _get_draft_path, _populate_contract_from_plan
+
+        issue_number = 77
+
+        create_contract(
+            issue_number=issue_number,
+            title=f"Issue #{issue_number}",
+            url=f"https://github.com/owner/repo/issues/{issue_number}",
+            repo_root=tmp_path,
+        )
+
+        draft_rel = _get_draft_path("plan", issue_number=issue_number)
+        assert draft_rel is not None
+        draft_path = tmp_path / draft_rel
+        draft_path.parent.mkdir(parents=True, exist_ok=True)
+        draft_path.write_text(SAMPLE_PLAN)
+
+        _populate_contract_from_plan(tmp_path, "issue-77", "issue", issue_number)
+
+        contract = load_contract(issue_number, tmp_path)
+        assert len(contract.phases) == 1
+        assert len(contract.phases[0].tasks) == 2
+        assert contract.pr is not None
+        assert contract.pr.title == "Add retry logic to API client"
+
+    def test_no_plan_draft_skips_population(self, tmp_path: Path):
+        """When plan draft does not exist, _populate_contract_from_plan
+        returns early and the contract remains empty.
+
+        This tests the helper's internal guard (plan_path.exists() check),
+        which is the last line of defense if the safety-net's outer guard
+        in _run_pipeline is bypassed or removed.
+        """
+        from egg_contracts.loader import create_contract, load_contract
+        from routes.pipelines import _populate_contract_from_plan
+
+        pipeline_id = "pipeline-no-draft"
+
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        # Call the helper directly — no draft file on disk
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        contract = load_contract(pipeline_id, tmp_path)
+        assert len(contract.phases) == 0
+
+    def test_idempotent_double_population(self, tmp_path: Path):
+        """Calling _populate_contract_from_plan twice does not duplicate tasks.
+
+        The inline-plan path may call it once, and the safety net may call
+        it again — the result should be the same as a single call.
+        """
+        from egg_contracts.loader import create_contract, load_contract
+        from routes.pipelines import _get_draft_path, _populate_contract_from_plan
+
+        pipeline_id = "pipeline-idempotent"
+
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        draft_rel = _get_draft_path("plan", pipeline_id=pipeline_id)
+        draft_path = tmp_path / draft_rel
+        draft_path.parent.mkdir(parents=True, exist_ok=True)
+        draft_path.write_text(SAMPLE_PLAN)
+
+        # Call twice (inline-plan path + safety net)
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        contract = load_contract(pipeline_id, tmp_path)
+        assert len(contract.phases) == 1
+        assert len(contract.phases[0].tasks) == 2
+
+
+class TestSourceBranchArtifactWriteToDisk:
+    """Source-branch artifacts are written to disk after _read_source_branch_artifacts.
+
+    When _read_source_branch_artifacts() reads plan/analysis from a source
+    branch, the content is stored in pipeline.plan/pipeline.analysis (in
+    memory) but also needs to be written to disk as draft files so that
+    _populate_contract_from_plan() can find them.
+
+    See: https://github.com/jwbron/egg/pull/1658
+    """
+
+    def test_source_branch_plan_written_to_disk(self, tmp_path: Path):
+        """Plan from source branch is written to disk and contract is populated."""
+        from egg_contracts.loader import create_contract, load_contract
+        from routes.pipelines import (
+            _get_draft_path,
+            _populate_contract_from_plan,
+            _read_source_branch_artifacts,
+        )
+
+        pipeline_id = "pipeline-src-branch"
+        source_branch = "egg/source-plan"
+
+        pipeline = Pipeline(id=pipeline_id, repo="owner/repo")
+        store = MagicMock()
+
+        # Mock git commands: fetch succeeds, show returns plan/analysis content
+        def fake_subprocess_run(cmd, **kwargs):
+            result = MagicMock()
+            if "fetch" in cmd:
+                result.returncode = 0
+                result.stdout = ""
+                return result
+            if "show" in cmd:
+                ref_arg = next((a for a in cmd if a.startswith("origin/")), "")
+                if "-plan.md" in ref_arg:
+                    result.returncode = 0
+                    result.stdout = SAMPLE_PLAN
+                elif "-analysis.md" in ref_arg:
+                    result.returncode = 0
+                    result.stdout = SAMPLE_ANALYSIS
+                else:
+                    result.returncode = 1
+                    result.stdout = ""
+                return result
+            # ls-tree fallback
+            result.returncode = 1
+            result.stdout = ""
+            return result
+
+        with patch("routes.pipelines.subprocess.run", side_effect=fake_subprocess_run):
+            found = _read_source_branch_artifacts(
+                repo_path=tmp_path,
+                source_branch=source_branch,
+                issue_number=None,
+                pipeline_id=pipeline_id,
+                store=store,
+                pipeline=pipeline,
+            )
+
+        assert found is True
+        assert pipeline.plan == SAMPLE_PLAN
+        assert pipeline.analysis == SAMPLE_ANALYSIS
+
+        # Simulate the _run_pipeline code that writes artifacts to disk
+        # after _read_source_branch_artifacts succeeds.
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+
+        plan_rel = _get_draft_path("plan", pipeline_id=pipeline_id)
+        assert plan_rel is not None
+        (tmp_path / plan_rel).write_text(pipeline.plan, encoding="utf-8")
+
+        analysis_rel = _get_draft_path("refine", pipeline_id=pipeline_id)
+        assert analysis_rel is not None
+        (tmp_path / analysis_rel).write_text(pipeline.analysis, encoding="utf-8")
+
+        # Verify files exist on disk
+        assert (tmp_path / plan_rel).exists()
+        assert (tmp_path / plan_rel).read_text() == SAMPLE_PLAN
+        assert (tmp_path / analysis_rel).exists()
+        assert (tmp_path / analysis_rel).read_text() == SAMPLE_ANALYSIS
+
+        # Verify _populate_contract_from_plan can find the file and populate
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        contract = load_contract(pipeline_id, tmp_path)
+        assert len(contract.phases) == 1
+        assert contract.phases[0].name == "Implement"
+        assert len(contract.phases[0].tasks) == 2
+
+    def test_source_branch_plan_with_issue_number(self, tmp_path: Path):
+        """Plan from source branch uses issue_number-based draft path."""
+        from egg_contracts.loader import create_contract, load_contract
+        from routes.pipelines import (
+            _get_draft_path,
+            _populate_contract_from_plan,
+            _read_source_branch_artifacts,
+        )
+
+        pipeline_id = "pipeline-src-issue"
+        issue_number = 88
+        source_branch = "egg/source-issue"
+
+        pipeline = Pipeline(id=pipeline_id, repo="owner/repo", issue_number=issue_number)
+        store = MagicMock()
+
+        def fake_subprocess_run(cmd, **kwargs):
+            result = MagicMock()
+            if "fetch" in cmd:
+                result.returncode = 0
+                result.stdout = ""
+                return result
+            if "show" in cmd:
+                ref_arg = next((a for a in cmd if a.startswith("origin/")), "")
+                if "-plan.md" in ref_arg:
+                    result.returncode = 0
+                    result.stdout = SAMPLE_PLAN
+                else:
+                    result.returncode = 1
+                    result.stdout = ""
+                return result
+            result.returncode = 1
+            result.stdout = ""
+            return result
+
+        with patch("routes.pipelines.subprocess.run", side_effect=fake_subprocess_run):
+            found = _read_source_branch_artifacts(
+                repo_path=tmp_path,
+                source_branch=source_branch,
+                issue_number=issue_number,
+                pipeline_id=pipeline_id,
+                store=store,
+                pipeline=pipeline,
+            )
+
+        assert found is True
+        assert pipeline.plan == SAMPLE_PLAN
+
+        # Write plan draft to disk (as _run_pipeline now does)
+        plan_rel = _get_draft_path("plan", issue_number=issue_number)
+        assert plan_rel is not None
+        plan_path = tmp_path / plan_rel
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text(pipeline.plan, encoding="utf-8")
+
+        assert plan_path.exists()
+        assert f"{issue_number}-plan.md" in str(plan_path)
+
+        # Verify contract population works
+        create_contract(
+            issue_number=issue_number,
+            title=f"Issue #{issue_number}",
+            url=f"https://github.com/owner/repo/issues/{issue_number}",
+            repo_root=tmp_path,
+        )
+        _populate_contract_from_plan(tmp_path, pipeline_id, "issue", issue_number)
+
+        contract = load_contract(issue_number, tmp_path)
+        assert len(contract.phases) == 1
+        assert len(contract.phases[0].tasks) == 2
+        assert contract.pr is not None
+        assert contract.pr.title == "Add retry logic to API client"
+
+    def test_source_branch_no_artifacts_no_write(self, tmp_path: Path):
+        """When source branch has no artifacts, no draft files are written."""
+        from routes.pipelines import _get_draft_path, _read_source_branch_artifacts
+
+        pipeline_id = "pipeline-src-empty"
+        source_branch = "egg/source-empty"
+
+        pipeline = Pipeline(id=pipeline_id, repo="owner/repo")
+        store = MagicMock()
+
+        def fake_subprocess_run(cmd, **kwargs):
+            result = MagicMock()
+            if "fetch" in cmd:
+                result.returncode = 0
+                result.stdout = ""
+                return result
+            result.returncode = 1
+            result.stdout = ""
+            return result
+
+        with patch("routes.pipelines.subprocess.run", side_effect=fake_subprocess_run):
+            found = _read_source_branch_artifacts(
+                repo_path=tmp_path,
+                source_branch=source_branch,
+                issue_number=None,
+                pipeline_id=pipeline_id,
+                store=store,
+                pipeline=pipeline,
+            )
+
+        assert found is False
+        assert pipeline.plan is None
+        assert pipeline.analysis is None
+
+        # No draft files should exist
+        plan_rel = _get_draft_path("plan", pipeline_id=pipeline_id)
+        assert plan_rel is not None
+        assert not (tmp_path / plan_rel).exists()
+
+
 class TestStateStoreCreatePipeline:
     """State store accepts and stores analysis and plan fields."""
 

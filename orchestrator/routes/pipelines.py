@@ -2490,10 +2490,9 @@ def _git_show_draft(
     not exist on the remote ref or the git command fails.  This is a
     read-only operation that does not modify the worktree.
 
-    Note: this does **not** ``git fetch`` before reading.  It relies on
-    ``origin/{branch}`` being reasonably fresh from periodic fetches
-    performed by the health monitor and other pipeline flows.  If stale
-    refs become a problem, consider adding an optional fetch here.
+    Note: this function does **not** ``git fetch`` itself.  The caller is
+    responsible for ensuring ``origin/{branch}`` is fresh (e.g., by
+    running ``git fetch origin {branch}`` before calling this helper).
     """
     git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(repo_path)]
     try:
@@ -2558,6 +2557,23 @@ def _read_source_branch_artifacts(
     git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(repo_path)]
     bare_prefix = _pipeline_identifier(issue_number, pipeline_id)
     updated = False
+
+    # Fetch the source branch so origin/{source_branch} is up-to-date.
+    # Without this, git show fails on a freshly restarted orchestrator
+    # because the remote ref isn't cached locally.
+    try:
+        subprocess.run(
+            [*git_base, "fetch", "origin", source_branch],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except Exception:
+        logger.debug(
+            "Failed to fetch source branch (will try git show anyway)",
+            source_branch=source_branch,
+        )
 
     # Build ordered list of prefixes to try.  Duplicates are removed so
     # we don't hit git show twice for the same path.
@@ -7578,6 +7594,46 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     exc_info=True,
                 )
 
+            # Write source-branch artifacts to disk so the safety-net
+            # _populate_contract_from_plan() call below can find them.
+            # The inline-plan path writes drafts inside the contract_synced
+            # block, but that block is skipped on pipeline restarts
+            # (contract already synced).  Writing here ensures the draft
+            # files exist regardless of contract_synced state.
+            if pipeline.plan is not None or pipeline.analysis is not None:
+                drafts_dir = worktree_repo_path / ".egg-state" / "drafts"
+                drafts_dir.mkdir(parents=True, exist_ok=True)
+
+                if pipeline.plan is not None:
+                    plan_rel = _get_draft_path(
+                        "plan",
+                        issue_number=pipeline.issue_number,
+                        pipeline_id=pipeline_id,
+                    )
+                    if plan_rel:
+                        plan_path = worktree_repo_path / plan_rel
+                        plan_path.write_text(pipeline.plan, encoding="utf-8")
+                        logger.info(
+                            "Wrote source-branch plan draft to worktree",
+                            pipeline_id=pipeline_id,
+                            path=plan_rel,
+                        )
+
+                if pipeline.analysis is not None:
+                    analysis_rel = _get_draft_path(
+                        "refine",
+                        issue_number=pipeline.issue_number,
+                        pipeline_id=pipeline_id,
+                    )
+                    if analysis_rel:
+                        analysis_path = worktree_repo_path / analysis_rel
+                        analysis_path.write_text(pipeline.analysis, encoding="utf-8")
+                        logger.info(
+                            "Wrote source-branch analysis draft to worktree",
+                            pipeline_id=pipeline_id,
+                            path=analysis_rel,
+                        )
+
         # Create companion contract in the worktree (deferred from pipeline
         # creation so it doesn't pollute the main repo working directory).
         if not pipeline.contract_synced:
@@ -7763,6 +7819,32 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     pipeline.error = f"Failed to create contract: {contract_err}"
                     store.save_pipeline(pipeline)
                 return
+
+        # Safety net: when start_phase=implement, the plan phase is
+        # skipped so the plan-completion hook at the end of the phase loop
+        # never fires.  The inline-plan path above calls
+        # _populate_contract_from_plan inside the contract_synced block,
+        # but that block is skipped on pipeline restarts (contract already
+        # synced) and when _read_source_branch_artifacts writes the draft
+        # file to the worktree without going through the inline-plan
+        # branch.  This catch-all ensures the contract has phases and
+        # tasks before agents spawn when the plan phase was skipped.
+        # When start_phase=plan, the plan phase runs normally and the
+        # plan-completion hook populates the contract, so no safety net
+        # is needed.
+        if pipeline.config.start_phase == "implement":
+            plan_draft_rel = _get_draft_path(
+                "plan",
+                issue_number=pipeline.issue_number,
+                pipeline_id=pipeline.id,
+            )
+            if plan_draft_rel and (worktree_repo_path / plan_draft_rel).exists():
+                _populate_contract_from_plan(
+                    worktree_repo_path,
+                    pipeline_id,
+                    pipeline_mode,
+                    pipeline.issue_number,
+                )
 
         # Check for feedback preserved by the recovery path in start_pipeline
         # or by the inline request_changes handler.  When either stores
