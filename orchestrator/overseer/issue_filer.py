@@ -81,7 +81,7 @@ def _build_issue_body(
         truncated = raw_container_logs[-2000:]
         if len(raw_container_logs) > 2000:
             truncated = f"... (truncated, showing last 2000 chars)\n{truncated}"
-        container_logs_section = f"\n### Container Logs\n```\n{truncated}\n```\n"
+        container_logs_section = f"\n\n### Container Logs\n```\n{truncated}\n```\n"
 
     body = f"""## Pipeline Diagnostic: {anomaly_type}
 

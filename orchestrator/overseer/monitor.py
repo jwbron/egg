@@ -334,12 +334,15 @@ class OverseerMonitor:
             escalations = await self._poll_escalation_messages()
 
             # 6 & 7. Process any anomalies (with consensus context + container logs)
+            container_logs_cache: dict[str, str] = {}
             for alert in alerts:
                 agent_role = alert.get("agent_role", alert.get("agent_id", "unknown"))
                 alert_type = alert.get("alert_type", "")
 
-                # Fetch container logs for the alerted agent (best-effort)
-                container_logs = await self._query_container_logs(agent_role)
+                # Fetch container logs for the alerted agent (best-effort, cached per cycle)
+                if agent_role not in container_logs_cache:
+                    container_logs_cache[agent_role] = await self._query_container_logs(agent_role)
+                container_logs = container_logs_cache[agent_role]
 
                 if alert_type == "infrastructure_error":
                     # Tier 1 infrastructure_error alerts: skip LLM classification,
@@ -955,9 +958,10 @@ class OverseerMonitor:
             if not role_containers:
                 return ""
 
-            # Prefer running containers, then most recently started
+            # Prefer running containers (newest first), then most recently started
             running = [c for c in role_containers if c.get("status") == "running"]
             if running:
+                running.sort(key=lambda c: c.get("started_at", ""), reverse=True)
                 selected = running[0]
             else:
                 role_containers.sort(key=lambda c: c.get("started_at", ""), reverse=True)

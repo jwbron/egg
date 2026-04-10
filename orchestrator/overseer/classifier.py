@@ -101,7 +101,8 @@ async def classify_stall(
             confidence: float between 0.0 and 1.0
             reasoning: str explaining the classification
     """
-    key = _cache_key("classify_stall", logs, progress, consensus, container_logs)
+    truncated_container_logs = container_logs[-8000:] if container_logs else None
+    key = _cache_key("classify_stall", logs, progress, consensus, truncated_container_logs)
     if key in _cache:
         return _cache[key]  # type: ignore[no-any-return]
 
@@ -173,7 +174,8 @@ async def classify_error(
             severity: ``"low"`` | ``"medium"`` | ``"high"`` | ``"critical"``
             recommended_action: str with a suggested next step
     """
-    key = _cache_key("classify_error", error_context, container_logs)
+    truncated_container_logs = container_logs[-8000:] if container_logs else None
+    key = _cache_key("classify_error", error_context, truncated_container_logs)
     if key in _cache:
         return _cache[key]  # type: ignore[no-any-return]
 
