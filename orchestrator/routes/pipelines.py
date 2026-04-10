@@ -2581,9 +2581,7 @@ def _read_source_branch_artifacts(
                     # Filter by issue number to avoid picking up artifacts
                     # from other issues on the same branch (#1654).
                     if issue_number is not None and len(matches) > 1:
-                        issue_matches = [
-                            f for f in matches if f.startswith(f"{issue_number}-")
-                        ]
+                        issue_matches = [f for f in matches if f.startswith(f"{issue_number}-")]
                         if issue_matches:
                             matches = issue_matches
                         else:

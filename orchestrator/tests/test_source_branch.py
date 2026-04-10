@@ -636,7 +636,6 @@ class TestReadSourceBranchArtifacts:
         assert pipeline.analysis is None
         mock_store.save_pipeline.assert_called_once()
 
-
     @patch("subprocess.run")
     @patch("routes.pipelines._git_show_draft")
     def test_fallback_filters_by_issue_number(self, mock_git_show, mock_run, worktree_path):
@@ -650,7 +649,9 @@ class TestReadSourceBranchArtifacts:
             calls.append(rel_path)
             # First call per field is the exact-path attempt → miss
             # (simulates source branch using a different prefix)
-            if len([c for c in calls if c == rel_path]) == 1 and rel_path.startswith(".egg-state/drafts/1570-"):
+            if len([c for c in calls if c == rel_path]) == 1 and rel_path.startswith(
+                ".egg-state/drafts/1570-"
+            ):
                 return None
             # Fallback (second call) for 1570 files → hit
             if "1570-analysis.md" in rel_path:
