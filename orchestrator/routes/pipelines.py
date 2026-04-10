@@ -2611,9 +2611,7 @@ def _read_source_branch_artifacts(
                     check=False,
                 )
                 if result.returncode == 0 and result.stdout.strip():
-                    matches = [
-                        f for f in result.stdout.strip().splitlines() if f.endswith(suffix)
-                    ]
+                    matches = [f for f in result.stdout.strip().splitlines() if f.endswith(suffix)]
                     # Filter by issue number to avoid picking up artifacts
                     # from other issues on the same branch (#1654).
                     if issue_number is not None:

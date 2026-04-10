@@ -898,9 +898,7 @@ class TestReadSourceBranchArtifacts:
 
         mock_git_show.side_effect = fake_git_show
 
-        pipeline = self._make_pipeline(
-            id="issue-1570-v7", source_artifact_prefix="issue-1570-v3"
-        )
+        pipeline = self._make_pipeline(id="issue-1570-v7", source_artifact_prefix="issue-1570-v3")
         mock_store = MagicMock()
 
         result = _read_source_branch_artifacts(
