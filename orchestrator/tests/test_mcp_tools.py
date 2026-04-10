@@ -603,6 +603,28 @@ class TestGetContract:
 
         mock_gw.assert_called_once_with("/api/v1/contract/42?pipeline_id=issue-42")
 
+    def test_with_issue_number_picks_latest_pipeline(self, handler):
+        """When multiple active pipelines match the issue, pick the latest by created_at."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {
+                "data": {
+                    "pipelines": [
+                        {"id": "old-run", "issue_number": 42, "created_at": "2026-04-01T10:00:00Z"},
+                        {
+                            "id": "newest-run",
+                            "issue_number": 42,
+                            "created_at": "2026-04-03T10:00:00Z",
+                        },
+                        {"id": "mid-run", "issue_number": 42, "created_at": "2026-04-02T10:00:00Z"},
+                    ]
+                }
+            }
+            with patch.object(handler, "_make_gateway_request") as mock_gw:
+                mock_gw.return_value = {"success": True, "data": {"contract": {}}}
+                handler.handle_tool_call("get_contract", {"issue_number": 42})
+
+        mock_gw.assert_called_once_with("/api/v1/contract/42?pipeline_id=newest-run")
+
     def test_with_issue_number_no_active_pipeline(self, handler):
         """issue_number without matching active pipeline omits pipeline_id."""
         with patch.object(handler, "_make_request") as mock_req:
