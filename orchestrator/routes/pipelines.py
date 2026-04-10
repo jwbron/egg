@@ -7508,6 +7508,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         if pipeline.source_branch and not (
             pipeline.plan is not None and pipeline.analysis is not None
         ):
+            # source_branch is cleared inside _read_source_branch_artifacts
+            # when artifacts are actually found.
             try:
                 _read_source_branch_artifacts(
                     repo_path=worktree_repo_path,
@@ -7524,11 +7526,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     pipeline_id=pipeline_id,
                     exc_info=True,
                 )
-            else:
-                # source_branch is cleared inside
-                # _read_source_branch_artifacts when artifacts are
-                # actually found — no action needed here.
-                pass
 
         # Create companion contract in the worktree (deferred from pipeline
         # creation so it doesn't pollute the main repo working directory).
