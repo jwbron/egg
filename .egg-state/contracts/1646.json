@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1646,
+    "title": "Issue #1646",
+    "url": "https://github.com/jwbron/egg/issues/1646"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/mcp_tools.py`, add 4 tool schema dicts to `PIPELINE_TOOLS` for `advance_phase` (params: task_id, target_phase, force), `start_phase` (params: task_id), `complete_phase` (params: task_id, optional artifacts), and `populate_contract` (params: task_id)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All 4 tools appear in PIPELINE_TOOLS with correct input schemas and descriptions",
+          "files_affected": [
+            "orchestrator/mcp_tools.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `orchestrator/mcp_tools.py:PipelineToolHandler`, add `_handle_advance_phase`, `_handle_start_phase`, `_handle_complete_phase`, and `_handle_populate_contract` methods + register in handlers dict. advance_phase with force=true stops running containers first via GET containers + POST stop for each, then calls POST phase with target_phase and force. start_phase calls POST phase/start. complete_phase calls POST phase/complete with optional artifacts. populate_contract calls POST phase/populate-contract.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Each handler proxies correctly to its REST endpoint; force-advance stops containers before transitioning",
+          "files_affected": [
+            "orchestrator/mcp_tools.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In `orchestrator/routes/phases.py`, add POST /<pipeline_id>/phase/populate-contract endpoint that loads pipeline, resolves worktree path via resolve_worktree_path(), imports and calls _populate_contract_from_plan() from routes.pipelines with resolved path, pipeline_id, pipeline mode, and issue_number. Returns success with phase/task counts.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Endpoint exists, resolves worktree correctly, calls populate function, returns task/phase counts",
+          "files_affected": [
+            "orchestrator/routes/phases.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "In `orchestrator/tests/test_mcp_tools.py`, add test classes for all 4 new handlers: TestAdvancePhase (success, force with container stop, invalid phase), TestStartPhase (success, already running), TestCompletePhase (success, with artifacts), TestPopulateContract (success, not found)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All new tests pass via pytest",
+          "files_affected": [
+            "orchestrator/tests/test_mcp_tools.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Add phase management MCP tools (advance, start, complete, populate)",
+    "description": "Exposes four phase management operations as MCP tools for pipeline recovery\nand manual intervention, eliminating the need for raw curl calls during\nstuck pipeline scenarios. The advance_phase tool with force=true also stops\nrunning containers before advancing to prevent SIGTERM cascading.",
+    "test_plan": "- Automated: unit tests in test_mcp_tools.py for all 4 handlers\n- Manual: verify tools appear in MCP server tool list",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
