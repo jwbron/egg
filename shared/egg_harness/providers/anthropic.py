@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import urlparse
 
-import anthropic
+import anthropic  # noqa: EGG200 - harness provider wraps the Anthropic SDK by design
 
 from egg_harness.config import ProviderConfig
 from egg_harness.providers.base import (
@@ -120,7 +120,7 @@ class AnthropicProvider(Provider):
             _validate_endpoint_url(gateway_url)
             config = ProviderConfig(
                 provider_type="anthropic",
-                model="claude-sonnet-4-5-20250514",
+                model="sonnet",
                 endpoint=gateway_url,
             )
         if config is None:

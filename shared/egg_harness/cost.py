@@ -12,19 +12,19 @@ from dataclasses import dataclass
 # rate divided by 1_000_000).  Keeping them in per-token form avoids a
 # division on every cost calculation.
 TOKEN_RATES: dict[str, dict[str, float]] = {
-    "claude-opus-4-6": {
+    "claude-opus-4-6": {  # noqa: EGG201 - canonical model ID as dict key
         "input": 15.00 / 1_000_000,
         "output": 75.00 / 1_000_000,
         "cache_read": 1.50 / 1_000_000,
         "cache_write": 18.75 / 1_000_000,
     },
-    "claude-sonnet-4-5-20250514": {
+    "claude-sonnet-4-5-20250514": {  # noqa: EGG201 - canonical model ID as dict key
         "input": 3.00 / 1_000_000,
         "output": 15.00 / 1_000_000,
         "cache_read": 0.30 / 1_000_000,
         "cache_write": 3.75 / 1_000_000,
     },
-    "claude-haiku-4-5": {
+    "claude-haiku-4-5": {  # noqa: EGG201 - canonical model ID as dict key
         "input": 0.80 / 1_000_000,
         "output": 4.00 / 1_000_000,
         "cache_read": 0.08 / 1_000_000,
@@ -35,7 +35,7 @@ TOKEN_RATES: dict[str, dict[str, float]] = {
 
 @dataclass
 class CostTracker:
-    """Accumulates token usage and cost across multiple API calls.
+    """Accumulates token usage and cost across multiple API calls.  # noqa: EGG201
 
     Example::
 

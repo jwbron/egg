@@ -14,9 +14,9 @@ from dataclasses import dataclass
 # ---------------------------------------------------------------------------
 
 MODEL_ALIASES: dict[str, str] = {
-    "opus": "claude-opus-4-6",
-    "sonnet": "claude-sonnet-4-5-20250514",
-    "haiku": "claude-haiku-4-5",
+    "opus": "claude-opus-4-6",  # noqa: EGG201 - canonical alias definition
+    "sonnet": "claude-sonnet-4-5-20250514",  # noqa: EGG201 - canonical alias definition
+    "haiku": "claude-haiku-4-5",  # noqa: EGG201 - canonical alias definition
 }
 
 # ---------------------------------------------------------------------------
@@ -24,9 +24,9 @@ MODEL_ALIASES: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 CONTEXT_WINDOWS: dict[str, int] = {
-    "claude-opus-4-6": 200_000,
-    "claude-sonnet-4-5-20250514": 200_000,
-    "claude-haiku-4-5": 200_000,
+    "claude-opus-4-6": 200_000,  # noqa: EGG201 - canonical model ID as dict key
+    "claude-sonnet-4-5-20250514": 200_000,  # noqa: EGG201 - canonical model ID as dict key
+    "claude-haiku-4-5": 200_000,  # noqa: EGG201 - canonical model ID as dict key
 }
 
 _DEFAULT_CONTEXT_WINDOW: int = 128_000
@@ -59,7 +59,7 @@ def resolve_model(model: str) -> str:
 
 
 def parse_model_spec(spec: str) -> tuple[str, int | None]:
-    """Parse a model specification that may include an optional context size.
+    """Parse a model specification that may include an optional context size.  # noqa: EGG201
 
     Accepted formats::
 

@@ -89,7 +89,7 @@ class AgentLoop:
         self._config = config or HarnessConfig(
             provider=ProviderConfig(
                 provider_type=provider.name,
-                model="claude-sonnet-4-5-20250514",
+                model="sonnet",
             ),
         )
         self._shutdown_requested = False
@@ -155,7 +155,7 @@ class AgentLoop:
         config = self._config
         max_turns = config.max_turns
         timeout = config.timeout
-        model = config.provider.model if config.provider else "claude-sonnet-4-5-20250514"
+        model = config.provider.model if config.provider else "sonnet"
 
         # Use system_prompt from run() arg, falling back to config.
         if system_prompt is None:

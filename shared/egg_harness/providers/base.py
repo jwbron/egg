@@ -9,7 +9,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any, Union
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Stream event dataclasses
@@ -147,16 +147,16 @@ class MessageEnd:
     usage: dict[str, int] | None = None
 
 
-StreamEvent = Union[
-    TextDelta,
-    ToolUseStart,
-    ToolUseInputDelta,
-    ToolUseEnd,
-    ThinkingDelta,
-    MessageStart,
-    MessageDelta,
-    MessageEnd,
-]
+StreamEvent = (
+    TextDelta
+    | ToolUseStart
+    | ToolUseInputDelta
+    | ToolUseEnd
+    | ThinkingDelta
+    | MessageStart
+    | MessageDelta
+    | MessageEnd
+)
 """Union of all possible events yielded during a streaming response."""
 
 

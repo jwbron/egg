@@ -10,6 +10,7 @@ pytest.importorskip("egg_harness.providers.anthropic")
 import os
 from unittest.mock import patch
 
+from egg_config.constants import GATEWAY_PORT
 from egg_harness.config import ProviderConfig
 from egg_harness.providers.anthropic import AnthropicProvider
 from egg_harness.providers.base import (
@@ -22,7 +23,7 @@ def _make_config(**overrides) -> ProviderConfig:
     defaults = {
         "provider_type": "anthropic",
         "model": "claude-opus-4-6",
-        "endpoint": "http://egg-gateway:9848",
+        "endpoint": f"http://egg-gateway:{GATEWAY_PORT}",
     }
     defaults.update(overrides)
     return ProviderConfig(**defaults)
@@ -37,13 +38,13 @@ class TestAnthropicProviderInit:
 
     def test_valid_gateway_url(self):
         """Provider should accept a well-formed gateway URL via config.endpoint."""
-        config = _make_config(endpoint="http://egg-gateway:9848")
+        config = _make_config(endpoint=f"http://egg-gateway:{GATEWAY_PORT}")
         provider = AnthropicProvider(config=config)
         assert provider is not None
 
     def test_valid_gateway_url_with_path(self):
         """Provider should accept a gateway URL that includes a path."""
-        config = _make_config(endpoint="http://egg-gateway:9848/v1")
+        config = _make_config(endpoint=f"http://egg-gateway:{GATEWAY_PORT}/v1")
         provider = AnthropicProvider(config=config)
         assert provider is not None
 
@@ -55,7 +56,7 @@ class TestAnthropicProviderInit:
 
     def test_invalid_gateway_url_no_scheme(self):
         """Gateway URL without a scheme should be rejected."""
-        config = _make_config(endpoint="egg-gateway:9848")
+        config = _make_config(endpoint=f"egg-gateway:{GATEWAY_PORT}")
         with pytest.raises((ValueError, TypeError, RuntimeError)):
             AnthropicProvider(config=config)
 
