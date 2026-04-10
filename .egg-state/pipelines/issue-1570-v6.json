@@ -51,10 +51,10 @@
         {
           "container_id": "59ef50e9ff6073f8693a121386673b1e4de3b60f3b6693b02de229102345468c",
           "container_name": "issue-1570-v6-tester",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-10T16:24:43.040660Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-10T16:26:17.802281Z",
+          "exit_code": 1,
           "agent_role": "tester",
           "session_token": null
         },
@@ -102,13 +102,13 @@
       "agents": [
         {
           "role": "tester",
-          "status": "running",
+          "status": "failed",
           "container_id": "59ef50e9ff6073f8693a121386673b1e4de3b60f3b6693b02de229102345468c",
           "started_at": "2026-04-10T16:24:43.040671Z",
-          "completed_at": null,
+          "completed_at": "2026-04-10T16:26:19.029577Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -179,7 +179,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-10T16:24:04.817758Z",
-  "updated_at": "2026-04-10T16:26:16.449901Z",
+  "updated_at": "2026-04-10T16:26:19.029796Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -189,5 +189,5 @@
   "plan": null,
   "source_branch": "egg/issue-1570-v3",
   "run_epoch": null,
-  "version": 8
+  "version": 9
 }
