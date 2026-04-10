@@ -757,6 +757,10 @@ class TestToolRouting:
             "validate_config",
             "restart_agent",
             "restart_phase",
+            "advance_phase",
+            "start_phase",
+            "complete_phase",
+            "populate_contract",
         }
         assert tool_names == expected
 
@@ -1096,3 +1100,361 @@ class TestGetStatusWait:
 
         mock_sleep.assert_not_called()
         assert kwargs["wait"] == 10  # preserved — non-get_status tools own it
+
+
+class TestAdvancePhase:
+    """Tests for the advance_phase MCP tool handler."""
+
+    def test_advance_non_force(self, handler):
+        """Non-force advance sends target_phase without stopping containers."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "message": "Phase advanced to implement",
+                "data": {"previous_phase": "plan", "current_phase": "implement"},
+            }
+            result = handler.handle_tool_call(
+                "advance_phase",
+                {"task_id": "issue-42", "target_phase": "implement"},
+            )
+
+        mock_req.assert_called_once_with(
+            "/api/v1/pipelines/issue-42/phase",
+            method="POST",
+            data={"target_phase": "implement", "force": False},
+        )
+        assert result["success"] is True
+        assert result["data"]["current_phase"] == "implement"
+        assert "stopped_containers" not in result
+
+    def test_advance_force_stops_containers(self, handler):
+        """Force advance lists containers, stops running ones, then advances."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                # GET containers (only running containers, all=false)
+                {
+                    "data": {
+                        "containers": [
+                            {"container_id": "c1", "status": "running"},
+                            {"container_id": "c2", "status": "running"},
+                            {"container_id": "c3", "status": "exited"},
+                        ]
+                    }
+                },
+                # POST stop c1
+                {"success": True},
+                # POST stop c2
+                {"success": True},
+                # POST phase advance
+                {
+                    "success": True,
+                    "message": "Phase advanced to implement",
+                    "data": {"previous_phase": "plan", "current_phase": "implement"},
+                },
+            ]
+            result = handler.handle_tool_call(
+                "advance_phase",
+                {"task_id": "issue-42", "target_phase": "implement", "force": True},
+            )
+
+        assert mock_req.call_count == 4
+        # First call: list containers
+        assert mock_req.call_args_list[0][0][0] == "/api/v1/pipelines/issue-42/containers?all=false"
+        # Second call: stop c1
+        assert mock_req.call_args_list[1][0][0] == "/api/v1/pipelines/issue-42/containers/c1/stop"
+        assert mock_req.call_args_list[1][1]["method"] == "POST"
+        # Third call: stop c2
+        assert mock_req.call_args_list[2][0][0] == "/api/v1/pipelines/issue-42/containers/c2/stop"
+        # Fourth call: advance phase
+        assert mock_req.call_args_list[3][0][0] == "/api/v1/pipelines/issue-42/phase"
+        assert mock_req.call_args_list[3][1]["data"]["force"] is True
+
+        assert result["success"] is True
+        assert result["stopped_containers"] == ["c1", "c2"]
+
+    def test_advance_force_no_running_containers(self, handler):
+        """Force advance with no running containers still advances successfully."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                # GET containers (none running)
+                {"data": {"containers": []}},
+                # POST phase advance
+                {
+                    "success": True,
+                    "data": {"previous_phase": "plan", "current_phase": "implement"},
+                },
+            ]
+            result = handler.handle_tool_call(
+                "advance_phase",
+                {"task_id": "issue-42", "target_phase": "implement", "force": True},
+            )
+
+        assert mock_req.call_count == 2
+        assert result["success"] is True
+        assert "stopped_containers" not in result
+
+    def test_advance_force_container_stop_fails(self, handler):
+        """If container stop fails, log warning and proceed with advance."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                # GET containers
+                {"data": {"containers": [{"container_id": "c1", "status": "running"}]}},
+                # POST stop c1 fails
+                Exception("container stop timeout"),
+                # POST phase advance still succeeds
+                {
+                    "success": True,
+                    "data": {"previous_phase": "plan", "current_phase": "implement"},
+                },
+            ]
+            result = handler.handle_tool_call(
+                "advance_phase",
+                {"task_id": "issue-42", "target_phase": "implement", "force": True},
+            )
+
+        assert result["success"] is True
+        # c1 was not successfully stopped, so not in stopped_containers
+        assert "stopped_containers" not in result
+
+    def test_advance_force_container_list_fails(self, handler):
+        """If listing containers fails, log warning and proceed with advance."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                # GET containers fails
+                Exception("connection refused"),
+                # POST phase advance still succeeds
+                {
+                    "success": True,
+                    "data": {"previous_phase": "refine", "current_phase": "plan"},
+                },
+            ]
+            result = handler.handle_tool_call(
+                "advance_phase",
+                {"task_id": "issue-42", "target_phase": "plan", "force": True},
+            )
+
+        assert result["success"] is True
+        assert "stopped_containers" not in result
+
+    def test_advance_url_encodes_task_id(self, handler):
+        """Task ID with special characters is URL-encoded."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"previous_phase": "plan", "current_phase": "implement"},
+            }
+            handler.handle_tool_call(
+                "advance_phase",
+                {"task_id": "owner/repo#42", "target_phase": "implement"},
+            )
+
+        call_url = mock_req.call_args[0][0]
+        assert "owner%2Frepo%2342" in call_url
+
+    def test_advance_force_skips_exited_containers(self, handler):
+        """Only running containers are stopped; exited containers are skipped."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                # GET containers: only one running, one exited
+                {
+                    "data": {
+                        "containers": [
+                            {"container_id": "exited1", "status": "exited"},
+                            {"container_id": "running1", "status": "running"},
+                        ]
+                    }
+                },
+                # POST stop running1
+                {"success": True},
+                # POST phase advance
+                {
+                    "success": True,
+                    "data": {"previous_phase": "plan", "current_phase": "implement"},
+                },
+            ]
+            result = handler.handle_tool_call(
+                "advance_phase",
+                {"task_id": "issue-42", "target_phase": "implement", "force": True},
+            )
+
+        assert mock_req.call_count == 3
+        assert result["stopped_containers"] == ["running1"]
+
+
+class TestStartPhase:
+    """Tests for the start_phase MCP tool handler."""
+
+    def test_start_success(self, handler):
+        """start_phase proxies to POST /phase/start endpoint."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "message": "Phase started",
+                "data": {"phase": "implement", "status": "running"},
+            }
+            result = handler.handle_tool_call("start_phase", {"task_id": "issue-42"})
+
+        mock_req.assert_called_once_with(
+            "/api/v1/pipelines/issue-42/phase/start",
+            method="POST",
+        )
+        assert result["success"] is True
+        assert result["data"]["status"] == "running"
+
+    def test_start_url_encodes_task_id(self, handler):
+        """Task ID with special characters is URL-encoded."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True}
+            handler.handle_tool_call("start_phase", {"task_id": "org/repo#7"})
+
+        call_url = mock_req.call_args[0][0]
+        assert "org%2Frepo%237" in call_url
+
+    def test_start_already_running(self, handler):
+        """start_phase returns error when phase is already running."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {
+                "success": False,
+                "message": "Phase implement is already running",
+            }
+            result = handler.handle_tool_call("start_phase", {"task_id": "issue-42"})
+
+        assert result["success"] is False
+        assert "already running" in result["message"]
+
+
+class TestCompletePhase:
+    """Tests for the complete_phase MCP tool handler."""
+
+    def test_complete_without_artifacts(self, handler):
+        """complete_phase without artifacts sends no data body."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "message": "Phase completed",
+                "data": {"phase": "implement", "next_phase": "pr"},
+            }
+            result = handler.handle_tool_call("complete_phase", {"task_id": "issue-42"})
+
+        mock_req.assert_called_once_with(
+            "/api/v1/pipelines/issue-42/phase/complete",
+            method="POST",
+            data=None,
+        )
+        assert result["success"] is True
+        assert result["data"]["next_phase"] == "pr"
+
+    def test_complete_with_artifacts(self, handler):
+        """complete_phase with artifacts passes them in the request body."""
+        artifacts = {"commit_sha": "abc123", "pr_url": "https://github.com/org/repo/pull/1"}
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "message": "Phase completed",
+                "data": {"phase": "implement", "next_phase": "pr"},
+            }
+            result = handler.handle_tool_call(
+                "complete_phase",
+                {"task_id": "issue-42", "artifacts": artifacts},
+            )
+
+        mock_req.assert_called_once_with(
+            "/api/v1/pipelines/issue-42/phase/complete",
+            method="POST",
+            data={"artifacts": artifacts},
+        )
+        assert result["success"] is True
+
+    def test_complete_url_encodes_task_id(self, handler):
+        """Task ID with special characters is URL-encoded."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True}
+            handler.handle_tool_call("complete_phase", {"task_id": "org/repo#7"})
+
+        call_url = mock_req.call_args[0][0]
+        assert "org%2Frepo%237" in call_url
+
+
+class TestPopulateContract:
+    """Tests for the populate_contract MCP tool handler."""
+
+    def test_populate_success(self, handler):
+        """populate_contract proxies to POST /phase/populate-contract."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "message": "Contract populated from plan",
+                "data": {"phase_count": 2, "task_count": 6},
+            }
+            result = handler.handle_tool_call("populate_contract", {"task_id": "issue-42"})
+
+        mock_req.assert_called_once_with(
+            "/api/v1/pipelines/issue-42/phase/populate-contract",
+            method="POST",
+        )
+        assert result["success"] is True
+        assert result["data"]["phase_count"] == 2
+        assert result["data"]["task_count"] == 6
+
+    def test_populate_url_encodes_task_id(self, handler):
+        """Task ID with special characters is URL-encoded."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True}
+            handler.handle_tool_call("populate_contract", {"task_id": "org/repo#7"})
+
+        call_url = mock_req.call_args[0][0]
+        assert "org%2Frepo%237" in call_url
+
+    def test_populate_not_found(self, handler):
+        """populate_contract returns error when pipeline not found."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {
+                "success": False,
+                "message": "Pipeline issue-999 not found",
+            }
+            result = handler.handle_tool_call("populate_contract", {"task_id": "issue-999"})
+
+        assert result["success"] is False
+        assert "not found" in result["message"]
+
+
+class TestPhaseManagementToolSchemas:
+    """Verify tool schema definitions for the 4 phase management tools."""
+
+    def test_advance_phase_schema(self):
+        """advance_phase has task_id and target_phase required, force optional."""
+        from mcp_tools import PIPELINE_TOOLS
+
+        tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
+        schema = tools_by_name["advance_phase"]["inputSchema"]
+        assert set(schema["required"]) == {"task_id", "target_phase"}
+        assert "force" in schema["properties"]
+        assert schema["properties"]["force"]["type"] == "boolean"
+
+    def test_start_phase_schema(self):
+        """start_phase has only task_id required."""
+        from mcp_tools import PIPELINE_TOOLS
+
+        tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
+        schema = tools_by_name["start_phase"]["inputSchema"]
+        assert schema["required"] == ["task_id"]
+        assert "task_id" in schema["properties"]
+
+    def test_complete_phase_schema(self):
+        """complete_phase has task_id required, artifacts optional."""
+        from mcp_tools import PIPELINE_TOOLS
+
+        tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
+        schema = tools_by_name["complete_phase"]["inputSchema"]
+        assert schema["required"] == ["task_id"]
+        assert "artifacts" in schema["properties"]
+        assert schema["properties"]["artifacts"]["type"] == "object"
+
+    def test_populate_contract_schema(self):
+        """populate_contract has only task_id required."""
+        from mcp_tools import PIPELINE_TOOLS
+
+        tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
+        schema = tools_by_name["populate_contract"]["inputSchema"]
+        assert schema["required"] == ["task_id"]
+        assert "task_id" in schema["properties"]
