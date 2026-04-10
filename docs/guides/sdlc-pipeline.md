@@ -1082,7 +1082,13 @@ The `analysis` and `plan` fields are also accepted by the `submit_task` MCP tool
 - `.egg-state/drafts/{prefix}-plan.md` → pipeline plan (parsed to populate the contract)
 - `.egg-state/drafts/{prefix}-analysis.md` → pipeline analysis
 
-If the exact pipeline-ID prefix doesn't match files on the source branch (e.g., the source used a different issue number or qualifier), the orchestrator falls back to listing available draft files via `git ls-tree` and reads the first matching `*-plan.md` / `*-analysis.md`. Inline `analysis` and `plan` values always take precedence over `source_branch` — explicit content wins.
+Prefix resolution order for exact-path lookup:
+
+1. `source_artifact_prefix` (explicit override, e.g. `"issue-123-v3"`) — if set, only this prefix is tried before the fallback
+2. `pipeline_id` (includes qualifier, e.g. `"issue-123-v7"`) — tried when it differs from the bare issue prefix
+3. Bare issue prefix (e.g. `"issue-123"`)
+
+If none of the exact prefixes match, the orchestrator falls back to listing available draft files via `git ls-tree` and reads the first matching `*-plan.md` / `*-analysis.md` for the same issue number. Inline `analysis` and `plan` values always take precedence over `source_branch` — explicit content wins.
 
 ````bash
 # Via REST API — load artifacts from a prior run's branch
@@ -1097,7 +1103,22 @@ curl -X POST http://localhost:9849/api/v1/pipelines \
   }'
 ````
 
-The `source_branch` parameter is also accepted by the `submit_task` MCP tool:
+Use `source_artifact_prefix` when the source branch used a different pipeline ID or qualifier than the current one:
+
+````bash
+curl -X POST http://localhost:9849/api/v1/pipelines \
+  -H "Content-Type: application/json" \
+  -d '{
+    "issue_number": 123,
+    "repo": "owner/repo",
+    "branch": "egg/issue-123-v4",
+    "config": {"start_phase": "implement"},
+    "source_branch": "egg/issue-123-v1",
+    "source_artifact_prefix": "issue-123-v1"
+  }'
+````
+
+The `source_branch` and `source_artifact_prefix` parameters are also accepted by the `submit_task` MCP tool:
 
 ```json
 {
@@ -1106,7 +1127,8 @@ The `source_branch` parameter is also accepted by the `submit_task` MCP tool:
   "issue_number": 123,
   "qualifier": "v2",
   "config": {"start_phase": "implement"},
-  "source_branch": "egg/issue-123-v1"
+  "source_branch": "egg/issue-123-v1",
+  "source_artifact_prefix": "issue-123-v1"
 }
 ```
 
