@@ -83,7 +83,6 @@ class PeerConsensusTracker:
         cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS,
         max_flip_flops: int = DEFAULT_MAX_FLIP_FLOPS,
         max_revision_rounds: int = DEFAULT_MAX_REVISION_ROUNDS,
-        auto_repropose_enabled: bool = False,
         auto_repropose_debounce_seconds: int = 60,
         max_auto_repropose: int = 5,
         enable_invariant_checks: bool = False,
@@ -95,7 +94,6 @@ class PeerConsensusTracker:
         self.cooldown_seconds = cooldown_seconds
         self.max_flip_flops = max_flip_flops
         self.max_revision_rounds = max_revision_rounds
-        self.auto_repropose_enabled = auto_repropose_enabled
         self.auto_repropose_debounce_seconds = auto_repropose_debounce_seconds
         self.max_auto_repropose = max_auto_repropose
         self.enable_invariant_checks = enable_invariant_checks
@@ -650,7 +648,6 @@ class PeerConsensusTracker:
         """Check whether auto re-propose should trigger for a producer push.
 
         Safety mechanisms:
-        - Feature flag must be enabled (auto_repropose_enabled)
         - Debounce: skip if within auto_repropose_debounce_seconds of last auto re-propose
         - Max counter: skip if auto_repropose_counts >= max_auto_repropose
         - Overlap: skip if changed_files don't overlap with any existing ACK artifacts
@@ -663,10 +660,6 @@ class PeerConsensusTracker:
         Returns:
             Tuple of (should_trigger, reason) where reason explains the decision.
         """
-        # Check feature flag
-        if not self.auto_repropose_enabled:
-            return False, "auto_repropose_enabled is False (feature flag OFF)"
-
         # Check debounce window
         last_ts = self._last_auto_repropose_timestamp.get(producer_role)
         if last_ts is not None:

@@ -159,7 +159,7 @@ RUN pip3 install --no-cache-dir \
     # Data formats and parsing
     pyyaml toml python-dateutil orjson \
     # Testing frameworks
-    pytest pytest-cov pytest-asyncio pytest-xdist hypothesis \
+    pytest pytest-cov pytest-asyncio pytest-xdist hypothesis fakeredis \
     # Code quality tools
     black ruff mypy isort \
     # Type stubs

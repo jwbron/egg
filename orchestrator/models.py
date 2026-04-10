@@ -357,6 +357,16 @@ class PipelineConfig(BaseModel):
         ge=30,
         description="Grace period after CONSENSUS_PROPOSE before flagging blocking reviewers as stalled",
     )
+    auto_repropose_debounce_seconds: int = Field(
+        default=60,
+        ge=1,
+        description="Debounce window between consecutive auto re-proposals on producer push (seconds)",
+    )
+    max_auto_repropose: int = Field(
+        default=5,
+        ge=0,
+        description="Maximum automatic re-proposals per producer per review cycle (0 to disable)",
+    )
     orchestrator_post_ack_confirmation_timeout_seconds: int = Field(
         default=180,
         ge=30,

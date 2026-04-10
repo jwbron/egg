@@ -290,6 +290,8 @@ class TestPipelineConfig:
         assert config.max_review_cycles == 3
         assert config.hitl_gates is True
         assert config.concurrent_phases == ["refine", "plan", "implement"]
+        assert config.auto_repropose_debounce_seconds == 60
+        assert config.max_auto_repropose == 5
 
     def test_custom_config(self):
         """Test custom configuration."""

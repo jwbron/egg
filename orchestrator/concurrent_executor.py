@@ -187,7 +187,13 @@ class ConcurrentPhaseExecutor:
         """
         roles = self.get_agent_roles()
         graph = self._get_review_graph()
-        tracker = create_peer_consensus_tracker(self.pipeline.id, graph)
+        config = self.pipeline.config
+        tracker = create_peer_consensus_tracker(
+            self.pipeline.id,
+            graph,
+            auto_repropose_debounce_seconds=config.auto_repropose_debounce_seconds,
+            max_auto_repropose=config.max_auto_repropose,
+        )
         executions: list[AgentExecution] = []
 
         with ThreadPoolExecutor(max_workers=self.max_concurrent) as pool:
