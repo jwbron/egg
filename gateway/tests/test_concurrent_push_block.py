@@ -301,7 +301,11 @@ class TestConcurrentPushBlock:
         ):
             with patch.dict(os.environ, env):
                 # Push to infrastructure branch — should not be blocked by
-                # concurrent mode (infrastructure is exempt)
+                # concurrent mode (infrastructure is exempt).
+                # Note: We don't assert status_code == 200 here because
+                # infrastructure pushes may be rejected by other enforcement
+                # layers (e.g., branch ownership). We only verify that the
+                # concurrent-mode check specifically does not block it.
                 response = _do_push(client, refspec=CHECKPOINT_BRANCH)
                 assert response.status_code != 403 or (
                     "concurrent mode" not in json.loads(response.data)["message"].lower()

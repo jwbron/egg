@@ -776,11 +776,12 @@ def git_push() -> tuple[Response, int] | Response:
                     details=priv_result.to_dict(),
                 )
 
-    # SECURITY: Pipeline push-target enforcement.
-    # In pipeline mode, agents must push only to their assigned branch.
-    # This prevents agents from improvising branch names on push failure.
-    # Killswitch: set PUSH_TARGET_ENFORCEMENT=false to disable.
+    # SECURITY: Pipeline and concurrent-mode push enforcement.
+    # Infrastructure pushes (checkpoint branches, etc.) are exempt from both checks.
     if not is_infrastructure_push:
+        # Push-target enforcement: in pipeline mode, agents must push only to
+        # their assigned branch. Prevents improvising branch names on push failure.
+        # Killswitch: set PUSH_TARGET_ENFORCEMENT=false to disable.
         push_target_enforcement = os.environ.get("PUSH_TARGET_ENFORCEMENT", "true").lower() not in (
             "false",
             "0",
@@ -813,12 +814,11 @@ def git_push() -> tuple[Response, int] | Response:
                         },
                     )
 
-    # SECURITY: Concurrent-mode push enforcement.
-    # In concurrent/BRC mode, agents must push through the consensus protocol
-    # (egg-orch consensus propose --push) which sets a consensus_push marker.
-    # Direct pushes are blocked to ensure all changes go through peer review.
-    # Killswitch: set CONCURRENT_PUSH_ENFORCEMENT=false to disable.
-    if not is_infrastructure_push:
+        # Concurrent-mode enforcement: in concurrent/BRC mode, agents must push
+        # through the consensus protocol (egg-orch consensus propose --push)
+        # which sets a consensus_push marker. Direct pushes are blocked to ensure
+        # all changes go through peer review.
+        # Killswitch: set CONCURRENT_PUSH_ENFORCEMENT=false to disable.
         concurrent_push_enforcement = os.environ.get(
             "CONCURRENT_PUSH_ENFORCEMENT", "true"
         ).lower() not in ("false", "0", "no")
