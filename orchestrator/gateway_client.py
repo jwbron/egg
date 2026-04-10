@@ -943,14 +943,14 @@ class GatewayClient:
             logger.info(
                 "Fetched branch from remote",
                 pipeline_id=pipeline_id,
-                args=args,
+                fetch_args=args,
             )
             return True
         except Exception as e:
             logger.warning(
                 "Best-effort fetch failed",
                 pipeline_id=pipeline_id,
-                args=args,
+                fetch_args=args,
                 error=str(e),
             )
             return False
