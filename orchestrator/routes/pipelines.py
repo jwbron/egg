@@ -658,6 +658,12 @@ def create_pipeline() -> tuple[Response, int]:
     analysis = data.get("analysis")
     plan = data.get("plan")
     source_branch = data.get("source_branch")
+    if source_branch is not None:
+        if not re.match(r"^[a-zA-Z0-9_./-]+$", source_branch) or ".." in source_branch:
+            return make_error_response(
+                f"Invalid source_branch: {source_branch!r}",
+                status_code=400,
+            )
 
     # Validate mode
     valid_modes = {m.value for m in PipelineMode}
@@ -701,6 +707,10 @@ def create_pipeline() -> tuple[Response, int]:
                 # Branch exists — only block if there is an active pipeline
                 _branch_store = get_state_store(repo_path)
                 _has_active_pipeline = False
+                # When pipeline_id is None (auto-generated later), we skip
+                # the existence check — we can't look up a pipeline that
+                # hasn't been assigned an ID yet.  This is acceptable because
+                # auto-generated IDs are unique and won't collide.
                 if pipeline_id and _branch_store.pipeline_exists(pipeline_id):
                     try:
                         _existing = _branch_store.load_pipeline(pipeline_id)
@@ -2538,8 +2548,9 @@ def _read_source_branch_artifacts(
     }
 
     for field_name, (expected_filename, fallback_suffix) in artifact_map.items():
-        # Skip if already populated (inline values take precedence)
-        if getattr(pipeline, field_name):
+        # Skip if already populated (inline values take precedence).
+        # Use ``is not None`` so empty strings are not silently overwritten.
+        if getattr(pipeline, field_name) is not None:
             continue
 
         drafts_prefix = ".egg-state/drafts/"
@@ -2564,18 +2575,27 @@ def _read_source_branch_artifacts(
                     check=False,
                 )
                 if result.returncode == 0 and result.stdout.strip():
-                    for filename in result.stdout.strip().splitlines():
-                        if filename.endswith(fallback_suffix):
-                            fallback_path = f"{drafts_prefix}{filename}"
-                            content = _git_show_draft(repo_path, source_branch, fallback_path)
-                            if content:
-                                logger.info(
-                                    "Read artifact from source branch via fallback",
-                                    field=field_name,
-                                    source_branch=source_branch,
-                                    path=fallback_path,
-                                )
-                                break
+                    matches = [
+                        f for f in result.stdout.strip().splitlines() if f.endswith(fallback_suffix)
+                    ]
+                    if len(matches) > 1:
+                        logger.warning(
+                            "Multiple fallback matches for artifact — using first",
+                            field=field_name,
+                            source_branch=source_branch,
+                            matches=matches,
+                        )
+                    for filename in matches:
+                        fallback_path = f"{drafts_prefix}{filename}"
+                        content = _git_show_draft(repo_path, source_branch, fallback_path)
+                        if content:
+                            logger.info(
+                                "Read artifact from source branch via fallback",
+                                field=field_name,
+                                source_branch=source_branch,
+                                path=fallback_path,
+                            )
+                            break
             except Exception as exc:
                 logger.debug(
                     "git ls-tree failed for source branch drafts",
@@ -7481,7 +7501,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # Read artifacts from source branch if specified and inline values
         # were not provided.  This populates pipeline.plan and
         # pipeline.analysis so the contract creation block below can use them.
-        if pipeline.source_branch and not (pipeline.plan and pipeline.analysis):
+        if pipeline.source_branch and not (
+            pipeline.plan is not None and pipeline.analysis is not None
+        ):
             try:
                 _read_source_branch_artifacts(
                     repo_path=worktree_repo_path,
@@ -7498,6 +7520,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     pipeline_id=pipeline_id,
                     exc_info=True,
                 )
+            else:
+                # Clear source_branch after successful read to avoid
+                # re-reading on pipeline restart (same pattern as plan/
+                # analysis clearing after draft files are pushed).
+                pipeline.source_branch = None
+                store.save_pipeline(pipeline, message="Clear source_branch after artifact read")
 
         # Create companion contract in the worktree (deferred from pipeline
         # creation so it doesn't pollute the main repo working directory).

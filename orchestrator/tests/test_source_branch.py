@@ -185,6 +185,39 @@ class TestCreatePipelineRESTSourceBranch:
         call_kwargs = mock_store.create_pipeline.call_args
         assert call_kwargs.kwargs.get("source_branch") == "egg/issue-1570-v3"
 
+    @pytest.mark.parametrize(
+        "bad_branch",
+        [
+            "branch with spaces",
+            "branch:ref",
+            "branch..lock",
+            "branch~1",
+            "branch^2",
+            "branch\\path",
+            "../etc/passwd",
+        ],
+    )
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_source_branch_invalid_returns_400(
+        self, mock_repo_path, mock_get_store, mock_gw_fn, client, tmp_path, bad_branch
+    ):
+        """Invalid source_branch values should be rejected with 400."""
+        mock_repo_path.return_value = tmp_path
+
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "issue_number": 1570,
+                "repo": "owner/repo",
+                "branch": "egg/issue-1570",
+                "source_branch": bad_branch,
+            },
+        )
+
+        assert response.status_code == 400
+
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
     @patch("routes.pipelines.get_repo_path")
@@ -935,6 +968,41 @@ class TestSourceBranchWithBranchReuse:
 
 class TestSourceBranchEdgeCases:
     """Edge cases and error handling for source_branch."""
+
+    @patch("routes.pipelines._git_show_draft")
+    def test_empty_string_field_not_overwritten(self, mock_git_show, tmp_path):
+        """An empty-string field value should not be overwritten by source artifacts.
+
+        Uses ``is not None`` so that empty strings are treated as explicitly set.
+        """
+        from routes.pipelines import _read_source_branch_artifacts
+
+        mock_git_show.return_value = "# From source branch"
+
+        pipeline = Pipeline(
+            id="issue-1570",
+            issue_number=1570,
+            repo="owner/repo",
+            source_branch="egg/issue-1570-v3",
+            plan="",  # explicitly set to empty string
+            analysis="",
+        )
+        mock_store = MagicMock()
+
+        result = _read_source_branch_artifacts(
+            repo_path=tmp_path,
+            source_branch="egg/issue-1570-v3",
+            issue_number=1570,
+            pipeline_id="issue-1570",
+            store=mock_store,
+            pipeline=pipeline,
+        )
+
+        # Empty strings are not None, so they should not be overwritten
+        assert result is False
+        assert pipeline.plan == ""
+        assert pipeline.analysis == ""
+        mock_git_show.assert_not_called()
 
     @patch("routes.pipelines._git_show_draft")
     def test_empty_string_content_not_treated_as_artifact(self, mock_git_show, tmp_path):
