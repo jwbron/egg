@@ -384,16 +384,14 @@
       "questions": [],
       "status": "resolved",
       "created_at": "2026-04-10T00:37:58.879516Z",
-      "resolved_at": "2026-04-10T00:42:21.761997Z",
-      "resolution": {
-        "action": "approve"
-      },
+      "resolved_at": "2026-04-10T00:51:35.094511Z",
+      "resolution": "{\"action\": \"approve\"}",
       "phase": "plan",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-10T00:09:03.955042Z",
-  "updated_at": "2026-04-10T00:42:21.764874Z",
+  "updated_at": "2026-04-10T00:51:35.097177Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -401,5 +399,5 @@
   "error": null,
   "analysis": null,
   "plan": null,
-  "version": 34
+  "version": 35
 }
