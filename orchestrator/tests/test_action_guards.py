@@ -239,6 +239,21 @@ class TestCheckNackGuard:
         assert "No review edge" in result.reason
         assert result.details["guard"] == "no_review_edge"
 
+    def test_zero_version_nack_rejected(self, graph, matrix):
+        """Cannot NACK a producer that hasn't proposed (version 0) (#1637)."""
+        # Coder never proposed — version stays at 0
+        result = check_nack_guard("reviewer_code", "coder", graph, matrix=matrix)
+        assert result.allowed is False
+        assert result.details["guard"] == "zero_version_nack"
+        assert "no proposal exists" in result.reason
+        assert result.details["producer"] == "coder"
+
+    def test_nack_allowed_after_proposal(self, graph, matrix):
+        """NACK allowed after producer proposes (version > 0)."""
+        matrix.record_proposal("coder")
+        result = check_nack_guard("reviewer_code", "coder", graph, matrix=matrix)
+        assert result.allowed is True
+
 
 # ---------------------------------------------------------------------------
 # check_confirm_guard
@@ -398,6 +413,34 @@ class TestCheckConfirmGuardReviewer:
         nacks = result.details["unresolved_nacks"]
         assert len(nacks) == 1
         assert nacks[0]["producer"] == "coder"
+
+    def test_stale_nack_blocks_confirm(self, graph, matrix):
+        """Reviewer NACKed at v1, producer re-proposed v2 -> stale NACK blocks confirm (#1637)."""
+        # Coder proposes v1, reviewer_code NACKs
+        v1 = matrix.record_proposal("coder")
+        matrix.record_nack("reviewer_code", "coder", v1, reason="Bug found")
+        # Coder re-proposes v2 — the NACK is now stale (at old version)
+        matrix.record_proposal("coder")  # v2
+
+        # reviewer_code also reviews tester — ACK that at current version
+        t_version = matrix.record_proposal("tester")
+        matrix.record_ack("reviewer_code", "tester", t_version)
+
+        result = check_confirm_guard(
+            "reviewer_code",
+            graph,
+            matrix,
+            producer_phases={"coder": ConsensusPhase.PROPOSED, "tester": ConsensusPhase.PROPOSED},
+            reviewer_phases={"reviewer_code": ConsensusPhase.REVIEWING},
+            confirmed=set(),
+        )
+        assert result.allowed is False
+        assert result.details["guard"] == "stale_nacks"
+        stale = result.details["stale_nacks"]
+        assert len(stale) == 1
+        assert stale[0]["producer"] == "coder"
+        assert stale[0]["nack_version"] == 1
+        assert stale[0]["current_version"] == 2
 
     def test_guard_priority_zero_proposal_before_stale_acks(self, graph, matrix):
         """Zero-proposal guard fires before stale_acks guard."""
@@ -847,6 +890,55 @@ class TestValidateInvariants:
         assert len(consistency_violations) == 1
         assert consistency_violations[0].details["is_fully_acked"] is False
         assert consistency_violations[0].details["matrix_says"] is True
+
+    def test_invariant_6_ack_commit_sha_mismatch(self):
+        """ACK commit SHA differs from proposal commit SHA -> violation (#1637)."""
+        g = ReviewGraph(
+            [
+                ReviewEdge("reviewer", "producer", ReviewCriticality.CRITICAL),
+            ]
+        )
+        m = ApprovalMatrix(g)
+        v1 = m.record_proposal("producer")
+        # ACK with a different commit SHA than the proposal
+        m.record_ack("reviewer", "producer", v1, commit_sha="aaaa1111")
+
+        violations = validate_invariants(
+            g,
+            m,
+            producer_phases={"producer": ConsensusPhase.PROPOSED},
+            reviewer_phases={"reviewer": ConsensusPhase.REVIEWING},
+            confirmed={"reviewer"},
+            proposal_commit_shas={"producer": "bbbb2222"},
+        )
+        sha_violations = [v for v in violations if v.invariant == "ack_commit_sha_consistency"]
+        assert len(sha_violations) == 1
+        assert sha_violations[0].agent == "reviewer"
+        assert sha_violations[0].details["producer"] == "producer"
+        assert sha_violations[0].details["ack_commit_sha"] == "aaaa1111"
+        assert sha_violations[0].details["proposal_commit_sha"] == "bbbb2222"
+
+    def test_invariant_6_no_violation_when_shas_match(self):
+        """ACK commit SHA matches proposal commit SHA -> no violation."""
+        g = ReviewGraph(
+            [
+                ReviewEdge("reviewer", "producer", ReviewCriticality.CRITICAL),
+            ]
+        )
+        m = ApprovalMatrix(g)
+        v1 = m.record_proposal("producer")
+        m.record_ack("reviewer", "producer", v1, commit_sha="aaaa1111")
+
+        violations = validate_invariants(
+            g,
+            m,
+            producer_phases={"producer": ConsensusPhase.PROPOSED},
+            reviewer_phases={"reviewer": ConsensusPhase.REVIEWING},
+            confirmed={"reviewer"},
+            proposal_commit_shas={"producer": "aaaa1111"},
+        )
+        sha_violations = [v for v in violations if v.invariant == "ack_commit_sha_consistency"]
+        assert len(sha_violations) == 0
 
     def test_multiple_violations(self, graph, matrix):
         """When multiple invariants are violated, all should be reported."""
