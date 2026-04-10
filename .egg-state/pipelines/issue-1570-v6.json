@@ -43,10 +43,10 @@
   "phases": {
     "implement": {
       "phase": "implement",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-04-10T16:24:34.331832Z",
       "work_started_at": "2026-04-10T16:24:40.054464Z",
-      "completed_at": null,
+      "completed_at": "2026-04-10T16:26:24.208263Z",
       "containers": [
         {
           "container_id": "59ef50e9ff6073f8693a121386673b1e4de3b60f3b6693b02de229102345468c",
@@ -167,27 +167,27 @@
         {
           "cycle": 0,
           "started_at": "2026-04-10T16:24:40.054464Z",
-          "completed_at": null,
+          "completed_at": "2026-04-10T16:26:24.208171Z",
           "commit_sha": "2aa8f21dc45130ba12842cf5bd87396e866fc771"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-10T16:26:22.123055087Z     Status: healthy\n2026-04-10T16:26:22.123079295Z     GitHub token valid: True\n2026-04-10T16:26:22.123104045Z     Auth configured: True\n2026-04-10T16:26:22.123129129Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-10T16:26:22.123155587Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-10T16:26:22.123181629Z   Credentials injected by gateway (not in container)\n2026-04-10T16:26:22.123207629Z Signaled error to orchestrator\n2026-04-10T16:26:22.123232296Z \n2026-04-10T16:26:22.123257671Z Cleaning up on container exit...\n2026-04-10T16:26:22.123282546Z ✓ Cleanup complete",
       "hitl_feedback": null,
       "phase_start_sha": "2aa8f21dc45130ba12842cf5bd87396e866fc771"
     }
   },
   "decisions": [],
   "created_at": "2026-04-10T16:24:04.817758Z",
-  "updated_at": "2026-04-10T16:26:24.189000Z",
+  "updated_at": "2026-04-10T16:26:24.208860Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
-  "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-10T16:26:22.123055087Z     Status: healthy\n2026-04-10T16:26:22.123079295Z     GitHub token valid: True\n2026-04-10T16:26:22.123104045Z     Auth configured: True\n2026-04-10T16:26:22.123129129Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-10T16:26:22.123155587Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-10T16:26:22.123181629Z   Credentials injected by gateway (not in container)\n2026-04-10T16:26:22.123207629Z Signaled error to orchestrator\n2026-04-10T16:26:22.123232296Z \n2026-04-10T16:26:22.123257671Z Cleaning up on container exit...\n2026-04-10T16:26:22.123282546Z ✓ Cleanup complete",
   "analysis": null,
   "plan": null,
   "source_branch": "egg/issue-1570-v3",
   "run_epoch": null,
-  "version": 13
+  "version": 14
 }
