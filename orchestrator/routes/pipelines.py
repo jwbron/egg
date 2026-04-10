@@ -2584,6 +2584,7 @@ def _read_source_branch_artifacts(
                 "Gateway fetch of source branch failed (will try git show anyway)",
                 source_branch=source_branch,
                 pipeline_id=pipeline_id,
+                exc_info=True,
             )
     else:
         # Fallback for tests or environments without a gateway.
@@ -2599,6 +2600,7 @@ def _read_source_branch_artifacts(
             logger.debug(
                 "Failed to fetch source branch (will try git show anyway)",
                 source_branch=source_branch,
+                exc_info=True,
             )
 
     # Build ordered list of prefixes to try.  Duplicates are removed so
