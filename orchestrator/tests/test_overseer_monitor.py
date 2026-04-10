@@ -2624,7 +2624,6 @@ class TestQueryContainerLogs:
         monitor._check_status_consistency = AsyncMock()
         monitor._check_hitl_resolution_propagation = AsyncMock()
         monitor._poll_escalation_messages = AsyncMock(return_value=[])
-        monitor._classify_and_act = AsyncMock()
         monitor._check_post_consensus_stalls = AsyncMock()
         monitor._check_incomplete_consensus_stalls = AsyncMock()
         monitor._check_cross_phase_consistency = AsyncMock()
@@ -2637,3 +2636,9 @@ class TestQueryContainerLogs:
 
         # Despite two alerts for "coder", logs should be fetched only once
         assert query_count == 1
+
+        # Both alerts should have received the cached container_logs value
+        classify_calls = monitor._classifier.classify_stall.call_args_list
+        assert len(classify_calls) == 2
+        for call in classify_calls:
+            assert call.kwargs.get("container_logs") == "some logs"
