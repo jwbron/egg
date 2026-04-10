@@ -364,8 +364,8 @@ class PipelineConfig(BaseModel):
     )
     max_auto_repropose: int = Field(
         default=5,
-        ge=1,
-        description="Maximum automatic re-proposals per producer per review cycle",
+        ge=0,
+        description="Maximum automatic re-proposals per producer per review cycle (0 to disable)",
     )
     orchestrator_post_ack_confirmation_timeout_seconds: int = Field(
         default=180,
