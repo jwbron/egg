@@ -9,7 +9,6 @@ via the MCP protocol.
 import os
 import re
 import sys
-import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -128,8 +127,13 @@ PIPELINE_TOOLS = [
                     "description": "Pipeline/task ID to check",
                 },
                 "wait": {
-                    "type": "integer",
-                    "description": "Seconds to wait before fetching status. Use this for polling delays instead of external sleep commands. Capped at 300.",
+                    "type": "number",
+                    "description": (
+                        "Seconds to wait before fetching status. Use this for "
+                        "polling delays instead of external sleep commands. "
+                        "Capped at 25 seconds to stay under Claude Code's "
+                        "streamable-HTTP MCP tool-call timeout."
+                    ),
                     "default": 0,
                 },
             },
@@ -752,16 +756,10 @@ class PipelineToolHandler:
         caller can present it to the user without needing filesystem access.
         Falls back gracefully if messages fail.
 
-        The optional ``wait`` parameter delays the status fetch by the given
-        number of seconds (capped at 300).  This moves the polling delay
-        inside the MCP tool call so callers don't need external sleep
-        commands.
+        The optional ``wait`` parameter is handled in the async tool wrapper
+        (``mcp_server._make_tool_fn``) before this sync handler runs, so no
+        worker thread is held during the delay.
         """
-        # Optional pre-fetch delay for polling loops (avoids shell sleep)
-        wait = args.get("wait", 0)
-        if isinstance(wait, (int, float)) and wait > 0:
-            time.sleep(min(wait, 300))
-
         task_id = quote(args["task_id"], safe="")
 
         # Primary: pipeline state
