@@ -3,6 +3,7 @@
 from egg_contracts.roles import (
     FIELD_OWNERSHIP,
     Role,
+    _role_matches,
     can_modify,
     get_field_owner,
     get_role_permissions,
@@ -43,10 +44,20 @@ class TestGetFieldOwner:
         assert get_field_owner("phases.0.tasks.0.commit") == Role.IMPLEMENTER
         assert get_field_owner("phases.1.tasks.5.notes") == Role.IMPLEMENTER
 
+    def test_shared_fields(self):
+        """Test fields with shared ownership (implementer + reviewer)."""
+        task_status_owner = get_field_owner("phases.0.tasks.0.status")
+        assert isinstance(task_status_owner, frozenset)
+        assert Role.IMPLEMENTER in task_status_owner
+        assert Role.REVIEWER in task_status_owner
+
+        phase_status_owner = get_field_owner("phases.0.status")
+        assert isinstance(phase_status_owner, frozenset)
+        assert Role.IMPLEMENTER in phase_status_owner
+        assert Role.REVIEWER in phase_status_owner
+
     def test_reviewer_fields(self):
-        """Test fields owned by reviewer."""
-        assert get_field_owner("phases.0.tasks.0.status") == Role.REVIEWER
-        assert get_field_owner("phases.0.status") == Role.REVIEWER
+        """Test fields owned exclusively by reviewer."""
         assert get_field_owner("acceptance_criteria.0.verified") == Role.REVIEWER
 
     def test_human_fields(self):
@@ -74,10 +85,14 @@ class TestCanModify:
         assert can_modify(Role.IMPLEMENTER, "phases.0.tasks.0.commit") is True
         assert can_modify(Role.IMPLEMENTER, "phases.0.tasks.0.notes") is True
 
-    def test_implementer_cannot_modify_reviewer_fields(self):
-        """Test implementer cannot modify reviewer fields."""
-        assert can_modify(Role.IMPLEMENTER, "phases.0.tasks.0.status") is False
-        assert can_modify(Role.IMPLEMENTER, "phases.0.status") is False
+    def test_implementer_can_modify_shared_fields(self):
+        """Test implementer can modify shared ownership fields (task/phase status)."""
+        assert can_modify(Role.IMPLEMENTER, "phases.0.tasks.0.status") is True
+        assert can_modify(Role.IMPLEMENTER, "phases.0.status") is True
+
+    def test_implementer_cannot_modify_reviewer_only_fields(self):
+        """Test implementer cannot modify reviewer-only fields."""
+        assert can_modify(Role.IMPLEMENTER, "acceptance_criteria.0.verified") is False
 
     def test_implementer_cannot_modify_human_fields(self):
         """Test implementer cannot modify human fields."""
@@ -85,9 +100,12 @@ class TestCanModify:
 
     def test_reviewer_can_modify_own_fields(self):
         """Test reviewer can modify reviewer fields."""
+        assert can_modify(Role.REVIEWER, "acceptance_criteria.0.verified") is True
+
+    def test_reviewer_can_modify_shared_fields(self):
+        """Test reviewer can modify shared ownership fields (task/phase status)."""
         assert can_modify(Role.REVIEWER, "phases.0.tasks.0.status") is True
         assert can_modify(Role.REVIEWER, "phases.0.status") is True
-        assert can_modify(Role.REVIEWER, "acceptance_criteria.0.verified") is True
 
     def test_reviewer_cannot_modify_implementer_fields(self):
         """Test reviewer cannot modify implementer fields."""
@@ -121,11 +139,14 @@ class TestGetRolePermissions:
         perms = get_role_permissions(Role.IMPLEMENTER)
         assert "phases.*.tasks.*.commit" in perms["can_modify"]
         assert "phases.*.tasks.*.notes" in perms["can_modify"]
-        assert "phases.*.tasks.*.status" in perms["cannot_modify"]
+        # Shared fields are accessible to implementer
+        assert "phases.*.tasks.*.status" in perms["can_modify"]
+        assert "phases.*.status" in perms["can_modify"]
 
     def test_reviewer_permissions(self):
         """Test reviewer permission summary."""
         perms = get_role_permissions(Role.REVIEWER)
+        # Shared fields are accessible to reviewer
         assert "phases.*.tasks.*.status" in perms["can_modify"]
         assert "phases.*.status" in perms["can_modify"]
         assert "phases.*.tasks.*.commit" in perms["cannot_modify"]
@@ -141,21 +162,41 @@ class TestFieldOwnershipConfiguration:
     """Tests for FIELD_OWNERSHIP configuration."""
 
     def test_all_ownership_entries_valid(self):
-        """Test that all field ownership entries use valid roles."""
-        for _path, role in FIELD_OWNERSHIP.items():
-            assert isinstance(role, Role)
+        """Test that all field ownership entries use valid roles or frozensets of roles."""
+        for _path, owner in FIELD_OWNERSHIP.items():
+            if isinstance(owner, frozenset):
+                for role in owner:
+                    assert isinstance(role, Role)
+            else:
+                assert isinstance(owner, Role)
 
     def test_implementer_ownership_patterns(self):
         """Test expected implementer ownership patterns exist."""
-        implementer_paths = [p for p, r in FIELD_OWNERSHIP.items() if r == Role.IMPLEMENTER]
+        implementer_paths = [
+            p for p, r in FIELD_OWNERSHIP.items() if _role_matches(Role.IMPLEMENTER, r)
+        ]
         assert "phases.*.tasks.*.commit" in implementer_paths
         assert "phases.*.tasks.*.notes" in implementer_paths
+        assert "phases.*.commit" in implementer_paths
+
+    def test_shared_ownership_patterns(self):
+        """Test fields with shared implementer+reviewer ownership."""
+        task_status = FIELD_OWNERSHIP["phases.*.tasks.*.status"]
+        assert isinstance(task_status, frozenset)
+        assert task_status == frozenset({Role.IMPLEMENTER, Role.REVIEWER})
+
+        phase_status = FIELD_OWNERSHIP["phases.*.status"]
+        assert isinstance(phase_status, frozenset)
+        assert phase_status == frozenset({Role.IMPLEMENTER, Role.REVIEWER})
 
     def test_reviewer_ownership_patterns(self):
-        """Test expected reviewer ownership patterns exist."""
-        reviewer_paths = [p for p, r in FIELD_OWNERSHIP.items() if r == Role.REVIEWER]
-        assert "phases.*.tasks.*.status" in reviewer_paths
-        assert "phases.*.status" in reviewer_paths
+        """Test expected reviewer-only ownership patterns exist."""
+        reviewer_only_paths = [
+            p
+            for p, r in FIELD_OWNERSHIP.items()
+            if r == Role.REVIEWER  # Exact match (not shared)
+        ]
+        assert "phases.*.review_feedback" in reviewer_only_paths
 
     def test_human_ownership_patterns(self):
         """Test expected human ownership patterns exist."""

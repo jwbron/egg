@@ -7,6 +7,11 @@ maps which fields each role is authorized to modify.
 
 from enum import StrEnum
 
+# Type alias for field ownership: a single role or a set of roles that share
+# write access to a field.  Using frozenset keeps FIELD_OWNERSHIP hashable and
+# immutable.
+FieldOwner = "Role | frozenset[Role]"
+
 
 class Role(StrEnum):
     """Roles that can interact with contracts.
@@ -24,16 +29,23 @@ class Role(StrEnum):
 # Field ownership mapping: maps JSON paths to the role that owns them
 # Paths use dot notation (e.g., "phases.*.tasks.*.status")
 # Wildcard (*) matches any array index
-FIELD_OWNERSHIP: dict[str, Role] = {
+#
+# Values may be a single Role or a frozenset of Roles.  When a frozenset is
+# used, any of the listed roles may write the field (shared ownership).
+FIELD_OWNERSHIP: dict[str, Role | frozenset[Role]] = {
     # Task fields owned by implementer
     "phases.*.tasks.*.commit": Role.IMPLEMENTER,
     "phases.*.tasks.*.notes": Role.IMPLEMENTER,
     "phases.*.tasks.*.files_affected": Role.IMPLEMENTER,
     "phases.*.tasks.*.files_affected.*": Role.IMPLEMENTER,
-    # Task fields owned by reviewer
-    "phases.*.tasks.*.status": Role.REVIEWER,
-    # Phase fields owned by reviewer
-    "phases.*.status": Role.REVIEWER,
+    # Task status: shared between implementer (mark done during implementation)
+    # and reviewer (validate/override during review)
+    "phases.*.tasks.*.status": frozenset({Role.IMPLEMENTER, Role.REVIEWER}),
+    # Phase commit: implementer links a commit SHA to the phase
+    "phases.*.commit": Role.IMPLEMENTER,
+    # Phase status: shared between implementer (mark done after completing all
+    # tasks) and reviewer (validate/override during review)
+    "phases.*.status": frozenset({Role.IMPLEMENTER, Role.REVIEWER}),
     "phases.*.review_feedback": Role.REVIEWER,
     "phases.*.review_feedback.*": Role.REVIEWER,
     # Acceptance criteria owned by reviewer
@@ -73,15 +85,16 @@ def normalize_path(path: str) -> str:
     return ".".join(normalized)
 
 
-def get_field_owner(path: str) -> Role:
+def get_field_owner(path: str) -> Role | frozenset[Role]:
     """
-    Get the role that owns a specific field path.
+    Get the role (or set of roles) that owns a specific field path.
 
     Args:
         path: JSON path to the field (e.g., "phases.0.tasks.1.status")
 
     Returns:
-        The role that owns this field
+        The role that owns this field, or a frozenset of roles for shared
+        ownership.
     """
     normalized = normalize_path(path)
 
@@ -97,6 +110,13 @@ def get_field_owner(path: str) -> Role:
                 return owner
 
     return DEFAULT_OWNER
+
+
+def _role_matches(role: Role, owner: Role | frozenset[Role]) -> bool:
+    """Check if a role matches a single owner or is in a shared ownership set."""
+    if isinstance(owner, frozenset):
+        return role in owner
+    return owner == role
 
 
 def can_modify(role: Role, path: str) -> bool:
@@ -120,9 +140,9 @@ def can_modify(role: Role, path: str) -> bool:
         # System can only modify fields it owns
         return owner == Role.SYSTEM
 
-    # Check if the role owns this field
+    # Check if the role owns this field (supports shared ownership)
     owner = get_field_owner(path)
-    return owner == role
+    return _role_matches(role, owner)
 
 
 def get_role_permissions(role: Role) -> dict[str, list[str]]:
@@ -145,7 +165,7 @@ def get_role_permissions(role: Role) -> dict[str, list[str]]:
     cannot_mod = []
 
     for path, owner in FIELD_OWNERSHIP.items():
-        if owner == role:
+        if _role_matches(role, owner):
             can_mod.append(path)
         else:
             cannot_mod.append(path)

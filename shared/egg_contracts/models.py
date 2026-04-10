@@ -162,9 +162,21 @@ class Phase(BaseModel):
         default_factory=list,
         description="Phase IDs this phase depends on (e.g., ['phase-1', 'phase-2'])",
     )
+    commit: str | None = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{7,40}$",
+        description="Git commit SHA linked to this phase",
+    )
     review_feedback: list[ReviewFeedback] = Field(
         default_factory=list, description="Feedback from reviewer"
     )
+
+    @field_validator("commit", mode="before")
+    @classmethod
+    def validate_commit(cls, v: Any) -> str | None:
+        if v is None or v == "":
+            return None
+        return str(v)
 
 
 class DecisionOption(BaseModel):

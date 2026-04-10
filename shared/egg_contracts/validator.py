@@ -55,13 +55,19 @@ def validate_mutation(
     if not can_modify(role, field_path):
         owner = get_field_owner(field_path)
         normalized = normalize_path(field_path)
+        if isinstance(owner, frozenset):
+            owner_desc = " or ".join(f"'{r.value}'" for r in sorted(owner))
+            required = ", ".join(r.value for r in sorted(owner))
+        else:
+            owner_desc = f"'{owner.value}'"
+            required = owner.value
         return ValidationResult(
             valid=False,
             message=f"Cannot modify field '{normalized}'. "
             f"Role '{role.value}' is not authorized to modify this field. "
-            f"This field can only be modified by role '{owner.value}'.",
+            f"This field can only be modified by role {owner_desc}.",
             field_path=field_path,
-            required_role=owner.value,
+            required_role=required,
         )
 
     return ValidationResult(valid=True, message="Mutation allowed")

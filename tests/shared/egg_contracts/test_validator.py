@@ -30,17 +30,14 @@ class TestValidateMutation:
         assert result.valid is True
         assert result.message == "Mutation allowed"
 
-    def test_invalid_implementer_mutation(self):
-        """Test that implementer cannot modify status."""
+    def test_implementer_can_modify_task_status(self):
+        """Test that implementer can modify task status (shared ownership)."""
         result = validate_mutation(
             role=Role.IMPLEMENTER,
             field_path="phases.0.tasks.0.status",
             new_value="complete",
         )
-        assert result.valid is False
-        assert "implementer" in result.message.lower()
-        assert "reviewer" in result.message.lower()
-        assert result.required_role == "reviewer"
+        assert result.valid is True
 
     def test_valid_reviewer_mutation(self):
         """Test that reviewer can modify status."""
@@ -136,15 +133,28 @@ class TestApplyMutation:
         """Test that invalid mutations are rejected."""
         result = apply_mutation(
             contract=sample_contract,
+            role=Role.REVIEWER,
+            actor="reviewer-agent",
+            field_path="phases.0.tasks.0.commit",
+            new_value="abc1234",
+        )
+        assert result.success is False
+        assert "reviewer" in result.message.lower()
+        assert result.contract is None
+        assert result.audit_entry is None
+
+    def test_implementer_can_set_task_status(self, sample_contract):
+        """Test that implementer can mark task complete (shared ownership)."""
+        result = apply_mutation(
+            contract=sample_contract,
             role=Role.IMPLEMENTER,
             actor="james-in-a-box",
             field_path="phases.0.tasks.0.status",
             new_value="complete",
         )
-        assert result.success is False
-        assert "implementer" in result.message.lower()
-        assert result.contract is None
-        assert result.audit_entry is None
+        assert result.success is True
+        assert result.contract is not None
+        assert result.contract.phases[0].tasks[0].status == TaskStatus.COMPLETE
 
     def test_apply_reviewer_mutation(self, sample_contract):
         """Test reviewer can mark task complete."""
@@ -204,15 +214,14 @@ class TestValidateTaskMutation:
         )
         assert result.valid is True
 
-    def test_implementer_status_denied(self):
-        """Test implementer cannot set status."""
+    def test_implementer_status_allowed(self):
+        """Test implementer can set task status (shared ownership)."""
         result = validate_task_mutation(
             role=Role.IMPLEMENTER,
             field="status",
             new_value="complete",
         )
-        assert result.valid is False
-        assert result.required_role == "reviewer"
+        assert result.valid is True
 
 
 class TestValidatePhaseMutation:
@@ -227,14 +236,14 @@ class TestValidatePhaseMutation:
         )
         assert result.valid is True
 
-    def test_implementer_status_denied(self):
-        """Test implementer cannot set phase status."""
+    def test_implementer_status_allowed(self):
+        """Test implementer can set phase status (shared ownership)."""
         result = validate_phase_mutation(
             role=Role.IMPLEMENTER,
             field="status",
             new_value="complete",
         )
-        assert result.valid is False
+        assert result.valid is True
 
 
 class TestErrorMessages:
@@ -244,12 +253,12 @@ class TestErrorMessages:
         """Test that error messages are clear and helpful."""
         result = validate_mutation(
             role=Role.IMPLEMENTER,
-            field_path="phases.0.tasks.0.status",
-            new_value="complete",
+            field_path="acceptance_criteria.0.verified",
+            new_value=True,
         )
         assert result.valid is False
         # Check error message contains key information
-        assert "phases.*.tasks.*.status" in result.message
+        assert "acceptance_criteria.*.verified" in result.message
         assert "implementer" in result.message.lower()
         assert "reviewer" in result.message.lower()
 
