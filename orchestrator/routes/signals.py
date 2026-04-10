@@ -157,6 +157,7 @@ def handle_signal(pipeline_id: str) -> tuple[Response, int]:
         "consensus_withdraw": handle_consensus_withdraw_signal,
         "consensus_confirmed": handle_consensus_confirmed_signal,
         "consensus_producer_push": handle_consensus_producer_push_signal,
+        "consensus_excuse_producer": handle_consensus_excuse_producer_signal,
     }
 
     handler = handlers.get(signal_type)
