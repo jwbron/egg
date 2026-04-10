@@ -7,19 +7,24 @@ When working in the SDLC pipeline, use the `egg-contract` CLI to track progress.
 | Command | Purpose |
 |---------|---------|
 | `egg-contract show` | View current contract state |
-| `egg-contract add-commit --task <id> --commit <sha>` | Link commit to task |
+| `egg-contract complete-task --task <id> [--commit <sha>]` | Mark task done (optionally link commit) |
+| `egg-contract complete-phase --phase <id> [--commit <sha>]` | Mark phase done (optionally link commit) |
+| `egg-contract add-commit --task <id> --commit <sha>` | Link commit to task without marking done |
 | `egg-contract update-notes --task <id> --notes <text>` | Add implementation notes |
 | `egg-contract add-decision --question <text>` | Create HITL decision (multiple choice) |
 | `egg-contract add-feedback --question <text>...` | Create feedback comment (open-ended) |
 
 ## Workflow
 
+Update the contract incrementally after each commit — do not batch updates at the end.
+
 1. Check current phase and tasks: `egg-contract show`
 2. Work on assigned tasks
-3. Link commits as you complete work: `egg-contract add-commit --task task-1 --commit abc1234`
-4. Add notes if needed: `egg-contract update-notes --task task-1 --notes "Implemented X"`
-5. If blocked on a choice, create a decision: `egg-contract add-decision --question "Which approach?" --options "A" "B"`
-6. If you need open-ended input: `egg-contract add-feedback --question "What is expected volume?" --format markdown`
+3. After each commit, mark the task done: `egg-contract complete-task --task task-1 --commit abc1234`
+4. After completing all tasks in a phase, mark the phase done: `egg-contract complete-phase --phase phase-1 --commit abc1234`
+5. Add notes if needed: `egg-contract update-notes --task task-1 --notes "Implemented X"`
+6. If blocked on a choice, create a decision: `egg-contract add-decision --question "Which approach?" --options "A" "B"`
+7. If you need open-ended input: `egg-contract add-feedback --question "What is expected volume?" --format markdown`
 
 ## HITL: Decisions vs Feedback
 

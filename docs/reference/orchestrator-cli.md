@@ -215,9 +215,9 @@ The BRC (Broadcast-Review-Converge) protocol is used during concurrent execution
 # Producer: propose work for review (commit SHA defaults to HEAD if omitted)
 egg-orch consensus propose --summary "Implemented feature X" --artifacts src/feature.py --commit-sha $(git rev-parse HEAD)
 
-# Producer: propose AND push in one operation (required in concurrent mode)
-# Sets EGG_CONSENSUS_PUSH=1 so the gateway allows the push through concurrent-mode enforcement
-egg-orch consensus propose --push --summary "Implemented feature X" --artifacts src/feature.py
+# Producer: push and propose atomically (required in concurrent mode, suppresses auto re-propose)
+# Sets consensus_push marker so the gateway allows the push through concurrent-mode enforcement
+egg-orch consensus propose --push --summary "Implemented feature X" --artifacts src/feature.py --commit-sha $(git rev-parse HEAD)
 
 # Reviewer: ACK a producer's proposal
 egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py

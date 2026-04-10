@@ -348,8 +348,10 @@ When a producer pushes new commits after proposing, existing reviews become stal
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `auto_repropose_debounce_seconds` | `60` | Minimum seconds between consecutive auto re-proposals for the same producer. Prevents proposal storms on rapid-fire pushes. |
+| `auto_repropose_debounce_seconds` | `60` | Minimum seconds between consecutive auto re-proposals for the same producer. Prevents proposal storms on rapid-fire pushes. Also used as the explicit-proposal cover window (see below). |
 | `max_auto_repropose` | `5` | Maximum automatic re-proposals per producer per review cycle. Set to `0` to disable auto re-propose entirely. Once the limit is reached, the producer must explicitly re-propose via `egg-orch consensus propose`. |
+
+**Explicit proposal cover**: When a producer calls `egg-orch consensus propose --push`, the push and proposal happen atomically. If a push arrives within the `auto_repropose_debounce_seconds` window of an explicit `propose` call, the tracker skips the auto re-propose — the explicit proposal already covers the push, so no redundant re-review is triggered.
 
 ### Gateway-Level Push Enforcement (Concurrent Mode)
 
@@ -411,8 +413,10 @@ Use `egg-orch consensus` commands to participate in the BRC protocol:
 
 ```bash
 # Producer: commit and push work, then propose for review (--commit-sha defaults to HEAD if omitted)
-git add src/feature.py && git commit -m "Implement feature X" && git push origin HEAD:egg/feature-x
-egg-orch consensus propose --summary "Implemented feature X" --artifacts src/feature.py --risk "No retry on transient failures" --commit-sha $(git rev-parse HEAD)
+git add src/feature.py && git commit -m "Implement feature X"
+egg-orch consensus propose --push --summary "Implemented feature X" --artifacts src/feature.py --risk "No retry on transient failures" --commit-sha $(git rev-parse HEAD)
+# --push runs git push before sending the proposal; because the push is bundled with the
+# explicit proposal, auto re-propose is suppressed for that push (no redundant re-review).
 
 # Reviewer: sync worktree before reviewing (fetch producer's commits)
 git fetch origin && git merge origin/egg/feature-x --no-edit
