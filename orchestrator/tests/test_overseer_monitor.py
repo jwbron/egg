@@ -2364,8 +2364,18 @@ class TestQueryContainerLogs:
         """Prefers a running container over a stopped one."""
         monitor = self._make_monitor()
         containers = [
-            {"container_id": "stopped1", "agent_role": "coder", "status": "stopped", "started_at": "2026-04-10T10:00:00Z"},
-            {"container_id": "running1", "agent_role": "coder", "status": "running", "started_at": "2026-04-10T09:00:00Z"},
+            {
+                "container_id": "stopped1",
+                "agent_role": "coder",
+                "status": "stopped",
+                "started_at": "2026-04-10T10:00:00Z",
+            },
+            {
+                "container_id": "running1",
+                "agent_role": "coder",
+                "status": "running",
+                "started_at": "2026-04-10T09:00:00Z",
+            },
         ]
         log_payload = json.dumps({"data": {"logs": "some log output"}})
 
@@ -2391,8 +2401,18 @@ class TestQueryContainerLogs:
         """When multiple running containers exist, selects newest by started_at."""
         monitor = self._make_monitor()
         containers = [
-            {"container_id": "old", "agent_role": "coder", "status": "running", "started_at": "2026-04-10T08:00:00Z"},
-            {"container_id": "new", "agent_role": "coder", "status": "running", "started_at": "2026-04-10T10:00:00Z"},
+            {
+                "container_id": "old",
+                "agent_role": "coder",
+                "status": "running",
+                "started_at": "2026-04-10T08:00:00Z",
+            },
+            {
+                "container_id": "new",
+                "agent_role": "coder",
+                "status": "running",
+                "started_at": "2026-04-10T10:00:00Z",
+            },
         ]
         log_payload = json.dumps({"data": {"logs": "newest logs"}})
 
@@ -2413,8 +2433,18 @@ class TestQueryContainerLogs:
         """When no running containers, selects most recently started stopped one."""
         monitor = self._make_monitor()
         containers = [
-            {"container_id": "old_stopped", "agent_role": "coder", "status": "stopped", "started_at": "2026-04-10T08:00:00Z"},
-            {"container_id": "new_stopped", "agent_role": "coder", "status": "stopped", "started_at": "2026-04-10T10:00:00Z"},
+            {
+                "container_id": "old_stopped",
+                "agent_role": "coder",
+                "status": "stopped",
+                "started_at": "2026-04-10T08:00:00Z",
+            },
+            {
+                "container_id": "new_stopped",
+                "agent_role": "coder",
+                "status": "stopped",
+                "started_at": "2026-04-10T10:00:00Z",
+            },
         ]
         log_payload = json.dumps({"data": {"logs": "stopped logs"}})
 
@@ -2443,7 +2473,9 @@ class TestQueryContainerLogs:
         """Returns empty string when no containers match the requested role."""
         monitor = self._make_monitor()
         containers = [{"container_id": "c1", "agent_role": "tester", "status": "running"}]
-        monitor._run_cli = AsyncMock(return_value=(0, json.dumps({"data": {"containers": containers}}), ""))
+        monitor._run_cli = AsyncMock(
+            return_value=(0, json.dumps({"data": {"containers": containers}}), "")
+        )
 
         result = _run(monitor._query_container_logs("coder"))
         assert result == ""
@@ -2452,7 +2484,9 @@ class TestQueryContainerLogs:
         """Returns empty string when matching container has no container_id."""
         monitor = self._make_monitor()
         containers = [{"agent_role": "coder", "status": "running"}]
-        monitor._run_cli = AsyncMock(return_value=(0, json.dumps({"data": {"containers": containers}}), ""))
+        monitor._run_cli = AsyncMock(
+            return_value=(0, json.dumps({"data": {"containers": containers}}), "")
+        )
 
         result = _run(monitor._query_container_logs("coder"))
         assert result == ""
