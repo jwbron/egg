@@ -251,6 +251,17 @@ def check_confirm_guard(
     is_producer = graph.is_producer(agent_role)
     is_reviewer = graph.is_reviewer(agent_role)
 
+    # --- Phantom agent guard: reject agents not in the review graph ---
+    if not is_producer and not is_reviewer:
+        return GuardResult(
+            allowed=False,
+            reason=(
+                f"Agent {agent_role} cannot confirm: not a participant in "
+                f"the review graph (neither producer nor reviewer)."
+            ),
+            details={"guard": "phantom_agent", "agent_role": agent_role},
+        )
+
     # --- Producer confirmation guard ---
     if is_producer:
         if not matrix.is_fully_acked(agent_role):
