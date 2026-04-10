@@ -637,6 +637,128 @@ class TestReadSourceBranchArtifacts:
         mock_store.save_pipeline.assert_called_once()
 
 
+    @patch("subprocess.run")
+    @patch("routes.pipelines._git_show_draft")
+    def test_fallback_filters_by_issue_number(self, mock_git_show, mock_run, worktree_path):
+        """Fallback should filter matches by issue number when multiple files exist (#1654)."""
+        from routes.pipelines import _read_source_branch_artifacts
+
+        # Track calls: exact-path attempts return None, fallback attempts succeed
+        calls = []
+
+        def fake_git_show(repo_path, branch, rel_path, timeout=15):
+            calls.append(rel_path)
+            # First call per field is the exact-path attempt → miss
+            # (simulates source branch using a different prefix)
+            if len([c for c in calls if c == rel_path]) == 1 and rel_path.startswith(".egg-state/drafts/1570-"):
+                return None
+            # Fallback (second call) for 1570 files → hit
+            if "1570-analysis.md" in rel_path:
+                return "# Correct analysis for 1570"
+            if "1570-plan.md" in rel_path:
+                return "# Correct plan for 1570"
+            return None
+
+        mock_git_show.side_effect = fake_git_show
+
+        # ls-tree returns files from many issues (the bug scenario)
+        mock_run.return_value = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout=(
+                "1014-analysis.md\n1027-analysis.md\n1570-analysis.md\n"
+                "1014-plan.md\n1027-plan.md\n1570-plan.md\n"
+            ),
+            stderr="",
+        )
+
+        pipeline = self._make_pipeline()
+        mock_store = MagicMock()
+
+        result = _read_source_branch_artifacts(
+            repo_path=worktree_path,
+            source_branch="egg/issue-1570-v3",
+            issue_number=pipeline.issue_number,
+            pipeline_id=pipeline.id,
+            store=mock_store,
+            pipeline=pipeline,
+        )
+
+        assert result is True
+        assert pipeline.analysis == "# Correct analysis for 1570"
+        assert pipeline.plan == "# Correct plan for 1570"
+
+    @patch("subprocess.run")
+    @patch("routes.pipelines._git_show_draft")
+    def test_fallback_skips_when_no_issue_match(self, mock_git_show, mock_run, worktree_path):
+        """When fallback finds no file for the issue number, should skip (not use wrong issue)."""
+        from routes.pipelines import _read_source_branch_artifacts
+
+        mock_git_show.return_value = None
+
+        # ls-tree returns files from other issues only — none for 1570
+        mock_run.return_value = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout="1014-analysis.md\n1027-analysis.md\n1014-plan.md\n1027-plan.md\n",
+            stderr="",
+        )
+
+        pipeline = self._make_pipeline()
+        mock_store = MagicMock()
+
+        result = _read_source_branch_artifacts(
+            repo_path=worktree_path,
+            source_branch="egg/issue-1570-v3",
+            issue_number=pipeline.issue_number,
+            pipeline_id=pipeline.id,
+            store=mock_store,
+            pipeline=pipeline,
+        )
+
+        assert result is False
+        assert pipeline.analysis is None
+        assert pipeline.plan is None
+
+    @patch("subprocess.run")
+    @patch("routes.pipelines._git_show_draft")
+    def test_fallback_no_issue_number_uses_first(self, mock_git_show, mock_run, worktree_path):
+        """When issue_number is None, fallback should use first match (existing behavior)."""
+        from routes.pipelines import _read_source_branch_artifacts
+
+        def fake_git_show(repo_path, branch, rel_path, timeout=15):
+            if "1014-analysis.md" in rel_path:
+                return "# Analysis from 1014"
+            if "1014-plan.md" in rel_path:
+                return "# Plan from 1014"
+            return None
+
+        mock_git_show.side_effect = fake_git_show
+
+        mock_run.return_value = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout="1014-analysis.md\n1027-analysis.md\n1014-plan.md\n1027-plan.md\n",
+            stderr="",
+        )
+
+        pipeline = self._make_pipeline(issue_number=None)
+        mock_store = MagicMock()
+
+        result = _read_source_branch_artifacts(
+            repo_path=worktree_path,
+            source_branch="egg/issue-1570-v3",
+            issue_number=None,
+            pipeline_id=pipeline.id,
+            store=mock_store,
+            pipeline=pipeline,
+        )
+
+        assert result is True
+        assert pipeline.analysis == "# Analysis from 1014"
+        assert pipeline.plan == "# Plan from 1014"
+
+
 # ---------------------------------------------------------------------------
 # 6. Branch-exists relaxation
 # ---------------------------------------------------------------------------

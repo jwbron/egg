@@ -2578,6 +2578,23 @@ def _read_source_branch_artifacts(
                     matches = [
                         f for f in result.stdout.strip().splitlines() if f.endswith(fallback_suffix)
                     ]
+                    # Filter by issue number to avoid picking up artifacts
+                    # from other issues on the same branch (#1654).
+                    if issue_number is not None and len(matches) > 1:
+                        issue_matches = [
+                            f for f in matches if f.startswith(f"{issue_number}-")
+                        ]
+                        if issue_matches:
+                            matches = issue_matches
+                        else:
+                            logger.warning(
+                                "No fallback match for issue number — skipping",
+                                field=field_name,
+                                issue_number=issue_number,
+                                source_branch=source_branch,
+                                available=matches,
+                            )
+                            continue
                     if len(matches) > 1:
                         logger.warning(
                             "Multiple fallback matches for artifact — using first",
