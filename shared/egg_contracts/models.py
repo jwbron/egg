@@ -105,6 +105,13 @@ class ReviewFeedback(BaseModel):
     status: TaskStatus | None = Field(default=None, description="Status assigned by reviewer")
 
 
+def _normalize_commit(v: Any) -> str | None:
+    """Normalize commit SHA values: treat None and empty string as None."""
+    if v is None or v == "":
+        return None
+    return str(v)
+
+
 class Task(BaseModel):
     """A task within a phase."""
 
@@ -142,9 +149,7 @@ class Task(BaseModel):
     @field_validator("commit", mode="before")
     @classmethod
     def validate_commit(cls, v: Any) -> str | None:
-        if v is None or v == "":
-            return None
-        return str(v)
+        return _normalize_commit(v)
 
 
 class Phase(BaseModel):
@@ -174,9 +179,7 @@ class Phase(BaseModel):
     @field_validator("commit", mode="before")
     @classmethod
     def validate_commit(cls, v: Any) -> str | None:
-        if v is None or v == "":
-            return None
-        return str(v)
+        return _normalize_commit(v)
 
 
 class DecisionOption(BaseModel):

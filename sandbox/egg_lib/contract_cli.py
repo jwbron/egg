@@ -196,8 +196,13 @@ def parse_phase_id(phase_id: str) -> int:
     Raises:
         ValueError: If phase ID format is invalid or number is out of range
     """
+    lower = phase_id.lower()
+    stripped = lower.removeprefix("phase-")
+    if stripped == lower:
+        # prefix was not present
+        raise ValueError(f"Invalid phase ID '{phase_id}': expected format 'phase-N'")
     try:
-        phase_num = int(phase_id.lower().replace("phase-", ""))
+        phase_num = int(stripped)
         if phase_num < 1:
             raise ValueError(f"Phase number must be >= 1: {phase_id}")
         return phase_num - 1
