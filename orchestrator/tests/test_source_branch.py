@@ -956,18 +956,26 @@ class TestReadSourceBranchArtifacts:
         pipeline = self._make_pipeline()
         mock_store = MagicMock()
 
-        result = _read_source_branch_artifacts(
-            repo_path=worktree_path,
-            source_branch="egg/issue-1570-v3",
-            issue_number=pipeline.issue_number,
-            pipeline_id=pipeline.id,
-            store=mock_store,
-            pipeline=pipeline,
-        )
+        with patch("routes.pipelines.logger") as mock_logger:
+            result = _read_source_branch_artifacts(
+                repo_path=worktree_path,
+                source_branch="egg/issue-1570-v3",
+                issue_number=pipeline.issue_number,
+                pipeline_id=pipeline.id,
+                store=mock_store,
+                pipeline=pipeline,
+            )
 
         assert result is False
         # source_branch should NOT be cleared when no artifacts found
         assert pipeline.source_branch == "egg/issue-1570-v3"
+        # Verify the warning was actually logged
+        mock_logger.warning.assert_any_call(
+            "No artifacts found on source branch",
+            source_branch="egg/issue-1570-v3",
+            pipeline_id=pipeline.id,
+            source_artifact_prefix=None,
+        )
 
 
 # ---------------------------------------------------------------------------
