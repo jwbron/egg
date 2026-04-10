@@ -274,8 +274,6 @@ class TestCheckConfirmGuardProducer:
             "coder",
             graph,
             matrix,
-            producer_phases={"coder": ConsensusPhase.PROPOSED},
-            reviewer_phases={},
             confirmed=set(),
         )
         assert result.allowed is True
@@ -290,8 +288,6 @@ class TestCheckConfirmGuardProducer:
             "coder",
             graph,
             matrix,
-            producer_phases={"coder": ConsensusPhase.PROPOSED},
-            reviewer_phases={},
             confirmed=set(),
         )
         assert result.allowed is False
@@ -318,8 +314,6 @@ class TestCheckConfirmGuardReviewer:
             "reviewer_code",
             graph,
             matrix,
-            producer_phases={"coder": ConsensusPhase.PROPOSED, "tester": ConsensusPhase.PROPOSED},
-            reviewer_phases={"reviewer_code": ConsensusPhase.REVIEWING},
             confirmed=set(),
         )
         assert result.allowed is True
@@ -334,8 +328,6 @@ class TestCheckConfirmGuardReviewer:
             "reviewer_code",
             graph,
             matrix,
-            producer_phases={"coder": ConsensusPhase.PROPOSED, "tester": ConsensusPhase.PROPOSED},
-            reviewer_phases={"reviewer_code": ConsensusPhase.REVIEWING},
             confirmed=set(),
         )
         assert result.allowed is False
@@ -357,8 +349,6 @@ class TestCheckConfirmGuardReviewer:
             "reviewer_code",
             graph,
             matrix,
-            producer_phases={"coder": ConsensusPhase.PROPOSED},
-            reviewer_phases={"reviewer_code": ConsensusPhase.REVIEWING},
             confirmed=set(),
         )
         assert result.allowed is False
@@ -380,8 +370,6 @@ class TestCheckConfirmGuardReviewer:
             "reviewer_code",
             graph,
             matrix,
-            producer_phases={"coder": ConsensusPhase.PROPOSED, "tester": ConsensusPhase.PROPOSED},
-            reviewer_phases={"reviewer_code": ConsensusPhase.REVIEWING},
             confirmed=set(),
         )
         assert result.allowed is False
@@ -404,8 +392,6 @@ class TestCheckConfirmGuardReviewer:
             "reviewer_code",
             graph,
             matrix,
-            producer_phases={"coder": ConsensusPhase.PROPOSED, "tester": ConsensusPhase.PROPOSED},
-            reviewer_phases={"reviewer_code": ConsensusPhase.REVIEWING},
             confirmed=set(),
         )
         assert result.allowed is False
@@ -430,8 +416,6 @@ class TestCheckConfirmGuardReviewer:
             "reviewer_code",
             graph,
             matrix,
-            producer_phases={"coder": ConsensusPhase.PROPOSED, "tester": ConsensusPhase.PROPOSED},
-            reviewer_phases={"reviewer_code": ConsensusPhase.REVIEWING},
             confirmed=set(),
         )
         assert result.allowed is False
@@ -456,8 +440,6 @@ class TestCheckConfirmGuardReviewer:
             "reviewer_code",
             graph,
             matrix,
-            producer_phases={"coder": ConsensusPhase.PROPOSED},
-            reviewer_phases={"reviewer_code": ConsensusPhase.REVIEWING},
             confirmed=set(),
         )
         assert result.allowed is False
@@ -488,11 +470,6 @@ class TestCheckConfirmGuardReviewer:
             "reviewer",
             g,
             m,
-            producer_phases={
-                "producer_a": ConsensusPhase.PROPOSED,
-                "producer_b": ConsensusPhase.PROPOSED,
-            },
-            reviewer_phases={"reviewer": ConsensusPhase.REVIEWING},
             confirmed=set(),
         )
         assert result.allowed is False
@@ -514,8 +491,6 @@ class TestCheckConfirmGuardReviewer:
             "tester",
             graph,
             matrix,
-            producer_phases={"tester": ConsensusPhase.PROPOSED, "coder": ConsensusPhase.PROPOSED},
-            reviewer_phases={"tester": ConsensusPhase.REVIEWING},
             confirmed=set(),
         )
         assert result.allowed is True
@@ -533,8 +508,6 @@ class TestCheckConfirmGuardReviewer:
             "tester",
             graph,
             matrix,
-            producer_phases={"tester": ConsensusPhase.PROPOSED, "coder": ConsensusPhase.PROPOSED},
-            reviewer_phases={"tester": ConsensusPhase.REVIEWING},
             confirmed=set(),
         )
         assert result.allowed is False
@@ -553,8 +526,6 @@ class TestCheckConfirmGuardReviewer:
             "tester",
             graph,
             matrix,
-            producer_phases={"tester": ConsensusPhase.PROPOSED, "coder": ConsensusPhase.PROPOSED},
-            reviewer_phases={"tester": ConsensusPhase.REVIEWING},
             confirmed=set(),
         )
         assert result.allowed is False

@@ -1006,7 +1006,7 @@ def handle_consensus_ack_signal(
     # Forward ack_version from signal data into the payload so the
     # version-match guard can detect stale ACKs.
     if "ack_version" in data and "ack_version" not in payload:
-        payload["ack_version"] = data["ack_version"]
+        payload["ack_version"] = int(data["ack_version"])
 
     try:
         from peer_consensus import get_peer_consensus_tracker
@@ -1415,7 +1415,7 @@ def handle_consensus_excuse_producer_signal(
         # excusing *this* producer, not just any resolved decision.
         # Mirrors the excuse_reviewer pattern in decisions.py.
         expected_context = f"failed_role:{producer_role}"
-        if not hasattr(decision, "context") or decision.context != expected_context:
+        if decision.context != expected_context:
             return make_error_response(
                 f"Decision {decision_id} is not authorized for excusing "
                 f"producer {producer_role} (expected context: "

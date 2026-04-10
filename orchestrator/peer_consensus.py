@@ -282,11 +282,13 @@ class PeerConsensusTracker:
                     is_producer=False,
                 )
 
+            proposal_commit_sha = self._proposal_commit_shas.get(producer_role, "")
             self.matrix.record_ack(
                 reviewer_role,
                 producer_role,
                 ack_version,
                 artifact_refs=review.artifact_references,
+                commit_sha=proposal_commit_sha,
             )
 
             # Transition reviewer to REVIEWING
@@ -462,8 +464,6 @@ class PeerConsensusTracker:
                 agent_role,
                 self.graph,
                 self.matrix,
-                self._producer_phases,
-                self._reviewer_phases,
                 self._confirmed,
             )
 
@@ -525,6 +525,19 @@ class PeerConsensusTracker:
                         "status": "pending_acks",
                         "message": guard.reason,
                         "unresolved_nacks": guard.details.get("unresolved_nacks"),
+                    }
+
+                if guard_type == "stale_nacks":
+                    logger.warning(
+                        "handle_confirmed rejected: reviewer has stale NACKs",
+                        pipeline_id=self.pipeline_id,
+                        role=agent_role,
+                        stale_nacks=guard.details.get("stale_nacks"),
+                    )
+                    return {
+                        "status": "pending_acks",
+                        "message": guard.reason,
+                        "stale_nacks": guard.details.get("stale_nacks"),
                     }
 
                 # Fallback for any unhandled guard type

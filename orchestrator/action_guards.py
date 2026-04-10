@@ -284,8 +284,6 @@ def check_confirm_guard(
     agent_role: str,
     graph: ReviewGraph,
     matrix: ApprovalMatrix,
-    producer_phases: dict[str, ConsensusPhase],
-    reviewer_phases: dict[str, ConsensusPhase],
     confirmed: set[str],
 ) -> GuardResult:
     """Check whether an agent is allowed to confirm consensus.
