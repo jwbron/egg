@@ -759,6 +759,144 @@ class TestReadSourceBranchArtifacts:
         assert pipeline.analysis == "# Analysis from 1014"
         assert pipeline.plan == "# Plan from 1014"
 
+    @patch("routes.pipelines._git_show_draft")
+    def test_pipeline_id_prefix_tried_before_issue_number(self, mock_git_show, worktree_path):
+        """When pipeline_id differs from issue number, try pipeline_id prefix first."""
+        from routes.pipelines import _read_source_branch_artifacts
+
+        # Track which paths are attempted
+        attempted_paths = []
+
+        def fake_git_show(repo_path, branch, rel_path, timeout=15):
+            attempted_paths.append(rel_path)
+            if "issue-1570-v7-plan.md" in rel_path:
+                return "# Plan from v7 prefix"
+            if "issue-1570-v7-analysis.md" in rel_path:
+                return "# Analysis from v7 prefix"
+            return None
+
+        mock_git_show.side_effect = fake_git_show
+
+        pipeline = self._make_pipeline(id="issue-1570-v7")
+        mock_store = MagicMock()
+
+        result = _read_source_branch_artifacts(
+            repo_path=worktree_path,
+            source_branch="egg/issue-1570-v3",
+            issue_number=pipeline.issue_number,
+            pipeline_id=pipeline.id,
+            store=mock_store,
+            pipeline=pipeline,
+        )
+
+        assert result is True
+        assert pipeline.analysis == "# Analysis from v7 prefix"
+        assert pipeline.plan == "# Plan from v7 prefix"
+        # pipeline_id prefix should be tried first
+        assert attempted_paths[0] == ".egg-state/drafts/issue-1570-v7-analysis.md"
+
+    @patch("routes.pipelines._git_show_draft")
+    def test_falls_back_to_issue_number_prefix(self, mock_git_show, worktree_path):
+        """When pipeline_id prefix misses, should try bare issue number prefix."""
+        from routes.pipelines import _read_source_branch_artifacts
+
+        def fake_git_show(repo_path, branch, rel_path, timeout=15):
+            # pipeline_id prefix misses, bare issue number hits
+            if "1570-plan.md" in rel_path and "issue-1570-v7" not in rel_path:
+                return "# Plan from bare prefix"
+            if "1570-analysis.md" in rel_path and "issue-1570-v7" not in rel_path:
+                return "# Analysis from bare prefix"
+            return None
+
+        mock_git_show.side_effect = fake_git_show
+
+        pipeline = self._make_pipeline(id="issue-1570-v7")
+        mock_store = MagicMock()
+
+        result = _read_source_branch_artifacts(
+            repo_path=worktree_path,
+            source_branch="egg/issue-1570-v3",
+            issue_number=pipeline.issue_number,
+            pipeline_id=pipeline.id,
+            store=mock_store,
+            pipeline=pipeline,
+        )
+
+        assert result is True
+        assert pipeline.analysis == "# Analysis from bare prefix"
+        assert pipeline.plan == "# Plan from bare prefix"
+
+    @patch("routes.pipelines._git_show_draft")
+    def test_source_artifact_prefix_override(self, mock_git_show, worktree_path):
+        """Explicit source_artifact_prefix should override all default prefix logic."""
+        from routes.pipelines import _read_source_branch_artifacts
+
+        attempted_paths = []
+
+        def fake_git_show(repo_path, branch, rel_path, timeout=15):
+            attempted_paths.append(rel_path)
+            if "issue-1570-v3-plan.md" in rel_path:
+                return "# Plan from v3 override"
+            if "issue-1570-v3-analysis.md" in rel_path:
+                return "# Analysis from v3 override"
+            return None
+
+        mock_git_show.side_effect = fake_git_show
+
+        pipeline = self._make_pipeline(id="issue-1570-v7")
+        mock_store = MagicMock()
+
+        result = _read_source_branch_artifacts(
+            repo_path=worktree_path,
+            source_branch="egg/issue-1570-v3",
+            issue_number=pipeline.issue_number,
+            pipeline_id=pipeline.id,
+            store=mock_store,
+            pipeline=pipeline,
+            source_artifact_prefix="issue-1570-v3",
+        )
+
+        assert result is True
+        assert pipeline.analysis == "# Analysis from v3 override"
+        assert pipeline.plan == "# Plan from v3 override"
+        # Only the override prefix should be tried (no pipeline_id or issue number)
+        for path in attempted_paths:
+            assert "issue-1570-v7" not in path
+            assert path.startswith(".egg-state/drafts/issue-1570-v3-")
+
+    @patch("routes.pipelines._git_show_draft")
+    def test_source_artifact_prefix_clears_on_success(self, mock_git_show, worktree_path):
+        """source_artifact_prefix should be cleared alongside source_branch on success."""
+        from routes.pipelines import _read_source_branch_artifacts
+
+        def fake_git_show(repo_path, branch, rel_path, timeout=15):
+            if "plan.md" in rel_path:
+                return "# Plan"
+            if "analysis.md" in rel_path:
+                return "# Analysis"
+            return None
+
+        mock_git_show.side_effect = fake_git_show
+
+        pipeline = self._make_pipeline(
+            id="issue-1570-v7", source_artifact_prefix="issue-1570-v3"
+        )
+        mock_store = MagicMock()
+
+        result = _read_source_branch_artifacts(
+            repo_path=worktree_path,
+            source_branch="egg/issue-1570-v3",
+            issue_number=pipeline.issue_number,
+            pipeline_id=pipeline.id,
+            store=mock_store,
+            pipeline=pipeline,
+            source_artifact_prefix="issue-1570-v3",
+        )
+
+        assert result is True
+        assert pipeline.source_branch is None
+        assert pipeline.source_artifact_prefix is None
+
 
 # ---------------------------------------------------------------------------
 # 6. Branch-exists relaxation
