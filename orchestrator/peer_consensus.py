@@ -1625,7 +1625,7 @@ def reconstruct_tracker_from_messages(
             "Reconstructed consensus tracker from messages",
             pipeline_id=pipeline_id,
             messages_replayed=len(consensus_msgs),
-            confirmed_roles=sorted(tracker._confirmed),
+            confirmed_roles=sorted(tracker.confirmed_roles),
         )
     else:
         logger.info(

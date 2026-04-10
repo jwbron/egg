@@ -627,7 +627,7 @@ class TestCheckConsensusMessageBusFallback:
             remove_peer_consensus_tracker("KORE-1234")
 
     def test_tracker_confirmed_safety_net_preempts_message_bus(self):
-        """When all roles are in _confirmed, the tracker safety net fires before message-bus fallback (#1671)."""
+        """When all roles are in confirmed_roles, the tracker safety net fires before message-bus fallback (#1671)."""
         from concurrent_executor import ConcurrentPhaseExecutor
         from message_store import Message, MessageType
         from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
@@ -698,7 +698,7 @@ class TestCheckConsensusMessageBusFallback:
             remove_peer_consensus_tracker("KORE-1234")
 
     def test_tracker_confirmed_overrides_stale_nacks(self):
-        """All roles in _confirmed but evaluate() says False due to stale NACKs → override (#1671)."""
+        """All roles in confirmed_roles but evaluate() says False due to stale NACKs → override (#1671)."""
         from concurrent_executor import ConcurrentPhaseExecutor
         from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
 
