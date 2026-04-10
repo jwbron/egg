@@ -251,8 +251,32 @@
       "started_at": "2026-04-10T00:51:55.931976Z",
       "work_started_at": "2026-04-10T00:51:56.413084Z",
       "completed_at": "2026-04-10T01:28:45.771501Z",
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "eaae929dbf466a95ad2b29aec4b78ac41e13157826075385b776fca8b941baed",
+          "container_name": "egg-sandbox-egg-issue-1579-reviewer_contract",
+          "status": "running",
+          "started_at": "2026-04-10T01:33:00.567245Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": null,
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "reviewer_contract",
+          "status": "running",
+          "container_id": "eaae929dbf466a95ad2b29aec4b78ac41e13157826075385b776fca8b941baed",
+          "started_at": null,
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -414,7 +438,7 @@
     }
   ],
   "created_at": "2026-04-10T00:51:52.753575Z",
-  "updated_at": "2026-04-10T01:32:58.935057Z",
+  "updated_at": "2026-04-10T01:33:00.571433Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -422,5 +446,5 @@
   "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-10T01:28:45.560059505Z     Status: healthy\n2026-04-10T01:28:45.560061880Z     GitHub token valid: True\n2026-04-10T01:28:45.560064338Z     Auth configured: True\n2026-04-10T01:28:45.560066755Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-10T01:28:45.560069380Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-10T01:28:45.560072046Z   Credentials injected by gateway (not in container)\n2026-04-10T01:28:45.560074588Z Signaled error to orchestrator\n2026-04-10T01:28:45.560077046Z \n2026-04-10T01:28:45.560079380Z Cleaning up on container exit...\n2026-04-10T01:28:45.560081880Z ✓ Cleanup complete",
   "analysis": null,
   "plan": null,
-  "version": 46
+  "version": 47
 }
