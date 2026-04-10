@@ -86,6 +86,7 @@ class PeerConsensusTracker:
         auto_repropose_enabled: bool = False,
         auto_repropose_debounce_seconds: int = 60,
         max_auto_repropose: int = 5,
+        enable_invariant_checks: bool = False,
     ) -> None:
         self.pipeline_id = pipeline_id
         self.graph = graph
@@ -97,6 +98,7 @@ class PeerConsensusTracker:
         self.auto_repropose_enabled = auto_repropose_enabled
         self.auto_repropose_debounce_seconds = auto_repropose_debounce_seconds
         self.max_auto_repropose = max_auto_repropose
+        self.enable_invariant_checks = enable_invariant_checks
 
         self._lock = threading.RLock()
 
@@ -128,6 +130,34 @@ class PeerConsensusTracker:
             if self.graph.is_reviewer(role):
                 self._reviewer_phases[role] = ConsensusPhase.WORKING
 
+    def _run_invariant_checks(self, action: str) -> None:
+        """Run invariant checks after a state mutation (if enabled).
+
+        Called internally after every state-mutating operation when
+        ``enable_invariant_checks`` is True. Logs warnings for any
+        violations but does not raise — this is a defensive check for
+        detecting bugs early, not an enforcement mechanism.
+        """
+        if not self.enable_invariant_checks:
+            return
+        violations = _validate_invariants(
+            self.graph,
+            self.matrix,
+            self._producer_phases,
+            self._reviewer_phases,
+            self._confirmed,
+        )
+        for v in violations:
+            logger.warning(
+                "Invariant violation after %s",
+                action,
+                invariant=v.invariant,
+                agent=v.agent,
+                description=v.description,
+                details=v.details,
+                pipeline_id=self.pipeline_id,
+            )
+
     def handle_propose(
         self,
         agent_role: str,
@@ -150,9 +180,7 @@ class PeerConsensusTracker:
     ) -> dict[str, Any]:
         """Inner propose logic. Caller MUST hold self._lock."""
         if not _skip_ack_guard:
-            guard = check_propose_guard(
-                agent_role, self.graph, self.matrix, self._producer_phases
-            )
+            guard = check_propose_guard(agent_role, self.graph, self.matrix, self._producer_phases)
             if not guard.allowed:
                 raise ValueError(guard.reason)
         else:
@@ -206,6 +234,8 @@ class PeerConsensusTracker:
                 "stale_reviewers": stale_reviewers,
             },
         )
+
+        self._run_invariant_checks("propose")
 
         return {
             "version": version,
@@ -263,6 +293,8 @@ class PeerConsensusTracker:
                     "fully_acked": fully_acked,
                 },
             )
+
+            self._run_invariant_checks("ack")
 
             return {
                 "status": "acked",
@@ -330,6 +362,8 @@ class PeerConsensusTracker:
                 },
             )
 
+            self._run_invariant_checks("nack")
+
             return {
                 "status": "nacked",
                 "reason": review.reason,
@@ -390,6 +424,8 @@ class PeerConsensusTracker:
                 self.pipeline_id,
                 data={"role": agent_role, "reason": reason},
             )
+
+            self._run_invariant_checks("withdraw")
 
             return {"status": "withdrawn", "reason": reason}
 
@@ -517,6 +553,8 @@ class PeerConsensusTracker:
 
             # Check global consensus
             consensus_reached = self._check_consensus()
+
+            self._run_invariant_checks("confirmed")
 
             return {
                 "status": "confirmed" if is_fully_confirmed else "partially_confirmed",
@@ -703,9 +741,7 @@ class PeerConsensusTracker:
 
             # Use changed_files for scoped invalidation if available
             if changed_files:
-                invalidated = self.matrix.invalidate_overlapping_acks(
-                    agent_role, changed_files
-                )
+                invalidated = self.matrix.invalidate_overlapping_acks(agent_role, changed_files)
             else:
                 # Conservative: invalidate all ACKs
                 invalidated = []
@@ -713,9 +749,7 @@ class PeerConsensusTracker:
                     if self.matrix.invalidate_ack(reviewer, agent_role):
                         invalidated.append(reviewer)
 
-            result = self._handle_propose_inner(
-                agent_role, payload, _skip_ack_guard=True
-            )
+            result = self._handle_propose_inner(agent_role, payload, _skip_ack_guard=True)
             result["invalidated_reviewers"] = invalidated
             result["auto_re_propose"] = True
             result["auto_trigger"] = "auto_push"
@@ -917,7 +951,9 @@ class PeerConsensusTracker:
         """
         with self._lock:
             if not self.graph.is_producer(producer_role):
-                raise ValueError(f"Cannot excuse '{producer_role}': not a producer in the review graph")
+                raise ValueError(
+                    f"Cannot excuse '{producer_role}': not a producer in the review graph"
+                )
 
             reviewers = self.graph.reviewers_for(producer_role)
             for reviewer in reviewers:

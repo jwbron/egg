@@ -350,11 +350,7 @@ def check_confirm_guard(
         for producer in producers:
             entry = matrix.get_entry(agent_role, producer)
             current_version = matrix.get_proposal_version(producer)
-            if (
-                entry is not None
-                and entry.state == ApprovalState.NACKED
-                and current_version > 0
-            ):
+            if entry is not None and entry.state == ApprovalState.NACKED and current_version > 0:
                 unresolved_nacks.append(
                     {
                         "producer": producer,
@@ -535,10 +531,7 @@ def validate_invariants(
                     )
 
                 # Invariant 2: Stale ACK
-                if (
-                    entry.state == ApprovalState.ACKED
-                    and entry.version != current_version
-                ):
+                if entry.state == ApprovalState.ACKED and entry.version != current_version:
                     violations.append(
                         InvariantViolation(
                             invariant="no_confirmed_with_stale_ack",
@@ -559,10 +552,7 @@ def validate_invariants(
                 # Invariant 3: Unreviewed changes (ACK at older version)
                 # This is a variant of invariant 2 but focused on "has new
                 # changes since last review"
-                if (
-                    entry.state == ApprovalState.ACKED
-                    and entry.version < current_version
-                ):
+                if entry.state == ApprovalState.ACKED and entry.version < current_version:
                     violations.append(
                         InvariantViolation(
                             invariant="no_confirmed_with_unreviewed_changes",
