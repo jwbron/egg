@@ -2497,7 +2497,7 @@ def _git_show_draft(
     git_base = ["git", "-c", "core.hooksPath=/dev/null", "-c", f"safe.directory={repo_path}", "-C", str(repo_path)]
     try:
         result = subprocess.run(
-            [*git_base, "show", "--", f"origin/{branch}:{rel_path}"],
+            [*git_base, "show", f"origin/{branch}:{rel_path}"],
             capture_output=True,
             text=True,
             timeout=timeout,
