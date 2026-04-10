@@ -91,10 +91,10 @@
         {
           "container_id": "cedeff42c9d151f9945ce1fbbbe31baf81b379dd3bb65c6e7adba1e53348d6e5",
           "container_name": "issue-1570-v9-reviewer_code",
-          "status": "removed",
+          "status": "failed",
           "started_at": "2026-04-10T17:52:39.244717Z",
-          "exited_at": "2026-04-10T17:52:47.505202Z",
-          "exit_code": null,
+          "exited_at": "2026-04-10T17:53:14.445240Z",
+          "exit_code": -1,
           "agent_role": "reviewer_code",
           "session_token": null
         }
@@ -153,10 +153,10 @@
           "status": "failed",
           "container_id": "cedeff42c9d151f9945ce1fbbbe31baf81b379dd3bb65c6e7adba1e53348d6e5",
           "started_at": "2026-04-10T17:52:39.244718Z",
-          "completed_at": "2026-04-10T17:52:47.505202Z",
+          "completed_at": "2026-04-10T17:53:14.445977Z",
           "commit": null,
           "outputs": {},
-          "error": "Pipeline cancelled",
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         }
@@ -179,7 +179,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-10T17:52:03.925495Z",
-  "updated_at": "2026-04-10T17:53:14.425567Z",
+  "updated_at": "2026-04-10T17:53:14.446041Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -190,5 +190,5 @@
   "source_branch": "egg/issue-1570-v3",
   "source_artifact_prefix": "1570",
   "run_epoch": null,
-  "version": 12
+  "version": 13
 }
