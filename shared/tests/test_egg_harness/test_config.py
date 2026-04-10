@@ -151,90 +151,119 @@ class TestGetContextWindow:
 class TestProviderConfig:
     """Test ProviderConfig dataclass."""
 
-    def test_default_values(self):
-        """ProviderConfig defaults: provider='anthropic', model='opus'."""
-        config = ProviderConfig()
-        assert config.provider == "anthropic"
+    def test_required_fields(self):
+        """ProviderConfig requires provider_type and model."""
+        config = ProviderConfig(provider_type="anthropic", model="opus")
+        assert config.provider_type == "anthropic"
         assert config.model == "opus"
 
     def test_is_dataclass(self):
         assert dataclasses.is_dataclass(ProviderConfig)
 
     def test_default_endpoint_is_none(self):
-        config = ProviderConfig()
+        config = ProviderConfig(provider_type="anthropic", model="opus")
         assert config.endpoint is None
 
     def test_custom_provider_and_model(self):
-        config = ProviderConfig(provider="openai-compatible", model="gpt-4")
-        assert config.provider == "openai-compatible"
+        config = ProviderConfig(provider_type="openai_compatible", model="gpt-4")
+        assert config.provider_type == "openai_compatible"
         assert config.model == "gpt-4"
 
     def test_openai_compatible_with_endpoint(self):
         config = ProviderConfig(
-            provider="openai-compatible",
+            provider_type="openai_compatible",
             model="local-llm",
             endpoint="http://localhost:8080/v1",
         )
-        assert config.provider == "openai-compatible"
+        assert config.provider_type == "openai_compatible"
         assert config.endpoint == "http://localhost:8080/v1"
 
     def test_anthropic_provider_no_endpoint_needed(self):
         """Anthropic provider should work without explicit endpoint."""
-        config = ProviderConfig(provider="anthropic", model="sonnet")
+        config = ProviderConfig(provider_type="anthropic", model="sonnet")
         assert config.endpoint is None
+
+    def test_api_key_env_default_is_none(self):
+        config = ProviderConfig(provider_type="anthropic", model="opus")
+        assert config.api_key_env is None
+
+    def test_extra_headers_default_is_none(self):
+        config = ProviderConfig(provider_type="anthropic", model="opus")
+        assert config.extra_headers is None
+
+    def test_extra_headers_can_be_set(self):
+        config = ProviderConfig(
+            provider_type="anthropic",
+            model="opus",
+            extra_headers={"X-Custom": "value"},
+        )
+        assert config.extra_headers == {"X-Custom": "value"}
 
 
 class TestHarnessConfig:
     """Test HarnessConfig dataclass and defaults."""
 
-    def test_default_values_match_agent_result_behavior(self):
-        """HarnessConfig defaults should be consistent with AgentResult behavior."""
-        config = HarnessConfig()
-        # Should have sensible defaults
-        assert config.max_turns is not None or config.max_turns is None
-        # At minimum, these attributes should exist
-        assert hasattr(config, "max_turns")
-        assert hasattr(config, "timeout_seconds")
-        assert hasattr(config, "system_prompt")
+    def _make_provider(self) -> ProviderConfig:
+        return ProviderConfig(provider_type="anthropic", model="opus")
+
+    def test_default_values(self):
+        """HarnessConfig defaults with required provider."""
+        config = HarnessConfig(provider=self._make_provider())
+        assert config.max_turns == 200
+        assert config.timeout == 7200
+        assert config.cwd is None
+        assert config.compaction_threshold == 0.8
+        assert config.keep_recent_tokens == 20_000
 
     def test_is_dataclass(self):
         assert dataclasses.is_dataclass(HarnessConfig)
 
     def test_default_timeout(self):
-        config = HarnessConfig()
-        assert isinstance(config.timeout_seconds, int)
-        assert config.timeout_seconds > 0
+        config = HarnessConfig(provider=self._make_provider())
+        assert isinstance(config.timeout, int)
+        assert config.timeout > 0
 
     def test_default_max_turns(self):
-        config = HarnessConfig()
-        # max_turns can be None (unlimited) or a positive int
-        if config.max_turns is not None:
-            assert isinstance(config.max_turns, int)
-            assert config.max_turns > 0
+        config = HarnessConfig(provider=self._make_provider())
+        assert isinstance(config.max_turns, int)
+        assert config.max_turns > 0
 
     def test_custom_timeout(self):
-        config = HarnessConfig(timeout_seconds=300)
-        assert config.timeout_seconds == 300
+        config = HarnessConfig(provider=self._make_provider(), timeout=300)
+        assert config.timeout == 300
 
     def test_custom_max_turns(self):
-        config = HarnessConfig(max_turns=50)
+        config = HarnessConfig(provider=self._make_provider(), max_turns=50)
         assert config.max_turns == 50
 
-    def test_custom_system_prompt(self):
-        config = HarnessConfig(system_prompt="Be helpful.")
-        assert config.system_prompt == "Be helpful."
+    def test_disallowed_tools_default_is_none(self):
+        config = HarnessConfig(provider=self._make_provider())
+        assert config.disallowed_tools is None
 
-    def test_default_system_prompt(self):
-        config = HarnessConfig()
-        # Default system prompt may be None or empty string
-        assert config.system_prompt is None or isinstance(config.system_prompt, str)
+    def test_disallowed_tools_can_be_set(self):
+        config = HarnessConfig(
+            provider=self._make_provider(),
+            disallowed_tools=["WebFetch", "WebSearch"],
+        )
+        assert config.disallowed_tools == ["WebFetch", "WebSearch"]
 
     def test_custom_values_override_defaults(self):
         config = HarnessConfig(
+            provider=self._make_provider(),
             max_turns=10,
-            timeout_seconds=600,
-            system_prompt="Custom prompt",
+            timeout=600,
+            compaction_threshold=0.9,
+            keep_recent_tokens=50_000,
         )
         assert config.max_turns == 10
-        assert config.timeout_seconds == 600
-        assert config.system_prompt == "Custom prompt"
+        assert config.timeout == 600
+        assert config.compaction_threshold == 0.9
+        assert config.keep_recent_tokens == 50_000
+
+    def test_intercept_tools_default_is_true(self):
+        config = HarnessConfig(provider=self._make_provider())
+        assert config.intercept_tools is True
+
+    def test_env_default_is_none(self):
+        config = HarnessConfig(provider=self._make_provider())
+        assert config.env is None

@@ -11,7 +11,7 @@ class TestCostTrackerBasic:
 
     def test_initial_total_cost_is_zero(self):
         tracker = CostTracker()
-        assert tracker.total_cost == 0.0
+        assert tracker.total_cost_usd == 0.0
 
     def test_add_usage_computes_correct_cost_for_opus(self):
         """CostTracker.add_usage with opus should compute correct USD cost.
@@ -28,7 +28,7 @@ class TestCostTrackerBasic:
         )
         # Expected: (1000 * 15.00 / 1_000_000) + (500 * 75.00 / 1_000_000)
         # = 0.015 + 0.0375 = 0.0525
-        assert tracker.total_cost == pytest.approx(0.0525, rel=1e-6)
+        assert tracker.total_cost_usd == pytest.approx(0.0525, rel=1e-6)
 
     def test_add_usage_computes_correct_cost_for_sonnet(self):
         """Anthropic published rates for claude-sonnet-4-5-20250514:
@@ -43,7 +43,7 @@ class TestCostTrackerBasic:
         )
         # Expected: (1000 * 3.00 / 1_000_000) + (500 * 15.00 / 1_000_000)
         # = 0.003 + 0.0075 = 0.0105
-        assert tracker.total_cost == pytest.approx(0.0105, rel=1e-6)
+        assert tracker.total_cost_usd == pytest.approx(0.0105, rel=1e-6)
 
     def test_add_usage_computes_correct_cost_for_haiku(self):
         """Anthropic published rates for claude-haiku-4-5:
@@ -58,7 +58,7 @@ class TestCostTrackerBasic:
         )
         # Expected: (1000 * 0.80 / 1_000_000) + (500 * 4.00 / 1_000_000)
         # = 0.0008 + 0.002 = 0.0028
-        assert tracker.total_cost == pytest.approx(0.0028, rel=1e-6)
+        assert tracker.total_cost_usd == pytest.approx(0.0028, rel=1e-6)
 
 
 class TestCostTrackerRateTable:
@@ -67,17 +67,17 @@ class TestCostTrackerRateTable:
     def test_opus_rates_exist(self):
         tracker = CostTracker()
         tracker.add_usage(input_tokens=1, output_tokens=0, model="claude-opus-4-6")
-        assert tracker.total_cost > 0
+        assert tracker.total_cost_usd > 0
 
     def test_sonnet_rates_exist(self):
         tracker = CostTracker()
         tracker.add_usage(input_tokens=1, output_tokens=0, model="claude-sonnet-4-5-20250514")
-        assert tracker.total_cost > 0
+        assert tracker.total_cost_usd > 0
 
     def test_haiku_rates_exist(self):
         tracker = CostTracker()
         tracker.add_usage(input_tokens=1, output_tokens=0, model="claude-haiku-4-5")
-        assert tracker.total_cost > 0
+        assert tracker.total_cost_usd > 0
 
 
 class TestCostTrackerZeroTokens:
@@ -88,19 +88,19 @@ class TestCostTrackerZeroTokens:
         tracker.add_usage(input_tokens=0, output_tokens=500, model="claude-opus-4-6")
         # Only output cost
         expected = 500 * 75.00 / 1_000_000
-        assert tracker.total_cost == pytest.approx(expected, rel=1e-6)
+        assert tracker.total_cost_usd == pytest.approx(expected, rel=1e-6)
 
     def test_zero_output_tokens(self):
         tracker = CostTracker()
         tracker.add_usage(input_tokens=1000, output_tokens=0, model="claude-opus-4-6")
         # Only input cost
         expected = 1000 * 15.00 / 1_000_000
-        assert tracker.total_cost == pytest.approx(expected, rel=1e-6)
+        assert tracker.total_cost_usd == pytest.approx(expected, rel=1e-6)
 
     def test_zero_both_tokens(self):
         tracker = CostTracker()
         tracker.add_usage(input_tokens=0, output_tokens=0, model="claude-opus-4-6")
-        assert tracker.total_cost == 0.0
+        assert tracker.total_cost_usd == 0.0
 
 
 class TestCostTrackerAccumulation:
@@ -109,10 +109,10 @@ class TestCostTrackerAccumulation:
     def test_multiple_calls_accumulate(self):
         tracker = CostTracker()
         tracker.add_usage(input_tokens=1000, output_tokens=500, model="claude-opus-4-6")
-        first_cost = tracker.total_cost
+        first_cost = tracker.total_cost_usd
 
         tracker.add_usage(input_tokens=2000, output_tokens=1000, model="claude-opus-4-6")
-        second_cost = tracker.total_cost
+        second_cost = tracker.total_cost_usd
 
         assert second_cost > first_cost
         # Second add doubles the tokens, so adds 2x the first cost
@@ -123,14 +123,14 @@ class TestCostTrackerAccumulation:
         """Costs from different models should accumulate together."""
         tracker = CostTracker()
         tracker.add_usage(input_tokens=1000, output_tokens=500, model="claude-opus-4-6")
-        opus_cost = tracker.total_cost
+        opus_cost = tracker.total_cost_usd
 
         tracker.add_usage(
             input_tokens=1000,
             output_tokens=500,
             model="claude-sonnet-4-5-20250514",
         )
-        total = tracker.total_cost
+        total = tracker.total_cost_usd
 
         assert total > opus_cost
         # Sonnet is cheaper than opus
@@ -146,7 +146,7 @@ class TestCostTrackerAccumulation:
         single_tracker = CostTracker()
         single_tracker.add_usage(input_tokens=1000, output_tokens=500, model="claude-opus-4-6")
 
-        assert tracker.total_cost == pytest.approx(single_tracker.total_cost, rel=1e-6)
+        assert tracker.total_cost_usd == pytest.approx(single_tracker.total_cost_usd, rel=1e-6)
 
 
 class TestCostTrackerUnknownModel:
@@ -158,7 +158,7 @@ class TestCostTrackerUnknownModel:
         try:
             tracker.add_usage(input_tokens=1000, output_tokens=500, model="unknown-model")
             # If it doesn't raise, cost should be zero or some default
-            assert tracker.total_cost >= 0.0
+            assert tracker.total_cost_usd >= 0.0
         except (ValueError, KeyError):
             pass  # Also acceptable to raise for unknown models
 
@@ -168,7 +168,7 @@ class TestCostTrackerUnknownModel:
         try:
             tracker.add_usage(input_tokens=1000, output_tokens=500, model="gpt-4o")
             # Should not crash; cost may be zero
-            assert tracker.total_cost >= 0.0
+            assert tracker.total_cost_usd >= 0.0
         except (ValueError, KeyError):
             pass  # Acceptable to raise for non-Anthropic models
 
@@ -185,7 +185,7 @@ class TestCostTrackerCacheTokens:
             model="claude-opus-4-6",
             cache_read_tokens=2000,
         )
-        cost_with_cache = tracker.total_cost
+        cost_with_cache = tracker.total_cost_usd
 
         tracker2 = CostTracker()
         tracker2.add_usage(
@@ -193,7 +193,7 @@ class TestCostTrackerCacheTokens:
             output_tokens=500,
             model="claude-opus-4-6",
         )
-        cost_without_cache = tracker2.total_cost
+        cost_without_cache = tracker2.total_cost_usd
 
         # Cache reads add cost, but at a reduced rate compared to input
         assert cost_with_cache >= cost_without_cache
@@ -207,7 +207,7 @@ class TestCostTrackerCacheTokens:
             model="claude-opus-4-6",
             cache_write_tokens=500,
         )
-        cost_with_cache_write = tracker.total_cost
+        cost_with_cache_write = tracker.total_cost_usd
 
         tracker2 = CostTracker()
         tracker2.add_usage(
@@ -215,7 +215,7 @@ class TestCostTrackerCacheTokens:
             output_tokens=500,
             model="claude-opus-4-6",
         )
-        cost_without = tracker2.total_cost
+        cost_without = tracker2.total_cost_usd
 
         # Cache writes add cost (at premium rate, typically 1.25x input)
         assert cost_with_cache_write >= cost_without
@@ -229,7 +229,7 @@ class TestCostTrackerCacheTokens:
             model="claude-opus-4-6",
         )
         expected = (1000 * 15.00 / 1_000_000) + (500 * 75.00 / 1_000_000)
-        assert tracker.total_cost == pytest.approx(expected, rel=1e-6)
+        assert tracker.total_cost_usd == pytest.approx(expected, rel=1e-6)
 
 
 class TestCostTrackerReset:
@@ -239,11 +239,11 @@ class TestCostTrackerReset:
         """If reset() exists, it should zero out accumulated cost."""
         tracker = CostTracker()
         tracker.add_usage(input_tokens=1000, output_tokens=500, model="claude-opus-4-6")
-        assert tracker.total_cost > 0
+        assert tracker.total_cost_usd > 0
 
         if hasattr(tracker, "reset"):
             tracker.reset()
-            assert tracker.total_cost == 0.0
+            assert tracker.total_cost_usd == 0.0
 
 
 class TestCostTrackerLargeValues:
@@ -258,8 +258,8 @@ class TestCostTrackerLargeValues:
             model="claude-opus-4-6",
         )
         # Expected: (100M * 15 / 1M) + (50M * 75 / 1M) = 1500 + 3750 = 5250
-        assert tracker.total_cost == pytest.approx(5250.0, rel=1e-6)
-        assert isinstance(tracker.total_cost, float)
+        assert tracker.total_cost_usd == pytest.approx(5250.0, rel=1e-6)
+        assert isinstance(tracker.total_cost_usd, float)
 
     def test_max_context_window_tokens(self):
         """Simulate full context window input (200k tokens)."""
@@ -269,25 +269,25 @@ class TestCostTrackerLargeValues:
             output_tokens=8_192,
             model="claude-opus-4-6",
         )
-        assert tracker.total_cost > 0
-        assert isinstance(tracker.total_cost, float)
+        assert tracker.total_cost_usd > 0
+        assert isinstance(tracker.total_cost_usd, float)
 
 
 class TestCostTrackerTotalCostProperty:
-    """Test the total_cost property specifically."""
+    """Test the total_cost_usd attribute specifically."""
 
-    def test_total_cost_is_float(self):
+    def test_total_cost_usd_is_float(self):
         tracker = CostTracker()
-        assert isinstance(tracker.total_cost, float)
+        assert isinstance(tracker.total_cost_usd, float)
 
-    def test_total_cost_updates_after_add(self):
+    def test_total_cost_usd_updates_after_add(self):
         tracker = CostTracker()
-        before = tracker.total_cost
+        before = tracker.total_cost_usd
         tracker.add_usage(input_tokens=100, output_tokens=50, model="claude-opus-4-6")
-        after = tracker.total_cost
+        after = tracker.total_cost_usd
         assert after > before
 
-    def test_total_cost_is_non_negative(self):
+    def test_total_cost_usd_is_non_negative(self):
         tracker = CostTracker()
         tracker.add_usage(input_tokens=1000, output_tokens=500, model="claude-opus-4-6")
-        assert tracker.total_cost >= 0.0
+        assert tracker.total_cost_usd >= 0.0

@@ -34,9 +34,9 @@ class TestEventBusRegistration:
     def test_register_on_compaction_callback(self):
         bus = EventBus()
         calls = []
-        bus.on_compaction(lambda: calls.append("compacted"))
-        bus.emit_compaction()
-        assert calls == ["compacted"]
+        bus.on_compaction(lambda summary, before, after: calls.append((summary, before, after)))
+        bus.emit_compaction("summary text", 100_000, 20_000)
+        assert calls == [("summary text", 100_000, 20_000)]
 
     def test_register_on_error_callback(self):
         bus = EventBus()
@@ -50,9 +50,9 @@ class TestEventBusRegistration:
     def test_register_on_turn_complete_callback(self):
         bus = EventBus()
         calls = []
-        bus.on_turn_complete(lambda: calls.append("turn_done"))
-        bus.emit_turn_complete()
-        assert calls == ["turn_done"]
+        bus.on_turn_complete(lambda turn, usage: calls.append((turn, usage)))
+        bus.emit_turn_complete(1, {"input_tokens": 100, "output_tokens": 50})
+        assert calls == [(1, {"input_tokens": 100, "output_tokens": 50})]
 
 
 class TestEventBusMultipleCallbacks:
@@ -113,7 +113,7 @@ class TestEventBusNoCallbacks:
 
     def test_emit_compaction_no_callbacks(self):
         bus = EventBus()
-        bus.emit_compaction()
+        bus.emit_compaction("summary", 100_000, 20_000)  # Should not raise
 
     def test_emit_error_no_callbacks(self):
         bus = EventBus()
@@ -121,7 +121,7 @@ class TestEventBusNoCallbacks:
 
     def test_emit_turn_complete_no_callbacks(self):
         bus = EventBus()
-        bus.emit_turn_complete()
+        bus.emit_turn_complete(1, {"input_tokens": 0, "output_tokens": 0})
 
 
 class TestEventBusExceptionHandling:
@@ -264,16 +264,16 @@ class TestEventBusMultipleEmits:
 
         bus.on_output(lambda text: output_calls.append(text))
         bus.on_error(lambda err: error_calls.append(str(err)))
-        bus.on_turn_complete(lambda: turn_calls.append("done"))
+        bus.on_turn_complete(lambda turn, usage: turn_calls.append(turn))
 
         bus.emit_output("hello")
         bus.emit_error(ValueError("oops"))
-        bus.emit_turn_complete()
+        bus.emit_turn_complete(1, {"input_tokens": 100, "output_tokens": 50})
         bus.emit_output("world")
 
         assert output_calls == ["hello", "world"]
         assert error_calls == ["oops"]
-        assert turn_calls == ["done"]
+        assert turn_calls == [1]
 
 
 class TestEventBusIsolation:

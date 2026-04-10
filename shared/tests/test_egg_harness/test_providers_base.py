@@ -43,21 +43,21 @@ class TestStreamEvents:
         assert event.text == "hello world"
 
     def test_tool_use_start_creation(self):
-        event = ToolUseStart(tool_use_id="tu_001", name="Bash")
-        assert event.tool_use_id == "tu_001"
+        event = ToolUseStart(id="tu_001", name="Bash")
+        assert event.id == "tu_001"
         assert event.name == "Bash"
 
     def test_tool_use_input_delta_creation(self):
         event = ToolUseInputDelta(
-            tool_use_id="tu_001",
             partial_json='{"command": "ls',
         )
-        assert event.tool_use_id == "tu_001"
         assert event.partial_json == '{"command": "ls'
 
     def test_tool_use_end_creation(self):
-        event = ToolUseEnd(tool_use_id="tu_001")
-        assert event.tool_use_id == "tu_001"
+        event = ToolUseEnd(id="tu_001", name="Bash", input={"command": "ls"})
+        assert event.id == "tu_001"
+        assert event.name == "Bash"
+        assert event.input == {"command": "ls"}
 
     def test_thinking_delta_creation(self):
         event = ThinkingDelta(text="Let me think...")
@@ -80,20 +80,15 @@ class TestStreamEvents:
         assert event.usage == usage
 
     def test_message_end_creation(self):
-        usage = {"input_tokens": 10, "output_tokens": 50}
-        event = MessageEnd(usage=usage)
-        assert event.usage == usage
+        """MessageEnd has no fields — it simply signals stream completion."""
+        event = MessageEnd()
+        assert dataclasses.is_dataclass(event)
 
     def test_message_delta_optional_fields(self):
-        """stop_reason and usage on MessageDelta can both be None."""
-        event = MessageDelta(stop_reason=None, usage=None)
+        """stop_reason can be None on MessageDelta."""
+        event = MessageDelta(stop_reason=None, usage={})
         assert event.stop_reason is None
-        assert event.usage is None
-
-    def test_message_end_optional_fields(self):
-        """usage on MessageEnd can be None."""
-        event = MessageEnd(usage=None)
-        assert event.usage is None
+        assert event.usage == {}
 
     def test_all_event_types_are_dataclasses(self):
         for cls in ALL_EVENT_CLASSES:
@@ -133,21 +128,29 @@ class TestProvider:
             IncompleteProvider()  # type: ignore[abstract]
 
     def test_provider_subclass_with_send_message(self):
-        """A subclass implementing send_message can be instantiated."""
+        """A subclass implementing both name and send_message can be instantiated."""
 
         class ConcreteProvider(Provider):
+            @property
+            def name(self) -> str:
+                return "test"
+
             async def send_message(
                 self,
+                *,
                 messages: list,
-                tools: list,
-                system: str,
-                model: str,
+                tools: list | None = None,
+                system: str | None = None,
+                model: str | None = None,
+                max_tokens: int = 16384,
+                extra_headers: dict | None = None,
             ) -> AsyncIterator[StreamEvent]:
                 yield TextDelta(text="hi")
 
         provider = ConcreteProvider()
         assert isinstance(provider, Provider)
         assert isinstance(provider, ABC)
+        assert provider.name == "test"
 
     def test_send_message_returns_async_iterator(self):
         """send_message type annotation should return AsyncIterator[StreamEvent]."""
