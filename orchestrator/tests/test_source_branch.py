@@ -502,27 +502,22 @@ class TestReadSourceBranchArtifacts:
 
         plan_content = "# Fallback plan"
 
-        # First call for analysis with exact prefix → None (not found)
-        # Then ls-tree fallback → finds 1500-analysis.md
-        # Second call for analysis via fallback → returns content
-        # First call for plan with exact prefix → None (not found)
-        # Then ls-tree fallback → finds 1500-plan.md
-        # Second call for plan via fallback → returns content
-        call_seq = []
+        # Exact-path lookup uses "1570-analysis.md" / "1570-plan.md" → miss.
+        # ls-tree fallback finds differently-named files that still match
+        # the issue number and suffix (e.g. "1570-v2-analysis.md").
 
         def fake_git_show(repo_path, branch, rel_path, timeout=15):
-            call_seq.append(rel_path)
-            if "1500-plan.md" in rel_path:
+            if "1570-v2-plan.md" in rel_path:
                 return plan_content
-            if "1500-analysis.md" in rel_path:
+            if "1570-v2-analysis.md" in rel_path:
                 return "# Fallback analysis"
             return None
 
         mock_git_show.side_effect = fake_git_show
 
-        # ls-tree returns files with different prefix
+        # ls-tree returns files with a different naming convention
         mock_run.return_value = subprocess.CompletedProcess(
-            [], 0, stdout="1500-plan.md\n1500-analysis.md\n", stderr=""
+            [], 0, stdout="1570-v2-plan.md\n1570-v2-analysis.md\n", stderr=""
         )
 
         pipeline = self._make_pipeline()
@@ -642,21 +637,14 @@ class TestReadSourceBranchArtifacts:
         """Fallback should filter matches by issue number when multiple files exist (#1654)."""
         from routes.pipelines import _read_source_branch_artifacts
 
-        # Track calls: exact-path attempts return None, fallback attempts succeed
-        calls = []
-
         def fake_git_show(repo_path, branch, rel_path, timeout=15):
-            calls.append(rel_path)
-            # First call per field is the exact-path attempt → miss
-            # (simulates source branch using a different prefix)
-            if len([c for c in calls if c == rel_path]) == 1 and rel_path.startswith(
-                ".egg-state/drafts/1570-"
+            # Exact-path attempts use the pipeline prefix (issue-1570/...) → miss.
+            # Fallback attempts use the bare filename (1570-analysis.md) → hit.
+            if "1570-analysis.md" in rel_path and not rel_path.startswith(
+                ".egg-state/drafts/issue-"
             ):
-                return None
-            # Fallback (second call) for 1570 files → hit
-            if "1570-analysis.md" in rel_path:
                 return "# Correct analysis for 1570"
-            if "1570-plan.md" in rel_path:
+            if "1570-plan.md" in rel_path and not rel_path.startswith(".egg-state/drafts/issue-"):
                 return "# Correct plan for 1570"
             return None
 
@@ -702,6 +690,38 @@ class TestReadSourceBranchArtifacts:
             [],
             0,
             stdout="1014-analysis.md\n1027-analysis.md\n1014-plan.md\n1027-plan.md\n",
+            stderr="",
+        )
+
+        pipeline = self._make_pipeline()
+        mock_store = MagicMock()
+
+        result = _read_source_branch_artifacts(
+            repo_path=worktree_path,
+            source_branch="egg/issue-1570-v3",
+            issue_number=pipeline.issue_number,
+            pipeline_id=pipeline.id,
+            store=mock_store,
+            pipeline=pipeline,
+        )
+
+        assert result is False
+        assert pipeline.analysis is None
+        assert pipeline.plan is None
+
+    @patch("subprocess.run")
+    @patch("routes.pipelines._git_show_draft")
+    def test_fallback_single_file_wrong_issue_skips(self, mock_git_show, mock_run, worktree_path):
+        """When ls-tree returns exactly one file from a different issue, should skip it (#1654)."""
+        from routes.pipelines import _read_source_branch_artifacts
+
+        mock_git_show.return_value = None
+
+        # ls-tree returns a single file, but it belongs to a different issue
+        mock_run.return_value = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout="1014-analysis.md\n1014-plan.md\n",
             stderr="",
         )
 
