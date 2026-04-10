@@ -331,7 +331,7 @@ The `handle_confirmed()` method enforces guards on both the producer and reviewe
 
 ### Auto Re-Propose on Push/Commit
 
-When a producer pushes new commits after proposing, existing reviews become stale — reviewers may have ACKed code that no longer reflects the current state. The `handle_producer_push()` method on `PeerConsensusTracker` detects this and triggers a re-proposal, invalidating existing reviews and notifying reviewers.
+When a producer pushes new commits after proposing, existing reviews become stale — reviewers may have ACKed code that no longer reflects the current state. The `handle_producer_push()` method on `PeerConsensusTracker` detects this and triggers a re-proposal, invalidating existing reviews and notifying reviewers. **Auto re-propose is always enabled** — to disable it, set `max_auto_repropose: 0` in `PipelineConfig`.
 
 **How it works:**
 
@@ -343,6 +343,13 @@ When a producer pushes new commits after proposing, existing reviews become stal
 6. Reviewers must re-review and ACK the new version before confirming.
 
 **Guard enforcement**: The `check_confirm_guard()` function enforces that no reviewer can confirm with a stale ACK — if a producer has re-proposed at a higher version since the reviewer's last ACK, the version-match guard blocks confirmation. This provides a server-side blocking mechanism even if a reviewer misses the `CONSENSUS_RE_REVIEW` notification.
+
+**Safety mechanisms** (configurable via `PipelineConfig`):
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `auto_repropose_debounce_seconds` | `60` | Minimum seconds between consecutive auto re-proposals for the same producer. Prevents proposal storms on rapid-fire pushes. |
+| `max_auto_repropose` | `5` | Maximum automatic re-proposals per producer per review cycle. Set to `0` to disable auto re-propose entirely. Once the limit is reached, the producer must explicitly re-propose via `egg-orch consensus propose`. |
 
 ### Excusing Non-Delivering Agents
 
