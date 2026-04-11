@@ -344,7 +344,7 @@ EGG_ORCHESTRATOR_MODE=local  # (default, can be omitted)
 **Environment:**
 ```bash
 EGG_ORCHESTRATOR_MODE=remote-single
-EGG_ORCHESTRATOR_URL=http://172.32.0.3:9849
+EGG_ORCHESTRATOR_URL=http://orchestrator.egg-system.svc.cluster.local:9849
 EGG_PIPELINE_ID=issue-123
 EGG_AGENT_ROLE=coder
 ```
@@ -385,7 +385,7 @@ EGG_AGENT_ROLE=coder
 **Environment:**
 ```bash
 EGG_ORCHESTRATOR_MODE=distributed
-EGG_ORCHESTRATOR_URL=http://172.32.0.3:9849
+EGG_ORCHESTRATOR_URL=http://orchestrator.egg-system.svc.cluster.local:9849
 EGG_PIPELINE_ID=issue-123
 EGG_AGENT_ROLE=coder  # or tester, documenter
 ```
@@ -394,17 +394,25 @@ EGG_AGENT_ROLE=coder  # or tester, documenter
 
 ### Network Architecture
 
-All components communicate over Docker networks with controlled access:
+All components communicate over Kubernetes networking with namespace-based isolation enforced by Calico NetworkPolicies:
 
-| Network | Purpose | Components |
-|---------|---------|------------|
-| `egg-isolated` | Internal communication | Gateway, Orchestrator, Sandboxes |
-| `egg-external` | Internet access | Gateway only (proxies for sandboxes) |
+| Namespace | Purpose | Components |
+|-----------|---------|------------|
+| `egg-system` | Core services | Gateway (Deployment + Service), Orchestrator (Deployment + Service) |
+| `egg-agents` | Agent execution | Agent Jobs (one per agent role per pipeline) |
 
-Fixed IPs:
-- Gateway: `172.32.0.2` (isolated), `172.33.0.2` (external)
-- Orchestrator: `172.32.0.3` (isolated), `172.33.0.3` (external)
-- Sandboxes: Dynamic allocation in `172.32.0.128/25` (.128–.254), keeping .2–.127 reserved for static assignments
+Service endpoints:
+- Gateway: `gateway.egg-system.svc.cluster.local` (ports 9848, 3129, 9851)
+- Orchestrator: `orchestrator.egg-system.svc.cluster.local` (port 9849)
+- Agent pods: Addressed by label selector (`pipeline-id`, `agent-role`)
+
+NetworkPolicies (enforced by Calico CNI):
+- Default-deny all ingress in `egg-agents` — agents cannot receive unsolicited traffic
+- Default-deny all egress in `egg-agents` — agents cannot reach internet directly
+- Allow agent egress to gateway Service only — preserves the gateway-as-single-choke-point model
+- Allow orchestrator ingress to agents — for health checks and log retrieval
+
+> **Migration note:** This replaces the Docker dual-network model (`egg-isolated` + `egg-external` with fixed IPs). See [Kubernetes Migration](kubernetes-migration.md) for details.
 
 ### API Endpoints
 
@@ -545,9 +553,11 @@ Defined in `shared/egg_config/constants.py`:
 ```python
 ORCHESTRATOR_CONTAINER_NAME = "egg-orchestrator"
 ORCHESTRATOR_PORT = 9849
-ORCHESTRATOR_ISOLATED_IP = "172.32.0.3"
-ORCHESTRATOR_EXTERNAL_IP = "172.33.0.3"
+ORCHESTRATOR_SERVICE_HOST = "orchestrator.egg-system.svc.cluster.local"
+GATEWAY_SERVICE_HOST = "gateway.egg-system.svc.cluster.local"
 ```
+
+> **Migration note:** Fixed IPs (`172.32.0.x`, `172.33.0.x`) are replaced by Kubernetes Service DNS names. See [Kubernetes Migration](kubernetes-migration.md).
 
 ## Related Documentation
 

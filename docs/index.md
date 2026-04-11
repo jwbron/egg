@@ -22,6 +22,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Git Isolation](architecture/git-isolation.md) | Gateway sidecar design for worktree isolation and credential separation |
 | [Credential Injection](architecture/credential-injection.md) | Zero-credential sandbox with API key proxy via gateway |
 | [Network Isolation](architecture/network-isolation.md) | Public/private network modes and domain allowlist |
+| [Kubernetes Migration](architecture/kubernetes-migration.md) | Docker to k8s (k3s) migration: architecture, network isolation, developer workflow |
 | [SDLC Pipeline](architecture/sdlc-pipeline.md) | Structurally enforced agent checkpoints and verification gates |
 | [Declarative Setup](architecture/declarative-setup.md) | Python-based declarative setup system |
 | [Logging](architecture/logging.md) | Structured JSON logging with OpenTelemetry alignment |
@@ -119,6 +120,7 @@ Each major component has detailed documentation:
 | **Agent teams / Deliberative Consensus** | [Agent Teams Guide](guides/agent-teams.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md) |
 | **Agent anchor / recovery changes** | [Anchor Recovery Guide](guides/anchor-recovery.md) | [egg_anchor README](../shared/egg_anchor/README.md), [Orchestrator CLI](reference/orchestrator-cli.md), [Concurrent Execution](guides/concurrent-execution.md) |
 | **Babysit-PR / PR review loops** | [Babysit-PR Guide](guides/babysit-pr.md) | [GitHub Automation](guides/github-automation.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [`egg_babysit` README](../shared/egg_babysit/README.md) |
+| **Kubernetes / k3s migration** | [Kubernetes Migration](architecture/kubernetes-migration.md) | [Deployment Guide](guides/deployment.md), [Network Isolation](architecture/network-isolation.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Concurrent execution mode** | [Concurrent Execution Guide](guides/concurrent-execution.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Checkpoint Access](guides/checkpoint-access.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Agent roles and file permissions** | [Agent Roles Reference](reference/agent-roles.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Architecture Overview](architecture/README.md) |
 | **Agent failure recovery** | [Agent Recovery Reference](reference/agent-recovery.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [Orchestrator Architecture](architecture/orchestrator.md) |

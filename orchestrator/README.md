@@ -7,7 +7,7 @@ Central coordination engine for egg's SDLC pipeline execution, container lifecyc
 The orchestrator manages the end-to-end SDLC pipeline that turns GitHub issues into reviewed pull requests. It:
 
 - **Manages pipeline state** — persists phase transitions, agent executions, and decisions on a git-backed state branch
-- **Spawns and monitors containers** — creates sandbox containers with proper configuration via the gateway sidecar
+- **Spawns and monitors agent pods** — creates Kubernetes Jobs with proper configuration via the gateway sidecar
 - **Coordinates multi-agent execution** — runs specialized agents across five categories (execution, analysis, review, utility, interface) in dependency-ordered waves or concurrently with message-based coordination
 - **Handles HITL decisions** — queues questions for human reviewers and blocks until resolved
 - **Streams real-time status** — provides SSE streams and DAG visualizations for pipeline monitoring
@@ -231,14 +231,15 @@ See [Architecture: Deployment Modes](../docs/architecture/orchestrator.md#deploy
 orchestrator/
 ├── api.py                  # Flask REST API server with blueprint registration
 ├── cli.py                  # CLI interface (serve, health, pipelines commands)
-├── models.py               # Pydantic models (Pipeline, AgentExecution, HITLDecision, ReviewVerdict, etc.)
+├── models.py               # Pydantic models (Pipeline, AgentExecution, HITLDecision, etc.) with k8s-native fields (pod_name, namespace, job_name)
 ├── state_store.py          # Git-backed persistent state storage
-├── container_spawner.py    # Container spawning with gateway session integration; agent restart (stop + respawn preserving worktree)
-├── container_monitor.py    # Container state monitoring and lifecycle tracking
+├── kubernetes_client.py    # Kubernetes API client wrapper (Job CRUD, pod logs, status)
+├── kubernetes_spawner.py   # Agent Job spawning with gateway session integration; agent restart (stop + respawn preserving worktree)
+├── kubernetes_monitor.py   # Kubernetes Job state monitoring and lifecycle tracking
+├── container_backend.py    # ContainerBackend protocol (structural typing interface for backend abstraction)
 ├── decision_queue.py       # HITL decision queue management (supports typed decisions)
 ├── handoffs.py             # Agent-to-agent data handoff mechanism
 ├── gateway_client.py       # Gateway API client for session management
-├── docker_client.py        # Docker client wrapper
 ├── sandbox_template.py     # Sandbox container configuration templates
 ├── mcp_server.py           # SSE-based MCP server for pipeline management tools (port 9850)
 ├── mcp_tools.py            # MCP tool definitions and handlers (submit_task, get_status, checkpoints, contracts, etc.)
@@ -250,10 +251,10 @@ orchestrator/
 │   ├── context.py          # PipelineHealthContext with lazy properties
 │   ├── runner.py           # HealthCheckRunner — trigger dispatch and tier escalation
 │   ├── tier1/              # Programmatic checks (fast, deterministic)
-│   │   ├── container_liveness.py   # Verify RUNNING containers exist in Docker
+│   │   ├── container_liveness.py   # Verify RUNNING agent pods exist in Kubernetes
 │   │   ├── startup_state.py        # Post-startup reconciliation verification
 │   │   ├── phase_output.py         # Detect missing artifacts (commits, plans)
-│   │   └── state_consistency.py    # Cross-reference orchestrator state vs Docker vs contract
+│   │   └── state_consistency.py    # Cross-reference orchestrator state vs k8s pod state vs contract
 │   └── tier2/              # Semantic checks (LLM-powered)
 │       └── agent_inspector.py   # Claude-powered agent progress analysis
 ├── sse.py                  # Server-Sent Events for real-time status
@@ -416,11 +417,11 @@ Defined in `shared/egg_config/constants.py`:
 
 | Constant | Value |
 |----------|-------|
-| Container name | `egg-orchestrator` |
+| Deployment name | `egg-orchestrator` |
 | Port | `9849` |
 | MCP server port | `9850` |
-| Isolated network IP | `172.32.0.3` |
-| External network IP | `172.33.0.3` |
+| Service DNS | `orchestrator.egg-system.svc.cluster.local` |
+| Namespace | `egg-system` |
 
 ## Testing
 

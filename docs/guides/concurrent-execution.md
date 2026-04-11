@@ -653,7 +653,7 @@ Both are also available as MCP tools (`restart_agent`, `restart_phase`) and CLI 
 Each concurrent agent runs in its own isolated git worktree. This prevents agents from overwriting each other's uncommitted work, ensures a clean `git status` per agent, and surfaces merge conflicts explicitly at push time rather than silently in a shared working directory.
 
 **Architecture:**
-- Each agent container receives a unique worktree created by the gateway, keyed by container ID (not pipeline ID)
+- Each agent pod receives a unique worktree created by the gateway, keyed by Job name (not pipeline ID)
 - All agents push to the same shared pipeline branch (e.g., `egg/issue-{N}`)
 - Git worktrees share the object store — only working tree files are duplicated, so disk overhead is marginal
 
@@ -665,7 +665,7 @@ Each concurrent agent runs in its own isolated git worktree. This prevents agent
 
 This works because role restrictions guarantee non-overlapping file sets (coder writes source code, tester writes tests, documenter writes docs). No overlapping writes means no merge conflicts.
 
-**What changed:** Previously, all agents in a pipeline shared a single worktree. The orchestrator used the `pipeline_id` as the worktree key, forcing all containers to share one working directory. Now each container gets its own worktree, using the `container_id` as the key.
+**What changed:** Previously, all agents in a pipeline shared a single worktree. The orchestrator used the `pipeline_id` as the worktree key, forcing all agents to share one working directory. Now each agent pod gets its own worktree, using the Job name as the key.
 
 ### Reviewer Worktree Sync
 
