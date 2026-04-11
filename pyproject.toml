@@ -125,6 +125,10 @@ module = ["anthropic", "anthropic.*", "markdownify"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["kubernetes", "kubernetes.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = [
     "repo_config",
     "repo_config.*",

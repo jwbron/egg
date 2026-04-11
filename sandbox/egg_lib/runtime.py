@@ -24,10 +24,12 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from egg_container import (
     LIFECYCLE_FLAGS_INDEX,
     ContainerNetworkConfig,
+    SandboxContainerConfig,
     build_sandbox_config,
     build_sandbox_docker_cmd,
     git_shadow_mounts,
@@ -453,7 +455,7 @@ def _is_k8s_runtime() -> bool:
     return EGG_RUNTIME == "kubernetes"
 
 
-def _get_k8s_client():
+def _get_k8s_client() -> Any:
     """Create and return a Kubernetes API client.
 
     Uses in-cluster config when running inside a pod, otherwise
@@ -507,7 +509,7 @@ def _get_k8s_network_config(
 
 
 def _k8s_create_job(
-    config,
+    config: SandboxContainerConfig,
     *,
     namespace: str = "egg-system",
     timeout_seconds: int | None = None,
@@ -530,7 +532,7 @@ def _k8s_create_job(
         namespace=namespace,
         body=job_kwargs,
     )
-    return job.metadata.name
+    return str(job.metadata.name)
 
 
 def _k8s_wait_for_pod(
@@ -551,7 +553,7 @@ def _k8s_wait_for_pod(
             label_selector=label_selector,
         )
         if pods.items:
-            return pods.items[0].metadata.name
+            return str(pods.items[0].metadata.name)
         time.sleep(1)
 
     return None
