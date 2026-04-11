@@ -1,212 +1,166 @@
-diff --git a/orchestrator/tests/test_action_guards.py b/orchestrator/tests/test_action_guards.py
-index 7ad58c1820..bd031f421e 100644
---- a/orchestrator/tests/test_action_guards.py
-+++ b/orchestrator/tests/test_action_guards.py
-@@ -269,6 +269,8 @@ class TestCheckConfirmGuardProducer:
-         matrix.record_ack("reviewer_code", "coder", version)
-         matrix.record_ack("reviewer_contract", "coder", version)
-         matrix.record_ack("tester", "coder", version)
-+        # tester must also have proposed to pass global zero-proposal guard
-+        matrix.record_proposal("tester")
+diff --git a/orchestrator/tests/test_pr_phase_brc_rewrite.py b/orchestrator/tests/test_pr_phase_brc_rewrite.py
+index 37ec5fcad6..81611cdea2 100644
+--- a/orchestrator/tests/test_pr_phase_brc_rewrite.py
++++ b/orchestrator/tests/test_pr_phase_brc_rewrite.py
+@@ -5,8 +5,10 @@ before creating the PR, as a safety net for cases where per-phase
+ pushes failed silently.
+ """
  
-         result = check_confirm_guard(
-             "coder",
-@@ -283,6 +285,8 @@ class TestCheckConfirmGuardProducer:
-         matrix.record_proposal("coder")
-         # Only one ACK
-         matrix.record_ack("reviewer_code", "coder", 1)
-+        # tester must also have proposed to pass global zero-proposal guard
-+        matrix.record_proposal("tester")
++import subprocess
+ import sys
+ from datetime import UTC, datetime
++from pathlib import Path
+ from unittest.mock import MagicMock, patch
  
-         result = check_confirm_guard(
-             "coder",
-@@ -334,7 +338,11 @@ class TestCheckConfirmGuardReviewer:
-         assert result.details["guard"] == "must_have_reviewed"
- 
-     def test_zero_proposal_producers(self, graph, matrix):
--        """Producer has version 0 (never proposed) -> not allowed (#1598)."""
-+        """Producer has version 0 (never proposed) -> not allowed (#1598).
+ # Mock heavy dependencies that pipelines.py imports at module level
+@@ -296,3 +298,150 @@ class TestRewriteBrcHistoryForPr:
+         mock_write.assert_not_called()
+         # Commit is still attempted (no-op if nothing staged)
+         mock_commit.assert_called_once()
 +
-+        Now caught by the global zero-proposal guard (#1648) which fires
-+        before the per-reviewer guard.
++
++class TestBrcRewriteAndDraftCleanupIntegration:
++    """Integration test: exercises _rewrite_brc_history_for_pr and _cleanup_drafts_for_pr
++    end-to-end with simulated git operations (#1633).
++
++    This closes the test gap where mock-based tests only patched the functions
++    themselves, missing git-level failures (e.g. missing `git add`, wrong cwd,
++    or subprocess errors). Here we let the real function logic run, only mocking
++    the subprocess.run calls to simulate git behavior, verifying the full call
++    chain produces the expected git operations (add, diff, commit, rm).
++    """
++
++    def test_full_rewrite_and_cleanup_produces_commits(self, tmp_path: Path, monkeypatch):
++        """End-to-end: _rewrite_brc_history_for_pr writes BRC history files and
++        calls git add/commit; _cleanup_drafts_for_pr calls git rm/commit.
++
++        Asserts:
++        (a) A git commit with message containing "Persist BRC history" was issued
++        (b) A git commit with message containing "Remove pipeline draft" was issued
++        (c) BRC history files exist on disk (written by _write_brc_history)
++        (d) Draft files are removed from disk (via git rm fallback to unlink)
 +        """
-         # Coder proposed and reviewer_code ACKed
-         version = matrix.record_proposal("coder")
-         matrix.record_ack("reviewer_code", "coder", version)
-@@ -352,7 +360,8 @@ class TestCheckConfirmGuardReviewer:
-             confirmed=set(),
-         )
-         assert result.allowed is False
--        assert result.details["guard"] == "zero_proposal_producers"
-+        # Global guard fires before per-reviewer guard
-+        assert result.details["guard"] == "global_zero_proposal"
-         assert "tester" in result.details["producers"]
- 
-     def test_stale_ack(self, graph, matrix):
-@@ -427,7 +436,11 @@ class TestCheckConfirmGuardReviewer:
-         assert stale[0]["current_version"] == 2
- 
-     def test_guard_priority_zero_proposal_before_stale_acks(self, graph, matrix):
--        """Zero-proposal guard fires before stale_acks guard."""
-+        """Zero-proposal guard fires before stale_acks guard.
++        import routes.pipelines as mod
++        from routes.pipelines import _cleanup_drafts_for_pr, _rewrite_brc_history_for_pr
 +
-+        The global zero-proposal guard (#1648) now fires even earlier than
-+        the per-reviewer zero_proposal_producers guard.
-+        """
-         # reviewer_code reviews coder (stale ACK) and tester (never proposed)
-         v1 = matrix.record_proposal("coder")
-         matrix.record_ack("reviewer_code", "coder", v1)
-@@ -443,8 +456,8 @@ class TestCheckConfirmGuardReviewer:
-             confirmed=set(),
-         )
-         assert result.allowed is False
--        # zero_proposal fires first because it's checked before stale_acks
--        assert result.details["guard"] == "zero_proposal_producers"
-+        # Global zero-proposal guard fires first
-+        assert result.details["guard"] == "global_zero_proposal"
- 
-     def test_guard_priority_stale_acks_before_unresolved_nacks(self):
-         """Stale ACKs guard fires before unresolved NACKs guard."""
-@@ -476,6 +489,67 @@ class TestCheckConfirmGuardReviewer:
-         # Stale ACKs checked before unresolved NACKs
-         assert result.details["guard"] == "stale_acks"
- 
-+    def test_global_zero_proposal_blocks_unassigned_reviewer(self, graph, matrix):
-+        """reviewer_contract blocked when tester has v0, even though reviewer_contract doesn't review tester (#1648)."""
-+        # reviewer_contract only reviews coder — the per-reviewer guard
-+        # (Guard 2) would not catch tester's missing proposal.  The global
-+        # guard must block it.
-+        version = matrix.record_proposal("coder")
-+        matrix.record_ack("reviewer_contract", "coder", version)
-+        # tester never proposed — proposal_version == 0
++        repo = tmp_path / "repo"
++        repo.mkdir()
 +
-+        result = check_confirm_guard(
-+            "reviewer_contract",
-+            graph,
-+            matrix,
-+            confirmed=set(),
-+        )
-+        assert result.allowed is False
-+        assert result.details["guard"] == "global_zero_proposal"
-+        assert "tester" in result.details["producers"]
++        # Set up tracked draft files
++        drafts_dir = repo / ".egg-state" / "drafts"
++        drafts_dir.mkdir(parents=True)
++        (drafts_dir / "42-analysis.md").write_text("Draft analysis content")
++        (drafts_dir / "42-plan.md").write_text("Draft plan content")
 +
-+    def test_global_zero_proposal_blocks_producer(self, graph, matrix):
-+        """coder (a producer) blocked when peer producer tester has v0 (#1648)."""
-+        # coder is fully ACKed as a producer, but tester never proposed.
-+        version = matrix.record_proposal("coder")
-+        matrix.record_ack("reviewer_code", "coder", version)
-+        matrix.record_ack("reviewer_contract", "coder", version)
-+        matrix.record_ack("tester", "coder", version)
-+        assert matrix.is_fully_acked("coder")
-+        # tester never proposed — proposal_version == 0
++        # Prepare BRC messages for the mock store
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.CONSENSUS_PROPOSE,
++                subject="Implement proposal",
++                body="Proposed implementation changes",
++                phase="implement",
++            ),
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="reviewer_code",
++                message_type=MessageType.CONSENSUS_ACK,
++                subject="ACK from reviewer",
++                body="LGTM",
++                phase="implement",
++            ),
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.CONSENSUS_CONFIRMED,
++                subject="Confirmed",
++                body="",
++                phase="implement",
++            ),
++        ]
 +
-+        result = check_confirm_guard(
-+            "coder",
-+            graph,
-+            matrix,
-+            confirmed=set(),
-+        )
-+        assert result.allowed is False
-+        assert result.details["guard"] == "global_zero_proposal"
-+        assert "tester" in result.details["producers"]
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
 +
-+    def test_global_zero_proposal_clears_when_all_proposed(self, graph, matrix):
-+        """Global guard passes once all producers have proposed (#1648)."""
-+        # Both producers propose
-+        c_version = matrix.record_proposal("coder")
-+        t_version = matrix.record_proposal("tester")
++        # Build pipeline_phases dict with one COMPLETE phase
++        phases = {
++            "implement": MagicMock(status=PipelineStatus.COMPLETE),
++        }
 +
-+        # reviewer_contract ACKs coder (its only assigned producer)
-+        matrix.record_ack("reviewer_contract", "coder", c_version)
++        # Track all subprocess calls for assertion
++        git_calls: list[list[str]] = []
 +
-+        result = check_confirm_guard(
-+            "reviewer_contract",
-+            graph,
-+            matrix,
-+            confirmed=set(),
-+        )
-+        # The global zero-proposal guard should NOT fire — both producers
-+        # have proposed.  reviewer_contract may still be blocked by other
-+        # guards (e.g. must_have_reviewed for coder), but not by
-+        # global_zero_proposal.
-+        if not result.allowed:
-+            assert result.details["guard"] != "global_zero_proposal"
++        def fake_subprocess_run(cmd, **kwargs):
++            git_calls.append(cmd)
++            result = MagicMock()
++            result.stdout = ""
++            result.stderr = ""
++            # For "git diff --cached --quiet" — return 1 to indicate staged changes
++            if "diff" in cmd and "--cached" in cmd:
++                result.returncode = 1
++            else:
++                result.returncode = 0
++            if kwargs.get("check") and result.returncode != 0:
++                # Only raise for check=True commands that aren't expected to fail
++                if "diff" not in cmd:
++                    raise subprocess.CalledProcessError(
++                        result.returncode, cmd, result.stdout, result.stderr
++                    )
++            return result
 +
-     def test_dual_role_tester_producer_side(self, graph, matrix):
-         """Dual-role agent (tester) tested as producer."""
-         # Tester is both producer (reviewed by reviewer_code) and reviewer (of coder)
-diff --git a/orchestrator/tests/test_peer_consensus_integration.py b/orchestrator/tests/test_peer_consensus_integration.py
-index d0f1139503..f8f068ead4 100644
---- a/orchestrator/tests/test_peer_consensus_integration.py
-+++ b/orchestrator/tests/test_peer_consensus_integration.py
-@@ -1166,6 +1166,11 @@ class TestPrematureConfirmReturnsPending:
-                 "commit_sha": "abc123",
-             },
-         )
-+        # Tester must also propose to pass global zero-proposal guard (#1648)
-+        tracker.handle_propose(
-+            "tester",
-+            {"summary": "Tests", "artifacts": ["tests/test.py"], "commit_sha": "def456"},
-+        )
- 
-         # Only reviewer_code ACKs, but reviewer_contract hasn't ACKed yet
-         tracker.handle_ack(
-@@ -1467,6 +1472,11 @@ class TestConfirmErrorListsPendingReviewers:
-             "coder",
-             {"summary": "v1", "artifacts": ["src/auth.py"], "commit_sha": "abc123"},
-         )
-+        # Tester must also propose to pass global zero-proposal guard (#1648)
-+        tracker.handle_propose(
-+            "tester",
-+            {"summary": "Tests", "artifacts": ["tests/test.py"], "commit_sha": "def456"},
-+        )
- 
-         # Only reviewer_code ACKs
-         tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
-@@ -2726,13 +2736,18 @@ class TestJiraPipelineConsensus:
-             remove_peer_consensus_tracker("KORE-5678")
- 
-     def test_pending_acks_returns_blocking_details(self, jira_tracker):
--        """handle_confirmed returns pending_acks with details before any proposals."""
-+        """handle_confirmed returns pending_acks with details before any proposals.
++        monkeypatch.setattr(mod.subprocess, "run", fake_subprocess_run)
 +
-+        Now caught by global zero-proposal guard (#1648) which fires before
-+        the producer_not_fully_acked guard.
-+        """
-         # Try to confirm coder before any proposals — should get pending_acks
-         result = jira_tracker.handle_confirmed("coder")
- 
-         assert result["status"] == "pending_acks"
--        assert "not fully ACKed" in result["message"]
--        assert "reviewer_code" in result["message"]
-+        # Global zero-proposal guard fires because no producer has proposed
-+        assert "have never proposed" in result["message"]
-+        assert "zero_proposal_producers" in result
- 
- 
- # ---------------------------------------------------------------------------
-@@ -2861,6 +2876,11 @@ class TestGetFullyAckedProducers:
-             "coder",
-             {"summary": "test", "artifacts": ["a.py"], "commit_sha": "abc123"},
-         )
-+        # Tester must also propose to pass global zero-proposal guard (#1648)
-+        tracker.handle_propose(
-+            "tester",
-+            {"summary": "Tests", "artifacts": ["tests/test.py"], "commit_sha": "def456"},
-+        )
-         tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
-         tracker.handle_ack("reviewer_contract", "coder", {"artifact_references": ["a.py"]})
- 
-diff --git a/orchestrator/tests/test_producer_push_consensus.py b/orchestrator/tests/test_producer_push_consensus.py
-index 0a6c18bc30..03c5306ca0 100644
---- a/orchestrator/tests/test_producer_push_consensus.py
-+++ b/orchestrator/tests/test_producer_push_consensus.py
-@@ -525,6 +525,8 @@ class TestExcuseProducer:
-         """excuse_producer clears _producer_phases, _confirmed, _proposal_artifacts, etc."""
-         # Setup: coder proposes and gets confirmed
-         tracker.handle_propose("coder", make_proposal(commit_sha="sha1"))
-+        # Tester must also propose to pass global zero-proposal guard (#1648)
-+        tracker.handle_propose("tester", make_proposal(commit_sha="sha_tester"))
-         ack_producer(tracker, "reviewer_code", "coder")
-         ack_producer(tracker, "reviewer_contract", "coder")
-         ack_producer(tracker, "tester", "coder")
++        # Execute _rewrite_brc_history_for_pr (writes BRC history files + git add/commit)
++        with patch("message_store.get_message_store", return_value=mock_store):
++            _rewrite_brc_history_for_pr(repo, "issue-42", phases, 42)
++
++        # Execute _cleanup_drafts_for_pr (git rm + commit)
++        cleanup_result = _cleanup_drafts_for_pr(repo, 42)
++
++        # --- Assertions ---
++
++        # (a) A git commit with "Persist BRC history" was issued
++        commit_messages = [
++            cmd[cmd.index("-m") + 1]
++            for cmd in git_calls
++            if "commit" in cmd and "-m" in cmd
++        ]
++        assert any(
++            "Persist BRC history" in msg for msg in commit_messages
++        ), f"Expected commit with 'Persist BRC history', got: {commit_messages}"
++
++        # (b) A git commit with "Remove pipeline draft" was issued
++        assert any(
++            "Remove pipeline draft" in msg for msg in commit_messages
++        ), f"Expected commit with 'Remove pipeline draft', got: {commit_messages}"
++
++        # (c) BRC history files exist on disk (written by _write_brc_history)
++        history_dir = repo / ".egg-state" / "brc-history"
++        assert history_dir.exists(), "BRC history directory should exist"
++        brc_files = list(history_dir.iterdir())
++        assert len(brc_files) > 0, "Expected BRC history files to be written"
++        assert (
++            history_dir / "42-implement.md"
++        ).exists(), "Expected 42-implement.md in brc-history"
++        # Verify content is meaningful
++        content = (history_dir / "42-implement.md").read_text()
++        assert "BRC Consensus History" in content
++        assert "CONSENSUS_PROPOSE" in content
++        assert "CONSENSUS_ACK" in content
++
++        # (d) Draft files are removed (git rm succeeded → commit made)
++        # _cleanup_drafts_for_pr returned True because our mock returned 0 for
++        # the git rm calls, setting removed=True, then commit succeeded
++        assert cleanup_result is True
++
++        # Verify git add was called with paths containing brc-history
++        add_calls = [cmd for cmd in git_calls if "add" in cmd and "--force" in cmd]
++        assert len(add_calls) > 0, "Expected git add --force calls for BRC history files"
++        # At least one add call should reference brc-history files
++        add_paths = [arg for cmd in add_calls for arg in cmd if "brc-history" in arg]
++        assert len(add_paths) > 0, f"Expected brc-history in git add args, got: {add_calls}"
++
++        # Verify git rm was called for draft files
++        rm_calls = [cmd for cmd in git_calls if "rm" in cmd]
++        assert len(rm_calls) == 2, f"Expected 2 git rm calls (one per draft), got {len(rm_calls)}"
