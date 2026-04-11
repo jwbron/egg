@@ -64,6 +64,11 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 3
+          volumeMounts:
+            - name: egg-state
+              mountPath: /home/egg/.egg-state
+            - name: tmp
+              mountPath: /tmp
           resources:
             requests:
               cpu: 250m
@@ -71,3 +76,8 @@ spec:
             limits:
               cpu: "1"
               memory: 512Mi
+      volumes:
+        - name: egg-state
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

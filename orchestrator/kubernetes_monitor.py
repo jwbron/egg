@@ -199,6 +199,53 @@ class KubernetesMonitor:
                     )
                 )
 
+            # Fire RUNTIME_TICK health checks on state transitions
+            self._run_runtime_tick_checks()
+
+    def _run_runtime_tick_checks(self) -> None:
+        """Fire RUNTIME_TICK health checks on all running pipelines.
+
+        Called when container state changes are detected.  Requires that
+        ``set_health_check_runner`` has been called to wire the runner.
+        """
+        runner = getattr(self, "_health_check_runner", None)
+        if runner is None:
+            return
+
+        stores: list[Any] = list(self._reconciliation_stores)
+        if not stores:
+            return
+
+        try:
+            from health_checks.context import PipelineHealthContext
+            from health_checks.types import HealthTrigger
+        except ImportError:
+            return
+
+        for store in stores:
+            try:
+                for pid in store.list_pipelines():
+                    try:
+                        pipeline = store.load_pipeline(pid)
+                        if pipeline.status.value != "running":
+                            continue
+                        ctx = PipelineHealthContext(
+                            pipeline=pipeline,
+                            repo_path=store.repo_path,
+                            trigger=HealthTrigger.RUNTIME_TICK.value,
+                            docker_client=self.k8s_client,
+                            state_store=store,
+                        )
+                        runner.run(ctx, HealthTrigger.RUNTIME_TICK)
+                    except Exception as e:
+                        logger.debug(
+                            "RUNTIME_TICK check failed for pipeline",
+                            pipeline_id=pid,
+                            error=str(e),
+                        )
+            except Exception as e:
+                logger.debug("RUNTIME_TICK store iteration error", error=str(e))
+
     def _check_all_pods(self) -> None:
         """Check all orchestrator-managed pods."""
         try:

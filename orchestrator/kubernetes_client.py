@@ -37,6 +37,7 @@ logger = get_logger("orchestrator.kubernetes")
 # Kubernetes name validation: RFC 1123 label (lowercase alphanumeric, hyphens, dots)
 # Max 63 characters.
 _K8S_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9.\-]*[a-z0-9])?$")
+_UID_RE = re.compile(r"^[a-f0-9\-]+$")
 
 
 # ---------------------------------------------------------------------------
@@ -814,9 +815,6 @@ class KubernetesClient:
         if not _K8S_NAME_RE.match(container_id):
             # Could be a UID (contains hex digits and hyphens) — allow
             # the UID format through for the lookup below.
-            import re as _re
-
-            _UID_RE = _re.compile(r"^[a-f0-9\-]+$")
             if not _UID_RE.match(container_id):
                 raise InvalidNameError(f"Invalid container ID: {container_id!r}")
         if container_id.startswith(self.JOB_PREFIX):

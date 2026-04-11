@@ -302,9 +302,9 @@ class TestBasicEndpoints:
 class TestContainerMonitorHealthIntegrationExtra:
     """Additional tests for container monitor health check integration.
 
-    NOTE: set_health_check_runner and _run_runtime_tick_checks were Docker-
-    specific methods not carried over to KubernetesMonitor.  The underlying
-    health-check runner logic is tested in test_health_checks.py and the
+    KubernetesMonitor fires RUNTIME_TICK checks via _run_runtime_tick_checks
+    when pod state transitions are detected.  The underlying health-check
+    runner logic is tested in test_health_checks.py and the
     KubernetesMonitor's check_container_health is tested in
     test_kubernetes_monitor.py.
     """
