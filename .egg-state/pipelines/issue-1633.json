@@ -177,11 +177,27 @@
       "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "49ae8184bb766e19f0f86679056bfba90631b54a"
+    },
+    "pr": {
+      "phase": "pr",
+      "status": "running",
+      "started_at": "2026-04-11T03:02:03.104206Z",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": "c968fd9f79f1f7b60ceee89c109f70ee1a1c5fa5"
     }
   },
   "decisions": [],
   "created_at": "2026-04-11T02:40:44.478554Z",
-  "updated_at": "2026-04-11T03:02:03.083948Z",
+  "updated_at": "2026-04-11T03:02:03.104471Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -192,5 +208,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 10
+  "version": 11
 }
