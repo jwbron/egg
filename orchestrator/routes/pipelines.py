@@ -6678,16 +6678,17 @@ def _run_concurrent_phase(
                                 error=str(recovery_err),
                             )
 
+                    _elapsed_final = time.monotonic() - start_time
                     if _emit_event is not None:
                         _emit_event(
                             EventType.CONSENSUS_REACHED,
                             pipeline_id,
-                            data={"elapsed_seconds": elapsed},
+                            data={"elapsed_seconds": _elapsed_final},
                         )
                     logger.info(
                         "Consensus reached on final recheck, stopping containers",
                         pipeline_id=pipeline_id,
-                        elapsed_seconds=round(elapsed, 1),
+                        elapsed_seconds=round(_elapsed_final, 1),
                         has_failures=has_failures[0],
                     )
                     _update_agents_complete()
@@ -6943,16 +6944,17 @@ def _run_concurrent_phase(
                                 error=str(recovery_err),
                             )
 
+                    _elapsed_timeout = time.monotonic() - start_time
                     if _emit_event is not None:
                         _emit_event(
                             EventType.CONSENSUS_REACHED,
                             pipeline_id,
-                            data={"elapsed_seconds": elapsed},
+                            data={"elapsed_seconds": _elapsed_timeout},
                         )
                     logger.info(
                         "Consensus reached on recheck after timeout, treating as success",
                         pipeline_id=pipeline_id,
-                        elapsed_seconds=round(elapsed, 1),
+                        elapsed_seconds=round(_elapsed_timeout, 1),
                         has_failures=has_failures[0],
                     )
                     _update_agents_complete()
