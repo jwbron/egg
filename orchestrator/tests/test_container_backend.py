@@ -105,16 +105,16 @@ class TestProtocolConformance:
         assert isinstance(client, ContainerBackend)
 
     def test_docker_client_is_container_backend(self):
-        """DockerClient must be an instance of ContainerBackend."""
-        from unittest.mock import patch
+        """DockerClient (alias for KubernetesClient) must be an instance of ContainerBackend."""
+        from docker_client import DockerClient
 
-        with patch("docker_client.docker") as mock_docker:
-            mock_docker.from_env.return_value = MagicMock()
-            mock_docker.DockerClient.return_value = MagicMock()
-            from docker_client import DockerClient
-
-            client = DockerClient()
-            assert isinstance(client, ContainerBackend)
+        # DockerClient is now aliased to KubernetesClient after the k8s migration
+        client = DockerClient(
+            namespace="test-ns",
+            _batch_api=MagicMock(),
+            _core_api=MagicMock(),
+        )
+        assert isinstance(client, ContainerBackend)
 
     def test_minimal_backend_satisfies_protocol(self):
         """A minimal class with all methods should satisfy the protocol."""
