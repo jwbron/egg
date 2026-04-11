@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-
-from egg_harness.providers.base import MessageEnd, MessageStart, StreamEvent, TextDelta
+from egg_harness.providers.base import (
+    MessageEnd,
+    MessageStart,
+    StreamEvent,
+    TextDelta,
+)
 from egg_harness.providers.retry import (
     CircuitOpenError,
     RetryProvider,
     _is_retryable,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -88,7 +90,6 @@ async def _collect_events(retry: RetryProvider, **kwargs: Any) -> list[StreamEve
 
 
 class TestRetryProviderSuccess:
-
     @pytest.mark.anyio
     async def test_success_on_first_attempt(self):
         events = _make_events()
@@ -105,11 +106,13 @@ class TestRetryProviderSuccess:
 
     @pytest.mark.anyio
     async def test_success_resets_circuit_breaker(self):
-        inner = _make_inner_provider([
-            _make_http_status_error(400),
-            _make_http_status_error(400),
-            _make_events(),  # success
-        ])
+        inner = _make_inner_provider(
+            [
+                _make_http_status_error(400),
+                _make_http_status_error(400),
+                _make_events(),  # success
+            ]
+        )
         retry = RetryProvider(inner)
         # Two non-retryable failures
         with pytest.raises(httpx.HTTPStatusError):
@@ -128,14 +131,15 @@ class TestRetryProviderSuccess:
 
 
 class TestRetryProviderRetryableErrors:
-
     @pytest.mark.anyio
     @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
     async def test_retries_on_429(self, mock_sleep):
-        inner = _make_inner_provider([
-            _make_http_status_error(429),
-            _make_events(),
-        ])
+        inner = _make_inner_provider(
+            [
+                _make_http_status_error(429),
+                _make_events(),
+            ]
+        )
         retry = RetryProvider(inner, base_delay=0.01)
         events = await _collect_events(retry)
         assert len(events) == 3
@@ -144,10 +148,12 @@ class TestRetryProviderRetryableErrors:
     @pytest.mark.anyio
     @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
     async def test_retries_on_500(self, mock_sleep):
-        inner = _make_inner_provider([
-            _make_http_status_error(500),
-            _make_events(),
-        ])
+        inner = _make_inner_provider(
+            [
+                _make_http_status_error(500),
+                _make_events(),
+            ]
+        )
         retry = RetryProvider(inner, base_delay=0.01)
         events = await _collect_events(retry)
         assert len(events) == 3
@@ -156,10 +162,12 @@ class TestRetryProviderRetryableErrors:
     @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
     async def test_retries_on_502_503_504(self, mock_sleep):
         for code in (502, 503, 504):
-            inner = _make_inner_provider([
-                _make_http_status_error(code),
-                _make_events(),
-            ])
+            inner = _make_inner_provider(
+                [
+                    _make_http_status_error(code),
+                    _make_events(),
+                ]
+            )
             retry = RetryProvider(inner, base_delay=0.01)
             events = await _collect_events(retry)
             assert len(events) == 3
@@ -167,10 +175,12 @@ class TestRetryProviderRetryableErrors:
     @pytest.mark.anyio
     @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
     async def test_retries_on_connection_error(self, mock_sleep):
-        inner = _make_inner_provider([
-            httpx.ConnectError("connection refused"),
-            _make_events(),
-        ])
+        inner = _make_inner_provider(
+            [
+                httpx.ConnectError("connection refused"),
+                _make_events(),
+            ]
+        )
         retry = RetryProvider(inner, base_delay=0.01)
         events = await _collect_events(retry)
         assert len(events) == 3
@@ -178,10 +188,12 @@ class TestRetryProviderRetryableErrors:
     @pytest.mark.anyio
     @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
     async def test_retries_on_read_timeout(self, mock_sleep):
-        inner = _make_inner_provider([
-            httpx.ReadTimeout("read timeout"),
-            _make_events(),
-        ])
+        inner = _make_inner_provider(
+            [
+                httpx.ReadTimeout("read timeout"),
+                _make_events(),
+            ]
+        )
         retry = RetryProvider(inner, base_delay=0.01)
         events = await _collect_events(retry)
         assert len(events) == 3
@@ -189,11 +201,13 @@ class TestRetryProviderRetryableErrors:
     @pytest.mark.anyio
     @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
     async def test_retry_succeeds_after_transient_failure(self, mock_sleep):
-        inner = _make_inner_provider([
-            _make_http_status_error(429),
-            _make_http_status_error(500),
-            _make_events(),
-        ])
+        inner = _make_inner_provider(
+            [
+                _make_http_status_error(429),
+                _make_http_status_error(500),
+                _make_events(),
+            ]
+        )
         retry = RetryProvider(inner, max_retries=3, base_delay=0.01)
         events = await _collect_events(retry)
         assert len(events) == 3
@@ -216,7 +230,6 @@ class TestRetryProviderRetryableErrors:
 
 
 class TestRetryProviderNonRetryableErrors:
-
     @pytest.mark.anyio
     async def test_no_retry_on_400(self):
         inner = _make_inner_provider([_make_http_status_error(400)])
@@ -261,7 +274,6 @@ class TestRetryProviderNonRetryableErrors:
 
 
 class TestRetryProviderCircuitBreaker:
-
     @pytest.mark.anyio
     async def test_circuit_opens_after_3_non_retryable(self):
         err = _make_http_status_error(400)
@@ -309,11 +321,13 @@ class TestRetryProviderCircuitBreaker:
     @pytest.mark.anyio
     @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
     async def test_retryable_errors_do_not_increment_circuit(self, mock_sleep):
-        inner = _make_inner_provider([
-            _make_http_status_error(429),
-            _make_http_status_error(429),
-            _make_events(),
-        ])
+        inner = _make_inner_provider(
+            [
+                _make_http_status_error(429),
+                _make_http_status_error(429),
+                _make_events(),
+            ]
+        )
         retry = RetryProvider(inner, max_retries=3, base_delay=0.01)
         await _collect_events(retry)
         assert retry._consecutive_non_retryable_failures == 0
@@ -325,7 +339,6 @@ class TestRetryProviderCircuitBreaker:
 
 
 class TestExponentialBackoff:
-
     @pytest.mark.anyio
     @patch("egg_harness.providers.retry.random.uniform", return_value=0.5)
     @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
@@ -348,7 +361,6 @@ class TestExponentialBackoff:
 
 
 class TestIsRetryable:
-
     def test_httpx_status_error_retryable_codes(self):
         for code in (429, 500, 502, 503, 504):
             assert _is_retryable(_make_http_status_error(code)) is True

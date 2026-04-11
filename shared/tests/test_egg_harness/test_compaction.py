@@ -5,13 +5,12 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from egg_harness.compaction import CompactionLoopError, CompactionManager, _extract_text
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _user_msg(text: str) -> dict:
     return {"role": "user", "content": text}
@@ -65,7 +64,6 @@ def _make_manager(
 
 
 class TestShouldCompact:
-
     @patch("egg_harness.compaction.get_context_window", return_value=200_000)
     def test_below_threshold_returns_false(self, _mock):
         mgr = _make_manager(threshold=0.8)
@@ -104,7 +102,6 @@ class TestShouldCompact:
 
 
 class TestCompact:
-
     @patch("egg_harness.compaction.get_context_window", return_value=200_000)
     def test_returns_summary_and_messages(self, _mock):
         mgr = _make_manager(keep_recent_tokens=10)
@@ -163,7 +160,6 @@ class TestCompact:
 
 
 class TestCompactNow:
-
     @patch("egg_harness.compaction.get_context_window", return_value=200_000)
     def test_bypasses_loop_protection(self, _mock):
         mgr = _make_manager(keep_recent_tokens=10, loop_protection_turns=3)
@@ -192,7 +188,6 @@ class TestCompactNow:
 
 
 class TestLoopProtection:
-
     @patch("egg_harness.compaction.get_context_window", return_value=200_000)
     def test_consecutive_compact_raises(self, _mock):
         mgr = _make_manager(keep_recent_tokens=10, loop_protection_turns=3)
@@ -237,7 +232,6 @@ class TestLoopProtection:
 
 
 class TestFindCutPoint:
-
     def test_empty_messages_returns_zero(self):
         mgr = _make_manager()
         assert mgr._find_cut_point([]) == 0
@@ -263,9 +257,9 @@ class TestFindCutPoint:
         msgs = [
             _user_msg("x" * 80),  # 20 tokens - will be compacted
             _user_msg("y" * 80),  # 20 tokens - will be compacted
-            _tool_use_msg(),      # assistant tool_use
-            _tool_result_msg(),   # user tool_result
-            _user_msg("z" * 20), # 5 tokens - recent
+            _tool_use_msg(),  # assistant tool_use
+            _tool_result_msg(),  # user tool_result
+            _user_msg("z" * 20),  # 5 tokens - recent
         ]
         cut = mgr._find_cut_point(msgs)
         # The cut should never land on a tool_result (index 3).
@@ -291,7 +285,6 @@ class TestFindCutPoint:
 
 
 class TestIsToolResultMessage:
-
     def test_positive(self):
         msg = _tool_result_msg()
         assert CompactionManager._is_tool_result_message(msg) is True
@@ -314,7 +307,6 @@ class TestIsToolResultMessage:
 
 
 class TestIsToolUseMessage:
-
     def test_positive(self):
         msg = _tool_use_msg()
         assert CompactionManager._is_tool_use_message(msg) is True
@@ -337,7 +329,6 @@ class TestIsToolUseMessage:
 
 
 class TestGenerateSummary:
-
     def test_all_sections_present(self):
         msgs = [_user_msg("hello"), _assistant_msg("hi")]
         mgr = _make_manager()
@@ -429,7 +420,6 @@ class TestGenerateSummary:
 
 
 class TestEstimateTokens:
-
     def test_text_message_estimate(self):
         mgr = _make_manager()
         msg = _user_msg("a" * 100)  # 100 chars / 4 = 25 tokens
@@ -468,7 +458,6 @@ class TestEstimateTokens:
 
 
 class TestExtractText:
-
     def test_string_content(self):
         assert _extract_text({"content": "hello"}) == "hello"
 
@@ -513,7 +502,6 @@ class TestExtractText:
 
 
 class TestCurrentTurnProperty:
-
     def test_initial_value(self):
         mgr = _make_manager()
         assert mgr.current_turn == 0
