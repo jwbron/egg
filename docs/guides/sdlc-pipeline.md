@@ -1462,26 +1462,35 @@ The PR phase runs three state file operations before creating the PR: BRC histor
 
 Look for these log entries in chronological order:
 
-1. `_rewrite_brc_history_for_pr: entered` — Confirms the function was called. Includes the count of completed phases being processed. If this log is missing, the PR-phase handler did not reach line 8228 (check for exceptions earlier in `_run_pipeline`).
-2. `_write_brc_history: entered` — One per completed phase. Shows `pipeline_id`, `phase`, and `identifier`. If missing for a specific phase, that phase was skipped or errored.
-3. `_write_brc_history: no message store` / `_write_brc_history: no messages` / `_write_brc_history: no BRC messages for phase` — Early-return paths. These indicate why no history file was written for that phase.
-4. `_commit_statefiles_to_worktree: matched N files` — Shows how many `.egg-state/` files were found by the glob. If 0, the BRC history file was not written to disk (check `_write_brc_history` logs above).
-5. `_commit_statefiles_to_worktree: nothing staged` — The `git diff --cached --quiet` check returned 0, meaning `git add --force` did not stage anything. Possible causes: file permissions, `.gitignore` override, or the file was already committed identically.
-6. `_commit_statefiles_to_worktree: committed` — Confirms the commit succeeded. If this log appears but files are still missing from the PR, the push (step 3 below) likely failed.
+1. `_rewrite_brc_history_for_pr: entering` — Confirms the function was called. Includes `completed_phase_count` and `completed_phases` list. If this log is missing, the PR-phase handler did not reach the call site (check for exceptions earlier in `_run_pipeline`).
+2. `_write_brc_history: entering` — One per completed phase. Shows `pipeline_id`, `phase`, and `identifier`. If missing for a specific phase, that phase was skipped or errored.
+3. Early-return paths (one of):
+   - `_write_brc_history: early return — message store unavailable` — The message store factory returned `None`.
+   - `_write_brc_history: early return — failed to retrieve messages` — Exception calling `store.get_messages()`.
+   - `_write_brc_history: early return — no messages in store` — Store returned an empty list.
+   - `_write_brc_history: early return — no BRC messages for phase` — Messages exist but none match `CONSENSUS_*` types for the specified phase. Includes `total_messages` count.
+4. `_commit_statefiles_to_worktree: glob match results` — Shows `match_count` and `matched_paths` for `.egg-state/` files found by the pipeline-scoped glob. If `match_count` is 0, the BRC history file was not written to disk (check `_write_brc_history` logs above).
+5. `_commit_statefiles_to_worktree: nothing staged — skipping commit` — The `git diff --cached --quiet` check returned 0, meaning `git add --force` did not stage anything. Possible causes: file permissions, `.gitignore` override, or the file was already committed identically.
+6. `_commit_statefiles_to_worktree: commit succeeded` — Confirms the commit was created. If this log appears but files are still missing from the PR, the push likely failed (see "Both issues" below).
+7. `_rewrite_brc_history_for_pr: commit step completed successfully` / `_rewrite_brc_history_for_pr: exiting` — Confirms the full function completed.
 
 **Draft files still in PR** (`.egg-state/drafts/{id}-*.md` present):
 
-1. `_cleanup_drafts_for_pr: entered, matched N drafts` — Confirms the function was called and how many draft files matched the pipeline identifier pattern. If 0 matches, the drafts either don't exist or the identifier pattern didn't match (check for `{id}-` prefix in filenames).
-2. Per-file `git rm` outcome — Shows whether each file was successfully staged for removal. Failures fall back to `unlink()`.
-3. `_cleanup_drafts_for_pr: commit result` — Shows whether the removal commit succeeded. A `WARNING`-level log appears on commit failure (promoted from DEBUG as of #1633).
+1. `_cleanup_drafts_for_pr: entering` — Confirms the function was called. Includes `match_count` and `matched_files` list. If `match_count` is 0, the drafts don't exist or the identifier pattern (`{id}-*.md`) didn't match.
+   - `_cleanup_drafts_for_pr: no drafts directory — skipping` — The `.egg-state/drafts/` directory doesn't exist in the worktree.
+2. `_cleanup_drafts_for_pr: git rm succeeded` — Per-file log showing each successfully staged removal (includes relative `path`). Failures trigger a WARNING and fall back to `unlink()`.
+3. `_cleanup_drafts_for_pr: commit succeeded` — The removal commit was created successfully.
+   - `_cleanup_drafts_for_pr: commit failed` (WARNING) — Nothing was staged after git rm, or the commit command failed. Promoted from DEBUG to WARNING as of #1633.
+4. `_cleanup_drafts_for_pr: exiting without commit` — The function completed without creating a commit. Includes `removed` flag (whether any files were deleted via fallback).
 
 **Both issues — state file commits not reaching the PR**:
 
 If the commit logs show success but files are missing/present in the PR diff, the push failed:
 
-1. Check for push success/failure logs after line 8241 — includes the number of local commits ahead of remote.
-2. `push skipped: worktree_repo_path == repo_path` — The push was skipped because the orchestrator determined the worktree and repo paths are the same (no separate worktree to push from).
-3. Check the gateway health: `curl http://egg-gateway:9848/api/v1/health`. Push failures are caught and logged but do not block PR creation — the PR is created from the **remote** branch state, so unpushed local commits are invisible in the PR.
+1. `PR-phase push succeeded` — Push completed. Includes `commits_ahead` showing how many local commits were ahead of remote before the push.
+2. `Pre-PR push failed — PR may reference stale code` (ERROR) — Push failed. Includes `commits_ahead` count and `error` details. Push failures are caught but do not block PR creation — the PR is created from the **remote** branch state, so unpushed local commits are invisible in the PR.
+3. `PR-phase push skipped` — The push was not attempted. The `reason` field explains why: `"worktree_repo_path == repo_path"` (no separate worktree to push from) or `"no branch set"` (pipeline has no branch configured).
+4. Check the gateway health: `curl http://egg-gateway:9848/api/v1/health`.
 
 **Quick diagnostic checklist**:
 
@@ -1494,7 +1503,7 @@ git show origin/egg/issue-<N>:.egg-state/drafts/ 2>&1
 
 # Search orchestrator logs for the pipeline's PR-phase activity
 # (adjust log source for your deployment)
-grep -E "(rewrite_brc_history|cleanup_drafts|commit_statefiles)" /path/to/orchestrator.log | grep "<pipeline-id>"
+grep -E "(rewrite_brc_history|cleanup_drafts|commit_statefiles|PR-phase push)" /path/to/orchestrator.log | grep "<pipeline-id>"
 ```
 
 ---
