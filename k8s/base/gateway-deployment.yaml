@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: egg-system
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: egg
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gateway
+      app.kubernetes.io/component: gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gateway
+        app.kubernetes.io/component: gateway
+        app.kubernetes.io/part-of: egg
+    spec:
+      containers:
+        - name: gateway
+          image: egg-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: api
+              containerPort: 9848
+              protocol: TCP
+            - name: proxy
+              containerPort: 3129
+              protocol: TCP
+            - name: health
+              containerPort: 9851
+              protocol: TCP
+          env:
+            - name: LAUNCHER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secrets
+                  key: launcher-secret
+            - name: GATEWAY_PORT
+              value: "9848"
+            - name: PROXY_PORT
+              value: "3129"
+            - name: HEALTH_PORT
+              value: "9851"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: gateway-state
+              mountPath: /var/lib/egg-gateway
+            - name: gateway-certs
+              mountPath: /etc/egg-gateway/certs
+              readOnly: true
+      volumes:
+        - name: gateway-state
+          emptyDir: {}
+        - name: gateway-certs
+          secret:
+            secretName: gateway-tls
+            optional: true

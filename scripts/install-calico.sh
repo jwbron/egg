@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+#
+# install-calico.sh - Install Calico CNI for Kubernetes NetworkPolicy support
+#
+# Idempotent: safe to run multiple times. Skips installation if Calico is
+# already present and running.
+#
+set -euo pipefail
+
+CALICO_VERSION="${CALICO_VERSION:-v3.27.2}"
+CALICO_MANIFEST_URL="https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/calico.yaml"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+error() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
+}
+
+# Check prerequisites
+if ! command -v kubectl &>/dev/null; then
+    error "kubectl is not installed or not in PATH"
+    exit 1
+fi
+
+if ! kubectl cluster-info &>/dev/null; then
+    error "Cannot connect to Kubernetes cluster. Is the cluster running?"
+    exit 1
+fi
+
+# Check if Calico is already installed and running
+if kubectl get daemonset -n kube-system calico-node &>/dev/null; then
+    DESIRED=$(kubectl get daemonset -n kube-system calico-node -o jsonpath='{.status.desiredNumberScheduled}')
+    READY=$(kubectl get daemonset -n kube-system calico-node -o jsonpath='{.status.numberReady}')
+
+    if [ "$DESIRED" -gt 0 ] && [ "$DESIRED" = "$READY" ]; then
+        log "Calico is already installed and all ${READY}/${DESIRED} nodes are ready."
+        log "To force reinstall, delete the calico-node daemonset first."
+        exit 0
+    else
+        log "Calico is installed but not fully ready (${READY}/${DESIRED} nodes ready)."
+        log "Re-applying manifests and waiting for readiness..."
+    fi
+fi
+
+log "Installing Calico ${CALICO_VERSION}..."
+
+# Download and apply Calico manifests
+TMPFILE=$(mktemp /tmp/calico-manifest.XXXXXX.yaml)
+trap 'rm -f "$TMPFILE"' EXIT
+
+log "Downloading Calico manifests from ${CALICO_MANIFEST_URL}..."
+if ! curl -fsSL "$CALICO_MANIFEST_URL" -o "$TMPFILE"; then
+    error "Failed to download Calico manifests"
+    exit 1
+fi
+
+log "Applying Calico manifests..."
+if ! kubectl apply -f "$TMPFILE"; then
+    error "Failed to apply Calico manifests"
+    exit 1
+fi
+
+# Wait for calico-node pods to be ready
+log "Waiting for calico-node daemonset to be ready (timeout: 300s)..."
+if ! kubectl rollout status daemonset/calico-node -n kube-system --timeout=300s; then
+    error "calico-node daemonset did not become ready within 300 seconds"
+    log "Current status:"
+    kubectl get pods -n kube-system -l k8s-app=calico-node -o wide
+    exit 1
+fi
+
+# Verify calico-kube-controllers deployment
+log "Waiting for calico-kube-controllers to be ready (timeout: 120s)..."
+if ! kubectl rollout status deployment/calico-kube-controllers -n kube-system --timeout=120s; then
+    error "calico-kube-controllers did not become ready within 120 seconds"
+    log "Current status:"
+    kubectl get pods -n kube-system -l k8s-app=calico-kube-controllers -o wide
+    exit 1
+fi
+
+log "Calico ${CALICO_VERSION} installed successfully."
+log "Calico node status:"
+kubectl get pods -n kube-system -l k8s-app=calico-node -o wide
+log "Calico controller status:"
+kubectl get pods -n kube-system -l k8s-app=calico-kube-controllers -o wide

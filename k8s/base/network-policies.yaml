@@ -1,0 +1,103 @@
+# Default deny all ingress traffic in the egg-agents namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: egg-agents
+  labels:
+    app.kubernetes.io/part-of: egg
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Default deny all egress traffic in the egg-agents namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: egg-agents
+  labels:
+    app.kubernetes.io/part-of: egg
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+---
+# Allow agent pods to reach the gateway service in egg-system
+# on the API port (9848) and proxy port (3129).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-agent-to-gateway
+  namespace: egg-agents
+  labels:
+    app.kubernetes.io/part-of: egg
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agent
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: egg-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: gateway
+      ports:
+        - protocol: TCP
+          port: 9848
+        - protocol: TCP
+          port: 3129
+---
+# Allow orchestrator pods in egg-system to reach agent pods
+# for health checks and log retrieval.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-orchestrator-to-agent
+  namespace: egg-agents
+  labels:
+    app.kubernetes.io/part-of: egg
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agent
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: egg-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: orchestrator
+---
+# Allow agent pods to reach kube-dns for DNS resolution.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-agent-dns
+  namespace: egg-agents
+  labels:
+    app.kubernetes.io/part-of: egg
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agent
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
