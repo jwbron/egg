@@ -672,7 +672,7 @@ class TestAgentLoopResult:
 
     @pytest.mark.anyio
     async def test_result_failure_on_error(self):
-        """Error during execution -> exception propagates (loop has no top-level catch)."""
+        """Error during execution -> loop catches and returns AgentResult(success=False)."""
 
         async def _error_send_message(
             *,
@@ -697,20 +697,16 @@ class TestAgentLoopResult:
             tool_registry=registry,
             config=config,
         )
-        # The loop does not have a top-level exception handler — provider
-        # errors propagate to the caller.  Accept either:
-        #   a) ConnectionError propagates, or
-        #   b) loop returns AgentResult(success=False)
-        try:
-            result = await loop.run(
-                "Break",
-                messages=[{"role": "user", "content": "Break"}],
-            )
-            assert isinstance(result, AgentResult)
-            assert result.success is False
-            assert result.error is not None
-        except (ConnectionError, RuntimeError):
-            pass  # Acceptable: exception propagated
+        # _run_loop has a broad `except Exception` handler (loop.py:244) that
+        # catches all provider errors and returns a structured result.
+        result = await loop.run(
+            "Break",
+            messages=[{"role": "user", "content": "Break"}],
+        )
+        assert isinstance(result, AgentResult)
+        assert result.success is False
+        assert result.error is not None
+        assert "Provider error" in result.error
 
 
 # ---------------------------------------------------------------------------
