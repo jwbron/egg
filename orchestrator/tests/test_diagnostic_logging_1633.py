@@ -95,8 +95,8 @@ class TestWriteBrcHistoryLogging:
             "Message store unavailability should NOT log at DEBUG anymore"
         )
 
-    def test_logs_info_when_message_retrieval_fails(self, tmp_path):
-        """Early return on message retrieval exception logs at INFO (not DEBUG)."""
+    def test_logs_warning_when_message_retrieval_fails(self, tmp_path):
+        """Early return on message retrieval exception logs at WARNING."""
         from routes.pipelines import _write_brc_history
 
         mock_store = MagicMock(spec=MessageStore)
@@ -108,9 +108,9 @@ class TestWriteBrcHistoryLogging:
         ):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        info_msgs = [str(c) for c in mock_logger.info.call_args_list]
-        assert any("failed to retrieve" in msg.lower() for msg in info_msgs), (
-            f"Expected INFO log about failed retrieval, got: {info_msgs}"
+        warning_msgs = [str(c) for c in mock_logger.warning.call_args_list]
+        assert any("failed to retrieve" in msg.lower() for msg in warning_msgs), (
+            f"Expected WARNING log about failed retrieval, got: {warning_msgs}"
         )
 
     def test_logs_info_when_no_messages_in_store(self, tmp_path):
@@ -193,6 +193,41 @@ class TestWriteBrcHistoryLogging:
 # ---------------------------------------------------------------------------
 class TestCommitStatefilesLogging:
     """Verify INFO-level diagnostic logging in _commit_statefiles_to_worktree (#1633 task-1-2)."""
+
+    def test_logs_entering(self, tmp_path):
+        """Entry log is emitted as the first log in the function."""
+        from routes.pipelines import _commit_statefiles_to_worktree
+
+        state_dir = tmp_path / ".egg-state"
+        state_dir.mkdir(parents=True)
+        (state_dir / "42.json").write_text("{}", encoding="utf-8")
+
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
+            _commit_statefiles_to_worktree(tmp_path, "Test commit", pipeline_identifier=42)
+
+        info_msgs = [str(c) for c in mock_logger.info.call_args_list]
+        assert any("entering" in msg for msg in info_msgs), (
+            f"Expected 'entering' log, got: {info_msgs}"
+        )
+        # "entering" should be the first log emitted
+        first_call_msg = str(mock_logger.info.call_args_list[0])
+        assert "entering" in first_call_msg
+
+    def test_logs_no_state_dir(self, tmp_path):
+        """Logs INFO when .egg-state directory does not exist."""
+        from routes.pipelines import _commit_statefiles_to_worktree
+
+        with patch("routes.pipelines.logger") as mock_logger:
+            _commit_statefiles_to_worktree(tmp_path, "Test commit", pipeline_identifier=42)
+
+        info_msgs = [str(c) for c in mock_logger.info.call_args_list]
+        assert any("no .egg-state directory" in msg for msg in info_msgs), (
+            f"Expected 'no .egg-state directory' log, got: {info_msgs}"
+        )
 
     def test_logs_glob_match_results(self, tmp_path):
         """Glob match count and paths are logged at INFO when pipeline_identifier is set."""
@@ -874,15 +909,16 @@ class TestEdgeCases:
         assert kwargs.get("total_phases") == 4
         assert kwargs.get("completed_phase_count") == 2
 
-    def test_commit_statefiles_no_logging_when_state_dir_missing(self, tmp_path):
-        """No log is emitted when .egg-state directory doesn't exist (silent return)."""
+    def test_commit_statefiles_logs_entry_and_exit_when_state_dir_missing(self, tmp_path):
+        """Entry and exit logs are emitted when .egg-state directory doesn't exist."""
         from routes.pipelines import _commit_statefiles_to_worktree
 
         with patch("routes.pipelines.logger") as mock_logger:
             _commit_statefiles_to_worktree(tmp_path, "Test commit", pipeline_identifier=42)
 
-        # With no .egg-state directory, function returns immediately — no logs expected
-        mock_logger.info.assert_not_called()
+        info_msgs = [str(c) for c in mock_logger.info.call_args_list]
+        assert any("entering" in msg for msg in info_msgs)
+        assert any("no .egg-state directory" in msg for msg in info_msgs)
 
     def test_commit_statefiles_no_match_returns_after_logging(self, tmp_path):
         """When glob finds no matches, the function logs and returns early."""

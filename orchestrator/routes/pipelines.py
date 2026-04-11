@@ -3807,7 +3807,18 @@ def _commit_statefiles_to_worktree(
     Call sites decide whether to abort or continue.
     """
     state_dir = worktree_path / ".egg-state"
+    logger.info(
+        "_commit_statefiles_to_worktree: entering",
+        worktree_path=str(worktree_path),
+        pipeline_identifier=str(pipeline_identifier),
+        commit_message=message,
+    )
     if not state_dir.exists():
+        logger.info(
+            "_commit_statefiles_to_worktree: no .egg-state directory — exiting",
+            worktree_path=str(worktree_path),
+            pipeline_identifier=str(pipeline_identifier),
+        )
         return  # Nothing to commit yet
 
     git_base = [
@@ -4216,7 +4227,7 @@ def _write_brc_history(
         store = store_fn()
         messages = store.get_messages(pipeline_id, limit=10000)
     except Exception as e:
-        logger.info(
+        logger.warning(
             "_write_brc_history: early return — failed to retrieve messages",
             pipeline_id=pipeline_id,
             phase=phase,
