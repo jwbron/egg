@@ -1462,17 +1462,19 @@ The PR phase runs three state file operations before creating the PR: BRC histor
 
 Look for these log entries in chronological order:
 
-1. `_rewrite_brc_history_for_pr: entering` — Confirms the function was called. Includes `completed_phase_count` and `completed_phases` list. If this log is missing, the PR-phase handler did not reach the call site (check for exceptions earlier in `_run_pipeline`).
+1. `_rewrite_brc_history_for_pr: entering` — Confirms the function was called. Includes `total_phases`, `completed_phase_count`, and `completed_phases` list. If this log is missing, the PR-phase handler did not reach the call site (check for exceptions earlier in `_run_pipeline`).
 2. `_write_brc_history: entering` — One per completed phase. Shows `pipeline_id`, `phase`, and `identifier`. If missing for a specific phase, that phase was skipped or errored.
 3. Early-return paths (one of):
    - `_write_brc_history: early return — message store unavailable` — The message store factory returned `None`.
-   - `_write_brc_history: early return — failed to retrieve messages` — Exception calling `store.get_messages()`.
+   - `_write_brc_history: early return — failed to retrieve messages` — Exception calling `store.get_messages()`. Includes `error` detail.
    - `_write_brc_history: early return — no messages in store` — Store returned an empty list.
    - `_write_brc_history: early return — no BRC messages for phase` — Messages exist but none match `CONSENSUS_*` types for the specified phase. Includes `total_messages` count.
-4. `_commit_statefiles_to_worktree: glob match results` — Shows `match_count` and `matched_paths` for `.egg-state/` files found by the pipeline-scoped glob. If `match_count` is 0, the BRC history file was not written to disk (check `_write_brc_history` logs above).
-5. `_commit_statefiles_to_worktree: nothing staged — skipping commit` — The `git diff --cached --quiet` check returned 0, meaning `git add --force` did not stage anything. Possible causes: file permissions, `.gitignore` override, or the file was already committed identically.
-6. `_commit_statefiles_to_worktree: commit succeeded` — Confirms the commit was created. If this log appears but files are still missing from the PR, the push likely failed (see "Both issues" below).
-7. `_rewrite_brc_history_for_pr: commit step completed successfully` / `_rewrite_brc_history_for_pr: exiting` — Confirms the full function completed.
+4. `Wrote BRC history file` — The history file was written to disk. Includes `path` and `message_count`. If this log is missing after step 2, an early-return was taken (check step 3).
+5. `_commit_statefiles_to_worktree: glob match results` — Shows `match_count` and `matched_paths` for `.egg-state/` files found by the pipeline-scoped glob. If `match_count` is 0, the BRC history file was not written to disk (check step 4 above).
+6. `_commit_statefiles_to_worktree: nothing staged — skipping commit` — The `git diff --cached --quiet` check returned 0, meaning `git add --force` did not stage anything. Possible causes: file permissions, `.gitignore` override, or the file was already committed identically.
+   - `_commit_statefiles_to_worktree: staged changes detected — committing` — Changes were staged successfully and a commit is being created.
+7. `_commit_statefiles_to_worktree: commit succeeded` — Confirms the commit was created. If this log appears but files are still missing from the PR, the push likely failed (see "Both issues" below).
+8. `_rewrite_brc_history_for_pr: commit step completed successfully` / `_rewrite_brc_history_for_pr: exiting` — Confirms the full function completed.
 
 **Draft files still in PR** (`.egg-state/drafts/{id}-*.md` present):
 
@@ -1480,7 +1482,7 @@ Look for these log entries in chronological order:
    - `_cleanup_drafts_for_pr: no drafts directory — skipping` — The `.egg-state/drafts/` directory doesn't exist in the worktree.
 2. `_cleanup_drafts_for_pr: git rm succeeded` — Per-file log showing each successfully staged removal (includes relative `path`). Failures trigger a WARNING and fall back to `unlink()`.
 3. `_cleanup_drafts_for_pr: commit succeeded` — The removal commit was created successfully.
-   - `_cleanup_drafts_for_pr: commit failed` (WARNING) — Nothing was staged after git rm, or the commit command failed. Promoted from DEBUG to WARNING as of #1633.
+   - `_cleanup_drafts_for_pr: commit failed — no changes to commit after draft cleanup` (WARNING) — Nothing was staged after git rm, or the commit command failed. Includes `error` detail. Promoted from DEBUG to WARNING as of #1633.
 4. `_cleanup_drafts_for_pr: exiting without commit` — The function completed without creating a commit. Includes `removed` flag (whether any files were deleted via fallback).
 
 **Both issues — state file commits not reaching the PR**:
