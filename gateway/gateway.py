@@ -4529,30 +4529,36 @@ def _inject_anthropic_credentials(
     headers: dict[str, str],
 ) -> tuple[dict[str, str], tuple[Any, int] | None]:
     """
-    Inject Anthropic credentials into headers.
+    Inject Anthropic credentials into headers for the Messages API proxy.
+
+    The Anthropic Messages API only accepts ``x-api-key`` authentication.
+    OAuth bearer tokens are rejected by the API and are only useful for
+    Claude Code's internal auth flow.  This function explicitly requests an
+    API key credential from the manager so that environments with *both*
+    an OAuth token and an API key configured work correctly.
 
     Returns:
         (headers, None) on success
         (headers, error_response_tuple) on failure - caller should return this
     """
     credentials_manager = get_credentials_manager()
-    cred = credentials_manager.get_credential()
+    cred = credentials_manager.get_api_key_credential()
 
     if cred:
-        # Credential includes header_name (x-api-key or Authorization)
-        # and header_value (raw key or "Bearer <token>")
         headers[cred.header_name] = cred.header_value
         return headers, None
 
-    # No gateway-managed credentials - check if client sent auth
-    # This allows OAuth mode where Claude Code manages its own tokens
+    # No API key available from the gateway.  Check if the client sent its
+    # own auth header (e.g. Claude Code managing its own OAuth flow).
     client_auth = headers.get("Authorization")
     client_api_key = headers.get("x-api-key")
     if client_auth or client_api_key:
         return headers, None
 
     logger.warning(
-        "No Anthropic credentials available for proxy request",
+        "No Anthropic API key available for proxy request. "
+        "OAuth tokens are not supported by the Messages API — "
+        "add ANTHROPIC_API_KEY to secrets.env.",
         has_gateway_cred=False,
         has_client_auth=bool(client_auth),
         has_client_api_key=bool(client_api_key),
@@ -4562,7 +4568,11 @@ def _inject_anthropic_credentials(
             {
                 "error": {
                     "type": "authentication_error",
-                    "message": "No Anthropic credentials available",
+                    "message": (
+                        "No Anthropic API key available. The Messages API requires "
+                        "an API key (x-api-key); OAuth tokens are not supported. "
+                        "Add ANTHROPIC_API_KEY to secrets.env."
+                    ),
                 }
             }
         ),

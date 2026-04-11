@@ -9,7 +9,8 @@ Supported credential types:
 - CLAUDE_CODE_OAUTH_TOKEN: OAuth token from Claude (Authorization: Bearer header)
 - ANTHROPIC_OAUTH_TOKEN: Legacy OAuth token name (for backward compatibility)
 
-OAuth token takes precedence if both are configured.
+OAuth token takes precedence for get_credential() if both are configured.
+Use get_api_key_credential() for the Messages API proxy (OAuth is not supported).
 """
 
 import os
@@ -136,6 +137,67 @@ class AnthropicCredentialsManager:
                 self._load_credential()
                 self._cached_mtime = current_mtime
             return self._credential
+
+    def get_api_key_credential(self) -> AnthropicCredential | None:
+        """
+        Get an API key credential for the Anthropic Messages API proxy.
+
+        The Anthropic Messages API (api.anthropic.com/v1/messages) only accepts
+        x-api-key authentication, not OAuth bearer tokens.  This method returns
+        only API key credentials, skipping OAuth tokens even when configured.
+
+        Use this for the gateway proxy path.  Use :meth:`get_credential` when
+        either credential type is acceptable (e.g. Claude Code's own auth).
+
+        Returns:
+            AnthropicCredential with an API key, or None if no API key is configured.
+        """
+        self._ensure_loaded()
+        with self._lock:
+            if self._credential and self._credential.is_api_key:
+                return self._credential
+            # The cached credential is OAuth — check if an API key is also available.
+            return self._load_api_key_only()
+
+    def _ensure_loaded(self) -> None:
+        """Ensure credentials are loaded and cache is fresh."""
+        try:
+            current_mtime = self._secrets_path.stat().st_mtime
+        except OSError:
+            with self._lock:
+                self._credential = None
+                self._cached_mtime = 0
+            return
+
+        with self._lock:
+            if current_mtime != self._cached_mtime:
+                self._load_credential()
+                self._cached_mtime = current_mtime
+
+    def _load_api_key_only(self) -> AnthropicCredential | None:
+        """Load only the API key credential from secrets, ignoring OAuth.
+
+        Called under lock when the cached credential is OAuth but the caller
+        needs an API key.
+        """
+        if not self._secrets_path.exists():
+            return None
+
+        secrets = parse_env_file(self._secrets_path)
+        api_key = secrets.get("ANTHROPIC_API_KEY", "").strip()
+        if not api_key:
+            return None
+
+        if not api_key.startswith("sk-ant-"):
+            logger.warning("API key doesn't start with 'sk-ant-', may be invalid")
+        if len(api_key) < 50:
+            logger.error("API key appears too short (expected 50+ characters)")
+            return None
+
+        return AnthropicCredential(
+            header_name="x-api-key",
+            header_value=api_key,
+        )
 
     def _load_credential(self) -> None:
         """Load credential from secrets.env file."""
