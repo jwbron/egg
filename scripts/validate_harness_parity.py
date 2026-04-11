@@ -146,6 +146,8 @@ async def run_scenario_with_harness(
     prompt = scenario["prompt"]
 
     # Set the harness env var for the run.
+    # NOTE: Safe only because main() runs scenarios sequentially. Would race
+    # if parallelised — use subprocess env overrides instead in that case.
     old_harness = os.environ.get("EGG_HARNESS")
     os.environ["EGG_HARNESS"] = harness
 
@@ -403,6 +405,8 @@ async def main() -> int:
     # Exit code: 0 if both have >=80% success rate and cost delta < 50%.
     egg_rate = summary["egg"]["success_rate"]
     sdk_rate = summary["sdk"]["success_rate"]
+    if sdk_rate < 0.8:
+        print(f"\nWARN: sdk baseline success rate {sdk_rate:.0%} < 80% — comparison may be unreliable")
     if egg_rate < 0.8:
         print(f"\nFAIL: egg success rate {egg_rate:.0%} < 80%")
         return 1
