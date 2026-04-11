@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1633,
+    "title": "Issue #1633",
+    "url": "https://github.com/jwbron/egg/issues/1633"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/routes/pipelines.py:_write_brc_history()` (line 4122), add INFO-level logs at function entry (pipeline_id, phase, identifier), at each early-return (message store unavailable, no messages, no BRC messages for phase), and at exit (file path, message count). Currently early returns only log at DEBUG.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Running a pipeline produces INFO logs showing whether _write_brc_history entered and which path it took",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `orchestrator/routes/pipelines.py:_commit_statefiles_to_worktree()` (line 3755), add INFO-level logs for: glob match count and matched paths (line ~3802), staged/not-staged outcome after git diff --cached (line ~3830), and commit success.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Running a pipeline produces INFO logs showing how many files were matched, whether anything was staged, and whether the commit succeeded",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In `orchestrator/routes/pipelines.py:_rewrite_brc_history_for_pr()` (line 4193), add INFO-level log at entry with count of COMPLETE phases, and at exit. In `_cleanup_drafts_for_pr()` (line 2401), add INFO-level log at entry with match count, per-file git rm outcome, and exit with commit result. Promote commit failure log at line 2478 from logger.debug to logger.warning.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "INFO logs trace function entry/exit; _cleanup_drafts_for_pr commit failure is visible at WARNING level",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "In `orchestrator/routes/pipelines.py` PR-phase handler (lines 8228-8252), add INFO-level logging after push attempt reporting success/failure with number of local commits ahead of remote. Log when push is skipped due to worktree_repo_path == repo_path.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "INFO logs show push outcome with commit count delta, or explicit skip reason",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add integration test in orchestrator/tests/test_pr_phase_brc_rewrite.py that creates a real git repo with tracked draft files and BRC messages in a mock store, calls _rewrite_brc_history_for_pr then _cleanup_drafts_for_pr, and asserts: (a) commit with 'Persist BRC history' exists, (b) commit with 'Remove pipeline draft' exists, (c) BRC history files in tree, (d) draft files not in tree.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "pytest orchestrator/tests/test_pr_phase_brc_rewrite.py passes with the new integration test",
+          "files_affected": [
+            "orchestrator/tests/test_pr_phase_brc_rewrite.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Add diagnostic logging for PR-phase BRC history and draft cleanup",
+    "description": "The PR-phase BRC history rewrite and draft cleanup functions have been\nsilently failing on every pipeline since #1602, leaving .egg-state/drafts/\nin PR diffs and omitting .egg-state/brc-history/ files. The root cause\ncannot be identified from production logs because all early-return paths\nlog at DEBUG level or not at all.\n\nThis adds INFO-level diagnostic logging to _write_brc_history,\n_commit_statefiles_to_worktree, _rewrite_brc_history_for_pr, and\n_cleanup_drafts_for_pr at every entry, exit, and decision point. It also\npromotes the _cleanup_drafts_for_pr commit failure log from DEBUG to\nWARNING, and adds an integration test that exercises the full call chain\nin a real git repo to prevent future regression of the wiring.",
+    "test_plan": "- Automated: pytest orchestrator/tests/test_pr_phase_brc_rewrite.py \u2014 new integration test\n- Automated: pytest orchestrator/tests/test_cleanup_drafts_for_pr.py \u2014 existing tests still pass\n- Automated: make lint \u2014 no new lint violations\n- Manual: Run one agent pipeline to PR phase and verify INFO-level logs appear for each function",
+    "manual_steps": "Pre-merge: None\nPost-merge: Monitor the next agent pipeline PR to verify diagnostic logs appear and help identify the root cause of #1633"
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
