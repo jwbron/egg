@@ -4,10 +4,10 @@ This document describes the orchestrator component and the three deployment mode
 
 ## Overview
 
-The orchestrator manages SDLC pipeline execution, container lifecycle, and agent coordination. It provides:
+The orchestrator manages SDLC pipeline execution, agent lifecycle, and agent coordination. It provides:
 
 - Pipeline state management (phases, tasks, decisions)
-- Container spawning and monitoring
+- Agent pod spawning and monitoring (Kubernetes Jobs)
 - Multi-agent coordination (for parallel execution)
 - Human-in-the-loop (HITL) decision handling
 - Completion signaling and handoff management
@@ -42,7 +42,7 @@ On orchestrator restart, orphaned container state is automatically recovered:
 
 1. **RUNNING pipelines**: For each pipeline showing `status=RUNNING`, the reconciliation process recovers orphaned container state:
    - Scans only the **current phase** for stale containers. Containers from prior phases are intentionally terminated and their absence is expected — checking all phases caused false `FAILED` transitions when the orchestrator restarted mid-pipeline.
-   - Any agent/container in the current phase whose container ID is absent from the live Docker container set is marked `FAILED`.
+   - Any agent in the current phase whose pod is absent from the live Kubernetes pod set is marked `FAILED`.
    - If at least one stale entry is found, the pipeline itself is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start`.
 
 2. **AWAITING_HUMAN pipelines**: For each pipeline showing `status=AWAITING_HUMAN` with no pending decisions (orphaned after a restart where the decision was already resolved), the pipeline is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start`. The restart endpoint will automatically recover by parsing the latest phase_gate resolution and either advancing to the next phase (approved) or resetting the current phase for re-run (request_changes/change_approach).
@@ -53,11 +53,11 @@ This prevents pipelines from being stuck in `RUNNING` or `AWAITING_HUMAN` states
 
 See `orchestrator/state_store.py` and `orchestrator/startup_reconciliation.py` for implementation details.
 
-**Runtime container monitoring:**
+**Runtime pod monitoring:**
 
-A background `ContainerMonitor` thread runs continuously after orchestrator startup to detect container failures during execution. The monitor periodically checks container status and invokes registered handlers when state changes occur (container exits, fails, or becomes unhealthy).
+A background `KubernetesMonitor` thread runs continuously after orchestrator startup to detect agent pod failures during execution. The monitor periodically checks pod status via the Kubernetes API and invokes registered handlers when state changes occur (pod exits, fails, or becomes unhealthy).
 
-A pipeline reconciliation handler detects when agent containers exit or fail during runtime and updates pipeline state accordingly. The handler scans **all phases** within each `RUNNING` pipeline (including completed phases) to find the exited container, as reviewer agents may continue running after their phase has transitioned to `COMPLETE`.
+A pipeline reconciliation handler detects when agent pods exit or fail during runtime and updates pipeline state accordingly. The handler scans **all phases** within each `RUNNING` pipeline (including completed phases) to find the exited pod, as reviewer agents may continue running after their phase has transitioned to `COMPLETE`.
 
 When a container running an agent exits with a non-zero code, the handler marks the container as `FAILED`, marks the owning agent as `FAILED` with an error message, and transitions the entire pipeline to `FAILED` status — unless the agent is already `COMPLETE` (i.e., it completed via BRC consensus), in which case the exit is ignored. Containers that exit with code 0 (graceful exit) emit a `STOPPED` event and do not trigger failure reconciliation. When BRC consensus completes, the concurrent phase runner proactively marks agent containers as `EXITED` with exit code 0 so that subsequent monitor sweeps treat them as clean exits; the agent-COMPLETE check is a secondary defense for the event window before that update is persisted. This complements startup reconciliation by catching failures that occur during execution rather than only on orchestrator restart.
 
@@ -67,7 +67,7 @@ In addition to the event-driven handler, `ContainerMonitor.start_periodic_reconc
 
 The monitor uses per-pipeline locking and optimistic version checks to prevent race conditions with concurrent state writers (e.g., agent signal handlers).
 
-See `orchestrator/container_monitor.py` for implementation details.
+See `orchestrator/kubernetes_monitor.py` for implementation details.
 
 **Health check framework:**
 
@@ -79,12 +79,12 @@ A two-tier health check framework provides structured, extensible failure detect
 
 **Lifecycle integration:**
 - `STARTUP`: Runs after startup reconciliation on all RUNNING pipelines (non-blocking)
-- `RUNTIME_TICK`: Triggered by container state changes via `ContainerMonitor` (non-blocking)
+- `RUNTIME_TICK`: Triggered by pod state changes via `KubernetesMonitor` (non-blocking)
 - `WAVE_COMPLETE`: Runs after each agent wave completes; `FAIL_PIPELINE` breaks wave execution
 - `PHASE_COMPLETE`: Runs before phase advance in `routes/phases.py`; `FAIL_PIPELINE` blocks the transition (409 Conflict)
 - `ON_DEMAND`: Available via `GET /api/v1/pipelines/{id}/health`
 
-`PipelineHealthContext` provides checks with a read-only snapshot of pipeline state. Constructor parameters are cheap (already-loaded objects); expensive operations like git commands and Docker queries use lazy properties that compute on first access and cache the result.
+`PipelineHealthContext` provides checks with a read-only snapshot of pipeline state. Constructor parameters are cheap (already-loaded objects); expensive operations like git commands and Kubernetes API queries use lazy properties that compute on first access and cache the result.
 
 All check results are emitted to the EventBus as `system.health_check.*` events for observability. Results can also be persisted on `PhaseExecution` records via the `HealthCheckResultModel`.
 
@@ -158,13 +158,13 @@ This eliminates the need for agent interaction during PR creation and ensures co
 The orchestrator reads pipeline artifacts (verdict files, draft documents, check results) from per-pipeline worktrees created by the gateway. These worktrees isolate work for each pipeline and are separate from both the orchestrator's state worktree and the main repository working directory.
 
 **Architecture:**
-- Gateway creates worktrees at `/home/egg/.egg-worktrees/{container-id}/{repo-name}/` (one per agent)
-- Each agent container mounts its own worktree and writes artifacts to it
+- Gateway creates worktrees at `/home/egg/.egg-worktrees/{job-name}/{repo-name}/` (one per agent)
+- Each agent pod mounts its own worktree via hostPath and writes artifacts to it
 - All agents in a pipeline push to the same shared branch (e.g., `egg/issue-{N}`)
 - Orchestrator mounts `/home/egg/.egg-worktrees` and reads artifacts from pipeline-specific paths
-- Worktree paths are resolved dynamically based on container ID and repository
+- Worktree paths are resolved dynamically based on Job name and repository
 
-> **Changed in issue #1481:** Previously, all agents in a pipeline shared a single worktree (keyed by `pipeline_id`). Now each agent gets its own isolated worktree (keyed by `container_id`). This prevents agents from overwriting each other's uncommitted work and ensures clean `git status` per agent.
+> **Changed in issue #1481:** Previously, all agents in a pipeline shared a single worktree (keyed by `pipeline_id`). Now each agent gets its own isolated worktree (keyed by Job name). This prevents agents from overwriting each other's uncommitted work and ensures clean `git status` per agent.
 
 **Key artifact files in worktrees:**
 - `.egg-state/contracts/{identifier}.json` — Contract state (issue number for issue-driven pipelines, pipeline ID for prompt-driven pipelines)
@@ -188,12 +188,12 @@ The primary issue-specific path is always tried first. If the file is not found,
 > **Changed in issue #1575:** Previously, `_read_phase_draft` only checked the issue-specific path. If the file was missing, it returned `None` and the phase gate displayed "No draft was found on the work branch" even when a generic draft existed.
 
 **Volume mounts:**
-- Orchestrator: Bind mount from `${HOST_HOME}/.egg-worktrees` to `/home/egg/.egg-worktrees` (read container-written artifacts)
-- Integration tests: Named volume `worktrees` (no host filesystem in CI)
+- Orchestrator: hostPath from `${HOST_HOME}/.egg-worktrees` to `/home/egg/.egg-worktrees` (read agent-written artifacts)
+- Integration tests: Dedicated test namespace with per-run worktree setup
 
 **Phase-based readonly mounts:**
 
-During the `implement` phase, certain `.egg-state/` subdirectories are mounted readonly into agent containers to prevent direct filesystem modifications to plan/contract artifacts:
+During the `implement` phase, certain `.egg-state/` subdirectories are mounted readonly into agent pods to prevent direct filesystem modifications to plan/contract artifacts:
 
 | Directory | Implement phase | Refine/Plan phases |
 |-----------|----------------|-------------------|
@@ -206,7 +206,7 @@ During the `implement` phase, certain `.egg-state/` subdirectories are mounted r
 
 The orchestrator calls `ensure_egg_state_dirs()` before spawning containers to create the required directories (bind mounts require existing source paths) and place `.egg-readonly` marker files explaining the restriction and current phase. Reviewer agents do not receive the `.egg-readonly` marker in the `reviews/` directory. Then `phase_readonly_mounts()` generates the readonly `MountSpec` entries, which are added alongside the existing `.git` shadow mounts. Only directories that exist on the host are mounted (missing directories are skipped). See `shared/egg_container/__init__.py` and `orchestrator/container_spawner.py`.
 
-**Host path translation:** The gateway returns worktree paths relative to the Docker host (e.g., `/home/jwies/.egg-worktrees/...`), but the orchestrator container only mounts these via `/home/egg/...`. The `_host_to_local_volumes()` helper in `container_spawner.py` uses the `HOST_HOME` env var to translate host paths to orchestrator-accessible local paths for `is_dir()` checks and `ensure_egg_state_dirs()`. Docker mount sources still use the original host paths unchanged.
+**Host path translation:** The gateway returns worktree paths relative to the host (e.g., `/home/jwies/.egg-worktrees/...`), but the orchestrator pod only sees these via `/home/egg/...` hostPath mounts. The spawner uses the `HOST_HOME` env var to translate host paths to orchestrator-accessible local paths for `is_dir()` checks and `ensure_egg_state_dirs()`. hostPath mount sources still use the original host paths unchanged.
 
 **Worktree state synchronization:** The orchestrator maintains bidirectional synchronization between local worktree branches and their remote counterparts:
 
@@ -233,7 +233,7 @@ This architecture ensures the orchestrator reads artifacts from the correct isol
 
 ## Multi-Agent Roles
 
-The orchestrator coordinates specialized agent roles across pipeline phases. Each role runs in its own sandbox container with scoped permissions enforced by the gateway.
+The orchestrator coordinates specialized agent roles across pipeline phases. Each role runs in its own agent pod (k8s Job) with scoped permissions enforced by the gateway.
 
 ### Refine Phase Roles
 
@@ -544,7 +544,7 @@ if is_orchestrator_mode():
 | `EGG_AGENT_ROLE` | Agent role for multi-agent mode | None |
 | `EGG_BRANCH` | Target branch for the agent's worktree | `egg/{pipeline_id}/work` |
 | `EGG_PRIVATE_MODE` | Private network mode (set by host wrapper, detected by `egg-sdlc`) | None |
-| `HOST_HOME` | Docker host's home directory (e.g., `/home/jwies`); used to translate host worktree paths to orchestrator-accessible paths | None |
+| `HOST_HOME` | Host machine's home directory (e.g., `/home/jwies`); used to translate host worktree paths to orchestrator-accessible paths | None |
 
 ### Constants
 
