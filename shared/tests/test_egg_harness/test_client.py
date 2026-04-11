@@ -101,9 +101,7 @@ class TestCreateStandardTools:
         tools = _create_standard_tools(cwd="/tmp/workspace")
         assert len(tools) == 8
         # Find the Bash tool by name to avoid fragility if tool ordering changes.
-        bash_defn, bash_handler = next(
-            (d, h) for d, h in tools if d.name == "Bash"
-        )
+        bash_defn, bash_handler = next((d, h) for d, h in tools if d.name == "Bash")
         closure_vars = bash_handler.__code__.co_freevars
         assert "cwd" in closure_vars
         cwd_index = closure_vars.index("cwd")
