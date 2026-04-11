@@ -125,16 +125,14 @@ Gateway enforcement cannot be bypassed because:
 
 ### Authentication Types
 
-| Type | Source | Used for |
-|------|--------|----------|
-| API Key | `ANTHROPIC_API_KEY` in secrets.env | Messages API proxy (`x-api-key` header) |
-| OAuth Token | `CLAUDE_CODE_OAUTH_TOKEN` in secrets.env | Claude Code's own auth flow only (`Authorization: Bearer`) |
+| Type | Source | Header Injected |
+|------|--------|-----------------|
+| OAuth Token | `CLAUDE_CODE_OAUTH_TOKEN` in secrets.env | `Authorization: Bearer <token>` |
+| API Key | `ANTHROPIC_API_KEY` in secrets.env | `x-api-key: <key>` |
 
-**The Messages API only accepts API key authentication.** OAuth tokens are used by Claude Code's own auth flow and are passed through as client-supplied headers — the gateway does not inject them for the proxy path.
+OAuth takes precedence if both are configured. The gateway calls `get_credential()`, which checks for an OAuth token first (`CLAUDE_CODE_OAUTH_TOKEN`, falling back to the legacy `ANTHROPIC_OAUTH_TOKEN`), then falls back to an API key. Whichever credential is found first is injected into the proxy request.
 
-Internally, the gateway proxy calls `get_api_key_credential()`, which returns only API key credentials even when an OAuth token is also configured.
-
-If only an OAuth token is configured (no API key), the proxy forwards the request without injecting credentials, relying on Claude Code to supply its own auth header. OAuth tokens may expire; the user runs `claude auth status` to generate a new token, and the gateway hot-reloads via mtime-based cache refresh.
+If no gateway-managed credentials are configured, the proxy falls through to checking client-supplied headers (`Authorization` or `x-api-key`), allowing Claude Code to manage its own tokens. OAuth tokens may expire; the user runs `claude auth status` to generate a new token, and the gateway hot-reloads via mtime-based cache refresh.
 
 ## Files
 
