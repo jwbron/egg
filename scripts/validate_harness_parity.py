@@ -120,6 +120,7 @@ SCENARIOS: list[dict[str, str]] = [
 # Result tracking
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class RunResult:
     """Metrics from a single agent run."""
@@ -240,7 +241,7 @@ def print_comparison(results: list[RunResult]) -> dict[str, Any]:
     print(header)
     print("-" * len(header))
 
-    for sid in sorted(set(r.scenario_id for r in results)):
+    for sid in sorted({r.scenario_id for r in results}):
         e = egg_by_id.get(sid)
         s = sdk_by_id.get(sid)
         if e and s:
@@ -287,17 +288,23 @@ def print_comparison(results: list[RunResult]) -> dict[str, Any]:
 
     # Print delta summary.
     print("\nSUMMARY:")
-    print(f"  egg success rate:  {egg_stats['success_rate']:.0%} ({egg_stats['success_count']}/{egg_stats['total']})")
-    print(f"  sdk success rate:  {sdk_stats['success_rate']:.0%} ({sdk_stats['success_count']}/{sdk_stats['total']})")
+    print(
+        f"  egg success rate:  {egg_stats['success_rate']:.0%} ({egg_stats['success_count']}/{egg_stats['total']})"
+    )
+    print(
+        f"  sdk success rate:  {sdk_stats['success_rate']:.0%} ({sdk_stats['success_count']}/{sdk_stats['total']})"
+    )
 
-    if sdk_stats['cost_total'] > 0:
-        cost_delta = (egg_stats['cost_total'] - sdk_stats['cost_total']) / sdk_stats['cost_total']
+    if sdk_stats["cost_total"] > 0:
+        cost_delta = (egg_stats["cost_total"] - sdk_stats["cost_total"]) / sdk_stats["cost_total"]
         print(f"  cost delta:        {cost_delta:+.1%} (egg vs sdk)")
-    if sdk_stats['turns_mean'] > 0:
-        turns_delta = (egg_stats['turns_mean'] - sdk_stats['turns_mean']) / sdk_stats['turns_mean']
+    if sdk_stats["turns_mean"] > 0:
+        turns_delta = (egg_stats["turns_mean"] - sdk_stats["turns_mean"]) / sdk_stats["turns_mean"]
         print(f"  turns delta:       {turns_delta:+.1%} (egg vs sdk)")
-    if sdk_stats['duration_mean'] > 0:
-        dur_delta = (egg_stats['duration_mean'] - sdk_stats['duration_mean']) / sdk_stats['duration_mean']
+    if sdk_stats["duration_mean"] > 0:
+        dur_delta = (egg_stats["duration_mean"] - sdk_stats["duration_mean"]) / sdk_stats[
+            "duration_mean"
+        ]
         print(f"  duration delta:    {dur_delta:+.1%} (egg vs sdk)")
 
     # Print failures.
@@ -361,22 +368,26 @@ async def main() -> int:
         print(f"[{i}/{len(scenarios)}] {sid}")
 
         # Run with egg harness.
-        print(f"  egg harness...", end=" ", flush=True)
+        print("  egg harness...", end=" ", flush=True)
         egg_result = await run_scenario_with_harness(
             scenario, "egg", args.model, args.max_turns, cwd
         )
         all_results.append(egg_result)
         status = "PASS" if egg_result.success else "FAIL"
-        print(f"{status} ({egg_result.duration_ms}ms, {egg_result.num_turns} turns, ${egg_result.cost_usd:.4f})")
+        print(
+            f"{status} ({egg_result.duration_ms}ms, {egg_result.num_turns} turns, ${egg_result.cost_usd:.4f})"
+        )
 
         # Run with claude-sdk.
-        print(f"  claude-sdk...", end=" ", flush=True)
+        print("  claude-sdk...", end=" ", flush=True)
         sdk_result = await run_scenario_with_harness(
             scenario, "claude-sdk", args.model, args.max_turns, cwd
         )
         all_results.append(sdk_result)
         status = "PASS" if sdk_result.success else "FAIL"
-        print(f"{status} ({sdk_result.duration_ms}ms, {sdk_result.num_turns} turns, ${sdk_result.cost_usd:.4f})")
+        print(
+            f"{status} ({sdk_result.duration_ms}ms, {sdk_result.num_turns} turns, ${sdk_result.cost_usd:.4f})"
+        )
 
         print()
 
@@ -396,7 +407,7 @@ async def main() -> int:
         print(f"\nFAIL: egg success rate {egg_rate:.0%} < 80%")
         return 1
     if sdk_rate > 0 and summary["egg"]["cost_total"] > summary["sdk"]["cost_total"] * 1.5:
-        print(f"\nWARN: egg cost is >50% higher than sdk")
+        print("\nWARN: egg cost is >50% higher than sdk")
     return 0
 
 

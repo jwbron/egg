@@ -802,9 +802,7 @@ class TestAgentLoopConversationPreservation:
         # Verify tool_use and tool_result messages are present.
         roles = [m["role"] for m in result.messages]
         assert "assistant" in roles, "Should have assistant messages with tool_use"
-        assert roles.count("user") >= 2, (
-            "Should have user messages with tool_result blocks"
-        )
+        assert roles.count("user") >= 2, "Should have user messages with tool_result blocks"
 
     @pytest.mark.anyio
     async def test_provider_error_preserves_conversation(self):
