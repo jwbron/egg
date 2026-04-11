@@ -124,7 +124,7 @@ async def run_agent_async(
     provider_config = ProviderConfig(
         provider_type="anthropic",
         model=resolved_model,
-        endpoint=os.environ.get("ANTHROPIC_GATEWAY_URL"),
+        endpoint=os.environ.get("ANTHROPIC_BASE_URL") or os.environ.get("GATEWAY_URL"),
     )
 
     # Lazy-import providers to avoid import-time SDK dependencies.

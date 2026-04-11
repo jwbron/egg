@@ -193,22 +193,31 @@ class TestHarnessConfigGaps:
             HarnessConfig()  # type: ignore[call-arg]
 
     def test_compaction_threshold_boundaries(self):
-        """Compaction threshold can be set to 0 or 1 without error."""
-        config_zero = HarnessConfig(provider=self._make_provider(), compaction_threshold=0.0)
-        assert config_zero.compaction_threshold == 0.0
+        """Compaction threshold validates range (0.0, 1.0]."""
+        import pytest
+
+        with pytest.raises(ValueError, match="compaction_threshold"):
+            HarnessConfig(provider=self._make_provider(), compaction_threshold=0.0)
 
         config_one = HarnessConfig(provider=self._make_provider(), compaction_threshold=1.0)
         assert config_one.compaction_threshold == 1.0
 
+        with pytest.raises(ValueError, match="compaction_threshold"):
+            HarnessConfig(provider=self._make_provider(), compaction_threshold=1.5)
+
     def test_zero_max_turns(self):
-        """Zero max_turns creates a config — loop should handle it."""
-        config = HarnessConfig(provider=self._make_provider(), max_turns=0)
-        assert config.max_turns == 0
+        """Zero max_turns raises ValueError."""
+        import pytest
+
+        with pytest.raises(ValueError, match="max_turns"):
+            HarnessConfig(provider=self._make_provider(), max_turns=0)
 
     def test_zero_timeout(self):
-        """Zero timeout creates a config — loop should handle it."""
-        config = HarnessConfig(provider=self._make_provider(), timeout=0)
-        assert config.timeout == 0
+        """Zero timeout raises ValueError."""
+        import pytest
+
+        with pytest.raises(ValueError, match="timeout"):
+            HarnessConfig(provider=self._make_provider(), timeout=0)
 
     def test_cwd_can_be_set(self):
         config = HarnessConfig(provider=self._make_provider(), cwd="/tmp/test")

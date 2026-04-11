@@ -40,3 +40,4 @@ class AgentResult:
     duration_ms: int | None = None
     session_id: str | None = None
     compaction_count: int | None = None
+    messages: list[dict[str, Any]] | None = None

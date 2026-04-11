@@ -222,7 +222,15 @@ class HarnessConfig:
         self.env = env
         self.disallowed_tools = disallowed_tools
         self.intercept_tools = intercept_tools
+        if not (0.0 < compaction_threshold <= 1.0):
+            raise ValueError(
+                f"compaction_threshold must be in (0.0, 1.0], got {compaction_threshold}"
+            )
         self.compaction_threshold = compaction_threshold
+        if max_turns < 1:
+            raise ValueError(f"max_turns must be >= 1, got {max_turns}")
+        if self.timeout < 1:
+            raise ValueError(f"timeout must be >= 1, got {self.timeout}")
         self.keep_recent_tokens = keep_recent_tokens
         self.system_prompt = system_prompt
 

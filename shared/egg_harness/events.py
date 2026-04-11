@@ -127,25 +127,36 @@ class EventBus:
         """Invoke each callback, catching and logging any exceptions.
 
         Callbacks may accept fewer arguments than are provided; the
-        dispatcher silently drops extra trailing arguments so that
-        callers that only care about (for example) the event *name* don't
-        have to accept the full argument tuple.
+        dispatcher determines the arity up front via :func:`inspect.signature`
+        and only passes the appropriate number of arguments.  This avoids
+        masking real ``TypeError`` exceptions raised inside callbacks.
         """
+        import inspect
+
         for cb in callbacks:
             try:
-                cb(*args)
-            except TypeError:
-                # The callback may accept fewer args than we passed.
-                # Try progressively fewer trailing arguments.
-                _called = False
-                for n in range(len(args) - 1, -1, -1):
-                    try:
-                        cb(*args[:n])
-                        _called = True
-                        break
-                    except TypeError:
-                        continue
-                if not _called:
-                    logger.exception("Event callback %r raised an exception", cb)
+                try:
+                    sig = inspect.signature(cb)
+                    # Count parameters that accept positional arguments.
+                    n_params = sum(
+                        1
+                        for p in sig.parameters.values()
+                        if p.kind
+                        in (
+                            inspect.Parameter.POSITIONAL_ONLY,
+                            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                        )
+                    )
+                    has_var_positional = any(
+                        p.kind == inspect.Parameter.VAR_POSITIONAL for p in sig.parameters.values()
+                    )
+                    if has_var_positional:
+                        cb(*args)
+                    else:
+                        cb(*args[:n_params])
+                except (ValueError, TypeError):
+                    # inspect.signature can fail for builtins; fall back to
+                    # passing all args.
+                    cb(*args)
             except Exception:
                 logger.exception("Event callback %r raised an exception", cb)

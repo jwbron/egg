@@ -6,7 +6,10 @@ usage across multiple API calls.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 # Rates are expressed in USD **per token** (i.e. the published per-million
 # rate divided by 1_000_000).  Keeping them in per-token form avoids a
@@ -83,6 +86,7 @@ class CostTracker:
 
         rates = TOKEN_RATES.get(model)
         if rates is None:
+            logger.warning("Unknown model %r — cost will be reported as $0.00", model)
             return 0.0
 
         cost = (

@@ -82,7 +82,14 @@ def create_glob_tool() -> tuple[ToolDefinition, ToolHandler]:
         if not files:
             return ToolResult(output="No matches found.")
 
+        _MAX_RESULTS = 10_000
+        total_files = len(files)
+        if total_files > _MAX_RESULTS:
+            files = files[:_MAX_RESULTS]
+
         output = "\n".join(str(f) for f in files)
+        if total_files > _MAX_RESULTS:
+            output += f"\n\n[Results truncated — showing {_MAX_RESULTS} of {total_files} matches]"
         return ToolResult(output=output)
 
     return definition, handler

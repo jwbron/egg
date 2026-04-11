@@ -313,6 +313,7 @@ class AgentLoop:
                     turn=turn,
                     start_time=start_time,
                     session_id=session_id,
+                    conversation=conversation,
                 )
 
             # -- execute tool calls sequentially -----------------------
@@ -396,6 +397,7 @@ class AgentLoop:
             turn=turn,
             start_time=start_time,
             session_id=session_id,
+            conversation=conversation,
         )
 
     # -----------------------------------------------------------------
@@ -493,6 +495,8 @@ class AgentLoop:
         turn: int,
         start_time: float,
         session_id: str,
+        conversation: list[dict[str, Any]] | None = None,
+        compaction_count: int | None = None,
     ) -> AgentResult:
         """Construct an :class:`AgentResult` from loop state."""
         duration_ms = int((time.monotonic() - start_time) * 1000)
@@ -506,6 +510,8 @@ class AgentLoop:
             num_turns=turn,
             duration_ms=duration_ms,
             session_id=session_id,
+            compaction_count=compaction_count,
+            messages=conversation,
         )
 
     # -----------------------------------------------------------------

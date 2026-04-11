@@ -53,7 +53,7 @@ async def run_interactive(
     provider_config = ProviderConfig(
         provider_type="anthropic",
         model=resolved_model,
-        endpoint=os.environ.get("ANTHROPIC_GATEWAY_URL"),
+        endpoint=os.environ.get("ANTHROPIC_BASE_URL") or os.environ.get("GATEWAY_URL"),
     )
 
     from egg_harness.providers.anthropic import AnthropicProvider
@@ -132,12 +132,16 @@ async def run_interactive(
             print("\nCancelled")
             continue
 
-        # Append assistant response to history for context continuity.
-        if result.stdout:
+        # Update history from the loop's full conversation (includes tool
+        # call/result messages, not just text output).
+        if result.messages is not None:
+            messages.clear()
+            messages.extend(result.messages)
+        elif result.stdout:
             messages.append({"role": "assistant", "content": result.stdout})
-            # Ensure a trailing newline after the streamed response.
-            if not result.stdout.endswith("\n"):
-                print()
+
+        if result.stdout and not result.stdout.endswith("\n"):
+            print()
 
         if result.error:
             print(f"\n[error] {result.error}", file=sys.stderr)

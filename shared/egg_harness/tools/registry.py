@@ -176,11 +176,12 @@ class ToolRegistry:
         # Truncate oversized output (byte-based measurement and slicing)
         encoded = result.output.encode("utf-8", errors="replace")
         if len(encoded) > self._max_output_size:
-            truncated = encoded[: self._max_output_size].decode("utf-8", errors="ignore")
+            suffix = f"\n\n[Output truncated — exceeded {self._max_output_size} bytes]"
+            suffix_bytes = len(suffix.encode("utf-8"))
+            slice_limit = max(0, self._max_output_size - suffix_bytes)
+            truncated = encoded[:slice_limit].decode("utf-8", errors="ignore")
             result = ToolResult(
-                output=(
-                    truncated + f"\n\n[Output truncated — exceeded {self._max_output_size} bytes]"
-                ),
+                output=truncated + suffix,
                 is_error=result.is_error,
             )
 

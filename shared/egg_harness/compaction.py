@@ -123,41 +123,7 @@ class CompactionManager:
                 ``loop_protection_turns`` of the last compaction.
         """
         self._check_loop_protection()
-
-        tokens_before = self._estimate_tokens(messages)
-        cut_index = self._find_cut_point(messages)
-
-        old_messages = messages[:cut_index]
-        recent_messages = messages[cut_index:]
-
-        summary = self._generate_summary(old_messages, system_prompt)
-
-        summary_message: dict[str, Any] = {
-            "role": "user",
-            "content": (
-                "[Previous conversation summary]\n\n"
-                f"{summary}\n\n"
-                "[Continuing from where we left off]"
-            ),
-        }
-        new_messages = [summary_message] + recent_messages
-
-        tokens_after = self._estimate_tokens(new_messages)
-
-        self._compaction_count += 1
-        self._last_compaction_turn = self._current_turn
-
-        if self._event_bus is not None:
-            self._event_bus.emit_compaction(summary, tokens_before, tokens_after)
-
-        logger.info(
-            "Compacted context: %d -> %d tokens (compaction #%d)",
-            tokens_before,
-            tokens_after,
-            self._compaction_count,
-        )
-
-        return new_messages, summary
+        return self._do_compact(messages, system_prompt, log_prefix="Compacted context")
 
     def compact_now(
         self,
@@ -180,7 +146,15 @@ class CompactionManager:
         # Reset loop protection so this manual trigger doesn't count
         # against the automatic protection window.
         self._last_compaction_turn = None
+        return self._do_compact(messages, system_prompt, log_prefix="Manual compaction")
 
+    def _do_compact(
+        self,
+        messages: list[dict[str, Any]],
+        system_prompt: str | None,
+        log_prefix: str,
+    ) -> tuple[list[dict[str, Any]], str]:
+        """Shared compaction implementation used by compact() and compact_now()."""
         tokens_before = self._estimate_tokens(messages)
         cut_index = self._find_cut_point(messages)
 
@@ -208,7 +182,8 @@ class CompactionManager:
             self._event_bus.emit_compaction(summary, tokens_before, tokens_after)
 
         logger.info(
-            "Manual compaction: %d -> %d tokens (compaction #%d)",
+            "%s: %d -> %d tokens (compaction #%d)",
+            log_prefix,
             tokens_before,
             tokens_after,
             self._compaction_count,
