@@ -171,6 +171,23 @@ All three harness options maintain egg's zero-credential sandbox model:
 | Anthropic-only | No | Yes | Yes |
 | Requires Anthropic subscription | No | Yes | Yes |
 
+## Parity Validation
+
+Before promoting the `egg` harness to the default, run the parallel validation script to confirm metric parity (cost, turns, duration, success rate) against `claude-sdk`:
+
+```bash
+python3 scripts/validate_harness_parity.py [--scenarios N] [--model MODEL] [--output results.json]
+```
+
+The script runs each scenario through both harnesses concurrently and prints a comparison table. The `egg` harness passes validation when its success rate is ≥ 80% and its total cost does not exceed 1.5× the `claude-sdk` baseline.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--scenarios N` | all (8) | Number of scenarios to run |
+| `--model MODEL` | `haiku` | Model alias for fast/cheap validation |
+| `--max-turns N` | `15` | Max turns per scenario |
+| `--output PATH` | none | Write JSON results to file |
+
 ## Related
 
 - [Custom Harness Architecture](../architecture/custom-harness.md) -- design decisions and security model
