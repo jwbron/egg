@@ -6342,6 +6342,16 @@ def _run_concurrent_phase(
                 except Exception:
                     pass
 
+    # Import peer_consensus tracker once at function scope so we don't
+    # re-run import machinery inside _update_agents_complete under the lock.
+    _get_brc_tracker = None
+    try:
+        from peer_consensus import get_peer_consensus_tracker as _get_brc_tracker
+    except ImportError:
+        from ..peer_consensus import (
+            get_peer_consensus_tracker as _get_brc_tracker,  # type: ignore[no-redef]
+        )
+
     def _update_agents_complete() -> None:
         """Mark all running agents as COMPLETE in pipeline state (consensus path)."""
         if store is None:
@@ -6355,16 +6365,11 @@ def _run_concurrent_phase(
                 # Look up proposal commit SHAs from the BRC tracker so we can
                 # populate agent.commit (issue #1691).
                 _brc = None
-                try:
-                    from peer_consensus import get_peer_consensus_tracker as _get_brc
-                except ImportError:
-                    from ..peer_consensus import (
-                        get_peer_consensus_tracker as _get_brc,  # type: ignore[no-redef]
-                    )
-                try:
-                    _brc = _get_brc(pipeline_id)
-                except Exception:
-                    pass
+                if _get_brc_tracker is not None:
+                    try:
+                        _brc = _get_brc_tracker(pipeline_id)
+                    except Exception:
+                        pass
 
                 for agent in pe.agents:
                     if agent.status in (StateAgentStatus.RUNNING, StateAgentStatus.FAILED):
@@ -6376,7 +6381,7 @@ def _run_concurrent_phase(
                     # records.  Only producers have SHAs; reviewers get "".
                     if _brc is not None and not agent.commit:
                         sha = _brc.get_proposal_commit_sha(agent.role.value)
-                        if sha:
+                        if sha and sha != "RECONSTRUCTED_NO_SHA":
                             agent.commit = sha
 
                 # Also mark containers as exited so the container monitor
@@ -6855,6 +6860,36 @@ def _run_concurrent_phase(
                     _timeout_consensus = {"is_complete": False}
 
                 if _timeout_consensus.get("is_complete"):
+                    # Guard: consensus may be "complete" by quorum but still
+                    # have unresolved NACKs — mirror the step 5 NACK check.
+                    if _timeout_consensus.get("has_unresolved_nacks"):
+                        nack_details = _timeout_consensus.get("unresolved_nacks", [])
+                        nack_summary = _format_nack_summary(nack_details)
+                        logger.warning(
+                            "Consensus complete on timeout recheck but unresolved NACKs remain",
+                            pipeline_id=pipeline_id,
+                            nack_count=len(nack_details),
+                            nack_summary=nack_summary,
+                        )
+                        try:
+                            pipeline.add_decision(
+                                question=(
+                                    f"Consensus reached after timeout but {len(nack_details)} NACK(s) "
+                                    f"remain unresolved: {nack_summary}. How to proceed?"
+                                ),
+                                options=["Retry phase", "Accept current state", "Abort phase"],
+                                phase=pipeline.current_phase,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "Failed to create NACK escalation decision (timeout path)",
+                                exc_info=True,
+                            )
+                        combined_logs += (
+                            f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
+                        )
+                        return 1, combined_logs
+
                     # Consensus reached during the wait — recover pipeline
                     if store is not None:
                         try:
