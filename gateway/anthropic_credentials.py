@@ -142,7 +142,7 @@ class AnthropicCredentialsManager:
         """
         Get an API key credential for the Anthropic Messages API proxy.
 
-        The Anthropic Messages API (api.anthropic.com/v1/messages) only accepts
+        The Anthropic Messages API only accepts
         x-api-key authentication, not OAuth bearer tokens.  This method returns
         only API key credentials, skipping OAuth tokens even when configured.
 
