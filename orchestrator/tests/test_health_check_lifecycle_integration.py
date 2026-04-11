@@ -424,8 +424,12 @@ class TestPhaseAdvanceHealthCheck:
             data = json.loads(resp.data)
             assert "health" in data.get("message", "").lower()
 
+    @patch("routes.phases.threading.Thread")
+    @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.phases.get_state_store_for_pipeline")
-    def test_force_flag_bypasses_health_checks(self, mock_get_store_for_pipeline, app):
+    def test_force_flag_bypasses_health_checks(
+        self, mock_get_store_for_pipeline, mock_get_lock, mock_thread_cls, app
+    ):
         """When force=true, health checks are skipped."""
         from routes.phases import phases_bp
 
@@ -443,7 +447,10 @@ class TestPhaseAdvanceHealthCheck:
 
         mock_store = MagicMock()
         mock_store.repo_path = Path("/tmp/repo")
+        mock_store.load_pipeline.return_value = pipeline
         mock_get_store_for_pipeline.return_value = (mock_store, pipeline)
+        mock_get_lock.return_value = MagicMock()
+        mock_thread_cls.return_value = MagicMock()
 
         with app.test_client() as client:
             resp = client.post(
@@ -454,8 +461,12 @@ class TestPhaseAdvanceHealthCheck:
             assert resp.status_code != 409
             mock_runner.run.assert_not_called()
 
+    @patch("routes.phases.threading.Thread")
+    @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.phases.get_state_store_for_pipeline")
-    def test_healthy_results_allow_phase_advance(self, mock_get_store_for_pipeline, app):
+    def test_healthy_results_allow_phase_advance(
+        self, mock_get_store_for_pipeline, mock_get_lock, mock_thread_cls, app
+    ):
         """When all health checks pass, phase advance proceeds normally."""
         from routes.phases import phases_bp
 
@@ -473,7 +484,10 @@ class TestPhaseAdvanceHealthCheck:
 
         mock_store = MagicMock()
         mock_store.repo_path = Path("/tmp/repo")
+        mock_store.load_pipeline.return_value = pipeline
         mock_get_store_for_pipeline.return_value = (mock_store, pipeline)
+        mock_get_lock.return_value = MagicMock()
+        mock_thread_cls.return_value = MagicMock()
 
         with app.test_client() as client:
             resp = client.post(
@@ -482,8 +496,12 @@ class TestPhaseAdvanceHealthCheck:
             )
             assert resp.status_code != 409
 
+    @patch("routes.phases.threading.Thread")
+    @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.phases.get_state_store_for_pipeline")
-    def test_health_check_exception_does_not_block_advance(self, mock_get_store_for_pipeline, app):
+    def test_health_check_exception_does_not_block_advance(
+        self, mock_get_store_for_pipeline, mock_get_lock, mock_thread_cls, app
+    ):
         """Exceptions in health checks should not block phase advance."""
         from routes.phases import phases_bp
 
@@ -499,7 +517,10 @@ class TestPhaseAdvanceHealthCheck:
 
         mock_store = MagicMock()
         mock_store.repo_path = Path("/tmp/repo")
+        mock_store.load_pipeline.return_value = pipeline
         mock_get_store_for_pipeline.return_value = (mock_store, pipeline)
+        mock_get_lock.return_value = MagicMock()
+        mock_thread_cls.return_value = MagicMock()
 
         with app.test_client() as client:
             resp = client.post(
@@ -509,8 +530,12 @@ class TestPhaseAdvanceHealthCheck:
             # Should proceed despite exception
             assert resp.status_code != 409
 
+    @patch("routes.phases.threading.Thread")
+    @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.phases.get_state_store_for_pipeline")
-    def test_no_runner_allows_advance(self, mock_get_store_for_pipeline, app):
+    def test_no_runner_allows_advance(
+        self, mock_get_store_for_pipeline, mock_get_lock, mock_thread_cls, app
+    ):
         """When HEALTH_CHECK_RUNNER is not set, advance proceeds normally."""
         from routes.phases import phases_bp
 
@@ -525,7 +550,10 @@ class TestPhaseAdvanceHealthCheck:
 
         mock_store = MagicMock()
         mock_store.repo_path = Path("/tmp/repo")
+        mock_store.load_pipeline.return_value = pipeline
         mock_get_store_for_pipeline.return_value = (mock_store, pipeline)
+        mock_get_lock.return_value = MagicMock()
+        mock_thread_cls.return_value = MagicMock()
 
         with app.test_client() as client:
             resp = client.post(
@@ -534,8 +562,12 @@ class TestPhaseAdvanceHealthCheck:
             )
             assert resp.status_code != 409
 
+    @patch("routes.phases.threading.Thread")
+    @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.phases.get_state_store_for_pipeline")
-    def test_alert_action_allows_advance(self, mock_get_store_for_pipeline, app):
+    def test_alert_action_allows_advance(
+        self, mock_get_store_for_pipeline, mock_get_lock, mock_thread_cls, app
+    ):
         """ALERT action should not block phase advance (only FAIL_PIPELINE blocks)."""
         from routes.phases import phases_bp
 
@@ -553,7 +585,10 @@ class TestPhaseAdvanceHealthCheck:
 
         mock_store = MagicMock()
         mock_store.repo_path = Path("/tmp/repo")
+        mock_store.load_pipeline.return_value = pipeline
         mock_get_store_for_pipeline.return_value = (mock_store, pipeline)
+        mock_get_lock.return_value = MagicMock()
+        mock_thread_cls.return_value = MagicMock()
 
         with app.test_client() as client:
             resp = client.post(
