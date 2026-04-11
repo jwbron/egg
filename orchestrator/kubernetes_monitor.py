@@ -89,6 +89,8 @@ class KubernetesMonitor:
         k8s_client: KubernetesClient | None = None,
         check_interval: int = 10,
         orphan_age_hours: int = 24,
+        *,
+        docker_client: Any | None = None,  # Backward compat — ignored
     ):
         """Initialize monitor.
 
@@ -96,8 +98,16 @@ class KubernetesMonitor:
             k8s_client: Kubernetes client (default: singleton)
             check_interval: Seconds between health checks
             orphan_age_hours: Hours before a Job is considered orphaned
+            docker_client: Accepted for backward compatibility. If provided
+                and k8s_client is None, used as the k8s_client (the mock
+                will satisfy the same interface in tests).
         """
-        self.k8s_client = k8s_client or get_kubernetes_client()
+        # Accept docker_client as k8s_client for backward compatibility
+        effective_client = k8s_client or docker_client
+        if effective_client is not None:
+            self.k8s_client = effective_client
+        else:
+            self.k8s_client = get_kubernetes_client()
         self.check_interval = check_interval
         self.orphan_age_hours = orphan_age_hours
 
@@ -477,6 +487,118 @@ class KubernetesMonitor:
                 "status": "error",
                 "error": str(e),
             }
+
+
+    # ------------------------------------------------------------------
+    # Consensus stall recovery (ported from ContainerMonitor)
+    # ------------------------------------------------------------------
+
+    def _handle_consensus_stall_recovery(
+        self,
+        results: list[Any],
+        pipeline: Any,
+        store: Any,
+    ) -> None:
+        """Drive phase transition recovery when consensus stall is detected.
+
+        Two-track recovery:
+        1. Attempt tracker reconstruction so the polling loop picks up consensus.
+        2. If reconstruction fails, aggressive recovery: reload the pipeline with
+           optimistic locking and mark agents/phase COMPLETE.
+        """
+        from health_checks.types import HealthStatus  # type: ignore[import-untyped]
+
+        for result in results:
+            if result.check_name != "consensus_stall":
+                continue
+            if result.status != HealthStatus.DEGRADED:
+                continue
+
+            details = result.details or {}
+            pipeline_id = details.get("pipeline_id")
+
+            if self._attempt_tracker_reconstruction(pipeline_id, pipeline):
+                logger.info(
+                    "Consensus stall detected — tracker reconstructed",
+                    pipeline_id=pipeline_id,
+                )
+                return
+
+            logger.warning(
+                "Consensus stall detected — performing aggressive recovery",
+                pipeline_id=pipeline_id,
+            )
+            try:
+                from models import AgentExecutionStatus, PipelineStatus
+                from state_store import VersionConflictError  # type: ignore[import-untyped]
+
+                phase_key = details.get("phase")
+                if phase_key is None:
+                    return
+
+                fresh_pipeline = store.load_pipeline(pipeline_id)
+                original_version = fresh_pipeline.version
+
+                phase_exec = fresh_pipeline.phases.get(phase_key)
+                if phase_exec is None:
+                    return
+
+                if phase_exec.status != PipelineStatus.RUNNING:
+                    logger.info(
+                        "Phase already transitioned, skipping aggressive recovery",
+                        pipeline_id=pipeline_id,
+                        phase=phase_key,
+                    )
+                    return
+
+                for agent in phase_exec.agents:
+                    if agent.status == AgentExecutionStatus.RUNNING:
+                        agent.status = AgentExecutionStatus.COMPLETE
+                        agent.completed_at = datetime.now(UTC)
+                phase_exec.status = PipelineStatus.COMPLETE
+                phase_exec.completed_at = datetime.now(UTC)
+
+                store.save_pipeline(fresh_pipeline, expected_version=original_version)
+                logger.info(
+                    "Aggressive consensus stall recovery complete",
+                    pipeline_id=pipeline_id,
+                    phase=phase_key,
+                )
+            except Exception:
+                logger.warning(
+                    "Aggressive consensus stall recovery failed",
+                    pipeline_id=pipeline_id,
+                    exc_info=True,
+                )
+            return
+
+    @staticmethod
+    def _attempt_tracker_reconstruction(
+        pipeline_id: str | None, pipeline: Any
+    ) -> bool:
+        """Try to reconstruct the consensus tracker from messages."""
+        try:
+            from peer_consensus import (  # type: ignore[import-untyped]
+                get_peer_consensus_tracker,
+                reconstruct_tracker_from_messages,
+            )
+            from review_graph import get_review_graph_for_phase  # type: ignore[import-untyped]
+
+            if get_peer_consensus_tracker(pipeline_id) is not None:
+                return True
+
+            current_phase = pipeline.current_phase
+            phase_value = current_phase.value
+            graph = get_review_graph_for_phase(phase_value, repo=pipeline.repo)
+            tracker = reconstruct_tracker_from_messages(pipeline_id, graph)
+            return tracker is not None
+        except Exception:
+            logger.debug(
+                "Tracker reconstruction failed",
+                pipeline_id=pipeline_id,
+                exc_info=True,
+            )
+            return False
 
 
 # Singleton monitor instance

@@ -28,10 +28,15 @@ from pathlib import Path
 from egg_container import (
     LIFECYCLE_FLAGS_INDEX,
     ContainerNetworkConfig,
+    build_sandbox_config,
     build_sandbox_docker_cmd,
     git_shadow_mounts,
     mount_spec_to_cli_args,
+    to_k8s_job_kwargs,
 )
+
+# Runtime backend selection: "docker" (default) or "kubernetes"
+EGG_RUNTIME = os.environ.get("EGG_RUNTIME", "docker")
 
 # Import statusbar for quiet mode
 from statusbar import status, status_finish
@@ -443,6 +448,186 @@ def _setup_session_repos(
     return session_token, repos, filtered_repos
 
 
+def _is_k8s_runtime() -> bool:
+    """Check if the runtime backend is Kubernetes."""
+    return EGG_RUNTIME == "kubernetes"
+
+
+def _get_k8s_client():
+    """Create and return a Kubernetes API client.
+
+    Uses in-cluster config when running inside a pod, otherwise
+    falls back to kubeconfig.
+    """
+    try:
+        from kubernetes import client, config as k8s_config
+
+        try:
+            k8s_config.load_incluster_config()
+        except k8s_config.ConfigException:
+            k8s_config.load_kube_config()
+        return client
+    except ImportError:
+        raise RuntimeError(
+            "kubernetes Python package is required for EGG_RUNTIME=kubernetes. "
+            "Install with: pip install kubernetes"
+        )
+
+
+def _get_k8s_network_config(
+    repo_mode: str | None,
+) -> ContainerNetworkConfig:
+    """Get network configuration for k8s pods using Service DNS.
+
+    In Kubernetes, the gateway is accessed via k8s Service DNS rather
+    than static IPs and Docker networks.
+    """
+    ctx = get_context()
+    gateway_hostname = "egg-gateway.egg-system.svc.cluster.local"
+    gateway_ip = gateway_hostname  # In k8s, DNS handles resolution
+
+    if repo_mode == "private":
+        return ContainerNetworkConfig(
+            network_name="egg-system",  # namespace as "network"
+            gateway_hostname=gateway_hostname,
+            gateway_ip=gateway_ip,
+            gateway_port=ctx.gateway_port,
+            repo_mode="private",
+            proxy_url=f"http://{gateway_hostname}:{ctx.gateway_proxy_port}",
+        )
+    else:
+        return ContainerNetworkConfig(
+            network_name="egg-system",
+            gateway_hostname=gateway_hostname,
+            gateway_ip=gateway_ip,
+            gateway_port=ctx.gateway_port,
+            repo_mode="public",
+        )
+
+
+def _k8s_create_job(
+    config,
+    *,
+    namespace: str = "egg-system",
+    timeout_seconds: int | None = None,
+) -> str:
+    """Create a Kubernetes Job from a SandboxContainerConfig.
+
+    Returns the job name for subsequent operations (log streaming, deletion).
+    """
+    k8s_client = _get_k8s_client()
+    batch_v1 = k8s_client.BatchV1Api()
+
+    job_kwargs = to_k8s_job_kwargs(
+        config,
+        namespace=namespace,
+        active_deadline_seconds=timeout_seconds,
+    )
+
+    # Convert dict spec to V1Job object
+    job = batch_v1.create_namespaced_job(
+        namespace=namespace,
+        body=job_kwargs,
+    )
+    return job.metadata.name
+
+
+def _k8s_wait_for_pod(
+    job_name: str,
+    namespace: str = "egg-system",
+    timeout: int = 120,
+) -> str | None:
+    """Wait for the Job's pod to be created and return the pod name."""
+    k8s_client = _get_k8s_client()
+    core_v1 = k8s_client.CoreV1Api()
+
+    label_selector = f"job-name={job_name}"
+    deadline = time.time() + timeout
+
+    while time.time() < deadline:
+        pods = core_v1.list_namespaced_pod(
+            namespace=namespace,
+            label_selector=label_selector,
+        )
+        if pods.items:
+            return pods.items[0].metadata.name
+        time.sleep(1)
+
+    return None
+
+
+def _k8s_stream_logs(
+    pod_name: str,
+    namespace: str = "egg-system",
+) -> None:
+    """Stream logs from a pod to stdout."""
+    k8s_client = _get_k8s_client()
+    core_v1 = k8s_client.CoreV1Api()
+
+    # Wait for container to be running
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        pod = core_v1.read_namespaced_pod(pod_name, namespace)
+        phase = pod.status.phase
+        if phase in ("Running", "Succeeded", "Failed"):
+            break
+        time.sleep(1)
+
+    try:
+        log_stream = core_v1.read_namespaced_pod_log(
+            pod_name,
+            namespace,
+            follow=True,
+            _preload_content=False,
+        )
+        for line in log_stream:
+            sys.stdout.write(line.decode("utf-8", errors="replace"))
+    except Exception as e:
+        warn(f"Log streaming ended: {e}")
+
+
+def _k8s_wait_for_job(
+    job_name: str,
+    namespace: str = "egg-system",
+    timeout: int = 1800,
+) -> bool:
+    """Wait for a Kubernetes Job to complete.
+
+    Returns True if the job succeeded, False otherwise.
+    """
+    k8s_client = _get_k8s_client()
+    batch_v1 = k8s_client.BatchV1Api()
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        job = batch_v1.read_namespaced_job(job_name, namespace)
+        if job.status.succeeded and job.status.succeeded > 0:
+            return True
+        if job.status.failed and job.status.failed > 0:
+            return False
+        time.sleep(2)
+
+    warn(f"Job {job_name} timed out after {timeout}s")
+    return False
+
+
+def _k8s_delete_job(
+    job_name: str,
+    namespace: str = "egg-system",
+) -> None:
+    """Delete a Kubernetes Job and its pods."""
+    try:
+        k8s_client = _get_k8s_client()
+        batch_v1 = k8s_client.BatchV1Api()
+        batch_v1.delete_namespaced_job(
+            job_name,
+            namespace,
+            propagation_policy="Background",
+        )
+    except Exception as e:
+        warn(f"Failed to delete job {job_name}: {e}")
+
+
 def run_claude(
     repo_mode: str | None = None,
 ) -> bool:
@@ -525,19 +710,27 @@ def run_claude(
     container_ip = None
 
     # Get network configuration based on mode (centralized in helper to prevent divergence)
-    net_config = _get_container_network_config(repo_mode)
+    if _is_k8s_runtime():
+        net_config = _get_k8s_network_config(repo_mode)
+    else:
+        net_config = _get_container_network_config(repo_mode)
 
     # Choose mount strategy based on repo_mode
     if repo_mode:
         # Per-container session mode: allocate IP first for session binding
-        container_ip = _allocate_container_ip(network=net_config.network_name)
-        if not container_ip:
-            error("Failed to allocate container IP for session mode")
-            return False
+        # In k8s mode, pod IPs are assigned by the cluster -- use a placeholder
+        if _is_k8s_runtime():
+            container_ip = "0.0.0.0"  # k8s assigns pod IPs dynamically
+        else:
+            container_ip = _allocate_container_ip(network=net_config.network_name)
+            if not container_ip:
+                error("Failed to allocate container IP for session mode")
+                return False
 
         if not quiet:
             info(f"Session mode: {repo_mode}")
-            info(f"Pre-allocated IP: {container_ip}")
+            if not _is_k8s_runtime():
+                info(f"Pre-allocated IP: {container_ip}")
 
         # Use session-based repo setup with visibility filtering
         # Pass pipeline phase and checkpoint metadata from environment
@@ -898,19 +1091,27 @@ def exec_in_new_container(
     container_ip = None
 
     # Get network configuration based on mode (centralized in helper to prevent divergence)
-    net_config = _get_container_network_config(repo_mode)
+    if _is_k8s_runtime():
+        net_config = _get_k8s_network_config(repo_mode)
+    else:
+        net_config = _get_container_network_config(repo_mode)
 
     # Choose mount strategy based on repo_mode
     if repo_mode:
         # Per-container session mode: allocate IP first for session binding
-        container_ip = _allocate_container_ip(network=net_config.network_name)
-        if not container_ip:
-            error("Failed to allocate container IP for session mode")
-            return False
+        # In k8s mode, pod IPs are assigned by the cluster -- use a placeholder
+        if _is_k8s_runtime():
+            container_ip = "0.0.0.0"  # k8s assigns pod IPs dynamically
+        else:
+            container_ip = _allocate_container_ip(network=net_config.network_name)
+            if not container_ip:
+                error("Failed to allocate container IP for session mode")
+                return False
 
         if not quiet:
             info(f"Session mode: {repo_mode}")
-            info(f"Pre-allocated IP: {container_ip}")
+            if not _is_k8s_runtime():
+                info(f"Pre-allocated IP: {container_ip}")
 
         # Use session-based repo setup with visibility filtering
         # Pass pipeline phase and checkpoint metadata from environment
@@ -972,9 +1173,6 @@ def exec_in_new_container(
     if not quiet:
         print()
 
-    # Build docker run command
-    # Note: We don't use --rm so we can save logs before cleanup
-
     # Caller-specific env vars
     caller_env: dict[str, str] = {
         "PYTHONUNBUFFERED": "1",
@@ -1007,6 +1205,81 @@ def exec_in_new_container(
     # Merge in any extra environment variables from caller
     if extra_env:
         caller_env.update(extra_env)
+
+    # --- Kubernetes runtime path ---
+    if _is_k8s_runtime():
+        info("Using Kubernetes runtime backend")
+
+        # Build container config using shared builder
+        sandbox_config = build_sandbox_config(
+            container_name=container_id,
+            image=ctx.sandbox_image,
+            network=net_config,
+            container_ip=None,  # k8s assigns pod IPs
+            session_token=session_token,
+            runtime_uid=os.getuid(),
+            runtime_gid=os.getgid(),
+            extra_env=caller_env,
+            command=command,
+        )
+
+        namespace = os.environ.get("EGG_K8S_NAMESPACE", "egg-system")
+        timeout_seconds = timeout_minutes * 60
+        job_name = None
+
+        try:
+            job_name = _k8s_create_job(
+                sandbox_config,
+                namespace=namespace,
+                timeout_seconds=timeout_seconds,
+            )
+            info(f"Created Kubernetes Job: {job_name}")
+
+            # Wait for pod to be scheduled
+            pod_name = _k8s_wait_for_pod(job_name, namespace=namespace)
+            if not pod_name:
+                error(f"Pod for job {job_name} was not created within timeout")
+                return False
+
+            info(f"Pod started: {pod_name}")
+
+            # Stream logs from the pod
+            _k8s_stream_logs(pod_name, namespace=namespace)
+
+            # Wait for job completion
+            success = _k8s_wait_for_job(
+                job_name,
+                namespace=namespace,
+                timeout=timeout_seconds,
+            )
+            return success
+
+        except KeyboardInterrupt:
+            print()
+            warn("Interrupted by user")
+            return False
+        except Exception as e:
+            error(f"Kubernetes job execution failed: {e}")
+            return False
+        finally:
+            # Clean up job
+            if job_name:
+                _k8s_delete_job(job_name, namespace=namespace)
+
+            # Clean up session and worktrees
+            if repos:
+                _cleanup_session(session_token, container_id)
+
+            # In ephemeral mode (GHA), tear down gateway
+            if ctx.ephemeral:
+                from .gateway import cleanup_gateway
+
+                try:
+                    cleanup_gateway()
+                except Exception as e:
+                    error(f"Ephemeral gateway cleanup failed: {e}")
+
+    # --- Docker runtime path (default) ---
 
     # Add logging configuration for log persistence
     log_config = get_docker_log_config(container_id, task_id)

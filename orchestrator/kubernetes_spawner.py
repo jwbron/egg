@@ -84,6 +84,24 @@ class SpawnedContainer:
     environment: dict[str, str]
 
 
+def _host_to_local_volumes(repo_volumes: dict[str, str]) -> dict[str, str]:
+    """Translate host paths to orchestrator-local paths for filesystem ops.
+
+    The gateway returns worktree paths relative to the Docker host
+    (e.g. ``/home/jwies/.egg-worktrees/...``), but the orchestrator
+    container only sees these via a volume mount at ``/home/egg/...``.
+    Uses the ``HOST_HOME`` env var to perform the translation.
+    """
+    host_home = os.environ.get("HOST_HOME", "").rstrip("/")
+    container_home = "/home/egg"
+    if not host_home or host_home == container_home:
+        return repo_volumes
+    return {
+        name: path.replace(host_home, container_home, 1) if path.startswith(host_home) else path
+        for name, path in repo_volumes.items()
+    }
+
+
 class KubernetesSpawner:
     """Spawns Kubernetes Jobs with integrated gateway session management.
 

@@ -29,9 +29,30 @@ jobs:
           docker build -t egg-gateway -f gateway/Dockerfile .
           docker build -t egg-sandbox -f sandbox/Dockerfile .
 
+      - name: Set up k3s
+        run: |
+          curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --write-kubeconfig-mode=644" sh -
+          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+          echo "KUBECONFIG=/etc/rancher/k3s/k3s.yaml" >> "$GITHUB_ENV"
+          scripts/install-calico.sh || true
+          kubectl wait --for=condition=Ready node --all --timeout=120s
+
+      - name: Import images into k3s
+        run: |
+          docker save egg-gateway:latest | sudo k3s ctr images import -
+          docker save egg-sandbox:latest | sudo k3s ctr images import -
+
+      - name: Deploy egg to k3s
+        run: |
+          kubectl apply -k k8s/overlays/local/ || true
+          kubectl -n egg-system wait --for=condition=Available deployment/egg-orchestrator --timeout=120s || true
+          kubectl -n egg-system wait --for=condition=Available deployment/egg-gateway --timeout=120s || true
+
       - name: Run deterministic E2E tests
         env:
           ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          EGG_RUNTIME: kubernetes
+          KUBECONFIG: /etc/rancher/k3s/k3s.yaml
         run: |
           PYTHONPATH=shared .venv/bin/pytest integration_tests -v \
             -m "e2e and not agent_flaky" \
@@ -48,8 +69,9 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker compose -f integration_tests/docker-compose.yml down -v --remove-orphans 2>/dev/null || true
-          docker network prune -f 2>/dev/null || true
+          kubectl delete namespace egg-test-agents --ignore-not-found=true 2>/dev/null || true
+          kubectl delete namespace egg-system --ignore-not-found=true 2>/dev/null || true
+          /usr/local/bin/k3s-uninstall.sh 2>/dev/null || true
 
   e2e-agent-fuzz:
     name: E2E Agent Fuzz Tests
@@ -73,10 +95,31 @@ jobs:
           docker build -t egg-gateway -f gateway/Dockerfile .
           docker build -t egg-sandbox -f sandbox/Dockerfile .
 
+      - name: Set up k3s
+        run: |
+          curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --write-kubeconfig-mode=644" sh -
+          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+          echo "KUBECONFIG=/etc/rancher/k3s/k3s.yaml" >> "$GITHUB_ENV"
+          scripts/install-calico.sh || true
+          kubectl wait --for=condition=Ready node --all --timeout=120s
+
+      - name: Import images into k3s
+        run: |
+          docker save egg-gateway:latest | sudo k3s ctr images import -
+          docker save egg-sandbox:latest | sudo k3s ctr images import -
+
+      - name: Deploy egg to k3s
+        run: |
+          kubectl apply -k k8s/overlays/local/ || true
+          kubectl -n egg-system wait --for=condition=Available deployment/egg-orchestrator --timeout=120s || true
+          kubectl -n egg-system wait --for=condition=Available deployment/egg-gateway --timeout=120s || true
+
       - name: Run agent fuzz tests
         env:
           ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
           AGENT_FINDINGS_DIR: ${{ github.workspace }}/agent-findings
+          EGG_RUNTIME: kubernetes
+          KUBECONFIG: /etc/rancher/k3s/k3s.yaml
         run: |
           PYTHONPATH=shared .venv/bin/pytest integration_tests -v \
             -m "e2e and agent_flaky" \
@@ -95,5 +138,6 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker compose -f integration_tests/docker-compose.yml down -v --remove-orphans 2>/dev/null || true
-          docker network prune -f 2>/dev/null || true
+          kubectl delete namespace egg-test-agents --ignore-not-found=true 2>/dev/null || true
+          kubectl delete namespace egg-system --ignore-not-found=true 2>/dev/null || true
+          /usr/local/bin/k3s-uninstall.sh 2>/dev/null || true

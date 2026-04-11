@@ -427,6 +427,236 @@ def to_dockerpy_kwargs(config: SandboxContainerConfig) -> dict[str, Any]:
     return kwargs
 
 
+def to_k8s_job_kwargs(
+    config: SandboxContainerConfig,
+    *,
+    namespace: str = "egg-system",
+    service_account: str = "egg-agent",
+    restart_policy: str = "Never",
+    backoff_limit: int = 0,
+    active_deadline_seconds: int | None = None,
+) -> dict[str, Any]:
+    """Convert SandboxContainerConfig to Kubernetes Job spec kwargs.
+
+    Returns a dict that can be used to construct a ``kubernetes.client.V1Job``
+    or passed directly to ``KubernetesSpawner``.
+
+    Key mapping:
+    - environment dict -> V1EnvVar list
+    - mounts -> V1VolumeMount + V1Volume (hostPath for bind, emptyDir for tmpfs)
+    - labels -> metadata labels
+    - container_name -> job name
+    - image -> container image
+    - command -> container command
+    - security_opt -> securityContext
+    - dns -> dnsConfig
+    - extra_hosts -> hostAliases
+
+    Args:
+        config: The sandbox container configuration.
+        namespace: Kubernetes namespace for the Job.
+        service_account: ServiceAccount to use for the pod.
+        restart_policy: Pod restart policy (default: Never).
+        backoff_limit: Number of retries before marking Job as failed.
+        active_deadline_seconds: Optional timeout for the Job.
+    """
+    # --- Environment variables ---
+    env_vars: list[dict[str, str]] = [
+        {"name": k, "value": v} for k, v in config.environment.items()
+    ]
+
+    # --- Volumes and volume mounts ---
+    volumes: list[dict[str, Any]] = []
+    volume_mounts: list[dict[str, Any]] = []
+    volume_counter = 0
+
+    for mount in config.mounts:
+        vol_name = f"vol-{volume_counter}"
+        volume_counter += 1
+
+        if mount.mount_type == "bind" and mount.source is not None:
+            volumes.append(
+                {
+                    "name": vol_name,
+                    "hostPath": {
+                        "path": mount.source,
+                        "type": "" if mount.source != "/dev/null" else "File",
+                    },
+                }
+            )
+            volume_mounts.append(
+                {
+                    "name": vol_name,
+                    "mountPath": mount.destination,
+                    "readOnly": mount.readonly,
+                }
+            )
+        elif mount.mount_type == "tmpfs":
+            volumes.append(
+                {
+                    "name": vol_name,
+                    "emptyDir": {"medium": "Memory"},
+                }
+            )
+            volume_mounts.append(
+                {
+                    "name": vol_name,
+                    "mountPath": mount.destination,
+                }
+            )
+        elif mount.mount_type == "volume" and mount.source is not None:
+            volumes.append(
+                {
+                    "name": vol_name,
+                    "persistentVolumeClaim": {"claimName": mount.source},
+                }
+            )
+            volume_mounts.append(
+                {
+                    "name": vol_name,
+                    "mountPath": mount.destination,
+                    "readOnly": mount.readonly,
+                }
+            )
+
+    # --- Security context ---
+    # Map Docker security_opt to k8s securityContext.
+    # "label=disable" in Docker maps to disabling SELinux enforcement.
+    security_context: dict[str, Any] = {}
+    if "label=disable" in config.security_opt:
+        security_context["seLinuxOptions"] = {"type": "spc_t"}
+
+    # --- DNS configuration ---
+    dns_config: dict[str, Any] | None = None
+    if config.dns:
+        dns_config = {"nameservers": list(config.dns)}
+
+    # --- Host aliases (extra_hosts equivalent) ---
+    host_aliases: list[dict[str, Any]] = []
+    for hostname, ip in config.extra_hosts.items():
+        host_aliases.append({"ip": ip, "hostnames": [hostname]})
+
+    # --- Labels ---
+    # Kubernetes labels have stricter validation rules than Docker labels.
+    # Sanitize label keys/values for k8s compliance.
+    labels = dict(config.labels)
+    labels["app.kubernetes.io/managed-by"] = "egg"
+    labels["egg/container-name"] = config.container_name
+
+    # --- Job name ---
+    # Kubernetes names must be lowercase alphanumeric + hyphens, max 63 chars.
+    job_name = config.container_name.lower().replace("_", "-")
+    if len(job_name) > 63:
+        job_name = job_name[:63].rstrip("-")
+
+    # --- Container spec ---
+    container_spec: dict[str, Any] = {
+        "name": "agent",
+        "image": config.image,
+        "env": env_vars,
+    }
+    if volume_mounts:
+        container_spec["volumeMounts"] = volume_mounts
+    if security_context:
+        container_spec["securityContext"] = security_context
+    if config.command:
+        container_spec["command"] = list(config.command)
+
+    # --- Pod spec ---
+    pod_spec: dict[str, Any] = {
+        "containers": [container_spec],
+        "restartPolicy": restart_policy,
+        "serviceAccountName": service_account,
+    }
+    if volumes:
+        pod_spec["volumes"] = volumes
+    if dns_config:
+        pod_spec["dnsConfig"] = dns_config
+    if host_aliases:
+        pod_spec["hostAliases"] = host_aliases
+
+    # --- Job spec ---
+    job_kwargs: dict[str, Any] = {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": job_name,
+            "namespace": namespace,
+            "labels": labels,
+        },
+        "spec": {
+            "backoffLimit": backoff_limit,
+            "template": {
+                "metadata": {
+                    "labels": labels,
+                },
+                "spec": pod_spec,
+            },
+        },
+    }
+
+    if active_deadline_seconds is not None:
+        job_kwargs["spec"]["activeDeadlineSeconds"] = active_deadline_seconds
+
+    return job_kwargs
+
+
+def build_sandbox_job_spec(
+    *,
+    container_name: str,
+    image: str,
+    network: ContainerNetworkConfig,
+    container_ip: str | None = None,
+    session_token: str | None = None,
+    runtime_uid: int | None = None,
+    runtime_gid: int | None = None,
+    extra_env: dict[str, str] | None = None,
+    mounts: list[MountSpec] | None = None,
+    labels: dict[str, str] | None = None,
+    command: list[str] | None = None,
+    namespace: str = "egg-system",
+    active_deadline_seconds: int | None = None,
+) -> dict[str, Any]:
+    """Build a Kubernetes Job spec for a sandbox container.
+
+    Convenience wrapper that combines ``build_sandbox_config()`` and
+    ``to_k8s_job_kwargs()`` for callers that want a single call.
+
+    Args:
+        container_name: Job name and CONTAINER_ID env var.
+        image: Container image reference.
+        network: Network wiring parameters.
+        container_ip: Ignored for k8s (pod IPs assigned by k8s).
+        session_token: If set, passed as EGG_SESSION_TOKEN.
+        runtime_uid: Host UID forwarded to the container entry-point.
+        runtime_gid: Host GID forwarded to the container entry-point.
+        extra_env: Caller-specific env vars (applied last, can override).
+        mounts: Additional mount specifications.
+        labels: Container labels.
+        command: Command to execute in the container.
+        namespace: Kubernetes namespace for the Job.
+        active_deadline_seconds: Optional timeout for the Job.
+    """
+    config = build_sandbox_config(
+        container_name=container_name,
+        image=image,
+        network=network,
+        container_ip=container_ip,
+        session_token=session_token,
+        runtime_uid=runtime_uid,
+        runtime_gid=runtime_gid,
+        extra_env=extra_env,
+        mounts=mounts,
+        labels=labels,
+        command=command,
+    )
+    return to_k8s_job_kwargs(
+        config,
+        namespace=namespace,
+        active_deadline_seconds=active_deadline_seconds,
+    )
+
+
 def build_sandbox_docker_cmd(
     *,
     container_name: str,
