@@ -142,7 +142,7 @@ class TestReconcileContainerState:
         agent = phase.agents[0]
         assert agent.status == AgentExecutionStatus.FAILED
         assert agent.error is not None
-        assert "runtime container monitor" in agent.error
+        assert "runtime monitor" in agent.error.lower()
         assert agent.completed_at is not None
 
     def test_marks_container_info_failed(self):
@@ -424,8 +424,8 @@ class TestContainerMonitorDetection:
         monitor.add_handler(lambda e: events_received.append(e))
 
         # Simulate two check cycles
-        monitor._check_all_containers()  # First: STARTED
-        monitor._check_all_containers()  # Second: FAILED (non-zero exit)
+        monitor._check_all_pods()  # First: STARTED
+        monitor._check_all_pods()  # Second: FAILED (non-zero exit)
 
         event_types = [e.event_type for e in events_received]
         assert ContainerEvent.STARTED in event_types
@@ -458,8 +458,8 @@ class TestContainerMonitorDetection:
         events_received: list[ContainerEvent] = []
         monitor.add_handler(lambda e: events_received.append(e))
 
-        monitor._check_all_containers()
-        monitor._check_all_containers()
+        monitor._check_all_pods()
+        monitor._check_all_pods()
 
         event_types = [e.event_type for e in events_received]
         assert ContainerEvent.STOPPED in event_types
@@ -497,8 +497,8 @@ class TestContainerMonitorDetection:
         events_received: list[ContainerEvent] = []
         monitor.add_handler(lambda e: events_received.append(e))
 
-        monitor._check_all_containers()  # STARTED
-        monitor._check_all_containers()  # FAILED (exit 143 — phase-unaware path)
+        monitor._check_all_pods()  # STARTED
+        monitor._check_all_pods()  # FAILED (exit 143 — phase-unaware path)
 
         event_types = [e.event_type for e in events_received]
         assert ContainerEvent.STARTED in event_types
@@ -531,8 +531,8 @@ class TestContainerMonitorDetection:
         events_received: list[ContainerEvent] = []
         monitor.add_handler(lambda e: events_received.append(e))
 
-        monitor._check_all_containers()
-        monitor._check_all_containers()
+        monitor._check_all_pods()
+        monitor._check_all_pods()
 
         event_types = [e.event_type for e in events_received]
         assert ContainerEvent.FAILED in event_types
@@ -560,7 +560,7 @@ def _run_one_reconciliation_sweep(monitor):
             # First call = initial delay, second = end of first sweep
             monitor._reconciliation_running = False
 
-    with patch("container_monitor.time.sleep", side_effect=_fake_sleep):
+    with patch("kubernetes_monitor.time.sleep", side_effect=_fake_sleep):
         monitor._reconciliation_loop()
 
 
@@ -579,7 +579,7 @@ class TestPeriodicReconciliation:
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
-        with patch("container_monitor._reconcile_container_state") as mock_reconcile:
+        with patch("kubernetes_monitor._reconcile_pod_state") as mock_reconcile:
             monitor._reconciliation_stores = [store]
             monitor._reconciliation_running = True
             monitor._reconciliation_interval = 0.01
@@ -604,7 +604,7 @@ class TestPeriodicReconciliation:
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
-        with patch("container_monitor._reconcile_container_state") as mock_reconcile:
+        with patch("kubernetes_monitor._reconcile_pod_state") as mock_reconcile:
             monitor._reconciliation_stores = [store]
             monitor._reconciliation_running = True
             monitor._reconciliation_interval = 0.01
@@ -624,7 +624,7 @@ class TestPeriodicReconciliation:
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
-        with patch("container_monitor._reconcile_container_state") as mock_reconcile:
+        with patch("kubernetes_monitor._reconcile_pod_state") as mock_reconcile:
             monitor._reconciliation_stores = [store]
             monitor._reconciliation_running = True
             monitor._reconciliation_interval = 0.01
@@ -685,8 +685,8 @@ class TestPeriodicReconciliation:
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
         with (
-            patch("container_monitor._reconcile_container_state") as mock_reconcile,
-            patch("container_monitor.logger") as mock_logger,
+            patch("kubernetes_monitor._reconcile_pod_state") as mock_reconcile,
+            patch("kubernetes_monitor.logger") as mock_logger,
         ):
             monitor._reconciliation_stores = [store]
             monitor._reconciliation_running = True
@@ -725,7 +725,7 @@ class TestPeriodicReconciliation:
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
-        with patch("container_monitor._reconcile_container_state") as mock_reconcile:
+        with patch("kubernetes_monitor._reconcile_pod_state") as mock_reconcile:
             monitor._reconciliation_stores = [store]
             monitor._reconciliation_running = True
             monitor._reconciliation_interval = 0.01
@@ -757,7 +757,7 @@ class TestPeriodicReconciliation:
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
-        with patch("container_monitor._reconcile_container_state") as mock_reconcile:
+        with patch("kubernetes_monitor._reconcile_pod_state") as mock_reconcile:
             monitor._reconciliation_stores = [store]
             monitor._reconciliation_running = True
             monitor._reconciliation_interval = 0.01
@@ -783,7 +783,7 @@ class TestPeriodicReconciliation:
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
-        with patch("container_monitor._reconcile_container_state") as mock_reconcile:
+        with patch("kubernetes_monitor._reconcile_pod_state") as mock_reconcile:
             monitor._reconciliation_stores = [store]
             monitor._reconciliation_running = True
             monitor._reconciliation_interval = 0.01
