@@ -9,7 +9,8 @@ Supported credential types:
 - CLAUDE_CODE_OAUTH_TOKEN: OAuth token from Claude (Authorization: Bearer header)
 - ANTHROPIC_OAUTH_TOKEN: Legacy OAuth token name (for backward compatibility)
 
-OAuth token takes precedence if both are configured.
+OAuth token takes precedence for get_credential() if both are configured.
+Use get_api_key_credential() for the Messages API proxy (OAuth is not supported).
 """
 
 import os
@@ -109,6 +110,7 @@ class AnthropicCredentialsManager:
         """
         self._secrets_path = secrets_path or SECRETS_PATH
         self._credential: AnthropicCredential | None = None
+        self._api_key_credential: AnthropicCredential | None = None
         self._cached_mtime: float = 0
         self._lock = threading.Lock()
 
@@ -122,35 +124,87 @@ class AnthropicCredentialsManager:
         Returns:
             AnthropicCredential if available, None if not configured.
         """
+        self._ensure_loaded()
+        with self._lock:
+            return self._credential
+
+    def get_api_key_credential(self) -> AnthropicCredential | None:
+        """
+        Get an API key credential for the Anthropic Messages API proxy.
+
+        The Anthropic Messages API only accepts
+        x-api-key authentication, not OAuth bearer tokens.  This method returns
+        only API key credentials, skipping OAuth tokens even when configured.
+
+        Use this for the gateway proxy path.  Use :meth:`get_credential` when
+        either credential type is acceptable (e.g. Claude Code's own auth).
+
+        Returns:
+            AnthropicCredential with an API key, or None if no API key is configured.
+        """
+        self._ensure_loaded()
+        with self._lock:
+            return self._api_key_credential
+
+    def _ensure_loaded(self) -> None:
+        """Ensure credentials are loaded and cache is fresh."""
         try:
             current_mtime = self._secrets_path.stat().st_mtime
         except OSError:
-            # File doesn't exist or can't be accessed
             with self._lock:
                 self._credential = None
+                self._api_key_credential = None
                 self._cached_mtime = 0
-            return None
+            return
 
         with self._lock:
             if current_mtime != self._cached_mtime:
                 self._load_credential()
                 self._cached_mtime = current_mtime
-            return self._credential
+
+    @staticmethod
+    def _validate_api_key(api_key: str) -> AnthropicCredential | None:
+        """Validate an API key and return a credential if valid.
+
+        Returns:
+            AnthropicCredential for a valid key, or None if invalid.
+        """
+        if not api_key:
+            return None
+        if not api_key.startswith("sk-ant-"):
+            logger.warning("API key doesn't start with 'sk-ant-', may be invalid")
+        if len(api_key) < 50:
+            logger.error("API key appears too short (expected 50+ characters)")
+            return None
+        return AnthropicCredential(
+            header_name="x-api-key",
+            header_value=api_key,
+        )
 
     def _load_credential(self) -> None:
-        """Load credential from secrets.env file."""
+        """Load credentials from secrets.env file.
+
+        Populates both ``_credential`` (best available, OAuth preferred) and
+        ``_api_key_credential`` (API key only, for the Messages API proxy).
+        """
         if not self._secrets_path.exists():
             logger.warning("Secrets file not found", path=str(self._secrets_path))
             self._credential = None
+            self._api_key_credential = None
             return
 
         secrets = parse_env_file(self._secrets_path)
         if not secrets:
             logger.warning("Secrets file is empty or could not be parsed")
             self._credential = None
+            self._api_key_credential = None
             return
 
-        # Check for OAuth token first (takes precedence)
+        # Always try to populate the API key credential
+        api_key = secrets.get("ANTHROPIC_API_KEY", "").strip()
+        self._api_key_credential = self._validate_api_key(api_key)
+
+        # Check for OAuth token first (takes precedence for _credential)
         # Try CLAUDE_CODE_OAUTH_TOKEN first (preferred), then ANTHROPIC_OAUTH_TOKEN (legacy)
         oauth_token = secrets.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
         oauth_source = "CLAUDE_CODE_OAUTH_TOKEN"
@@ -162,35 +216,22 @@ class AnthropicCredentialsManager:
             # Validate format
             if len(oauth_token) < 20:
                 logger.error("OAuth token appears too short (expected 20+ characters)")
-                self._credential = None
+                # Don't return — fall through to API key fallback below
+            else:
+                self._credential = AnthropicCredential(
+                    header_name="Authorization",
+                    header_value=f"Bearer {oauth_token}",
+                )
+                logger.info(
+                    "Anthropic OAuth token loaded from secrets",
+                    source=oauth_source,
+                    token_prefix=oauth_token[:16] + "...",
+                )
                 return
 
-            self._credential = AnthropicCredential(
-                header_name="Authorization",
-                header_value=f"Bearer {oauth_token}",
-            )
-            logger.info(
-                "Anthropic OAuth token loaded from secrets",
-                source=oauth_source,
-                token_prefix=oauth_token[:16] + "...",
-            )
-            return
-
-        # Fall back to API key
-        api_key = secrets.get("ANTHROPIC_API_KEY", "").strip()
-        if api_key:
-            # Validate format
-            if not api_key.startswith("sk-ant-"):
-                logger.warning("API key doesn't start with 'sk-ant-', may be invalid")
-            if len(api_key) < 50:
-                logger.error("API key appears too short (expected 50+ characters)")
-                self._credential = None
-                return
-
-            self._credential = AnthropicCredential(
-                header_name="x-api-key",
-                header_value=api_key,
-            )
+        # Fall back to API key for _credential
+        if self._api_key_credential:
+            self._credential = self._api_key_credential
             logger.info(
                 "Anthropic API key loaded from secrets",
                 key_prefix=api_key[:10] + "...",
@@ -203,12 +244,14 @@ class AnthropicCredentialsManager:
             hint="Add ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN to secrets.env",
         )
         self._credential = None
+        self._api_key_credential = None
 
     def reload(self) -> None:
         """Force reload of credentials (for testing or config updates)."""
         with self._lock:
             self._cached_mtime = 0
             self._credential = None
+            self._api_key_credential = None
 
 
 # Global credentials manager instance
