@@ -38,16 +38,9 @@ def mock_docker_client():
     """Create a mock Docker client."""
     mock = MagicMock()
     mock.is_connected.return_value = True
-    mock.CONTAINER_PREFIX = "egg-sandbox-"
-
     mock.create_container.return_value = ContainerInfo(
         container_id="abc123def456",
-        container_name="egg-issue-200-coder",
-        status=ContainerStatus.PENDING,
-    )
-    mock.start_container.return_value = ContainerInfo(
-        container_id="abc123def456",
-        container_name="egg-issue-200-coder",
+        container_name="egg-sandbox-egg-agent-issue-200-coder",
         status=ContainerStatus.RUNNING,
         started_at=datetime.now(UTC),
     )
@@ -129,18 +122,14 @@ class TestWorktreeCreationGuard:
         assert call_kwargs["repos"] == ["owner/my-repo"]
         assert call_kwargs["container_id"] == "issue-200-coder"
 
-        # Verify the result has mounts from the worktree
+        # Verify the result has the correct worktree environment
         assert isinstance(result, SpawnedContainer)
+        # In K8s, volumes are handled by pod templates, not Docker-style mounts.
+        # Verify the container was created with the correct environment instead.
         create_call = mock_docker_client.create_container.call_args
-        mounts = create_call.kwargs.get("mounts", [])
-        repo_mounts = [
-            m
-            for m in mounts
-            if m.get("Target") == "/home/egg/repos/my-repo"
-            or m.get("Destination") == "/home/egg/repos/my-repo"
-        ]
-        assert len(repo_mounts) >= 1, (
-            "Repo volume mount must be present when worktree is created from repos-only path"
+        env = create_call.kwargs.get("environment", {})
+        assert env.get("CONTAINER_ID") == "issue-200-coder", (
+            "CONTAINER_ID must use per-agent worktree ID when worktree is created from repos-only path"
         )
 
     def test_spawn_with_both_repos_and_repo_volumes_creates_worktrees(
@@ -199,7 +188,9 @@ class TestWorktreeCreationGuard:
         """When repos is provided, gateway result should populate repo_volumes.
 
         The gateway's create_worktrees returns host paths; these should
-        be used for volume mounts regardless of the input repo_volumes.
+        be used as the worktree source regardless of the input repo_volumes.
+        In K8s, volume mounting is handled by pod templates, but the worktree
+        creation via gateway should still be called correctly.
         """
         mock_gateway_client.create_worktrees.return_value = WorktreeResult(
             success=True,
@@ -207,7 +198,7 @@ class TestWorktreeCreationGuard:
             errors=[],
         )
 
-        spawner.spawn_agent_container(
+        result = spawner.spawn_agent_container(
             pipeline_id="issue-200",
             agent_role=AgentRole.CODER,
             issue_number=200,
@@ -215,30 +206,27 @@ class TestWorktreeCreationGuard:
             repo_volumes=None,
         )
 
-        create_call = mock_docker_client.create_container.call_args
-        mounts = create_call.kwargs.get("mounts", [])
+        # Verify create_worktrees was called and the result is a valid SpawnedContainer
+        mock_gateway_client.create_worktrees.assert_called_once()
+        assert isinstance(result, SpawnedContainer)
+        # Verify CONTAINER_ID uses per-agent worktree ID
+        assert result.environment.get("CONTAINER_ID") == "issue-200-coder"
 
-        # The mount source should be the gateway-returned path
-        repo_mount = [
-            m
-            for m in mounts
-            if (m.get("Target") or m.get("Destination", "")) == "/home/egg/repos/my-repo"
-        ]
-        assert len(repo_mount) >= 1
-        source = repo_mount[0].get("Source")
-        assert source == "/host/worktrees/issue-200-coder/my-repo"
-
-    def test_spawn_repos_only_includes_git_shadow_mounts(
+    def test_spawn_repos_only_sets_correct_container_id(
         self, spawner, mock_docker_client, mock_gateway_client
     ):
-        """Git shadow mounts should be added when worktrees are created via repos-only path."""
+        """CONTAINER_ID env var should use per-agent worktree ID for repos-only path.
+
+        In K8s, .git shadow mounts are not used (git isolation is handled by
+        NetworkPolicy and gateway). Instead, verify CONTAINER_ID is correct.
+        """
         mock_gateway_client.create_worktrees.return_value = WorktreeResult(
             success=True,
             worktrees={"my-repo": "/host/worktrees/issue-200-coder/my-repo"},
             errors=[],
         )
 
-        spawner.spawn_agent_container(
+        result = spawner.spawn_agent_container(
             pipeline_id="issue-200",
             agent_role=AgentRole.CODER,
             issue_number=200,
@@ -246,18 +234,8 @@ class TestWorktreeCreationGuard:
             repo_volumes=None,
         )
 
-        create_call = mock_docker_client.create_container.call_args
-        mounts = create_call.kwargs.get("mounts", [])
-
-        # .git shadow mount should be present
-        git_shadows = [
-            m
-            for m in mounts
-            if (m.get("Target") or m.get("Destination", "")) == "/home/egg/repos/my-repo/.git"
-        ]
-        assert len(git_shadows) == 1, ".git shadow mount must be added for repos-only worktree path"
-        assert git_shadows[0].get("Source") == "/dev/null"
-        assert git_shadows[0].get("ReadOnly") is True
+        assert result.environment.get("CONTAINER_ID") == "issue-200-coder"
+        assert result.environment.get("EGG_AGENT_ROLE") == "coder"
 
     def test_spawn_without_base_branch_passes_none_to_create_worktrees(
         self, spawner, mock_docker_client, mock_gateway_client
@@ -413,17 +391,8 @@ class TestRestartWorktreeIntegration:
         mock_gateway_client.create_worktrees.assert_called_once()
         assert isinstance(result, SpawnedContainer)
 
-        # Verify mounts were created
-        create_call = mock_docker_client.create_container.call_args
-        mounts = create_call.kwargs.get("mounts", [])
-        repo_mounts = [
-            m
-            for m in mounts
-            if "/home/egg/repos/my-repo" in (m.get("Target", "") + m.get("Destination", ""))
-        ]
-        assert len(repo_mounts) >= 1, (
-            "Restart path must create repo volume mounts via worktree creation"
-        )
+        # Verify CONTAINER_ID uses per-agent worktree ID
+        assert result.environment.get("CONTAINER_ID") == "issue-200-coder"
 
     def test_restart_container_not_found_still_creates_worktrees(
         self, spawner, mock_docker_client, mock_gateway_client
@@ -460,7 +429,7 @@ class TestRestartWorktreeIntegration:
         )
 
         with patch.object(
-            spawner, "spawn_agent_container", wraps=spawner.spawn_agent_container
+            spawner, "spawn_agent_job", wraps=spawner.spawn_agent_job
         ) as mock_spawn:
             spawner.restart_agent_container(
                 pipeline_id="issue-200",
@@ -487,7 +456,7 @@ class TestRestartWorktreeIntegration:
         )
 
         with patch.object(
-            spawner, "spawn_agent_container", wraps=spawner.spawn_agent_container
+            spawner, "spawn_agent_job", wraps=spawner.spawn_agent_job
         ) as mock_spawn:
             spawner.restart_agent_container(
                 pipeline_id="issue-200",
@@ -571,7 +540,7 @@ class TestWorktreeMultipleRepos:
     def test_spawn_with_multiple_repos_creates_all_worktrees(
         self, spawner, mock_docker_client, mock_gateway_client
     ):
-        """Multiple repos should all get worktree mounts."""
+        """Multiple repos should all get worktrees via gateway."""
         mock_gateway_client.create_worktrees.return_value = WorktreeResult(
             success=True,
             worktrees={
@@ -581,7 +550,7 @@ class TestWorktreeMultipleRepos:
             errors=[],
         )
 
-        spawner.spawn_agent_container(
+        result = spawner.spawn_agent_container(
             pipeline_id="issue-200",
             agent_role=AgentRole.CODER,
             issue_number=200,
@@ -589,13 +558,12 @@ class TestWorktreeMultipleRepos:
             repo_volumes=None,
         )
 
-        create_call = mock_docker_client.create_container.call_args
-        mounts = create_call.kwargs.get("mounts", [])
-
-        # Both repos should have mounts
-        targets = [m.get("Target") or m.get("Destination", "") for m in mounts]
-        assert "/home/egg/repos/repo-a" in targets
-        assert "/home/egg/repos/repo-b" in targets
+        # In K8s, volume mounting is handled by pod templates.
+        # Verify worktree creation was called and spawn succeeded.
+        mock_gateway_client.create_worktrees.assert_called_once()
+        call_kwargs = mock_gateway_client.create_worktrees.call_args.kwargs
+        assert call_kwargs["repos"] == ["owner/repo-a", "owner/repo-b"]
+        assert isinstance(result, SpawnedContainer)
 
 
 # ---------------------------------------------------------------------------

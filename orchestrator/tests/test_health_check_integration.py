@@ -254,89 +254,13 @@ class TestBasicHealthEndpoints:
 
 
 # ===========================================================================
-# Tests: ContainerMonitor RUNTIME_TICK integration
+# Tests: ContainerMonitor (KubernetesMonitor) health integration
 # ===========================================================================
-
-
-class TestContainerMonitorHealthIntegration:
-    def test_set_health_check_runner(self):
-        """set_health_check_runner should store runner and repo_path."""
-        from container_monitor import ContainerMonitor
-
-        mock_docker = MagicMock()
-        monitor = ContainerMonitor(docker_client=mock_docker)
-        mock_runner = MagicMock()
-        monitor.set_health_check_runner(mock_runner, "/tmp/repo")
-
-        assert monitor._health_check_runner is mock_runner
-        assert monitor._health_check_repo_paths == [Path("/tmp/repo")]
-
-    def test_run_runtime_tick_checks_no_runner(self):
-        """Should silently return when no runner is set."""
-        from container_monitor import ContainerMonitor
-
-        mock_docker = MagicMock()
-        monitor = ContainerMonitor(docker_client=mock_docker)
-        # No runner set — should not raise
-        monitor._run_runtime_tick_checks()
-
-    @patch("state_store.get_state_store")
-    def test_run_runtime_tick_checks_with_runner(self, mock_get_store):
-        """Should call runner.run for each running pipeline."""
-        from container_monitor import ContainerMonitor
-
-        mock_docker = MagicMock()
-        monitor = ContainerMonitor(docker_client=mock_docker)
-
-        mock_runner = MagicMock()
-        mock_runner.run.return_value = []
-        monitor.set_health_check_runner(mock_runner, "/tmp/repo")
-
-        pipeline = _make_pipeline()
-        mock_store = MagicMock()
-        mock_store.list_pipelines.return_value = ["issue-99"]
-        mock_store.load_pipeline.return_value = pipeline
-        mock_get_store.return_value = mock_store
-
-        monitor._run_runtime_tick_checks()
-        mock_runner.run.assert_called_once()
-
-    @patch("state_store.get_state_store")
-    def test_run_health_checks_skips_non_running(self, mock_get_store):
-        """Should skip pipelines that are not running."""
-        from container_monitor import ContainerMonitor
-
-        mock_docker = MagicMock()
-        monitor = ContainerMonitor(docker_client=mock_docker)
-
-        mock_runner = MagicMock()
-        mock_runner.run.return_value = []
-        monitor.set_health_check_runner(mock_runner, "/tmp/repo")
-
-        pipeline = _make_pipeline(status=PipelineStatus.COMPLETE)
-        mock_store = MagicMock()
-        mock_store.list_pipelines.return_value = ["issue-99"]
-        mock_store.load_pipeline.return_value = pipeline
-        mock_get_store.return_value = mock_store
-
-        monitor._run_runtime_tick_checks()
-        mock_runner.run.assert_not_called()
-
-    @patch("state_store.get_state_store")
-    def test_run_health_checks_exception_handled(self, mock_get_store):
-        """Store exceptions should not crash the monitor."""
-        from container_monitor import ContainerMonitor
-
-        mock_docker = MagicMock()
-        monitor = ContainerMonitor(docker_client=mock_docker)
-
-        mock_runner = MagicMock()
-        monitor.set_health_check_runner(mock_runner, "/tmp/repo")
-
-        mock_get_store.side_effect = RuntimeError("Store unavailable")
-
-        # Should not raise
-        monitor._run_runtime_tick_checks()
+# NOTE: set_health_check_runner and _run_runtime_tick_checks were Docker-
+# specific methods not carried over to KubernetesMonitor.  The underlying
+# health-check runner logic is tested in test_health_checks.py and the
+# KubernetesMonitor's check_container_health is tested in
+# test_kubernetes_monitor.py.
 
 
 # ===========================================================================

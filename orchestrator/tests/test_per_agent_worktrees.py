@@ -20,16 +20,9 @@ def mock_docker_client():
     """Create a mock Docker client."""
     mock = MagicMock()
     mock.is_connected.return_value = True
-    mock.CONTAINER_PREFIX = "egg-sandbox-"
-
     mock.create_container.return_value = ContainerInfo(
         container_id="abc123def456",
-        container_name="egg-issue-123-coder",
-        status=ContainerStatus.PENDING,
-    )
-    mock.start_container.return_value = ContainerInfo(
-        container_id="abc123def456",
-        container_name="egg-issue-123-coder",
+        container_name="egg-sandbox-egg-agent-issue-123-coder",
         status=ContainerStatus.RUNNING,
         started_at=datetime.now(UTC),
     )
@@ -144,12 +137,7 @@ class TestContainerIdEnvVar:
             # Need fresh container info per spawn
             mock_docker_client.create_container.return_value = ContainerInfo(
                 container_id=f"abc-{role.value}",
-                container_name=f"issue-123-{role.value}",
-                status=ContainerStatus.PENDING,
-            )
-            mock_docker_client.start_container.return_value = ContainerInfo(
-                container_id=f"abc-{role.value}",
-                container_name=f"issue-123-{role.value}",
+                container_name=f"egg-sandbox-egg-agent-issue-123-{role.value}",
                 status=ContainerStatus.RUNNING,
                 started_at=datetime.now(UTC),
             )
@@ -222,13 +210,21 @@ class TestCleanupPipelineWorktrees:
         self, spawner, mock_docker_client, mock_gateway_client
     ):
         """cleanup_pipeline should delete worktrees for each agent role."""
-        # Simulate containers with role labels
-        container1 = MagicMock()
-        container1.container_id = "abc123"
-        container1.labels = {"egg.pipeline.id": "issue-123", "egg.agent.role": "coder"}
-        container2 = MagicMock()
-        container2.container_id = "def456"
-        container2.labels = {"egg.pipeline.id": "issue-123", "egg.agent.role": "tester"}
+        # Simulate containers with proper AgentRole values
+        container1 = ContainerInfo(
+            container_id="abc123",
+            container_name="egg-agent-issue-123-coder",
+            status=ContainerStatus.EXITED,
+            agent_role=AgentRole.CODER,
+            job_name="egg-sandbox-egg-agent-issue-123-coder",
+        )
+        container2 = ContainerInfo(
+            container_id="def456",
+            container_name="egg-agent-issue-123-tester",
+            status=ContainerStatus.EXITED,
+            agent_role=AgentRole.TESTER,
+            job_name="egg-sandbox-egg-agent-issue-123-tester",
+        )
 
         mock_docker_client.list_containers.return_value = [container1, container2]
 

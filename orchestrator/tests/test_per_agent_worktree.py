@@ -298,15 +298,22 @@ class TestWorktreeCleanup:
         self, spawner, mock_docker_client, mock_gateway_client
     ):
         """cleanup_pipeline deletes worktrees for each agent role."""
-        # Simulate containers with role labels
-        container1 = MagicMock()
-        container1.name = "egg-pipe-1-coder"
-        container1.labels = {"egg.agent.role": "coder"}
-        container1.id = "c1"
-        container2 = MagicMock()
-        container2.name = "egg-pipe-1-tester"
-        container2.labels = {"egg.agent.role": "tester"}
-        container2.id = "c2"
+        # Simulate containers with role labels — must be ContainerInfo with
+        # proper AgentRole so cleanup can extract the role string.
+        container1 = ContainerInfo(
+            container_id="c1",
+            container_name="egg-agent-pipe-1-coder",
+            status=ContainerStatus.EXITED,
+            agent_role=AgentRole.CODER,
+            job_name="egg-sandbox-egg-agent-pipe-1-coder",
+        )
+        container2 = ContainerInfo(
+            container_id="c2",
+            container_name="egg-agent-pipe-1-tester",
+            status=ContainerStatus.EXITED,
+            agent_role=AgentRole.TESTER,
+            job_name="egg-sandbox-egg-agent-pipe-1-tester",
+        )
         mock_docker_client.list_containers.return_value = [container1, container2]
 
         spawner.cleanup_pipeline("pipe-1")
