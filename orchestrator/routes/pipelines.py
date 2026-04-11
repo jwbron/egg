@@ -6342,6 +6342,16 @@ def _run_concurrent_phase(
                 except Exception:
                     pass
 
+    # Import peer_consensus tracker once at function scope so we don't
+    # re-run import machinery inside _update_agents_complete under the lock.
+    _get_brc_tracker = None
+    try:
+        from peer_consensus import get_peer_consensus_tracker as _get_brc_tracker
+    except ImportError:
+        from ..peer_consensus import (
+            get_peer_consensus_tracker as _get_brc_tracker,  # type: ignore[no-redef]
+        )
+
     def _update_agents_complete() -> None:
         """Mark all running agents as COMPLETE in pipeline state (consensus path)."""
         if store is None:
@@ -6351,12 +6361,29 @@ def _run_concurrent_phase(
                 pip = store.load_pipeline(pipeline_id)
                 pe = pip.get_phase_execution(PipelinePhase(phase_str))
                 completed_container_ids: set[str] = set()
+
+                # Look up proposal commit SHAs from the BRC tracker so we can
+                # populate agent.commit (issue #1691).
+                _brc = None
+                if _get_brc_tracker is not None:
+                    try:
+                        _brc = _get_brc_tracker(pipeline_id)
+                    except Exception:
+                        pass
+
                 for agent in pe.agents:
                     if agent.status in (StateAgentStatus.RUNNING, StateAgentStatus.FAILED):
                         agent.status = StateAgentStatus.COMPLETE
                         agent.completed_at = datetime.now(UTC)
                         if agent.container_id:
                             completed_container_ids.add(agent.container_id)
+                    # Populate commit SHA from the consensus tracker's proposal
+                    # records.  Only producers have SHAs; reviewers get "".
+                    if _brc is not None and not agent.commit:
+                        sha = _brc.get_proposal_commit_sha(agent.role.value)
+                        if sha and sha != "RECONSTRUCTED_NO_SHA":
+                            agent.commit = sha
+
                 # Also mark containers as exited so the container monitor
                 # doesn't find stale RUNNING entries and mark pipeline FAILED.
                 # See issue #1294.
@@ -6598,6 +6625,37 @@ def _run_concurrent_phase(
                     final_consensus = {"is_complete": False}
 
                 if final_consensus.get("is_complete"):
+                    # Guard: consensus may be "complete" by quorum but still
+                    # have unresolved NACKs — mirror the step 5 no-failure
+                    # NACK check and the timeout path NACK check.
+                    if final_consensus.get("has_unresolved_nacks"):
+                        nack_details = final_consensus.get("unresolved_nacks", [])
+                        nack_summary = _format_nack_summary(nack_details)
+                        logger.warning(
+                            "Consensus complete on final recheck but unresolved NACKs remain (has_failures path)",
+                            pipeline_id=pipeline_id,
+                            nack_count=len(nack_details),
+                            nack_summary=nack_summary,
+                        )
+                        try:
+                            pipeline.add_decision(
+                                question=(
+                                    f"Consensus reached but {len(nack_details)} NACK(s) "
+                                    f"remain unresolved: {nack_summary}. How to proceed?"
+                                ),
+                                options=["Retry phase", "Accept current state", "Abort phase"],
+                                phase=pipeline.current_phase,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "Failed to create NACK escalation decision (step 5 has_failures path)",
+                                exc_info=True,
+                            )
+                        combined_logs += (
+                            f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
+                        )
+                        return 1, combined_logs
+
                     # Consensus reached after all — recover pipeline if needed
                     if store is not None:
                         try:
@@ -6620,16 +6678,17 @@ def _run_concurrent_phase(
                                 error=str(recovery_err),
                             )
 
+                    _elapsed_final = time.monotonic() - start_time
                     if _emit_event is not None:
                         _emit_event(
                             EventType.CONSENSUS_REACHED,
                             pipeline_id,
-                            data={"elapsed_seconds": elapsed},
+                            data={"elapsed_seconds": _elapsed_final},
                         )
                     logger.info(
                         "Consensus reached on final recheck, stopping containers",
                         pipeline_id=pipeline_id,
-                        elapsed_seconds=round(elapsed, 1),
+                        elapsed_seconds=round(_elapsed_final, 1),
                         has_failures=has_failures[0],
                     )
                     _update_agents_complete()
@@ -6789,6 +6848,12 @@ def _run_concurrent_phase(
                                 timeout=3600,
                             )
                         except (ContainerNotFoundError, ContainerOperationError):
+                            # Timeout or lost — stop the container so it doesn't
+                            # keep running as an orphan (issue #1691).
+                            try:
+                                docker_client.stop_container(exec_info.container_id, timeout=30)
+                            except Exception:
+                                pass
                             final_info = ContainerInfo(
                                 container_id=exec_info.container_id,
                                 container_name=f"{pipeline_id}-{exec_info.role.value}",
@@ -6812,6 +6877,90 @@ def _run_concurrent_phase(
 
             combined_logs = "\n".join(all_logs)
             if has_failures[0]:
+                # Consensus recheck: consensus may have completed during the
+                # ThreadPoolExecutor wait window (issue #1691).  Without this
+                # recheck, containers that were force-killed after consensus
+                # was already confirmed would cause the phase to fail.
+                try:
+                    _timeout_consensus = executor.check_consensus()
+                except Exception as e:
+                    logger.warning(
+                        "Consensus recheck after timeout failed, treating as incomplete",
+                        pipeline_id=pipeline_id,
+                        error=str(e),
+                    )
+                    _timeout_consensus = {"is_complete": False}
+
+                if _timeout_consensus.get("is_complete"):
+                    # Guard: consensus may be "complete" by quorum but still
+                    # have unresolved NACKs — mirror the step 5 NACK check.
+                    if _timeout_consensus.get("has_unresolved_nacks"):
+                        nack_details = _timeout_consensus.get("unresolved_nacks", [])
+                        nack_summary = _format_nack_summary(nack_details)
+                        logger.warning(
+                            "Consensus complete on timeout recheck but unresolved NACKs remain",
+                            pipeline_id=pipeline_id,
+                            nack_count=len(nack_details),
+                            nack_summary=nack_summary,
+                        )
+                        try:
+                            pipeline.add_decision(
+                                question=(
+                                    f"Consensus reached after timeout but {len(nack_details)} NACK(s) "
+                                    f"remain unresolved: {nack_summary}. How to proceed?"
+                                ),
+                                options=["Retry phase", "Accept current state", "Abort phase"],
+                                phase=pipeline.current_phase,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "Failed to create NACK escalation decision (timeout path)",
+                                exc_info=True,
+                            )
+                        combined_logs += (
+                            f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
+                        )
+                        return 1, combined_logs
+
+                    # Consensus reached during the wait — recover pipeline
+                    if store is not None:
+                        try:
+                            _current_pip = store.load_pipeline(pipeline_id)
+                            if _current_pip.status == PipelineStatus.FAILED:
+                                logger.warning(
+                                    "Pipeline externally marked FAILED but consensus is complete — recovering (timeout path)",
+                                    pipeline_id=pipeline_id,
+                                )
+                                with get_pipeline_state_lock(pipeline_id):
+                                    _current_pip = store.load_pipeline(pipeline_id)
+                                    if _current_pip.status == PipelineStatus.FAILED:
+                                        _current_pip.status = PipelineStatus.RUNNING
+                                        _current_pip.error = None
+                                        store.save_pipeline(_current_pip)
+                        except Exception as recovery_err:
+                            logger.warning(
+                                "External FAILED recovery check failed (timeout path)",
+                                pipeline_id=pipeline_id,
+                                error=str(recovery_err),
+                            )
+
+                    _elapsed_timeout = time.monotonic() - start_time
+                    if _emit_event is not None:
+                        _emit_event(
+                            EventType.CONSENSUS_REACHED,
+                            pipeline_id,
+                            data={"elapsed_seconds": _elapsed_timeout},
+                        )
+                    logger.info(
+                        "Consensus reached on recheck after timeout, treating as success",
+                        pipeline_id=pipeline_id,
+                        elapsed_seconds=round(_elapsed_timeout, 1),
+                        has_failures=has_failures[0],
+                    )
+                    _update_agents_complete()
+                    _stop_running_containers()
+                    return 0, combined_logs
+
                 return 1, combined_logs
 
             # After timeout, check the BRC approval matrix for unresolved
