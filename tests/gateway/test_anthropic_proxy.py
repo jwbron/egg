@@ -79,7 +79,7 @@ class TestInjectAnthropicCredentials:
         mock_cred = MagicMock()
         mock_cred.header_name = "x-api-key"
         mock_cred.header_value = "sk-ant-test"
-        mock_credentials_manager.get_credential.return_value = mock_cred
+        mock_credentials_manager.get_api_key_credential.return_value = mock_cred
 
         headers = {"Content-Type": "application/json"}
         result_headers, error = _inject_anthropic_credentials(headers)
@@ -87,26 +87,24 @@ class TestInjectAnthropicCredentials:
         assert error is None
         assert result_headers["x-api-key"] == "sk-ant-test"
 
-    def test_injects_oauth_token(self, mock_credentials_manager):
-        """Test that OAuth token is injected."""
+    def test_skips_oauth_uses_client_auth(self, mock_credentials_manager):
+        """Test that OAuth-only credential is skipped, falls through to client auth."""
         from gateway.gateway import _inject_anthropic_credentials
 
-        mock_cred = MagicMock()
-        mock_cred.header_name = "Authorization"
-        mock_cred.header_value = "Bearer oauth-token-123"
-        mock_credentials_manager.get_credential.return_value = mock_cred
+        # get_api_key_credential returns None when only OAuth is configured
+        mock_credentials_manager.get_api_key_credential.return_value = None
 
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "Authorization": "Bearer user-token"}
         result_headers, error = _inject_anthropic_credentials(headers)
 
         assert error is None
-        assert result_headers["Authorization"] == "Bearer oauth-token-123"
+        assert result_headers["Authorization"] == "Bearer user-token"
 
     def test_preserves_client_authorization(self, mock_credentials_manager):
         """Test that client-provided Authorization header is preserved."""
         from gateway.gateway import _inject_anthropic_credentials
 
-        mock_credentials_manager.get_credential.return_value = None
+        mock_credentials_manager.get_api_key_credential.return_value = None
 
         headers = {"Content-Type": "application/json", "Authorization": "Bearer user-token"}
         result_headers, error = _inject_anthropic_credentials(headers)
@@ -118,7 +116,7 @@ class TestInjectAnthropicCredentials:
         """Test that client-provided x-api-key header is preserved."""
         from gateway.gateway import _inject_anthropic_credentials
 
-        mock_credentials_manager.get_credential.return_value = None
+        mock_credentials_manager.get_api_key_credential.return_value = None
 
         headers = {"Content-Type": "application/json", "x-api-key": "user-api-key"}
         result_headers, error = _inject_anthropic_credentials(headers)
@@ -130,7 +128,7 @@ class TestInjectAnthropicCredentials:
         """Test error when no credentials available."""
         from gateway.gateway import _inject_anthropic_credentials, app
 
-        mock_credentials_manager.get_credential.return_value = None
+        mock_credentials_manager.get_api_key_credential.return_value = None
 
         headers = {"Content-Type": "application/json"}
         # _inject_anthropic_credentials uses jsonify() which requires app context
@@ -330,7 +328,7 @@ class TestProxyMessagesEndpoint:
         """Test that missing credentials returns 401."""
         with patch("gateway.gateway.get_credentials_manager") as mock_get:
             manager = MagicMock()
-            manager.get_credential.return_value = None
+            manager.get_api_key_credential.return_value = None
             mock_get.return_value = manager
 
             response = client.post(
@@ -438,7 +436,7 @@ class TestProxyCountTokensEndpoint:
         """Test that missing credentials returns 401."""
         with patch("gateway.gateway.get_credentials_manager") as mock_get:
             manager = MagicMock()
-            manager.get_credential.return_value = None
+            manager.get_api_key_credential.return_value = None
             mock_get.return_value = manager
 
             response = client.post(
