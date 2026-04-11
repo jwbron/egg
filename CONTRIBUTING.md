@@ -68,7 +68,7 @@ The pre-commit hooks will automatically check and fix most style issues.
 - **Gateway tests**: `gateway/tests/` - Gateway-specific tests
 - **Orchestrator tests**: `orchestrator/tests/` - Orchestrator-specific tests
 - **Shared library tests**: `shared/tests/` - Tests for shared packages (egg_harness, egg_anchor, etc.)
-- **Integration tests**: `integration_tests/` - Tests requiring Docker/containers
+- **Integration tests**: `integration_tests/` - Tests requiring k3s/Kubernetes cluster
 
 Coverage requirements:
 - Minimum 80% overall coverage
