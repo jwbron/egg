@@ -697,20 +697,16 @@ class TestAgentLoopResult:
             tool_registry=registry,
             config=config,
         )
-        # The loop does not have a top-level exception handler — provider
-        # errors propagate to the caller.  Accept either:
-        #   a) ConnectionError propagates, or
-        #   b) loop returns AgentResult(success=False)
-        try:
-            result = await loop.run(
-                "Break",
-                messages=[{"role": "user", "content": "Break"}],
-            )
-            assert isinstance(result, AgentResult)
-            assert result.success is False
-            assert result.error is not None
-        except (ConnectionError, RuntimeError):
-            pass  # Acceptable: exception propagated
+        # The loop catches provider exceptions in _run_loop and returns
+        # AgentResult(success=False) with the error message.
+        result = await loop.run(
+            "Break",
+            messages=[{"role": "user", "content": "Break"}],
+        )
+        assert isinstance(result, AgentResult)
+        assert result.success is False
+        assert result.error is not None
+        assert "Provider error" in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -794,8 +790,9 @@ class TestAgentLoopSigterm:
             messages=[{"role": "user", "content": "run a command"}],
         )
         assert isinstance(result, AgentResult)
-        # The loop should exit due to shutdown, not continue forever
-        assert result.success is False or result.num_turns <= 2
+        # The loop should exit due to the shutdown flag set during tool execution.
+        assert result.success is False
+        assert "Shutdown" in (result.error or "")
 
     @pytest.mark.anyio
     async def test_sigterm_handler_restored_after_run(self):
@@ -936,5 +933,4 @@ class TestAgentLoopCircuitBreaker:
         # Should NOT trip the circuit breaker because the success in turn 2
         # resets the counter. After reset: fail, fail = 2 consecutive (< 3).
         assert isinstance(result, AgentResult)
-        if result.error:
-            assert "Circuit breaker" not in result.error
+        assert result.error is None, f"Unexpected error: {result.error}"
