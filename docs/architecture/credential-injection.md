@@ -77,7 +77,7 @@ Credentials are stored on the host machine and mounted into the gateway:
 ANTHROPIC_API_KEY="sk-ant-api03-..."
 
 # Option 2: OAuth Token (for Claude Max subscriptions)
-ANTHROPIC_OAUTH_TOKEN="..."
+CLAUDE_CODE_OAUTH_TOKEN="..."   # preferred; ANTHROPIC_OAUTH_TOKEN also accepted (legacy)
 ```
 
 The gateway reads credentials with mtime-based cache refresh for hot reloading.
@@ -125,12 +125,14 @@ Gateway enforcement cannot be bypassed because:
 
 ### Authentication Types
 
-| Type | Source | Header Injected |
-|------|--------|-----------------|
-| API Key | `ANTHROPIC_API_KEY` in secrets.env | `x-api-key: <key>` |
-| OAuth Token | `ANTHROPIC_OAUTH_TOKEN` in secrets.env | `Authorization: Bearer <token>` |
+| Type | Source | Used for |
+|------|--------|----------|
+| API Key | `ANTHROPIC_API_KEY` in secrets.env | Messages API proxy (`x-api-key` header) |
+| OAuth Token | `CLAUDE_CODE_OAUTH_TOKEN` in secrets.env | Claude Code's own auth flow only (`Authorization: Bearer`) |
 
-OAuth takes precedence if both are configured. OAuth tokens may expire; the user runs `claude auth status` to generate a new token, and the gateway hot-reloads via mtime-based cache refresh.
+**The Messages API only accepts API key authentication.** The gateway proxy uses `get_api_key_credential()` which returns only API key credentials, even when an OAuth token is also configured. OAuth tokens are used by Claude Code's own auth flow and are passed through as client-supplied headers — the gateway does not inject them for the proxy path.
+
+If only an OAuth token is configured (no API key), the proxy forwards the request without injecting credentials, relying on Claude Code to supply its own auth header. OAuth tokens may expire; the user runs `claude auth status` to generate a new token, and the gateway hot-reloads via mtime-based cache refresh.
 
 ## Files
 
