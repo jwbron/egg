@@ -16,8 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from models import Pipeline
-    from state_store import StateStore
+    pass
 
 # Add shared directory to path for logging
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -34,9 +33,6 @@ except ImportError:
 
 
 from kubernetes_client import (
-    LABEL_ORCHESTRATOR,
-    LABEL_PIPELINE_ID,
-    JobOperationError,
     KubernetesClient,
     KubernetesClientError,
     PodNotFoundError,
@@ -344,9 +340,7 @@ class KubernetesMonitor:
                                 and agent.container_id not in live_ids
                             ):
                                 # Check actual exit code
-                                actual_exit_code = self._get_pod_exit_code(
-                                    agent.container_id
-                                )
+                                actual_exit_code = self._get_pod_exit_code(agent.container_id)
                                 if actual_exit_code == 0:
                                     if agent.container_id not in self._clean_exit_skipped:
                                         logger.info(
@@ -488,7 +482,6 @@ class KubernetesMonitor:
                 "error": str(e),
             }
 
-
     # ------------------------------------------------------------------
     # Consensus stall recovery (ported from ContainerMonitor)
     # ------------------------------------------------------------------
@@ -530,7 +523,6 @@ class KubernetesMonitor:
             )
             try:
                 from models import AgentExecutionStatus, PipelineStatus
-                from state_store import VersionConflictError  # type: ignore[import-untyped]
 
                 phase_key = details.get("phase")
                 if phase_key is None:
@@ -573,9 +565,7 @@ class KubernetesMonitor:
             return
 
     @staticmethod
-    def _attempt_tracker_reconstruction(
-        pipeline_id: str | None, pipeline: Any
-    ) -> bool:
+    def _attempt_tracker_reconstruction(pipeline_id: str | None, pipeline: Any) -> bool:
         """Try to reconstruct the consensus tracker from messages."""
         try:
             from peer_consensus import (  # type: ignore[import-untyped]
@@ -691,9 +681,7 @@ def _reconcile_pod_state(store: Any, container_info: ContainerInfo) -> bool:
                         )
                         ci.status = ContainerStatus.FAILED
                         ci.exit_code = (
-                            container_info.exit_code
-                            if container_info.exit_code is not None
-                            else -1
+                            container_info.exit_code if container_info.exit_code is not None else -1
                         )
                         ci.exited_at = container_info.exited_at or datetime.now(UTC)
                         changed = True

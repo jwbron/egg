@@ -152,9 +152,7 @@ class KubernetesClient:
             self.batch_api = client.BatchV1Api()
             self.core_api = client.CoreV1Api()
         except Exception as exc:
-            raise KubernetesClientError(
-                f"Failed to initialise Kubernetes client: {exc}"
-            ) from exc
+            raise KubernetesClientError(f"Failed to initialise Kubernetes client: {exc}") from exc
 
     # ------------------------------------------------------------------
     # ContainerBackend protocol — public interface
@@ -207,10 +205,7 @@ class KubernetesClient:
         # Build environment
         env_vars: list[Any] = []
         if environment:
-            env_vars = [
-                k8s_client.V1EnvVar(name=k, value=v)
-                for k, v in environment.items()
-            ]
+            env_vars = [k8s_client.V1EnvVar(name=k, value=v) for k, v in environment.items()]
 
         container = k8s_client.V1Container(
             name="agent",
@@ -331,9 +326,7 @@ class KubernetesClient:
 
             # Fetch pod for timestamps
             pod = self.core_api.read_namespaced_pod(pod_name, self.namespace)
-            started_at = _parse_k8s_datetime(
-                pod.status.start_time if pod.status else None
-            )
+            started_at = _parse_k8s_datetime(pod.status.start_time if pod.status else None)
 
             exited_at: datetime | None = None
             exit_code: int | None = None
@@ -370,9 +363,7 @@ class KubernetesClient:
         except PodNotFoundError:
             raise
         except Exception as exc:
-            raise JobOperationError(
-                f"Failed to get info for job {job_name}: {exc}"
-            ) from exc
+            raise JobOperationError(f"Failed to get info for job {job_name}: {exc}") from exc
 
     def list_containers(
         self,
@@ -400,12 +391,8 @@ class KubernetesClient:
             results: list[ContainerInfo] = []
             for pod in pods.items:
                 pod_labels = pod.metadata.labels or {}
-                status = _pod_phase_to_status(
-                    pod.status.phase if pod.status else None
-                )
-                started_at = _parse_k8s_datetime(
-                    pod.status.start_time if pod.status else None
-                )
+                status = _pod_phase_to_status(pod.status.phase if pod.status else None)
+                started_at = _parse_k8s_datetime(pod.status.start_time if pod.status else None)
 
                 exited_at: datetime | None = None
                 exit_code: int | None = None
@@ -467,16 +454,15 @@ class KubernetesClient:
                 delta = datetime.now(UTC) - since
                 since_seconds = max(int(delta.total_seconds()), 1)
             return self.get_pod_logs(
-                pod_name, self.namespace,
+                pod_name,
+                self.namespace,
                 tail_lines=tail,
                 since_seconds=since_seconds,
             )
         except PodNotFoundError:
             raise
         except Exception as exc:
-            raise JobOperationError(
-                f"Failed to get logs for job {job_name}: {exc}"
-            ) from exc
+            raise JobOperationError(f"Failed to get logs for job {job_name}: {exc}") from exc
 
     def wait_for_container(
         self,
@@ -500,9 +486,7 @@ class KubernetesClient:
                 pass  # Pod may not be scheduled yet
 
             if time.monotonic() >= deadline:
-                raise JobOperationError(
-                    f"Timed out waiting for job {job_name} after {timeout}s"
-                )
+                raise JobOperationError(f"Timed out waiting for job {job_name} after {timeout}s")
 
             remaining = deadline - time.monotonic()
             time.sleep(min(poll_interval, max(remaining, 0.1)))
@@ -640,9 +624,7 @@ class KubernetesClient:
                     completion = getattr(job.status, "completion_time", None)
                     exited_at = _parse_k8s_datetime(completion)
 
-                started_at = _parse_k8s_datetime(
-                    job.status.start_time if job.status else None
-                )
+                started_at = _parse_k8s_datetime(job.status.start_time if job.status else None)
 
                 results.append(
                     ContainerInfo(
@@ -679,16 +661,12 @@ class KubernetesClient:
                 label_selector=label_selector,
             )
             if not pods.items:
-                raise PodNotFoundError(
-                    f"No pods found for job {job_name} in {namespace}"
-                )
+                raise PodNotFoundError(f"No pods found for job {job_name} in {namespace}")
             return pods.items[0].metadata.name
         except PodNotFoundError:
             raise
         except Exception as exc:
-            raise JobOperationError(
-                f"Failed to find pod for job {job_name}: {exc}"
-            ) from exc
+            raise JobOperationError(f"Failed to find pod for job {job_name}: {exc}") from exc
 
     def get_pod_logs(
         self,
@@ -722,9 +700,7 @@ class KubernetesClient:
             error_msg = str(exc).lower()
             if "not found" in error_msg or "404" in error_msg:
                 raise PodNotFoundError(f"Pod {pod_name} not found in {namespace}") from exc
-            raise JobOperationError(
-                f"Failed to get logs for pod {pod_name}: {exc}"
-            ) from exc
+            raise JobOperationError(f"Failed to get logs for pod {pod_name}: {exc}") from exc
 
     def get_pod_status(
         self,
@@ -750,9 +726,7 @@ class KubernetesClient:
                 if cs.state and cs.state.waiting:
                     reason = cs.state.waiting.reason or ""
                     if "ImagePull" in reason or "ErrImagePull" in reason:
-                        raise ImagePullError(
-                            f"Image pull failed for pod {pod_name}: {reason}"
-                        )
+                        raise ImagePullError(f"Image pull failed for pod {pod_name}: {reason}")
 
             return _pod_phase_to_status(phase)
         except (PodNotFoundError, ImagePullError):
@@ -761,9 +735,7 @@ class KubernetesClient:
             error_msg = str(exc).lower()
             if "not found" in error_msg or "404" in error_msg:
                 raise PodNotFoundError(f"Pod {pod_name} not found in {namespace}") from exc
-            raise JobOperationError(
-                f"Failed to get status for pod {pod_name}: {exc}"
-            ) from exc
+            raise JobOperationError(f"Failed to get status for pod {pod_name}: {exc}") from exc
 
     # ------------------------------------------------------------------
     # Internal helpers

@@ -48,7 +48,7 @@ from kubernetes_client import (
     PodNotFoundError,
     get_kubernetes_client,
 )
-from models import AgentRole, ContainerInfo, ContainerStatus
+from models import AgentRole, ContainerInfo
 
 if TYPE_CHECKING:
     from egg_container import MountSpec
@@ -65,9 +65,7 @@ GATEWAY_K8S_URL = os.environ.get(
 ORCHESTRATOR_K8S_URL = os.environ.get(
     "ORCHESTRATOR_K8S_URL", "http://orchestrator.egg-system.svc.cluster.local:9849"
 )
-PROXY_URL = os.environ.get(
-    "EGG_PROXY_URL", "http://gateway.egg-system.svc.cluster.local:3129"
-)
+PROXY_URL = os.environ.get("EGG_PROXY_URL", "http://gateway.egg-system.svc.cluster.local:3129")
 
 
 @dataclass
@@ -516,7 +514,11 @@ class KubernetesSpawner:
             # Extract role string from AgentRole enum
             if hasattr(job, "agent_role") and job.agent_role is not None:
                 try:
-                    role_label = job.agent_role.value if isinstance(job.agent_role, AgentRole) else str(job.agent_role)
+                    role_label = (
+                        job.agent_role.value
+                        if isinstance(job.agent_role, AgentRole)
+                        else str(job.agent_role)
+                    )
                 except (AttributeError, TypeError):
                     pass
             if role_label and isinstance(role_label, str):
