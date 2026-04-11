@@ -333,7 +333,7 @@ class TestSpawnAgentJob:
             pipeline_id="p",
             agent_role=AgentRole.CODER,
         )
-        mock_k8s_client.delete_job.assert_called_once_with("egg-agent-p-coder", "test-ns")
+        mock_k8s_client.delete_job.assert_called_once_with("egg-sandbox-egg-agent-p-coder", "test-ns")
 
     def test_spawn_with_repos_creates_worktrees(self, spawner, mock_gateway):
         """Spawn creates worktrees when repos are provided."""
@@ -403,7 +403,7 @@ class TestStopAgentJob:
     def test_stop_job(self, spawner, mock_k8s_client, mock_gateway):
         """Stop delegates to k8s and cleans up session."""
         result = spawner.stop_agent_job("job-name")
-        mock_k8s_client.stop_container.assert_called_once_with("job-name")
+        mock_k8s_client.stop_container.assert_called_once_with("job-name", timeout=10)
         mock_gateway.delete_session_by_container.assert_called_once_with("job-name")
         assert result.status == ContainerStatus.EXITED
 
