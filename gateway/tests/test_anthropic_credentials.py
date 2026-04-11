@@ -7,8 +7,6 @@ method added to fix issue #1686 (OAuth tokens rejected by Messages API).
 import tempfile
 from pathlib import Path
 
-import pytest
-
 
 def _make_manager(secrets_content: str):
     """Create a credentials manager with a temp secrets file."""
@@ -85,8 +83,7 @@ class TestGetApiKeyCredential:
         """Core fix for #1686: when both are configured, proxy gets the API key."""
         api_key = "sk-ant-" + "k" * 80
         mgr = _make_manager(
-            'CLAUDE_CODE_OAUTH_TOKEN="' + "t" * 30 + '"\n'
-            f'ANTHROPIC_API_KEY="{api_key}"\n'
+            'CLAUDE_CODE_OAUTH_TOKEN="' + "t" * 30 + f'"\nANTHROPIC_API_KEY="{api_key}"\n'
         )
         cred = mgr.get_api_key_credential()
         assert cred is not None
@@ -130,7 +127,7 @@ class TestParseEnvFile:
         from anthropic_credentials import parse_env_file
 
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False)
-        tmp.write('KEY1=value1\nKEY2="value2"\nKEY3=\'value3\'\n# comment\n')
+        tmp.write("KEY1=value1\nKEY2=\"value2\"\nKEY3='value3'\n# comment\n")
         tmp.flush()
 
         result = parse_env_file(Path(tmp.name))
