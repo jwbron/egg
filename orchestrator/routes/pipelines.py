@@ -8331,8 +8331,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         try:
                             ahead_result = subprocess.run(
                                 [
-                                    "git", "-C", str(worktree_repo_path),
-                                    "rev-list", "--count",
+                                    "git",
+                                    "-C",
+                                    str(worktree_repo_path),
+                                    "rev-list",
+                                    "--count",
                                     f"origin/{pipeline.branch}..HEAD",
                                 ],
                                 capture_output=True,
@@ -8340,7 +8343,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 check=False,
                                 timeout=10,
                             )
-                            commits_ahead = ahead_result.stdout.strip() if ahead_result.returncode == 0 else "unknown"
+                            commits_ahead = (
+                                ahead_result.stdout.strip()
+                                if ahead_result.returncode == 0
+                                else "unknown"
+                            )
                         except Exception:
                             commits_ahead = "unknown"
 
@@ -8368,7 +8375,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         "PR-phase push skipped",
                         pipeline_id=pipeline_id,
                         branch=pipeline.branch,
-                        reason="worktree_repo_path == repo_path" if worktree_repo_path == repo_path else "no branch set",
+                        reason="worktree_repo_path == repo_path"
+                        if worktree_repo_path == repo_path
+                        else "no branch set",
                     )
 
                 pr_url = _auto_create_pr(
