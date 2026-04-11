@@ -30,6 +30,7 @@ except ImportError:
         return logging.getLogger(name)
 
 
+from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT
 from gateway_client import (
     GatewayClient,
     GatewayError,
@@ -48,7 +49,6 @@ from kubernetes_client import (
     PodNotFoundError,
     get_kubernetes_client,
 )
-from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT
 from models import AgentRole, ContainerInfo
 
 if TYPE_CHECKING:

@@ -468,11 +468,11 @@ def _get_k8s_client():
         except k8s_config.ConfigException:
             k8s_config.load_kube_config()
         return client
-    except ImportError:
+    except ImportError as err:
         raise RuntimeError(
             "kubernetes Python package is required for EGG_RUNTIME=kubernetes. "
             "Install with: pip install kubernetes"
-        )
+        ) from err
 
 
 def _get_k8s_network_config(
