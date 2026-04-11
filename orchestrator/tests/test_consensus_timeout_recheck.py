@@ -595,7 +595,14 @@ class TestReconstructedNoShaFiltering:
                 **_CALL_ARGS,
             )
 
+        # Verify the BRC code path was actually exercised — the mock must have
+        # been called, proving the sentinel filter ran (not a vacuous pass).
+        mock_brc.get_proposal_commit_sha.assert_called_with(AgentRole.CODER.value)
+
         # The sentinel should NOT have been stored as agent.commit
         assert mock_agent.commit != "RECONSTRUCTED_NO_SHA", (
             "RECONSTRUCTED_NO_SHA sentinel was stored as agent.commit"
+        )
+        assert mock_agent.commit is None, (
+            "agent.commit should remain None when only a sentinel SHA is available"
         )
