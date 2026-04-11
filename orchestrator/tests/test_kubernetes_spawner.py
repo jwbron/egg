@@ -333,7 +333,9 @@ class TestSpawnAgentJob:
             pipeline_id="p",
             agent_role=AgentRole.CODER,
         )
-        mock_k8s_client.delete_job.assert_called_once_with("egg-sandbox-egg-agent-p-coder", "test-ns")
+        mock_k8s_client.delete_job.assert_called_once_with(
+            "egg-sandbox-egg-agent-p-coder", "test-ns"
+        )
 
     def test_spawn_with_repos_creates_worktrees(self, spawner, mock_gateway):
         """Spawn creates worktrees when repos are provided."""

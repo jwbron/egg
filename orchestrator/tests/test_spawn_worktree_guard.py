@@ -428,9 +428,7 @@ class TestRestartWorktreeIntegration:
             "already removed"
         )
 
-        with patch.object(
-            spawner, "spawn_agent_job", wraps=spawner.spawn_agent_job
-        ) as mock_spawn:
+        with patch.object(spawner, "spawn_agent_job", wraps=spawner.spawn_agent_job) as mock_spawn:
             spawner.restart_agent_container(
                 pipeline_id="issue-200",
                 agent_role=AgentRole.CODER,
@@ -455,9 +453,7 @@ class TestRestartWorktreeIntegration:
             "already removed"
         )
 
-        with patch.object(
-            spawner, "spawn_agent_job", wraps=spawner.spawn_agent_job
-        ) as mock_spawn:
+        with patch.object(spawner, "spawn_agent_job", wraps=spawner.spawn_agent_job) as mock_spawn:
             spawner.restart_agent_container(
                 pipeline_id="issue-200",
                 agent_role=AgentRole.CODER,

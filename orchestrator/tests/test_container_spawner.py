@@ -197,9 +197,7 @@ class TestSpawnAgentContainer:
 
         assert result is not None
 
-    def test_spawn_raises_on_session_failure(
-        self, spawner, mock_gateway_client, mock_k8s_client
-    ):
+    def test_spawn_raises_on_session_failure(self, spawner, mock_gateway_client, mock_k8s_client):
         """Test that spawn raises ContainerSpawnError if session registration fails."""
         mock_gateway_client.check_health.return_value = GatewayHealth(
             healthy=True,
@@ -328,9 +326,7 @@ class TestRemoveAgentContainer:
 
         mock_k8s_client.remove_container.assert_called_with("abc123", force=True)
 
-    def test_remove_cleans_up_session_on_error(
-        self, spawner, mock_k8s_client, mock_gateway_client
-    ):
+    def test_remove_cleans_up_session_on_error(self, spawner, mock_k8s_client, mock_gateway_client):
         """Test that session is cleaned up even if removal fails."""
         mock_k8s_client.remove_container.side_effect = ContainerOperationError("Failed")
 
@@ -362,9 +358,7 @@ class TestListPipelineContainers:
         result = spawner.list_pipeline_containers("issue-123")
 
         assert len(result) == 2
-        mock_k8s_client.list_containers.assert_called_with(
-            labels={"egg.pipeline.id": "issue-123"}
-        )
+        mock_k8s_client.list_containers.assert_called_with(labels={"egg.pipeline.id": "issue-123"})
 
 
 class TestCleanupPipeline:
@@ -464,9 +458,7 @@ class TestContainerEnvironmentAtCreation:
         # K8s uses service DNS names, not Docker hostnames
         assert "gateway" in container_env["GATEWAY_URL"].lower()
 
-    def test_spawn_includes_proxy_config(
-        self, spawner, mock_k8s_client, mock_gateway_client
-    ):
+    def test_spawn_includes_proxy_config(self, spawner, mock_k8s_client, mock_gateway_client):
         """Test that proxy configuration is always set for K8s containers."""
         spawner.spawn_agent_container(
             pipeline_id="issue-123",

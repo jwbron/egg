@@ -254,9 +254,7 @@ class TestRestartAgentContainer:
         This ensures that a transient Docker failure during restart does not
         destroy the agent's worktree containing committed work.
         """
-        with patch.object(
-            spawner, "spawn_agent_job", wraps=spawner.spawn_agent_job
-        ) as mock_spawn:
+        with patch.object(spawner, "spawn_agent_job", wraps=spawner.spawn_agent_job) as mock_spawn:
             spawner.restart_agent_container(
                 pipeline_id="issue-100",
                 agent_role=AgentRole.CODER,

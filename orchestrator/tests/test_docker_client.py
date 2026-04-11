@@ -26,9 +26,7 @@ from kubernetes_client import (
     KubernetesClient,
     KubernetesClientError,
     PodNotFoundError,
-    get_kubernetes_client,
 )
-
 
 # ---------------------------------------------------------------------------
 # Alias identity tests
@@ -59,7 +57,6 @@ class TestShimAliases:
     def test_get_docker_client_delegates(self):
         """get_docker_client() returns a KubernetesClient instance."""
         # Reset singletons so this test is isolated
-        import docker_client
         import kubernetes_client
 
         old_k8s = kubernetes_client._kubernetes_client
