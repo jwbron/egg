@@ -87,6 +87,7 @@ except ImportError:
     _V1JobSpec = type("V1JobSpec", (_K8sDataObject,), {})
     _V1Job = type("V1Job", (_K8sDataObject,), {})
     _V1DeleteOptions = type("V1DeleteOptions", (_K8sDataObject,), {})
+    _V1ResourceRequirements = type("V1ResourceRequirements", (_K8sDataObject,), {})
 
     _k8s_client_mod = types.ModuleType("kubernetes.client")
     _k8s_client_mod.V1Container = _V1Container  # type: ignore[attr-defined]
@@ -97,6 +98,7 @@ except ImportError:
     _k8s_client_mod.V1JobSpec = _V1JobSpec  # type: ignore[attr-defined]
     _k8s_client_mod.V1Job = _V1Job  # type: ignore[attr-defined]
     _k8s_client_mod.V1DeleteOptions = _V1DeleteOptions  # type: ignore[attr-defined]
+    _k8s_client_mod.V1ResourceRequirements = _V1ResourceRequirements  # type: ignore[attr-defined]
     _k8s_client_mod.BatchV1Api = MagicMock  # type: ignore[attr-defined]
     _k8s_client_mod.CoreV1Api = MagicMock  # type: ignore[attr-defined]
 
