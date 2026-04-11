@@ -728,7 +728,7 @@ The orchestrator pushes worktree state (including `.egg-state/` files) to the re
 
 1. **After contract initialization** — Pushes initial contract and analysis/plan drafts so the first agents in the next phase see them
 2. **After phase completion** — Pushes statefiles (drafts, reviews, BRC history, check results, contract updates) so the next phase's agents don't have unpushed `.egg-state/` files in their diff
-3. **Before PR creation** — Pushes BRC history re-writes, draft cleanup commits, and any pending statefiles. This is a safety net for cases where post-phase pushes (point 2) failed silently
+3. **Before PR creation** — Pushes BRC history re-writes, draft cleanup commits, and any pending statefiles. This is a safety net for cases where post-phase pushes (point 2) failed silently. Push outcomes are logged at INFO level with the number of local commits ahead of remote (see [PR-Phase State File Troubleshooting](#pr-phase-state-file-troubleshooting))
 4. **On pipeline failure** — Best-effort failsafe push to preserve in-progress work
 
 All pushes use `GatewayClient.push_worktree_branch()`, which registers a temporary session token, pushes the branch, and cleans up the session.
@@ -905,8 +905,8 @@ Default checks for each phase are defined in `shared/egg_contracts/phase_default
 **PR phase:**
 - No checks
 - PR is auto-created by the orchestrator (no agent spawned). The PR title and description are sourced from the contract's `pr` field (populated by the plan agent), with commit log and diff stats appended automatically. When BRC consensus was active, a **BRC Consensus Summary** section is included in the PR body showing per-phase agent participation, proposal/ACK/NACK counts, and consensus outcomes.
-- **BRC history safety net**: Before PR creation, the orchestrator re-writes BRC history files for all completed phases via `_write_brc_history()`. This is a safety net — BRC history is normally written at each phase boundary, but per-phase pushes can fail silently. Re-writing in the PR phase ensures BRC history files are always present in the PR diff.
-- **Draft cleanup**: Pipeline-specific draft files (`.egg-state/drafts/{id}-analysis.md`, `.egg-state/drafts/{id}-plan.md`) are removed from the branch via `_cleanup_drafts_for_pr()` before PR creation. By the time the PR phase runs, all review cycles and HITL gates that read drafts are complete, so these files are no longer needed. Removing them keeps the PR diff focused on actual code changes. The cleanup is scoped to the current pipeline's identifier to avoid affecting concurrent pipelines.
+- **BRC history safety net**: Before PR creation, the orchestrator re-writes BRC history files for all completed phases via `_write_brc_history()`. This is a safety net — BRC history is normally written at each phase boundary, but per-phase pushes can fail silently. Re-writing in the PR phase ensures BRC history files are always present in the PR diff. All functions in this chain emit INFO-level diagnostic logs at entry, exit, and each early-return path (see [PR-Phase State File Troubleshooting](#pr-phase-state-file-troubleshooting)).
+- **Draft cleanup**: Pipeline-specific draft files (`.egg-state/drafts/{id}-analysis.md`, `.egg-state/drafts/{id}-plan.md`) are removed from the branch via `_cleanup_drafts_for_pr()` before PR creation. By the time the PR phase runs, all review cycles and HITL gates that read drafts are complete, so these files are no longer needed. Removing them keeps the PR diff focused on actual code changes. The cleanup is scoped to the current pipeline's identifier to avoid affecting concurrent pipelines. Commit failures in `_cleanup_drafts_for_pr()` are logged at WARNING level.
 - If PR creation returns no URL, the pipeline is marked **FAILED** immediately. The overseer also runs a safety-net check at pipeline completion: if `current_phase=pr` but no `pr_url` is in the phase artifacts, it creates a HITL decision and Slack notification to prevent stranded branch work from going unnoticed.
 
 ### Customizing Phase Checks
@@ -1453,6 +1453,62 @@ Tier 1 (orchestrator) escalates directly to the overseer/HITL on heartbeat/progr
 - The file was written to a different path than expected
 
 Use `git show origin/<branch>:.egg-state/drafts/` to list draft files on the remote branch and verify the expected file exists.
+
+### PR-Phase State File Troubleshooting
+
+The PR phase runs three state file operations before creating the PR: BRC history re-write, draft cleanup, and a final push. Each operation has diagnostic INFO-level logging to help identify failures.
+
+**BRC history files missing from PR** (`.egg-state/brc-history/` absent):
+
+Look for these log entries in chronological order:
+
+1. `_rewrite_brc_history_for_pr: entering` — Confirms the function was called. Includes `total_phases`, `completed_phase_count`, and `completed_phases` list. If this log is missing, the PR-phase handler did not reach the call site (check for exceptions earlier in `_run_pipeline`).
+2. `_write_brc_history: entering` — One per completed phase. Shows `pipeline_id`, `phase`, and `identifier`. If missing for a specific phase, that phase was skipped or errored.
+3. Early-return paths (one of):
+   - `_write_brc_history: early return — message store unavailable` — The message store factory returned `None`.
+   - `_write_brc_history: early return — failed to retrieve messages` — Exception calling `store.get_messages()`. Includes `error` detail.
+   - `_write_brc_history: early return — no messages in store` — Store returned an empty list.
+   - `_write_brc_history: early return — no BRC messages for phase` — Messages exist but none match `CONSENSUS_*` types for the specified phase. Includes `total_messages` count.
+4. `Wrote BRC history file` — The history file was written to disk. Includes `path` and `message_count`. If this log is missing after step 2, an early-return was taken (check step 3).
+5. `_commit_statefiles_to_worktree: glob match results` — Shows `match_count` and `matched_paths` for `.egg-state/` files found by the pipeline-scoped glob. If `match_count` is 0, the BRC history file was not written to disk (check step 4 above).
+6. `_commit_statefiles_to_worktree: nothing staged — skipping commit` — The `git diff --cached --quiet` check returned 0, meaning `git add --force` did not stage anything. Possible causes: file permissions, `.gitignore` override, or the file was already committed identically.
+   - `_commit_statefiles_to_worktree: staged changes detected — committing` — Changes were staged successfully and a commit is being created.
+7. `_commit_statefiles_to_worktree: commit succeeded` — Confirms the commit was created. If this log appears but files are still missing from the PR, the push likely failed (see "Both issues" below).
+8. `_rewrite_brc_history_for_pr: commit step completed successfully` / `_rewrite_brc_history_for_pr: exiting` — Confirms the full function completed.
+
+**Draft files still in PR** (`.egg-state/drafts/{id}-*.md` present):
+
+1. `_cleanup_drafts_for_pr: entering` — Confirms the function was called (first log emitted).
+   - `_cleanup_drafts_for_pr: no drafts directory — skipping` — The `.egg-state/drafts/` directory doesn't exist in the worktree.
+   - `_cleanup_drafts_for_pr: matched drafts` — Shows `match_count` and `matched_files` list (truncated to 20 entries with `truncated=True` when exceeding 20).
+   - `_cleanup_drafts_for_pr: no matching drafts — exiting` — The directory exists but no files matched the identifier pattern (`{id}-*.md`).
+2. `_cleanup_drafts_for_pr: git rm succeeded` — Per-file log showing each successfully staged removal (includes relative `path`). Failures trigger a WARNING and fall back to `unlink()`.
+3. `_cleanup_drafts_for_pr: commit succeeded` — The removal commit was created successfully.
+   - `_cleanup_drafts_for_pr: commit failed — no changes to commit after draft cleanup` (WARNING) — Nothing was staged after git rm, or the commit command failed. Includes `error` detail. Promoted from DEBUG to WARNING as of #1633.
+4. `_cleanup_drafts_for_pr: exiting without commit` — The function completed without creating a commit. Includes `removed` flag (whether any files were deleted via fallback).
+
+**Both issues — state file commits not reaching the PR**:
+
+If the commit logs show success but files are missing/present in the PR diff, the push failed:
+
+1. `PR-phase push succeeded` — Push completed. Includes `commits_ahead` showing how many local commits were ahead of remote before the push.
+2. `Pre-PR push failed — PR may reference stale code` (ERROR) — Push failed. Includes `commits_ahead` count and `error` details. Push failures are caught but do not block PR creation — the PR is created from the **remote** branch state, so unpushed local commits are invisible in the PR.
+3. `PR-phase push skipped` — The push was not attempted. The `reason` field explains why: `"worktree_repo_path == repo_path"` (no separate worktree to push from) or `"no branch set"` (pipeline has no branch configured).
+4. Check the gateway health: `curl http://egg-gateway:9848/api/v1/health`.
+
+**Quick diagnostic checklist**:
+
+```bash
+# Check if BRC history files exist on the remote branch
+git show origin/egg/issue-<N>:.egg-state/brc-history/ 2>&1
+
+# Check if draft files still exist on the remote branch
+git show origin/egg/issue-<N>:.egg-state/drafts/ 2>&1
+
+# Search orchestrator logs for the pipeline's PR-phase activity
+# (adjust log source for your deployment)
+grep -E "(rewrite_brc_history|cleanup_drafts|commit_statefiles|PR-phase push)" /path/to/orchestrator.log | grep "<pipeline-id>"
+```
 
 ---
 
