@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 from unittest.mock import patch
 
 import pytest
@@ -375,6 +376,7 @@ class TestGlobToolParity:
 # ===========================================================================
 
 
+@pytest.mark.skipif(shutil.which("rg") is None, reason="ripgrep (rg) not installed")
 class TestGrepToolParity:
     """Grep tool behavioral parity with Claude Code."""
 
