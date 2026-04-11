@@ -53,18 +53,18 @@ class TestPytestConfigConsolidation:
         required = {"integration", "functional", "e2e", "security", "agent_flaky"}
         assert required.issubset(marker_names), f"Missing markers: {required - marker_names}"
 
-    def test_pyproject_has_docker_dev_dependency(self):
-        """docker package must be in dev dependencies for orchestrator tests."""
+    def test_pyproject_has_kubernetes_dev_dependency(self):
+        """kubernetes package must be in dev dependencies for orchestrator tests."""
         import tomllib
 
         with open(REPO_ROOT / "pyproject.toml", "rb") as f:
             cfg = tomllib.load(f)
 
         dev_deps = cfg["project"]["optional-dependencies"]["dev"]
-        docker_deps = [d for d in dev_deps if d.startswith("docker")]
-        assert len(docker_deps) > 0, (
-            "docker package not found in dev dependencies — "
-            "required by orchestrator/tests/test_docker_client.py"
+        k8s_deps = [d for d in dev_deps if d.startswith("kubernetes")]
+        assert len(k8s_deps) > 0, (
+            "kubernetes package not found in dev dependencies — "
+            "required by orchestrator/tests/test_kubernetes_client.py"
         )
 
 

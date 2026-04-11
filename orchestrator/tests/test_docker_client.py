@@ -56,6 +56,8 @@ class TestShimAliases:
 
     def test_get_docker_client_delegates(self):
         """get_docker_client() returns a KubernetesClient instance."""
+        from unittest.mock import MagicMock
+
         # Reset singletons so this test is isolated
         import kubernetes_client
 
@@ -63,6 +65,10 @@ class TestShimAliases:
         kubernetes_client._kubernetes_client = None
 
         try:
+            # Inject mock APIs so __init__ skips real kube-config loading
+            kubernetes_client._kubernetes_client = KubernetesClient(
+                _batch_api=MagicMock(), _core_api=MagicMock()
+            )
             client = get_docker_client()
             assert isinstance(client, KubernetesClient)
         finally:

@@ -218,16 +218,15 @@ class TestSessionManager:
         assert result.valid is False
         assert "expired" in result.error.lower()
 
-    def test_validate_ip_mismatch(self, manager):
-        """Test IP verification rejects mismatched IP."""
+    def test_validate_ip_mismatch_is_audit_only(self, manager):
+        """IP mismatch is audit-only (pod IPs are ephemeral in Kubernetes)."""
         token, _session = manager.register_session(
             container_id="test-container",
             container_ip="172.18.0.5",
             mode="private",
         )
         result = manager.validate_session(token, source_ip="172.18.0.99")
-        assert result.valid is False
-        assert "ip" in result.error.lower() or "binding" in result.error.lower()
+        assert result.valid is True
 
     def test_validate_without_ip_check(self, manager):
         """Test validation without IP verification."""
