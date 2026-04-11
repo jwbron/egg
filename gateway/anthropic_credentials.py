@@ -216,19 +216,18 @@ class AnthropicCredentialsManager:
             # Validate format
             if len(oauth_token) < 20:
                 logger.error("OAuth token appears too short (expected 20+ characters)")
-                self._credential = None
+                # Don't return — fall through to API key fallback below
+            else:
+                self._credential = AnthropicCredential(
+                    header_name="Authorization",
+                    header_value=f"Bearer {oauth_token}",
+                )
+                logger.info(
+                    "Anthropic OAuth token loaded from secrets",
+                    source=oauth_source,
+                    token_prefix=oauth_token[:16] + "...",
+                )
                 return
-
-            self._credential = AnthropicCredential(
-                header_name="Authorization",
-                header_value=f"Bearer {oauth_token}",
-            )
-            logger.info(
-                "Anthropic OAuth token loaded from secrets",
-                source=oauth_source,
-                token_prefix=oauth_token[:16] + "...",
-            )
-            return
 
         # Fall back to API key for _credential
         if self._api_key_credential:
@@ -245,6 +244,7 @@ class AnthropicCredentialsManager:
             hint="Add ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN to secrets.env",
         )
         self._credential = None
+        self._api_key_credential = None
 
     def reload(self) -> None:
         """Force reload of credentials (for testing or config updates)."""
