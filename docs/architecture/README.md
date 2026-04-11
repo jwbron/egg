@@ -4,10 +4,10 @@ Technical design and system architecture.
 
 ## System Overview
 
-egg is a structurally enforced SDLC pipeline that turns GitHub issues into reviewed pull requests. The system runs as two Docker containers working together:
+egg is a structurally enforced SDLC pipeline that turns GitHub issues into reviewed pull requests. The system runs as two core components on Kubernetes (k3s):
 
-- **Gateway sidecar** (trusted) - Enforces SDLC phases, validates role permissions, injects credentials, proxies all external access
-- **Sandbox container** (untrusted) - Where the LLM agent runs with no credentials and restricted network
+- **Gateway** (trusted, k8s Deployment in `egg-system`) — Enforces SDLC phases, validates role permissions, injects credentials, proxies all external access
+- **Agent pods** (untrusted, k8s Jobs in `egg-agents`) — Where LLM agents run with no credentials and restricted network (egress to gateway only via NetworkPolicy)
 
 The gateway acts as the enforcement engine for both process controls (SDLC phases) and security controls (credential isolation).
 

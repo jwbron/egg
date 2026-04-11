@@ -343,12 +343,12 @@ See issue #58 for context on hook-based attacks and the security implications.
 
 The architecture works identically across deployment environments:
 
-| Aspect | Local (Docker) | Cloud (Cloud Run) |
-|--------|----------------|-------------------|
-| Shared storage | Docker bind mounts | emptyDir or GCS FUSE |
-| Gateway communication | Docker network | localhost (sidecar) |
-| Container startup | Gateway creates worktree | Same |
-| Credential storage | Local files | Secret Manager |
+| Aspect | Local (k3s) | Cloud (GKE / Cloud Run) |
+|--------|-------------|------------------------|
+| Shared storage | hostPath volumes | PVCs with ReadWriteMany or GCS FUSE |
+| Gateway communication | k8s Service DNS | k8s Service DNS / localhost (sidecar) |
+| Container startup | Gateway creates worktree, mounted as hostPath | Same |
+| Credential storage | Local files / k8s Secrets | Secret Manager |
 | Persistence | Host filesystem | GCS checkpoint (optional) |
 
 ### Cloud Run Specifics
