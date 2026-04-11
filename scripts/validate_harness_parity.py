@@ -406,7 +406,9 @@ async def main() -> int:
     egg_rate = summary["egg"]["success_rate"]
     sdk_rate = summary["sdk"]["success_rate"]
     if sdk_rate < 0.8:
-        print(f"\nWARN: sdk baseline success rate {sdk_rate:.0%} < 80% — comparison may be unreliable")
+        print(
+            f"\nWARN: sdk baseline success rate {sdk_rate:.0%} < 80% — comparison may be unreliable"
+        )
     if egg_rate < 0.8:
         print(f"\nFAIL: egg success rate {egg_rate:.0%} < 80%")
         return 1
