@@ -52,7 +52,7 @@ class TestShimAliases:
         assert ImageNotFoundError is ImagePullError
 
     def test_invalid_container_id_error_is_kubernetes_client_error(self):
-        assert InvalidContainerIdError is KubernetesClientError
+        assert issubclass(InvalidContainerIdError, KubernetesClientError)
 
     def test_get_docker_client_delegates(self):
         """get_docker_client() returns a KubernetesClient instance."""

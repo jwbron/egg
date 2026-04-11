@@ -21,10 +21,21 @@ spec:
         app.kubernetes.io/part-of: egg
     spec:
       serviceAccountName: egg-orchestrator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
       containers:
         - name: orchestrator
           image: egg-orchestrator:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
           ports:
             - name: api
               containerPort: 9849

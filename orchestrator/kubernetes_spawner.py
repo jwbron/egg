@@ -328,10 +328,18 @@ class KubernetesSpawner:
                     f"Failed to register gateway session for {job_name}: {e}"
                 ) from e
 
-            # Build environment variables for the agent container
+            # Build environment variables for the agent container.
+            # Derive repo name from the first repo in the list (owner/name format).
+            repo_base = "/home/egg/repos"
+            if repos:
+                repo_name = repos[0].split("/")[-1]
+                repo_path = f"{repo_base}/{repo_name}"
+            else:
+                repo_path = repo_base
+
             environment: dict[str, str] = {
                 "CONTAINER_ID": agent_worktree_id,
-                "EGG_REPO_PATH": "/home/egg/repos",
+                "EGG_REPO_PATH": repo_path,
                 "EGG_AGENT_ROLE": agent_role.value,
                 "EGG_PIPELINE_ID": pipeline_id,
                 "EGG_ORCHESTRATOR_URL": ORCHESTRATOR_K8S_URL,

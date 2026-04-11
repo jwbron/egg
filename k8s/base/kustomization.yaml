@@ -8,5 +8,4 @@ resources:
   - orchestrator-service.yaml
   - gateway-deployment.yaml
   - gateway-service.yaml
-  - agent-job-template.yaml
   - network-policies.yaml

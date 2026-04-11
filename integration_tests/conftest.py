@@ -137,13 +137,133 @@ local_repos:
     os.chmod(config_path / "launcher-secret", 0o600)
 
 
-@pytest.fixture(scope="session")
-def egg_stack() -> Generator[EggStack]:
-    """Session-scoped fixture: start the gateway stack via docker compose.
+def _kubectl_available() -> bool:
+    """Check if kubectl is available and can connect to a cluster."""
+    try:
+        result = subprocess.run(
+            ["kubectl", "cluster-info"],
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
 
-    Builds the gateway image, starts it on test networks, waits for health,
-    and tears everything down after the test session.
+
+def _k8s_egg_stack() -> Generator[EggStack]:
+    """Create an EggStack backed by a Kubernetes deployment.
+
+    Expects the gateway to already be deployed in the egg-system namespace
+    (via ``kubectl apply -k k8s/overlays/local/``).  Creates a test-specific
+    namespace for agent pods and cleans it up after the session.
     """
+    test_namespace = f"egg-test-agents-{os.getpid()}"
+
+    # Create test namespace for agent pods
+    subprocess.run(
+        ["kubectl", "create", "namespace", test_namespace],
+        capture_output=True,
+        timeout=30,
+        check=True,
+    )
+    # Label the namespace so NetworkPolicies can select it
+    subprocess.run(
+        [
+            "kubectl",
+            "label",
+            "namespace",
+            test_namespace,
+            "app.kubernetes.io/part-of=egg",
+            "egg/test-namespace=true",
+        ],
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+
+    # Discover gateway URL from the cluster
+    gw_result = subprocess.run(
+        [
+            "kubectl",
+            "-n",
+            "egg-system",
+            "get",
+            "svc",
+            "gateway",
+            "-o",
+            "jsonpath={.spec.clusterIP}:{.spec.ports[0].port}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    )
+    gateway_addr = gw_result.stdout.strip()
+    if ":" not in gateway_addr:
+        pytest.fail(f"Could not discover gateway service address: {gateway_addr}")
+
+    gateway_ip, gateway_port_str = gateway_addr.rsplit(":", 1)
+    gateway_url = f"http://{gateway_ip}:{gateway_port_str}"
+
+    # Read launcher secret from the k8s secret
+    secret_result = subprocess.run(
+        [
+            "kubectl",
+            "-n",
+            "egg-system",
+            "get",
+            "secret",
+            "gateway-secrets",
+            "-o",
+            "jsonpath={.data.launcher-secret}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    import base64
+
+    if secret_result.returncode == 0 and secret_result.stdout:
+        launcher_secret = base64.b64decode(secret_result.stdout).decode()
+    else:
+        launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET", secrets.token_urlsafe(32))
+
+    config_dir = tempfile.mkdtemp(prefix="egg-test-config-")
+    _write_test_config(config_dir, launcher_secret)
+
+    if not wait_for_healthy(gateway_url, timeout=120):
+        pytest.fail("Gateway in k8s did not become healthy within 120s")
+
+    stack = EggStack(
+        gateway_url=gateway_url,
+        gateway_isolated_ip=gateway_ip,
+        gateway_external_ip=gateway_ip,
+        gateway_port=int(gateway_port_str),
+        proxy_port=PROXY_PORT,
+        launcher_secret=launcher_secret,
+        compose_project=f"k8s-{test_namespace}",
+        config_dir=config_dir,
+        isolated_network=test_namespace,
+        external_network=test_namespace,
+    )
+    stack.detect_source_ip()
+
+    try:
+        yield stack
+    finally:
+        subprocess.run(
+            ["kubectl", "delete", "namespace", test_namespace, "--ignore-not-found=true"],
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+        shutil.rmtree(config_dir, ignore_errors=True)
+
+
+def _docker_egg_stack() -> Generator[EggStack]:
+    """Create an EggStack backed by docker compose (legacy path)."""
     if not docker_available():
         pytest.skip("Docker is not available")
 
@@ -151,17 +271,11 @@ def egg_stack() -> Generator[EggStack]:
     if not compose_file.exists():
         pytest.skip("docker-compose.yml not found")
 
-    # Generate unique project name to avoid collisions
     project_name = f"egg-test-{os.getpid()}"
-
-    # Generate launcher secret
     launcher_secret = secrets.token_urlsafe(32)
-
-    # Create temp config directory
     config_dir = tempfile.mkdtemp(prefix="egg-test-config-")
     _write_test_config(config_dir, launcher_secret)
 
-    # Environment for docker compose
     env = {
         **os.environ,
         "COMPOSE_PROJECT_NAME": project_name,
@@ -169,14 +283,13 @@ def egg_stack() -> Generator[EggStack]:
         "EGG_CONFIG_DIR": config_dir,
         "HOST_UID": str(os.getuid()),
         "HOST_GID": str(os.getgid()),
-        "GATEWAY_PORT": "0",  # Random host port
+        "GATEWAY_PORT": "0",
         "PROXY_PORT": "0",
     }
 
     compose_cmd = ["docker", "compose", "-f", str(compose_file), "-p", project_name]
 
     try:
-        # Build and start
         subprocess.run(
             [*compose_cmd, "up", "-d", "--build"],
             env=env,
@@ -186,7 +299,6 @@ def egg_stack() -> Generator[EggStack]:
             check=True,
         )
 
-        # Get the mapped gateway port
         result = subprocess.run(
             [*compose_cmd, "port", "gateway", str(GATEWAY_PORT)],
             env=env,
@@ -195,13 +307,10 @@ def egg_stack() -> Generator[EggStack]:
             timeout=10,
             check=True,
         )
-        # Output is like "0.0.0.0:32768"
         host_port = result.stdout.strip().split(":")[-1]
         gateway_url = f"http://localhost:{host_port}"
 
-        # Wait for gateway to become healthy
         if not wait_for_healthy(gateway_url, timeout=120):
-            # Dump logs for debugging
             logs = subprocess.run(
                 [*compose_cmd, "logs", "gateway"],
                 env=env,
@@ -227,15 +336,11 @@ def egg_stack() -> Generator[EggStack]:
             external_network=f"{project_name}-external",
             certs_volume=f"{project_name}_certs",
         )
-
-        # Detect what source IP the gateway sees for our requests
-        # so sessions can be bound to the correct IP.
         stack.detect_source_ip()
 
         yield stack
 
     finally:
-        # Tear down compose stack
         subprocess.run(
             [*compose_cmd, "down", "-v", "--remove-orphans"],
             env=env,
@@ -243,9 +348,23 @@ def egg_stack() -> Generator[EggStack]:
             timeout=60,
             check=False,
         )
-
-        # Clean up config directory
         shutil.rmtree(config_dir, ignore_errors=True)
+
+
+@pytest.fixture(scope="session")
+def egg_stack() -> Generator[EggStack]:
+    """Session-scoped fixture: start the gateway stack.
+
+    Selects Kubernetes or Docker backend based on the EGG_RUNTIME env var.
+    In k8s mode, expects the gateway to be pre-deployed in the cluster.
+    In Docker mode, starts the gateway via docker compose.
+    """
+    runtime = os.environ.get("EGG_RUNTIME", "docker")
+
+    if runtime == "kubernetes" and _kubectl_available():
+        yield from _k8s_egg_stack()
+    else:
+        yield from _docker_egg_stack()
 
 
 @pytest.fixture

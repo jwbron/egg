@@ -12,6 +12,7 @@ import re
 
 from kubernetes_client import (
     ImagePullError,
+    InvalidNameError,
     JobOperationError,
     KubernetesClient,
     KubernetesClientError,
@@ -25,7 +26,7 @@ DockerClientError = KubernetesClientError
 ContainerNotFoundError = PodNotFoundError
 ContainerOperationError = JobOperationError
 ImageNotFoundError = ImagePullError
-InvalidContainerIdError = KubernetesClientError  # No direct equivalent
+InvalidContainerIdError = InvalidNameError
 
 # Regex for valid container/job identifiers (alphanumeric, hyphens, underscores, dots)
 _VALID_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")

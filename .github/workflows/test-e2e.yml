@@ -34,7 +34,7 @@ jobs:
           curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --write-kubeconfig-mode=644" sh -
           export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
           echo "KUBECONFIG=/etc/rancher/k3s/k3s.yaml" >> "$GITHUB_ENV"
-          scripts/install-calico.sh || true
+          scripts/install-calico.sh
           kubectl wait --for=condition=Ready node --all --timeout=120s
 
       - name: Import images into k3s
@@ -44,9 +44,9 @@ jobs:
 
       - name: Deploy egg to k3s
         run: |
-          kubectl apply -k k8s/overlays/local/ || true
-          kubectl -n egg-system wait --for=condition=Available deployment/egg-orchestrator --timeout=120s || true
-          kubectl -n egg-system wait --for=condition=Available deployment/egg-gateway --timeout=120s || true
+          kubectl apply -k k8s/overlays/local/
+          kubectl -n egg-system wait --for=condition=Available deployment/egg-orchestrator --timeout=120s
+          kubectl -n egg-system wait --for=condition=Available deployment/egg-gateway --timeout=120s
 
       - name: Run deterministic E2E tests
         env:
@@ -100,7 +100,7 @@ jobs:
           curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --write-kubeconfig-mode=644" sh -
           export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
           echo "KUBECONFIG=/etc/rancher/k3s/k3s.yaml" >> "$GITHUB_ENV"
-          scripts/install-calico.sh || true
+          scripts/install-calico.sh
           kubectl wait --for=condition=Ready node --all --timeout=120s
 
       - name: Import images into k3s
@@ -110,9 +110,9 @@ jobs:
 
       - name: Deploy egg to k3s
         run: |
-          kubectl apply -k k8s/overlays/local/ || true
-          kubectl -n egg-system wait --for=condition=Available deployment/egg-orchestrator --timeout=120s || true
-          kubectl -n egg-system wait --for=condition=Available deployment/egg-gateway --timeout=120s || true
+          kubectl apply -k k8s/overlays/local/
+          kubectl -n egg-system wait --for=condition=Available deployment/egg-orchestrator --timeout=120s
+          kubectl -n egg-system wait --for=condition=Available deployment/egg-gateway --timeout=120s
 
       - name: Run agent fuzz tests
         env:

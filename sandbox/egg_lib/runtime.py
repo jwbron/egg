@@ -511,7 +511,7 @@ def _get_k8s_network_config(
 def _k8s_create_job(
     config: SandboxContainerConfig,
     *,
-    namespace: str = "egg-system",
+    namespace: str = "egg-agents",
     timeout_seconds: int | None = None,
 ) -> str:
     """Create a Kubernetes Job from a SandboxContainerConfig.
@@ -537,7 +537,7 @@ def _k8s_create_job(
 
 def _k8s_wait_for_pod(
     job_name: str,
-    namespace: str = "egg-system",
+    namespace: str = "egg-agents",
     timeout: int = 120,
 ) -> str | None:
     """Wait for the Job's pod to be created and return the pod name."""
@@ -561,7 +561,7 @@ def _k8s_wait_for_pod(
 
 def _k8s_stream_logs(
     pod_name: str,
-    namespace: str = "egg-system",
+    namespace: str = "egg-agents",
 ) -> None:
     """Stream logs from a pod to stdout."""
     k8s_client = _get_k8s_client()
@@ -591,7 +591,7 @@ def _k8s_stream_logs(
 
 def _k8s_wait_for_job(
     job_name: str,
-    namespace: str = "egg-system",
+    namespace: str = "egg-agents",
     timeout: int = 1800,
 ) -> bool:
     """Wait for a Kubernetes Job to complete.
@@ -616,7 +616,7 @@ def _k8s_wait_for_job(
 
 def _k8s_delete_job(
     job_name: str,
-    namespace: str = "egg-system",
+    namespace: str = "egg-agents",
 ) -> None:
     """Delete a Kubernetes Job and its pods."""
     try:
@@ -1226,7 +1226,7 @@ def exec_in_new_container(
             command=command,
         )
 
-        namespace = os.environ.get("EGG_K8S_NAMESPACE", "egg-system")
+        namespace = os.environ.get("EGG_K8S_NAMESPACE", "egg-agents")
         timeout_seconds = timeout_minutes * 60
         job_name = None
 

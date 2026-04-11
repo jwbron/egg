@@ -28,9 +28,15 @@ except ImportError:
         return logging.getLogger(name)
 
 
+import re
+
 from models import ContainerInfo, ContainerStatus
 
 logger = get_logger("orchestrator.kubernetes")
+
+# Kubernetes name validation: RFC 1123 label (lowercase alphanumeric, hyphens, dots)
+# Max 63 characters.
+_K8S_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9.\-]*[a-z0-9])?$")
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +54,10 @@ class PodNotFoundError(KubernetesClientError):
 
 class JobOperationError(KubernetesClientError):
     """A Job-level operation failed."""
+
+
+class InvalidNameError(KubernetesClientError):
+    """Container/Job name is invalid."""
 
 
 class ImagePullError(KubernetesClientError):
@@ -155,6 +165,30 @@ class KubernetesClient:
             raise KubernetesClientError(f"Failed to initialise Kubernetes client: {exc}") from exc
 
     # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _validate_name(name: str | None) -> None:
+        """Validate a container/Job name against k8s naming rules.
+
+        Raises:
+            InvalidNameError: If the name is empty, None, too long, or
+                contains characters not allowed by Kubernetes.
+        """
+        if not name:
+            raise InvalidNameError("Name must not be empty or None")
+        if len(name) > 63:
+            raise InvalidNameError(
+                f"Name exceeds 63-character k8s limit: {name!r} ({len(name)} chars)"
+            )
+        if not _K8S_NAME_RE.match(name):
+            raise InvalidNameError(
+                f"Invalid k8s name: {name!r} — must match "
+                "[a-z0-9]([a-z0-9.-]*[a-z0-9])? (max 63 chars)"
+            )
+
+    # ------------------------------------------------------------------
     # ContainerBackend protocol — public interface
     # ------------------------------------------------------------------
 
@@ -193,6 +227,7 @@ class KubernetesClient:
             job_name = name
         else:
             job_name = f"{self.JOB_PREFIX}{name}"
+        self._validate_name(job_name)
 
         # Build labels
         job_labels: dict[str, str] = {
@@ -207,11 +242,19 @@ class KubernetesClient:
         if environment:
             env_vars = [k8s_client.V1EnvVar(name=k, value=v) for k, v in environment.items()]
 
+        # Resource limits — match the agent-job-template.yaml defaults.
+        # Callers can override via ``kwargs["resources"]``.
+        resources = kwargs.get("resources") or k8s_client.V1ResourceRequirements(
+            requests={"cpu": "500m", "memory": "512Mi"},
+            limits={"cpu": "2", "memory": "2Gi"},
+        )
+
         container = k8s_client.V1Container(
             name="agent",
             image=image,
             env=env_vars or None,
             command=command or None,
+            resources=resources,
         )
 
         pod_spec = k8s_client.V1PodSpec(
@@ -224,9 +267,14 @@ class KubernetesClient:
             spec=pod_spec,
         )
 
+        active_deadline = kwargs.get("active_deadline_seconds", 14400)  # 4 hours
+        ttl_finished = kwargs.get("ttl_seconds_after_finished", 600)  # 10 min cleanup
+
         job_spec = k8s_client.V1JobSpec(
             template=template,
             backoff_limit=0,
+            active_deadline_seconds=active_deadline,
+            ttl_seconds_after_finished=ttl_finished,
         )
 
         job = k8s_client.V1Job(
@@ -285,7 +333,11 @@ class KubernetesClient:
         """
         job_name = self._resolve_job_name(container_id)
         try:
-            self.delete_job(job_name, self.namespace)
+            self.delete_job(
+                job_name,
+                self.namespace,
+                grace_period_seconds=timeout,
+            )
             logger.info("Job stopped (deleted)", job_name=job_name)
             return ContainerInfo(
                 container_id=container_id,
@@ -560,6 +612,7 @@ class KubernetesClient:
         name: str,
         namespace: str,
         propagation_policy: str = "Background",
+        grace_period_seconds: int | None = None,
     ) -> None:
         """Delete a Kubernetes Job.
 
@@ -567,6 +620,7 @@ class KubernetesClient:
             name: Job name.
             namespace: Namespace containing the Job.
             propagation_policy: ``Background``, ``Foreground``, or ``Orphan``.
+            grace_period_seconds: Optional grace period before forceful deletion.
         """
         from kubernetes import client as k8s_client
 
@@ -576,6 +630,7 @@ class KubernetesClient:
                 namespace=namespace,
                 body=k8s_client.V1DeleteOptions(
                     propagation_policy=propagation_policy,
+                    grace_period_seconds=grace_period_seconds,
                 ),
             )
             logger.info("Job deleted", job_name=name, namespace=namespace)
@@ -747,7 +802,23 @@ class KubernetesClient:
         If *container_id* already starts with the job prefix it is used
         as-is; otherwise we try to find a job whose UID matches.  As a
         last resort the raw value is returned.
+
+        Raises:
+            InvalidNameError: If container_id is empty or contains
+                characters unsafe for use in k8s API calls.
         """
+        if not container_id:
+            raise InvalidNameError("Container ID must not be empty")
+        # UIDs are hex+hyphens; job names are lowercase alnum+hyphens.
+        # Reject anything with shell-unsafe chars to prevent injection.
+        if not _K8S_NAME_RE.match(container_id):
+            # Could be a UID (contains hex digits and hyphens) — allow
+            # the UID format through for the lookup below.
+            import re as _re
+
+            _UID_RE = _re.compile(r"^[a-f0-9\-]+$")
+            if not _UID_RE.match(container_id):
+                raise InvalidNameError(f"Invalid container ID: {container_id!r}")
         if container_id.startswith(self.JOB_PREFIX):
             return container_id
 

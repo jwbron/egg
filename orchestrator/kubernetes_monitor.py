@@ -482,6 +482,15 @@ class KubernetesMonitor:
                 "error": str(e),
             }
 
+    def set_health_check_runner(self, runner: Any, repo_paths: list[Any] | None = None) -> None:
+        """Wire a health-check runner for RUNTIME_TICK checks.
+
+        Stores the runner and repo paths so that health checks can be
+        triggered when container state changes are detected by the monitor.
+        """
+        self._health_check_runner = runner
+        self._health_repo_paths = repo_paths or []
+
     # ------------------------------------------------------------------
     # Consensus stall recovery (ported from ContainerMonitor)
     # ------------------------------------------------------------------

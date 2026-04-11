@@ -115,14 +115,157 @@ def _cleanup_orphaned_containers() -> None:
             )
 
 
+def _kubectl_available() -> bool:
+    """Check if kubectl is available and can connect to a cluster."""
+    try:
+        result = subprocess.run(
+            ["kubectl", "cluster-info"],
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _k8s_local_pipeline_stack() -> Generator[LocalPipelineStack]:
+    """Create a LocalPipelineStack backed by a Kubernetes deployment.
+
+    Expects gateway and orchestrator to already be deployed in the egg-system
+    namespace. Creates a test namespace for agent pods and cleans it up.
+    """
+    test_namespace = f"egg-lp-test-{os.getpid()}"
+
+    subprocess.run(
+        ["kubectl", "create", "namespace", test_namespace],
+        capture_output=True,
+        timeout=30,
+        check=True,
+    )
+
+    launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET", secrets.token_urlsafe(32))
+    config_dir = tempfile.mkdtemp(prefix="egg-lp-test-config-")
+    repos_dir = tempfile.mkdtemp(prefix="egg-lp-test-repos-")
+    _write_test_config(config_dir, launcher_secret)
+
+    # Initialize test repo
+    subprocess.run(["git", "init", repos_dir], capture_output=True, check=True, timeout=10)
+    subprocess.run(
+        ["git", "-C", repos_dir, "config", "user.name", "test"],
+        capture_output=True,
+        check=True,
+        timeout=10,
+    )
+    subprocess.run(
+        ["git", "-C", repos_dir, "config", "user.email", "test@test.com"],
+        capture_output=True,
+        check=True,
+        timeout=10,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            repos_dir,
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/test-owner/test-repo.git",
+        ],
+        capture_output=True,
+        check=True,
+        timeout=10,
+    )
+    Path(repos_dir, ".gitkeep").touch()
+    subprocess.run(
+        ["git", "-C", repos_dir, "add", "."], capture_output=True, check=True, timeout=10
+    )
+    subprocess.run(
+        ["git", "-C", repos_dir, "commit", "-m", "init", "--no-verify"],
+        capture_output=True,
+        check=True,
+        timeout=10,
+    )
+
+    # Discover gateway and orchestrator URLs from k8s services
+    gw_result = subprocess.run(
+        [
+            "kubectl",
+            "-n",
+            "egg-system",
+            "get",
+            "svc",
+            "gateway",
+            "-o",
+            "jsonpath={.spec.clusterIP}:{.spec.ports[0].port}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    )
+    gw_addr = gw_result.stdout.strip()
+    gateway_url = f"http://{gw_addr}"
+
+    orch_result = subprocess.run(
+        [
+            "kubectl",
+            "-n",
+            "egg-system",
+            "get",
+            "svc",
+            "orchestrator",
+            "-o",
+            "jsonpath={.spec.clusterIP}:{.spec.ports[0].port}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    )
+    orch_addr = orch_result.stdout.strip()
+    orchestrator_url = f"http://{orch_addr}"
+
+    if not wait_for_healthy(gateway_url, timeout=120):
+        pytest.fail("Gateway in k8s did not become healthy within 120s")
+    if not wait_for_healthy(orchestrator_url, timeout=120):
+        pytest.fail("Orchestrator in k8s did not become healthy within 120s")
+
+    stack = LocalPipelineStack(
+        gateway_url=gateway_url,
+        orchestrator_url=orchestrator_url,
+        launcher_secret=launcher_secret,
+        compose_project=f"k8s-{test_namespace}",
+        config_dir=config_dir,
+        repos_dir=repos_dir,
+    )
+
+    try:
+        yield stack
+    finally:
+        subprocess.run(
+            ["kubectl", "delete", "namespace", test_namespace, "--ignore-not-found=true"],
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+        shutil.rmtree(config_dir, ignore_errors=True)
+        shutil.rmtree(repos_dir, ignore_errors=True)
+
+
 @pytest.fixture(scope="session")
 def local_pipeline_stack() -> Generator[LocalPipelineStack]:
     """Session-scoped fixture: build mock sandbox, start gateway+orchestrator.
 
-    Builds the mock-sandbox image, starts the compose stack, waits for both
-    gateway and orchestrator to become healthy, yields the stack info,
-    then tears everything down.
+    Selects Kubernetes or Docker backend based on the EGG_RUNTIME env var.
     """
+    runtime = os.environ.get("EGG_RUNTIME", "docker")
+
+    if runtime == "kubernetes" and _kubectl_available():
+        yield from _k8s_local_pipeline_stack()
+        return
+
     if not docker_available():
         pytest.skip("Docker is not available")
 

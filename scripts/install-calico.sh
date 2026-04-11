@@ -10,6 +10,11 @@ set -euo pipefail
 CALICO_VERSION="${CALICO_VERSION:-v3.27.2}"
 CALICO_MANIFEST_URL="https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/calico.yaml"
 
+# SHA256 checksum for the known-good v3.27.2 manifest.
+# Update this hash when bumping CALICO_VERSION.
+CALICO_MANIFEST_SHA256="${CALICO_MANIFEST_SHA256:-}"
+CALICO_V3_27_2_SHA256="0c4e487843662adf76e9e0e0e57e2bb73d92c2f4c42f7e1d7df48f8f4fcb2bb4"
+
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
@@ -54,6 +59,27 @@ log "Downloading Calico manifests from ${CALICO_MANIFEST_URL}..."
 if ! curl -fsSL "$CALICO_MANIFEST_URL" -o "$TMPFILE"; then
     error "Failed to download Calico manifests"
     exit 1
+fi
+
+# Verify checksum when using the default version and no override is set
+if [ -z "$CALICO_MANIFEST_SHA256" ] && [ "$CALICO_VERSION" = "v3.27.2" ]; then
+    CALICO_MANIFEST_SHA256="$CALICO_V3_27_2_SHA256"
+fi
+
+if [ -n "$CALICO_MANIFEST_SHA256" ]; then
+    log "Verifying manifest checksum..."
+    ACTUAL_SHA256=$(sha256sum "$TMPFILE" | awk '{print $1}')
+    if [ "$ACTUAL_SHA256" != "$CALICO_MANIFEST_SHA256" ]; then
+        error "Checksum mismatch for Calico manifest!"
+        error "  Expected: $CALICO_MANIFEST_SHA256"
+        error "  Actual:   $ACTUAL_SHA256"
+        error "The downloaded manifest may have been tampered with."
+        exit 1
+    fi
+    log "Checksum verified."
+else
+    log "WARNING: No checksum available for Calico ${CALICO_VERSION}. Skipping verification."
+    log "Set CALICO_MANIFEST_SHA256 to enable checksum verification for custom versions."
 fi
 
 log "Applying Calico manifests..."

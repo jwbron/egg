@@ -53,6 +53,33 @@ spec:
         - protocol: TCP
           port: 3129 # noqa: EGG002
 ---
+# Allow agent pods to reach the orchestrator service in egg-system
+# on the API port (9849) for heartbeats, progress updates, and signals.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-agent-to-orchestrator
+  namespace: egg-agents
+  labels:
+    app.kubernetes.io/part-of: egg
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agent
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: egg-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: orchestrator
+      ports:
+        - protocol: TCP
+          port: 9849
+---
 # Allow orchestrator pods in egg-system to reach agent pods
 # for health checks and log retrieval.
 apiVersion: networking.k8s.io/v1
