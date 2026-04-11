@@ -14,7 +14,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 # Add shared directory to path for logging and config
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -120,6 +120,8 @@ class KubernetesSpawner:
         k8s_client: KubernetesClient | None = None,
         gateway_client: GatewayClient | None = None,
         namespace: str = DEFAULT_NAMESPACE,
+        *,
+        docker_client: Any | None = None,
     ):
         """Initialize Kubernetes spawner.
 
@@ -127,7 +129,13 @@ class KubernetesSpawner:
             k8s_client: Kubernetes client (default: singleton)
             gateway_client: Gateway client (default: singleton)
             namespace: Kubernetes namespace for agent Jobs
+            docker_client: Backward-compat alias for ``k8s_client``.
+                Accepted so that code written for ``ContainerSpawner``
+                continues to work via the shim.
         """
+        # Accept docker_client as backward-compat alias for k8s_client
+        if docker_client is not None and k8s_client is None:
+            k8s_client = docker_client
         self._k8s = k8s_client
         self._gateway = gateway_client
         self._namespace = namespace
@@ -196,9 +204,16 @@ class KubernetesSpawner:
             role=agent_role.value,
         )
 
-        # Clean up any existing Job with the same name
+        # Clean up any existing Job with the same name.
+        # create_container() prepends JOB_PREFIX, so derive the actual k8s
+        # Job name that would have been created in a previous spawn.
+        actual_k8s_job_name = (
+            job_name
+            if job_name.startswith(KubernetesClient.JOB_PREFIX)
+            else f"{KubernetesClient.JOB_PREFIX}{job_name}"
+        )
         try:
-            self.k8s.delete_job(job_name, self._namespace)
+            self.k8s.delete_job(actual_k8s_job_name, self._namespace)
             logger.info(
                 "Removed existing Job with same name",
                 job_name=job_name,
@@ -220,12 +235,15 @@ class KubernetesSpawner:
                     f"Gateway is not healthy: {health.error or health.status}"
                 )
 
-        # Labels for the Job
+        # Labels for the Job — includes app.kubernetes.io/component:agent
+        # so that NetworkPolicies (which select on this label) apply correctly.
         labels = {
             LABEL_ORCHESTRATOR: "true",
             LABEL_PIPELINE_ID: pipeline_id,
             LABEL_AGENT_ROLE: agent_role.value,
             LABEL_CONTAINER_NAME: job_name,
+            "app.kubernetes.io/component": "agent",
+            "app.kubernetes.io/part-of": "egg",
         }
         if issue_number is not None:
             labels["egg.issue.number"] = str(issue_number)
@@ -382,18 +400,20 @@ class KubernetesSpawner:
         self,
         job_name: str,
         cleanup_session: bool = True,
+        timeout: int = 10,
     ) -> ContainerInfo:
         """Stop an agent Job and optionally clean up session.
 
         Args:
             job_name: Job name or container ID
             cleanup_session: Whether to delete gateway session
+            timeout: Grace period in seconds (passed to stop_container)
 
         Returns:
             ContainerInfo after stopping
         """
         try:
-            info = self.k8s.stop_container(job_name)
+            info = self.k8s.stop_container(job_name, timeout=timeout)
 
             if cleanup_session:
                 try:
@@ -490,13 +510,16 @@ class KubernetesSpawner:
                 )
 
         # Clean up per-agent worktrees
-        worktree_ids_to_clean = {pipeline_id}
+        worktree_ids_to_clean: set[str] = {pipeline_id}
         for job in jobs:
             role_label = None
-            # Try to extract role from job labels
-            if hasattr(job, "agent_role") and job.agent_role:
-                role_label = job.agent_role.value
-            if role_label:
+            # Extract role string from AgentRole enum
+            if hasattr(job, "agent_role") and job.agent_role is not None:
+                try:
+                    role_label = job.agent_role.value if isinstance(job.agent_role, AgentRole) else str(job.agent_role)
+                except (AttributeError, TypeError):
+                    pass
+            if role_label and isinstance(role_label, str):
                 worktree_ids_to_clean.add(f"{pipeline_id}-{role_label}")
 
         # Also scan filesystem for any per-agent worktrees
@@ -870,6 +893,16 @@ class KubernetesSpawner:
             )
 
         return _spawn
+
+    # ------------------------------------------------------------------
+    # Backward-compatibility aliases for ContainerSpawner method names
+    # ------------------------------------------------------------------
+    spawn_agent_container = spawn_agent_job
+    stop_agent_container = stop_agent_job
+    remove_agent_container = remove_agent_job
+    list_pipeline_containers = list_pipeline_jobs
+    restart_agent_container = restart_agent_job
+    spawn_overseer_container = spawn_overseer_job
 
 
 class KubernetesSpawnError(Exception):

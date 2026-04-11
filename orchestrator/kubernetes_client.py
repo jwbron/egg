@@ -189,7 +189,12 @@ class KubernetesClient:
         from kubernetes import client as k8s_client
 
         image = image or self.DEFAULT_SANDBOX_IMAGE
-        job_name = f"{self.JOB_PREFIX}{name}"
+        # Only prepend JOB_PREFIX if the name doesn't already start with it,
+        # to prevent double-prefixing when callers pass pre-formatted names.
+        if name.startswith(self.JOB_PREFIX):
+            job_name = name
+        else:
+            job_name = f"{self.JOB_PREFIX}{name}"
 
         # Build labels
         job_labels: dict[str, str] = {
@@ -420,7 +425,13 @@ class KubernetesClient:
                     except ValueError:
                         pass
 
-                job_name = pod_labels.get(LABEL_CONTAINER_NAME, pod.metadata.name)
+                # Derive job_name from labels or pod name, avoiding
+                # double-prefixing when the value already includes JOB_PREFIX.
+                raw_name = pod_labels.get(LABEL_CONTAINER_NAME, pod.metadata.name)
+                if raw_name.startswith(self.JOB_PREFIX):
+                    job_name = raw_name
+                else:
+                    job_name = f"{self.JOB_PREFIX}{raw_name}"
 
                 results.append(
                     ContainerInfo(
@@ -433,7 +444,7 @@ class KubernetesClient:
                         agent_role=agent_role,
                         pod_name=pod.metadata.name,
                         namespace=self.namespace,
-                        job_name=f"{self.JOB_PREFIX}{job_name}",
+                        job_name=job_name,
                     )
                 )
 
@@ -789,17 +800,38 @@ class KubernetesClient:
 
 _kubernetes_client: KubernetesClient | None = None
 
+_NAMESPACE_SENTINEL = object()
 
-def get_kubernetes_client(namespace: str = DEFAULT_NAMESPACE) -> KubernetesClient:
+
+def get_kubernetes_client(namespace: str | object = _NAMESPACE_SENTINEL) -> KubernetesClient:
     """Get the singleton Kubernetes client.
 
     Args:
-        namespace: Default namespace (only used on first call).
+        namespace: Default namespace.  Only used on first call.  If the
+            singleton already exists and a *different* explicit namespace
+            is requested, a ``ValueError`` is raised to surface the
+            configuration conflict.
 
     Returns:
         KubernetesClient instance.
+
+    Raises:
+        ValueError: If an explicit *namespace* differs from the cached
+            instance's namespace.
     """
     global _kubernetes_client
+
+    # Resolve sentinel to the real default
+    explicit = namespace is not _NAMESPACE_SENTINEL
+    ns: str = namespace if explicit else DEFAULT_NAMESPACE  # type: ignore[assignment]
+
     if _kubernetes_client is None:
-        _kubernetes_client = KubernetesClient(namespace=namespace)
+        _kubernetes_client = KubernetesClient(namespace=ns)
+    elif explicit and _kubernetes_client.namespace != ns:
+        raise ValueError(
+            f"Requested namespace {ns!r} differs from cached "
+            f"singleton namespace {_kubernetes_client.namespace!r}. "
+            f"Create a new KubernetesClient instance directly if you "
+            f"need a different namespace."
+        )
     return _kubernetes_client

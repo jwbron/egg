@@ -8,47 +8,8 @@ metadata:
     app.kubernetes.io/component: orchestrator
     app.kubernetes.io/part-of: egg
 ---
-# ClusterRole granting the orchestrator permission to manage agent jobs
-# across the egg-agents namespace.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: egg-orchestrator
-  labels:
-    app.kubernetes.io/name: orchestrator
-    app.kubernetes.io/part-of: egg
-rules:
-  - apiGroups: ["batch"]
-    resources: ["jobs"]
-    verbs: ["create", "delete", "get", "list", "watch"]
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["create", "delete", "get", "list", "watch"]
-  - apiGroups: [""]
-    resources: ["pods/log"]
-    verbs: ["get"]
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["get", "list"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: egg-orchestrator
-  labels:
-    app.kubernetes.io/name: orchestrator
-    app.kubernetes.io/part-of: egg
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: egg-orchestrator
-subjects:
-  - kind: ServiceAccount
-    name: egg-orchestrator
-    namespace: egg-system
----
-# Fine-grained Role scoped to the egg-agents namespace for managing
-# agent jobs and their associated pods.
+# Namespace-scoped Role for managing agent jobs and pods in egg-agents.
+# No ClusterRole is needed — the orchestrator only operates in egg-agents.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

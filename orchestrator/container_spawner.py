@@ -6,6 +6,7 @@ after the Docker-to-Kubernetes migration.
 """
 
 from kubernetes_spawner import (
+    WORKTREE_BASE_DIR,
     KubernetesSpawnError,
     KubernetesSpawner,
     SpawnedContainer,
@@ -27,6 +28,7 @@ __all__ = [
     "ContainerSpawner",
     "ContainerSpawnError",
     "SpawnedContainer",
+    "WORKTREE_BASE_DIR",
     "_host_to_local_volumes",
     "get_container_spawner",
 ]
