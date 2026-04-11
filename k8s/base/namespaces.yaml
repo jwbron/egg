@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: egg-system
+  labels:
+    app.kubernetes.io/part-of: egg
+    app.kubernetes.io/managed-by: kustomize
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: egg-agents
+  labels:
+    app.kubernetes.io/part-of: egg
+    app.kubernetes.io/managed-by: kustomize

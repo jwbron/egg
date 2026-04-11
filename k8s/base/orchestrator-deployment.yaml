@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: egg-system
+  labels:
+    app.kubernetes.io/name: orchestrator
+    app.kubernetes.io/component: orchestrator
+    app.kubernetes.io/part-of: egg
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orchestrator
+      app.kubernetes.io/component: orchestrator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orchestrator
+        app.kubernetes.io/component: orchestrator
+        app.kubernetes.io/part-of: egg
+    spec:
+      serviceAccountName: egg-orchestrator
+      containers:
+        - name: orchestrator
+          image: egg-orchestrator:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: api
+              containerPort: 9849
+              protocol: TCP
+            - name: mcp
+              containerPort: 9850
+              protocol: TCP
+          env:
+            - name: EGG_ORCHESTRATOR_URL
+              value: "http://orchestrator.egg-system.svc.cluster.local:9849"
+            - name: GATEWAY_URL
+              value: "http://gateway.egg-system.svc.cluster.local:9848"
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: api
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: api
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi

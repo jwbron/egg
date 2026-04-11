@@ -1,0 +1,27 @@
+# Strategic merge patch: override gateway volumes to use hostPath
+# for local k3s development instead of emptyDir/secrets.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: egg-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: gateway
+          volumeMounts:
+            - name: gateway-state
+              mountPath: /var/lib/egg-gateway
+            - name: gateway-certs
+              mountPath: /etc/egg-gateway/certs
+              readOnly: true
+      volumes:
+        - name: gateway-state
+          hostPath:
+            path: /home/egg/.egg-gateway/state
+            type: DirectoryOrCreate
+        - name: gateway-certs
+          hostPath:
+            path: /home/egg/.egg-gateway/certs
+            type: DirectoryOrCreate
