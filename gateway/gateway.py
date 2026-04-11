@@ -3807,8 +3807,9 @@ def session_create() -> tuple[Response, int] | Response:
     # Validate required fields
     if not container_id:
         return make_error("Missing container_id")
-    if not container_ip:
-        return make_error("Missing container_ip")
+    # container_ip is optional — k8s pod IPs are ephemeral and may not be
+    # known at session creation time.  When omitted, token-only auth is used.
+    # Kept for backward compatibility with Docker-based deployments.
     if mode not in ("private", "public"):
         return make_error("Invalid mode: must be 'private' or 'public'")
     # repos can be omitted for orchestrator-internal sessions that have a pipeline_id
