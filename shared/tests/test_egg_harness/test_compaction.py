@@ -165,7 +165,10 @@ class TestCompactNow:
         mgr = _make_manager(keep_recent_tokens=10, loop_protection_turns=3)
         msgs = [_user_msg("a"), _assistant_msg("b")]
         mgr.compact(msgs)
-        # Same turn — compact() would raise, but compact_now() should not.
+        # Verify precondition: compact() would raise on the same turn.
+        with pytest.raises(CompactionLoopError):
+            mgr.compact(msgs)
+        # compact_now() should bypass loop protection even on the same turn.
         mgr.compact_now(msgs)
         assert mgr.compaction_count == 2
 
@@ -262,11 +265,11 @@ class TestFindCutPoint:
             _user_msg("z" * 20),  # 5 tokens - recent
         ]
         cut = mgr._find_cut_point(msgs)
+        # The cut must be positive so the core assertion actually runs.
+        assert cut > 0, f"Expected cut > 0 but got {cut}"
         # The cut should never land on a tool_result (index 3).
-        # If it does, it should adjust backward.
-        if cut > 0:
-            msg_at_cut = msgs[cut]
-            assert not mgr._is_tool_result_message(msg_at_cut)
+        msg_at_cut = msgs[cut]
+        assert not mgr._is_tool_result_message(msg_at_cut)
 
     def test_single_message_returns_zero(self):
         mgr = _make_manager(keep_recent_tokens=1)

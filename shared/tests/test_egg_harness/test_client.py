@@ -100,6 +100,13 @@ class TestCreateStandardTools:
     def test_cwd_parameter_accepted(self):
         tools = _create_standard_tools(cwd="/tmp/workspace")
         assert len(tools) == 8
+        # Verify the cwd was threaded into the Bash tool handler's closure.
+        bash_defn, bash_handler = tools[0]
+        assert bash_defn.name == "Bash"
+        closure_vars = bash_handler.__code__.co_freevars
+        assert "cwd" in closure_vars
+        cwd_index = closure_vars.index("cwd")
+        assert bash_handler.__closure__[cwd_index].cell_contents == "/tmp/workspace"
 
 
 # ---------------------------------------------------------------------------

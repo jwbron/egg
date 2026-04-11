@@ -936,5 +936,4 @@ class TestAgentLoopCircuitBreaker:
         # Should NOT trip the circuit breaker because the success in turn 2
         # resets the counter. After reset: fail, fail = 2 consecutive (< 3).
         assert isinstance(result, AgentResult)
-        if result.error:
-            assert "Circuit breaker" not in result.error
+        assert result.error is None, f"Unexpected error: {result.error}"
