@@ -182,7 +182,7 @@
       "phase": "pr",
       "status": "running",
       "started_at": "2026-04-11T03:02:03.104206Z",
-      "work_started_at": null,
+      "work_started_at": "2026-04-11T03:02:08.467456Z",
       "completed_at": null,
       "containers": [],
       "agents": [],
@@ -197,7 +197,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-11T02:40:44.478554Z",
-  "updated_at": "2026-04-11T03:02:03.104471Z",
+  "updated_at": "2026-04-11T03:02:08.467523Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -208,5 +208,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 11
+  "version": 12
 }
