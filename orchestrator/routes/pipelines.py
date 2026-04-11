@@ -6358,7 +6358,9 @@ def _run_concurrent_phase(
                 try:
                     from peer_consensus import get_peer_consensus_tracker as _get_brc
                 except ImportError:
-                    from ..peer_consensus import get_peer_consensus_tracker as _get_brc  # type: ignore[no-redef]
+                    from ..peer_consensus import (
+                        get_peer_consensus_tracker as _get_brc,  # type: ignore[no-redef]
+                    )
                 try:
                     _brc = _get_brc(pipeline_id)
                 except Exception:
