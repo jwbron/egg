@@ -6625,6 +6625,37 @@ def _run_concurrent_phase(
                     final_consensus = {"is_complete": False}
 
                 if final_consensus.get("is_complete"):
+                    # Guard: consensus may be "complete" by quorum but still
+                    # have unresolved NACKs — mirror the step 5 no-failure
+                    # NACK check and the timeout path NACK check.
+                    if final_consensus.get("has_unresolved_nacks"):
+                        nack_details = final_consensus.get("unresolved_nacks", [])
+                        nack_summary = _format_nack_summary(nack_details)
+                        logger.warning(
+                            "Consensus complete on final recheck but unresolved NACKs remain (has_failures path)",
+                            pipeline_id=pipeline_id,
+                            nack_count=len(nack_details),
+                            nack_summary=nack_summary,
+                        )
+                        try:
+                            pipeline.add_decision(
+                                question=(
+                                    f"Consensus reached but {len(nack_details)} NACK(s) "
+                                    f"remain unresolved: {nack_summary}. How to proceed?"
+                                ),
+                                options=["Retry phase", "Accept current state", "Abort phase"],
+                                phase=pipeline.current_phase,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "Failed to create NACK escalation decision (step 5 has_failures path)",
+                                exc_info=True,
+                            )
+                        combined_logs += (
+                            f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
+                        )
+                        return 1, combined_logs
+
                     # Consensus reached after all — recover pipeline if needed
                     if store is not None:
                         try:

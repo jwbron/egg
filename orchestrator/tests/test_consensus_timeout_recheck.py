@@ -501,6 +501,127 @@ class TestConsensusTimeoutRecheck:
         )
         assert "UNRESOLVED NACKs" in logs
 
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_step5_has_failures_with_consensus_and_nacks_returns_failure(
+        self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
+    ):
+        """When containers exit with failures (step 5), consensus is complete on
+        final recheck, but there are unresolved NACKs, the phase should fail
+        (exit code 1) and escalate to HITL.
+
+        This mirrors the timeout path NACK guard — step 5's has_failures branch
+        must also check for unresolved NACKs before returning success.
+        """
+        # Use a short monotonic sequence so step 5 fires (containers exit)
+        # before the consensus timeout (step 6).
+        call_count = [0]
+
+        def _monotonic():
+            call_count[0] += 1
+            # Stay well under the 30-min timeout so step 5 handles exit
+            return call_count[0] * 5.0
+
+        mock_monotonic.side_effect = _monotonic
+
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-1"),
+        ]
+
+        # Both containers EXITED — coder with failure, reviewer clean
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-1691-coder",
+                status=ContainerStatus.EXITED,
+                exit_code=1,
+                exited_at=datetime.now(UTC),
+            ),
+            "reviewer-1": ContainerInfo(
+                container_id="reviewer-1",
+                container_name="issue-1691-reviewer_code",
+                status=ContainerStatus.EXITED,
+                exit_code=0,
+                exited_at=datetime.now(UTC),
+            ),
+        }
+
+        pipeline = _make_concurrent_pipeline()
+        phase_exec = _make_phase_execution()
+
+        mock_store = MagicMock()
+        mock_pipeline_state = MagicMock()
+        mock_pipeline_state.get_phase_execution.return_value = phase_exec
+        mock_pipeline_state.status = PipelineStatus.RUNNING
+        mock_store.load_pipeline.return_value = mock_pipeline_state
+
+        mock_docker = MagicMock()
+        mock_docker.get_container_info.side_effect = lambda cid: container_infos.get(cid)
+        mock_docker.stop_container.return_value = ContainerInfo(
+            container_id="stopped",
+            container_name="stopped",
+            status=ContainerStatus.EXITED,
+            exit_code=137,
+        )
+
+        mock_spawner = MagicMock()
+        mock_spawner.docker = mock_docker
+        mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
+
+        # Consensus: NOT complete on first check, then complete WITH
+        # unresolved NACKs on final recheck (step 5 has_failures path).
+        consensus_call_count = [0]
+
+        def _check_consensus():
+            consensus_call_count[0] += 1
+            if consensus_call_count[0] == 1:
+                return {
+                    "is_complete": False,
+                    "has_objections": False,
+                    "blocking_agents": ["coder"],
+                }
+            return {
+                "is_complete": True,
+                "has_objections": False,
+                "has_unresolved_nacks": True,
+                "unresolved_nacks": [
+                    {
+                        "reviewer": "reviewer_code",
+                        "producer": "coder",
+                        "reason": "Security concern",
+                    },
+                ],
+                "blocking_agents": [],
+            }
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.side_effect = _check_consensus
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-1691",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        assert exit_code == 1, (
+            f"Expected exit code 1 (consensus complete but unresolved NACKs in has_failures path), "
+            f"got {exit_code}. Logs: {logs}"
+        )
+        assert "UNRESOLVED NACKs" in logs
+
 
 class TestReconstructedNoShaFiltering:
     """The RECONSTRUCTED_NO_SHA sentinel must not leak into agent.commit."""
