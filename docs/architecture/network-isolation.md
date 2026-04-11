@@ -545,9 +545,10 @@ The Docker dual-network model (`egg-isolated` + `egg-external`) is replaced by K
 
 ### NetworkPolicy Rules
 
+Five policies in `k8s/base/network-policies.yaml` enforce isolation:
+
 ```yaml
-# Default deny all ingress in egg-agents
-apiVersion: networking.k8s.io/v1
+# 1. Default deny all ingress in egg-agents
 kind: NetworkPolicy
 metadata:
   name: default-deny-ingress
@@ -556,45 +557,76 @@ spec:
   podSelector: {}
   policyTypes: ["Ingress"]
 
-# Default deny all egress in egg-agents (except to gateway)
-apiVersion: networking.k8s.io/v1
+# 2. Default deny all egress in egg-agents
 kind: NetworkPolicy
 metadata:
-  name: allow-gateway-egress-only
+  name: default-deny-egress
   namespace: egg-agents
 spec:
   podSelector: {}
+  policyTypes: ["Egress"]
+
+# 3. Allow agent pods to reach gateway (API + proxy)
+kind: NetworkPolicy
+metadata:
+  name: allow-agent-to-gateway
+  namespace: egg-agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agent
   policyTypes: ["Egress"]
   egress:
     - to:
         - namespaceSelector:
             matchLabels:
-              name: egg-system
+              kubernetes.io/metadata.name: egg-system
           podSelector:
             matchLabels:
-              app: gateway
+              app.kubernetes.io/component: gateway
       ports:
         - port: 9848   # Gateway API
         - port: 3129   # Squid proxy
-        - port: 9851   # Health check
 
-# Allow orchestrator to reach agent pods (health checks, logs)
-apiVersion: networking.k8s.io/v1
+# 4. Allow orchestrator to reach agent pods (health checks, logs)
 kind: NetworkPolicy
 metadata:
-  name: allow-orchestrator-ingress
+  name: allow-orchestrator-to-agent
   namespace: egg-agents
 spec:
-  podSelector: {}
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agent
   policyTypes: ["Ingress"]
   ingress:
     - from:
         - namespaceSelector:
             matchLabels:
-              name: egg-system
+              kubernetes.io/metadata.name: egg-system
           podSelector:
             matchLabels:
-              app: orchestrator
+              app.kubernetes.io/component: orchestrator
+
+# 5. Allow agent pods to reach kube-dns for DNS resolution
+kind: NetworkPolicy
+metadata:
+  name: allow-agent-dns
+  namespace: egg-agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agent
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
 ```
 
 ### CNI Requirement

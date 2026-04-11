@@ -98,20 +98,28 @@ k3s Cluster
 
 ### ContainerBackend Protocol
 
-Both old and new implementations satisfy a common `ContainerBackend` protocol (Python `Protocol` class for structural typing):
+Both old and new implementations satisfy a common `ContainerBackend` protocol defined in `orchestrator/container_backend.py` (Python `Protocol` class with `@runtime_checkable` for structural typing):
 
 ```python
+@runtime_checkable
 class ContainerBackend(Protocol):
-    def create(self, config: ContainerConfig) -> str: ...
-    def start(self, container_id: str) -> None: ...
-    def stop(self, container_id: str) -> None: ...
-    def remove(self, container_id: str) -> None: ...
-    def list(self, labels: dict[str, str]) -> list[ContainerInfo]: ...
-    def get_info(self, container_id: str) -> ContainerInfo: ...
-    def get_logs(self, container_id: str, tail: int) -> str: ...
+    def create_container(self, name: str, image: str | None = None,
+                         environment: dict[str, str] | None = None,
+                         volumes: dict[str, dict[str, str]] | None = None,
+                         network: str | None = None, command: list[str] | None = None,
+                         labels: dict[str, str] | None = None, **kwargs) -> ContainerInfo: ...
+    def start_container(self, container_id: str) -> ContainerInfo: ...
+    def stop_container(self, container_id: str, timeout: int = 10) -> ContainerInfo: ...
+    def remove_container(self, container_id: str, force: bool = False, v: bool = True) -> None: ...
+    def get_container_info(self, container_id: str) -> ContainerInfo: ...
+    def list_containers(self, all: bool = True, labels: dict[str, str] | None = None) -> list[ContainerInfo]: ...
+    def get_container_logs(self, container_id: str, tail: int = 100, since: datetime | None = None) -> str: ...
+    def wait_for_container(self, container_id: str, timeout: int = 300) -> ContainerInfo: ...
+    def cleanup_orphaned_containers(self, max_age_hours: int = 24) -> int: ...
+    def is_connected(self) -> bool: ...
 ```
 
-This enables clean mocking in tests and leaves the door open for alternative backends if needed.
+The `KubernetesClient` maps these to k8s API operations: `create_container` creates a Job, `stop_container` deletes the Job, `get_container_logs` reads pod logs, etc. Labels (`egg.pipeline.id`, `egg.agent.role`, `egg.container.name`) are used for filtering and identification.
 
 ## Network Isolation
 
@@ -147,10 +155,11 @@ Namespace: egg-system          Namespace: egg-agents
 
 | Policy | Namespace | Effect |
 |--------|-----------|--------|
-| Default deny ingress | `egg-agents` | No inbound traffic to agent pods |
-| Default deny egress | `egg-agents` | No outbound traffic from agent pods (except below) |
-| Allow agent → gateway | `egg-agents` | Egress to gateway Service in `egg-system` only |
-| Allow orchestrator → agents | `egg-agents` | Ingress from orchestrator for health checks and log retrieval |
+| `default-deny-ingress` | `egg-agents` | No inbound traffic to agent pods |
+| `default-deny-egress` | `egg-agents` | No outbound traffic from agent pods (except below) |
+| `allow-agent-to-gateway` | `egg-agents` | Egress to gateway pods in `egg-system` on ports 9848 (API) and 3129 (proxy) |
+| `allow-orchestrator-to-agent` | `egg-agents` | Ingress from orchestrator pods in `egg-system` |
+| `allow-agent-dns` | `egg-agents` | Egress to `kube-system` on port 53 (UDP/TCP) for DNS resolution |
 
 **Security properties preserved:**
 - Agents cannot reach the internet directly (must go through gateway proxy)
@@ -239,24 +248,34 @@ k8s/
 
 ## RBAC Model
 
-The orchestrator needs permissions to manage agent Jobs in the `egg-agents` namespace:
+The orchestrator uses a ServiceAccount (`egg-orchestrator` in `egg-system`) with two levels of permissions:
+
+1. **ClusterRole** (`egg-orchestrator`): Broad permissions for cross-namespace operations (Jobs, Pods, ConfigMaps)
+2. **Role** (`egg-agent-manager` in `egg-agents`): Fine-grained permissions scoped to the agent namespace
 
 ```yaml
+# Namespace-scoped Role in egg-agents
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: orchestrator-job-manager
+  name: egg-agent-manager
   namespace: egg-agents
 rules:
   - apiGroups: ["batch"]
     resources: ["jobs"]
+    verbs: ["create", "delete", "get", "list", "watch", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
     verbs: ["create", "delete", "get", "list", "watch"]
   - apiGroups: [""]
-    resources: ["pods", "pods/log"]
-    verbs: ["get", "list", "watch"]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
 ```
 
-This replaces the Docker socket mount with a principle-of-least-privilege API access model.
+This replaces the Docker socket mount with a principle-of-least-privilege API access model. The orchestrator can manage Jobs and Pods in `egg-agents` but has no access to other namespaces' workloads.
 
 ## Developer Workflow Changes
 

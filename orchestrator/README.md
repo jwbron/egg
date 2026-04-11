@@ -69,7 +69,7 @@ See [Agent Roles Reference](../docs/reference/agent-roles.md) for the complete r
 
 ### State Persistence
 
-Pipeline state is stored on a dedicated `egg/pipeline-state` orphan branch accessed via a persistent git worktree at `/home/egg/.egg-state/pipeline-worktree`. The branch is local-only (never pushed to remote) and persists across orchestrator restarts via the Docker state volume.
+Pipeline state is stored on a dedicated `egg/pipeline-state` orphan branch accessed via a persistent git worktree at `/home/egg/.egg-state/pipeline-worktree`. The branch is local-only (never pushed to remote) and persists across orchestrator restarts via a Kubernetes PersistentVolume.
 
 ### Concurrent Execution Mode
 
@@ -124,7 +124,7 @@ All endpoints are prefixed with `/api/v1`.
 | `GET` | `/pipelines/{id}/stream` | SSE stream for single pipeline |
 | `GET` | `/pipelines/stream` | Unified SSE stream for all active pipelines |
 
-**PATCH cancel/fail behavior:** When a pipeline is updated to `cancelled` or `failed` status, the PATCH handler cancels pending HITL decisions and marks agent records as terminated synchronously, then returns the response immediately. Container and worktree cleanup runs in a background daemon thread so the caller is not blocked by slow Docker/gateway operations. The response includes `cleanup_pending: true` to indicate that container teardown is still in progress. The DELETE handler re-runs `cleanup_pipeline()` as a safety net, so any containers not yet removed by the background thread will be caught there.
+**PATCH cancel/fail behavior:** When a pipeline is updated to `cancelled` or `failed` status, the PATCH handler cancels pending HITL decisions and marks agent records as terminated synchronously, then returns the response immediately. Pod and worktree cleanup runs in a background daemon thread so the caller is not blocked by slow k8s/gateway operations. The response includes `cleanup_pending: true` to indicate that pod teardown is still in progress. The DELETE handler re-runs `cleanup_pipeline()` as a safety net, so any pods not yet removed by the background thread will be caught there.
 
 **POST `source_branch` parameter:** The `POST /pipelines` endpoint accepts an optional `source_branch` field. When provided, the orchestrator reads plan and analysis artifacts from the specified branch during pipeline setup via `git show`, avoiding the need to pass large (50-80KB+) content inline. The orchestrator falls back to `git ls-tree` prefix matching when the pipeline ID prefix doesn't match files on the source branch. Inline `analysis`/`plan` values take precedence. See the [SDLC Pipeline guide](../docs/guides/sdlc-pipeline.md#creating-a-pipeline) for usage examples.
 
@@ -330,10 +330,10 @@ Health checks run at key lifecycle points to catch infrastructure and semantic f
 
 | Check | Purpose | Triggers |
 |-------|---------|----------|
-| `ContainerLivenessCheck` | Verify RUNNING containers exist in Docker | All |
+| `ContainerLivenessCheck` | Verify RUNNING agent pods exist in Kubernetes | All |
 | `StartupStateCheck` | Post-startup reconciliation verification | STARTUP, ON_DEMAND |
 | `PhaseOutputPresenceCheck` | Detect missing artifacts (commits, plans) | WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND |
-| `StateConsistencyCheck` | Cross-reference orchestrator state vs Docker vs contract | RUNTIME_TICK, WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND |
+| `StateConsistencyCheck` | Cross-reference orchestrator state vs k8s pod state vs contract | RUNTIME_TICK, WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND |
 
 **Tier 2 (Semantic)** — LLM-based checks that evaluate whether agents made meaningful progress:
 
@@ -408,7 +408,7 @@ See the [Pipeline Health Monitoring Guide](../docs/guides/pipeline-health-monito
 | `EGG_AGENT_ROLE` | Agent role for multi-agent mode | None |
 | `EGG_BRANCH` | Target branch for the agent's worktree | `egg/{pipeline_id}/work` |
 | `EGG_PRIVATE_MODE` | Private network mode | None |
-| `HOST_HOME` | Docker host home directory (for worktree path translation) | None |
+| `HOST_HOME` | Host machine home directory (for worktree path translation) | None |
 | `ORCHESTRATOR_PORT` | API port | `9849` |
 
 ### Constants
