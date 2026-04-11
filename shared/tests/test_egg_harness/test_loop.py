@@ -672,7 +672,7 @@ class TestAgentLoopResult:
 
     @pytest.mark.anyio
     async def test_result_failure_on_error(self):
-        """Error during execution -> exception propagates (loop has no top-level catch)."""
+        """Error during execution -> loop catches and returns AgentResult(success=False)."""
 
         async def _error_send_message(
             *,
@@ -697,20 +697,243 @@ class TestAgentLoopResult:
             tool_registry=registry,
             config=config,
         )
-        # The loop does not have a top-level exception handler — provider
-        # errors propagate to the caller.  Accept either:
-        #   a) ConnectionError propagates, or
-        #   b) loop returns AgentResult(success=False)
-        try:
-            result = await loop.run(
-                "Break",
-                messages=[{"role": "user", "content": "Break"}],
-            )
-            assert isinstance(result, AgentResult)
-            assert result.success is False
-            assert result.error is not None
-        except (ConnectionError, RuntimeError):
-            pass  # Acceptable: exception propagated
+        # _run_loop has a broad `except Exception` handler (loop.py:244) that
+        # catches all provider errors and returns a structured result.
+        result = await loop.run(
+            "Break",
+            messages=[{"role": "user", "content": "Break"}],
+        )
+        assert isinstance(result, AgentResult)
+        assert result.success is False
+        assert result.error is not None
+        assert "Provider error" in result.error
+
+
+# ---------------------------------------------------------------------------
+# SIGTERM graceful shutdown tests
+# ---------------------------------------------------------------------------
+
+
+class TestAgentLoopSigterm:
+    """Tests for SIGTERM signal handling in AgentLoop."""
+
+    @pytest.mark.anyio
+    async def test_shutdown_flag_causes_exit(self):
+        """When _shutdown_requested is True, the loop exits on the next check."""
+        # First response is a tool_use so the loop doesn't end on stop_reason.
+        # The tool execution sets the shutdown flag, and the shutdown check
+        # at the top of the next iteration catches it.
+        tool_events = _make_tool_use_events(
+            tool_name="Bash",
+            tool_input={"command": "echo hi"},
+            tool_input_json='{"command": "echo hi"}',
+        )
+        followup = _make_text_response_events("continuing")
+        provider = _make_mock_provider([tool_events, followup])
+        registry = _make_mock_registry(results={"Bash": "output"})
+        config = _make_default_config()
+        loop = AgentLoop(
+            provider=provider,
+            tool_registry=registry,
+            config=config,
+        )
+
+        original_execute = registry.execute
+
+        async def _execute_and_set_flag(name, inp):
+            result = await original_execute(name, inp)
+            loop._shutdown_requested = True
+            return result
+
+        registry.execute = _execute_and_set_flag
+
+        result = await loop.run("test")
+
+        assert isinstance(result, AgentResult)
+        assert result.success is False
+        assert "Shutdown" in (result.error or "")
+
+    @pytest.mark.anyio
+    async def test_shutdown_during_tool_execution_stops_loop(self):
+        """If shutdown is requested between tool calls, the loop exits."""
+        # Provider requests a tool, loop executes it, then checks shutdown.
+        tool_events = _make_tool_use_events(
+            tool_name="Bash",
+            tool_input={"command": "echo test"},
+            tool_input_json='{"command": "echo test"}',
+        )
+        followup_events = _make_text_response_events("continuing")
+
+        provider = _make_mock_provider([tool_events, followup_events])
+        registry = _make_mock_registry(results={"Bash": "output"})
+        config = _make_default_config()
+
+        loop = AgentLoop(
+            provider=provider,
+            tool_registry=registry,
+            config=config,
+        )
+
+        # Set shutdown after the loop starts (simulating SIGTERM during tool
+        # execution). We do this by wrapping execute to set the flag.
+        original_execute = registry.execute
+
+        async def _execute_and_shutdown(name, inp):
+            result = await original_execute(name, inp)
+            loop._shutdown_requested = True
+            return result
+
+        registry.execute = _execute_and_shutdown
+
+        result = await loop.run(
+            "test",
+            messages=[{"role": "user", "content": "run a command"}],
+        )
+        assert isinstance(result, AgentResult)
+        # The loop should exit due to the shutdown flag set during tool execution.
+        assert result.success is False
+        assert "Shutdown" in (result.error or "")
+
+    @pytest.mark.anyio
+    async def test_sigterm_handler_restored_after_run(self):
+        """After run() completes, the original SIGTERM handler is restored."""
+        provider = _make_mock_provider(
+            [
+                _make_text_response_events("done"),
+            ]
+        )
+        registry = _make_mock_registry()
+        config = _make_default_config()
+        loop = AgentLoop(
+            provider=provider,
+            tool_registry=registry,
+            config=config,
+        )
+
+        import signal
+        import threading
+
+        # Only test handler restoration on main thread
+        if threading.current_thread() is not threading.main_thread():
+            pytest.skip("Signal tests require main thread")
+
+        original = signal.getsignal(signal.SIGTERM)
+        await loop.run("test")
+        after = signal.getsignal(signal.SIGTERM)
+        # The handler should be restored to whatever it was before run()
+        assert after == original
+
+    @pytest.mark.anyio
+    async def test_handle_sigterm_sets_flag(self):
+        """The _handle_sigterm method sets _shutdown_requested."""
+        provider = _make_mock_provider([_make_text_response_events("hi")])
+        registry = _make_mock_registry()
+        config = _make_default_config()
+        loop = AgentLoop(
+            provider=provider,
+            tool_registry=registry,
+            config=config,
+        )
+        assert loop._shutdown_requested is False
+        loop._handle_sigterm(15, None)
+        assert loop._shutdown_requested is True
+
+
+# ---------------------------------------------------------------------------
+# Circuit breaker tests
+# ---------------------------------------------------------------------------
+
+
+class TestAgentLoopCircuitBreaker:
+    """Tests for the consecutive tool failure circuit breaker."""
+
+    @pytest.mark.anyio
+    async def test_three_consecutive_failures_trips(self):
+        """3 consecutive tool failures should trip the circuit breaker."""
+        # Provider keeps requesting the same tool each turn
+        tool_events = _make_tool_use_events(
+            tool_name="Bash",
+            tool_input={"command": "fail"},
+            tool_input_json='{"command": "fail"}',
+        )
+        provider = _make_mock_provider([tool_events] * 5)
+        # Registry always returns is_error=True
+        registry = _make_failing_registry()
+        config = _make_default_config()
+
+        loop = AgentLoop(
+            provider=provider,
+            tool_registry=registry,
+            config=config,
+        )
+
+        result = await loop.run(
+            "test",
+            messages=[{"role": "user", "content": "do stuff"}],
+        )
+
+        assert isinstance(result, AgentResult)
+        assert result.success is False
+        assert "Circuit breaker" in (result.error or "")
+        assert "3" in (result.error or "")
+
+    @pytest.mark.anyio
+    async def test_success_resets_failure_counter(self):
+        """A successful tool call should reset the consecutive failure counter."""
+        # Turn 1: tool call fails
+        tool_events_fail = _make_tool_use_events(
+            tool_name="Bash",
+            tool_input={"command": "fail"},
+            tool_input_json='{"command": "fail"}',
+        )
+        # Turn 2: tool call succeeds (text response after)
+        tool_events_ok = _make_tool_use_events(
+            tool_name="Read",
+            tool_input={"file_path": "/tmp/x"},
+            tool_input_json='{"file_path": "/tmp/x"}',
+        )
+        final = _make_text_response_events("done")
+
+        provider = _make_mock_provider(
+            [
+                tool_events_fail,  # turn 1: fail
+                tool_events_ok,  # turn 2: succeed
+                tool_events_fail,  # turn 3: fail
+                tool_events_fail,  # turn 4: fail
+                final,  # turn 5: done
+            ]
+        )
+
+        # Registry: Bash fails, Read succeeds
+        call_count = {"total": 0}
+
+        async def _selective_execute(name, inp):
+            call_count["total"] += 1
+            if name == "Bash":
+                return ToolResult(output="command not found", is_error=True)
+            return ToolResult(output="file contents", is_error=False)
+
+        registry = MagicMock(spec=ToolRegistry)
+        registry.execute = _selective_execute
+        registry.get_definitions.return_value = []
+
+        config = _make_default_config()
+
+        loop = AgentLoop(
+            provider=provider,
+            tool_registry=registry,
+            config=config,
+        )
+
+        result = await loop.run(
+            "test",
+            messages=[{"role": "user", "content": "do stuff"}],
+        )
+
+        # Should NOT trip the circuit breaker because the success in turn 2
+        # resets the counter. After reset: fail, fail = 2 consecutive (< 3).
+        assert isinstance(result, AgentResult)
+        assert result.error is None, f"Unexpected error: {result.error}"
 
 
 # ---------------------------------------------------------------------------
