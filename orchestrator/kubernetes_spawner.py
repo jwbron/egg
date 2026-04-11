@@ -70,6 +70,18 @@ PROXY_URL = os.environ.get(
     "EGG_PROXY_URL", f"http://gateway.egg-system.svc.cluster.local:{GATEWAY_PROXY_PORT}"
 )
 
+# Environment variables that extra_env must never override.
+_PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
+    {
+        "EGG_SESSION_TOKEN",
+        "GATEWAY_URL",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "EGG_ORCHESTRATOR_URL",
+    }
+)
+
 
 @dataclass
 class SpawnedContainer:
@@ -361,16 +373,6 @@ class KubernetesSpawner:
                 environment["EGG_BRANCH"] = f"egg/{pipeline_id}/work"
 
             # Caller's extra_env overrides defaults, except protected keys
-            _PROTECTED_ENV_KEYS = frozenset(
-                {
-                    "EGG_SESSION_TOKEN",
-                    "GATEWAY_URL",
-                    "HTTP_PROXY",
-                    "HTTPS_PROXY",
-                    "NO_PROXY",
-                    "EGG_ORCHESTRATOR_URL",
-                }
-            )
             if extra_env:
                 for key, value in extra_env.items():
                     if key in _PROTECTED_ENV_KEYS:
