@@ -460,7 +460,8 @@ def _get_k8s_client():
     falls back to kubeconfig.
     """
     try:
-        from kubernetes import client, config as k8s_config
+        from kubernetes import client
+        from kubernetes import config as k8s_config
 
         try:
             k8s_config.load_incluster_config()

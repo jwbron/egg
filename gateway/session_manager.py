@@ -290,7 +290,9 @@ class Session:
     session_token: str | None  # Raw token, only in memory
     session_token_hash: str
     container_id: str
-    container_ip: str | None  # Optional; logged for audit, not validated (k8s pod IPs are ephemeral)
+    container_ip: (
+        str | None
+    )  # Optional; logged for audit, not validated (k8s pod IPs are ephemeral)
     mode: ModeType
     created_at: datetime
     last_seen: datetime

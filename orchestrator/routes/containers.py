@@ -67,6 +67,7 @@ def _get_monitor():
         return get_kubernetes_monitor()
     return get_container_monitor()
 
+
 logger = get_logger("orchestrator.containers")
 
 containers_bp = Blueprint("containers", __name__, url_prefix="/api/v1/pipelines")

@@ -65,7 +65,7 @@ try:
         PodNotFoundError,
         get_kubernetes_client,
     )
-    from ..kubernetes_spawner import KubernetesSpawnError, KubernetesSpawner, get_kubernetes_spawner
+    from ..kubernetes_spawner import KubernetesSpawner, KubernetesSpawnError, get_kubernetes_spawner
     from ..models import (
         AgentExecutionStatus,
         AgentRole,
@@ -100,12 +100,13 @@ except ImportError:
     from gateway_client import GatewayError  # type: ignore
     from kubernetes_client import (  # type: ignore
         JobOperationError,
-        KubernetesClient,
         KubernetesClientError,
         PodNotFoundError,
-        get_kubernetes_client,
     )
-    from kubernetes_spawner import KubernetesSpawnError, KubernetesSpawner, get_kubernetes_spawner  # type: ignore
+    from kubernetes_spawner import (  # type: ignore
+        KubernetesSpawnError,
+        get_kubernetes_spawner,
+    )
     from models import (  # type: ignore
         AgentExecutionStatus,
         AgentRole,
@@ -143,7 +144,7 @@ if TYPE_CHECKING:
     try:
         from ..kubernetes_spawner import KubernetesSpawner as _KubernetesSpawnerType
     except ImportError:
-        from kubernetes_spawner import KubernetesSpawner as _KubernetesSpawnerType  # type: ignore
+        pass  # type: ignore
 
 logger = get_logger("orchestrator.pipelines")
 
@@ -6577,7 +6578,12 @@ def _run_concurrent_phase(
                 continue
             try:
                 info = docker_client.get_container_info(exec_info.container_id)
-            except (ContainerNotFoundError, ContainerOperationError, PodNotFoundError, JobOperationError) as e:
+            except (
+                ContainerNotFoundError,
+                ContainerOperationError,
+                PodNotFoundError,
+                JobOperationError,
+            ) as e:
                 logger.warning(
                     "Container lost during poll",
                     container_id=exec_info.container_id,
@@ -6832,7 +6838,12 @@ def _run_concurrent_phase(
                                 exec_info.container_id,
                                 timeout=3600,
                             )
-                        except (ContainerNotFoundError, ContainerOperationError, PodNotFoundError, JobOperationError):
+                        except (
+                            ContainerNotFoundError,
+                            ContainerOperationError,
+                            PodNotFoundError,
+                            JobOperationError,
+                        ):
                             final_info = ContainerInfo(
                                 container_id=exec_info.container_id,
                                 container_name=f"{pipeline_id}-{exec_info.role.value}",
@@ -6995,7 +7006,12 @@ def _spawn_and_wait(
             spawned.container_info.container_id,
             timeout=timeout,
         )
-    except (ContainerNotFoundError, ContainerOperationError, PodNotFoundError, JobOperationError) as e:
+    except (
+        ContainerNotFoundError,
+        ContainerOperationError,
+        PodNotFoundError,
+        JobOperationError,
+    ) as e:
         logger.warning(
             "Container lost during wait, marking failed",
             container_id=spawned.container_info.container_id,

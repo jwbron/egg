@@ -7,8 +7,8 @@ after the Docker-to-Kubernetes migration.
 
 from kubernetes_spawner import (
     WORKTREE_BASE_DIR,
-    KubernetesSpawnError,
     KubernetesSpawner,
+    KubernetesSpawnError,
     SpawnedContainer,
     _host_to_local_volumes,
     get_kubernetes_spawner,
