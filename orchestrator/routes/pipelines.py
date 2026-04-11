@@ -2418,10 +2418,20 @@ def _cleanup_drafts_for_pr(
     """
     drafts_dir = worktree_path / ".egg-state" / "drafts"
     if not drafts_dir.is_dir():
+        logger.info(
+            "_cleanup_drafts_for_pr: no drafts directory — skipping",
+            pipeline_identifier=str(pipeline_identifier),
+        )
         return False
 
     pid = str(pipeline_identifier)
     matches = list(drafts_dir.glob(f"{pid}-*.md"))
+    logger.info(
+        "_cleanup_drafts_for_pr: entering",
+        pipeline_identifier=pid,
+        match_count=len(matches),
+        matched_files=[m.name for m in matches[:20]],
+    )
     if not matches:
         return False
 
@@ -2449,6 +2459,10 @@ def _cleanup_drafts_for_pr(
                 check=True,
                 timeout=10,
             )
+            logger.info(
+                "_cleanup_drafts_for_pr: git rm succeeded",
+                path=str(draft.relative_to(worktree_path)),
+            )
             removed = True
         except subprocess.CalledProcessError as exc:
             logger.warning(
@@ -2473,13 +2487,23 @@ def _cleanup_drafts_for_pr(
                 check=True,
                 timeout=30,
             )
+            logger.info(
+                "_cleanup_drafts_for_pr: commit succeeded",
+                pipeline_identifier=pid,
+            )
             return True
         except subprocess.CalledProcessError as commit_err:
-            logger.debug(
-                "No changes to commit after pipeline draft cleanup",
+            logger.warning(
+                "_cleanup_drafts_for_pr: commit failed — no changes to commit after draft cleanup",
+                pipeline_identifier=pid,
                 error=str(commit_err),
             )
 
+    logger.info(
+        "_cleanup_drafts_for_pr: exiting without commit",
+        pipeline_identifier=pid,
+        removed=removed,
+    )
     return False
 
 
@@ -3799,6 +3823,12 @@ def _commit_statefiles_to_worktree(
             )
             if Path(f).is_file()
         ]
+        logger.info(
+            "_commit_statefiles_to_worktree: glob match results",
+            pipeline_identifier=str(pipeline_identifier),
+            match_count=len(matched),
+            matched_paths=[str(Path(f).relative_to(worktree_path)) for f in matched[:20]],
+        )
         if not matched:
             return  # No state files for this pipeline yet
 
@@ -3828,14 +3858,29 @@ def _commit_statefiles_to_worktree(
         timeout=30,
     )
     if result.returncode == 0:
+        logger.info(
+            "_commit_statefiles_to_worktree: nothing staged — skipping commit",
+            pipeline_identifier=str(pipeline_identifier),
+            commit_message=message,
+        )
         return  # Nothing to commit
 
+    logger.info(
+        "_commit_statefiles_to_worktree: staged changes detected — committing",
+        pipeline_identifier=str(pipeline_identifier),
+        commit_message=message,
+    )
     subprocess.run(
         [*git_base, "commit", "--no-verify", "-m", message, "--", ".egg-state/"],
         capture_output=True,
         text=True,
         check=True,
         timeout=30,
+    )
+    logger.info(
+        "_commit_statefiles_to_worktree: commit succeeded",
+        pipeline_identifier=str(pipeline_identifier),
+        commit_message=message,
     )
 
 
@@ -4139,24 +4184,50 @@ def _write_brc_history(
         phase: The pipeline phase name (e.g. "implement", "plan")
         identifier: The pipeline identifier for file naming
     """
+    logger.info(
+        "_write_brc_history: entering",
+        pipeline_id=pipeline_id,
+        phase=phase,
+        identifier=str(identifier),
+    )
+
     store_fn = _get_message_store()
     if store_fn is None:
-        logger.debug("Message store not available for BRC history")
+        logger.info(
+            "_write_brc_history: early return — message store unavailable",
+            pipeline_id=pipeline_id,
+            phase=phase,
+        )
         return
 
     try:
         store = store_fn()
         messages = store.get_messages(pipeline_id, limit=10000)
     except Exception as e:
-        logger.debug(
-            "Failed to retrieve messages for BRC history",
+        logger.info(
+            "_write_brc_history: early return — failed to retrieve messages",
             pipeline_id=pipeline_id,
+            phase=phase,
             error=str(e),
+        )
+        return
+
+    if not messages:
+        logger.info(
+            "_write_brc_history: early return — no messages in store",
+            pipeline_id=pipeline_id,
+            phase=phase,
         )
         return
 
     brc_messages = [m for m in messages if m.message_type in BRC_MESSAGE_TYPES and m.phase == phase]
     if not brc_messages:
+        logger.info(
+            "_write_brc_history: early return — no BRC messages for phase",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            total_messages=len(messages),
+        )
         return
 
     # Format as markdown
@@ -4209,6 +4280,16 @@ def _rewrite_brc_history_for_pr(
     :func:`_commit_statefiles_to_worktree`.  Commit failures are also
     logged and swallowed so the PR creation can proceed.
     """
+    completed_phases = [
+        name for name, ex in pipeline_phases.items() if ex.status == PipelineStatus.COMPLETE
+    ]
+    logger.info(
+        "_rewrite_brc_history_for_pr: entering",
+        pipeline_id=pipeline_id,
+        total_phases=len(pipeline_phases),
+        completed_phase_count=len(completed_phases),
+        completed_phases=completed_phases,
+    )
     for phase_name, phase_exec in pipeline_phases.items():
         if phase_exec.status == PipelineStatus.COMPLETE:
             try:
@@ -4231,12 +4312,20 @@ def _rewrite_brc_history_for_pr(
             "Persist BRC history files for PR",
             pipeline_identifier=identifier,
         )
+        logger.info(
+            "_rewrite_brc_history_for_pr: commit step completed successfully",
+            pipeline_id=pipeline_id,
+        )
     except subprocess.CalledProcessError as git_err:
         logger.warning(
             "Failed to commit BRC history for PR (continuing)",
             pipeline_id=pipeline_id,
             error=str(git_err),
         )
+    logger.info(
+        "_rewrite_brc_history_for_pr: exiting",
+        pipeline_id=pipeline_id,
+    )
 
 
 def _build_brc_consensus_summary(pipeline_id: str) -> str:
@@ -8238,18 +8327,49 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Push latest commits before creating PR
                 if pipeline.branch and worktree_repo_path != repo_path:
                     try:
+                        # Count local commits ahead of remote for diagnostic reporting
+                        try:
+                            ahead_result = subprocess.run(
+                                [
+                                    "git", "-C", str(worktree_repo_path),
+                                    "rev-list", "--count",
+                                    f"origin/{pipeline.branch}..HEAD",
+                                ],
+                                capture_output=True,
+                                text=True,
+                                check=False,
+                                timeout=10,
+                            )
+                            commits_ahead = ahead_result.stdout.strip() if ahead_result.returncode == 0 else "unknown"
+                        except Exception:
+                            commits_ahead = "unknown"
+
                         spawner.gateway.push_worktree_branch(
                             pipeline_id=pipeline_id,
                             repo_path=str(worktree_repo_path),
                             branch=pipeline.branch,
                             mode=gateway_mode,
                         )
+                        logger.info(
+                            "PR-phase push succeeded",
+                            pipeline_id=pipeline_id,
+                            branch=pipeline.branch,
+                            commits_ahead=commits_ahead,
+                        )
                     except Exception as push_err:
                         logger.error(
                             "Pre-PR push failed — PR may reference stale code",
                             pipeline_id=pipeline_id,
                             error=str(push_err),
+                            commits_ahead=commits_ahead,
                         )
+                else:
+                    logger.info(
+                        "PR-phase push skipped",
+                        pipeline_id=pipeline_id,
+                        branch=pipeline.branch,
+                        reason="worktree_repo_path == repo_path" if worktree_repo_path == repo_path else "no branch set",
+                    )
 
                 pr_url = _auto_create_pr(
                     pipeline, worktree_repo_path, spawner, gateway_mode=gateway_mode
