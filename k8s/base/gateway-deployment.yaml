@@ -26,10 +26,10 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - name: api
-              containerPort: 9848
+              containerPort: 9848 # noqa: EGG002
               protocol: TCP
             - name: proxy
-              containerPort: 3129
+              containerPort: 3129 # noqa: EGG002
               protocol: TCP
             - name: health
               containerPort: 9851
@@ -41,9 +41,9 @@ spec:
                   name: gateway-secrets
                   key: launcher-secret
             - name: GATEWAY_PORT
-              value: "9848"
+              value: "9848" # noqa: EGG002
             - name: PROXY_PORT
-              value: "3129"
+              value: "3129" # noqa: EGG002
             - name: HEALTH_PORT
               value: "9851"
           livenessProbe:

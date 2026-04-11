@@ -49,9 +49,9 @@ spec:
               app.kubernetes.io/component: gateway
       ports:
         - protocol: TCP
-          port: 9848
+          port: 9848 # noqa: EGG002
         - protocol: TCP
-          port: 3129
+          port: 3129 # noqa: EGG002
 ---
 # Allow orchestrator pods in egg-system to reach agent pods
 # for health checks and log retrieval.

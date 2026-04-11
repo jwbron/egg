@@ -67,7 +67,7 @@ data:
               imagePullPolicy: IfNotPresent
               env:
                 - name: GATEWAY_URL
-                  value: "http://gateway.egg-system.svc.cluster.local:9848"
+                  value: "http://gateway.egg-system.svc.cluster.local:9848" # noqa: EGG002
                 - name: EGG_ORCHESTRATOR_URL
                   value: "http://orchestrator.egg-system.svc.cluster.local:9849"
                 - name: EGG_SESSION_TOKEN
@@ -83,9 +83,9 @@ data:
                 - name: EGG_BRANCH
                   value: "${BRANCH}"
                 - name: HTTP_PROXY
-                  value: "http://gateway.egg-system.svc.cluster.local:3129"
+                  value: "http://gateway.egg-system.svc.cluster.local:3129" # noqa: EGG002
                 - name: HTTPS_PROXY
-                  value: "http://gateway.egg-system.svc.cluster.local:3129"
+                  value: "http://gateway.egg-system.svc.cluster.local:3129" # noqa: EGG002
                 - name: NO_PROXY
                   value: "gateway.egg-system.svc.cluster.local,orchestrator.egg-system.svc.cluster.local"
               volumeMounts:

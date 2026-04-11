@@ -48,6 +48,7 @@ from kubernetes_client import (
     PodNotFoundError,
     get_kubernetes_client,
 )
+from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT
 from models import AgentRole, ContainerInfo
 
 if TYPE_CHECKING:
@@ -60,12 +61,14 @@ WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
 
 # Default k8s service URLs for gateway and orchestrator
 GATEWAY_K8S_URL = os.environ.get(
-    "GATEWAY_K8S_URL", "http://gateway.egg-system.svc.cluster.local:9848"
+    "GATEWAY_K8S_URL", f"http://gateway.egg-system.svc.cluster.local:{GATEWAY_PORT}"
 )
 ORCHESTRATOR_K8S_URL = os.environ.get(
     "ORCHESTRATOR_K8S_URL", "http://orchestrator.egg-system.svc.cluster.local:9849"
 )
-PROXY_URL = os.environ.get("EGG_PROXY_URL", "http://gateway.egg-system.svc.cluster.local:3129")
+PROXY_URL = os.environ.get(
+    "EGG_PROXY_URL", f"http://gateway.egg-system.svc.cluster.local:{GATEWAY_PROXY_PORT}"
+)
 
 
 @dataclass

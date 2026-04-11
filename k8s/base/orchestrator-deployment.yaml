@@ -36,7 +36,7 @@ spec:
             - name: EGG_ORCHESTRATOR_URL
               value: "http://orchestrator.egg-system.svc.cluster.local:9849"
             - name: GATEWAY_URL
-              value: "http://gateway.egg-system.svc.cluster.local:9848"
+              value: "http://gateway.egg-system.svc.cluster.local:9848" # noqa: EGG002
           livenessProbe:
             httpGet:
               path: /api/v1/health

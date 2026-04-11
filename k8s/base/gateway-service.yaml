@@ -14,12 +14,12 @@ spec:
     app.kubernetes.io/component: gateway
   ports:
     - name: api
-      port: 9848
-      targetPort: 9848
+      port: 9848 # noqa: EGG002
+      targetPort: 9848 # noqa: EGG002
       protocol: TCP
     - name: proxy
-      port: 3129
-      targetPort: 3129
+      port: 3129 # noqa: EGG002
+      targetPort: 3129 # noqa: EGG002
       protocol: TCP
     - name: health
       port: 9851

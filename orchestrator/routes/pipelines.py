@@ -60,12 +60,10 @@ try:
     from ..gateway_client import GatewayError
     from ..kubernetes_client import (
         JobOperationError,
-        KubernetesClient,
         KubernetesClientError,
         PodNotFoundError,
-        get_kubernetes_client,
     )
-    from ..kubernetes_spawner import KubernetesSpawner, KubernetesSpawnError, get_kubernetes_spawner
+    from ..kubernetes_spawner import KubernetesSpawnError, get_kubernetes_spawner
     from ..models import (
         AgentExecutionStatus,
         AgentRole,
@@ -140,11 +138,6 @@ if TYPE_CHECKING:
         from ..container_spawner import ContainerSpawner
     except ImportError:
         from container_spawner import ContainerSpawner  # type: ignore
-
-    try:
-        from ..kubernetes_spawner import KubernetesSpawner as _KubernetesSpawnerType
-    except ImportError:
-        pass  # type: ignore
 
 logger = get_logger("orchestrator.pipelines")
 
