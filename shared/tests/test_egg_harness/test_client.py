@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
-import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -31,6 +29,9 @@ def _patch_providers_and_loop():
     client.py lazy-imports AnthropicProvider and RetryProvider inside
     run_agent_async(). The providers package uses a custom __getattr__,
     so we pre-import the submodules then patch the classes on them.
+
+    Requires the ``anthropic`` SDK to be installed since importing
+    ``egg_harness.providers.anthropic`` imports it at module level.
     """
     # Force-import the submodules so they exist in sys.modules
     import egg_harness.providers.anthropic as ap_mod
@@ -104,6 +105,14 @@ class TestCreateStandardTools:
 # ---------------------------------------------------------------------------
 
 
+try:
+    import anthropic as _anthropic  # noqa: F401
+    _has_anthropic = True
+except ImportError:
+    _has_anthropic = False
+
+
+@pytest.mark.skipif(not _has_anthropic, reason="anthropic SDK not installed")
 class TestRunAgentAsync:
 
     @pytest.mark.anyio
