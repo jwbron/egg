@@ -70,7 +70,14 @@ def create_glob_tool() -> tuple[ToolDefinition, ToolHandler]:
 
         # Filter to files only and sort by modification time (newest first)
         files = [p for p in matches if p.is_file()]
-        files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
+        def _safe_mtime(p: Path) -> float:
+            try:
+                return p.stat().st_mtime
+            except OSError:
+                return 0.0
+
+        files.sort(key=_safe_mtime, reverse=True)
 
         if not files:
             return ToolResult(output="No matches found.")

@@ -7,7 +7,10 @@ handler for searching file contents using ``rg`` (ripgrep).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import os
+import signal
 from typing import Any
 
 from egg_harness.tools.registry import ToolDefinition, ToolHandler, ToolResult
@@ -149,6 +152,8 @@ def create_grep_tool() -> tuple[ToolDefinition, ToolHandler]:
                 is_error=True,
             )
         except TimeoutError:
+            with contextlib.suppress(OSError):
+                os.killpg(process.pid, signal.SIGKILL)
             return ToolResult(
                 output="Grep search timed out after 60 seconds.",
                 is_error=True,

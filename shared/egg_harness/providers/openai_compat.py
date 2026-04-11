@@ -378,6 +378,7 @@ def _convert_messages(
                 isinstance(block, dict) and block.get("type") == "tool_result" for block in content
             )
             if has_tool_results:
+                non_tool_text_parts: list[str] = []
                 for block in content:
                     if isinstance(block, dict) and block.get("type") == "tool_result":
                         tool_content = block.get("content", "")
@@ -390,6 +391,14 @@ def _convert_messages(
                                 "content": str(tool_content),
                             }
                         )
+                    elif isinstance(block, dict) and block.get("type") == "text":
+                        text = block.get("text", "")
+                        if text:
+                            non_tool_text_parts.append(text)
+                    elif isinstance(block, str) and block.strip():
+                        non_tool_text_parts.append(block)
+                if non_tool_text_parts:
+                    result.append({"role": "user", "content": "\n".join(non_tool_text_parts)})
                 continue
 
         # Assistant messages with tool_use content blocks.
