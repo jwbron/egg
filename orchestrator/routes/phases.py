@@ -323,6 +323,24 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             pipeline = store.load_pipeline(pipeline_id)
             original_version = pipeline.version
 
+            # TOCTOU guard: re-derive previous_phase from the reloaded
+            # pipeline.  Between the initial read and lock acquisition,
+            # another request may have already advanced the pipeline.
+            previous_phase = pipeline.current_phase
+            if not force:
+                is_valid, error = validate_phase_transition(previous_phase, target_phase)
+                if not is_valid:
+                    return make_error_response(error, status_code=400)
+                current_execution = pipeline.get_phase_execution(previous_phase)
+                if current_execution.status not in (
+                    PipelineStatus.COMPLETE,
+                    PipelineStatus.PENDING,
+                ):
+                    return make_error_response(
+                        f"Current phase {previous_phase.value} is not complete "
+                        f"(status: {current_execution.status.value})"
+                    )
+
             # Mark previous phase as complete
             prev_execution = pipeline.get_phase_execution(previous_phase)
             prev_execution.status = PipelineStatus.COMPLETE
@@ -346,7 +364,10 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             # Save updated pipeline with optimistic locking
             store.save_pipeline(pipeline, expected_version=original_version)
 
-        # Clear ephemeral inter-agent messaging and consensus state
+        # Clear ephemeral inter-agent messaging and consensus state.
+        # Intentionally called after lock release but before thread spawn:
+        # the new phase starts with fresh concurrent state, and any racing
+        # advance_phase call would be blocked by the optimistic lock above.
         _clear_concurrent_state(pipeline_id)
 
         # Launch a new _run_pipeline thread to process the target phase.
@@ -359,7 +380,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             target=_run_pipeline,
             args=(pipeline_id, repo_path_for_thread),
             daemon=True,
-            name=f"pipeline-{pipeline_id}-{int(datetime.now(UTC).timestamp())}",
+            name=f"pipeline-{pipeline_id}-{int(pipeline.run_epoch.timestamp())}",
         )
         thread.start()
 

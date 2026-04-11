@@ -186,6 +186,10 @@ class TestAdvancePhaseLaunchesThread:
         # run_epoch must have been bumped
         assert pipeline.run_epoch is not None
         assert pipeline.run_epoch != original_epoch
+        # Verify the saved pipeline has the bumped epoch
+        saved_pipeline = mock_store.save_pipeline.call_args[0][0]
+        assert saved_pipeline.run_epoch is not None
+        assert saved_pipeline.run_epoch != original_epoch
         # created_at must NOT change
         assert pipeline.created_at == original_created_at
 
