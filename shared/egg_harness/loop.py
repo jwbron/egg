@@ -198,6 +198,7 @@ class AgentLoop:
                     turn=turn,
                     start_time=start_time,
                     session_id=session_id,
+                    conversation=conversation,
                 )
 
             # -- shutdown check ----------------------------------------
@@ -210,6 +211,7 @@ class AgentLoop:
                     turn=turn,
                     start_time=start_time,
                     session_id=session_id,
+                    conversation=conversation,
                 )
 
             turn += 1
@@ -237,6 +239,7 @@ class AgentLoop:
                     turn=turn,
                     start_time=start_time,
                     session_id=session_id,
+                    conversation=conversation,
                 )
             except Exception as exc:
                 logger.exception("Provider stream error on turn %d", turn)
@@ -248,6 +251,7 @@ class AgentLoop:
                     turn=turn,
                     start_time=start_time,
                     session_id=session_id,
+                    conversation=conversation,
                 )
 
             # Accumulate response text across turns.
@@ -331,6 +335,7 @@ class AgentLoop:
                         turn=turn,
                         start_time=start_time,
                         session_id=session_id,
+                        conversation=conversation,
                     )
 
                 tool_input = tc.input
@@ -386,6 +391,7 @@ class AgentLoop:
                     turn=turn,
                     start_time=start_time,
                     session_id=session_id,
+                    conversation=conversation,
                 )
 
         # Exhausted max_turns.

@@ -126,9 +126,16 @@ async def run_interactive(
                 messages=messages,
             )
         except KeyboardInterrupt:
+            # Remove the dangling user message we just appended — without
+            # a matching assistant response it would violate the API's
+            # alternating-role contract on the next turn.
+            if messages and messages[-1].get("role") == "user":
+                messages.pop()
             print("\nInterrupted")
             continue
         except asyncio.CancelledError:
+            if messages and messages[-1].get("role") == "user":
+                messages.pop()
             print("\nCancelled")
             continue
 
