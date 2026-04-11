@@ -179,11 +179,11 @@ Before promoting the `egg` harness to the default, run the parallel validation s
 python3 scripts/validate_harness_parity.py [--scenarios N] [--model MODEL] [--output results.json]
 ```
 
-The script runs each scenario through both harnesses concurrently and prints a comparison table. The `egg` harness passes validation when its success rate is ≥ 80% and its total cost does not exceed 1.5× the `claude-sdk` baseline.
+The script runs each scenario through both harnesses sequentially and prints a comparison table. The `egg` harness passes validation when its success rate is ≥ 80% and its total cost does not exceed 1.5× the `claude-sdk` baseline.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--scenarios N` | all (8) | Number of scenarios to run |
+| `--scenarios N` | all (10) | Number of scenarios to run |
 | `--model MODEL` | `haiku` | Model alias for fast/cheap validation |
 | `--max-turns N` | `15` | Max turns per scenario |
 | `--output PATH` | none | Write JSON results to file |
