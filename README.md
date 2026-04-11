@@ -235,6 +235,7 @@ See [Local Quickstart](docs/guides/local-quickstart.md) for detailed setup and [
 | **Agent roles & permissions** | [Agent Roles Reference](docs/reference/agent-roles.md) |
 | **GitHub automation** | [GitHub Automation Guide](docs/guides/github-automation.md) |
 | **Health monitoring** | [Health Monitoring Guide](docs/guides/pipeline-health-monitoring.md) |
+| **Custom harness & multi-provider** | [Harness Configuration](docs/guides/harness-configuration.md) |
 | **Sandbox environment** | [Sandbox README](sandbox/README.md) |
 | **Contributing** | [CONTRIBUTING.md](CONTRIBUTING.md) |
 

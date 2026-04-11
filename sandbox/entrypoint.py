@@ -1937,6 +1937,39 @@ def run_interactive(config: Config, logger: Logger) -> int:
     # Leaving it accessible would let Claude bypass SDLC token gating.
     env.pop("EGG_LAUNCHER_SECRET", None)
 
+    # -- Harness selection --
+    # When EGG_HARNESS=egg, use the custom egg harness instead of Claude Code.
+    # The egg harness routes API calls through the gateway (ANTHROPIC_BASE_URL)
+    # and validates that ANTHROPIC_API_KEY is absent (credentials are injected
+    # by the gateway, never held by the agent).
+    harness = env.get("EGG_HARNESS", os.environ.get("EGG_HARNESS", ""))
+    if harness == "egg":
+        logger.info("Launching egg harness interactive mode...")
+
+        # Ensure gateway URL is set for the harness provider.
+        gateway_url = env.get("ANTHROPIC_BASE_URL") or env.get("GATEWAY_URL")
+        if gateway_url:
+            env["GATEWAY_URL"] = gateway_url
+
+        # Validate that ANTHROPIC_API_KEY is not in the environment —
+        # the harness asserts this at startup for zero-credential sandbox.
+        env.pop("ANTHROPIC_API_KEY", None)
+
+        _startup_timer.print_summary()
+
+        return _run_with_stderr_capture(
+            [
+                "gosu",
+                f"{config.runtime_uid}:{config.runtime_gid}",
+                "python3",
+                "-m",
+                "egg_harness",
+                "--interactive",
+            ],
+            env=env,
+            logger=logger,
+        )
+
     logger.info("Launching Claude Code interactive mode...")
 
     # Print timing summary right before launching LLM

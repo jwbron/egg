@@ -51,6 +51,8 @@ See the [main README](../../README.md) for the architecture diagram.
 | **Orchestrator** | Local SDLC pipeline execution, state management, container lifecycle, worktree creation via gateway, real-time status visualization | [Orchestrator README](../../orchestrator/README.md), [Orchestrator Architecture](orchestrator.md) |
 | **Sandbox** | Agent execution environment, git/gh wrappers | [Sandbox README](../../sandbox/README.md) |
 | **Shared Libraries** | Config, logging, git utilities, orchestrator types | [Shared README](../../shared/README.md) |
+| **Custom Harness** | Provider-abstracted agent runtime with context management, multi-provider support | [egg_harness README](../../shared/egg_harness/README.md), [Custom Harness Architecture](custom-harness.md) |
+| **Harness Integration** | Egg-specific harness wiring (tools, permissions, prompt, compaction) | [egg_harness_integration README](../../shared/egg_harness_integration/README.md) |
 | **egg_contracts** | SDLC contract models, role-based mutation validation, multi-agent orchestration | `shared/egg_contracts/` |
 | **egg_orchestrator** | Shared orchestrator types and sandbox-to-orchestrator communication | `shared/egg_orchestrator/` |
 | **Multi-Agent Orchestration** | Concurrent agent execution (Coder, Tester, Documenter, Reviewers) | `orchestrator/concurrent_executor.py`, `orchestrator/container_spawner.py` |
@@ -183,6 +185,7 @@ The SDLC pipeline orchestrates agent-based development with structurally enforce
 
 ## Key Architectural Decisions
 
+- [Custom Harness](custom-harness.md) - Multi-provider agent runtime with owned context management
 - [Git Isolation](git-isolation.md) - Worktree isolation via gateway
 - [Credential Injection](credential-injection.md) - Zero-credential sandbox with API key proxy
 - [Network Isolation](network-isolation.md) - Public/private network modes
@@ -208,3 +211,4 @@ This keeps agents working with familiar tools in a predictable way, without burn
 
 - [Local Quickstart](../guides/local-quickstart.md) - Installation and configuration
 - [Project Structure](../development/STRUCTURE.md) - Directory layout
+- [Harness Configuration](../guides/harness-configuration.md) - Agent runtime selection and configuration

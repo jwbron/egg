@@ -67,6 +67,7 @@ The pre-commit hooks will automatically check and fix most style issues.
 - **Unit tests**: `tests/` - Fast, isolated tests
 - **Gateway tests**: `gateway/tests/` - Gateway-specific tests
 - **Orchestrator tests**: `orchestrator/tests/` - Orchestrator-specific tests
+- **Shared library tests**: `shared/tests/` - Tests for shared packages (egg_harness, egg_anchor, etc.)
 - **Integration tests**: `integration_tests/` - Tests requiring Docker/containers
 
 Coverage requirements:
@@ -80,6 +81,9 @@ make test
 
 # Specific test file
 .venv/bin/pytest tests/test_python_syntax.py -v
+
+# Custom harness tests
+.venv/bin/pytest shared/tests/test_egg_harness/ -v
 ```
 
 ## Pull Request Process
