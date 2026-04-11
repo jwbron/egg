@@ -711,3 +711,145 @@ class TestAgentLoopResult:
             assert result.error is not None
         except (ConnectionError, RuntimeError):
             pass  # Acceptable: exception propagated
+
+
+# ---------------------------------------------------------------------------
+# TestAgentLoopConversationPreservation
+# ---------------------------------------------------------------------------
+
+
+class TestAgentLoopConversationPreservation:
+    """Verify that result.messages preserves conversation on all exit paths.
+
+    Regression tests for N-NEW-6: interactive mode lost intermediate tool
+    messages because error paths did not pass ``conversation`` to
+    ``_build_result``.
+    """
+
+    @pytest.mark.anyio
+    async def test_timeout_preserves_conversation(self):
+        """When the loop times out during streaming, result.messages should
+        contain the conversation history (not be None)."""
+        # First call succeeds (tool_use), tool executes, second call
+        # is slow and triggers the timeout.
+        tool_events = _make_tool_use_events()
+        call_count = 0
+
+        async def _slow_on_second_call(
+            *,
+            messages: list,
+            tools: list | None = None,
+            system: str | None = None,
+            model: str | None = None,
+            max_tokens: int = 16384,
+            extra_headers: dict | None = None,
+        ) -> AsyncIterator[StreamEvent]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                async for event in _stream_events(tool_events):
+                    yield event
+            else:
+                await asyncio.sleep(10)
+                yield TextDelta(text="too late")
+
+        provider = MagicMock()
+        provider.name = "mock"
+        provider.send_message = _slow_on_second_call
+        registry = _make_mock_registry(results={"Bash": "hi"})
+        config = _make_default_config(timeout=1)
+
+        loop = AgentLoop(
+            provider=provider,
+            tool_registry=registry,
+            config=config,
+        )
+        result = await loop.run(
+            "Go",
+            messages=[{"role": "user", "content": "Go"}],
+        )
+        assert result.success is False
+        assert result.messages is not None, (
+            "Timeout path must preserve conversation in result.messages"
+        )
+        # Should have: initial user, assistant (tool_use), user (tool_result)
+        assert len(result.messages) >= 3
+
+    @pytest.mark.anyio
+    async def test_circuit_breaker_preserves_conversation(self):
+        """When the circuit breaker trips, result.messages should contain
+        the full conversation including tool_use and tool_result messages."""
+        # 3 consecutive failing tool calls trips the circuit breaker.
+        tool_events = _make_tool_use_events()
+        provider = _make_mock_provider([tool_events])
+        registry = _make_failing_registry()
+        config = _make_default_config()
+
+        loop = AgentLoop(
+            provider=provider,
+            tool_registry=registry,
+            config=config,
+        )
+        result = await loop.run(
+            "Go",
+            messages=[{"role": "user", "content": "Go"}],
+        )
+        assert result.success is False
+        assert "Circuit breaker" in (result.error or "")
+        assert result.messages is not None, (
+            "Circuit breaker path must preserve conversation in result.messages"
+        )
+        # Verify tool_use and tool_result messages are present.
+        roles = [m["role"] for m in result.messages]
+        assert "assistant" in roles, "Should have assistant messages with tool_use"
+        assert roles.count("user") >= 2, (
+            "Should have user messages with tool_result blocks"
+        )
+
+    @pytest.mark.anyio
+    async def test_provider_error_preserves_conversation(self):
+        """When the provider raises an exception mid-conversation,
+        result.messages should preserve whatever was accumulated."""
+        # First response succeeds (tool_use), second raises.
+        tool_events = _make_tool_use_events()
+        call_count = 0
+
+        async def _sometimes_failing_send(
+            *,
+            messages: list,
+            tools: list | None = None,
+            system: str | None = None,
+            model: str | None = None,
+            max_tokens: int = 16384,
+            extra_headers: dict | None = None,
+        ) -> AsyncIterator[StreamEvent]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                async for event in _stream_events(tool_events):
+                    yield event
+            else:
+                raise ConnectionError("Connection lost")
+                yield  # noqa: RET504
+
+        provider = MagicMock()
+        provider.name = "mock"
+        provider.send_message = _sometimes_failing_send
+        registry = _make_mock_registry(results={"Bash": "done"})
+        config = _make_default_config()
+
+        loop = AgentLoop(
+            provider=provider,
+            tool_registry=registry,
+            config=config,
+        )
+        result = await loop.run(
+            "Go",
+            messages=[{"role": "user", "content": "Go"}],
+        )
+        assert result.success is False
+        assert result.messages is not None, (
+            "Provider error path must preserve conversation in result.messages"
+        )
+        # Should have at least: initial user, assistant (tool_use), user (tool_result)
+        assert len(result.messages) >= 3
