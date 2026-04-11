@@ -6351,12 +6351,32 @@ def _run_concurrent_phase(
                 pip = store.load_pipeline(pipeline_id)
                 pe = pip.get_phase_execution(PipelinePhase(phase_str))
                 completed_container_ids: set[str] = set()
+
+                # Look up proposal commit SHAs from the BRC tracker so we can
+                # populate agent.commit (issue #1691).
+                _brc = None
+                try:
+                    from peer_consensus import get_peer_consensus_tracker as _get_brc
+                except ImportError:
+                    from ..peer_consensus import get_peer_consensus_tracker as _get_brc  # type: ignore[no-redef]
+                try:
+                    _brc = _get_brc(pipeline_id)
+                except Exception:
+                    pass
+
                 for agent in pe.agents:
                     if agent.status in (StateAgentStatus.RUNNING, StateAgentStatus.FAILED):
                         agent.status = StateAgentStatus.COMPLETE
                         agent.completed_at = datetime.now(UTC)
                         if agent.container_id:
                             completed_container_ids.add(agent.container_id)
+                    # Populate commit SHA from the consensus tracker's proposal
+                    # records.  Only producers have SHAs; reviewers get "".
+                    if _brc is not None and not agent.commit:
+                        sha = _brc.get_proposal_commit_sha(agent.role.value)
+                        if sha:
+                            agent.commit = sha
+
                 # Also mark containers as exited so the container monitor
                 # doesn't find stale RUNNING entries and mark pipeline FAILED.
                 # See issue #1294.
@@ -6789,6 +6809,12 @@ def _run_concurrent_phase(
                                 timeout=3600,
                             )
                         except (ContainerNotFoundError, ContainerOperationError):
+                            # Timeout or lost — stop the container so it doesn't
+                            # keep running as an orphan (issue #1691).
+                            try:
+                                docker_client.stop_container(exec_info.container_id, timeout=30)
+                            except Exception:
+                                pass
                             final_info = ContainerInfo(
                                 container_id=exec_info.container_id,
                                 container_name=f"{pipeline_id}-{exec_info.role.value}",
@@ -6812,6 +6838,59 @@ def _run_concurrent_phase(
 
             combined_logs = "\n".join(all_logs)
             if has_failures[0]:
+                # Consensus recheck: consensus may have completed during the
+                # ThreadPoolExecutor wait window (issue #1691).  Without this
+                # recheck, containers that were force-killed after consensus
+                # was already confirmed would cause the phase to fail.
+                try:
+                    _timeout_consensus = executor.check_consensus()
+                except Exception as e:
+                    logger.warning(
+                        "Consensus recheck after timeout failed, treating as incomplete",
+                        pipeline_id=pipeline_id,
+                        error=str(e),
+                    )
+                    _timeout_consensus = {"is_complete": False}
+
+                if _timeout_consensus.get("is_complete"):
+                    # Consensus reached during the wait — recover pipeline
+                    if store is not None:
+                        try:
+                            _current_pip = store.load_pipeline(pipeline_id)
+                            if _current_pip.status == PipelineStatus.FAILED:
+                                logger.warning(
+                                    "Pipeline externally marked FAILED but consensus is complete — recovering (timeout path)",
+                                    pipeline_id=pipeline_id,
+                                )
+                                with get_pipeline_state_lock(pipeline_id):
+                                    _current_pip = store.load_pipeline(pipeline_id)
+                                    if _current_pip.status == PipelineStatus.FAILED:
+                                        _current_pip.status = PipelineStatus.RUNNING
+                                        _current_pip.error = None
+                                        store.save_pipeline(_current_pip)
+                        except Exception as recovery_err:
+                            logger.warning(
+                                "External FAILED recovery check failed (timeout path)",
+                                pipeline_id=pipeline_id,
+                                error=str(recovery_err),
+                            )
+
+                    if _emit_event is not None:
+                        _emit_event(
+                            EventType.CONSENSUS_REACHED,
+                            pipeline_id,
+                            data={"elapsed_seconds": elapsed},
+                        )
+                    logger.info(
+                        "Consensus reached on recheck after timeout, treating as success",
+                        pipeline_id=pipeline_id,
+                        elapsed_seconds=round(elapsed, 1),
+                        has_failures=has_failures[0],
+                    )
+                    _update_agents_complete()
+                    _stop_running_containers()
+                    return 0, combined_logs
+
                 return 1, combined_logs
 
             # After timeout, check the BRC approval matrix for unresolved
