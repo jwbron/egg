@@ -1478,8 +1478,10 @@ Look for these log entries in chronological order:
 
 **Draft files still in PR** (`.egg-state/drafts/{id}-*.md` present):
 
-1. `_cleanup_drafts_for_pr: entering` — Confirms the function was called. Includes `match_count` and `matched_files` list. If `match_count` is 0, the drafts don't exist or the identifier pattern (`{id}-*.md`) didn't match.
+1. `_cleanup_drafts_for_pr: entering` — Confirms the function was called (first log emitted).
    - `_cleanup_drafts_for_pr: no drafts directory — skipping` — The `.egg-state/drafts/` directory doesn't exist in the worktree.
+   - `_cleanup_drafts_for_pr: matched drafts` — Shows `match_count` and `matched_files` list (truncated to 20 entries with `truncated=True` when exceeding 20).
+   - `_cleanup_drafts_for_pr: no matching drafts — exiting` — The directory exists but no files matched the identifier pattern (`{id}-*.md`).
 2. `_cleanup_drafts_for_pr: git rm succeeded` — Per-file log showing each successfully staged removal (includes relative `path`). Failures trigger a WARNING and fall back to `unlink()`.
 3. `_cleanup_drafts_for_pr: commit succeeded` — The removal commit was created successfully.
    - `_cleanup_drafts_for_pr: commit failed — no changes to commit after draft cleanup` (WARNING) — Nothing was staged after git rm, or the commit command failed. Includes `error` detail. Promoted from DEBUG to WARNING as of #1633.

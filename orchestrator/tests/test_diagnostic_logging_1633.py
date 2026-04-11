@@ -382,7 +382,7 @@ class TestCleanupDraftsForPrLogging:
         )
 
     def test_logs_entry_with_match_count(self, tmp_path):
-        """Entry log includes match_count and matched_files."""
+        """Entry log is first, matched drafts log includes match_count and matched_files."""
         from routes.pipelines import _cleanup_drafts_for_pr
 
         drafts = tmp_path / ".egg-state" / "drafts"
@@ -394,9 +394,12 @@ class TestCleanupDraftsForPrLogging:
             _cleanup_drafts_for_pr(tmp_path, 42)
 
         info_msgs = [str(c) for c in mock_logger.info.call_args_list]
+        # "entering" is the first log emitted
         assert any("entering" in msg for msg in info_msgs)
-        entry_call = [c for c in mock_logger.info.call_args_list if "entering" in str(c)]
-        kwargs = entry_call[0][1]
+        # match_count and matched_files are on the "matched drafts" log
+        match_call = [c for c in mock_logger.info.call_args_list if "matched drafts" in str(c)]
+        assert len(match_call) == 1
+        kwargs = match_call[0][1]
         assert kwargs.get("match_count") == 2
         assert set(kwargs.get("matched_files", [])) == {"42-analysis.md", "42-plan.md"}
 

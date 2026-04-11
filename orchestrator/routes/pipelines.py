@@ -2416,23 +2416,34 @@ def _cleanup_drafts_for_pr(
 
     Returns ``True`` if a commit was made, ``False`` otherwise.
     """
-    drafts_dir = worktree_path / ".egg-state" / "drafts"
-    if not drafts_dir.is_dir():
-        logger.info(
-            "_cleanup_drafts_for_pr: no drafts directory — skipping",
-            pipeline_identifier=str(pipeline_identifier),
-        )
-        return False
-
     pid = str(pipeline_identifier)
-    matches = list(drafts_dir.glob(f"{pid}-*.md"))
+    drafts_dir = worktree_path / ".egg-state" / "drafts"
+
     logger.info(
         "_cleanup_drafts_for_pr: entering",
         pipeline_identifier=pid,
+    )
+
+    if not drafts_dir.is_dir():
+        logger.info(
+            "_cleanup_drafts_for_pr: no drafts directory — skipping",
+            pipeline_identifier=pid,
+        )
+        return False
+
+    matches = list(drafts_dir.glob(f"{pid}-*.md"))
+    logger.info(
+        "_cleanup_drafts_for_pr: matched drafts",
+        pipeline_identifier=pid,
         match_count=len(matches),
         matched_files=[m.name for m in matches[:20]],
+        truncated=len(matches) > 20,
     )
     if not matches:
+        logger.info(
+            "_cleanup_drafts_for_pr: no matching drafts — exiting",
+            pipeline_identifier=pid,
+        )
         return False
 
     git_base = [
@@ -3828,6 +3839,7 @@ def _commit_statefiles_to_worktree(
             pipeline_identifier=str(pipeline_identifier),
             match_count=len(matched),
             matched_paths=[str(Path(f).relative_to(worktree_path)) for f in matched[:20]],
+            truncated=len(matched) > 20,
         )
         if not matched:
             return  # No state files for this pipeline yet
@@ -8326,6 +8338,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
                 # Push latest commits before creating PR
                 if pipeline.branch and worktree_repo_path != repo_path:
+                    commits_ahead = "unknown"
                     try:
                         # Count local commits ahead of remote for diagnostic reporting
                         try:
