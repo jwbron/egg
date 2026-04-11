@@ -5,11 +5,9 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from egg_harness.client import DEFAULT_MODEL, _create_standard_tools, run_agent_async
 from egg_harness.result import AgentResult
 from egg_harness.tools import ToolDefinition
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -18,8 +16,13 @@ from egg_harness.tools import ToolDefinition
 
 def _mock_result() -> AgentResult:
     return AgentResult(
-        success=True, stdout="done", stderr="", returncode=0,
-        cost_usd=0.01, num_turns=1, duration_ms=100,
+        success=True,
+        stdout="done",
+        stderr="",
+        returncode=0,
+        cost_usd=0.01,
+        num_turns=1,
+        duration_ms=100,
     )
 
 
@@ -76,7 +79,6 @@ def _patch_providers_and_loop():
 
 
 class TestCreateStandardTools:
-
     def test_returns_eight_tool_pairs(self):
         tools = _create_standard_tools()
         assert len(tools) == 8
@@ -107,6 +109,7 @@ class TestCreateStandardTools:
 
 try:
     import anthropic as _anthropic  # noqa: F401
+
     _has_anthropic = True
 except ImportError:
     _has_anthropic = False
@@ -114,7 +117,6 @@ except ImportError:
 
 @pytest.mark.skipif(not _has_anthropic, reason="anthropic SDK not installed")
 class TestRunAgentAsync:
-
     @pytest.mark.anyio
     async def test_default_model_is_opus(self):
         with _patch_providers_and_loop() as ctx:
@@ -202,9 +204,9 @@ class TestRunAgentAsync:
 
 
 class TestRunAgentSync:
-
     def test_sync_wrapper_exists(self):
         from egg_harness.client import run_agent
+
         assert callable(run_agent)
 
     def test_default_model_constant(self):

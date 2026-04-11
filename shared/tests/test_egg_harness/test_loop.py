@@ -800,9 +800,11 @@ class TestAgentLoopSigterm:
     @pytest.mark.anyio
     async def test_sigterm_handler_restored_after_run(self):
         """After run() completes, the original SIGTERM handler is restored."""
-        provider = _make_mock_provider([
-            _make_text_response_events("done"),
-        ])
+        provider = _make_mock_provider(
+            [
+                _make_text_response_events("done"),
+            ]
+        )
         registry = _make_mock_registry()
         config = _make_default_config()
         loop = AgentLoop(
@@ -895,13 +897,15 @@ class TestAgentLoopCircuitBreaker:
         )
         final = _make_text_response_events("done")
 
-        provider = _make_mock_provider([
-            tool_events_fail,  # turn 1: fail
-            tool_events_ok,    # turn 2: succeed
-            tool_events_fail,  # turn 3: fail
-            tool_events_fail,  # turn 4: fail
-            final,             # turn 5: done
-        ])
+        provider = _make_mock_provider(
+            [
+                tool_events_fail,  # turn 1: fail
+                tool_events_ok,  # turn 2: succeed
+                tool_events_fail,  # turn 3: fail
+                tool_events_fail,  # turn 4: fail
+                final,  # turn 5: done
+            ]
+        )
 
         # Registry: Bash fails, Read succeeds
         call_count = {"total": 0}

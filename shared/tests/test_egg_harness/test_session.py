@@ -7,9 +7,7 @@ import os
 from unittest.mock import patch
 
 import pytest
-
 from egg_harness.session import SessionManager, SessionState
-
 
 # ---------------------------------------------------------------------------
 # TestSessionState
@@ -17,7 +15,6 @@ from egg_harness.session import SessionManager, SessionState
 
 
 class TestSessionState:
-
     def test_default_field_values(self):
         state = SessionState(session_id="test-1", model="opus")
         assert state.messages == []
@@ -58,7 +55,6 @@ class TestSessionState:
 
 
 class TestSessionManagerSave:
-
     def test_save_creates_directory_if_missing(self, tmp_path):
         storage = str(tmp_path / "sessions")
         mgr = SessionManager(session_id="s1", storage_dir=storage)
@@ -146,7 +142,6 @@ class TestSessionManagerSave:
 
 
 class TestSessionManagerSaveFailure:
-
     def test_failure_cleans_temp_file(self, tmp_path):
         storage = str(tmp_path)
         mgr = SessionManager(session_id="s1", storage_dir=storage)
@@ -156,7 +151,7 @@ class TestSessionManagerSaveFailure:
 
         def failing_fdopen(fd, *args, **kwargs):
             fh = original_fdopen(fd, *args, **kwargs)
-            fh.write = lambda _: (_ for _ in ()).throw(IOError("disk full"))
+            fh.write = lambda _: (_ for _ in ()).throw(OSError("disk full"))
             return fh
 
         with patch("egg_harness.session.os.fdopen", side_effect=failing_fdopen):
@@ -175,7 +170,6 @@ class TestSessionManagerSaveFailure:
 
 
 class TestSessionManagerLoad:
-
     def test_round_trip(self, tmp_path):
         storage = str(tmp_path)
         mgr = SessionManager(session_id="s1", storage_dir=storage)
@@ -248,7 +242,6 @@ class TestSessionManagerLoad:
 
 
 class TestShouldAutoSave:
-
     def test_positive_multiple_of_interval(self):
         mgr = SessionManager(auto_save_interval=5)
         assert mgr.should_auto_save(5) is True
@@ -286,7 +279,6 @@ class TestShouldAutoSave:
 
 
 class TestSessionPathSanitization:
-
     def test_path_traversal_stripped(self, tmp_path):
         storage = str(tmp_path)
         mgr = SessionManager(storage_dir=storage)
@@ -322,7 +314,6 @@ class TestSessionPathSanitization:
 
 
 class TestSessionManagerProperties:
-
     def test_session_id_property(self):
         mgr = SessionManager(session_id="my-session")
         assert mgr.session_id == "my-session"
