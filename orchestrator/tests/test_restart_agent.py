@@ -6,8 +6,11 @@ Covers:
 - POST /<pipeline_id>/agents/<role>/restart endpoint (task-1-2)
 - Consensus state reset on restart
 - Edge cases: missing pipeline, invalid role, restart limit exceeded
+- Issue #1695 gaps: concurrency guard, pre-spawn count increment, mode=None,
+  consensus reset ordering, lock cleanup
 """
 
+import threading
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -118,6 +121,7 @@ class TestRestartAgentContainer:
             pipeline_id="issue-100",
             agent_role=AgentRole.CODER,
             issue_number=100,
+            mode="public",
         )
 
         assert isinstance(result, SpawnedContainer)
@@ -134,6 +138,7 @@ class TestRestartAgentContainer:
             pipeline_id="issue-100",
             agent_role=AgentRole.CODER,
             issue_number=100,
+            mode="public",
         )
 
         # Should call stop on the old container
@@ -147,6 +152,7 @@ class TestRestartAgentContainer:
             pipeline_id="issue-100",
             agent_role=AgentRole.CODER,
             issue_number=100,
+            mode="public",
         )
 
         # Force removal should be called
@@ -158,6 +164,7 @@ class TestRestartAgentContainer:
             pipeline_id="issue-100",
             agent_role=AgentRole.CODER,
             issue_number=100,
+            mode="public",
         )
 
         mock_docker_client.create_container.assert_called()
@@ -171,6 +178,7 @@ class TestRestartAgentContainer:
             pipeline_id="issue-100",
             agent_role=AgentRole.CODER,
             issue_number=100,
+            mode="public",
         )
         assert spawner.get_restart_count("issue-100", "coder") == 1
 
@@ -184,6 +192,7 @@ class TestRestartAgentContainer:
                 pipeline_id="issue-100",
                 agent_role=AgentRole.CODER,
                 issue_number=100,
+                mode="public",
                 max_restarts=2,
             )
 
@@ -196,6 +205,7 @@ class TestRestartAgentContainer:
                 pipeline_id="issue-100",
                 agent_role=AgentRole.CODER,
                 issue_number=100,
+                mode="public",
                 max_restarts=5,
             )
 
@@ -209,6 +219,7 @@ class TestRestartAgentContainer:
             pipeline_id="issue-100",
             agent_role=AgentRole.CODER,
             issue_number=100,
+            mode="public",
         )
 
         # Should still succeed — the method handles stop failures gracefully
@@ -224,6 +235,7 @@ class TestRestartAgentContainer:
             pipeline_id="issue-100",
             agent_role=AgentRole.CODER,
             issue_number=100,
+            mode="public",
         )
 
         assert isinstance(result, SpawnedContainer)
@@ -239,6 +251,7 @@ class TestRestartAgentContainer:
                 pipeline_id="issue-100",
                 agent_role=AgentRole.CODER,
                 issue_number=100,
+                mode="public",
             )
 
     def test_restart_with_extra_env(self, spawner, mock_docker_client, mock_gateway_client):
@@ -247,6 +260,7 @@ class TestRestartAgentContainer:
             pipeline_id="issue-100",
             agent_role=AgentRole.CODER,
             issue_number=100,
+            mode="public",
             extra_env={"RESTART_REASON": "stall detected"},
         )
 
@@ -259,6 +273,7 @@ class TestRestartAgentContainer:
             pipeline_id="issue-100",
             agent_role=AgentRole.CODER,
             issue_number=100,
+            mode="public",
             reason="Agent stalled after Edit tool error",
         )
 
@@ -280,6 +295,7 @@ class TestRestartAgentContainer:
                 pipeline_id="issue-100",
                 agent_role=AgentRole.CODER,
                 issue_number=100,
+                mode="public",
             )
 
             mock_spawn.assert_called_once()
@@ -684,3 +700,422 @@ class TestRestartAgentEndpoint:
         assert restart_call[1].get("mode") == "private", (
             "Expected computed gateway mode 'private', not hardcoded 'public'"
         )
+
+
+# ---------------------------------------------------------------------------
+# Issue #1695: mode=None raises ValueError (issue 7)
+# ---------------------------------------------------------------------------
+
+
+class TestModeParameterValidation:
+    """Tests that mode=None raises ValueError (issue #1695, item 7)."""
+
+    def test_restart_mode_none_raises_value_error(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """restart_agent_container must raise ValueError when mode is None."""
+        with pytest.raises(ValueError, match="mode must be explicitly provided"):
+            spawner.restart_agent_container(
+                pipeline_id="issue-100",
+                agent_role=AgentRole.CODER,
+                issue_number=100,
+                mode=None,
+            )
+
+    def test_restart_mode_none_does_not_increment_count(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """ValueError from mode=None must not burn a restart budget slot."""
+        with pytest.raises(ValueError):
+            spawner.restart_agent_container(
+                pipeline_id="issue-100",
+                agent_role=AgentRole.CODER,
+                issue_number=100,
+                mode=None,
+            )
+        assert spawner.get_restart_count("issue-100", "coder") == 0
+
+    def test_restart_mode_explicit_public_works(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Passing mode='public' explicitly should succeed."""
+        result = spawner.restart_agent_container(
+            pipeline_id="issue-100",
+            agent_role=AgentRole.CODER,
+            issue_number=100,
+            mode="public",
+        )
+        assert isinstance(result, SpawnedContainer)
+
+    def test_restart_mode_explicit_private_works(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Passing mode='private' explicitly should succeed."""
+        result = spawner.restart_agent_container(
+            pipeline_id="issue-100",
+            agent_role=AgentRole.CODER,
+            issue_number=100,
+            mode="private",
+        )
+        assert isinstance(result, SpawnedContainer)
+
+
+# ---------------------------------------------------------------------------
+# Issue #1695: Failed spawn still increments restart count (issue 4)
+# ---------------------------------------------------------------------------
+
+
+class TestPreSpawnCountIncrement:
+    """Tests that restart count is incremented before spawn attempt (issue #1695, item 4)."""
+
+    def test_failed_spawn_increments_count(self, spawner, mock_docker_client, mock_gateway_client):
+        """If spawn_agent_container raises, restart count must still be incremented.
+
+        This prevents infinite retry loops when Docker consistently fails.
+        """
+        mock_docker_client.create_container.side_effect = ContainerOperationError("out of disk")
+
+        with pytest.raises(ContainerSpawnError):
+            spawner.restart_agent_container(
+                pipeline_id="issue-100",
+                agent_role=AgentRole.CODER,
+                issue_number=100,
+                mode="public",
+            )
+
+        # Count should be 1 even though spawn failed
+        assert spawner.get_restart_count("issue-100", "coder") == 1
+
+    def test_failed_spawn_eventually_hits_limit(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Repeated spawn failures should eventually exhaust the restart budget."""
+        mock_docker_client.create_container.side_effect = ContainerOperationError("out of disk")
+
+        # First attempt — should fail but increment count
+        with pytest.raises(ContainerSpawnError, match="out of disk|Failed"):
+            spawner.restart_agent_container(
+                pipeline_id="issue-100",
+                agent_role=AgentRole.CODER,
+                issue_number=100,
+                mode="public",
+                max_restarts=2,
+            )
+        assert spawner.get_restart_count("issue-100", "coder") == 1
+
+        # Second attempt — should fail but increment count
+        with pytest.raises(ContainerSpawnError, match="out of disk|Failed"):
+            spawner.restart_agent_container(
+                pipeline_id="issue-100",
+                agent_role=AgentRole.CODER,
+                issue_number=100,
+                mode="public",
+                max_restarts=2,
+            )
+        assert spawner.get_restart_count("issue-100", "coder") == 2
+
+        # Third attempt — should be rejected by limit check
+        with pytest.raises(ContainerSpawnError, match="Restart limit"):
+            spawner.restart_agent_container(
+                pipeline_id="issue-100",
+                agent_role=AgentRole.CODER,
+                issue_number=100,
+                mode="public",
+                max_restarts=2,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Issue #1695: Concurrency guard (issue 1)
+# ---------------------------------------------------------------------------
+
+
+class TestRestartConcurrencyGuard:
+    """Tests that concurrent restart_agent_container calls are serialised (issue #1695, item 1)."""
+
+    def test_concurrent_restarts_both_succeed_within_limit(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Two threads restarting different agents should both succeed."""
+        results = {}
+        errors = {}
+
+        def restart_agent(role, key):
+            try:
+                result = spawner.restart_agent_container(
+                    pipeline_id="issue-100",
+                    agent_role=role,
+                    issue_number=100,
+                    mode="public",
+                )
+                results[key] = result
+            except Exception as e:
+                errors[key] = e
+
+        t1 = threading.Thread(target=restart_agent, args=(AgentRole.CODER, "coder"))
+        t2 = threading.Thread(target=restart_agent, args=(AgentRole.TESTER, "tester"))
+
+        t1.start()
+        t2.start()
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+
+        # Both should succeed since they are different agents
+        assert "coder" in results, f"Coder restart failed: {errors.get('coder')}"
+        assert "tester" in results, f"Tester restart failed: {errors.get('tester')}"
+        assert spawner.get_restart_count("issue-100", "coder") == 1
+        assert spawner.get_restart_count("issue-100", "tester") == 1
+
+    def test_concurrent_restarts_same_agent_serialised(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """Two threads restarting the same agent should be serialised by the lock.
+
+        With max_restarts=2, both should succeed but the count should be 2.
+        """
+        results = []
+        errors = []
+        barrier = threading.Barrier(2, timeout=5)
+
+        def restart_agent():
+            try:
+                barrier.wait()
+                result = spawner.restart_agent_container(
+                    pipeline_id="issue-100",
+                    agent_role=AgentRole.CODER,
+                    issue_number=100,
+                    mode="public",
+                    max_restarts=2,
+                )
+                results.append(result)
+            except Exception as e:
+                errors.append(e)
+
+        t1 = threading.Thread(target=restart_agent)
+        t2 = threading.Thread(target=restart_agent)
+
+        t1.start()
+        t2.start()
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+
+        # Both should succeed (under the lock, each sees the count before/after the other)
+        assert len(results) == 2, f"Expected 2 successes, got errors: {errors}"
+        assert spawner.get_restart_count("issue-100", "coder") == 2
+
+    def test_concurrent_restarts_one_past_limit(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """If one thread consumes the last restart, the other should get limit error."""
+        # Pre-set count to 1 with max_restarts=2 — only one more slot
+        spawner._restart_counts[("issue-100", "coder")] = 1
+
+        results = []
+        errors = []
+        barrier = threading.Barrier(2, timeout=5)
+
+        def restart_agent():
+            try:
+                barrier.wait()
+                result = spawner.restart_agent_container(
+                    pipeline_id="issue-100",
+                    agent_role=AgentRole.CODER,
+                    issue_number=100,
+                    mode="public",
+                    max_restarts=2,
+                )
+                results.append(result)
+            except ContainerSpawnError as e:
+                errors.append(e)
+
+        t1 = threading.Thread(target=restart_agent)
+        t2 = threading.Thread(target=restart_agent)
+
+        t1.start()
+        t2.start()
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+
+        # One should succeed, one should fail with limit exceeded
+        assert len(results) == 1, f"Expected 1 success, got {len(results)}"
+        assert len(errors) == 1, f"Expected 1 error, got {len(errors)}"
+        assert "Restart limit" in str(errors[0])
+
+    def test_restart_lock_created_per_key(self, spawner):
+        """Each (pipeline_id, agent_role) pair should get its own lock."""
+        key1 = ("issue-100", "coder")
+        key2 = ("issue-100", "tester")
+        key3 = ("issue-200", "coder")
+
+        lock1 = spawner._get_restart_lock(key1)
+        lock2 = spawner._get_restart_lock(key2)
+        lock3 = spawner._get_restart_lock(key3)
+
+        assert lock1 is not lock2, "Different agents should have different locks"
+        assert lock1 is not lock3, "Different pipelines should have different locks"
+
+        # Same key should return the same lock
+        assert spawner._get_restart_lock(key1) is lock1
+
+
+# ---------------------------------------------------------------------------
+# Issue #1695: Lock cleanup on reset_restart_counts
+# ---------------------------------------------------------------------------
+
+
+class TestRestartLockCleanup:
+    """Tests that reset_restart_counts also cleans up per-key locks."""
+
+    def test_reset_cleans_up_locks(self, spawner):
+        """reset_restart_counts should remove locks for the given pipeline."""
+        # Create some locks by accessing them
+        spawner._get_restart_lock(("issue-100", "coder"))
+        spawner._get_restart_lock(("issue-100", "tester"))
+        spawner._get_restart_lock(("issue-200", "coder"))
+
+        # Set some counts
+        spawner._restart_counts[("issue-100", "coder")] = 2
+        spawner._restart_counts[("issue-100", "tester")] = 1
+        spawner._restart_counts[("issue-200", "coder")] = 3
+
+        spawner.reset_restart_counts("issue-100")
+
+        # Locks for issue-100 should be removed (check BEFORE get_restart_count
+        # which would re-create the lock as a side effect)
+        assert ("issue-100", "coder") not in spawner._restart_locks
+        assert ("issue-100", "tester") not in spawner._restart_locks
+
+        # Counts for issue-100 should be cleared
+        assert spawner._restart_counts.get(("issue-100", "coder"), 0) == 0
+        assert spawner._restart_counts.get(("issue-100", "tester"), 0) == 0
+
+        # issue-200 should be untouched
+        assert spawner._restart_counts.get(("issue-200", "coder"), 0) == 3
+        assert ("issue-200", "coder") in spawner._restart_locks
+
+    def test_restart_lock_initialization(self):
+        """Restart lock dicts should be initialised in constructor."""
+        spawner = ContainerSpawner()
+        assert hasattr(spawner, "_restart_locks")
+        assert spawner._restart_locks == {}
+        assert hasattr(spawner, "_restart_locks_lock")
+
+
+# ---------------------------------------------------------------------------
+# Issue #1695: Consensus reset ordering (issue 5)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")
+class TestConsensusResetOrdering:
+    """Tests that consensus is reset AFTER successful spawn, not before (issue #1695, item 5)."""
+
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_spawn_failure_preserves_consensus(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """If spawner raises ContainerSpawnError, consensus state must NOT be reset.
+
+        Regression test for issue #1695 item 5: consensus reset was previously
+        done before the spawn attempt, leaving orphaned consensus deletion on
+        spawn failure.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("Docker error")
+        mock_spawner_fn.return_value = mock_spawner
+
+        # Mock the consensus modules via sys.modules so the inline imports
+        # inside the route handler resolve correctly (no create=True needed).
+        mock_tracker = MagicMock()
+        mock_evaluator = MagicMock()
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "peer_consensus": MagicMock(
+                    get_peer_consensus_tracker=MagicMock(return_value=mock_tracker)
+                ),
+                "consensus": MagicMock(
+                    get_consensus_evaluator=MagicMock(return_value=mock_evaluator)
+                ),
+            },
+        ):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={"reason": "Agent stalled"},
+            )
+
+            assert response.status_code == 500
+
+            # Consensus should NOT have been reset since spawn failed
+            mock_tracker.remove_agent.assert_not_called()
+            mock_evaluator.remove_agent.assert_not_called()
+
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_successful_spawn_resets_consensus(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """On successful spawn, consensus state should be reset for the agent."""
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        # Patch the consensus imports inside the route handler
+        mock_tracker = MagicMock()
+        mock_evaluator = MagicMock()
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "peer_consensus": MagicMock(
+                    get_peer_consensus_tracker=MagicMock(return_value=mock_tracker)
+                ),
+                "consensus": MagicMock(
+                    get_consensus_evaluator=MagicMock(return_value=mock_evaluator)
+                ),
+            },
+        ):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={"reason": "Agent stalled"},
+            )
+
+            assert response.status_code == 200
+
+            # Consensus should have been reset after successful spawn
+            mock_tracker.remove_agent.assert_called_once_with("coder")
+            mock_evaluator.remove_agent.assert_called_once_with("issue-100", "coder")

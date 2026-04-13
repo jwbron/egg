@@ -1246,51 +1246,6 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     body = request.get_json(silent=True) or {}
     reason = body.get("reason", "Manual restart via API")
 
-    # Reset consensus state for this agent
-    try:
-        try:
-            from peer_consensus import get_peer_consensus_tracker
-        except ImportError:
-            from ..peer_consensus import (
-                get_peer_consensus_tracker,  # type: ignore[import-not-found]
-            )
-
-        tracker = get_peer_consensus_tracker(pipeline_id)
-        if tracker:
-            tracker.remove_agent(agent_role)
-            logger.info(
-                "Reset consensus state for agent",
-                pipeline_id=pipeline_id,
-                agent_role=agent_role,
-            )
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.warning(
-            "Failed to reset consensus state",
-            pipeline_id=pipeline_id,
-            agent_role=agent_role,
-            error=str(e),
-        )
-
-    try:
-        try:
-            from consensus import get_consensus_evaluator
-        except ImportError:
-            from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
-
-        evaluator = get_consensus_evaluator()
-        evaluator.remove_agent(pipeline_id, agent_role)
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.warning(
-            "Failed to reset legacy consensus state",
-            pipeline_id=pipeline_id,
-            agent_role=agent_role,
-            error=str(e),
-        )
-
     # Restart the container via spawner
     spawner = get_container_spawner()
 
@@ -1398,6 +1353,8 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         )
     except ContainerSpawnError as e:
         # Revert early status update — the agent is not actually running.
+        # Consensus state is intentionally NOT reset here so a failed spawn
+        # preserves the agent's prior consensus participation.
         revert_lock = get_pipeline_state_lock(pipeline_id)
         with revert_lock:
             pipeline = store.load_pipeline(pipeline_id)
@@ -1409,21 +1366,70 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
         return make_error_response(f"Failed to restart agent: {e}", status_code=500)
 
+    # Spawn succeeded — now reset consensus state for this agent.
+    # If consensus reset fails, log a warning but don't fail the restart:
+    # the restarted agent will re-enter consensus on its own.
+    try:
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+        except ImportError:
+            from ..peer_consensus import (
+                get_peer_consensus_tracker,  # type: ignore[import-not-found]
+            )
+
+        tracker = get_peer_consensus_tracker(pipeline_id)
+        if tracker:
+            tracker.remove_agent(agent_role)
+            logger.info(
+                "Reset consensus state for agent",
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+            )
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning(
+            "Failed to reset consensus state (agent will re-enter consensus)",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            error=str(e),
+        )
+
+    try:
+        try:
+            from consensus import get_consensus_evaluator
+        except ImportError:
+            from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
+
+        evaluator = get_consensus_evaluator()
+        evaluator.remove_agent(pipeline_id, agent_role)
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning(
+            "Failed to reset legacy consensus state",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            error=str(e),
+        )
+
     # Update pipeline state with new container/agent info
     lock = get_pipeline_state_lock(pipeline_id)
     with lock:
         pipeline = store.load_pipeline(pipeline_id)
         if phase_exec is not None:
-            phase_exec = pipeline.phases.get(current_phase)
-            if phase_exec is not None:
+            # Re-fetch from the freshly loaded pipeline (the outer check gates
+            # on "did the phase exist before the spawn?").
+            fresh_phase_exec = pipeline.phases.get(current_phase)
+            if fresh_phase_exec is not None:
                 # Add new container info
-                phase_exec.containers.append(spawned.container_info)
+                fresh_phase_exec.containers.append(spawned.container_info)
 
                 # Update or add agent execution entry
                 from models import AgentExecution  # type: ignore
 
                 found = False
-                for agent in phase_exec.agents:
+                for agent in fresh_phase_exec.agents:
                     if hasattr(agent, "role") and (
                         agent.role == role
                         or (hasattr(agent.role, "value") and agent.role.value == role.value)
@@ -1433,7 +1439,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                         found = True
                         break
                 if not found:
-                    phase_exec.agents.append(
+                    fresh_phase_exec.agents.append(
                         AgentExecution(
                             role=role,
                             container_id=spawned.container_info.container_id,

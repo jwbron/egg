@@ -6,6 +6,8 @@ Covers:
 - _execute_action handling for restart_phase (task-1-5)
 - _execute_restart_agent with restart count tracking and limit enforcement
 - Escalation from agent restart to phase restart when 2+ agents exhausted
+- Issue #1695 gaps: restartable infra error routing, overseer reads count
+  from API, no shadow counter, decide_escalation_level restartable routing
 """
 
 import asyncio
@@ -209,7 +211,11 @@ class TestMonitorExecuteRestartAgent:
 
     @pytest.fixture
     def monitor(self):
-        """Create an OverseerMonitor with mocked dependencies."""
+        """Create an OverseerMonitor with mocked dependencies.
+
+        Note: _agent_restart_counts and _max_agent_restarts were removed in
+        issue #1695 — the spawner is now the single source of truth.
+        """
         monitor = OverseerMonitor.__new__(OverseerMonitor)
         monitor.pipeline_id = "issue-100"
         monitor._oversight_log = []
@@ -219,8 +225,7 @@ class TestMonitorExecuteRestartAgent:
         monitor._create_hitl_decision = AsyncMock()
         monitor._broadcast_alert = AsyncMock()
         monitor._log_oversight_event = MagicMock()
-        monitor._agent_restart_counts = {}
-        monitor._max_agent_restarts = 2
+        monitor._agents_restart_exhausted = set()
         return monitor
 
     @patch("urllib.request.build_opener")
@@ -252,12 +257,18 @@ class TestMonitorExecuteRestartAgent:
 
     @patch("urllib.request.build_opener")
     @patch("urllib.request.Request")
-    def test_restart_agent_increments_count_on_success(
-        self, mock_request_cls, mock_build_opener, monitor
-    ):
-        """Successful restart should increment the agent's restart count."""
+    def test_restart_agent_logs_on_success(self, mock_request_cls, mock_build_opener, monitor):
+        """Successful restart should log the oversight event with restart count from API.
+
+        The shadow counter was removed in issue #1695 — the spawner (via the REST
+        API response) is now the single source of truth for restart counts.
+        """
+        api_response = {
+            "success": True,
+            "data": {"container_id": "new-abc", "agent_role": "coder", "restart_count": 1},
+        }
         mock_resp = MagicMock()
-        mock_resp.read.return_value = b'{"success": true}'
+        mock_resp.read.return_value = json.dumps(api_response).encode()
         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
         mock_resp.__exit__ = MagicMock(return_value=False)
         mock_opener = MagicMock()
@@ -272,7 +283,10 @@ class TestMonitorExecuteRestartAgent:
 
         _run(monitor._execute_action(decision, "coder"))
 
-        assert monitor._agent_restart_counts.get("coder", 0) == 1
+        # Should log the oversight event with count from the API response
+        monitor._log_oversight_event.assert_called()
+        logged = monitor._log_oversight_event.call_args[0][0]
+        assert logged["restart_count"] == 1
 
     @patch("urllib.request.build_opener")
     @patch("urllib.request.Request")
@@ -296,9 +310,33 @@ class TestMonitorExecuteRestartAgent:
 
         monitor._create_hitl_decision.assert_called()
 
-    def test_restart_agent_limit_creates_hitl(self, monitor):
-        """When restart limit is reached, should create HITL decision."""
-        monitor._agent_restart_counts["coder"] = 2  # At limit
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_restart_limit_from_api_creates_hitl(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
+        """When spawner returns limit exceeded error (HTTP 500), monitor should create HITL.
+
+        The restart endpoint returns HTTP 500 on ContainerSpawnError (including
+        restart-limit-exceeded).  urllib raises HTTPError for non-2xx responses,
+        so the monitor must catch HTTPError and parse the response body.
+        """
+        import io
+        import urllib.error
+
+        api_response = {
+            "success": False,
+            "message": "Restart limit (2) exceeded for coder in pipeline issue-100",
+        }
+        mock_opener = MagicMock()
+        mock_opener.open.side_effect = urllib.error.HTTPError(
+            url="http://localhost:9849/api/v1/pipelines/issue-100/agents/coder/restart",
+            code=500,
+            msg="Internal Server Error",
+            hdrs={},
+            fp=io.BytesIO(json.dumps(api_response).encode()),
+        )
+        mock_build_opener.return_value = mock_opener
 
         decision = {
             "action": "restart_agent",
@@ -308,43 +346,34 @@ class TestMonitorExecuteRestartAgent:
 
         _run(monitor._execute_action(decision, "coder"))
 
-        # Should not call CLI — limit reached
-        monitor._run_cli.assert_not_called()
         # Should escalate to HITL
         monitor._create_hitl_decision.assert_called()
+        call_msg = str(monitor._create_hitl_decision.call_args)
+        assert "failed" in call_msg.lower() or "restart" in call_msg.lower()
 
-    def test_restart_multi_agent_exhaustion_escalates_to_phase(self, monitor):
-        """When 2+ agents exhaust restart limits, should mention phase restart."""
-        monitor._agent_restart_counts["coder"] = 2
-        monitor._agent_restart_counts["tester"] = 2
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_restart_api_network_failure_creates_hitl(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
+        """Network failure during restart API call should fall back to HITL decision."""
+        import urllib.error
+
+        mock_opener = MagicMock()
+        mock_opener.open.side_effect = urllib.error.URLError("connection refused")
+        mock_build_opener.return_value = mock_opener
 
         decision = {
             "action": "restart_agent",
-            "message": "Documenter also stalled",
+            "message": "Agent stalled",
             "priority": "high",
         }
 
-        # Now a 3rd agent hits its limit
-        monitor._agent_restart_counts["documenter"] = 2
-
-        _run(monitor._execute_action(decision, "documenter"))
+        _run(monitor._execute_action(decision, "coder"))
 
         monitor._create_hitl_decision.assert_called()
-        call_args = monitor._create_hitl_decision.call_args
-        message = str(call_args)
-        message_lower = message.lower()
-        # Should mention that restart limits were exhausted
-        assert "exhausted" in message_lower or "limit" in message_lower, (
-            f"Expected 'exhausted' or 'limit' in HITL message: {message}"
-        )
-        # Should reference at least two of the exhausted agents by name
-        exhausted_mentioned = sum(
-            1 for agent in ("coder", "tester", "documenter") if agent in message_lower
-        )
-        assert exhausted_mentioned >= 2, (
-            f"Expected at least 2 exhausted agent names in HITL message, "
-            f"found {exhausted_mentioned}: {message}"
-        )
+        call_msg = str(monitor._create_hitl_decision.call_args)
+        assert "coder" in call_msg.lower()
 
 
 class TestMonitorExecuteRestartPhase:
@@ -362,8 +391,7 @@ class TestMonitorExecuteRestartPhase:
         monitor._create_hitl_decision = AsyncMock()
         monitor._broadcast_alert = AsyncMock()
         monitor._log_oversight_event = MagicMock()
-        monitor._agent_restart_counts = {}
-        monitor._max_agent_restarts = 2
+        monitor._agents_restart_exhausted = set()
         return monitor
 
     def test_restart_phase_creates_hitl_by_default(self, monitor):
@@ -399,3 +427,590 @@ class TestMonitorExecuteRestartPhase:
             args = call[0] if call[0] else []
             cli_str = " ".join(str(a) for a in args)
             assert "restart-phase" not in cli_str
+
+
+# ---------------------------------------------------------------------------
+# Issue #1695 item 6: Restartable infra error routing in decision_maker
+# ---------------------------------------------------------------------------
+
+
+try:
+    from overseer.decision_maker import (
+        _RESTARTABLE_RE,
+        NON_RESTARTABLE_PATTERNS,
+        RESTARTABLE_PATTERNS,
+        _is_restartable,
+        decide_escalation_level,
+    )
+
+    _HAS_RESTARTABLE = True
+except ImportError:
+    _HAS_RESTARTABLE = False
+
+
+class TestInfraErrorRestartRouting:
+    """Tests that infrastructure errors with restartable keywords route to restart_agent."""
+
+    @pytest.mark.parametrize(
+        "reasoning",
+        [
+            "Agent is unresponsive after 15 minutes",
+            "Container crashed with exit code 137",
+            "Agent hit OOM limit",
+            "Request timeout after 300 seconds",
+            "Agent process hung during tool execution",
+            "Agent is not responding to heartbeats",
+        ],
+    )
+    def test_restartable_infra_error_returns_restart_agent(self, reasoning):
+        """Infrastructure errors with restartable keywords should trigger restart_agent."""
+        classification = {
+            "classification": "infrastructure_error",
+            "reasoning": reasoning,
+        }
+        result = _run(
+            decide_corrective_action(
+                classification=classification,
+                context={"agent_role": "coder", "pipeline_id": "issue-100"},
+            )
+        )
+
+        assert result["action"] == "restart_agent", (
+            f"Expected restart_agent for reasoning '{reasoning}', got '{result['action']}'"
+        )
+        assert result["priority"] == "high"
+
+    @pytest.mark.parametrize(
+        "reasoning",
+        [
+            "Permission denied accessing /etc/passwd",
+            "Read-only filesystem error on /home/egg/repos",
+            "Docker daemon returned 403 Forbidden",
+            "Certificate verification failed",
+            "Network policy blocks egress to PyPI",
+            "Infrastructure error detected",  # default/generic
+        ],
+    )
+    def test_non_restartable_infra_error_returns_hitl(self, reasoning):
+        """Infrastructure errors without restartable keywords should go to HITL."""
+        classification = {
+            "classification": "infrastructure_error",
+            "reasoning": reasoning,
+        }
+        result = _run(
+            decide_corrective_action(
+                classification=classification,
+                context={"agent_role": "coder", "pipeline_id": "issue-100"},
+            )
+        )
+
+        assert result["action"] == "hitl", (
+            f"Expected hitl for reasoning '{reasoning}', got '{result['action']}'"
+        )
+        assert result["priority"] == "critical"
+
+    def test_non_infra_error_bypasses_fast_path(self):
+        """Non-infrastructure errors should go through the LLM decision path."""
+        with patch(_AGENT_PATCH, new_callable=AsyncMock) as mock_agent:
+            mock_agent.return_value = _make_result(
+                json.dumps({"action": "nudge", "message": "keep going", "priority": "low"})
+            )
+            result = _run(
+                decide_corrective_action(
+                    classification={
+                        "classification": "stalled",
+                        "reasoning": "No progress for 10 minutes",
+                    },
+                    context={"agent_role": "coder"},
+                )
+            )
+            # Should call LLM, not the fast path
+            mock_agent.assert_called_once()
+            assert result["action"] == "nudge"
+
+    @pytest.mark.skipif(not _HAS_RESTARTABLE, reason="RESTARTABLE_PATTERNS not importable")
+    def test_restartable_patterns_list_exists(self):
+        """RESTARTABLE_PATTERNS should be a non-empty list of strings."""
+        assert isinstance(RESTARTABLE_PATTERNS, list)
+        assert len(RESTARTABLE_PATTERNS) > 0
+        for pattern in RESTARTABLE_PATTERNS:
+            assert isinstance(pattern, str)
+
+    @pytest.mark.skipif(not _HAS_RESTARTABLE, reason="_RESTARTABLE_RE not importable")
+    def test_restartable_regex_case_insensitive(self):
+        """Regex should match restartable patterns case-insensitively."""
+        assert _RESTARTABLE_RE.search("Agent is UNRESPONSIVE")
+        assert _RESTARTABLE_RE.search("OOM killed")
+        assert _RESTARTABLE_RE.search("Process Timed Out — TIMEOUT reached")
+        assert not _RESTARTABLE_RE.search("Permission denied")
+
+    def test_infra_error_with_mixed_keywords_prefers_non_restartable(self):
+        """Infra error with both restartable and non-restartable words should go to HITL.
+
+        The deny-list (NON_RESTARTABLE_PATTERNS) takes priority to prevent
+        restart loops on persistent failures (e.g. "crashed after permission error").
+        """
+        classification = {
+            "classification": "infrastructure_error",
+            "reasoning": "Agent crashed after permission error on filesystem",
+        }
+        result = _run(
+            decide_corrective_action(
+                classification=classification,
+                context={"agent_role": "coder"},
+            )
+        )
+        # "permission" in deny-list overrides "crashed" in allow-list
+        assert result["action"] == "hitl"
+
+
+# ---------------------------------------------------------------------------
+# Issue #1695 item 6: Restartable routing in decide_escalation_level
+# ---------------------------------------------------------------------------
+
+
+class TestEscalationLevelRestartRouting:
+    """Tests for restartable infra error routing in decide_escalation_level."""
+
+    @pytest.mark.parametrize(
+        "reasoning",
+        [
+            "Agent is unresponsive",
+            "Container crashed",
+            "OOM killed",
+            "Agent hung during execution",
+            "timeout waiting for response",
+            "Agent not responding",
+        ],
+    )
+    def test_restartable_escalation_returns_restart_agent_level(self, reasoning):
+        """Restartable infra errors should return level='restart_agent' in escalation."""
+        classification = {
+            "classification": "infrastructure_error",
+            "reasoning": reasoning,
+        }
+        result = _run(
+            decide_escalation_level(
+                classification=classification,
+                redirect_history=[],
+                context={"agent_role": "coder"},
+            )
+        )
+
+        assert result["escalate"] is True
+        assert result["level"] == "restart_agent", (
+            f"Expected level 'restart_agent' for '{reasoning}', got '{result['level']}'"
+        )
+
+    @pytest.mark.parametrize(
+        "reasoning",
+        [
+            "Permission denied",
+            "EROFS: read-only filesystem",
+            "Certificate expired",
+        ],
+    )
+    def test_non_restartable_escalation_returns_hitl(self, reasoning):
+        """Non-restartable infra errors should still return level='hitl' in escalation."""
+        classification = {
+            "classification": "infrastructure_error",
+            "reasoning": reasoning,
+        }
+        result = _run(
+            decide_escalation_level(
+                classification=classification,
+                redirect_history=[],
+                context={"agent_role": "coder"},
+            )
+        )
+
+        assert result["escalate"] is True
+        assert result["level"] == "hitl", (
+            f"Expected level 'hitl' for '{reasoning}', got '{result['level']}'"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Issue #1695 items 2+3: Overseer reads restart count from API, no shadow counter
+# ---------------------------------------------------------------------------
+
+
+class TestMonitorNoShadowCounter:
+    """Tests that the overseer monitor has no independent restart counter."""
+
+    @pytest.fixture
+    def monitor(self):
+        """Create an OverseerMonitor with mocked dependencies."""
+        monitor = OverseerMonitor.__new__(OverseerMonitor)
+        monitor.pipeline_id = "issue-100"
+        monitor._oversight_log = []
+        monitor.self_monitor = MagicMock()
+        monitor._run_cli = AsyncMock(return_value=(0, "{}", ""))
+        monitor._send_message = AsyncMock()
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
+        monitor._log_oversight_event = MagicMock()
+        monitor._agents_restart_exhausted = set()
+        return monitor
+
+    def test_no_agent_restart_counts_attribute(self, monitor):
+        """OverseerMonitor should no longer have _agent_restart_counts."""
+        assert not hasattr(monitor, "_agent_restart_counts"), (
+            "Shadow counter _agent_restart_counts should be removed (issue #1695 item 2)"
+        )
+
+    def test_no_max_agent_restarts_attribute(self, monitor):
+        """OverseerMonitor should no longer have _max_agent_restarts."""
+        assert not hasattr(monitor, "_max_agent_restarts"), (
+            "Shadow limit _max_agent_restarts should be removed (issue #1695 item 2)"
+        )
+
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_restart_reads_count_from_api_response(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
+        """Successful restart should read restart_count from the API response data."""
+        api_response = {
+            "success": True,
+            "data": {
+                "container_id": "new-container-xyz",
+                "agent_role": "coder",
+                "restart_count": 2,
+            },
+        }
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(api_response).encode()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_opener = MagicMock()
+        mock_opener.open.return_value = mock_resp
+        mock_build_opener.return_value = mock_opener
+
+        decision = {
+            "action": "restart_agent",
+            "message": "Agent stalled",
+            "priority": "high",
+        }
+
+        _run(monitor._execute_action(decision, "coder"))
+
+        # Should log the oversight event with the count from the API
+        monitor._log_oversight_event.assert_called()
+        logged = monitor._log_oversight_event.call_args[0][0]
+        assert logged["restart_count"] == 2
+
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_restart_limit_error_creates_hitl(self, mock_request_cls, mock_build_opener, monitor):
+        """API returning success=false (limit exceeded) should create HITL decision."""
+        api_response = {
+            "success": False,
+            "message": "Restart limit (2) exceeded for coder in pipeline issue-100",
+        }
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(api_response).encode()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_opener = MagicMock()
+        mock_opener.open.return_value = mock_resp
+        mock_build_opener.return_value = mock_opener
+
+        decision = {
+            "action": "restart_agent",
+            "message": "Agent stalled",
+            "priority": "high",
+        }
+
+        _run(monitor._execute_action(decision, "coder"))
+
+        # Should escalate to HITL
+        monitor._create_hitl_decision.assert_called()
+        call_msg = str(monitor._create_hitl_decision.call_args)
+        assert "failed" in call_msg.lower() or "restart" in call_msg.lower()
+
+
+# ---------------------------------------------------------------------------
+# Issue #1695 review: deny-list for non-restartable patterns
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAS_RESTARTABLE, reason="decision_maker not importable")
+class TestNonRestartableDenyList:
+    """Tests for the deny-list that prevents restart loops on persistent failures."""
+
+    def test_deny_list_exists_and_is_non_empty(self):
+        """NON_RESTARTABLE_PATTERNS should be a non-empty list."""
+        assert isinstance(NON_RESTARTABLE_PATTERNS, list)
+        assert len(NON_RESTARTABLE_PATTERNS) > 0
+
+    @pytest.mark.parametrize(
+        "error_text",
+        [
+            "Agent crashed after permission error on filesystem",
+            "Container crashed with EROFS: read-only file system",
+            "Agent hung due to certificate verification failure",
+            "OOM but also config error in agent settings",
+            "Agent timeout during authentication failure",
+            "Agent crashed: authorization denied for resource",
+            "OOM crash: no space left on device",
+        ],
+    )
+    def test_mixed_keywords_deny_list_wins(self, error_text):
+        """When both restartable and non-restartable patterns are present, deny-list wins."""
+        assert not _is_restartable(error_text), (
+            f"Expected non-restartable for '{error_text}' (deny-list should override)"
+        )
+
+    @pytest.mark.parametrize(
+        "error_text",
+        [
+            "Agent is unresponsive after 15 minutes",
+            "Container crashed with exit code 137",
+            "Agent hit OOM limit",
+            "timeout waiting for response",
+            "Agent crashed while loading configuration from remote server",
+            "OOM during config sync",
+        ],
+    )
+    def test_pure_restartable_still_works(self, error_text):
+        """Pure restartable errors (no deny-list match) should still be restartable."""
+        assert _is_restartable(error_text), f"Expected restartable for '{error_text}'"
+
+    def test_no_restartable_keyword_returns_false(self):
+        """Errors without any restartable keyword should return False."""
+        assert not _is_restartable("Permission denied accessing /etc/passwd")
+        assert not _is_restartable("Network policy blocks egress")
+
+    def test_mixed_keywords_in_decide_corrective_action(self):
+        """End-to-end: mixed keywords should route to HITL, not restart_agent."""
+        classification = {
+            "classification": "infrastructure_error",
+            "reasoning": "Agent crashed after permission error on filesystem",
+        }
+        result = _run(
+            decide_corrective_action(
+                classification=classification,
+                context={"agent_role": "coder"},
+            )
+        )
+        assert result["action"] == "hitl"
+
+    def test_mixed_keywords_in_decide_escalation_level(self):
+        """End-to-end: mixed keywords should route to HITL in escalation too."""
+        classification = {
+            "classification": "infrastructure_error",
+            "reasoning": "Container crashed with EROFS on workspace mount",
+        }
+        result = _run(
+            decide_escalation_level(
+                classification=classification,
+                redirect_history=[],
+                context={"agent_role": "coder"},
+            )
+        )
+        assert result["escalate"] is True
+        assert result["level"] == "hitl"
+
+
+# ---------------------------------------------------------------------------
+# Issue #1695 review: multi-agent exhaustion -> phase restart escalation
+# ---------------------------------------------------------------------------
+
+
+class TestMultiAgentExhaustionEscalation:
+    """Tests that 2+ agents exhausting restart limits triggers phase restart HITL."""
+
+    @pytest.fixture
+    def monitor(self):
+        """Create an OverseerMonitor with mocked dependencies."""
+        monitor = OverseerMonitor.__new__(OverseerMonitor)
+        monitor.pipeline_id = "issue-100"
+        monitor._oversight_log = []
+        monitor.self_monitor = MagicMock()
+        monitor._run_cli = AsyncMock(return_value=(0, "{}", ""))
+        monitor._send_message = AsyncMock()
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
+        monitor._log_oversight_event = MagicMock()
+        monitor._agents_restart_exhausted = set()
+        return monitor
+
+    def _make_limit_exceeded_error(self, agent_role="coder"):
+        """Create an HTTPError simulating a restart-limit-exceeded response.
+
+        The restart endpoint returns HTTP 500 on ContainerSpawnError, including
+        restart-limit-exceeded.  urllib raises HTTPError for non-2xx responses.
+        """
+        import io
+        import urllib.error
+
+        api_response = {
+            "success": False,
+            "message": f"Restart limit (2) exceeded for {agent_role}",
+        }
+        return urllib.error.HTTPError(
+            url=f"http://localhost:9849/api/v1/pipelines/issue-100/agents/{agent_role}/restart",
+            code=500,
+            msg="Internal Server Error",
+            hdrs={},
+            fp=io.BytesIO(json.dumps(api_response).encode()),
+        )
+
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_single_agent_exhaustion_creates_agent_hitl(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
+        """Single agent limit exceeded should create HITL for that agent, not phase."""
+        mock_opener = MagicMock()
+        mock_opener.open.side_effect = self._make_limit_exceeded_error("coder")
+        mock_build_opener.return_value = mock_opener
+
+        _run(monitor._execute_restart_agent("coder", "Agent stalled"))
+
+        monitor._create_hitl_decision.assert_called_once()
+        call_args = monitor._create_hitl_decision.call_args[0]
+        # Should be for the specific agent, not "orchestrator"
+        assert call_args[0] == "coder"
+
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_two_agents_exhausted_escalates_to_phase_restart(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
+        """When 2+ agents exhaust limits, should escalate to phase restart HITL."""
+        mock_opener = MagicMock()
+        mock_opener.open.side_effect = self._make_limit_exceeded_error("coder")
+        mock_build_opener.return_value = mock_opener
+
+        # First agent exhausts limits
+        _run(monitor._execute_restart_agent("coder", "Coder stalled"))
+        assert len(monitor._agents_restart_exhausted) == 1
+
+        # Reset mock for second call
+        monitor._create_hitl_decision.reset_mock()
+        mock_opener.open.side_effect = self._make_limit_exceeded_error("tester")
+
+        # Second agent exhausts limits — should trigger phase restart escalation
+        _run(monitor._execute_restart_agent("tester", "Tester stalled"))
+
+        assert len(monitor._agents_restart_exhausted) == 2
+        monitor._create_hitl_decision.assert_called_once()
+        call_args = monitor._create_hitl_decision.call_args[0]
+        # Should target "orchestrator" for phase-level escalation
+        assert call_args[0] == "orchestrator"
+        assert "phase" in call_args[1].lower()
+        assert "coder" in call_args[1]
+        assert "tester" in call_args[1]
+
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_successful_restart_does_not_mark_exhausted(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
+        """Successful restart should not add agent to exhausted set."""
+        api_response = {"success": True, "data": {"restart_count": 1}}
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(api_response).encode()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_opener = MagicMock()
+        mock_opener.open.return_value = mock_resp
+        mock_build_opener.return_value = mock_opener
+
+        _run(monitor._execute_restart_agent("coder", "Agent stalled"))
+
+        assert "coder" not in monitor._agents_restart_exhausted
+
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_transient_docker_error_does_not_mark_exhausted(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
+        """Transient Docker failure (not limit-exceeded) should NOT add agent to exhausted set."""
+        import io
+        import urllib.error
+
+        # Simulate a Docker daemon error — HTTP 500 but NOT a limit-exceeded message
+        api_response = {
+            "success": False,
+            "message": "Cannot connect to Docker daemon at unix:///var/run/docker.sock",
+        }
+        mock_opener = MagicMock()
+        mock_opener.open.side_effect = urllib.error.HTTPError(
+            url="http://localhost:9849/api/v1/pipelines/issue-100/agents/coder/restart",
+            code=500,
+            msg="Internal Server Error",
+            hdrs={},
+            fp=io.BytesIO(json.dumps(api_response).encode()),
+        )
+        mock_build_opener.return_value = mock_opener
+
+        _run(monitor._execute_restart_agent("coder", "Agent stalled"))
+
+        # Should create HITL for the agent but NOT mark as exhausted
+        assert "coder" not in monitor._agents_restart_exhausted
+        monitor._create_hitl_decision.assert_called_once()
+        call_args = monitor._create_hitl_decision.call_args[0]
+        assert call_args[0] == "coder"
+
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_two_transient_failures_do_not_escalate_to_phase_restart(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
+        """Two transient Docker failures should NOT trigger phase restart escalation."""
+        import io
+        import urllib.error
+
+        def _make_docker_error(agent_role):
+            api_response = {
+                "success": False,
+                "message": f"Cannot connect to Docker daemon while restarting {agent_role}",
+            }
+            return urllib.error.HTTPError(
+                url=f"http://localhost:9849/api/v1/pipelines/issue-100/agents/{agent_role}/restart",
+                code=500,
+                msg="Internal Server Error",
+                hdrs={},
+                fp=io.BytesIO(json.dumps(api_response).encode()),
+            )
+
+        mock_opener = MagicMock()
+        mock_opener.open.side_effect = _make_docker_error("coder")
+        mock_build_opener.return_value = mock_opener
+
+        _run(monitor._execute_restart_agent("coder", "Coder stalled"))
+        monitor._create_hitl_decision.reset_mock()
+
+        mock_opener.open.side_effect = _make_docker_error("tester")
+        _run(monitor._execute_restart_agent("tester", "Tester stalled"))
+
+        # Should NOT escalate to phase restart — neither agent is truly exhausted
+        assert len(monitor._agents_restart_exhausted) == 0
+        call_args = monitor._create_hitl_decision.call_args[0]
+        # Should target the specific agent, not "orchestrator"
+        assert call_args[0] == "tester"
+
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_successful_restart_clears_previously_exhausted(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
+        """Successful restart should remove agent from exhausted set (e.g. after budget reset)."""
+        # Pre-seed agent as exhausted (simulating a prior limit-exceeded)
+        monitor._agents_restart_exhausted.add("coder")
+
+        api_response = {"success": True, "data": {"restart_count": 1}}
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(api_response).encode()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_opener = MagicMock()
+        mock_opener.open.return_value = mock_resp
+        mock_build_opener.return_value = mock_opener
+
+        _run(monitor._execute_restart_agent("coder", "Agent stalled"))
+
+        assert "coder" not in monitor._agents_restart_exhausted
