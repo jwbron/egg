@@ -4351,6 +4351,131 @@ def _rewrite_brc_history_for_pr(
     )
 
 
+def _reconcile_and_push_pr_branch(
+    spawner,
+    worktree_path: Path,
+    pipeline_id: str,
+    branch: str,
+    gateway_mode: Literal["public", "private"],
+) -> bool:
+    """Push the PR-phase worktree branch, reconciling with the remote on failure.
+
+    The PR-phase worktree is checked out from ``origin/{branch}`` at phase
+    entry, then has local-only commits layered on top (BRC history rewrite
+    and draft cleanup via :func:`_rewrite_brc_history_for_pr` and
+    :func:`_cleanup_drafts_for_pr`). Between the worktree checkout and this
+    push, the remote tip can advance — for example from checkpoint-handler
+    pushes or concurrent agent activity — leaving the worktree behind its
+    remote and causing the non-fast-forward ``HEAD:refs/heads/{branch}``
+    push to be rejected (see #1706).
+
+    :func:`GatewayClient.push_worktree_branch` swallows push failures and
+    returns ``False``, so the caller cannot distinguish success from a
+    silent rejection by catching exceptions.  This helper checks the
+    return value directly and, on failure, performs ``git fetch origin``
+    plus ``git merge --no-edit origin/{branch}`` in the worktree to
+    incorporate remote changes, then retries the push once.  Merge
+    conflicts are treated as a hard failure: the merge is aborted (so
+    the worktree is left in a clean, non-conflicted state) and ``False``
+    is returned.
+
+    Returns ``True`` if the push ultimately succeeded, ``False`` otherwise.
+    Callers should skip PR creation on a ``False`` result to avoid opening
+    a PR that references stale branch state.
+    """
+    if spawner.gateway.push_worktree_branch(
+        pipeline_id=pipeline_id,
+        repo_path=str(worktree_path),
+        branch=branch,
+        mode=gateway_mode,
+    ):
+        return True
+
+    logger.warning(
+        "PR-phase push failed — attempting fetch+merge+retry to reconcile divergence",
+        pipeline_id=pipeline_id,
+        branch=branch,
+    )
+
+    git_base = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        f"safe.directory={worktree_path}",
+        "-C",
+        str(worktree_path),
+    ]
+
+    try:
+        subprocess.run(
+            [*git_base, "fetch", "origin", branch],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        )
+    except subprocess.CalledProcessError as fetch_err:
+        logger.error(
+            "PR-phase reconcile: fetch failed",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            stderr=fetch_err.stderr,
+        )
+        return False
+    except subprocess.TimeoutExpired:
+        logger.error(
+            "PR-phase reconcile: fetch timed out",
+            pipeline_id=pipeline_id,
+            branch=branch,
+        )
+        return False
+
+    merge_result = subprocess.run(
+        [*git_base, "merge", "--no-edit", "--no-verify", f"origin/{branch}"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    if merge_result.returncode != 0:
+        logger.error(
+            "PR-phase reconcile: merge failed — aborting and giving up",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            stdout=merge_result.stdout,
+            stderr=merge_result.stderr,
+        )
+        # Abort the merge so the worktree is left in a clean state.
+        subprocess.run(
+            [*git_base, "merge", "--abort"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        return False
+
+    logger.info(
+        "PR-phase reconcile: merge succeeded — retrying push",
+        pipeline_id=pipeline_id,
+        branch=branch,
+    )
+    retry_ok = spawner.gateway.push_worktree_branch(
+        pipeline_id=pipeline_id,
+        repo_path=str(worktree_path),
+        branch=branch,
+        mode=gateway_mode,
+    )
+    if not retry_ok:
+        logger.error(
+            "PR-phase reconcile: retry push still failed",
+            pipeline_id=pipeline_id,
+            branch=branch,
+        )
+    return retry_ok
+
+
 def _build_brc_consensus_summary(pipeline_id: str) -> str:
     """Build a concise BRC consensus summary for the PR body.
 
@@ -8496,51 +8621,56 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Clean up pipeline draft files so PR diffs stay focused
                 _cleanup_drafts_for_pr(worktree_repo_path, identifier)
 
-                # Push latest commits before creating PR
+                # Push latest commits before creating PR.  If the push fails
+                # (e.g. the remote advanced while the PR-phase worktree was
+                # adding BRC/cleanup commits), reconcile via fetch+merge and
+                # retry once — see _reconcile_and_push_pr_branch and #1706.
+                push_ok = True
                 if pipeline.branch and worktree_repo_path != repo_path:
                     commits_ahead = "unknown"
                     try:
-                        # Count local commits ahead of remote for diagnostic reporting
-                        try:
-                            ahead_result = subprocess.run(
-                                [
-                                    "git",
-                                    "-C",
-                                    str(worktree_repo_path),
-                                    "rev-list",
-                                    "--count",
-                                    f"origin/{pipeline.branch}..HEAD",
-                                ],
-                                capture_output=True,
-                                text=True,
-                                check=False,
-                                timeout=10,
-                            )
-                            commits_ahead = (
-                                ahead_result.stdout.strip()
-                                if ahead_result.returncode == 0
-                                else "unknown"
-                            )
-                        except Exception:
-                            commits_ahead = "unknown"
-
-                        spawner.gateway.push_worktree_branch(
-                            pipeline_id=pipeline_id,
-                            repo_path=str(worktree_repo_path),
-                            branch=pipeline.branch,
-                            mode=gateway_mode,
+                        ahead_result = subprocess.run(
+                            [
+                                "git",
+                                "-C",
+                                str(worktree_repo_path),
+                                "rev-list",
+                                "--count",
+                                f"origin/{pipeline.branch}..HEAD",
+                            ],
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                            timeout=10,
                         )
+                        commits_ahead = (
+                            ahead_result.stdout.strip()
+                            if ahead_result.returncode == 0
+                            else "unknown"
+                        )
+                    except Exception:
+                        commits_ahead = "unknown"
+
+                    push_ok = _reconcile_and_push_pr_branch(
+                        spawner,
+                        worktree_repo_path,
+                        pipeline_id,
+                        pipeline.branch,
+                        gateway_mode,
+                    )
+                    if push_ok:
                         logger.info(
                             "PR-phase push succeeded",
                             pipeline_id=pipeline_id,
                             branch=pipeline.branch,
                             commits_ahead=commits_ahead,
                         )
-                    except Exception as push_err:
+                    else:
                         logger.error(
-                            "Pre-PR push failed — PR may reference stale code",
+                            "PR-phase push failed after retry — skipping PR creation "
+                            "to avoid opening a PR against stale branch state",
                             pipeline_id=pipeline_id,
-                            error=str(push_err),
+                            branch=pipeline.branch,
                             commits_ahead=commits_ahead,
                         )
                 else:
@@ -8553,9 +8683,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         else "no branch set",
                     )
 
-                pr_url = _auto_create_pr(
-                    pipeline, worktree_repo_path, spawner, gateway_mode=gateway_mode
-                )
+                if push_ok:
+                    pr_url = _auto_create_pr(
+                        pipeline, worktree_repo_path, spawner, gateway_mode=gateway_mode
+                    )
+                else:
+                    pr_url = None
 
                 if pr_url:
                     with get_pipeline_state_lock(pipeline_id):
