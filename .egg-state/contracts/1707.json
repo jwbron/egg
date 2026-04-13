@@ -1,0 +1,75 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1707,
+    "title": "Issue #1707",
+    "url": "https://github.com/jwbron/egg/issues/1707"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `shared/egg_logging/formatters.py:ConsoleFormatter.format()`, replace the multi-line extras block (lines 307-321) and the separate context section (lines 278-293) with a single inline key=value rendering that appends all structured fields to the main log line before the source location. Truncate values longer than 80 chars. Quote values containing spaces.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "A log record with pipeline_id='issue-1702' and total_phases=2 produces a single-line console output containing pipeline_id=issue-1702 total_phases=2 on the same line as the message",
+          "files_affected": [
+            "shared/egg_logging/formatters.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Update tests/shared/egg_logging/test_formatters.py \u2014 update test_shows_context_when_enabled to assert inline key=value format instead of parenthesized format. Add a new test verifying that extra fields (like pipeline_id) appear inline on the same line as the message. Add a test for value truncation.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All tests pass with pytest tests/shared/egg_logging/test_formatters.py",
+          "files_affected": [
+            "tests/shared/egg_logging/test_formatters.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Render structured log context fields inline in console output",
+    "description": "Modify ConsoleFormatter to render all structured context fields (pipeline_id,\nagent_role, phase, etc.) as inline key=value pairs on the same log line instead\nof on separate newlines. This makes logs grep-friendly in Docker environments\nwhere each line is a separate log entry.",
+    "test_plan": "- Automated: pytest tests/shared/egg_logging/test_formatters.py\n- Manual: Build orchestrator container, run a pipeline, verify `docker logs | grep pipeline_id=<id>` returns full log lines with message + context",
+    "manual_steps": "Pre-merge: None\nPost-merge: Rebuild orchestrator and gateway Docker images to pick up the change"
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}

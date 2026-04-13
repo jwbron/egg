@@ -142,28 +142,26 @@ health = github.health_check(timeout=10.0)
 
 See [egg_config README](egg_config/README.md) for full documentation.
 
-### egg_logging
+### [egg_logging](egg_logging/README.md)
 
-Structured JSON logging with context support.
+Structured logging with JSON output and grep-friendly console format.
 
 - Structured JSON output compatible with GCP Cloud Logging
-- Request context tracking across log entries
+- **Inline console format**: all structured fields (`pipeline_id`, `agent_role`, `phase`, etc.) render as `key=value` pairs on the same line — fully grep-friendly in Docker environments
+- Request context tracking across log entries (via `ContextScope` or `with_context()`)
 - Function signature logging for debugging
-- Configurable formatters (JSON, text)
+- Configurable formatters (JSON for production, inline console for development)
 
 ```python
 from egg_logging import get_logger
 
-logger = get_logger(__name__)
-logger.info("Operation completed", extra={"operation": "push", "repo": "owner/repo"})
+logger = get_logger("orchestrator")
+logger.info("Starting pipeline", pipeline_id="issue-1702", phase="implement")
+# Console output:
+#   2026-04-13 19:17:39 [INFO    ] orchestrator: Starting pipeline pipeline_id=issue-1702 phase=implement [/app/main.py:42]
 ```
 
-**Files:**
-- `logger.py` - Logger implementation and configuration
-- `context.py` - Logging context management (request IDs, session tracking)
-- `signatures.py` - Function signature capture for debug logging
-- `formatters.py` - Log formatters (JSON, text)
-- `cli.py` - CLI logging utilities
+See [egg_logging README](egg_logging/README.md) for full documentation and the [Logging Architecture](../docs/architecture/logging.md) for design decisions.
 
 ### egg_git
 

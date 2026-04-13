@@ -7,7 +7,7 @@ The `egg_logging` library provides structured JSON logging, tool wrappers, and m
 1. **Structured by Default**: All logs are JSON with consistent fields
 2. **Context Propagation**: Correlation IDs flow through related operations
 3. **Tool Transparency**: Wrappers log all critical tool usage
-4. **Human Readable**: Development mode with formatted console output
+4. **Human Readable**: Development mode with formatted, grep-friendly console output
 5. **GCP Native**: Direct compatibility with Cloud Logging
 6. **OpenTelemetry Aligned**: Compatible with GenAI observability standards
 
@@ -98,6 +98,64 @@ For LLM operations, logs include standardized GenAI attributes:
 | `gen_ai.usage.input_tokens` | int | Prompt token count |
 | `gen_ai.usage.output_tokens` | int | Completion token count |
 | `gen_ai.response.finish_reasons` | string[] | Why generation stopped |
+
+## Console Output Format
+
+The `ConsoleFormatter` renders human-readable log lines for development and Docker
+environments. All structured context fields (`pipeline_id`, `agent_role`, `phase`,
+`issue_number`, etc.) are rendered **inline** as `key=value` pairs on the same log
+line as the message. This makes logs fully grep-friendly — every field is on the
+same line as the timestamp, level, and message.
+
+### Inline key=value format
+
+```
+2026-04-13 19:17:39 [INFO    ] orchestrator.pipelines: _rewrite_brc_history_for_pr: entering pipeline_id=issue-1702 total_phases=2 completed_phases=['implement'] [/app/routes/pipelines.py:4309]
+```
+
+Structured fields appear between the message and the source location `[file:line]`.
+This allows filtering with standard tools:
+
+```bash
+# Filter by pipeline
+docker logs egg-orchestrator | grep pipeline_id=issue-1702
+
+# Filter by agent role
+docker logs egg-orchestrator | grep agent_role=coder
+
+# Combine filters
+docker logs egg-orchestrator | grep pipeline_id=issue-1702 | grep phase=implement
+```
+
+### Value formatting rules
+
+| Condition | Behavior | Example |
+|-----------|----------|---------|
+| Simple value | Rendered as `key=value` | `pipeline_id=issue-1702` |
+| Value with spaces | Quoted: `key="value with spaces"` | `description="my task"` |
+| Value with newlines | Newlines replaced with spaces (then quoting applies) | `multiline="line1 line2"` |
+| Value > 80 chars | Truncated to 77 chars + `...` | `long_field=abcdef...` |
+| `None` value | Rendered as empty: `key=` | `optional_field=` |
+| Exception tracebacks | Remain multi-line (separate from inline fields) | *(unchanged)* |
+
+### Context fields vs extra fields
+
+Both types of structured fields are rendered inline:
+
+- **Context fields**: `task_id`, `repository`, `pr_number` — set via `ContextScope` or `with_context()`
+- **Extra fields**: Any keyword argument passed to a log call — e.g., `pipeline_id`, `agent_role`, `phase`, `container_id`
+
+### Configuration
+
+The `ConsoleFormatter` accepts these options:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `service` | `"egg"` | Service name shown in log lines |
+| `use_colors` | Auto-detect | ANSI color support (respects `NO_COLOR` env var) |
+| `show_context` | `True` | Show context fields (task_id, repository, pr_number) inline |
+| `show_source_location` | `True` | Show `[file:line]` at end of line |
+| `show_extra` | `True` | Show extra keyword arguments inline |
 
 ## Key Features
 
