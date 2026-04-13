@@ -13,7 +13,6 @@ Covers the PR-phase push reconciliation path added for #1706:
 
 import subprocess
 import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # Mock heavy dependencies that pipelines.py imports at module level
@@ -148,9 +147,7 @@ class TestReconcileAndPushPrBranch:
 
         worktree = tmp_path / "my-worktree"
         spawner = _make_spawner([True])
-        _reconcile_and_push_pr_branch(
-            spawner, worktree, "issue-42", "egg/feature", "private"
-        )
+        _reconcile_and_push_pr_branch(spawner, worktree, "issue-42", "egg/feature", "private")
 
         call = spawner.gateway.push_worktree_branch.call_args
         assert call.kwargs["repo_path"] == str(worktree)
