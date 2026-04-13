@@ -321,10 +321,12 @@ Poll the pipeline status in a loop. On each poll:
 
 ```
 --- Pipeline Status ---
-Phase: <current_phase> | Status: <status>
+Phase: <current_phase> | Status: <status> | Elapsed: <phase_elapsed_seconds>s
 Agents: <running count> running, <completed count> completed
 Recent: <latest message subject from recent_messages>
 ```
+
+   Use the server-computed `phase_elapsed_seconds` from the response for the elapsed display. For individual agents, use each agent's `elapsed_seconds` field when available.
 
    If any `recent_messages` entry has `type: "OVERSEER_ALERT"`, append an alert line:
 ```
@@ -340,7 +342,7 @@ Overseer: <subject> — <body summary, first 120 chars>
    - If `status` is `complete` → exit the loop, move to Phase 5
    - If `status` is `failed` → apply the **failed status grace period** (see below) before exiting
 
-6. **Track elapsed time** — Record the wall-clock time when the current phase started. Use this for [Long-Running Phase Detection](#long-running-phase-detection).
+6. **Track elapsed time** — Use the server-computed `phase_elapsed_seconds` field from the `get_status` response when available. This is more accurate than client-side wall-clock tracking because it is unaffected by blocking dialogs or client-server clock skew. Fall back to local wall-clock tracking only when `phase_elapsed_seconds` is absent (e.g., pending phases). Use this for [Long-Running Phase Detection](#long-running-phase-detection).
 
 **Important: The `wait` parameter on `get_status` handles the polling delay internally.** Do not use separate `sleep` commands or background sleeps for the poll interval.
 
@@ -435,7 +437,7 @@ The `concurrent.consensus` object may not be present in all `get_status` respons
 Note: 3 minutes is a baseline threshold. Code generation, test execution, and large diffs can legitimately exceed this. Adjust the threshold based on pipeline complexity — for pipelines with heavy test suites or large codebases, consider using 5+ minutes before flagging. The "Wait longer" option mitigates false positives.
 
 **Silent agent detection** — Separately from phase-based stall detection, track agents that never enter the consensus protocol at all. Flag an agent as "silent" when:
-- It has been in `running_agents` for 10+ minutes of elapsed wall-clock time (computed from `now - first_seen_at`)
+- It has been in `running_agents` for 10+ minutes of elapsed time (use the agent's server-computed `elapsed_seconds` field when available; fall back to `now - first_seen_at`)
 - It has **zero messages** in `recent_messages` (no proposals, ACKs, NACKs, or confirmations)
 - This catches agents that are running but not participating in BRC — a different failure mode from agents stuck in a specific phase
 
@@ -508,9 +510,11 @@ Handle each response:
 
 **State tracking** — Maintain a simple in-memory map of `{role: {phase, phase_entered_at, nudged_at, first_seen_at, has_any_messages}}` across poll cycles, plus a top-level `running_agent_count` to track the number of running agents between polls (for detecting post-consensus reviewer spawns). All timestamps are wall-clock times. Set `first_seen_at` when a role first appears in `running_agents`. Set `phase_entered_at` to the current time when the role is first tracked or when its phase changes. Reset `phase_entered_at` whenever a role's phase changes or new messages appear from it in `recent_messages`. Set `nudged_at` when a nudge is sent (null otherwise). Set `has_any_messages` to true when any message from the role appears in `recent_messages`. This is lightweight — no persistence needed since it only matters during the active monitoring session.
 
+**Server-computed timing** — When available, prefer server-computed timing fields over client-side tracking: use `phase_elapsed_seconds` for phase-level elapsed time and each agent's `elapsed_seconds` for per-agent elapsed time. These fields are computed server-side and are unaffected by client-side blocking (e.g., `AskUserQuestion` dialogs that pause the poll loop) or client-server clock skew. Fall back to `phase_entered_at`-based tracking only when these fields are absent.
+
 ### Long-Running Phase Detection
 
-Track elapsed wall-clock time for each phase. When the **implement phase** has been running for 60+ minutes and consensus appears mostly complete (majority of agents confirmed), proactively offer the user an early exit:
+Track elapsed time for each phase using the server-computed `phase_elapsed_seconds` field from the `get_status` response. Fall back to wall-clock tracking only when this field is unavailable. When the **implement phase** has been running for 60+ minutes and consensus appears mostly complete (majority of agents confirmed), proactively offer the user an early exit:
 
 ```
 ### Long-Running Implement Phase
@@ -1123,17 +1127,17 @@ Poll the pipeline status in a loop. On each poll:
 
 ```
 --- Pipeline Status ---
-Phase: <current_phase> | Status: <status>
+Phase: <current_phase> | Status: <status> | Elapsed: <phase_elapsed_seconds>s
 Agents: <agent statuses from concurrent.agents if available>
 Consensus: <confirmed count>/<total> confirmed
 Recent: <latest message subject from recent_messages>
 ```
 
-When `concurrent` data is available in the status response, use it to show agent states and consensus progress. When not available, fall back to basic status:
+Use the server-computed `phase_elapsed_seconds` for accurate elapsed time display. When `concurrent` data is available in the status response, use it to show agent states and consensus progress. When not available, fall back to basic status:
 
 ```
 --- Pipeline Status ---
-Phase: <current_phase> | Status: <status>
+Phase: <current_phase> | Status: <status> | Elapsed: <phase_elapsed_seconds>s
 Recent: <latest message subject from recent_messages>
 ```
 
@@ -1158,7 +1162,7 @@ During phase cycle transitions (e.g., review cycles), the orchestrator may brief
 
 ### Stall detection
 
-Track the `current_phase`, latest `recent_messages` entry, and wall-clock timestamps across polls. If **10 minutes of elapsed wall-clock time** (computed from `now - phase_entered_at`) pass with no phase change and no new messages, surface a warning:
+Track the `current_phase`, latest `recent_messages` entry, and elapsed time across polls. Use the server-computed `phase_elapsed_seconds` field for accurate timing when available; fall back to wall-clock tracking (`now - phase_entered_at`) when it is absent. If **10 minutes of elapsed time** pass with no phase change and no new messages, surface a warning:
 
 ```
 ### Potential Stall Detected
