@@ -279,24 +279,16 @@ class ConsoleFormatter(logging.Formatter):
 
         if self.show_context:
             if hasattr(record, "task_id") and record.task_id:
-                inline_pairs.append(
-                    f"task_id={self._format_inline_value(record.task_id)}"
-                )
+                inline_pairs.append(f"task_id={self._format_inline_value(record.task_id)}")
             if hasattr(record, "repository") and record.repository:
-                inline_pairs.append(
-                    f"repository={self._format_inline_value(record.repository)}"
-                )
+                inline_pairs.append(f"repository={self._format_inline_value(record.repository)}")
             if hasattr(record, "pr_number") and record.pr_number:
-                inline_pairs.append(
-                    f"pr_number={self._format_inline_value(record.pr_number)}"
-                )
+                inline_pairs.append(f"pr_number={self._format_inline_value(record.pr_number)}")
 
         if self.show_extra:
             extra = self._extract_extra(record)
             for key, value in extra.items():
-                inline_pairs.append(
-                    f"{key}={self._format_inline_value(value)}"
-                )
+                inline_pairs.append(f"{key}={self._format_inline_value(value)}")
 
         if inline_pairs:
             inline_str = " ".join(inline_pairs)
