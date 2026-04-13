@@ -4386,7 +4386,11 @@ def _build_brc_consensus_summary(pipeline_id: str) -> str:
     phase_blocks: list[str] = []
 
     for phase_name, phase_msgs in by_phase.items():
-        roles = sorted({m.from_role for m in phase_msgs})
+        # Exclude orchestrator from participant roles — it coordinates BRC
+        # (e.g., sends CONSENSUS_RE_REVIEW) but never sends CONSENSUS_CONFIRMED.
+        # Counting it as a participant would cause consensus to always appear
+        # unreached when a re-review cycle occurs.
+        roles = sorted({m.from_role for m in phase_msgs if m.from_role != "orchestrator"})
         proposals = sum(1 for m in phase_msgs if m.message_type == "CONSENSUS_PROPOSE")
         acks = sum(1 for m in phase_msgs if m.message_type == "CONSENSUS_ACK")
         nacks = sum(1 for m in phase_msgs if m.message_type == "CONSENSUS_NACK")
@@ -4394,7 +4398,7 @@ def _build_brc_consensus_summary(pipeline_id: str) -> str:
         confirmed_roles = {
             m.from_role for m in phase_msgs if m.message_type == "CONSENSUS_CONFIRMED"
         }
-        # Consensus = every role that sent a BRC message also sent CONFIRMED
+        # Consensus = every agent role that sent a BRC message also sent CONFIRMED
         all_confirmed = confirmed_roles == set(roles) and len(confirmed_roles) > 0
 
         block_lines: list[str] = []

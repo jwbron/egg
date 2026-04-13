@@ -935,3 +935,106 @@ class TestBuildBrcConsensusSummary:
             result = _build_brc_consensus_summary("issue-42")
 
         assert result == ""
+
+    def test_consensus_reached_when_orchestrator_sent_re_review(self):
+        """Regression for #1706: orchestrator CONSENSUS_RE_REVIEW messages must
+        not cause the consensus check to fail.
+
+        The orchestrator sends BRC coordination messages (e.g.,
+        CONSENSUS_RE_REVIEW) but never sends CONSENSUS_CONFIRMED. If the
+        summary counts orchestrator as a participant, consensus will always
+        appear unreached after a re-review cycle, even when every real agent
+        has confirmed.
+        """
+        from routes.pipelines import _build_brc_consensus_summary
+
+        messages = [
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="coder",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                phase="implement",
+                timestamp=datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
+            ),
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="reviewer_code",
+                message_type=MessageType.CONSENSUS_ACK,
+                phase="implement",
+                timestamp=datetime(2026, 4, 8, 12, 5, 0, tzinfo=UTC),
+            ),
+            # Orchestrator issues a re-review directive — it is a coordinator,
+            # not a participant, and never confirms.
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="orchestrator",
+                message_type=MessageType.CONSENSUS_RE_REVIEW,
+                phase="implement",
+                timestamp=datetime(2026, 4, 8, 12, 7, 0, tzinfo=UTC),
+            ),
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="coder",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                phase="implement",
+                timestamp=datetime(2026, 4, 8, 12, 15, 0, tzinfo=UTC),
+            ),
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="reviewer_code",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                phase="implement",
+                timestamp=datetime(2026, 4, 8, 12, 16, 0, tzinfo=UTC),
+            ),
+        ]
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            result = _build_brc_consensus_summary("issue-42")
+
+        assert "Consensus reached" in result
+        assert "not reached" not in result
+        # Orchestrator should not appear in the participant role list
+        assert "orchestrator" not in result
+
+    def test_consensus_not_reached_ignores_orchestrator_presence(self):
+        """Orchestrator-only absence from CONFIRMED should not change the
+        consensus verdict: if a real agent hasn't confirmed, consensus is
+        still unreached regardless of orchestrator activity."""
+        from routes.pipelines import _build_brc_consensus_summary
+
+        messages = [
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="coder",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                phase="implement",
+            ),
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="reviewer_code",
+                message_type=MessageType.CONSENSUS_ACK,
+                phase="implement",
+            ),
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="orchestrator",
+                message_type=MessageType.CONSENSUS_RE_REVIEW,
+                phase="implement",
+            ),
+            # Only coder confirms — reviewer_code hasn't.
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="coder",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                phase="implement",
+            ),
+        ]
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            result = _build_brc_consensus_summary("issue-42")
+
+        assert "not reached" in result
