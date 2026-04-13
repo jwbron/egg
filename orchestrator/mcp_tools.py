@@ -905,20 +905,20 @@ class PipelineToolHandler:
         status["running_agents"] = [a for a in agents if a.get("status") == "running"]
         status["completed_agents"] = [a for a in agents if a.get("status") == "complete"]
 
-        # Server-computed phase timing (#1702)
+        # Server-computed timing (#1702)
+        now = datetime.now(UTC)
+
         phase_started_at = phase_data.get("started_at")
         if phase_started_at:
-            now = datetime.now(UTC)
             try:
                 started_dt = datetime.fromisoformat(phase_started_at)
                 if started_dt.tzinfo is None:
                     started_dt = started_dt.replace(tzinfo=UTC)
                 status["phase_started_at"] = started_dt.isoformat()
-                status["phase_elapsed_seconds"] = int((now - started_dt).total_seconds())
+                status["phase_elapsed_seconds"] = max(0, int((now - started_dt).total_seconds()))
             except (ValueError, TypeError):
                 pass
 
-        # Server-computed per-agent elapsed time (#1702)
         for agent in status["running_agents"]:
             agent_started_at = agent.get("started_at")
             if agent_started_at:
@@ -926,8 +926,7 @@ class PipelineToolHandler:
                     agent_dt = datetime.fromisoformat(agent_started_at)
                     if agent_dt.tzinfo is None:
                         agent_dt = agent_dt.replace(tzinfo=UTC)
-                    now = datetime.now(UTC)
-                    agent["elapsed_seconds"] = int((now - agent_dt).total_seconds())
+                    agent["elapsed_seconds"] = max(0, int((now - agent_dt).total_seconds()))
                 except (ValueError, TypeError):
                     pass
 
