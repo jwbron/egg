@@ -12,6 +12,7 @@ Kubernetes deployments:
 
 import os
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -154,6 +155,10 @@ class KubernetesSpawner:
         self._namespace = namespace
         # Track restart counts per (pipeline_id, agent_role) pair
         self._restart_counts: dict[tuple[str, str], int] = {}
+        # Per-(pipeline_id, agent_role) locks for serialising concurrent restarts.
+        # Protected by _restart_locks_lock (same pattern as state_store.py).
+        self._restart_locks: dict[tuple[str, str], threading.Lock] = {}
+        self._restart_locks_lock = threading.Lock()
 
     @property
     def k8s(self) -> KubernetesClient:
@@ -168,6 +173,13 @@ class KubernetesSpawner:
         if self._gateway is None:
             self._gateway = get_gateway_client()
         return self._gateway
+
+    def _get_restart_lock(self, key: tuple[str, str]) -> threading.Lock:
+        """Get or create a per-(pipeline_id, agent_role) restart lock."""
+        with self._restart_locks_lock:
+            if key not in self._restart_locks:
+                self._restart_locks[key] = threading.Lock()
+            return self._restart_locks[key]
 
     def spawn_agent_job(
         self,
@@ -600,7 +612,7 @@ class KubernetesSpawner:
         agent_role: AgentRole,
         issue_number: int | None = None,
         repo_volumes: dict[str, str] | None = None,
-        mode: str = "public",
+        mode: str | None = "public",
         image: str | None = None,
         extra_env: dict[str, str] | None = None,
         repos: list[str] | None = None,
@@ -619,7 +631,7 @@ class KubernetesSpawner:
             agent_role: Agent role to restart.
             issue_number: GitHub issue number.
             repo_volumes: Repo name to host path mappings.
-            mode: Gateway mode.
+            mode: Gateway mode ('public' or 'private'). Must be explicitly provided.
             image: Container image override.
             extra_env: Additional environment variables.
             repos: Repositories for gateway session.
@@ -635,72 +647,79 @@ class KubernetesSpawner:
             SpawnedContainer with new Job info.
 
         Raises:
+            ValueError: If mode is None.
             KubernetesSpawnError: If restart limit exceeded or spawning fails.
         """
+        if mode is None:
+            raise ValueError("mode must be explicitly provided ('public' or 'private')")
+
         restart_key = (pipeline_id, agent_role.value)
-        current_count = self._restart_counts.get(restart_key, 0)
+        lock = self._get_restart_lock(restart_key)
 
-        if current_count >= max_restarts:
-            raise KubernetesSpawnError(
-                f"Restart limit ({max_restarts}) exceeded for {agent_role.value} "
-                f"in pipeline {pipeline_id} (restarted {current_count} times)"
+        with lock:
+            current_count = self._restart_counts.get(restart_key, 0)
+
+            if current_count >= max_restarts:
+                raise KubernetesSpawnError(
+                    f"Restart limit ({max_restarts}) exceeded for {agent_role.value} "
+                    f"in pipeline {pipeline_id} (restarted {current_count} times)"
+                )
+
+            # Increment count before spawn so failed attempts burn a restart budget slot
+            self._restart_counts[restart_key] = current_count + 1
+
+            job_name = self.JOB_NAME_FORMAT.format(
+                pipeline_id=pipeline_id,
+                role=agent_role.value,
             )
 
-        job_name = self.JOB_NAME_FORMAT.format(
-            pipeline_id=pipeline_id,
-            role=agent_role.value,
-        )
-
-        logger.info(
-            "Restarting agent Job",
-            pipeline_id=pipeline_id,
-            role=agent_role.value,
-            restart_count=current_count + 1,
-            max_restarts=max_restarts,
-            reason=reason,
-        )
-
-        # Delete the existing Job (best effort)
-        try:
-            self.remove_agent_job(job_name, force=True, cleanup_session=True)
-        except (PodNotFoundError, JobOperationError) as e:
             logger.info(
-                "No existing Job found during restart (already removed)",
-                job_name=job_name,
-                error=str(e),
+                "Restarting agent Job",
+                pipeline_id=pipeline_id,
+                role=agent_role.value,
+                restart_count=current_count + 1,
+                max_restarts=max_restarts,
+                reason=reason,
             )
 
-        # Respawn — gateway's create_worktrees() is idempotent
-        spawned = self.spawn_agent_job(
-            pipeline_id=pipeline_id,
-            agent_role=agent_role,
-            issue_number=issue_number,
-            repo_volumes=repo_volumes,
-            mode=mode,
-            image=image,
-            extra_env=extra_env,
-            wait_for_gateway=True,
-            repos=repos,
-            phase=phase,
-            command=command,
-            branch=branch,
-            base_branch=base_branch,
-            extra_mounts=extra_mounts,
-            preserve_worktree_on_failure=True,
-        )
+            # Delete the existing Job (best effort)
+            try:
+                self.remove_agent_job(job_name, force=True, cleanup_session=True)
+            except (PodNotFoundError, JobOperationError) as e:
+                logger.info(
+                    "No existing Job found during restart (already removed)",
+                    job_name=job_name,
+                    error=str(e),
+                )
 
-        # Track restart count
-        self._restart_counts[restart_key] = current_count + 1
+            # Respawn — gateway's create_worktrees() is idempotent
+            spawned = self.spawn_agent_job(
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+                issue_number=issue_number,
+                repo_volumes=repo_volumes,
+                mode=mode,
+                image=image,
+                extra_env=extra_env,
+                wait_for_gateway=True,
+                repos=repos,
+                phase=phase,
+                command=command,
+                branch=branch,
+                base_branch=base_branch,
+                extra_mounts=extra_mounts,
+                preserve_worktree_on_failure=True,
+            )
 
-        logger.info(
-            "Agent Job restarted successfully",
-            pipeline_id=pipeline_id,
-            role=agent_role.value,
-            new_job_name=spawned.container_info.job_name,
-            restart_count=current_count + 1,
-        )
+            logger.info(
+                "Agent Job restarted successfully",
+                pipeline_id=pipeline_id,
+                role=agent_role.value,
+                new_job_name=spawned.container_info.job_name,
+                restart_count=current_count + 1,
+            )
 
-        return spawned
+            return spawned
 
     def get_restart_count(self, pipeline_id: str, agent_role: str) -> int:
         """Get the current restart count for an agent.
@@ -715,7 +734,7 @@ class KubernetesSpawner:
         return self._restart_counts.get((pipeline_id, agent_role), 0)
 
     def reset_restart_counts(self, pipeline_id: str) -> None:
-        """Reset all restart counts for a pipeline (e.g., on phase transition).
+        """Reset all restart counts and locks for a pipeline (e.g., on phase transition).
 
         Args:
             pipeline_id: Pipeline ID.
@@ -723,6 +742,11 @@ class KubernetesSpawner:
         keys_to_remove = [k for k in self._restart_counts if k[0] == pipeline_id]
         for k in keys_to_remove:
             del self._restart_counts[k]
+        # Clean up per-key locks to prevent memory leak
+        with self._restart_locks_lock:
+            lock_keys = [k for k in self._restart_locks if k[0] == pipeline_id]
+            for k in lock_keys:
+                del self._restart_locks[k]
 
     def detect_uncommitted_changes(
         self,
