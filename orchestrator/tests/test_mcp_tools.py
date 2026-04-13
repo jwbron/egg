@@ -1278,9 +1278,7 @@ class TestGetStatusSyncHandler:
         from datetime import UTC, datetime, timedelta
 
         # Naive ISO format without timezone
-        agent_ts = (datetime.now(UTC) - timedelta(seconds=150)).strftime(
-            "%Y-%m-%dT%H:%M:%S"
-        )
+        agent_ts = (datetime.now(UTC) - timedelta(seconds=150)).strftime("%Y-%m-%dT%H:%M:%S")
         resp = self._pipeline_response_with_timing(agent_started_at=agent_ts)
         with patch.object(
             handler,
