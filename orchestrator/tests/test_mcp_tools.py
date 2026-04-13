@@ -1074,6 +1074,243 @@ class TestGetStatusSyncHandler:
         assert result["pipeline"]["pr_url"] == "not-a-valid-pr-url"
         assert "pr_number" not in result["pipeline"]
 
+    # -- Server-computed timing tests (#1702) ----------------------------------
+
+    def _pipeline_response_with_timing(
+        self,
+        phase_started_at=None,
+        agent_started_at=None,
+        completed_agent_started_at=None,
+    ):
+        """Pipeline fixture with optional ``started_at`` on phase and agents."""
+        resp = self._pipeline_response()
+        if phase_started_at is not None:
+            resp["data"]["pipeline"]["phases"]["implement"]["started_at"] = phase_started_at
+        agent_list = resp["data"]["pipeline"]["phases"]["implement"]["agents"]
+        if agent_started_at is not None:
+            agent_list[0]["started_at"] = agent_started_at  # coder (running)
+        if completed_agent_started_at is not None:
+            agent_list[1]["started_at"] = completed_agent_started_at  # tester (complete)
+        return resp
+
+    def test_phase_timing_present_when_started_at_set(self, handler):
+        """phase_started_at and phase_elapsed_seconds appear when the phase has started_at (#1702)."""
+        ts = "2026-01-01T00:00:00+00:00"
+        resp = self._pipeline_response_with_timing(phase_started_at=ts)
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert "phase_started_at" in result
+        assert "phase_elapsed_seconds" in result
+        assert isinstance(result["phase_elapsed_seconds"], int)
+        assert result["phase_elapsed_seconds"] >= 0
+
+    def test_phase_timing_omitted_when_started_at_absent(self, handler):
+        """phase_started_at and phase_elapsed_seconds omitted when started_at is missing (#1702)."""
+        resp = self._pipeline_response_with_timing()  # no started_at
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert "phase_started_at" not in result
+        assert "phase_elapsed_seconds" not in result
+
+    def test_phase_timing_omitted_when_started_at_none(self, handler):
+        """phase_started_at and phase_elapsed_seconds omitted when started_at is explicitly None (#1702)."""
+        resp = self._pipeline_response_with_timing()
+        resp["data"]["pipeline"]["phases"]["implement"]["started_at"] = None
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert "phase_started_at" not in result
+        assert "phase_elapsed_seconds" not in result
+
+    def test_phase_timing_omitted_for_invalid_started_at(self, handler):
+        """Invalid started_at format is silently ignored (#1702)."""
+        resp = self._pipeline_response_with_timing(phase_started_at="not-a-timestamp")
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert "phase_started_at" not in result
+        assert "phase_elapsed_seconds" not in result
+
+    def test_phase_elapsed_seconds_is_integer(self, handler):
+        """phase_elapsed_seconds is an integer, not a float (#1702)."""
+        from datetime import UTC, datetime, timedelta
+
+        # Use a timestamp 100 seconds in the past
+        ts = (datetime.now(UTC) - timedelta(seconds=100)).isoformat()
+        resp = self._pipeline_response_with_timing(phase_started_at=ts)
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert isinstance(result["phase_elapsed_seconds"], int)
+        # Allow some tolerance for test execution time
+        assert 95 <= result["phase_elapsed_seconds"] <= 110
+
+    def test_phase_timing_handles_naive_datetime(self, handler):
+        """Naive datetime (no timezone) is treated as UTC (#1702)."""
+        # Naive ISO format without timezone suffix
+        ts = "2026-01-01T00:00:00"
+        resp = self._pipeline_response_with_timing(phase_started_at=ts)
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert "phase_started_at" in result
+        assert "phase_elapsed_seconds" in result
+        assert result["phase_elapsed_seconds"] >= 0
+
+    def test_agent_elapsed_seconds_present_for_running_agent(self, handler):
+        """Running agents get elapsed_seconds when started_at is present (#1702)."""
+        from datetime import UTC, datetime, timedelta
+
+        agent_ts = (datetime.now(UTC) - timedelta(seconds=200)).isoformat()
+        resp = self._pipeline_response_with_timing(agent_started_at=agent_ts)
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        running = result["running_agents"]
+        assert len(running) == 1
+        assert "elapsed_seconds" in running[0]
+        assert isinstance(running[0]["elapsed_seconds"], int)
+        assert 195 <= running[0]["elapsed_seconds"] <= 210
+
+    def test_agent_elapsed_seconds_omitted_without_started_at(self, handler):
+        """Running agents without started_at do not get elapsed_seconds (#1702)."""
+        resp = self._pipeline_response_with_timing()  # no agent started_at
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        running = result["running_agents"]
+        assert len(running) == 1
+        assert "elapsed_seconds" not in running[0]
+
+    def test_completed_agents_not_enriched_with_elapsed(self, handler):
+        """Completed agents do not receive elapsed_seconds even with started_at (#1702)."""
+        from datetime import UTC, datetime, timedelta
+
+        agent_ts = (datetime.now(UTC) - timedelta(seconds=300)).isoformat()
+        resp = self._pipeline_response_with_timing(completed_agent_started_at=agent_ts)
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        completed = result["completed_agents"]
+        assert len(completed) == 1
+        assert "elapsed_seconds" not in completed[0]
+
+    def test_agent_elapsed_omitted_for_invalid_started_at(self, handler):
+        """Invalid started_at on an agent is silently skipped (#1702)."""
+        resp = self._pipeline_response_with_timing(agent_started_at="garbage-timestamp")
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        running = result["running_agents"]
+        assert len(running) == 1
+        assert "elapsed_seconds" not in running[0]
+
+    def test_both_phase_and_agent_timing_together(self, handler):
+        """Phase timing and agent timing coexist correctly (#1702)."""
+        from datetime import UTC, datetime, timedelta
+
+        now = datetime.now(UTC)
+        phase_ts = (now - timedelta(seconds=500)).isoformat()
+        agent_ts = (now - timedelta(seconds=300)).isoformat()
+        resp = self._pipeline_response_with_timing(
+            phase_started_at=phase_ts, agent_started_at=agent_ts
+        )
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        # Phase timing
+        assert "phase_started_at" in result
+        assert 495 <= result["phase_elapsed_seconds"] <= 510
+
+        # Agent timing
+        running = result["running_agents"]
+        assert len(running) == 1
+        assert 295 <= running[0]["elapsed_seconds"] <= 310
+
+    def test_agent_elapsed_handles_naive_datetime(self, handler):
+        """Naive agent started_at is treated as UTC (#1702)."""
+        from datetime import UTC, datetime, timedelta
+
+        # Naive ISO format without timezone
+        agent_ts = (datetime.now(UTC) - timedelta(seconds=150)).strftime(
+            "%Y-%m-%dT%H:%M:%S"
+        )
+        resp = self._pipeline_response_with_timing(agent_started_at=agent_ts)
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        running = result["running_agents"]
+        assert len(running) == 1
+        assert "elapsed_seconds" in running[0]
+        assert 145 <= running[0]["elapsed_seconds"] <= 160
+
+    def test_phase_started_at_preserved_as_iso_string(self, handler):
+        """phase_started_at in the response is an ISO 8601 string (#1702)."""
+        ts = "2026-04-13T18:22:40.769068+00:00"
+        resp = self._pipeline_response_with_timing(phase_started_at=ts)
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        from datetime import datetime
+
+        # Should be a valid ISO 8601 string
+        parsed = datetime.fromisoformat(result["phase_started_at"])
+        assert parsed.tzinfo is not None  # timezone-aware
+
 
 class TestGetStatusWait:
     """Tests for the async ``wait`` handling in ``mcp_server``.
