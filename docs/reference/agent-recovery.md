@@ -166,12 +166,28 @@ Restarts are allowed when the pipeline is in `RUNNING`, `AWAITING_HUMAN`, or `FA
 
 ### How It Works
 
-1. The orchestrator stops the existing container via `stop_agent_container()` and removes it via `remove_agent_container()`
-2. The agent's consensus state is reset — `PeerConsensusTracker.remove_agent()` and `ConsensusEvaluator.remove_agent()` withdraw any proposals, ACKs, or confirmations
+1. The restart count is incremented **before** the spawn attempt — a failed spawn still counts toward the per-agent restart limit, preventing infinite retry loops when Docker consistently fails (e.g., out of disk)
+2. The orchestrator stops the existing container via `stop_agent_container()` and removes it via `remove_agent_container()`
 3. A new container is spawned via `spawn_agent_container()` with the **same role, phase, and environment** — the gateway's idempotent worktree creation rediscovers the existing worktree and mounts it into the new container
-4. Recovery context is injected into the respawned agent (e.g., "You are being restarted after a stall. Resume from where your predecessor left off.")
-5. The pipeline's `PhaseExecution` state is updated with the new container/agent entries
-6. Restart count is tracked per agent per phase — configurable maximum (default: 2) prevents infinite restart loops
+4. Only after a successful spawn, the agent's consensus state is reset — `PeerConsensusTracker.remove_agent()` and `ConsensusEvaluator.remove_agent()` withdraw any proposals, ACKs, or confirmations. If spawn fails, consensus state is preserved so the pipeline remains in a consistent state
+5. If consensus reset fails after a successful spawn, a warning is logged but the restart is still considered successful — the restarted agent will re-enter consensus
+6. Recovery context is injected into the respawned agent (e.g., "You are being restarted after a stall. Resume from where your predecessor left off.")
+7. The pipeline's `PhaseExecution` state is updated with the new container/agent entries
+8. Restart count is tracked per agent per phase — configurable maximum (default: 2) prevents infinite restart loops
+
+### Concurrency Safety
+
+Restart operations on the same `(pipeline_id, agent_role)` pair are serialized via a per-key `threading.Lock`, following the same pattern used in `state_store.py:get_pipeline_state_lock`. This prevents race conditions when concurrent restart requests (e.g., from both the overseer and a human operator via MCP) target the same agent simultaneously — without the lock, both callers could read `count=0`, both pass the limit check, and one caller's freshly spawned container would be destroyed by the other's cleanup.
+
+The lock guards all access to `_restart_counts` in `restart_agent_container()`, `get_restart_count()`, and `reset_restart_counts()`.
+
+### Unified Restart Counting
+
+Restart counts are tracked exclusively by the `ContainerSpawner` — keyed by `(pipeline_id, agent_role)` and reset per-phase via `reset_restart_counts()`. The overseer reads the authoritative restart count from the spawner's REST API response rather than maintaining an independent counter. This eliminates a previous issue where the overseer's shadow counter allowed up to 4 total restarts (2 via MCP + 2 via overseer) instead of the intended cap of 2.
+
+### Mode Parameter Safety
+
+The `restart_agent_container()` method requires the `mode` parameter (gateway network mode) to be explicitly provided. If `mode` is omitted or `None`, a `ValueError` is raised. This prevents a future caller from silently defaulting to public mode, which could expose a private repo's gateway session.
 
 ### Triggering a Restart
 
@@ -226,10 +242,12 @@ The optional `context` parameter injects additional guidance into the respawned 
 | Transient crash in consensus wrapper (segfault, OOM) | Restart with exponential backoff (shares `MAX_CONSENSUS_RESTARTS` cap) |
 | Non-transient crash in consensus wrapper (exit 1) | Immediate failure, no restart |
 | Wrapper: tracker stale after withdrawal cascade | Message bus fallback detects `CONSENSUS_CONFIRMED`; agent exits cleanly |
+| Overseer detects restartable infra error (unresponsive, crashed, OOM, timeout, hung) | `RESTART_AGENT` action — auto-restart via API (up to max restarts per phase) |
+| Overseer detects non-restartable infra error (permission denied, EROFS, filesystem) | Escalate to HITL (bypasses restart) |
 | Overseer detects agent stall (N heartbeat failures) | `RESTART_AGENT` action — auto-restart via API (up to max restarts per phase) |
 | Overseer detects agent stall (restarts exhausted) | Escalate to HITL |
 | Overseer detects multiple stuck agents (2+) | `RESTART_PHASE` action — creates HITL decision for phase restart approval |
-| Manual agent restart (CLI/MCP/API) on running pipeline | Stop container, reset consensus, respawn with same config |
+| Manual agent restart (CLI/MCP/API) on running pipeline | Stop container, reset consensus (after successful spawn), respawn with same config |
 | Manual agent restart (CLI/MCP/API) on failed pipeline | Same as above, plus reset pipeline + phase status to `RUNNING` |
 | Manual phase restart (CLI/MCP/API) on running pipeline | Stop all containers, reset all consensus + review cycles, respawn all agents |
 | Manual phase restart (CLI/MCP/API) on failed pipeline | Same as above, plus reset pipeline + phase status to `RUNNING` |
