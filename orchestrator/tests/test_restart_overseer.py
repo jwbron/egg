@@ -315,21 +315,27 @@ class TestMonitorExecuteRestartAgent:
     def test_restart_limit_from_api_creates_hitl(
         self, mock_request_cls, mock_build_opener, monitor
     ):
-        """When spawner returns limit exceeded error, monitor should create HITL decision.
+        """When spawner returns limit exceeded error (HTTP 500), monitor should create HITL.
 
-        The shadow counter was removed in issue #1695 — limit enforcement now
-        comes from the spawner via the REST API response.
+        The restart endpoint returns HTTP 500 on ContainerSpawnError (including
+        restart-limit-exceeded).  urllib raises HTTPError for non-2xx responses,
+        so the monitor must catch HTTPError and parse the response body.
         """
+        import io
+        import urllib.error
+
         api_response = {
             "success": False,
             "message": "Restart limit (2) exceeded for coder in pipeline issue-100",
         }
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = json.dumps(api_response).encode()
-        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
-        mock_resp.__exit__ = MagicMock(return_value=False)
         mock_opener = MagicMock()
-        mock_opener.open.return_value = mock_resp
+        mock_opener.open.side_effect = urllib.error.HTTPError(
+            url="http://localhost:9849/api/v1/pipelines/issue-100/agents/coder/restart",
+            code=500,
+            msg="Internal Server Error",
+            hdrs={},
+            fp=io.BytesIO(json.dumps(api_response).encode()),
+        )
         mock_build_opener.return_value = mock_opener
 
         decision = {
@@ -744,7 +750,7 @@ class TestNonRestartableDenyList:
             "Agent crashed after permission error on filesystem",
             "Container crashed with EROFS: read-only file system",
             "Agent hung due to certificate verification failure",
-            "OOM but also config file not found",
+            "OOM but also config error in agent settings",
             "Agent timeout during authentication failure",
             "Agent crashed: authorization denied for resource",
             "OOM crash: no space left on device",
@@ -763,6 +769,8 @@ class TestNonRestartableDenyList:
             "Container crashed with exit code 137",
             "Agent hit OOM limit",
             "timeout waiting for response",
+            "Agent crashed while loading configuration from remote server",
+            "OOM during config sync",
         ],
     )
     def test_pure_restartable_still_works(self, error_text):
@@ -828,17 +836,26 @@ class TestMultiAgentExhaustionEscalation:
         monitor._agents_restart_exhausted = set()
         return monitor
 
-    def _make_limit_exceeded_response(self):
-        """Create a mock urllib response for restart limit exceeded."""
+    def _make_limit_exceeded_error(self, agent_role="coder"):
+        """Create an HTTPError simulating a restart-limit-exceeded response.
+
+        The restart endpoint returns HTTP 500 on ContainerSpawnError, including
+        restart-limit-exceeded.  urllib raises HTTPError for non-2xx responses.
+        """
+        import io
+        import urllib.error
+
         api_response = {
             "success": False,
-            "message": "Restart limit (2) exceeded",
+            "message": f"Restart limit (2) exceeded for {agent_role}",
         }
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = json.dumps(api_response).encode()
-        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
-        mock_resp.__exit__ = MagicMock(return_value=False)
-        return mock_resp
+        return urllib.error.HTTPError(
+            url=f"http://localhost:9849/api/v1/pipelines/issue-100/agents/{agent_role}/restart",
+            code=500,
+            msg="Internal Server Error",
+            hdrs={},
+            fp=io.BytesIO(json.dumps(api_response).encode()),
+        )
 
     @patch("urllib.request.build_opener")
     @patch("urllib.request.Request")
@@ -847,7 +864,7 @@ class TestMultiAgentExhaustionEscalation:
     ):
         """Single agent limit exceeded should create HITL for that agent, not phase."""
         mock_opener = MagicMock()
-        mock_opener.open.return_value = self._make_limit_exceeded_response()
+        mock_opener.open.side_effect = self._make_limit_exceeded_error("coder")
         mock_build_opener.return_value = mock_opener
 
         _run(monitor._execute_restart_agent("coder", "Agent stalled"))
@@ -864,7 +881,7 @@ class TestMultiAgentExhaustionEscalation:
     ):
         """When 2+ agents exhaust limits, should escalate to phase restart HITL."""
         mock_opener = MagicMock()
-        mock_opener.open.return_value = self._make_limit_exceeded_response()
+        mock_opener.open.side_effect = self._make_limit_exceeded_error("coder")
         mock_build_opener.return_value = mock_opener
 
         # First agent exhausts limits
@@ -873,7 +890,7 @@ class TestMultiAgentExhaustionEscalation:
 
         # Reset mock for second call
         monitor._create_hitl_decision.reset_mock()
-        mock_opener.open.return_value = self._make_limit_exceeded_response()
+        mock_opener.open.side_effect = self._make_limit_exceeded_error("tester")
 
         # Second agent exhausts limits — should trigger phase restart escalation
         _run(monitor._execute_restart_agent("tester", "Tester stalled"))
