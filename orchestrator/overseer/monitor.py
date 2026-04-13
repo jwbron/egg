@@ -661,16 +661,16 @@ class OverseerMonitor:
             message: Reason for the restart.
         """
         # Call the restart REST API endpoint directly (no CLI subcommand exists)
-        try:
-            from urllib.parse import quote
+        import urllib.error
+        import urllib.request
+        from urllib.parse import quote
 
+        try:
             orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://localhost:9849")
             restart_url = (
                 f"{orchestrator_url}/api/v1/pipelines/"
                 f"{quote(self.pipeline_id, safe='')}/agents/{quote(agent_role, safe='')}/restart"
             )
-            import urllib.error
-            import urllib.request
 
             req_data = json.dumps({"reason": message[:500]}).encode()
             req = urllib.request.Request(
