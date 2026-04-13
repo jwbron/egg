@@ -922,3 +922,95 @@ class TestMultiAgentExhaustionEscalation:
         _run(monitor._execute_restart_agent("coder", "Agent stalled"))
 
         assert "coder" not in monitor._agents_restart_exhausted
+
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_transient_docker_error_does_not_mark_exhausted(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
+        """Transient Docker failure (not limit-exceeded) should NOT add agent to exhausted set."""
+        import io
+        import urllib.error
+
+        # Simulate a Docker daemon error — HTTP 500 but NOT a limit-exceeded message
+        api_response = {
+            "success": False,
+            "message": "Cannot connect to Docker daemon at unix:///var/run/docker.sock",
+        }
+        mock_opener = MagicMock()
+        mock_opener.open.side_effect = urllib.error.HTTPError(
+            url="http://localhost:9849/api/v1/pipelines/issue-100/agents/coder/restart",
+            code=500,
+            msg="Internal Server Error",
+            hdrs={},
+            fp=io.BytesIO(json.dumps(api_response).encode()),
+        )
+        mock_build_opener.return_value = mock_opener
+
+        _run(monitor._execute_restart_agent("coder", "Agent stalled"))
+
+        # Should create HITL for the agent but NOT mark as exhausted
+        assert "coder" not in monitor._agents_restart_exhausted
+        monitor._create_hitl_decision.assert_called_once()
+        call_args = monitor._create_hitl_decision.call_args[0]
+        assert call_args[0] == "coder"
+
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_two_transient_failures_do_not_escalate_to_phase_restart(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
+        """Two transient Docker failures should NOT trigger phase restart escalation."""
+        import io
+        import urllib.error
+
+        def _make_docker_error(agent_role):
+            api_response = {
+                "success": False,
+                "message": f"Cannot connect to Docker daemon while restarting {agent_role}",
+            }
+            return urllib.error.HTTPError(
+                url=f"http://localhost:9849/api/v1/pipelines/issue-100/agents/{agent_role}/restart",
+                code=500,
+                msg="Internal Server Error",
+                hdrs={},
+                fp=io.BytesIO(json.dumps(api_response).encode()),
+            )
+
+        mock_opener = MagicMock()
+        mock_opener.open.side_effect = _make_docker_error("coder")
+        mock_build_opener.return_value = mock_opener
+
+        _run(monitor._execute_restart_agent("coder", "Coder stalled"))
+        monitor._create_hitl_decision.reset_mock()
+
+        mock_opener.open.side_effect = _make_docker_error("tester")
+        _run(monitor._execute_restart_agent("tester", "Tester stalled"))
+
+        # Should NOT escalate to phase restart — neither agent is truly exhausted
+        assert len(monitor._agents_restart_exhausted) == 0
+        call_args = monitor._create_hitl_decision.call_args[0]
+        # Should target the specific agent, not "orchestrator"
+        assert call_args[0] == "tester"
+
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_successful_restart_clears_previously_exhausted(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
+        """Successful restart should remove agent from exhausted set (e.g. after budget reset)."""
+        # Pre-seed agent as exhausted (simulating a prior limit-exceeded)
+        monitor._agents_restart_exhausted.add("coder")
+
+        api_response = {"success": True, "data": {"restart_count": 1}}
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(api_response).encode()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_opener = MagicMock()
+        mock_opener.open.return_value = mock_resp
+        mock_build_opener.return_value = mock_opener
+
+        _run(monitor._execute_restart_agent("coder", "Agent stalled"))
+
+        assert "coder" not in monitor._agents_restart_exhausted

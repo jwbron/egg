@@ -1418,16 +1418,18 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     with lock:
         pipeline = store.load_pipeline(pipeline_id)
         if phase_exec is not None:
-            phase_exec = pipeline.phases.get(current_phase)
-            if phase_exec is not None:
+            # Re-fetch from the freshly loaded pipeline (the outer check gates
+            # on "did the phase exist before the spawn?").
+            fresh_phase_exec = pipeline.phases.get(current_phase)
+            if fresh_phase_exec is not None:
                 # Add new container info
-                phase_exec.containers.append(spawned.container_info)
+                fresh_phase_exec.containers.append(spawned.container_info)
 
                 # Update or add agent execution entry
                 from models import AgentExecution  # type: ignore
 
                 found = False
-                for agent in phase_exec.agents:
+                for agent in fresh_phase_exec.agents:
                     if hasattr(agent, "role") and (
                         agent.role == role
                         or (hasattr(agent.role, "value") and agent.role.value == role.value)
@@ -1437,7 +1439,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                         found = True
                         break
                 if not found:
-                    phase_exec.agents.append(
+                    fresh_phase_exec.agents.append(
                         AgentExecution(
                             role=role,
                             container_id=spawned.container_info.container_id,

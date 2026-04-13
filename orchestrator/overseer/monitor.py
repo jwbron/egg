@@ -698,6 +698,9 @@ class OverseerMonitor:
                         "reason": message[:500],
                     }
                 )
+                # A successful restart means the agent is no longer exhausted
+                # (e.g. budget was manually reset by an operator).
+                self._agents_restart_exhausted.discard(agent_role)
             else:
                 # 2xx response with success=false (shouldn't happen in practice
                 # but handle defensively)
@@ -734,10 +737,14 @@ class OverseerMonitor:
     async def _handle_restart_failure(self, agent_role: str, error_msg: str, message: str) -> None:
         """Handle a failed restart attempt — track exhaustion and escalate.
 
-        When 2+ agents have exhausted their restart limits, escalate to a
-        phase restart HITL decision.
+        Only marks an agent as "exhausted" when the error indicates the restart
+        budget has been used up (not transient Docker/network failures).  When
+        2+ agents have exhausted their restart limits, escalate to a phase
+        restart HITL decision.
         """
-        self._agents_restart_exhausted.add(agent_role)
+        is_limit_exceeded = "restart limit" in error_msg.lower() and "exceeded" in error_msg.lower()
+        if is_limit_exceeded:
+            self._agents_restart_exhausted.add(agent_role)
         if len(self._agents_restart_exhausted) >= 2:
             exhausted_list = sorted(self._agents_restart_exhausted)
             logger.warning(
