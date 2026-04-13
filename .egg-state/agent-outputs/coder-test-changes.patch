@@ -1,166 +1,569 @@
-diff --git a/orchestrator/tests/test_pr_phase_brc_rewrite.py b/orchestrator/tests/test_pr_phase_brc_rewrite.py
-index 37ec5fcad6..81611cdea2 100644
---- a/orchestrator/tests/test_pr_phase_brc_rewrite.py
-+++ b/orchestrator/tests/test_pr_phase_brc_rewrite.py
-@@ -5,8 +5,10 @@ before creating the PR, as a safety net for cases where per-phase
- pushes failed silently.
- """
+diff --git a/orchestrator/tests/test_restart_agent.py b/orchestrator/tests/test_restart_agent.py
+index 88252f8e09..bb14617a46 100644
+--- a/orchestrator/tests/test_restart_agent.py
++++ b/orchestrator/tests/test_restart_agent.py
+@@ -118,6 +118,7 @@ class TestRestartAgentContainer:
+             pipeline_id="issue-100",
+             agent_role=AgentRole.CODER,
+             issue_number=100,
++            mode="public",
+         )
  
-+import subprocess
- import sys
- from datetime import UTC, datetime
-+from pathlib import Path
- from unittest.mock import MagicMock, patch
+         assert isinstance(result, SpawnedContainer)
+@@ -134,6 +135,7 @@ class TestRestartAgentContainer:
+             pipeline_id="issue-100",
+             agent_role=AgentRole.CODER,
+             issue_number=100,
++            mode="public",
+         )
  
- # Mock heavy dependencies that pipelines.py imports at module level
-@@ -296,3 +298,150 @@ class TestRewriteBrcHistoryForPr:
-         mock_write.assert_not_called()
-         # Commit is still attempted (no-op if nothing staged)
-         mock_commit.assert_called_once()
+         # Should call stop on the old container
+@@ -147,6 +149,7 @@ class TestRestartAgentContainer:
+             pipeline_id="issue-100",
+             agent_role=AgentRole.CODER,
+             issue_number=100,
++            mode="public",
+         )
+ 
+         # Force removal should be called
+@@ -158,6 +161,7 @@ class TestRestartAgentContainer:
+             pipeline_id="issue-100",
+             agent_role=AgentRole.CODER,
+             issue_number=100,
++            mode="public",
+         )
+ 
+         mock_docker_client.create_container.assert_called()
+@@ -171,6 +175,7 @@ class TestRestartAgentContainer:
+             pipeline_id="issue-100",
+             agent_role=AgentRole.CODER,
+             issue_number=100,
++            mode="public",
+         )
+         assert spawner.get_restart_count("issue-100", "coder") == 1
+ 
+@@ -184,6 +189,7 @@ class TestRestartAgentContainer:
+                 pipeline_id="issue-100",
+                 agent_role=AgentRole.CODER,
+                 issue_number=100,
++                mode="public",
+                 max_restarts=2,
+             )
+ 
+@@ -196,6 +202,7 @@ class TestRestartAgentContainer:
+                 pipeline_id="issue-100",
+                 agent_role=AgentRole.CODER,
+                 issue_number=100,
++                mode="public",
+                 max_restarts=5,
+             )
+ 
+@@ -209,6 +216,7 @@ class TestRestartAgentContainer:
+             pipeline_id="issue-100",
+             agent_role=AgentRole.CODER,
+             issue_number=100,
++            mode="public",
+         )
+ 
+         # Should still succeed — the method handles stop failures gracefully
+@@ -224,6 +232,7 @@ class TestRestartAgentContainer:
+             pipeline_id="issue-100",
+             agent_role=AgentRole.CODER,
+             issue_number=100,
++            mode="public",
+         )
+ 
+         assert isinstance(result, SpawnedContainer)
+@@ -239,6 +248,7 @@ class TestRestartAgentContainer:
+                 pipeline_id="issue-100",
+                 agent_role=AgentRole.CODER,
+                 issue_number=100,
++                mode="public",
+             )
+ 
+     def test_restart_with_extra_env(self, spawner, mock_docker_client, mock_gateway_client):
+@@ -247,6 +257,7 @@ class TestRestartAgentContainer:
+             pipeline_id="issue-100",
+             agent_role=AgentRole.CODER,
+             issue_number=100,
++            mode="public",
+             extra_env={"RESTART_REASON": "stall detected"},
+         )
+ 
+@@ -259,6 +270,7 @@ class TestRestartAgentContainer:
+             pipeline_id="issue-100",
+             agent_role=AgentRole.CODER,
+             issue_number=100,
++            mode="public",
+             reason="Agent stalled after Edit tool error",
+         )
+ 
+@@ -280,6 +292,7 @@ class TestRestartAgentContainer:
+                 pipeline_id="issue-100",
+                 agent_role=AgentRole.CODER,
+                 issue_number=100,
++                mode="public",
+             )
+ 
+             mock_spawn.assert_called_once()
+@@ -684,3 +697,129 @@ class TestRestartAgentEndpoint:
+         assert restart_call[1].get("mode") == "private", (
+             "Expected computed gateway mode 'private', not hardcoded 'public'"
+         )
 +
++    @patch("routes.pipelines.get_pipeline_state_lock")
++    @patch("routes.pipelines.get_container_spawner")
++    @patch("routes.pipelines._resolve_pipeline")
++    @patch("routes.pipelines.get_repo_path")
++    def test_consensus_not_reset_on_spawn_failure(
++        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
++    ):
++        """Consensus state must NOT be reset when container spawn fails.
 +
-+class TestBrcRewriteAndDraftCleanupIntegration:
-+    """Integration test: exercises _rewrite_brc_history_for_pr and _cleanup_drafts_for_pr
-+    end-to-end with simulated git operations (#1633).
-+
-+    This closes the test gap where mock-based tests only patched the functions
-+    themselves, missing git-level failures (e.g. missing `git add`, wrong cwd,
-+    or subprocess errors). Here we let the real function logic run, only mocking
-+    the subprocess.run calls to simulate git behavior, verifying the full call
-+    chain produces the expected git operations (add, diff, commit, rm).
-+    """
-+
-+    def test_full_rewrite_and_cleanup_produces_commits(self, tmp_path: Path, monkeypatch):
-+        """End-to-end: _rewrite_brc_history_for_pr writes BRC history files and
-+        calls git add/commit; _cleanup_drafts_for_pr calls git rm/commit.
-+
-+        Asserts:
-+        (a) A git commit with message containing "Persist BRC history" was issued
-+        (b) A git commit with message containing "Remove pipeline draft" was issued
-+        (c) BRC history files exist on disk (written by _write_brc_history)
-+        (d) Draft files are removed from disk (via git rm fallback to unlink)
++        Issue #1695 item 5: consensus reset should only happen after a
++        successful spawn, so a failed spawn preserves the agent's prior
++        consensus participation.
 +        """
-+        import routes.pipelines as mod
-+        from routes.pipelines import _cleanup_drafts_for_pr, _rewrite_brc_history_for_pr
++        mock_repo.return_value = "/repo"
++        mock_lock_fn.return_value = MagicMock()
++        pipeline = _make_pipeline_with_running_agent()
 +
-+        repo = tmp_path / "repo"
-+        repo.mkdir()
++        mock_store = MagicMock()
++        mock_store.load_pipeline.return_value = pipeline
++        mock_resolve.return_value = (mock_store, pipeline)
 +
-+        # Set up tracked draft files
-+        drafts_dir = repo / ".egg-state" / "drafts"
-+        drafts_dir.mkdir(parents=True)
-+        (drafts_dir / "42-analysis.md").write_text("Draft analysis content")
-+        (drafts_dir / "42-plan.md").write_text("Draft plan content")
++        mock_spawner = MagicMock()
++        mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("Failed")
++        mock_spawner_fn.return_value = mock_spawner
 +
-+        # Prepare BRC messages for the mock store
-+        messages = [
-+            _make_brc_message(
-+                pipeline_id="issue-42",
-+                from_role="coder",
-+                message_type=MessageType.CONSENSUS_PROPOSE,
-+                subject="Implement proposal",
-+                body="Proposed implementation changes",
-+                phase="implement",
-+            ),
-+            _make_brc_message(
-+                pipeline_id="issue-42",
-+                from_role="reviewer_code",
-+                message_type=MessageType.CONSENSUS_ACK,
-+                subject="ACK from reviewer",
-+                body="LGTM",
-+                phase="implement",
-+            ),
-+            _make_brc_message(
-+                pipeline_id="issue-42",
-+                from_role="coder",
-+                message_type=MessageType.CONSENSUS_CONFIRMED,
-+                subject="Confirmed",
-+                body="",
-+                phase="implement",
-+            ),
++        # Patch consensus modules to track if they were called
++        with patch("routes.pipelines.get_peer_consensus_tracker", create=True) as mock_pct:
++            mock_tracker = MagicMock()
++            mock_pct.return_value = mock_tracker
++
++            response = client.post(
++                "/api/v1/pipelines/issue-100/agents/coder/restart",
++                json={},
++            )
++
++            assert response.status_code == 500
++            # Consensus tracker.remove_agent should NOT have been called
++            mock_tracker.remove_agent.assert_not_called()
++
++
++# ---------------------------------------------------------------------------
++# New tests for issue #1695 items
++# ---------------------------------------------------------------------------
++
++
++class TestRestartConcurrencyGuard:
++    """Tests for per-(pipeline_id, agent_role) lock serialisation (issue #1695 item 1)."""
++
++    def test_concurrent_restarts_serialised(self, spawner, mock_docker_client, mock_gateway_client):
++        """Two threads calling restart_agent_container simultaneously: only one
++        succeeds past the limit when max_restarts=1."""
++        import threading
++
++        results: list[SpawnedContainer | Exception] = [None, None]  # type: ignore[list-item]
++
++        def do_restart(idx: int) -> None:
++            try:
++                r = spawner.restart_agent_container(
++                    pipeline_id="issue-100",
++                    agent_role=AgentRole.CODER,
++                    issue_number=100,
++                    mode="public",
++                    max_restarts=1,
++                )
++                results[idx] = r
++            except Exception as exc:
++                results[idx] = exc
++
++        t1 = threading.Thread(target=do_restart, args=(0,))
++        t2 = threading.Thread(target=do_restart, args=(1,))
++        t1.start()
++        t2.start()
++        t1.join(timeout=10)
++        t2.join(timeout=10)
++
++        successes = [r for r in results if isinstance(r, SpawnedContainer)]
++        failures = [r for r in results if isinstance(r, ContainerSpawnError)]
++
++        assert len(successes) == 1, f"Expected exactly 1 success, got {len(successes)}"
++        assert len(failures) == 1, f"Expected exactly 1 failure, got {len(failures)}"
++
++
++class TestFailedSpawnIncrementsCount:
++    """Tests that a failed spawn_agent_container still increments restart count (issue #1695 item 4)."""
++
++    def test_failed_spawn_increments_count(self, spawner, mock_docker_client, mock_gateway_client):
++        """A spawn failure should still burn one restart budget slot."""
++        mock_docker_client.create_container.side_effect = ContainerOperationError("no space")
++
++        assert spawner.get_restart_count("issue-100", "coder") == 0
++
++        with pytest.raises(ContainerSpawnError):
++            spawner.restart_agent_container(
++                pipeline_id="issue-100",
++                agent_role=AgentRole.CODER,
++                issue_number=100,
++                mode="public",
++            )
++
++        # Count should be incremented even though spawn failed
++        assert spawner.get_restart_count("issue-100", "coder") == 1
++
++
++class TestModeValidation:
++    """Tests for mode=None ValueError (issue #1695 item 7)."""
++
++    def test_mode_none_raises_value_error(self, spawner, mock_docker_client, mock_gateway_client):
++        """Calling restart_agent_container without explicit mode raises ValueError."""
++        with pytest.raises(ValueError, match="mode must be explicitly provided"):
++            spawner.restart_agent_container(
++                pipeline_id="issue-100",
++                agent_role=AgentRole.CODER,
++                issue_number=100,
++                mode=None,
++            )
++
++    def test_mode_default_is_none(self, spawner, mock_docker_client, mock_gateway_client):
++        """The default value for mode should be None, not 'public'."""
++        with pytest.raises(ValueError, match="mode must be explicitly provided"):
++            spawner.restart_agent_container(
++                pipeline_id="issue-100",
++                agent_role=AgentRole.CODER,
++                issue_number=100,
++                # mode intentionally omitted
++            )
+diff --git a/orchestrator/tests/test_restart_overseer.py b/orchestrator/tests/test_restart_overseer.py
+index fcc332539d..04d116d61e 100644
+--- a/orchestrator/tests/test_restart_overseer.py
++++ b/orchestrator/tests/test_restart_overseer.py
+@@ -219,8 +219,6 @@ class TestMonitorExecuteRestartAgent:
+         monitor._create_hitl_decision = AsyncMock()
+         monitor._broadcast_alert = AsyncMock()
+         monitor._log_oversight_event = MagicMock()
+-        monitor._agent_restart_counts = {}
+-        monitor._max_agent_restarts = 2
+         return monitor
+ 
+     @patch("urllib.request.build_opener")
+@@ -228,7 +226,7 @@ class TestMonitorExecuteRestartAgent:
+     def test_restart_agent_calls_rest_api(self, mock_request_cls, mock_build_opener, monitor):
+         """restart_agent action should POST to the REST API endpoint."""
+         mock_resp = MagicMock()
+-        mock_resp.read.return_value = b'{"success": true}'
++        mock_resp.read.return_value = b'{"success": true, "data": {"restart_count": 1}}'
+         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+         mock_resp.__exit__ = MagicMock(return_value=False)
+         mock_opener = MagicMock()
+@@ -252,12 +250,12 @@ class TestMonitorExecuteRestartAgent:
+ 
+     @patch("urllib.request.build_opener")
+     @patch("urllib.request.Request")
+-    def test_restart_agent_increments_count_on_success(
++    def test_restart_agent_reads_count_from_api_response(
+         self, mock_request_cls, mock_build_opener, monitor
+     ):
+-        """Successful restart should increment the agent's restart count."""
++        """Successful restart should read restart_count from the API response (no shadow counter)."""
+         mock_resp = MagicMock()
+-        mock_resp.read.return_value = b'{"success": true}'
++        mock_resp.read.return_value = b'{"success": true, "data": {"restart_count": 3}}'
+         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+         mock_resp.__exit__ = MagicMock(return_value=False)
+         mock_opener = MagicMock()
+@@ -272,7 +270,16 @@ class TestMonitorExecuteRestartAgent:
+ 
+         _run(monitor._execute_action(decision, "coder"))
+ 
+-        assert monitor._agent_restart_counts.get("coder", 0) == 1
++        # The monitor should NOT maintain its own counter — verify no shadow dict
++        assert not hasattr(monitor, "_agent_restart_counts") or not monitor._agent_restart_counts
++        # Oversight log should contain the count read from the API
++        restart_events = [
++            call[0][0]
++            for call in monitor._log_oversight_event.call_args_list
++            if call[0][0].get("event") == "agent_restarted"
 +        ]
++        assert len(restart_events) == 1
++        assert restart_events[0]["restart_count"] == 3
+ 
+     @patch("urllib.request.build_opener")
+     @patch("urllib.request.Request")
+@@ -296,9 +303,21 @@ class TestMonitorExecuteRestartAgent:
+ 
+         monitor._create_hitl_decision.assert_called()
+ 
+-    def test_restart_agent_limit_creates_hitl(self, monitor):
+-        """When restart limit is reached, should create HITL decision."""
+-        monitor._agent_restart_counts["coder"] = 2  # At limit
++    @patch("urllib.request.build_opener")
++    @patch("urllib.request.Request")
++    def test_restart_agent_limit_creates_hitl_via_api(
++        self, mock_request_cls, mock_build_opener, monitor
++    ):
++        """When spawner returns limit-exceeded error, monitor should create HITL decision."""
++        mock_resp = MagicMock()
++        mock_resp.read.return_value = (
++            b'{"success": false, "message": "Restart limit (2) exceeded for coder"}'
++        )
++        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
++        mock_resp.__exit__ = MagicMock(return_value=False)
++        mock_opener = MagicMock()
++        mock_opener.open.return_value = mock_resp
++        mock_build_opener.return_value = mock_opener
+ 
+         decision = {
+             "action": "restart_agent",
+@@ -308,43 +327,10 @@ class TestMonitorExecuteRestartAgent:
+ 
+         _run(monitor._execute_action(decision, "coder"))
+ 
+-        # Should not call CLI — limit reached
+-        monitor._run_cli.assert_not_called()
+-        # Should escalate to HITL
+-        monitor._create_hitl_decision.assert_called()
+-
+-    def test_restart_multi_agent_exhaustion_escalates_to_phase(self, monitor):
+-        """When 2+ agents exhaust restart limits, should mention phase restart."""
+-        monitor._agent_restart_counts["coder"] = 2
+-        monitor._agent_restart_counts["tester"] = 2
+-
+-        decision = {
+-            "action": "restart_agent",
+-            "message": "Documenter also stalled",
+-            "priority": "high",
+-        }
+-
+-        # Now a 3rd agent hits its limit
+-        monitor._agent_restart_counts["documenter"] = 2
+-
+-        _run(monitor._execute_action(decision, "documenter"))
+-
++        # Should escalate to HITL since the spawner refused the restart
+         monitor._create_hitl_decision.assert_called()
+-        call_args = monitor._create_hitl_decision.call_args
+-        message = str(call_args)
+-        message_lower = message.lower()
+-        # Should mention that restart limits were exhausted
+-        assert "exhausted" in message_lower or "limit" in message_lower, (
+-            f"Expected 'exhausted' or 'limit' in HITL message: {message}"
+-        )
+-        # Should reference at least two of the exhausted agents by name
+-        exhausted_mentioned = sum(
+-            1 for agent in ("coder", "tester", "documenter") if agent in message_lower
+-        )
+-        assert exhausted_mentioned >= 2, (
+-            f"Expected at least 2 exhausted agent names in HITL message, "
+-            f"found {exhausted_mentioned}: {message}"
+-        )
++        call_msg = str(monitor._create_hitl_decision.call_args)
++        assert "limit" in call_msg.lower() or "failed" in call_msg.lower()
+ 
+ 
+ class TestMonitorExecuteRestartPhase:
+@@ -362,8 +348,6 @@ class TestMonitorExecuteRestartPhase:
+         monitor._create_hitl_decision = AsyncMock()
+         monitor._broadcast_alert = AsyncMock()
+         monitor._log_oversight_event = MagicMock()
+-        monitor._agent_restart_counts = {}
+-        monitor._max_agent_restarts = 2
+         return monitor
+ 
+     def test_restart_phase_creates_hitl_by_default(self, monitor):
+@@ -399,3 +383,157 @@ class TestMonitorExecuteRestartPhase:
+             args = call[0] if call[0] else []
+             cli_str = " ".join(str(a) for a in args)
+             assert "restart-phase" not in cli_str
 +
-+        mock_store = MagicMock(spec=MessageStore)
-+        mock_store.get_messages.return_value = messages
 +
-+        # Build pipeline_phases dict with one COMPLETE phase
-+        phases = {
-+            "implement": MagicMock(status=PipelineStatus.COMPLETE),
-+        }
++# ---------------------------------------------------------------------------
++# Decision maker: restartable infrastructure error routing (issue #1695 item 6)
++# ---------------------------------------------------------------------------
 +
-+        # Track all subprocess calls for assertion
-+        git_calls: list[list[str]] = []
 +
-+        def fake_subprocess_run(cmd, **kwargs):
-+            git_calls.append(cmd)
-+            result = MagicMock()
-+            result.stdout = ""
-+            result.stderr = ""
-+            # For "git diff --cached --quiet" — return 1 to indicate staged changes
-+            if "diff" in cmd and "--cached" in cmd:
-+                result.returncode = 1
-+            else:
-+                result.returncode = 0
-+            if kwargs.get("check") and result.returncode != 0:
-+                # Only raise for check=True commands that aren't expected to fail
-+                if "diff" not in cmd:
-+                    raise subprocess.CalledProcessError(
-+                        result.returncode, cmd, result.stdout, result.stderr
-+                    )
-+            return result
++class TestDecisionMakerRestartableInfraErrors:
++    """Tests that infrastructure errors with restartable patterns produce restart_agent,
++    while non-matching infra errors still produce hitl."""
 +
-+        monkeypatch.setattr(mod.subprocess, "run", fake_subprocess_run)
++    def test_unresponsive_routes_to_restart_agent(self) -> None:
++        """Infrastructure error with 'unresponsive' in reasoning should auto-restart."""
++        result = _run(
++            decide_corrective_action(
++                classification={
++                    "classification": "infrastructure_error",
++                    "reasoning": "Agent container became unresponsive after OOM kill",
++                },
++                context={"agent_role": "coder", "pipeline_id": "issue-100"},
++            )
++        )
++        assert result["action"] == "restart_agent"
++        assert result["priority"] in ("high", "critical")
 +
-+        # Execute _rewrite_brc_history_for_pr (writes BRC history files + git add/commit)
-+        with patch("message_store.get_message_store", return_value=mock_store):
-+            _rewrite_brc_history_for_pr(repo, "issue-42", phases, 42)
++    def test_crashed_routes_to_restart_agent(self) -> None:
++        """Infrastructure error with 'crashed' should auto-restart."""
++        result = _run(
++            decide_corrective_action(
++                classification={
++                    "classification": "infrastructure_error",
++                    "reasoning": "Container crashed with exit code 137",
++                },
++                context={},
++            )
++        )
++        assert result["action"] == "restart_agent"
 +
-+        # Execute _cleanup_drafts_for_pr (git rm + commit)
-+        cleanup_result = _cleanup_drafts_for_pr(repo, 42)
++    def test_timeout_routes_to_restart_agent(self) -> None:
++        """Infrastructure error with 'timeout' should auto-restart."""
++        result = _run(
++            decide_corrective_action(
++                classification={
++                    "classification": "infrastructure_error",
++                    "reasoning": "Gateway health check timeout after 60s",
++                },
++                context={},
++            )
++        )
++        assert result["action"] == "restart_agent"
 +
-+        # --- Assertions ---
++    def test_oom_routes_to_restart_agent(self) -> None:
++        """Infrastructure error with 'oom' should auto-restart."""
++        result = _run(
++            decide_corrective_action(
++                classification={
++                    "classification": "infrastructure_error",
++                    "reasoning": "Container killed by OOM killer",
++                },
++                context={},
++            )
++        )
++        assert result["action"] == "restart_agent"
 +
-+        # (a) A git commit with "Persist BRC history" was issued
-+        commit_messages = [
-+            cmd[cmd.index("-m") + 1]
-+            for cmd in git_calls
-+            if "commit" in cmd and "-m" in cmd
-+        ]
-+        assert any(
-+            "Persist BRC history" in msg for msg in commit_messages
-+        ), f"Expected commit with 'Persist BRC history', got: {commit_messages}"
++    def test_hung_routes_to_restart_agent(self) -> None:
++        """Infrastructure error with 'hung' should auto-restart."""
++        result = _run(
++            decide_corrective_action(
++                classification={
++                    "classification": "infrastructure_error",
++                    "reasoning": "Process appears hung — no output for 30 minutes",
++                },
++                context={},
++            )
++        )
++        assert result["action"] == "restart_agent"
 +
-+        # (b) A git commit with "Remove pipeline draft" was issued
-+        assert any(
-+            "Remove pipeline draft" in msg for msg in commit_messages
-+        ), f"Expected commit with 'Remove pipeline draft', got: {commit_messages}"
++    def test_permission_denied_routes_to_hitl(self) -> None:
++        """Infrastructure error with 'permission denied' should go to hitl (not restartable)."""
++        result = _run(
++            decide_corrective_action(
++                classification={
++                    "classification": "infrastructure_error",
++                    "reasoning": "Permission denied writing to /var/run/docker.sock",
++                },
++                context={},
++            )
++        )
++        assert result["action"] == "hitl"
++        assert result["priority"] == "critical"
 +
-+        # (c) BRC history files exist on disk (written by _write_brc_history)
-+        history_dir = repo / ".egg-state" / "brc-history"
-+        assert history_dir.exists(), "BRC history directory should exist"
-+        brc_files = list(history_dir.iterdir())
-+        assert len(brc_files) > 0, "Expected BRC history files to be written"
-+        assert (
-+            history_dir / "42-implement.md"
-+        ).exists(), "Expected 42-implement.md in brc-history"
-+        # Verify content is meaningful
-+        content = (history_dir / "42-implement.md").read_text()
-+        assert "BRC Consensus History" in content
-+        assert "CONSENSUS_PROPOSE" in content
-+        assert "CONSENSUS_ACK" in content
++    def test_filesystem_error_routes_to_hitl(self) -> None:
++        """Infrastructure error with 'read-only filesystem' should go to hitl."""
++        result = _run(
++            decide_corrective_action(
++                classification={
++                    "classification": "infrastructure_error",
++                    "reasoning": "Read-only filesystem: cannot write to /home/egg/repos",
++                },
++                context={},
++            )
++        )
++        assert result["action"] == "hitl"
 +
-+        # (d) Draft files are removed (git rm succeeded → commit made)
-+        # _cleanup_drafts_for_pr returned True because our mock returned 0 for
-+        # the git rm calls, setting removed=True, then commit succeeded
-+        assert cleanup_result is True
++    def test_non_infra_error_still_uses_llm(self) -> None:
++        """Non-infrastructure classifications should still go through the LLM path."""
++        with patch(_AGENT_PATCH, new_callable=AsyncMock) as mock_agent:
++            mock_agent.return_value = _make_result(
++                json.dumps({"action": "nudge", "message": "ok", "priority": "low"})
++            )
++            result = _run(
++                decide_corrective_action(
++                    classification={"classification": "stalled", "reasoning": "No progress"},
++                    context={},
++                )
++            )
++            assert result["action"] == "nudge"
++            mock_agent.assert_called_once()
 +
-+        # Verify git add was called with paths containing brc-history
-+        add_calls = [cmd for cmd in git_calls if "add" in cmd and "--force" in cmd]
-+        assert len(add_calls) > 0, "Expected git add --force calls for BRC history files"
-+        # At least one add call should reference brc-history files
-+        add_paths = [arg for cmd in add_calls for arg in cmd if "brc-history" in arg]
-+        assert len(add_paths) > 0, f"Expected brc-history in git add args, got: {add_calls}"
 +
-+        # Verify git rm was called for draft files
-+        rm_calls = [cmd for cmd in git_calls if "rm" in cmd]
-+        assert len(rm_calls) == 2, f"Expected 2 git rm calls (one per draft), got {len(rm_calls)}"
++class TestEscalationLevelRestartableRouting:
++    """Tests for decide_escalation_level restartable infra error routing."""
++
++    def test_unresponsive_escalates_to_restart_agent(self) -> None:
++        """Restartable infra errors should escalate to restart_agent level."""
++        from overseer.decision_maker import decide_escalation_level
++
++        result = _run(
++            decide_escalation_level(
++                classification={
++                    "classification": "infrastructure_error",
++                    "reasoning": "Agent unresponsive for 10 minutes",
++                },
++                redirect_history=[],
++            )
++        )
++        assert result["escalate"] is True
++        assert result["level"] == "restart_agent"
++
++    def test_permission_denied_escalates_to_hitl(self) -> None:
++        """Non-restartable infra errors should escalate to hitl."""
++        from overseer.decision_maker import decide_escalation_level
++
++        result = _run(
++            decide_escalation_level(
++                classification={
++                    "classification": "infrastructure_error",
++                    "reasoning": "Permission denied accessing secrets volume",
++                },
++                redirect_history=[],
++            )
++        )
++        assert result["escalate"] is True
++        assert result["level"] == "hitl"
+diff --git a/orchestrator/tests/test_spawn_worktree_guard.py b/orchestrator/tests/test_spawn_worktree_guard.py
+index 15044e5a1f..6ef9f3d481 100644
+--- a/orchestrator/tests/test_spawn_worktree_guard.py
++++ b/orchestrator/tests/test_spawn_worktree_guard.py
+@@ -405,6 +405,7 @@ class TestRestartWorktreeIntegration:
+             pipeline_id="issue-200",
+             agent_role=AgentRole.CODER,
+             issue_number=200,
++            mode="public",
+             repos=["owner/my-repo"],
+             # repo_volumes intentionally omitted — this is the restart path
+         )
+@@ -441,6 +442,7 @@ class TestRestartWorktreeIntegration:
+             pipeline_id="issue-200",
+             agent_role=AgentRole.CODER,
+             issue_number=200,
++            mode="public",
+             repos=["owner/my-repo"],
+         )
+ 
+@@ -466,6 +468,7 @@ class TestRestartWorktreeIntegration:
+                 pipeline_id="issue-200",
+                 agent_role=AgentRole.CODER,
+                 issue_number=200,
++                mode="public",
+                 repos=["owner/my-repo"],
+             )
+ 
+@@ -493,6 +496,7 @@ class TestRestartWorktreeIntegration:
+                 pipeline_id="issue-200",
+                 agent_role=AgentRole.CODER,
+                 issue_number=200,
++                mode="public",
+                 repos=["owner/my-repo"],
+                 branch="egg/issue-200",
+                 base_branch="egg/issue-200",
