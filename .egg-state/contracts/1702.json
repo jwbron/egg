@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1702,
+    "title": "Issue #1702",
+    "url": "https://github.com/jwbron/egg/issues/1702"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/mcp_tools.py:_handle_get_status()`, after building the status dict (~line 898), extract `phase_started_at` from `phase_data.get('started_at')` and compute `phase_elapsed_seconds` as `int((now - started_at).total_seconds())`. Add both to the status response. Guard against `None` by omitting fields when `started_at` is absent.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "get_status response includes phase_started_at (ISO 8601 string) and phase_elapsed_seconds (integer) when the current phase has a started_at value; fields are omitted when started_at is None",
+          "files_affected": [
+            "orchestrator/mcp_tools.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In the same method, after filtering running_agents (~line 904), iterate over each agent and add `elapsed_seconds` computed from `agent['started_at']`. Guard against missing/None started_at by skipping agents without it.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Each running_agents entry includes elapsed_seconds (integer) when the agent has a started_at value; field is omitted when started_at is None",
+          "files_affected": [
+            "orchestrator/mcp_tools.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In `orchestrator/tests/test_mcp_tools.py`, update the `_pipeline_response` fixture to include `started_at` on the phase and agents. Add tests verifying phase_started_at, phase_elapsed_seconds, and per-agent elapsed_seconds appear correctly, and that they are omitted when started_at is None.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests pass for both present and absent started_at cases",
+          "files_affected": [
+            "orchestrator/tests/test_mcp_tools.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Add server-computed timing fields to get_status response",
+    "description": "Add phase_started_at, phase_elapsed_seconds, and per-agent elapsed_seconds\nto the get_status MCP tool response. Server-computed timing eliminates\nclient-side wall-clock drift caused by blocking dialogs during monitoring.",
+    "test_plan": "- Automated: unit tests in test_mcp_tools.py cover present/absent started_at cases\n- Manual: run /sdlc --short on a test task and verify the status response includes timing fields",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
