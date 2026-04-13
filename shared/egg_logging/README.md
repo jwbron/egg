@@ -13,7 +13,7 @@ logger.info("Processing request", pipeline_id="issue-1702", agent_role="coder")
 
 **Console output** (development/Docker):
 ```
-2026-04-13 19:17:39 [INFO    ] orchestrator: Processing request  pipeline_id=issue-1702 agent_role=coder [/app/main.py:42]
+2026-04-13 19:17:39 [INFO    ] orchestrator: Processing request pipeline_id=issue-1702 agent_role=coder [/app/main.py:42]
 ```
 
 **JSON output** (production/GCP):
@@ -36,7 +36,7 @@ The `ConsoleFormatter` renders all structured fields **inline** on the same log 
 ### Format
 
 ```
-TIMESTAMP [LEVEL   ] SERVICE: MESSAGE  key1=value1 key2=value2 [FILE:LINE]
+TIMESTAMP [LEVEL   ] SERVICE: MESSAGE key1=value1 key2=value2 [FILE:LINE]
 ```
 
 ### Filtering with grep

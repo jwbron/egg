@@ -110,7 +110,7 @@ same line as the timestamp, level, and message.
 ### Inline key=value format
 
 ```
-2026-04-13 19:17:39 [INFO    ] orchestrator.pipelines: _rewrite_brc_history_for_pr: entering  pipeline_id=issue-1702 total_phases=2 completed_phases=['implement'] [/app/routes/pipelines.py:4309]
+2026-04-13 19:17:39 [INFO    ] orchestrator.pipelines: _rewrite_brc_history_for_pr: entering pipeline_id=issue-1702 total_phases=2 completed_phases=['implement'] [/app/routes/pipelines.py:4309]
 ```
 
 Structured fields appear between the message and the source location `[file:line]`.

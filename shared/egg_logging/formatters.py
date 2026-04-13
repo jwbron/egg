@@ -317,17 +317,18 @@ class ConsoleFormatter(logging.Formatter):
         """Format a value for inline key=value display.
 
         Truncates values longer than 80 chars and quotes values containing spaces.
-        Newlines are replaced with spaces to keep the output on a single line.
+        Newlines and carriage returns are replaced with spaces to keep the output
+        on a single line. Embedded double quotes are escaped.
         """
         value_str = str(value) if value is not None else ""
-        # Replace newlines with spaces for inline display
-        value_str = value_str.replace("\n", " ")
+        # Replace newlines and carriage returns with spaces for inline display
+        value_str = value_str.replace("\r", " ").replace("\n", " ")
         # Truncate long values
         if len(value_str) > 80:
             value_str = value_str[:77] + "..."
         # Quote values containing spaces
         if " " in value_str:
-            value_str = f'"{value_str}"'
+            value_str = f'"{value_str.replace(chr(34), chr(92) + chr(34))}"'
         return value_str
 
     def _extract_extra(self, record: logging.LogRecord) -> dict[str, Any]:

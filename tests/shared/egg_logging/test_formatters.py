@@ -732,3 +732,59 @@ class TestConsoleFormatter:
         # Should just be: timestamp [LEVEL] service: message [location]
         # No double spaces from empty inline section
         assert "Test message [" in output or "Test message  " not in output
+
+    def test_value_with_embedded_quotes_escaped(self, formatter):
+        """Test that embedded double quotes in values are escaped."""
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="Test",
+            args=(),
+            exc_info=None,
+        )
+        record.description = 'has "quotes" in it'
+
+        output = formatter.format(record)
+
+        # The value has spaces so it gets quoted, and inner quotes are escaped
+        assert r'description="has \"quotes\" in it"' in output
+
+    def test_carriage_return_replaced_with_space(self, formatter):
+        """Test that carriage returns in values are replaced with spaces."""
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="Test",
+            args=(),
+            exc_info=None,
+        )
+        record.cr_field = "line1\rline2"
+
+        output = formatter.format(record)
+
+        # CR should be replaced with space, then value quoted due to space
+        assert 'cr_field="line1 line2"' in output
+        assert "\r" not in output
+
+    def test_mixed_cr_lf_replaced(self, formatter):
+        """Test that mixed \\r\\n sequences are handled correctly."""
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="Test",
+            args=(),
+            exc_info=None,
+        )
+        record.mixed = "line1\r\nline2\rline3\nline4"
+
+        output = formatter.format(record)
+
+        # All control chars replaced; double space from \r\n is fine
+        assert "\r" not in output
+        assert "mixed=" in output.split("\n")[0]

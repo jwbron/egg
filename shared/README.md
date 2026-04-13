@@ -158,7 +158,7 @@ from egg_logging import get_logger
 logger = get_logger("orchestrator")
 logger.info("Starting pipeline", pipeline_id="issue-1702", phase="implement")
 # Console output:
-#   2026-04-13 19:17:39 [INFO    ] orchestrator: Starting pipeline  pipeline_id=issue-1702 phase=implement [/app/main.py:42]
+#   2026-04-13 19:17:39 [INFO    ] orchestrator: Starting pipeline pipeline_id=issue-1702 phase=implement [/app/main.py:42]
 ```
 
 See [egg_logging README](egg_logging/README.md) for full documentation and the [Logging Architecture](../docs/architecture/logging.md) for design decisions.
