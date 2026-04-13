@@ -515,7 +515,8 @@
       "ckpt-8bd803cd3d706c62",
       "ckpt-89910fa0dde47a1a",
       "ckpt-b8c952c2f37be329",
-      "ckpt-86bd608726c1a859"
+      "ckpt-86bd608726c1a859",
+      "ckpt-3105c65637cf116f"
     ]
   },
   "by_commit": {},
@@ -611,7 +612,8 @@
     ],
     "issue-1695": [
       "ckpt-b8c952c2f37be329",
-      "ckpt-86bd608726c1a859"
+      "ckpt-86bd608726c1a859",
+      "ckpt-3105c65637cf116f"
     ],
     "local-0a770e0f": [
       "ckpt-241ef0fa799dd61d"
@@ -1233,7 +1235,8 @@
       "ckpt-a4f35b32635e186b"
     ],
     "issue-1695-failsafe-fetch": [
-      "ckpt-86bd608726c1a859"
+      "ckpt-86bd608726c1a859",
+      "ckpt-3105c65637cf116f"
     ],
     "issue-1695-state-ls-remote": [
       "ckpt-b8c952c2f37be329"
@@ -2196,7 +2199,8 @@
       "ckpt-8bd803cd3d706c62",
       "ckpt-89910fa0dde47a1a",
       "ckpt-b8c952c2f37be329",
-      "ckpt-86bd608726c1a859"
+      "ckpt-86bd608726c1a859",
+      "ckpt-3105c65637cf116f"
     ]
   },
   "by_trigger": {
@@ -2715,7 +2719,8 @@
       "ckpt-8bd803cd3d706c62",
       "ckpt-89910fa0dde47a1a",
       "ckpt-b8c952c2f37be329",
-      "ckpt-86bd608726c1a859"
+      "ckpt-86bd608726c1a859",
+      "ckpt-3105c65637cf116f"
     ]
   },
   "checkpoints": [
@@ -12503,8 +12508,27 @@
       "tool_call_count": 0,
       "total_tokens": 0,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-04-13T18:51:05.667621Z",
+      "files_touched_count": 0,
+      "id": "ckpt-3105c65637cf116f",
+      "issue_number": null,
+      "message_count": 0,
+      "pipeline_id": "issue-1695",
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": null,
+      "session_id": "issue-1695-failsafe-fetch",
+      "session_status": "completed",
+      "tool_call_count": 0,
+      "total_tokens": 0,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-04-13T18:22:04.437050Z",
+  "last_updated": "2026-04-13T18:51:06.544987Z",
   "schemaVersion": "2.0"
 }
