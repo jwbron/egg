@@ -4470,13 +4470,20 @@ def _reconcile_and_push_pr_branch(
             stderr=merge_result.stderr,
         )
         # Abort the merge so the worktree is left in a clean state.
-        subprocess.run(
-            [*git_base, "merge", "--abort"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=30,
-        )
+        try:
+            subprocess.run(
+                [*git_base, "merge", "--abort"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+        except Exception:
+            logger.warning(
+                "PR-phase reconcile: merge --abort after conflict also failed",
+                pipeline_id=pipeline_id,
+                branch=branch,
+            )
         return False
 
     logger.info(
