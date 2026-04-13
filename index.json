@@ -513,7 +513,8 @@
       "ckpt-5fbec7b6521cbb87",
       "ckpt-46a9c1135a37b3ff",
       "ckpt-8bd803cd3d706c62",
-      "ckpt-89910fa0dde47a1a"
+      "ckpt-89910fa0dde47a1a",
+      "ckpt-b8c952c2f37be329"
     ]
   },
   "by_commit": {},
@@ -606,6 +607,9 @@
       "ckpt-46a9c1135a37b3ff",
       "ckpt-8bd803cd3d706c62",
       "ckpt-89910fa0dde47a1a"
+    ],
+    "issue-1695": [
+      "ckpt-b8c952c2f37be329"
     ],
     "local-0a770e0f": [
       "ckpt-241ef0fa799dd61d"
@@ -1225,6 +1229,9 @@
     ],
     "issue-1495-state-ls-remote": [
       "ckpt-a4f35b32635e186b"
+    ],
+    "issue-1695-state-ls-remote": [
+      "ckpt-b8c952c2f37be329"
     ],
     "local-0a770e0f-failsafe-fetch": [
       "ckpt-241ef0fa799dd61d"
@@ -2182,7 +2189,8 @@
       "ckpt-5fbec7b6521cbb87",
       "ckpt-46a9c1135a37b3ff",
       "ckpt-8bd803cd3d706c62",
-      "ckpt-89910fa0dde47a1a"
+      "ckpt-89910fa0dde47a1a",
+      "ckpt-b8c952c2f37be329"
     ]
   },
   "by_trigger": {
@@ -2699,7 +2707,8 @@
       "ckpt-5fbec7b6521cbb87",
       "ckpt-46a9c1135a37b3ff",
       "ckpt-8bd803cd3d706c62",
-      "ckpt-89910fa0dde47a1a"
+      "ckpt-89910fa0dde47a1a",
+      "ckpt-b8c952c2f37be329"
     ]
   },
   "checkpoints": [
@@ -12449,8 +12458,27 @@
       "tool_call_count": 0,
       "total_tokens": 0,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-04-13T18:22:00.076776Z",
+      "files_touched_count": 0,
+      "id": "ckpt-b8c952c2f37be329",
+      "issue_number": null,
+      "message_count": 0,
+      "pipeline_id": "issue-1695",
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": null,
+      "session_id": "issue-1695-state-ls-remote",
+      "session_status": "completed",
+      "tool_call_count": 0,
+      "total_tokens": 0,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-04-01T20:07:52.568882Z",
+  "last_updated": "2026-04-13T18:22:01.327269Z",
   "schemaVersion": "2.0"
 }
