@@ -145,7 +145,7 @@ All endpoints are prefixed with `/api/v1`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/pipelines/{id}/agents/{role}/restart` | Restart a single stuck agent (stop, reset consensus, respawn with same config) |
+| `POST` | `/pipelines/{id}/agents/{role}/restart` | Restart a single stuck agent (increment count, stop, respawn, then reset consensus — concurrency-safe via per-agent lock) |
 | `POST` | `/pipelines/{id}/phases/{phase}/restart` | Restart an entire phase (stop all containers, reset consensus and review cycles, respawn all agents) |
 
 ### Containers
@@ -233,7 +233,7 @@ orchestrator/
 ├── cli.py                  # CLI interface (serve, health, pipelines commands)
 ├── models.py               # Pydantic models (Pipeline, AgentExecution, HITLDecision, ReviewVerdict, etc.)
 ├── state_store.py          # Git-backed persistent state storage
-├── container_spawner.py    # Container spawning with gateway session integration; agent restart (stop + respawn preserving worktree)
+├── container_spawner.py    # Container spawning with gateway session integration; agent restart (stop + respawn preserving worktree, per-key concurrency locks, unified restart counting)
 ├── container_monitor.py    # Container state monitoring and lifecycle tracking
 ├── decision_queue.py       # HITL decision queue management (supports typed decisions)
 ├── handoffs.py             # Agent-to-agent data handoff mechanism
@@ -274,7 +274,7 @@ orchestrator/
 │   ├── __init__.py         # Package init
 │   ├── monitor.py          # Main poll loop, health checks, CLI wrappers (explicit pipeline routing)
 │   ├── classifier.py       # Haiku classification (stall, loop, error, off-track)
-│   ├── decision_maker.py   # Sonnet/Opus corrective decision-making
+│   ├── decision_maker.py   # Sonnet/Opus corrective decision-making (routes restartable infra errors to restart_agent)
 │   ├── issue_filer.py      # Autonomous GitHub issue filing with diagnostics
 │   ├── self_monitor.py     # Self-monitoring (poll timing, message volume, LLM costs)
 │   └── utils.py            # Utility functions
@@ -386,7 +386,7 @@ The `health_monitor.py` module subscribes to EventBus events and evaluates seven
 | Repeated errors | `orchestrator_error_repeat_threshold` (3) | Escalate to overseer |
 | Message volume spike | `orchestrator_message_rate_limit` (20/min) | Auto-throttle |
 | Progress stall | Same as heartbeat (phase-aware) | Escalate to overseer/HITL |
-| Infrastructure error | Pattern-matched on blocked progress events | Critical alert → HITL fast-path |
+| Infrastructure error | Pattern-matched on blocked progress events | Critical alert → restartable errors route to `restart_agent`; non-restartable to HITL |
 | BRC progress stall | `orchestrator_post_ack_confirmation_timeout_seconds` (180s) | Escalate to overseer/HITL |
 
 ### Overseer Agent
