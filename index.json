@@ -523,7 +523,8 @@
       "ckpt-ae42e21596f158a3",
       "ckpt-4eafef8e27652214",
       "ckpt-56949e46b2b7f222",
-      "ckpt-9ef00f4048a661e7"
+      "ckpt-9ef00f4048a661e7",
+      "ckpt-3d954e784ab02eb6"
     ]
   },
   "by_commit": {},
@@ -629,7 +630,8 @@
     "issue-1702": [
       "ckpt-4eafef8e27652214",
       "ckpt-56949e46b2b7f222",
-      "ckpt-9ef00f4048a661e7"
+      "ckpt-9ef00f4048a661e7",
+      "ckpt-3d954e784ab02eb6"
     ],
     "local-0a770e0f": [
       "ckpt-241ef0fa799dd61d"
@@ -1266,6 +1268,9 @@
     "issue-1702-failsafe-fetch": [
       "ckpt-56949e46b2b7f222",
       "ckpt-9ef00f4048a661e7"
+    ],
+    "issue-1702-failsafe-push": [
+      "ckpt-3d954e784ab02eb6"
     ],
     "issue-1702-state-ls-remote": [
       "ckpt-4eafef8e27652214"
@@ -2236,7 +2241,8 @@
       "ckpt-ae42e21596f158a3",
       "ckpt-4eafef8e27652214",
       "ckpt-56949e46b2b7f222",
-      "ckpt-9ef00f4048a661e7"
+      "ckpt-9ef00f4048a661e7",
+      "ckpt-3d954e784ab02eb6"
     ]
   },
   "by_trigger": {
@@ -2763,7 +2769,8 @@
       "ckpt-ae42e21596f158a3",
       "ckpt-4eafef8e27652214",
       "ckpt-56949e46b2b7f222",
-      "ckpt-9ef00f4048a661e7"
+      "ckpt-9ef00f4048a661e7",
+      "ckpt-3d954e784ab02eb6"
     ]
   },
   "checkpoints": [
@@ -12703,8 +12710,27 @@
       "tool_call_count": 0,
       "total_tokens": 0,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": "egg/issue-1702",
+      "commit_sha": null,
+      "created_at": "2026-04-13T19:17:07.073229Z",
+      "files_touched_count": 0,
+      "id": "ckpt-3d954e784ab02eb6",
+      "issue_number": null,
+      "message_count": 0,
+      "pipeline_id": "issue-1702",
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": null,
+      "session_id": "issue-1702-failsafe-push",
+      "session_status": "completed",
+      "tool_call_count": 0,
+      "total_tokens": 0,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-04-13T19:17:04.361304Z",
+  "last_updated": "2026-04-13T19:17:07.925875Z",
   "schemaVersion": "2.0"
 }
