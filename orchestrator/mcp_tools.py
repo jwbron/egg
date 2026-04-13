@@ -9,7 +9,7 @@ via the MCP protocol.
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -908,11 +908,11 @@ class PipelineToolHandler:
         # Server-computed phase timing (#1702)
         phase_started_at = phase_data.get("started_at")
         if phase_started_at:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             try:
                 started_dt = datetime.fromisoformat(phase_started_at)
                 if started_dt.tzinfo is None:
-                    started_dt = started_dt.replace(tzinfo=timezone.utc)
+                    started_dt = started_dt.replace(tzinfo=UTC)
                 status["phase_started_at"] = started_dt.isoformat()
                 status["phase_elapsed_seconds"] = int((now - started_dt).total_seconds())
             except (ValueError, TypeError):
@@ -925,8 +925,8 @@ class PipelineToolHandler:
                 try:
                     agent_dt = datetime.fromisoformat(agent_started_at)
                     if agent_dt.tzinfo is None:
-                        agent_dt = agent_dt.replace(tzinfo=timezone.utc)
-                    now = datetime.now(timezone.utc)
+                        agent_dt = agent_dt.replace(tzinfo=UTC)
+                    now = datetime.now(UTC)
                     agent["elapsed_seconds"] = int((now - agent_dt).total_seconds())
                 except (ValueError, TypeError):
                     pass
