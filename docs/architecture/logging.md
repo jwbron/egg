@@ -133,7 +133,8 @@ docker logs egg-orchestrator | grep pipeline_id=issue-1702 | grep phase=implemen
 |-----------|----------|---------|
 | Simple value | Rendered as `key=value` | `pipeline_id=issue-1702` |
 | Value with spaces | Quoted: `key="value with spaces"` | `description="my task"` |
-| Value > 80 chars | Truncated with `...` suffix | `long_field=abcdef...` |
+| Value with newlines | Newlines replaced with spaces (then quoting applies) | `multiline="line1 line2"` |
+| Value > 80 chars | Truncated to 77 chars + `...` | `long_field=abcdef...` |
 | `None` value | Rendered as empty: `key=` | `optional_field=` |
 | Exception tracebacks | Remain multi-line (separate from inline fields) | *(unchanged)* |
 
