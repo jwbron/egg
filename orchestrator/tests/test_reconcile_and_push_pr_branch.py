@@ -161,9 +161,7 @@ class TestReconcileAndPushPrBranch:
             # merge --abort succeeds
             return _run_result()
 
-        with patch(
-            "routes.pipelines.subprocess.run", side_effect=_run_side_effect
-        ) as mock_run:
+        with patch("routes.pipelines.subprocess.run", side_effect=_run_side_effect) as mock_run:
             ok = _reconcile_and_push_pr_branch(
                 spawner, tmp_path, "issue-42", "egg/feature", "public"
             )
