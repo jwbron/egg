@@ -852,7 +852,9 @@ class ContainerSpawner:
                         error=str(e),
                     )
                 try:
-                    self.remove_agent_container(info.container_id, force=True, cleanup_session=False)
+                    self.remove_agent_container(
+                        info.container_id, force=True, cleanup_session=False
+                    )
                 except Exception as e:
                     logger.warning(
                         "Failed to remove container during restart",
