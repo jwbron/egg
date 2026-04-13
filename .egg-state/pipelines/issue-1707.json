@@ -42,11 +42,28 @@
     "active_agent_stall_extension_seconds": 120,
     "start_phase": "implement"
   },
-  "phases": {},
+  "phases": {
+    "implement": {
+      "phase": "implement",
+      "status": "running",
+      "started_at": "2026-04-13T20:30:21.409483Z",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": "5814bafce91ec6820d5d5eb9a1adaa41792840dc"
+    }
+  },
   "decisions": [],
   "created_at": "2026-04-13T20:29:50.598903Z",
-  "updated_at": "2026-04-13T20:29:50.683787Z",
-  "contract_synced": false,
+  "updated_at": "2026-04-13T20:30:21.409546Z",
+  "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
@@ -56,5 +73,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 3
+  "version": 5
 }
