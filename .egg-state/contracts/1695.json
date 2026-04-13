@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1695,
+    "title": "Issue #1695",
+    "url": "https://github.com/jwbron/egg/issues/1695"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/container_spawner.py`: (a) add per-(pipeline_id, agent_role) threading.Lock guarding `_restart_counts` in `restart_agent_container()`, `get_restart_count()`, and `reset_restart_counts()` following state_store.py pattern; (b) move restart count increment from L867 to before L847 so failed spawns count; (c) change `mode` default from 'public' to None and raise ValueError if None",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Concurrent restart calls are serialized via lock; failed spawn_agent_container still increments _restart_counts; calling restart_agent_container without mode raises ValueError",
+          "files_affected": [
+            "orchestrator/container_spawner.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `orchestrator/overseer/monitor.py:_execute_restart_agent()`: remove `self._agent_restart_counts` (L121) and `self._max_agent_restarts` (L122). Read restart_count from REST API response instead. For limit-reached check, attempt restart and handle error response \u2014 spawner is single source of truth. Resolves issues 2+3.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Overseer has no independent restart counter; restart limit enforcement comes from spawner via REST API; phase transitions automatically get fresh restart budget",
+          "files_affected": [
+            "orchestrator/overseer/monitor.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In `orchestrator/routes/pipelines.py:restart_agent`: move consensus reset block (L1249-1292) to after successful `spawner.restart_agent_container()` call (L1386-1398). If spawn fails, consensus preserved. If spawn succeeds but consensus reset fails, log warning but don't fail.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Failed container spawn does not wipe consensus state; successful spawn followed by consensus reset failure still returns success with warning logged",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "In `orchestrator/overseer/decision_maker.py:decide_corrective_action()`: replace blanket HITL fast-path (L59-66) with restartable-pattern check. Define RESTARTABLE_PATTERNS for unresponsive/crashed/oom/timeout/hung. Route matching infra errors to restart_agent; keep non-matching on hitl path. Apply same in escalate_redirect_decision.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Infrastructure errors with restartable keywords in reasoning produce restart_agent action; non-restartable infra errors still produce hitl action",
+          "files_affected": [
+            "orchestrator/overseer/decision_maker.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add/update tests covering: concurrent restart race, failed spawn increments count, mode=None ValueError, consensus reset ordering, overseer reads from API, decision_maker restartable routing",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All new tests pass; all existing tests pass; make test succeeds",
+          "files_affected": [
+            "orchestrator/tests/test_restart_agent.py",
+            "orchestrator/tests/test_restart_overseer.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Fix 7 restart review items from PR #1577",
+    "description": "Addresses all 7 non-blocking review items deferred from the restart PR #1577,\ntracked in issue #1695. Adds concurrency guards, unifies restart counters,\nfixes consensus reset ordering, and routes restartable infra errors to auto-restart.",
+    "test_plan": "- Automated: new tests in test_restart_agent.py and test_restart_overseer.py cover all 7 issues\n- Manual: verify concurrent restart calls are serialized; verify overseer auto-restarts crashed agents",
+    "manual_steps": "Pre-merge: run full test suite (make test)\nPost-merge: none"
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}

@@ -532,6 +532,8 @@ If the BRC tracker is unavailable, the orchestrator falls back to the old behavi
 
 Timeout handling is idempotent — if the timeout fires multiple times (e.g., due to a race with the overseer), only the first invocation takes effect.
 
+**Consensus reached during timeout wait**: After the BRC timeout evaluation, the orchestrator waits for still-running containers to exit. If consensus becomes complete during this window (all agents confirmed, no unresolved NACKs), the orchestrator recovers: it marks agents complete, restores the pipeline from `FAILED` to `RUNNING` if needed, and returns success — the timeout evaluation is overridden by the consensus outcome. If consensus is complete but unresolved NACKs remain, the orchestrator escalates to HITL with options "Retry phase", "Accept current state", "Abort phase". See [issue #1693](https://github.com/jwbron/egg/issues/1693).
+
 ### Consensus Stall Recovery
 
 A separate scenario from timeout: all agents have confirmed (consensus is complete) but the phase execution has not advanced — for example, because the orchestrator's polling loop missed the completion event. The `ConsensusStallCheck` (Tier 1 health check) detects this on each `RUNTIME_TICK` (and `ON_DEMAND`) after a 60-second grace period.
@@ -643,6 +645,7 @@ Both are also available as MCP tools (`restart_agent`, `restart_phase`) and CLI 
 | Multiple failures (2+ / 60s) | Retry phase, Cancel pipeline |
 | Consensus timeout (critical blockers) | Continue waiting, Accept current state, Abort phase |
 | Consensus timeout (advisory only) | *(no HITL — proceeds automatically)* |
+| Consensus timeout fires, consensus reached during wait | *(no HITL — recovered automatically via timeout recheck)* |
 | Agent objection | Resolve then advance, Override, Abort |
 | All agents exited with failures, consensus complete | *(no HITL — recovered automatically via final recheck)* |
 | All agents exited cleanly, consensus incomplete | *(phase fails with exit code 1 — no advancement)* |

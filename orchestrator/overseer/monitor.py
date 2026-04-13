@@ -117,9 +117,12 @@ class OverseerMonitor:
         # Maps (agent_id, error_hash) -> timestamp of first escalation
         self._infra_error_dedup: dict[tuple[str, str], float] = {}
 
-        # Agent restart tracking: (pipeline_id, agent_role) -> restart_count
-        self._agent_restart_counts: dict[str, int] = {}
-        self._max_agent_restarts: int = 2
+        # Agent restart tracking: the spawner (via the REST API) is the single
+        # source of truth for restart counts and limit enforcement.  We track
+        # which agents have been reported as exhausted (limit exceeded) so we
+        # can escalate to a phase restart HITL when 2+ agents are exhausted.
+        # See issue #1695 items 2 & 3.
+        self._agents_restart_exhausted: set[str] = set()
 
         # Cross-phase consistency: track phase transitions and deduplication
         self._last_phase_name: str | None = None
@@ -645,61 +648,29 @@ class OverseerMonitor:
             self.self_monitor.record_message_sent()
 
     async def _execute_restart_agent(self, agent_role: str, message: str) -> None:
-        """Execute an agent restart via the orchestrator API.
+        """Execute an agent restart via the orchestrator REST API.
 
-        Tracks restart counts per agent. When an agent's restart limit is
-        exhausted, checks if 2+ agents have hit their limits and escalates
-        to a phase restart (via HITL decision) if so.
+        The spawner is the single source of truth for restart counts and
+        limit enforcement.  This method simply POSTs to the restart endpoint
+        and interprets the response.  If the spawner returns an error (HTTP 500
+        for restart-limit-exceeded or spawn failure), we parse the response body
+        from the HTTPError and escalate appropriately.
 
         Args:
             agent_role: The agent role to restart.
             message: Reason for the restart.
         """
-        restart_count = self._agent_restart_counts.get(agent_role, 0)
-
-        if restart_count >= self._max_agent_restarts:
-            logger.info(
-                "Agent %s restart limit reached (%d/%d) — checking for phase escalation",
-                agent_role,
-                restart_count,
-                self._max_agent_restarts,
-            )
-            # Count agents that have hit their restart limit
-            exhausted_agents = [
-                role
-                for role, count in self._agent_restart_counts.items()
-                if count >= self._max_agent_restarts
-            ]
-            if len(exhausted_agents) >= 2:
-                logger.warning(
-                    "Multiple agents exhausted restart limits (%s) — escalating to phase restart",
-                    exhausted_agents,
-                )
-                await self._create_hitl_decision(
-                    "orchestrator",
-                    f"Multiple agents have exhausted restart limits "
-                    f"({', '.join(exhausted_agents)}). Consider restarting the "
-                    f"entire phase. Original issue: {message}",
-                )
-            else:
-                await self._create_hitl_decision(
-                    agent_role,
-                    f"Agent {agent_role} has exhausted its restart limit "
-                    f"({restart_count}/{self._max_agent_restarts}). "
-                    f"Requires human intervention: {message}",
-                )
-            return
-
         # Call the restart REST API endpoint directly (no CLI subcommand exists)
-        try:
-            from urllib.parse import quote
+        import urllib.error
+        import urllib.request
+        from urllib.parse import quote
 
+        try:
             orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://localhost:9849")
             restart_url = (
                 f"{orchestrator_url}/api/v1/pipelines/"
                 f"{quote(self.pipeline_id, safe='')}/agents/{quote(agent_role, safe='')}/restart"
             )
-            import urllib.request
 
             req_data = json.dumps({"reason": message[:500]}).encode()
             req = urllib.request.Request(
@@ -713,39 +684,84 @@ class OverseerMonitor:
                 result = json.loads(resp.read().decode())
 
             if result.get("success"):
-                self._agent_restart_counts[agent_role] = restart_count + 1
+                restart_count = result.get("data", {}).get("restart_count", "?")
                 logger.info(
-                    "Agent %s restarted successfully (count: %d/%d)",
+                    "Agent %s restarted successfully (count: %s)",
                     agent_role,
-                    restart_count + 1,
-                    self._max_agent_restarts,
+                    restart_count,
                 )
                 self._log_oversight_event(
                     {
                         "event": "agent_restarted",
                         "agent_role": agent_role,
-                        "restart_count": restart_count + 1,
+                        "restart_count": restart_count,
                         "reason": message[:500],
                     }
                 )
+                # A successful restart means the agent is no longer exhausted
+                # (e.g. budget was manually reset by an operator).
+                self._agents_restart_exhausted.discard(agent_role)
             else:
+                # 2xx response with success=false (shouldn't happen in practice
+                # but handle defensively)
                 error_msg = result.get("message", "Unknown error")
                 logger.error(
                     "Failed to restart agent %s: %s",
                     agent_role,
                     error_msg,
                 )
-                # Fall back to HITL on failure
-                await self._create_hitl_decision(
-                    agent_role,
-                    f"Attempted to restart agent {agent_role} but failed: "
-                    f"{error_msg}. Original issue: {message}",
-                )
+                await self._handle_restart_failure(agent_role, error_msg, message)
+        except urllib.error.HTTPError as e:
+            # The restart endpoint returns HTTP 500 on ContainerSpawnError
+            # (including restart-limit-exceeded).  Parse the JSON body to
+            # determine whether this is a limit-exceeded case.
+            try:
+                body = json.loads(e.read().decode())
+                error_msg = body.get("message", str(e))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                error_msg = str(e)
+            logger.error(
+                "Failed to restart agent %s (HTTP %s): %s",
+                agent_role,
+                e.code,
+                error_msg,
+            )
+            await self._handle_restart_failure(agent_role, error_msg, message)
         except Exception as e:
             logger.error("Exception restarting agent %s: %s", agent_role, e)
             await self._create_hitl_decision(
                 agent_role,
                 f"Exception restarting agent {agent_role}: {e}. Original issue: {message}",
+            )
+
+    async def _handle_restart_failure(self, agent_role: str, error_msg: str, message: str) -> None:
+        """Handle a failed restart attempt — track exhaustion and escalate.
+
+        Only marks an agent as "exhausted" when the error indicates the restart
+        budget has been used up (not transient Docker/network failures).  When
+        2+ agents have exhausted their restart limits, escalate to a phase
+        restart HITL decision.
+        """
+        is_limit_exceeded = "restart limit" in error_msg.lower() and "exceeded" in error_msg.lower()
+        if is_limit_exceeded:
+            self._agents_restart_exhausted.add(agent_role)
+        if len(self._agents_restart_exhausted) >= 2:
+            exhausted_list = sorted(self._agents_restart_exhausted)
+            logger.warning(
+                "Multiple agents exhausted restart limits (%s) — escalating to phase restart",
+                exhausted_list,
+            )
+            await self._create_hitl_decision(
+                "orchestrator",
+                f"Multiple agents have exhausted restart limits "
+                f"({', '.join(exhausted_list)}). Consider restarting "
+                f"the entire phase. Original issue: {message}",
+            )
+        else:
+            await self._create_hitl_decision(
+                agent_role,
+                f"Attempted to restart agent {agent_role} but failed: "
+                f"{error_msg}. Original issue: {message}",
             )
 
     # -----------------------------------------------------------------
@@ -1628,9 +1644,10 @@ class OverseerMonitor:
         if current_phase_name == self._last_phase_name:
             return
 
-        # Phase changed — run consistency check (deduplicate per transition pair)
+        # Phase changed — reset per-phase tracking state and run consistency check
         previous_phase = self._last_phase_name
         self._last_phase_name = current_phase_name
+        self._agents_restart_exhausted.clear()
 
         if (previous_phase, current_phase_name) in self._cross_phase_checked:
             return

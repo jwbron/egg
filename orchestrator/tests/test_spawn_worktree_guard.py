@@ -383,6 +383,7 @@ class TestRestartWorktreeIntegration:
             pipeline_id="issue-200",
             agent_role=AgentRole.CODER,
             issue_number=200,
+            mode="public",
             repos=["owner/my-repo"],
             # repo_volumes intentionally omitted — this is the restart path
         )
@@ -410,6 +411,7 @@ class TestRestartWorktreeIntegration:
             pipeline_id="issue-200",
             agent_role=AgentRole.CODER,
             issue_number=200,
+            mode="public",
             repos=["owner/my-repo"],
         )
 
@@ -433,6 +435,7 @@ class TestRestartWorktreeIntegration:
                 pipeline_id="issue-200",
                 agent_role=AgentRole.CODER,
                 issue_number=200,
+                mode="public",
                 repos=["owner/my-repo"],
             )
 
@@ -458,6 +461,7 @@ class TestRestartWorktreeIntegration:
                 pipeline_id="issue-200",
                 agent_role=AgentRole.CODER,
                 issue_number=200,
+                mode="public",
                 repos=["owner/my-repo"],
                 branch="egg/issue-200",
                 base_branch="egg/issue-200",

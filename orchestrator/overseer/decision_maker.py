@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from egg_agent.client import run_agent_async
 from overseer.utils import parse_json_or_fallback as _parse_json_or_fallback
@@ -17,6 +18,60 @@ logger = logging.getLogger(__name__)
 
 # Default model for decision-making tier
 DECISION_MODEL = "sonnet"
+
+# Infrastructure error subcategories that are safe to auto-restart.
+# Only transient / environmental issues — NOT permission, config, or filesystem errors.
+RESTARTABLE_PATTERNS: list[str] = [
+    "unresponsive",
+    "crashed",
+    "oom",
+    "timeout",
+    "hung",
+    "not responding",
+]
+
+# Non-transient error indicators that override RESTARTABLE_PATTERNS.
+# If any of these appear in the error text, we escalate to HITL even when
+# a restartable keyword is also present (e.g. "Agent crashed after permission error").
+NON_RESTARTABLE_PATTERNS: list[str] = [
+    "permission",
+    "erofs",
+    "read-only file system",
+    "certificate",
+    "config error",
+    "configuration invalid",
+    "misconfigured",
+    "authentication",
+    "authorization",
+    "credentials",
+    "disk full",
+    "no space left",
+    "quota exceeded",
+]
+
+_RESTARTABLE_RE = re.compile(
+    "|".join(re.escape(p) for p in RESTARTABLE_PATTERNS),
+    re.IGNORECASE,
+)
+
+_NON_RESTARTABLE_RE = re.compile(
+    "|".join(re.escape(p) for p in NON_RESTARTABLE_PATTERNS),
+    re.IGNORECASE,
+)
+
+
+def _is_restartable(error_text: str) -> bool:
+    """Return True if *error_text* describes a transient, auto-restartable error.
+
+    The deny-list (NON_RESTARTABLE_PATTERNS) takes priority: if both a
+    restartable and a non-restartable keyword are present, the error is
+    treated as non-restartable to avoid restart loops on persistent failures.
+    """
+    if not _RESTARTABLE_RE.search(error_text):
+        return False
+    if _NON_RESTARTABLE_RE.search(error_text):
+        return False
+    return True
 
 
 async def _call_decision_maker(prompt: str, context: str, *, model: str | None = None) -> str:
@@ -56,9 +111,17 @@ async def decide_corrective_action(
             message: str with the message or action description
             priority: ``"low"`` | ``"medium"`` | ``"high"`` | ``"critical"``
     """
-    # Fast-path: infrastructure errors bypass LLM and go directly to HITL
+    # Fast-path: infrastructure errors bypass LLM.
+    # Restartable subcategories (unresponsive, crashed, OOM, timeout, hung)
+    # trigger an automatic restart; everything else escalates to HITL.
     if classification.get("classification") == "infrastructure_error":
         error_details = classification.get("reasoning", "Infrastructure error detected")
+        if _is_restartable(error_details):
+            return {
+                "action": "restart_agent",
+                "message": f"Restartable infrastructure error detected: {error_details}",
+                "priority": "high",
+            }
         return {
             "action": "hitl",
             "message": f"Infrastructure error requiring human intervention: {error_details}",
@@ -141,12 +204,20 @@ async def decide_escalation_level(
             level: ``"redirect"`` | ``"hitl"`` | ``"issue"``
             reasoning: str explaining the decision
     """
-    # Fast-path: infrastructure errors always require HITL
+    # Fast-path: infrastructure errors bypass LLM.
+    # Restartable subcategories can be auto-restarted instead of escalating.
     if classification.get("classification") == "infrastructure_error":
+        reasoning = classification.get("reasoning", "requires human intervention")
+        if _is_restartable(reasoning):
+            return {
+                "escalate": True,
+                "level": "restart_agent",
+                "reasoning": f"Restartable infrastructure error: {reasoning}",
+            }
         return {
             "escalate": True,
             "level": "hitl",
-            "reasoning": f"Infrastructure error: {classification.get('reasoning', 'requires human intervention')}",
+            "reasoning": f"Infrastructure error: {reasoning}",
         }
 
     prompt = (
