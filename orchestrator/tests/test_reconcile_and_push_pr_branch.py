@@ -141,6 +141,39 @@ class TestReconcileAndPushPrBranch:
         assert ok is False
         assert spawner.gateway.push_worktree_branch.call_count == 2
 
+    def test_push_fail_then_merge_timeout_aborts(self, tmp_path):
+        """Merge TimeoutExpired triggers ``git merge --abort`` and returns False."""
+        from routes.pipelines import _reconcile_and_push_pr_branch
+
+        spawner = _make_spawner([False])
+
+        call_count = 0
+
+        def _run_side_effect(cmd, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # fetch succeeds
+                return _run_result()
+            if call_count == 2:
+                # merge times out
+                raise subprocess.TimeoutExpired(cmd=cmd, timeout=60)
+            # merge --abort succeeds
+            return _run_result()
+
+        with patch(
+            "routes.pipelines.subprocess.run", side_effect=_run_side_effect
+        ) as mock_run:
+            ok = _reconcile_and_push_pr_branch(
+                spawner, tmp_path, "issue-42", "egg/feature", "public"
+            )
+
+        assert ok is False
+        assert spawner.gateway.push_worktree_branch.call_count == 1
+        # The third subprocess call must be `git merge --abort`
+        abort_cmd = mock_run.call_args_list[2].args[0]
+        assert "merge" in abort_cmd and "--abort" in abort_cmd
+
     def test_worktree_path_passed_to_gateway_push(self, tmp_path):
         """The worktree path is threaded through to push_worktree_branch."""
         from routes.pipelines import _reconcile_and_push_pr_branch

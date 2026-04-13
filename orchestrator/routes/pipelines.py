@@ -4431,13 +4431,36 @@ def _reconcile_and_push_pr_branch(
         )
         return False
 
-    merge_result = subprocess.run(
-        [*git_base, "merge", "--no-edit", "--no-verify", f"origin/{branch}"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
+    try:
+        merge_result = subprocess.run(
+            [*git_base, "merge", "--no-edit", "--no-verify", f"origin/{branch}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        logger.error(
+            "PR-phase reconcile: merge timed out — aborting",
+            pipeline_id=pipeline_id,
+            branch=branch,
+        )
+        try:
+            subprocess.run(
+                [*git_base, "merge", "--abort"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+        except Exception:
+            logger.warning(
+                "PR-phase reconcile: merge --abort after timeout also failed",
+                pipeline_id=pipeline_id,
+                branch=branch,
+            )
+        return False
+
     if merge_result.returncode != 0:
         logger.error(
             "PR-phase reconcile: merge failed — aborting and giving up",
@@ -8663,7 +8686,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             "PR-phase push succeeded",
                             pipeline_id=pipeline_id,
                             branch=pipeline.branch,
-                            commits_ahead=commits_ahead,
+                            commits_ahead_pre_reconcile=commits_ahead,
                         )
                     else:
                         logger.error(
@@ -8671,7 +8694,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             "to avoid opening a PR against stale branch state",
                             pipeline_id=pipeline_id,
                             branch=pipeline.branch,
-                            commits_ahead=commits_ahead,
+                            commits_ahead_pre_reconcile=commits_ahead,
                         )
                 else:
                     logger.info(
