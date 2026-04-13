@@ -118,7 +118,7 @@ All endpoints are prefixed with `/api/v1`.
 | `GET` | `/pipelines/{id}` | Get pipeline details |
 | `PATCH` | `/pipelines/{id}` | Update pipeline (async container cleanup) |
 | `DELETE` | `/pipelines/{id}` | Delete pipeline |
-| `GET` | `/pipelines/{id}/status` | Get pipeline status summary |
+| `GET` | `/pipelines/{id}/status` | Get pipeline status summary (includes server-computed timing) |
 | `POST` | `/pipelines/{id}/start` | Start or restart pipeline |
 | `GET` | `/pipelines/{id}/visualization` | Get DAG visualization (JSON, text, or ASCII) |
 | `GET` | `/pipelines/{id}/stream` | SSE stream for single pipeline |
@@ -310,6 +310,14 @@ Both checkpoint tools accept an optional `repo` parameter (string, `owner/repo` 
 ### Orchestrator-Backed Tools
 
 `submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `validate_config`, `restart_agent`, `restart_phase`, `advance_phase`, `start_phase`, `complete_phase`, `populate_contract`
+
+The `get_status` tool returns an enriched pipeline status response. In addition to the standard fields (`current_phase`, `status`, `pipeline`, `running_agents`, `completed_agents`, `pending_decisions`, `recent_messages`), the response includes server-computed timing fields:
+
+- **`phase_started_at`** (ISO 8601 string) — Timestamp when the current phase started. Omitted when the phase has no `started_at` value (e.g., pending phases).
+- **`phase_elapsed_seconds`** (integer) — Server-computed seconds since the current phase started. Omitted when `phase_started_at` is unavailable.
+- **Per-agent `elapsed_seconds`** (integer) — Each entry in `running_agents` includes an `elapsed_seconds` field computed from the agent's `started_at` timestamp. Omitted for agents without a `started_at` value.
+
+Server-computed elapsed times eliminate clock-skew between client and server and are unaffected by client-side blocking (e.g., dialog prompts that pause poll loops). Monitoring clients should prefer these fields over local wall-clock tracking.
 
 The `submit_task` tool accepts an optional `source_branch` parameter (string) to load plan and analysis artifacts from a prior run's branch server-side, instead of passing them inline. This avoids MCP transport size limits for large artifacts. See the [SDLC Pipeline guide](../docs/guides/sdlc-pipeline.md#creating-a-pipeline) for details.
 
