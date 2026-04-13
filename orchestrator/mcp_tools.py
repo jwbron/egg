@@ -9,6 +9,7 @@ via the MCP protocol.
 import os
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -903,6 +904,32 @@ class PipelineToolHandler:
         agents = phase_data.get("agents", [])
         status["running_agents"] = [a for a in agents if a.get("status") == "running"]
         status["completed_agents"] = [a for a in agents if a.get("status") == "complete"]
+
+        # Server-computed phase timing (#1702)
+        phase_started_at = phase_data.get("started_at")
+        if phase_started_at:
+            now = datetime.now(timezone.utc)
+            try:
+                started_dt = datetime.fromisoformat(phase_started_at)
+                if started_dt.tzinfo is None:
+                    started_dt = started_dt.replace(tzinfo=timezone.utc)
+                status["phase_started_at"] = started_dt.isoformat()
+                status["phase_elapsed_seconds"] = int((now - started_dt).total_seconds())
+            except (ValueError, TypeError):
+                pass
+
+        # Server-computed per-agent elapsed time (#1702)
+        for agent in status["running_agents"]:
+            agent_started_at = agent.get("started_at")
+            if agent_started_at:
+                try:
+                    agent_dt = datetime.fromisoformat(agent_started_at)
+                    if agent_dt.tzinfo is None:
+                        agent_dt = agent_dt.replace(tzinfo=timezone.utc)
+                    now = datetime.now(timezone.utc)
+                    agent["elapsed_seconds"] = int((now - agent_dt).total_seconds())
+                except (ValueError, TypeError):
+                    pass
 
         # Extract decisions
         decisions = pipeline_data.get("decisions", [])
