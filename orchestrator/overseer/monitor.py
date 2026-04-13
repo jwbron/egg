@@ -117,9 +117,12 @@ class OverseerMonitor:
         # Maps (agent_id, error_hash) -> timestamp of first escalation
         self._infra_error_dedup: dict[tuple[str, str], float] = {}
 
-        # Agent restart tracking removed — the spawner (via the REST API) is
-        # the single source of truth for restart counts and limit enforcement.
+        # Agent restart tracking: the spawner (via the REST API) is the single
+        # source of truth for restart counts and limit enforcement.  We track
+        # which agents have been reported as exhausted (limit exceeded) so we
+        # can escalate to a phase restart HITL when 2+ agents are exhausted.
         # See issue #1695 items 2 & 3.
+        self._agents_restart_exhausted: set[str] = set()
 
         # Cross-phase consistency: track phase transitions and deduplication
         self._last_phase_name: str | None = None
@@ -700,12 +703,28 @@ class OverseerMonitor:
                     agent_role,
                     error_msg,
                 )
-                # Restart limit exceeded or other spawner error — escalate to HITL
-                await self._create_hitl_decision(
-                    agent_role,
-                    f"Attempted to restart agent {agent_role} but failed: "
-                    f"{error_msg}. Original issue: {message}",
-                )
+                # Track agents whose restart limits are exhausted.
+                # When 2+ agents are exhausted, escalate to a phase restart HITL.
+                self._agents_restart_exhausted.add(agent_role)
+                if len(self._agents_restart_exhausted) >= 2:
+                    exhausted_list = sorted(self._agents_restart_exhausted)
+                    logger.warning(
+                        "Multiple agents exhausted restart limits (%s) — "
+                        "escalating to phase restart",
+                        exhausted_list,
+                    )
+                    await self._create_hitl_decision(
+                        "orchestrator",
+                        f"Multiple agents have exhausted restart limits "
+                        f"({', '.join(exhausted_list)}). Consider restarting "
+                        f"the entire phase. Original issue: {message}",
+                    )
+                else:
+                    await self._create_hitl_decision(
+                        agent_role,
+                        f"Attempted to restart agent {agent_role} but failed: "
+                        f"{error_msg}. Original issue: {message}",
+                    )
         except Exception as e:
             logger.error("Exception restarting agent %s: %s", agent_role, e)
             await self._create_hitl_decision(

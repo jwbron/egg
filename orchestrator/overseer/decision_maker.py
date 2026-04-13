@@ -30,10 +30,46 @@ RESTARTABLE_PATTERNS: list[str] = [
     "not responding",
 ]
 
+# Non-transient error indicators that override RESTARTABLE_PATTERNS.
+# If any of these appear in the error text, we escalate to HITL even when
+# a restartable keyword is also present (e.g. "Agent crashed after permission error").
+NON_RESTARTABLE_PATTERNS: list[str] = [
+    "permission",
+    "erofs",
+    "read-only file system",
+    "certificate",
+    "config",
+    "authentication",
+    "authorization",
+    "credentials",
+    "disk full",
+    "no space left",
+    "quota exceeded",
+]
+
 _RESTARTABLE_RE = re.compile(
     "|".join(re.escape(p) for p in RESTARTABLE_PATTERNS),
     re.IGNORECASE,
 )
+
+_NON_RESTARTABLE_RE = re.compile(
+    "|".join(re.escape(p) for p in NON_RESTARTABLE_PATTERNS),
+    re.IGNORECASE,
+)
+
+
+def _is_restartable(error_text: str) -> bool:
+    """Return True if *error_text* describes a transient, auto-restartable error.
+
+    The deny-list (NON_RESTARTABLE_PATTERNS) takes priority: if both a
+    restartable and a non-restartable keyword are present, the error is
+    treated as non-restartable to avoid restart loops on persistent failures.
+    """
+    if not _RESTARTABLE_RE.search(error_text):
+        return False
+    if _NON_RESTARTABLE_RE.search(error_text):
+        return False
+    return True
 
 
 async def _call_decision_maker(prompt: str, context: str, *, model: str | None = None) -> str:
@@ -78,7 +114,7 @@ async def decide_corrective_action(
     # trigger an automatic restart; everything else escalates to HITL.
     if classification.get("classification") == "infrastructure_error":
         error_details = classification.get("reasoning", "Infrastructure error detected")
-        if _RESTARTABLE_RE.search(error_details):
+        if _is_restartable(error_details):
             return {
                 "action": "restart_agent",
                 "message": f"Restartable infrastructure error detected: {error_details}",
@@ -170,7 +206,7 @@ async def decide_escalation_level(
     # Restartable subcategories can be auto-restarted instead of escalating.
     if classification.get("classification") == "infrastructure_error":
         reasoning = classification.get("reasoning", "requires human intervention")
-        if _RESTARTABLE_RE.search(reasoning):
+        if _is_restartable(reasoning):
             return {
                 "escalate": True,
                 "level": "restart_agent",

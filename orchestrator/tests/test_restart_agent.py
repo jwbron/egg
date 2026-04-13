@@ -1035,17 +1035,22 @@ class TestConsensusResetOrdering:
         mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("Docker error")
         mock_spawner_fn.return_value = mock_spawner
 
-        # Mock the consensus modules to track if they were called
-        with (
-            patch("routes.pipelines.get_peer_consensus_tracker", create=True) as mock_peer,
-            patch("routes.pipelines.get_consensus_evaluator", create=True) as mock_eval,
-        ):
-            # Make the imports succeed within the route handler
-            mock_tracker = MagicMock()
-            mock_peer.return_value = mock_tracker
-            mock_evaluator = MagicMock()
-            mock_eval.return_value = mock_evaluator
+        # Mock the consensus modules via sys.modules so the inline imports
+        # inside the route handler resolve correctly (no create=True needed).
+        mock_tracker = MagicMock()
+        mock_evaluator = MagicMock()
 
+        with patch.dict(
+            "sys.modules",
+            {
+                "peer_consensus": MagicMock(
+                    get_peer_consensus_tracker=MagicMock(return_value=mock_tracker)
+                ),
+                "consensus": MagicMock(
+                    get_consensus_evaluator=MagicMock(return_value=mock_evaluator)
+                ),
+            },
+        ):
             response = client.post(
                 "/api/v1/pipelines/issue-100/agents/coder/restart",
                 json={"reason": "Agent stalled"},

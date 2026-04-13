@@ -225,6 +225,7 @@ class TestMonitorExecuteRestartAgent:
         monitor._create_hitl_decision = AsyncMock()
         monitor._broadcast_alert = AsyncMock()
         monitor._log_oversight_event = MagicMock()
+        monitor._agents_restart_exhausted = set()
         return monitor
 
     @patch("urllib.request.build_opener")
@@ -384,6 +385,7 @@ class TestMonitorExecuteRestartPhase:
         monitor._create_hitl_decision = AsyncMock()
         monitor._broadcast_alert = AsyncMock()
         monitor._log_oversight_event = MagicMock()
+        monitor._agents_restart_exhausted = set()
         return monitor
 
     def test_restart_phase_creates_hitl_by_default(self, monitor):
@@ -429,7 +431,9 @@ class TestMonitorExecuteRestartPhase:
 try:
     from overseer.decision_maker import (
         _RESTARTABLE_RE,
+        NON_RESTARTABLE_PATTERNS,
         RESTARTABLE_PATTERNS,
+        _is_restartable,
         decide_escalation_level,
     )
 
@@ -534,8 +538,12 @@ class TestInfraErrorRestartRouting:
         assert _RESTARTABLE_RE.search("Process Timed Out — TIMEOUT reached")
         assert not _RESTARTABLE_RE.search("Permission denied")
 
-    def test_infra_error_with_mixed_keywords(self):
-        """Infra error with both restartable and non-restartable words should restart."""
+    def test_infra_error_with_mixed_keywords_prefers_non_restartable(self):
+        """Infra error with both restartable and non-restartable words should go to HITL.
+
+        The deny-list (NON_RESTARTABLE_PATTERNS) takes priority to prevent
+        restart loops on persistent failures (e.g. "crashed after permission error").
+        """
         classification = {
             "classification": "infrastructure_error",
             "reasoning": "Agent crashed after permission error on filesystem",
@@ -546,8 +554,8 @@ class TestInfraErrorRestartRouting:
                 context={"agent_role": "coder"},
             )
         )
-        # "crashed" is a restartable keyword, should trigger restart
-        assert result["action"] == "restart_agent"
+        # "permission" in deny-list overrides "crashed" in allow-list
+        assert result["action"] == "hitl"
 
 
 # ---------------------------------------------------------------------------
@@ -636,6 +644,7 @@ class TestMonitorNoShadowCounter:
         monitor._create_hitl_decision = AsyncMock()
         monitor._broadcast_alert = AsyncMock()
         monitor._log_oversight_event = MagicMock()
+        monitor._agents_restart_exhausted = set()
         return monitor
 
     def test_no_agent_restart_counts_attribute(self, monitor):
@@ -713,3 +722,186 @@ class TestMonitorNoShadowCounter:
         monitor._create_hitl_decision.assert_called()
         call_msg = str(monitor._create_hitl_decision.call_args)
         assert "failed" in call_msg.lower() or "restart" in call_msg.lower()
+
+
+# ---------------------------------------------------------------------------
+# Issue #1695 review: deny-list for non-restartable patterns
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAS_RESTARTABLE, reason="decision_maker not importable")
+class TestNonRestartableDenyList:
+    """Tests for the deny-list that prevents restart loops on persistent failures."""
+
+    def test_deny_list_exists_and_is_non_empty(self):
+        """NON_RESTARTABLE_PATTERNS should be a non-empty list."""
+        assert isinstance(NON_RESTARTABLE_PATTERNS, list)
+        assert len(NON_RESTARTABLE_PATTERNS) > 0
+
+    @pytest.mark.parametrize(
+        "error_text",
+        [
+            "Agent crashed after permission error on filesystem",
+            "Container crashed with EROFS: read-only file system",
+            "Agent hung due to certificate verification failure",
+            "OOM but also config file not found",
+            "Agent timeout during authentication failure",
+            "Agent crashed: authorization denied for resource",
+            "OOM crash: no space left on device",
+        ],
+    )
+    def test_mixed_keywords_deny_list_wins(self, error_text):
+        """When both restartable and non-restartable patterns are present, deny-list wins."""
+        assert not _is_restartable(error_text), (
+            f"Expected non-restartable for '{error_text}' (deny-list should override)"
+        )
+
+    @pytest.mark.parametrize(
+        "error_text",
+        [
+            "Agent is unresponsive after 15 minutes",
+            "Container crashed with exit code 137",
+            "Agent hit OOM limit",
+            "timeout waiting for response",
+        ],
+    )
+    def test_pure_restartable_still_works(self, error_text):
+        """Pure restartable errors (no deny-list match) should still be restartable."""
+        assert _is_restartable(error_text), f"Expected restartable for '{error_text}'"
+
+    def test_no_restartable_keyword_returns_false(self):
+        """Errors without any restartable keyword should return False."""
+        assert not _is_restartable("Permission denied accessing /etc/passwd")
+        assert not _is_restartable("Network policy blocks egress")
+
+    def test_mixed_keywords_in_decide_corrective_action(self):
+        """End-to-end: mixed keywords should route to HITL, not restart_agent."""
+        classification = {
+            "classification": "infrastructure_error",
+            "reasoning": "Agent crashed after permission error on filesystem",
+        }
+        result = _run(
+            decide_corrective_action(
+                classification=classification,
+                context={"agent_role": "coder"},
+            )
+        )
+        assert result["action"] == "hitl"
+
+    def test_mixed_keywords_in_decide_escalation_level(self):
+        """End-to-end: mixed keywords should route to HITL in escalation too."""
+        classification = {
+            "classification": "infrastructure_error",
+            "reasoning": "Container crashed with EROFS on workspace mount",
+        }
+        result = _run(
+            decide_escalation_level(
+                classification=classification,
+                redirect_history=[],
+                context={"agent_role": "coder"},
+            )
+        )
+        assert result["escalate"] is True
+        assert result["level"] == "hitl"
+
+
+# ---------------------------------------------------------------------------
+# Issue #1695 review: multi-agent exhaustion -> phase restart escalation
+# ---------------------------------------------------------------------------
+
+
+class TestMultiAgentExhaustionEscalation:
+    """Tests that 2+ agents exhausting restart limits triggers phase restart HITL."""
+
+    @pytest.fixture
+    def monitor(self):
+        """Create an OverseerMonitor with mocked dependencies."""
+        monitor = OverseerMonitor.__new__(OverseerMonitor)
+        monitor.pipeline_id = "issue-100"
+        monitor._oversight_log = []
+        monitor.self_monitor = MagicMock()
+        monitor._run_cli = AsyncMock(return_value=(0, "{}", ""))
+        monitor._send_message = AsyncMock()
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
+        monitor._log_oversight_event = MagicMock()
+        monitor._agents_restart_exhausted = set()
+        return monitor
+
+    def _make_limit_exceeded_response(self):
+        """Create a mock urllib response for restart limit exceeded."""
+        api_response = {
+            "success": False,
+            "message": "Restart limit (2) exceeded",
+        }
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(api_response).encode()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        return mock_resp
+
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_single_agent_exhaustion_creates_agent_hitl(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
+        """Single agent limit exceeded should create HITL for that agent, not phase."""
+        mock_opener = MagicMock()
+        mock_opener.open.return_value = self._make_limit_exceeded_response()
+        mock_build_opener.return_value = mock_opener
+
+        _run(monitor._execute_restart_agent("coder", "Agent stalled"))
+
+        monitor._create_hitl_decision.assert_called_once()
+        call_args = monitor._create_hitl_decision.call_args[0]
+        # Should be for the specific agent, not "orchestrator"
+        assert call_args[0] == "coder"
+
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_two_agents_exhausted_escalates_to_phase_restart(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
+        """When 2+ agents exhaust limits, should escalate to phase restart HITL."""
+        mock_opener = MagicMock()
+        mock_opener.open.return_value = self._make_limit_exceeded_response()
+        mock_build_opener.return_value = mock_opener
+
+        # First agent exhausts limits
+        _run(monitor._execute_restart_agent("coder", "Coder stalled"))
+        assert len(monitor._agents_restart_exhausted) == 1
+
+        # Reset mock for second call
+        monitor._create_hitl_decision.reset_mock()
+        mock_opener.open.return_value = self._make_limit_exceeded_response()
+
+        # Second agent exhausts limits — should trigger phase restart escalation
+        _run(monitor._execute_restart_agent("tester", "Tester stalled"))
+
+        assert len(monitor._agents_restart_exhausted) == 2
+        monitor._create_hitl_decision.assert_called_once()
+        call_args = monitor._create_hitl_decision.call_args[0]
+        # Should target "orchestrator" for phase-level escalation
+        assert call_args[0] == "orchestrator"
+        assert "phase" in call_args[1].lower()
+        assert "coder" in call_args[1]
+        assert "tester" in call_args[1]
+
+    @patch("urllib.request.build_opener")
+    @patch("urllib.request.Request")
+    def test_successful_restart_does_not_mark_exhausted(
+        self, mock_request_cls, mock_build_opener, monitor
+    ):
+        """Successful restart should not add agent to exhausted set."""
+        api_response = {"success": True, "data": {"restart_count": 1}}
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(api_response).encode()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_opener = MagicMock()
+        mock_opener.open.return_value = mock_resp
+        mock_build_opener.return_value = mock_opener
+
+        _run(monitor._execute_restart_agent("coder", "Agent stalled"))
+
+        assert "coder" not in monitor._agents_restart_exhausted

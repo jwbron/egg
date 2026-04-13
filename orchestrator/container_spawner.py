@@ -743,6 +743,10 @@ class ContainerSpawner:
                     error=str(e),
                 )
 
+        # Clean up restart counts and per-key locks for this pipeline to
+        # prevent unbounded growth in long-running processes (#1695 review).
+        self.reset_restart_counts(pipeline_id)
+
         logger.info(
             "Pipeline cleanup complete",
             pipeline_id=pipeline_id,
@@ -810,7 +814,15 @@ class ContainerSpawner:
         restart_key = (pipeline_id, agent_role.value)
         lock = self._get_restart_lock(restart_key)
 
-        with lock:
+        # Timeout prevents indefinite blocking if Docker hangs during a
+        # concurrent restart of the same agent (the lock covers the full
+        # stop → remove → spawn sequence which involves Docker API calls).
+        if not lock.acquire(timeout=120):
+            raise ContainerSpawnError(
+                f"Timed out waiting to acquire restart lock for "
+                f"{agent_role.value} in pipeline {pipeline_id}"
+            )
+        try:
             current_count = self._restart_counts.get(restart_key, 0)
 
             if current_count >= max_restarts:
@@ -889,6 +901,8 @@ class ContainerSpawner:
                 extra_mounts=extra_mounts,
                 preserve_worktree_on_failure=True,
             )
+        finally:
+            lock.release()
 
         logger.info(
             "Agent container restarted successfully",
