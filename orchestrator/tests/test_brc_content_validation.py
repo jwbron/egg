@@ -189,10 +189,38 @@ class TestValidateBrcContent:
         result = validate(content, "reason")
         assert result is None
 
+    def test_none_body_returns_error(self):
+        """None body (coerced to empty by the `or` guard) should be rejected."""
+        validate = self._get_validator()
+        result = validate(None, "summary")
+        assert result is not None
+        assert "empty" in result.lower()
+
 
 # ---------------------------------------------------------------------------
 # Handler-level tests: propose
 # ---------------------------------------------------------------------------
+
+
+def _mock_tracker_propose():
+    """Create a mock PeerConsensusTracker for propose tests."""
+    tracker = MagicMock()
+    tracker.handle_propose.return_value = {
+        "status": "proposed",
+        "version": 1,
+        "stale_reviewers": [],
+    }
+    tracker.handle_re_propose.return_value = {
+        "status": "proposed",
+        "version": 2,
+        "stale_reviewers": [],
+    }
+    return tracker
+
+
+def _mock_message_store():
+    """Create a mock message store."""
+    return MagicMock()
 
 
 class TestProposeContentValidation:
@@ -214,7 +242,8 @@ class TestProposeContentValidation:
 
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = mock_pipeline
-        mock_msg_store = MagicMock()
+        mock_msg_store = _mock_message_store()
+        mock_tracker = _mock_tracker_propose()
 
         with app.app_context():
             from routes.signals import handle_consensus_propose_signal
@@ -222,18 +251,17 @@ class TestProposeContentValidation:
             with (
                 patch("routes.signals.get_state_store", return_value=mock_store),
                 patch("routes.signals.resolve_worktree_path", return_value=Path("/tmp")),
-                patch("routes.signals.get_message_store", return_value=mock_msg_store),
                 patch("routes.signals._verify_commit_on_branch", return_value=True),
                 patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("message_store.get_message_store", return_value=mock_msg_store),
             ):
-                # Mock the tracker
-                mock_tracker = MagicMock()
-                mock_tracker.handle_propose.return_value = {"status": "proposed", "version": 1, "stale_reviewers": []}
-                mock_tracker.handle_re_propose.return_value = {"status": "proposed", "version": 2, "stale_reviewers": []}
-                with patch("routes.signals.get_peer_consensus_tracker", return_value=mock_tracker):
-                    response, status_code = handle_consensus_propose_signal(
-                        "issue-42", data, Path("/tmp/repo")
-                    )
+                response, status_code = handle_consensus_propose_signal(
+                    "issue-42", data, Path("/tmp/repo")
+                )
 
         return response, status_code, mock_msg_store, mock_tracker
 
@@ -300,6 +328,16 @@ class TestProposeContentValidation:
         assert status_code == 200
         tracker.handle_re_propose.assert_called_once()
 
+    def test_propose_error_message_is_actionable(self, app, mock_pipeline):
+        """The error message should tell the agent what to do."""
+        response, status_code, _, _ = self._call_propose(
+            app, mock_pipeline, "Too short"
+        )
+        assert status_code == 400
+        data = json.loads(response.data)
+        # Error message should mention the minimum length
+        assert "50" in data["message"]
+
 
 # ---------------------------------------------------------------------------
 # Handler-level tests: ACK
@@ -309,7 +347,7 @@ class TestProposeContentValidation:
 class TestAckContentValidation:
     """handle_consensus_ack_signal rejects empty/short/boilerplate reasons."""
 
-    def _call_ack(self, app, mock_pipeline, reason):
+    def _call_ack(self, app, reason):
         """Helper to call handle_consensus_ack_signal."""
         data = {
             "agent_role": "reviewer_code",
@@ -320,21 +358,24 @@ class TestAckContentValidation:
             },
         }
 
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = mock_pipeline
-        mock_msg_store = MagicMock()
+        mock_msg_store = _mock_message_store()
+        mock_tracker = MagicMock()
+        mock_tracker.handle_ack.return_value = {
+            "status": "acked",
+            "version": 1,
+            "fully_acked": False,
+        }
 
         with app.app_context():
             from routes.signals import handle_consensus_ack_signal
 
-            mock_tracker = MagicMock()
-            mock_tracker.handle_ack.return_value = {"status": "acked", "version": 1, "fully_acked": False}
             with (
-                patch("routes.signals.get_state_store", return_value=mock_store),
-                patch("routes.signals.resolve_worktree_path", return_value=Path("/tmp")),
-                patch("routes.signals.get_message_store", return_value=mock_msg_store),
                 patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
-                patch("routes.signals.get_peer_consensus_tracker", return_value=mock_tracker),
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("message_store.get_message_store", return_value=mock_msg_store),
             ):
                 response, status_code = handle_consensus_ack_signal(
                     "issue-42", data, Path("/tmp/repo")
@@ -344,37 +385,38 @@ class TestAckContentValidation:
 
     def test_empty_reason_returns_400(self, app, mock_pipeline):
         """Empty reason should be rejected."""
-        response, status_code, msg_store, tracker = self._call_ack(
-            app, mock_pipeline, ""
-        )
+        response, status_code, msg_store, tracker = self._call_ack(app, "")
         assert status_code == 400
         msg_store.add_message.assert_not_called()
         tracker.handle_ack.assert_not_called()
 
     def test_short_reason_returns_400(self, app, mock_pipeline):
         """Short reason should be rejected."""
-        response, status_code, msg_store, tracker = self._call_ack(
-            app, mock_pipeline, "Looks fine"
-        )
+        response, status_code, msg_store, tracker = self._call_ack(app, "Looks fine")
         assert status_code == 400
         msg_store.add_message.assert_not_called()
 
     def test_boilerplate_reason_returns_400(self, app, mock_pipeline):
         """Boilerplate reason should be rejected."""
-        response, status_code, msg_store, tracker = self._call_ack(
-            app, mock_pipeline, "LGTM"
-        )
+        response, status_code, msg_store, tracker = self._call_ack(app, "LGTM")
         assert status_code == 400
         msg_store.add_message.assert_not_called()
 
     def test_substantive_reason_succeeds(self, app, mock_pipeline):
         """Substantive reason should pass and write to message store."""
         response, status_code, msg_store, tracker = self._call_ack(
-            app, mock_pipeline, SUBSTANTIVE_REASON
+            app, SUBSTANTIVE_REASON
         )
         assert status_code == 200
         msg_store.add_message.assert_called()
         tracker.handle_ack.assert_called_once()
+
+    def test_ack_error_message_mentions_kind(self, app, mock_pipeline):
+        """Error message should mention 'ACK' to help agent identify the issue."""
+        response, status_code, _, _ = self._call_ack(app, "")
+        assert status_code == 400
+        data = json.loads(response.data)
+        assert "ACK" in data["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +427,7 @@ class TestAckContentValidation:
 class TestNackContentValidation:
     """handle_consensus_nack_signal rejects empty/short/boilerplate reasons."""
 
-    def _call_nack(self, app, mock_pipeline, reason):
+    def _call_nack(self, app, reason):
         """Helper to call handle_consensus_nack_signal."""
         data = {
             "agent_role": "reviewer_code",
@@ -396,17 +438,24 @@ class TestNackContentValidation:
             },
         }
 
-        mock_msg_store = MagicMock()
+        mock_msg_store = _mock_message_store()
+        mock_tracker = MagicMock()
+        mock_tracker.handle_nack.return_value = {
+            "status": "nacked",
+            "reason": reason,
+            "revision_count": 1,
+        }
 
         with app.app_context():
             from routes.signals import handle_consensus_nack_signal
 
-            mock_tracker = MagicMock()
-            mock_tracker.handle_nack.return_value = {"status": "nacked", "reason": reason, "revision_count": 1}
             with (
-                patch("routes.signals.get_message_store", return_value=mock_msg_store),
                 patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
-                patch("routes.signals.get_peer_consensus_tracker", return_value=mock_tracker),
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("message_store.get_message_store", return_value=mock_msg_store),
             ):
                 response, status_code = handle_consensus_nack_signal(
                     "issue-42", data, Path("/tmp/repo")
@@ -416,18 +465,14 @@ class TestNackContentValidation:
 
     def test_empty_reason_returns_400(self, app, mock_pipeline):
         """Empty NACK reason should be rejected."""
-        response, status_code, msg_store, tracker = self._call_nack(
-            app, mock_pipeline, ""
-        )
+        response, status_code, msg_store, tracker = self._call_nack(app, "")
         assert status_code == 400
         msg_store.add_message.assert_not_called()
         tracker.handle_nack.assert_not_called()
 
     def test_short_reason_returns_400(self, app, mock_pipeline):
         """Short NACK reason should be rejected."""
-        response, status_code, msg_store, tracker = self._call_nack(
-            app, mock_pipeline, "Bad code"
-        )
+        response, status_code, msg_store, tracker = self._call_nack(app, "Bad code")
         assert status_code == 400
         msg_store.add_message.assert_not_called()
 
@@ -439,7 +484,7 @@ class TestNackContentValidation:
             "Please add parameterized queries and input sanitization."
         )
         response, status_code, msg_store, tracker = self._call_nack(
-            app, mock_pipeline, substantive_nack
+            app, substantive_nack
         )
         assert status_code == 200
         msg_store.add_message.assert_called()
@@ -454,24 +499,27 @@ class TestNackContentValidation:
 class TestWithdrawContentValidation:
     """handle_consensus_withdraw_signal rejects empty/short/boilerplate reasons."""
 
-    def _call_withdraw(self, app, mock_pipeline, reason):
+    def _call_withdraw(self, app, reason):
         """Helper to call handle_consensus_withdraw_signal."""
         data = {
             "agent_role": "coder",
             "reason": reason,
         }
 
-        mock_msg_store = MagicMock()
+        mock_msg_store = _mock_message_store()
+        mock_tracker = MagicMock()
+        mock_tracker.handle_withdraw.return_value = {"status": "withdrawn"}
 
         with app.app_context():
             from routes.signals import handle_consensus_withdraw_signal
 
-            mock_tracker = MagicMock()
-            mock_tracker.handle_withdraw.return_value = {"status": "withdrawn"}
             with (
-                patch("routes.signals.get_message_store", return_value=mock_msg_store),
                 patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
-                patch("routes.signals.get_peer_consensus_tracker", return_value=mock_tracker),
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("message_store.get_message_store", return_value=mock_msg_store),
             ):
                 response, status_code = handle_consensus_withdraw_signal(
                     "issue-42", data, Path("/tmp/repo")
@@ -481,9 +529,7 @@ class TestWithdrawContentValidation:
 
     def test_empty_reason_returns_400(self, app, mock_pipeline):
         """Empty withdraw reason should be rejected."""
-        response, status_code, msg_store, tracker = self._call_withdraw(
-            app, mock_pipeline, ""
-        )
+        response, status_code, msg_store, tracker = self._call_withdraw(app, "")
         assert status_code == 400
         msg_store.add_message.assert_not_called()
         tracker.handle_withdraw.assert_not_called()
@@ -491,8 +537,14 @@ class TestWithdrawContentValidation:
     def test_short_reason_returns_400(self, app, mock_pipeline):
         """Short withdraw reason should be rejected."""
         response, status_code, msg_store, tracker = self._call_withdraw(
-            app, mock_pipeline, "Giving up"
+            app, "Giving up"
         )
+        assert status_code == 400
+        msg_store.add_message.assert_not_called()
+
+    def test_boilerplate_reason_returns_400(self, app, mock_pipeline):
+        """Boilerplate withdraw reason should be rejected."""
+        response, status_code, msg_store, tracker = self._call_withdraw(app, "ok")
         assert status_code == 400
         msg_store.add_message.assert_not_called()
 
@@ -504,7 +556,7 @@ class TestWithdrawContentValidation:
             "architecture. Need to redesign to use JWT tokens instead."
         )
         response, status_code, msg_store, tracker = self._call_withdraw(
-            app, mock_pipeline, substantive_withdraw
+            app, substantive_withdraw
         )
         assert status_code == 200
         msg_store.add_message.assert_called()
@@ -530,9 +582,8 @@ class TestValidationEdgeCases:
                 "commit_sha": "abc123",
             },
         }
-        mock_tracker = MagicMock()
-        mock_tracker.handle_propose.return_value = {"status": "proposed", "version": 1, "stale_reviewers": []}
-        mock_msg_store = MagicMock()
+        mock_tracker = _mock_tracker_propose()
+        mock_msg_store = _mock_message_store()
 
         with app.app_context():
             from routes.signals import handle_consensus_propose_signal
@@ -540,10 +591,13 @@ class TestValidationEdgeCases:
             with (
                 patch("routes.signals.get_state_store") as mock_get_store,
                 patch("routes.signals.resolve_worktree_path", return_value=Path("/tmp")),
-                patch("routes.signals.get_message_store", return_value=mock_msg_store),
                 patch("routes.signals._verify_commit_on_branch", return_value=True),
                 patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
-                patch("routes.signals.get_peer_consensus_tracker", return_value=mock_tracker),
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("message_store.get_message_store", return_value=mock_msg_store),
             ):
                 mock_store = MagicMock()
                 mock_store.load_pipeline.return_value = mock_pipeline
@@ -566,15 +620,18 @@ class TestValidationEdgeCases:
             },
         }
         mock_tracker = MagicMock()
-        mock_msg_store = MagicMock()
+        mock_msg_store = _mock_message_store()
 
         with app.app_context():
             from routes.signals import handle_consensus_ack_signal
 
             with (
-                patch("routes.signals.get_message_store", return_value=mock_msg_store),
                 patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
-                patch("routes.signals.get_peer_consensus_tracker", return_value=mock_tracker),
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("message_store.get_message_store", return_value=mock_msg_store),
             ):
                 response, status_code = handle_consensus_ack_signal(
                     "issue-42", data, Path("/tmp/repo")
@@ -583,3 +640,34 @@ class TestValidationEdgeCases:
         assert status_code == 400
         mock_msg_store.add_message.assert_not_called()
         mock_tracker.handle_ack.assert_not_called()
+
+    def test_nack_boilerplate_approved_returns_400(self, app, mock_pipeline):
+        """'approved' as NACK reason should be rejected as boilerplate."""
+        data = {
+            "agent_role": "reviewer_code",
+            "producer_role": "coder",
+            "payload": {
+                "reason": "approved",
+                "artifact_references": ["src/auth.py"],
+            },
+        }
+        mock_tracker = MagicMock()
+        mock_msg_store = _mock_message_store()
+
+        with app.app_context():
+            from routes.signals import handle_consensus_nack_signal
+
+            with (
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("message_store.get_message_store", return_value=mock_msg_store),
+            ):
+                response, status_code = handle_consensus_nack_signal(
+                    "issue-42", data, Path("/tmp/repo")
+                )
+
+        assert status_code == 400
+        mock_msg_store.add_message.assert_not_called()
