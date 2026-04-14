@@ -5,7 +5,7 @@
   "branch": "egg/issue-1743-v2",
   "base_branch": null,
   "prompt": null,
-  "status": "failed",
+  "status": "cancelled",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -130,7 +130,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-14T16:08:04.444135Z",
-  "updated_at": "2026-04-14T16:09:32.060815Z",
+  "updated_at": "2026-04-14T16:14:39.580642Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -141,5 +141,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 8
+  "version": 9
 }
