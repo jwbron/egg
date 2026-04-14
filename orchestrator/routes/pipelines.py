@@ -1629,6 +1629,27 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
                 error=str(e),
             )
 
+    # 4b. Delete per-agent worktrees so respawned containers get fresh mounts.
+    #     Without this, stale worktree directories (e.g. broken btrfs mounts)
+    #     survive container removal and cause create_worktree to skip creation
+    #     or fail.  Mirrors cleanup_pipeline's worktree deletion.  (#1723)
+    for role in agent_roles:
+        agent_worktree_id = f"{pipeline_id}-{role.value}"
+        try:
+            spawner.gateway.delete_worktrees(container_id=agent_worktree_id, force=True)
+            logger.info(
+                "Deleted per-agent worktree during phase restart",
+                agent_worktree_id=agent_worktree_id,
+                pipeline_id=pipeline_id,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to delete per-agent worktree during phase restart",
+                agent_worktree_id=agent_worktree_id,
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+
     # 5. Reset consensus state
     try:
         try:
