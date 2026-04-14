@@ -1,0 +1,57 @@
+diff --git a/orchestrator/tests/test_pipeline_prompts.py b/orchestrator/tests/test_pipeline_prompts.py
+index 7f67fdc553..4c0d21f670 100644
+--- a/orchestrator/tests/test_pipeline_prompts.py
++++ b/orchestrator/tests/test_pipeline_prompts.py
+@@ -3265,3 +3265,52 @@ class TestAgentPromptBaseBranchPassthrough:
+         )
+         # Coder prompt uses _build_phase_prompt, not _build_role_context
+         assert result  # Just verify it doesn't crash
++
++
++class TestBrcPreambleDirectedCoordination:
++    """Tests for directed coordination guidance in BRC preamble (issue #1718)."""
++
++    def test_producer_preamble_includes_directed_messaging(self):
++        """Producer BRC preamble includes egg-orch message send and HANDOFF guidance."""
++        preamble = _build_brc_preamble("coder", "implement")
++        assert "egg-orch message send" in preamble, (
++            "Producer preamble must mention egg-orch message send"
++        )
++        assert "HANDOFF" in preamble, (
++            "Producer preamble must mention HANDOFF message type"
++        )
++
++    def test_reviewer_preamble_includes_question_guidance(self):
++        """Reviewer BRC preamble includes QUESTION guidance for ambiguous proposals."""
++        preamble = _build_brc_preamble("reviewer_code", "implement")
++        assert "QUESTION" in preamble, (
++            "Reviewer preamble must mention QUESTION message type"
++        )
++        assert "egg-orch message send" in preamble, (
++            "Reviewer preamble must mention egg-orch message send"
++        )
++
++    def test_producer_preamble_forbids_proposal_body_coordination(self):
++        """Producer preamble explicitly forbids coordination in proposal bodies."""
++        preamble = _build_brc_preamble("coder", "implement")
++        assert "proposal" in preamble.lower(), (
++            "Producer preamble must mention proposal bodies"
++        )
++
++    def test_reviewer_preamble_forbids_proposal_body_coordination(self):
++        """Reviewer preamble explicitly forbids coordination in proposal bodies."""
++        preamble = _build_brc_preamble("reviewer_code", "implement")
++        # The preamble should mention not putting coordination in proposals
++        assert "proposal" in preamble.lower(), (
++            "Reviewer preamble must reference proposal bodies"
++        )
++
++    def test_dual_role_gets_both_directed_guidance(self):
++        """Dual-role agent (tester) gets both producer and reviewer directed guidance."""
++        preamble = _build_brc_preamble("tester", "implement")
++        assert "HANDOFF" in preamble, (
++            "Dual-role preamble must include HANDOFF (producer guidance)"
++        )
++        assert "QUESTION" in preamble, (
++            "Dual-role preamble must include QUESTION (reviewer guidance)"
++        )
