@@ -436,8 +436,9 @@ class TestHandlePrCreationFailure:
     the pipeline FAILED when PR creation returns no URL.
     """
 
-    def test_marks_pipeline_and_phase_failed(self):
-        """_handle_pr_creation_failure sets pipeline and phase to FAILED."""
+    def test_marks_pipeline_and_phase_failed_with_rescue_hint(self):
+        """_handle_pr_creation_failure sets pipeline and phase to FAILED and
+        attaches an actionable rescue hint containing the branch and repo."""
         pipeline = _make_pipeline()
         pipeline.status = PipelineStatus.RUNNING
 
@@ -452,11 +453,54 @@ class TestHandlePrCreationFailure:
             )
 
         assert pipeline.status == PipelineStatus.FAILED
-        assert pipeline.error == "Auto PR creation failed: no PR URL returned"
+        # Message starts with the canonical prefix
+        assert pipeline.error.startswith("Auto PR creation failed: no PR URL returned")
+        # Rescue hint present
+        assert "origin/egg/issue-42" in pipeline.error
+        assert "owner/repo" in pipeline.error
+        assert "gh pr create" in pipeline.error
+        assert "--head egg/issue-42" in pipeline.error
 
         phase_execution = pipeline.get_phase_execution(PipelinePhase.PR)
         assert phase_execution.status == PipelineStatus.FAILED
-        assert phase_execution.error == "Auto PR creation failed: no PR URL returned"
+        assert phase_execution.error == pipeline.error
         assert phase_execution.completed_at is not None
 
         store.save_pipeline.assert_called_once_with(pipeline)
+
+    def test_reason_arg_surfaces_in_error_message(self):
+        """When caller passes ``reason=...`` the message reflects that cause."""
+        pipeline = _make_pipeline()
+        pipeline.status = PipelineStatus.RUNNING
+
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+
+        with patch("routes.pipelines.get_pipeline_state_lock"):
+            _handle_pr_creation_failure(
+                pipeline_id=pipeline.id,
+                current_phase=PipelinePhase.PR,
+                store=store,
+                reason="gateway push rejected and fetch+rebase reconcile failed",
+            )
+
+        assert "gateway push rejected" in pipeline.error
+        assert "fetch+rebase reconcile failed" in pipeline.error
+
+    def test_no_rescue_hint_when_branch_missing(self):
+        """Without a branch we can't compose a rescue command — degrade gracefully."""
+        pipeline = _make_pipeline(branch=None)
+        pipeline.status = PipelineStatus.RUNNING
+
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+
+        with patch("routes.pipelines.get_pipeline_state_lock"):
+            _handle_pr_creation_failure(
+                pipeline_id=pipeline.id,
+                current_phase=PipelinePhase.PR,
+                store=store,
+            )
+
+        assert pipeline.error == "Auto PR creation failed: no PR URL returned"
+        assert "gh pr create" not in pipeline.error
