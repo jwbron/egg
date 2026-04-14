@@ -21,6 +21,7 @@ import re
 import shutil
 import subprocess
 import threading
+import tempfile
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -450,8 +451,16 @@ class StateStore:
             raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found")
 
         try:
-            with path.open() as f:
-                data = json.load(f)
+            content = path.read_text()
+            if not content.strip():
+                logger.warning(
+                    "Pipeline state file is empty, treating as missing: %s",
+                    path,
+                )
+                raise PipelineNotFoundError(
+                    f"Pipeline {pipeline_id} state file is empty (likely corrupt)"
+                )
+            data = json.loads(content)
             return Pipeline.model_validate(data)
         except json.JSONDecodeError as e:
             raise StateValidationError(f"Invalid JSON in pipeline state: {e}") from e
@@ -503,16 +512,35 @@ class StateStore:
         pipeline.updated_at = datetime.now(UTC)
         pipeline.version = (pipeline.version or 0) + 1
 
-        # Write state to the worktree
-        with path.open("w") as f:
-            f.write(pipeline.model_dump_json(indent=2))
+        # Write state atomically: write to temp file, then rename.
+        # Using dir=path.parent ensures same-filesystem rename (atomic on POSIX).
+        json_data = pipeline.model_dump_json(indent=2)
+        fd, temp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(json_data)
+            os.replace(temp_path, path)
+        except Exception:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+            raise
 
         # For prompt-driven pipelines (no issue_number), only commit if force_commit
         # is True (phase boundaries). For issue pipelines, always commit when commit=True.
         is_prompt_driven = pipeline.issue_number is None
         should_commit = commit and (not is_prompt_driven or force_commit)
         if should_commit:
-            self._commit_state(pipeline, message)
+            try:
+                self._commit_state(pipeline, message)
+            except GitOperationError:
+                logger.warning(
+                    "Failed to commit pipeline state for %s; file is saved on disk, "
+                    "commit will be retried on next save",
+                    pipeline.id,
+                    exc_info=True,
+                )
 
         return path
 
@@ -551,7 +579,26 @@ class StateStore:
                 head_result = self._run_git("rev-parse", "HEAD", cwd=wt, check=False)
                 return head_result.stdout.strip() if head_result.returncode == 0 else ""
 
-            self._run_git("commit", "--no-verify", "-m", message, cwd=wt)
+            try:
+                self._run_git("commit", "--no-verify", "-m", message, cwd=wt)
+            except GitOperationError as e:
+                err_msg = str(e).lower()
+                if "nothing to commit" in err_msg or "no changes added" in err_msg:
+                    logger.warning(
+                        "Benign commit failure (nothing to commit) for %s, "
+                        "returning current HEAD: %s",
+                        pipeline.id,
+                        e,
+                    )
+                    head_result = self._run_git(
+                        "rev-parse", "HEAD", cwd=wt, check=False
+                    )
+                    return (
+                        head_result.stdout.strip()
+                        if head_result.returncode == 0
+                        else ""
+                    )
+                raise
             sha = self._run_git("rev-parse", "HEAD", cwd=wt).stdout.strip()
 
             # Best-effort async push to remote after every commit
