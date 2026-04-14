@@ -8544,7 +8544,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
                 # Push latest commits before creating PR.  If the push fails
                 # (e.g. the remote advanced while the PR-phase worktree was
-                # adding BRC/cleanup commits), reconcile via fetch+merge and
+                # adding BRC commits), reconcile via fetch+merge and
                 # retry once — see _reconcile_and_push_pr_branch and #1706.
                 push_ok = True
                 if pipeline.branch and worktree_repo_path != repo_path:

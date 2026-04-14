@@ -401,7 +401,7 @@ class TestRewriteBrcHistoryForPrLogging:
 # ---------------------------------------------------------------------------
 # Integration test: real git repo with BRC history (task-1-5)
 # ---------------------------------------------------------------------------
-class TestIntegrationBrcHistoryAndDraftCleanup:
+class TestIntegrationBrcHistory:
     """Integration test for the full _rewrite_brc_history_for_pr call chain (#1633 task-1-5).
 
     Exercises real function calls (not mocked away) with BRC messages in a
