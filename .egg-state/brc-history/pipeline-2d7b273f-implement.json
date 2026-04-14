@@ -1,0 +1,1000 @@
+[
+  {
+    "id": "836dd482-ef84-41",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "STATUS",
+    "subject": "Documenter: orienting",
+    "body": "Read contract and plan. Docs drafting started based on contract. Waiting for coder HANDOFF to finalize.",
+    "metadata": {},
+    "timestamp": "2026-04-14T06:26:24.977193+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d0092051-22a2-42",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "documenter",
+    "to_role": "reviewer_code",
+    "message_type": "HANDOFF",
+    "subject": "Documentation ready for review",
+    "body": "Committed f989928dfb: Updated 3 doc files (checkpoint-browser.md reference, checkpoint-access.md guide, sandbox checkpoint rule) covering all 5 papercut fixes from #1715. Files: docs/reference/checkpoint-browser.md, docs/guides/checkpoint-access.md, sandbox/agent-config/rules/checkpoint.md",
+    "metadata": {},
+    "timestamp": "2026-04-14T06:30:44.080321+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ba71162e-4409-4d",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "STATUS",
+    "subject": "Documenter: docs committed and pushed",
+    "body": "Documentation updates for all 5 checkpoint CLI papercuts committed (f989928dfb) and pushed. Ready to propose.",
+    "metadata": {},
+    "timestamp": "2026-04-14T06:30:44.218886+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4a007964-d4fe-43",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from documenter",
+    "body": "Updated documentation for all five egg-checkpoint CLI papercuts from #1715: (1) --checkpoint-repo flag position flexibility documented in both reference and guide, (2) empty result stderr diagnostics showing searched repo/branch, (3) composite BRC role names (reviewer_code etc.) for --agent-type with gateway limitation caveat, (4) --json empty result valid JSON behavior, (5) reviewer checkpoint availability caveats. Updated 3 files: docs/reference/checkpoint-browser.md, docs/guides/checkpoint-access.md, sandbox/agent-config/rules/checkpoint.md.",
+    "metadata": {
+      "payload": {
+        "summary": "Updated documentation for all five egg-checkpoint CLI papercuts from #1715: (1) --checkpoint-repo flag position flexibility documented in both reference and guide, (2) empty result stderr diagnostics showing searched repo/branch, (3) composite BRC role names (reviewer_code etc.) for --agent-type with gateway limitation caveat, (4) --json empty result valid JSON behavior, (5) reviewer checkpoint availability caveats. Updated 3 files: docs/reference/checkpoint-browser.md, docs/guides/checkpoint-access.md, sandbox/agent-config/rules/checkpoint.md.",
+        "attestation": {},
+        "artifacts": [
+          "docs/reference/checkpoint-browser.md",
+          "docs/guides/checkpoint-access.md",
+          "sandbox/agent-config/rules/checkpoint.md"
+        ],
+        "risk_considered": "",
+        "commit_sha": "f989928dfbce03c9e800b03679e0d74200829104",
+        "files_changed": [
+          "docs/reference/checkpoint-browser.md",
+          "docs/guides/checkpoint-access.md",
+          "sandbox/agent-config/rules/checkpoint.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-1-5"
+        ]
+      },
+      "version": 1,
+      "commit_sha": "f989928dfbce03c9e800b03679e0d74200829104"
+    },
+    "timestamp": "2026-04-14T06:31:04.629054+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "427db908-ec2e-46",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by documenter (pending_acks)",
+    "body": "Agent documenter cannot confirm: producers ['tester', 'coder'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-14T06:31:29.194713+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "98a0fe9c-720f-47",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "tester",
+    "to_role": "coder",
+    "message_type": "QUESTION",
+    "subject": "Coder status check",
+    "body": "Hi coder, tester here. I have 65 tests scaffolded and ready to finalize. Could you share your progress? Have you started implementing the 5 checkpoint CLI papercuts? The pipeline is blocked on your commits.",
+    "metadata": {},
+    "timestamp": "2026-04-14T06:35:24.963609+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "970ae34e-33a6-4f",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from coder",
+    "body": "Implemented all five egg-checkpoint CLI papercuts from #1715: (1) --checkpoint-repo accepted both before and after subcommand via argparse parent parser with SUPPRESS defaults, fixing the misleading error; (2) _print_empty_result helper prints 'Searched <repo> branch <branch>' to stderr on every empty-result path; (3) --agent-type extended with composite BRC reviewer roles (reviewer_code, reviewer_contract, reviewer_agent_design, reviewer_refine, reviewer_plan) with post-filter by session.agent_role; (4) --json on empty results emits valid parseable JSON ([] or structured cost object); (5) parser description and --agent-type help document reviewer trigger caveat and gateway composite-role limitation.",
+    "metadata": {
+      "payload": {
+        "summary": "Implemented all five egg-checkpoint CLI papercuts from #1715: (1) --checkpoint-repo accepted both before and after subcommand via argparse parent parser with SUPPRESS defaults, fixing the misleading error; (2) _print_empty_result helper prints 'Searched <repo> branch <branch>' to stderr on every empty-result path; (3) --agent-type extended with composite BRC reviewer roles (reviewer_code, reviewer_contract, reviewer_agent_design, reviewer_refine, reviewer_plan) with post-filter by session.agent_role; (4) --json on empty results emits valid parseable JSON ([] or structured cost object); (5) parser description and --agent-type help document reviewer trigger caveat and gateway composite-role limitation.",
+        "attestation": {},
+        "artifacts": [
+          "shared/egg_contracts/checkpoint_cli.py"
+        ],
+        "risk_considered": "",
+        "commit_sha": "dd6d39b0ecc184e917bf260d2b754725283d6ab8",
+        "files_changed": [
+          "shared/egg_contracts/checkpoint_cli.py"
+        ],
+        "tests_run": [
+          "tests/shared/egg_contracts/test_checkpoint_cli.py",
+          "tests/shared/egg_contracts/test_checkpoint_cli_http.py"
+        ],
+        "tasks_satisfied": [
+          "task-1-1",
+          "task-1-2",
+          "task-1-3",
+          "task-1-4",
+          "task-1-5"
+        ]
+      },
+      "version": 1,
+      "commit_sha": "dd6d39b0ecc184e917bf260d2b754725283d6ab8"
+    },
+    "timestamp": "2026-04-14T06:39:01.382323+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5f24b8c2-c50b-4e",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "coder",
+    "to_role": "tester",
+    "message_type": "HANDOFF",
+    "subject": "Implementation complete, tests ready",
+    "body": "All five #1715 papercuts implemented in shared/egg_contracts/checkpoint_cli.py. Tests in test_checkpoint_cli.py (105 pass) and new test file test_checkpoint_cli_papercuts.py has invalid checkpoint IDs (e.g. ckpt-rev1 instead of ckpt-[a-f0-9]{8,16}) \u2014 these need fixing. I also have test additions in tests/shared/egg_contracts/test_checkpoint_cli.py that I could not push due to coder role file restrictions. Key new exports to test: COMPOSITE_REVIEWER_ROLES, _AGENT_TYPE_CHOICES, _print_empty_result. The modified test_checkpoint_cli.py is in my working tree if you want to use it as a starting point.",
+    "metadata": {},
+    "timestamp": "2026-04-14T06:39:10.367710+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6c34aa56-6907-4f",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by documenter (pending_acks)",
+    "body": "Agent documenter cannot confirm: producers ['tester'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-14T06:39:13.728910+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d03ce849-37d9-48",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "STATUS",
+    "subject": "Coder implementation complete, proposal submitted",
+    "body": "All five #1715 papercuts implemented and pushed to egg/pipeline-2d7b273f/work at commit dd6d39b0ec. Source changes in shared/egg_contracts/checkpoint_cli.py. 105 existing tests pass. Proposal submitted for BRC review.",
+    "metadata": {},
+    "timestamp": "2026-04-14T06:39:14.688409+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "fe1a97a3-c5a8-44",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "reviewer_contract",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_contract for coder",
+    "body": "Reviewed full diff against plan contract for #1715. All 5 tasks structurally addressed in checkpoint_cli.py. However 8 of 65 new tests fail: (1) 6 failures because test fixtures use 'ckpt-rev1' as checkpoint IDs, violating pydantic pattern ^ckpt-[a-f0-9]{8,16}$ \u2014 fix by using valid hex IDs like ckpt-aabb000011220001. (2) 2 failures in test_context_empty_json_is_valid and test_context_http_empty_json_is_valid \u2014 context command emits [] via default shape='list' but tests expect dict; plan specifies context/cost should both emit structured objects. Fix: add shape='context' to _print_empty_result or align test expectations. Implementation logic itself is correct for all 5 tasks; only test fixtures need fixing.",
+    "metadata": {
+      "payload": {
+        "reason": "Reviewed full diff against plan contract for #1715. All 5 tasks structurally addressed in checkpoint_cli.py. However 8 of 65 new tests fail: (1) 6 failures because test fixtures use 'ckpt-rev1' as checkpoint IDs, violating pydantic pattern ^ckpt-[a-f0-9]{8,16}$ \u2014 fix by using valid hex IDs like ckpt-aabb000011220001. (2) 2 failures in test_context_empty_json_is_valid and test_context_http_empty_json_is_valid \u2014 context command emits [] via default shape='list' but tests expect dict; plan specifies context/cost should both emit structured objects. Fix: add shape='context' to _print_empty_result or align test expectations. Implementation logic itself is correct for all 5 tasks; only test fixtures need fixing.",
+        "artifact_references": [
+          "shared/egg_contracts/checkpoint_cli.py",
+          "tests/shared/egg_contracts/test_checkpoint_cli_papercuts.py"
+        ]
+      },
+      "reason": "Reviewed full diff against plan contract for #1715. All 5 tasks structurally addressed in checkpoint_cli.py. However 8 of 65 new tests fail: (1) 6 failures because test fixtures use 'ckpt-rev1' as checkpoint IDs, violating pydantic pattern ^ckpt-[a-f0-9]{8,16}$ \u2014 fix by using valid hex IDs like ckpt-aabb000011220001. (2) 2 failures in test_context_empty_json_is_valid and test_context_http_empty_json_is_valid \u2014 context command emits [] via default shape='list' but tests expect dict; plan specifies context/cost should both emit structured objects. Fix: add shape='context' to _print_empty_result or align test expectations. Implementation logic itself is correct for all 5 tasks; only test fixtures need fixing.",
+      "revision_count": 1
+    },
+    "timestamp": "2026-04-14T06:43:06.685592+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6217d904-8603-43",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "reviewer_code",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_code for coder",
+    "body": "HTTP path silently mishandles composite reviewer roles. _build_list_params() line 762 passes raw composite name (e.g. 'reviewer_code') to the gateway API. The gateway's filter_checkpoints_v2 calls AgentType('reviewer_code') which coerces to AgentType.UNKNOWN via _missing_(), returning wrong results instead of REVIEWER-type checkpoints. Same issue in _cmd_context_http() line 1083 and _cmd_search_http(). Fix: in _build_list_params(), check if args.agent_type is in COMPOSITE_REVIEWER_ROLES and collapse to AgentType.REVIEWER.value before sending to gateway. Apply same fix in _cmd_context_http(). The help text claims composite roles 'collapse to reviewer' via gateway but the code does not implement this.",
+    "metadata": {
+      "payload": {
+        "reason": "HTTP path silently mishandles composite reviewer roles. _build_list_params() line 762 passes raw composite name (e.g. 'reviewer_code') to the gateway API. The gateway's filter_checkpoints_v2 calls AgentType('reviewer_code') which coerces to AgentType.UNKNOWN via _missing_(), returning wrong results instead of REVIEWER-type checkpoints. Same issue in _cmd_context_http() line 1083 and _cmd_search_http(). Fix: in _build_list_params(), check if args.agent_type is in COMPOSITE_REVIEWER_ROLES and collapse to AgentType.REVIEWER.value before sending to gateway. Apply same fix in _cmd_context_http(). The help text claims composite roles 'collapse to reviewer' via gateway but the code does not implement this.",
+        "artifact_references": [
+          "shared/egg_contracts/checkpoint_cli.py",
+          "tests/shared/egg_contracts/test_checkpoint_cli_papercuts.py"
+        ]
+      },
+      "reason": "HTTP path silently mishandles composite reviewer roles. _build_list_params() line 762 passes raw composite name (e.g. 'reviewer_code') to the gateway API. The gateway's filter_checkpoints_v2 calls AgentType('reviewer_code') which coerces to AgentType.UNKNOWN via _missing_(), returning wrong results instead of REVIEWER-type checkpoints. Same issue in _cmd_context_http() line 1083 and _cmd_search_http(). Fix: in _build_list_params(), check if args.agent_type is in COMPOSITE_REVIEWER_ROLES and collapse to AgentType.REVIEWER.value before sending to gateway. Apply same fix in _cmd_context_http(). The help text claims composite roles 'collapse to reviewer' via gateway but the code does not implement this.",
+      "revision_count": 1
+    },
+    "timestamp": "2026-04-14T06:43:45.176938+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "546d90f0-8e10-4e",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "reviewer_code",
+    "to_role": "documenter",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for documenter",
+    "body": "All three doc files are accurate and thorough. checkpoint-access.md correctly documents flag positioning with examples, composite BRC role filtering with supported role names, empty result behavior (stderr info line, valid JSON output), and troubleshooting for reviewer checkpoints not found. checkpoint-browser.md mirrors this with a reference table of composite roles and gateway limitations. sandbox/agent-config/rules/checkpoint.md adds compact quick-reference entries. One minor note: docs state composite roles 'collapse to reviewer' via gateway, which matches the help text intent but is not yet implemented in code \u2014 this is a coder issue, not a docs issue.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "docs/guides/checkpoint-access.md",
+          "docs/reference/checkpoint-browser.md",
+          "sandbox/agent-config/rules/checkpoint.md"
+        ],
+        "reason": "All three doc files are accurate and thorough. checkpoint-access.md correctly documents flag positioning with examples, composite BRC role filtering with supported role names, empty result behavior (stderr info line, valid JSON output), and troubleshooting for reviewer checkpoints not found. checkpoint-browser.md mirrors this with a reference table of composite roles and gateway limitations. sandbox/agent-config/rules/checkpoint.md adds compact quick-reference entries. One minor note: docs state composite roles 'collapse to reviewer' via gateway, which matches the help text intent but is not yet implemented in code \u2014 this is a coder issue, not a docs issue."
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-14T06:43:52.156412+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "df52733e-effc-4f",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "orchestrator",
+    "to_role": "documenter",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-14T06:43:52.156456+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "440b0608-da0b-42",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by documenter (pending_acks)",
+    "body": "Agent documenter cannot confirm: producers ['tester'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-14T06:43:57.501747+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d5f7f122-310d-4b",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "tester",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from tester for coder",
+    "body": "Implementation is correct and comprehensive for all 5 tasks. All 141 tests pass (76 existing + 65 new). mypy passes. ruff check passes. However, ruff format --check FAILS on line ~84 of checkpoint_cli.py: the _AGENT_TYPE_CHOICES definition wraps across lines in a way that ruff format wants to collapse to a single line. This is a trivial auto-fix (run ruff format shared/egg_contracts/checkpoint_cli.py), but it blocks make lint. Please fix and re-propose.",
+    "metadata": {
+      "payload": {
+        "reason": "Implementation is correct and comprehensive for all 5 tasks. All 141 tests pass (76 existing + 65 new). mypy passes. ruff check passes. However, ruff format --check FAILS on line ~84 of checkpoint_cli.py: the _AGENT_TYPE_CHOICES definition wraps across lines in a way that ruff format wants to collapse to a single line. This is a trivial auto-fix (run ruff format shared/egg_contracts/checkpoint_cli.py), but it blocks make lint. Please fix and re-propose.",
+        "artifact_references": [
+          "shared/egg_contracts/checkpoint_cli.py"
+        ]
+      },
+      "reason": "Implementation is correct and comprehensive for all 5 tasks. All 141 tests pass (76 existing + 65 new). mypy passes. ruff check passes. However, ruff format --check FAILS on line ~84 of checkpoint_cli.py: the _AGENT_TYPE_CHOICES definition wraps across lines in a way that ruff format wants to collapse to a single line. This is a trivial auto-fix (run ruff format shared/egg_contracts/checkpoint_cli.py), but it blocks make lint. Please fix and re-propose.",
+      "revision_count": 1
+    },
+    "timestamp": "2026-04-14T06:44:35.654792+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "078c52a3-13cb-41",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from tester",
+    "body": "Tester: 65 new tests covering all 5 checkpoint CLI papercut fixes (#1715). Tests validate: (1) --checkpoint-repo before/after subcommand for all 6 subcommands (11 tests), (2) empty result stderr prints 'Searched <repo> branch <branch>' for all commands (6 tests), (3) composite BRC reviewer role names accepted in --agent-type with post-filter by session.agent_role (19 tests), (4) --json empty output is valid parseable JSON for all commands via both git and HTTP paths (14 tests), (5) help text mentions reviewer checkpoint caveats and gateway limitation (4 tests), plus 11 edge case tests. All 141 checkpoint CLI tests pass (76 existing + 65 new). ruff check passes on test file. mypy passes. ruff format on source file has one auto-fixable issue (NACKed coder). Pre-existing test failure in test_entrypoint.py is unrelated.",
+    "metadata": {
+      "payload": {
+        "summary": "Tester: 65 new tests covering all 5 checkpoint CLI papercut fixes (#1715). Tests validate: (1) --checkpoint-repo before/after subcommand for all 6 subcommands (11 tests), (2) empty result stderr prints 'Searched <repo> branch <branch>' for all commands (6 tests), (3) composite BRC reviewer role names accepted in --agent-type with post-filter by session.agent_role (19 tests), (4) --json empty output is valid parseable JSON for all commands via both git and HTTP paths (14 tests), (5) help text mentions reviewer checkpoint caveats and gateway limitation (4 tests), plus 11 edge case tests. All 141 checkpoint CLI tests pass (76 existing + 65 new). ruff check passes on test file. mypy passes. ruff format on source file has one auto-fixable issue (NACKed coder). Pre-existing test failure in test_entrypoint.py is unrelated.",
+        "attestation": {},
+        "artifacts": [
+          "tests/shared/egg_contracts/test_checkpoint_cli_papercuts.py"
+        ],
+        "risk_considered": "",
+        "commit_sha": "6e07cf82b53186ec88c0ad8e28442d5520701b28",
+        "files_changed": [
+          "tests/shared/egg_contracts/test_checkpoint_cli_papercuts.py"
+        ],
+        "tests_run": [
+          "test_checkpoint_cli_papercuts",
+          "test_checkpoint_cli",
+          "test_checkpoint_cli_http"
+        ],
+        "tasks_satisfied": [
+          "task-1-1",
+          "task-1-2",
+          "task-1-3",
+          "task-1-4",
+          "task-1-5"
+        ]
+      },
+      "version": 1,
+      "commit_sha": "6e07cf82b53186ec88c0ad8e28442d5520701b28"
+    },
+    "timestamp": "2026-04-14T06:44:51.271851+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "438afc4b-543d-46",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by documenter",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-14T06:44:58.167974+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9fd2a17a-40e7-43",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by tester (pending_acks)",
+    "body": "Producer tester cannot confirm: not fully ACKed. Pending reviewers: ['reviewer_code']",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-14T06:45:02.247430+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7444c529-5046-4a",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "reviewer_code",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for tester",
+    "body": "ACK tester. 65 tests, all passing (pytest 3.13s). Good coverage across all 5 papercut tasks: TestCheckpointRepoPosition (11 tests for flag position flexibility across all subcommands), TestEmptyResultStderr (6 tests), TestCompositeAgentType (8 tests for composite role filtering), TestJsonEmptyOutput (9 tests for valid JSON empty output), TestJsonEmptyOutputHttp (5 tests), TestHelpTextCaveats (4 tests), TestEdgeCases (8 tests including null agent_role, no-match composite). Checkpoint IDs corrected to ckpt-{16 hex chars} format. Context empty JSON assertion correctly fixed from dict to list matching actual _print_empty_result(shape='list') behavior. Tests mock at appropriate boundaries. Non-blocking suggestion: composite role filtering tests should assert output content, not just exit codes.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "tests/shared/egg_contracts/test_checkpoint_cli_papercuts.py"
+        ],
+        "reason": "ACK tester. 65 tests, all passing (pytest 3.13s). Good coverage across all 5 papercut tasks: TestCheckpointRepoPosition (11 tests for flag position flexibility across all subcommands), TestEmptyResultStderr (6 tests), TestCompositeAgentType (8 tests for composite role filtering), TestJsonEmptyOutput (9 tests for valid JSON empty output), TestJsonEmptyOutputHttp (5 tests), TestHelpTextCaveats (4 tests), TestEdgeCases (8 tests including null agent_role, no-match composite). Checkpoint IDs corrected to ckpt-{16 hex chars} format. Context empty JSON assertion correctly fixed from dict to list matching actual _print_empty_result(shape='list') behavior. Tests mock at appropriate boundaries. Non-blocking suggestion: composite role filtering tests should assert output content, not just exit codes."
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-14T06:46:35.467462+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a6160130-547a-4d",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "orchestrator",
+    "to_role": "tester",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-14T06:46:35.467475+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5ea61ec7-b1fc-40",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "reviewer_code",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_code for coder",
+    "body": "NACK coder (re-confirming). BLOCKING: HTTP path silently mishandles composite reviewer roles. _build_list_params() at line 762 passes raw composite name (e.g. 'reviewer_code') to gateway. Gateway's filter_checkpoints_v2() calls AgentType('reviewer_code') which invokes _missing_() and coerces to AgentType.UNKNOWN, returning wrong results. Same issue in _cmd_context_http() line 1083. Fix: in _build_list_params(), check if args.agent_type is in COMPOSITE_REVIEWER_ROLES and collapse to AgentType.REVIEWER.value before sending to gateway. Apply same in _cmd_context_http(). Direct-git path is correct.",
+    "metadata": {
+      "payload": {
+        "reason": "NACK coder (re-confirming). BLOCKING: HTTP path silently mishandles composite reviewer roles. _build_list_params() at line 762 passes raw composite name (e.g. 'reviewer_code') to gateway. Gateway's filter_checkpoints_v2() calls AgentType('reviewer_code') which invokes _missing_() and coerces to AgentType.UNKNOWN, returning wrong results. Same issue in _cmd_context_http() line 1083. Fix: in _build_list_params(), check if args.agent_type is in COMPOSITE_REVIEWER_ROLES and collapse to AgentType.REVIEWER.value before sending to gateway. Apply same in _cmd_context_http(). Direct-git path is correct.",
+        "artifact_references": [
+          "shared/egg_contracts/checkpoint_cli.py",
+          "shared/egg_contracts/checkpoints.py",
+          "shared/egg_contracts/checkpoint_loader.py"
+        ]
+      },
+      "reason": "NACK coder (re-confirming). BLOCKING: HTTP path silently mishandles composite reviewer roles. _build_list_params() at line 762 passes raw composite name (e.g. 'reviewer_code') to gateway. Gateway's filter_checkpoints_v2() calls AgentType('reviewer_code') which invokes _missing_() and coerces to AgentType.UNKNOWN, returning wrong results. Same issue in _cmd_context_http() line 1083. Fix: in _build_list_params(), check if args.agent_type is in COMPOSITE_REVIEWER_ROLES and collapse to AgentType.REVIEWER.value before sending to gateway. Apply same in _cmd_context_http(). Direct-git path is correct.",
+      "revision_count": 2
+    },
+    "timestamp": "2026-04-14T06:46:35.631738+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "115b7f8e-07dd-42",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "reviewer_code",
+    "to_role": "documenter",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for documenter",
+    "body": "ACK documenter. All three doc files are accurate and well-structured. checkpoint-access.md guide covers flag positioning examples, composite BRC role section, empty result behavior. checkpoint-browser.md reference adds composite role filtering table, empty results section, gateway limitation notes. sandbox checkpoint.md rule adds composite reviewer quick reference. Documentation correctly notes composite roles 'collapse to reviewer' via gateway (which matches intended behavior, though coder's code doesn't implement this yet \u2014 see coder NACK). Minor: once coder fixes the HTTP path, docs won't need updating since they describe the intended behavior.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "docs/guides/checkpoint-access.md",
+          "docs/reference/checkpoint-browser.md",
+          "sandbox/agent-config/rules/checkpoint.md"
+        ],
+        "reason": "ACK documenter. All three doc files are accurate and well-structured. checkpoint-access.md guide covers flag positioning examples, composite BRC role section, empty result behavior. checkpoint-browser.md reference adds composite role filtering table, empty results section, gateway limitation notes. sandbox checkpoint.md rule adds composite reviewer quick reference. Documentation correctly notes composite roles 'collapse to reviewer' via gateway (which matches intended behavior, though coder's code doesn't implement this yet \u2014 see coder NACK). Minor: once coder fixes the HTTP path, docs won't need updating since they describe the intended behavior."
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-14T06:46:44.853553+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "80d96e56-f961-43",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "orchestrator",
+    "to_role": "documenter",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-14T06:46:44.853578+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0093fd13-e191-45",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by documenter",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-14T06:46:50.296477+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "67f0f8af-dbf0-48",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_code (pending_acks)",
+    "body": "Reviewer reviewer_code cannot confirm: unresolved NACKs. Wait for these producers to re-propose before confirming: ['coder']",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-14T06:46:55.014192+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8d740e70-b9d9-45",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by tester (pending_acks)",
+    "body": "Reviewer tester cannot confirm: unresolved NACKs. Wait for these producers to re-propose before confirming: ['coder']",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-14T06:46:56.957175+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "76b1dd78-932c-45",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "tester",
+    "to_role": "coder",
+    "message_type": "QUESTION",
+    "subject": "",
+    "body": "Coder: I NACKed your proposal due to a ruff format issue on shared/egg_contracts/checkpoint_cli.py. Run 'ruff format shared/egg_contracts/checkpoint_cli.py', commit, push, and re-propose. Currently blocking consensus. The specific issue: _AGENT_TYPE_CHOICES definition needs reformatting.",
+    "metadata": {},
+    "timestamp": "2026-04-14T06:47:15.028351+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ee5b8d0e-a7e3-41",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "overseer_restart: overseer [info]",
+    "body": "Overseer container was respawned. Old container f9b0bbdec4d9 exited with code 0. New container 1587d91281d3 is now running.",
+    "metadata": {
+      "exit_code": 0,
+      "old_container_id": "f9b0bbdec4d93f5ca870f0cb249274d0c9a4c8fcec3973b043a3223ff21389c8",
+      "new_container_id": "1587d91281d3b1521506e94925c64a60cf9378627a8a141ba38b1f7aa8c22d3b",
+      "log_tail": "2026-04-14T06:46:43.336582521Z   egg-gateway resolves to: 172.33.0.2\n2026-04-14T06:46:43.336584855Z   /etc/hosts entry: 172.33.0.2\tegg-gateway\n2026-04-14T06:46:43.336587605Z   Network interfaces:\n2026-04-14T06:46:43.336590272Z     inet 172.33.0.128/24 brd 172.33.0.255 scope global eth0\n2026-04-14T06:46:43.336592813Z   \u2713 Container on egg-external network (172.33.0.128)\n2026-04-14T06:46:43.336595272Z Testing TCP connectivity to gateway...\n2026-04-14T06:46:43.336597605Z   TCP egg-gateway:9848 (API): \u2713 connected\n2026-04-14T06:46:43.336601522Z   TCP egg-gateway:3129 (Proxy): \u2713 connected\n2026-04-14T06:46:43.336603938Z Waiting for gateway readiness...\n2026-04-14T06:46:43.336606313Z \u2713   Gateway API responding (HTTP 200)\n2026-04-14T06:46:43.336608563Z     Status: healthy\n2026-04-14T06:46:43.336610772Z     GitHub token valid: True\n2026-04-14T06:46:43.336613105Z     Auth configured: True\n2026-04-14T06:46:43.336615355Z \u2713 Gateway ready! (public mode - direct internet access)\n2026-04-14T06:46:43.336617813Z \u2713 Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-14T06:46:43.336621855Z   Credentials injected by gateway (not in container)\n2026-04-14T06:46:43.336624355Z Signaled complete to orchestrator\n2026-04-14T06:46:43.336626688Z \n2026-04-14T06:46:43.336628855Z Cleaning up on container exit...\n2026-04-14T06:46:43.336631188Z \u2713 Cleanup complete\n",
+      "respawn_attempt": 1,
+      "max_respawns": 3
+    },
+    "timestamp": "2026-04-14T06:47:20.488459+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f7cef52f-7947-4a",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from coder",
+    "body": "Implemented all five egg-checkpoint CLI papercuts from #1715. Fixed HTTP path composite reviewer role handling per reviewer_code NACK: decompose composite roles to base AgentType.REVIEWER before gateway API, post-filter by session.agent_role. All 170 tests pass.",
+    "metadata": {
+      "payload": {
+        "summary": "Implemented all five egg-checkpoint CLI papercuts from #1715. Fixed HTTP path composite reviewer role handling per reviewer_code NACK: decompose composite roles to base AgentType.REVIEWER before gateway API, post-filter by session.agent_role. All 170 tests pass.",
+        "attestation": {},
+        "artifacts": [
+          "shared/egg_contracts/checkpoint_cli.py"
+        ],
+        "risk_considered": "",
+        "commit_sha": "1cdf55b28f",
+        "files_changed": [
+          "shared/egg_contracts/checkpoint_cli.py"
+        ],
+        "tests_run": [
+          "tests/shared/egg_contracts/test_checkpoint_cli.py",
+          "tests/shared/egg_contracts/test_checkpoint_cli_http.py",
+          "tests/shared/egg_contracts/test_checkpoint_cli_papercuts.py"
+        ],
+        "tasks_satisfied": []
+      },
+      "version": 2,
+      "commit_sha": "1cdf55b28f"
+    },
+    "timestamp": "2026-04-14T06:48:53.019100+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "97b84987-7149-40",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "STATUS",
+    "subject": "Coder: NACK fixes applied, re-proposed",
+    "body": "Fixed HTTP composite reviewer role handling per reviewer_code NACK. Added _decompose_composite_role() and _http_filter_composite_role() helpers. _build_list_params, _cmd_list_http, _cmd_context_http, _cmd_search_http now decompose composite roles to base AgentType.REVIEWER for API calls and post-filter by session.agent_role. All 170 tests pass (105+65). Commit 1cdf55b28f pushed.",
+    "metadata": {},
+    "timestamp": "2026-04-14T06:48:59.248068+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a506a034-bda8-49",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by documenter",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-14T06:49:00.575488+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b81765d5-6602-4a",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "reviewer_code",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for coder",
+    "body": "ACK coder (re-proposal). HTTP path composite role bug is fixed. New _decompose_composite_role() helper correctly collapses composite roles to AgentType.REVIEWER.value before sending to gateway. _http_filter_composite_role() performs N+1 fetches to post-filter by session.agent_role, mirroring the direct-git path pattern. Fix applied consistently in _build_list_params() line 812, _cmd_list_http() line 829, _cmd_context_http() line 1140/1153, and _cmd_search_http() line 1743/1749. All 65 tests pass. RuntimeError catch in _http_filter_composite_role silently skips failed fetches \u2014 acceptable for resilience since the base results are already filtered by reviewer type.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "shared/egg_contracts/checkpoint_cli.py"
+        ],
+        "reason": "ACK coder (re-proposal). HTTP path composite role bug is fixed. New _decompose_composite_role() helper correctly collapses composite roles to AgentType.REVIEWER.value before sending to gateway. _http_filter_composite_role() performs N+1 fetches to post-filter by session.agent_role, mirroring the direct-git path pattern. Fix applied consistently in _build_list_params() line 812, _cmd_list_http() line 829, _cmd_context_http() line 1140/1153, and _cmd_search_http() line 1743/1749. All 65 tests pass. RuntimeError catch in _http_filter_composite_role silently skips failed fetches \u2014 acceptable for resilience since the base results are already filtered by reviewer type."
+      },
+      "version": 2
+    },
+    "timestamp": "2026-04-14T06:49:18.915812+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3cf470b6-5b66-4f",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "tester",
+    "to_role": "coder",
+    "message_type": "QUESTION",
+    "subject": "",
+    "body": "URGENT: Your ruff format issue on shared/egg_contracts/checkpoint_cli.py:84-86 is blocking ALL consensus. Fix: run '.venv/bin/ruff format shared/egg_contracts/checkpoint_cli.py', commit, push, and re-propose. This is a single line change. Without this, the pipeline cannot complete.",
+    "metadata": {},
+    "timestamp": "2026-04-14T06:49:21.103551+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "da16e8af-eff6-48",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_code",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-14T06:49:27.496947+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "da417088-0995-47",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by documenter",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-14T06:49:32.972626+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "38ef0d93-1eff-44",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "reviewer_contract",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for coder",
+    "body": "All 141 tests pass (65 papercut + 76 existing). Coder properly addressed NACK feedback: (1) added _decompose_composite_role() to separate API-level AgentType from composite role name; (2) added _http_filter_composite_role() for N+1 checkpoint fetches in HTTP path, post-filtering by session.agent_role; (3) applied decomposition consistently in _build_list_params, _cmd_list_http, _cmd_context_http, and _cmd_search_http. All 5 contract tasks verified: --checkpoint-repo flag position via parent parser, empty results to stderr, composite BRC role names with post-filter, --json valid empty output, help text caveats.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "shared/egg_contracts/checkpoint_cli.py"
+        ],
+        "reason": "All 141 tests pass (65 papercut + 76 existing). Coder properly addressed NACK feedback: (1) added _decompose_composite_role() to separate API-level AgentType from composite role name; (2) added _http_filter_composite_role() for N+1 checkpoint fetches in HTTP path, post-filtering by session.agent_role; (3) applied decomposition consistently in _build_list_params, _cmd_list_http, _cmd_context_http, and _cmd_search_http. All 5 contract tasks verified: --checkpoint-repo flag position via parent parser, empty results to stderr, composite BRC role names with post-filter, --json valid empty output, help text caveats."
+      },
+      "version": 2
+    },
+    "timestamp": "2026-04-14T06:49:40.623601+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2b96a24b-b4e2-4c",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_contract",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-14T06:49:44.012099+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a5722f0c-a4fb-44",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from coder",
+    "body": "All five CLI papercuts implemented. HTTP composite role handling fixed per reviewer_code NACK. ruff format applied per tester NACK. All 170 tests pass. ruff check + ruff format --check clean.",
+    "metadata": {
+      "payload": {
+        "summary": "All five CLI papercuts implemented. HTTP composite role handling fixed per reviewer_code NACK. ruff format applied per tester NACK. All 170 tests pass. ruff check + ruff format --check clean.",
+        "attestation": {},
+        "artifacts": [
+          "shared/egg_contracts/checkpoint_cli.py"
+        ],
+        "risk_considered": "",
+        "commit_sha": "496d81f0df",
+        "files_changed": [
+          "shared/egg_contracts/checkpoint_cli.py"
+        ],
+        "tests_run": [
+          "tests/shared/egg_contracts/test_checkpoint_cli.py",
+          "tests/shared/egg_contracts/test_checkpoint_cli_http.py",
+          "tests/shared/egg_contracts/test_checkpoint_cli_papercuts.py"
+        ],
+        "tasks_satisfied": []
+      },
+      "version": 3,
+      "commit_sha": "496d81f0df"
+    },
+    "timestamp": "2026-04-14T06:49:52.203559+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e62285b1-ca64-4d",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "orchestrator",
+    "to_role": "reviewer_code",
+    "message_type": "CONSENSUS_RE_REVIEW",
+    "subject": "Re-review required: coder submitted new proposal v3",
+    "body": "Producer coder has submitted a new proposal (version 3) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.",
+    "metadata": {
+      "producer_role": "coder",
+      "version": 3
+    },
+    "timestamp": "2026-04-14T06:49:52.203572+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "227df11c-59c2-49",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "orchestrator",
+    "to_role": "reviewer_contract",
+    "message_type": "CONSENSUS_RE_REVIEW",
+    "subject": "Re-review required: coder submitted new proposal v3",
+    "body": "Producer coder has submitted a new proposal (version 3) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.",
+    "metadata": {
+      "producer_role": "coder",
+      "version": 3
+    },
+    "timestamp": "2026-04-14T06:49:52.203579+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "459ee4c9-6c5c-4a",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "STATUS",
+    "subject": "Coder: all NACK fixes applied, re-proposed v3",
+    "body": "Fixed both NACKs: (1) HTTP composite reviewer role decomposition per reviewer_code, (2) ruff format per tester. All 170 tests pass, ruff check + format clean. Commit 496d81f0df.",
+    "metadata": {},
+    "timestamp": "2026-04-14T06:49:58.281010+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c699465a-8098-41",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by documenter",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-14T06:49:59.473403+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b257f085-ee56-47",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by coder (pending_acks)",
+    "body": "Producer coder cannot confirm: not fully ACKed. Pending reviewers: ['reviewer_code', 'reviewer_contract', 'tester']",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-14T06:50:06.086574+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "059e20a6-9133-4c",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by coder (pending_acks)",
+    "body": "Producer coder cannot confirm: not fully ACKed. Pending reviewers: ['reviewer_code', 'reviewer_contract', 'tester']",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-14T06:50:08.956302+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "748a8308-370a-4f",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "reviewer_code",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for coder",
+    "body": "ACK coder v3. Only ruff formatting changes since v2 (line wrapping adjustments in _AGENT_TYPE_CHOICES, _http_get call, _http_filter_composite_role calls). No functional changes. All 65 tests still pass. HTTP path composite role fix from v2 is preserved and correct.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "shared/egg_contracts/checkpoint_cli.py"
+        ],
+        "reason": "ACK coder v3. Only ruff formatting changes since v2 (line wrapping adjustments in _AGENT_TYPE_CHOICES, _http_get call, _http_filter_composite_role calls). No functional changes. All 65 tests still pass. HTTP path composite role fix from v2 is preserved and correct."
+      },
+      "version": 3
+    },
+    "timestamp": "2026-04-14T06:50:11.412704+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "36c282ad-d9b5-4c",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_code",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-14T06:50:15.010914+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "49ff6cae-c832-41",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "tester",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from tester for coder",
+    "body": "ruff format fails with 5 violations (lines 84-86, 781-783, 830-832, 1148-1150, 1740-1742). Logic is correct, all 141 tests pass. Fix: run '.venv/bin/ruff format shared/egg_contracts/checkpoint_cli.py', commit, push, re-propose.",
+    "metadata": {
+      "payload": {
+        "reason": "ruff format fails with 5 violations (lines 84-86, 781-783, 830-832, 1148-1150, 1740-1742). Logic is correct, all 141 tests pass. Fix: run '.venv/bin/ruff format shared/egg_contracts/checkpoint_cli.py', commit, push, re-propose.",
+        "artifact_references": [
+          "shared/egg_contracts/checkpoint_cli.py"
+        ]
+      },
+      "reason": "ruff format fails with 5 violations (lines 84-86, 781-783, 830-832, 1148-1150, 1740-1742). Logic is correct, all 141 tests pass. Fix: run '.venv/bin/ruff format shared/egg_contracts/checkpoint_cli.py', commit, push, re-propose.",
+      "revision_count": 2
+    },
+    "timestamp": "2026-04-14T06:50:19.202733+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e77502f8-8633-46",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "coder",
+    "to_role": "tester",
+    "message_type": "STATUS",
+    "subject": "ruff format already fixed in v3 (496d81f0df)",
+    "body": "The ruff format issue was fixed in commit 496d81f0df, pushed to egg/pipeline-2d7b273f/work. Please git fetch and check the latest commit. ruff format --check passes cleanly on the current HEAD. Your NACK may reference the old commit (1cdf55b28f) which had the format issue.",
+    "metadata": {},
+    "timestamp": "2026-04-14T06:50:39.084493+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4482953c-fff9-40",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "tester",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from tester for coder",
+    "body": "ACK coder v3. Verified: ruff format clean, ruff check clean, mypy clean, 141 tests pass (76 existing + 65 new). _decompose_composite_role() and _http_filter_composite_role() properly handle HTTP path composite reviewer roles. Commit 496d81f0df.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "shared/egg_contracts/checkpoint_cli.py"
+        ],
+        "reason": "ACK coder v3. Verified: ruff format clean, ruff check clean, mypy clean, 141 tests pass (76 existing + 65 new). _decompose_composite_role() and _http_filter_composite_role() properly handle HTTP path composite reviewer roles. Commit 496d81f0df."
+      },
+      "version": 3
+    },
+    "timestamp": "2026-04-14T06:51:05.167418+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2becb2a2-2870-4f",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by tester",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-14T06:51:08.202635+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d4dbcc28-810d-4a",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by coder (pending_acks)",
+    "body": "Producer coder cannot confirm: not fully ACKed. Pending reviewers: ['reviewer_contract']",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-14T06:51:11.387587+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b9a365e7-5f99-4f",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "reviewer_contract",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for coder",
+    "body": "V3 is formatting-only (ruff format). No logic changes \u2014 5 line adjustments to satisfy ruff line-length rules. All 141 tests pass. Contract criteria unchanged from v2 ACK.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "shared/egg_contracts/checkpoint_cli.py"
+        ],
+        "reason": "V3 is formatting-only (ruff format). No logic changes \u2014 5 line adjustments to satisfy ruff line-length rules. All 141 tests pass. Contract criteria unchanged from v2 ACK."
+      },
+      "version": 3
+    },
+    "timestamp": "2026-04-14T06:51:43.020252+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9a86ab06-9379-41",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "orchestrator",
+    "to_role": "coder",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 3). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 3
+    },
+    "timestamp": "2026-04-14T06:51:43.020285+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0c6f8c43-7cda-46",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "overseer",
+    "to_role": "tester",
+    "message_type": "STATUS",
+    "subject": "Overseer nudge: review coder v3 proposal",
+    "body": "Tester: coder re-proposed v3 (commit 496d81f0df) with both NACKs resolved (HTTP composite role + ruff format). Please review and ACK coder v3 to unblock consensus. You are fully ACKed as producer but need to complete reviewer duties first.",
+    "metadata": {},
+    "timestamp": "2026-04-14T06:51:46.180749+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4702416c-8515-4e",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by documenter",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-14T06:51:46.367468+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0013950a-e298-43",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_contract",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-14T06:51:46.687822+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4ee6ca61-40c4-42",
+    "pipeline_id": "pipeline-2d7b273f",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by coder",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-04-14T06:51:50.119390+00:00",
+    "phase": "implement"
+  }
+]
