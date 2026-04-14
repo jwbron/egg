@@ -212,21 +212,40 @@ The BRC (Broadcast-Review-Converge) protocol is used during concurrent execution
 
 **Consensus commands:**
 ```bash
-# Producer: propose work for review (commit SHA defaults to HEAD if omitted)
-egg-orch consensus propose --summary "Implemented feature X" --artifacts src/feature.py --commit-sha $(git rev-parse HEAD)
+# Producer: propose work for review with structured metadata
+# --summary is required (≥50 chars, substantive — see content requirements below)
+# --commit defaults to HEAD if omitted
+egg-orch consensus propose \
+  --summary "Implemented auth module: added JWT validation, rate limiting, and session management" \
+  --artifacts src/auth.py src/middleware.py \
+  --commit-sha $(git rev-parse HEAD) \
+  --files-changed src/auth.py src/middleware.py tests/test_auth.py \
+  --tests-run tests/test_auth.py tests/test_middleware.py \
+  --tasks task-1-1 task-1-2
 
 # Producer: push and propose atomically (required in concurrent mode, suppresses auto re-propose)
 # Sets consensus_push marker so the gateway allows the push through concurrent-mode enforcement
-egg-orch consensus propose --push --summary "Implemented feature X" --artifacts src/feature.py --commit-sha $(git rev-parse HEAD)
+egg-orch consensus propose --push \
+  --summary "Implemented auth module: added JWT validation, rate limiting, and session management" \
+  --artifacts src/auth.py src/middleware.py \
+  --commit-sha $(git rev-parse HEAD) \
+  --files-changed src/auth.py src/middleware.py \
+  --tests-run tests/test_auth.py \
+  --tasks task-1-1
 
-# Reviewer: ACK a producer's proposal
-egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py
+# Reviewer: ACK a producer's proposal (--reason is required, ≥50 chars)
+egg-orch consensus ack coder \
+  --reason "Reviewed auth.py (JWT validation) and middleware.py (rate limiting). Token refresh logic is correct, rate limit headers follow RFC 6585. No issues found." \
+  --files-reviewed src/auth.py src/middleware.py
 
-# Reviewer: NACK a producer's proposal
-egg-orch consensus nack coder --reason "Missing error handling" --files-reviewed src/feature.py
+# Reviewer: NACK a producer's proposal (--reason is required, ≥50 chars)
+egg-orch consensus nack coder \
+  --reason "auth.py line 42: JWT expiry check uses <= instead of <, allowing expired tokens for up to 1 second. Fix the comparison operator." \
+  --files-reviewed src/auth.py
 
-# Producer: withdraw proposal (requires reason citing new information)
-egg-orch consensus withdraw --reason "Addressing NACK: adding error handling"
+# Producer: withdraw proposal (--reason is required, ≥50 chars, must cite new information)
+egg-orch consensus withdraw \
+  --reason "Discovered failing edge case in JWT refresh flow after proposing — token rotation under concurrent requests causes a race condition"
 
 # Agent: confirm after all reviews complete
 # Exit 0 = confirmed. Exit 1 = error. Exit 2 = waiting for reviewer re-ACKs (retry after polling).
@@ -236,14 +255,43 @@ egg-orch consensus confirmed
 egg-orch consensus status
 ```
 
+**Propose arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `--summary` | Yes | Substantive description of work done (≥50 chars). Must describe what was built, what was tested, and which contract tasks it satisfies. |
+| `--artifacts` | No | File paths of artifacts produced |
+| `--commit-sha` | No | Git commit SHA (defaults to HEAD) |
+| `--files-changed` | No | List of files changed in this proposal |
+| `--tests-run` | No | List of test files executed |
+| `--tasks` | No | Contract task IDs satisfied by this proposal |
+| `--risk` | No | Risk assessment text |
+| `--push` | No | Push and propose atomically (required in concurrent mode) |
+| `--changed-artifacts` | No | Files changed since last proposal (for re-proposals) |
+
+**ACK/NACK arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `<role>` | Yes | Producer role being reviewed (positional) |
+| `--reason` | Yes | Substantive rationale (≥50 chars). For ACKs: what was read, what was checked, why the verdict follows. For NACKs: specific, actionable objection with file/line references. |
+| `--files-reviewed` | No | Specific file paths that were reviewed |
+
+**Content requirements:** The orchestrator enforces a minimum content floor on all BRC messages. Proposals (`--summary`), ACKs (`--reason`), NACKs (`--reason`), and withdrawals (`--reason`) must be:
+- Non-empty and ≥50 characters after trimming whitespace
+- Not boilerplate (e.g., "lgtm", "looks good", "no issues", "approved", "ok" are rejected)
+- Substantive — describe specific artifacts, findings, or reasoning
+
+Messages that fail content validation are rejected with HTTP 400 and an actionable error message. No state mutation occurs on rejection.
+
 **Signal types for consensus:**
 
 | Signal type | Purpose |
 |-------------|---------|
-| `consensus_propose` | Producer proposes artifacts for review |
-| `consensus_ack` | Reviewer ACKs a producer's proposal |
-| `consensus_nack` | Reviewer NACKs a producer's proposal |
-| `consensus_withdraw` | Producer withdraws proposal (cooldown + flip-flop limits apply) |
+| `consensus_propose` | Producer proposes artifacts for review (with structured metadata: commit, files changed, tests run, tasks satisfied) |
+| `consensus_ack` | Reviewer ACKs a producer's proposal (with required substantive rationale) |
+| `consensus_nack` | Reviewer NACKs a producer's proposal (with required substantive rationale) |
+| `consensus_withdraw` | Producer withdraws proposal (with required rationale; cooldown + flip-flop limits apply) |
 | `consensus_confirmed` | Agent confirms consensus (action guards enforced) |
 | `consensus_producer_push` | Triggers auto re-proposal when a producer pushes new commits after proposing — invalidates stale ACKs and notifies reviewers |
 

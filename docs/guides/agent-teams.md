@@ -141,6 +141,8 @@ The reasoning layer ensures agents don't just signal states — they make **stru
 
 **Producer proposals (`CONSENSUS_PROPOSE`):**
 
+Proposals carry both a narrative `--summary` (≥50 characters, enforced by the orchestrator) and structured metadata via `--commit-sha`, `--files-changed`, `--tests-run`, and `--tasks` CLI arguments. The structured fields are folded into the signal payload under `commit`, `files_changed`, `tests_run`, and `tasks_satisfied` keys.
+
 | Role | Required attestation |
 |------|---------------------|
 | Coder | Commit SHAs, files changed, test pass/fail summary, one risk considered |
@@ -152,6 +154,8 @@ The reasoning layer ensures agents don't just signal states — they make **stru
 > **Tester `checks_passed` requirement:** The Tester's attestation must include a `checks_passed` list naming every configured check that **passed** (e.g. `["lint", "test"]`). Only include checks with a clean exit — do not include checks that failed. The server validates that all checks listed in `repositories.yaml` appear in this list and rejects the proposal if any are missing. Running tests alone is not sufficient — all configured checks must pass and be reported.
 
 **Reviewer evaluations (`CONSENSUS_ACK/NACK`):**
+
+Both ACKs and NACKs require a `--reason` argument with substantive rationale (≥50 characters, enforced by the orchestrator). The rationale is stored in the `reason` key of the signal payload and written to the message body, making review reasoning visible to all participants and in BRC history.
 
 | Role | Required attestation |
 |------|---------------------|
@@ -165,11 +169,12 @@ Not all messages need the same rigor:
 | Message type | Signal cost | Rationale |
 |-------------|-------------|-----------|
 | STATUS, PROGRESS | Cheap talk | Low overhead, informative when interests are aligned |
-| CONSENSUS_PROPOSE | Costly signal | Attestations are harder to produce without doing the work |
-| CONSENSUS_ACK | Costly signal | Must reference specific artifacts reviewed (prevents rubber-stamping) |
-| CONSENSUS_NACK | Costly signal | Must include specific, actionable objection with artifact references |
+| CONSENSUS_PROPOSE | Costly signal | Attestations are harder to produce without doing the work; structured metadata (`--commit`, `--files-changed`, `--tests-run`, `--tasks`) complements narrative summary; ≥50-char floor enforced |
+| CONSENSUS_ACK | Costly signal | Must reference specific artifacts reviewed AND provide substantive rationale via `--reason` (≥50 chars, enforced); prevents rubber-stamping at both the schema and content layers |
+| CONSENSUS_NACK | Costly signal | Must include specific, actionable objection with artifact references via `--reason` (≥50 chars, enforced) |
+| CONSENSUS_WITHDRAW | Costly signal | Must cite specific new information justifying retraction via `--reason` (≥50 chars, enforced); subject to cooldown and flip-flop limits |
 
-This distinction comes from game theory: cheap talk (Crawford & Sobel, 1982) works when interests are fully aligned, but LLM agents are *unreliable communicators* — they may genuinely believe bad work is good. Costly signals (requiring verifiable evidence) address this.
+This distinction comes from game theory: cheap talk (Crawford & Sobel, 1982) works when interests are fully aligned, but LLM agents are *unreliable communicators* — they may genuinely believe bad work is good. Costly signals (requiring verifiable evidence) address this. The ≥50-character content floor ([#1716](https://github.com/jwbron/egg/issues/1716)) closes a gap where ACK messages were structurally empty — the CLI had no `--reason` argument, making every ACK body `""` by construction regardless of agent intent.
 
 #### Anti-Sycophancy Measures
 
@@ -177,11 +182,13 @@ Research (CONSENSAGENT, ACL 2025) shows LLM agents exhibit strong sycophancy in 
 
 1. **Artifact reference requirement.** ACKs and NACKs must cite specific file paths, line numbers, commit SHAs, or test names. Generic "looks good" is rejected by schema validation. This is the primary anti-sycophancy mechanism — citing specific artifacts is mechanically hard to satisfy without doing the work.
 
-2. **Delphi ordering.** Reviewers form independent judgments from git artifacts before seeing the producer's self-assessment.
+2. **Minimum content floor.** The orchestrator enforces a ≥50-character minimum on all BRC message bodies (proposals, ACKs, NACKs, withdrawals) and rejects exact-match boilerplate strings ("lgtm", "looks good", "no issues", "approved", "ok"). This is enforced at the signal handler level — messages that fail validation receive HTTP 400 and produce no state mutation. See [Concurrent Execution — Content Validation](concurrent-execution.md#content-validation) for details.
 
-3. **Critical thinking prompt.** Every proposal/review must include "one risk I considered." This is a secondary measure — easy to satisfy with generic output and should not be weighted equally.
+3. **Delphi ordering.** Reviewers form independent judgments from git artifacts before seeing the producer's self-assessment.
 
-4. **Dynamic prompt refinement.** Evolve prompts based on observed rubber-stamping patterns rather than relying solely on procedural rules.
+4. **Critical thinking prompt.** Every proposal/review must include "one risk I considered." This is a secondary measure — easy to satisfy with generic output and should not be weighted equally.
+
+5. **Dynamic prompt refinement.** Evolve prompts based on observed rubber-stamping patterns rather than relying solely on procedural rules.
 
 ## Consensus Failure Modes
 
