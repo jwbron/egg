@@ -530,7 +530,8 @@
       "ckpt-0fc6a27a98a07306",
       "ckpt-b0d5995441a0dae1",
       "ckpt-f8d02ab3f1e34349",
-      "ckpt-9fb79575549f552d"
+      "ckpt-9fb79575549f552d",
+      "ckpt-789e204b4c81dcf4"
     ]
   },
   "by_commit": {},
@@ -648,6 +649,9 @@
     "issue-1743-v2": [
       "ckpt-f8d02ab3f1e34349",
       "ckpt-9fb79575549f552d"
+    ],
+    "issue-1743-v3": [
+      "ckpt-789e204b4c81dcf4"
     ],
     "local-0a770e0f": [
       "ckpt-241ef0fa799dd61d"
@@ -1302,6 +1306,9 @@
     ],
     "issue-1743-v2-state-ls-remote": [
       "ckpt-f8d02ab3f1e34349"
+    ],
+    "issue-1743-v3-state-ls-remote": [
+      "ckpt-789e204b4c81dcf4"
     ],
     "local-0a770e0f-failsafe-fetch": [
       "ckpt-241ef0fa799dd61d"
@@ -2276,7 +2283,8 @@
       "ckpt-0fc6a27a98a07306",
       "ckpt-b0d5995441a0dae1",
       "ckpt-f8d02ab3f1e34349",
-      "ckpt-9fb79575549f552d"
+      "ckpt-9fb79575549f552d",
+      "ckpt-789e204b4c81dcf4"
     ]
   },
   "by_trigger": {
@@ -2810,7 +2818,8 @@
       "ckpt-0fc6a27a98a07306",
       "ckpt-b0d5995441a0dae1",
       "ckpt-f8d02ab3f1e34349",
-      "ckpt-9fb79575549f552d"
+      "ckpt-9fb79575549f552d",
+      "ckpt-789e204b4c81dcf4"
     ]
   },
   "checkpoints": [
@@ -12883,8 +12892,27 @@
       "tool_call_count": 0,
       "total_tokens": 0,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-04-14T16:14:52.554934Z",
+      "files_touched_count": 0,
+      "id": "ckpt-789e204b4c81dcf4",
+      "issue_number": null,
+      "message_count": 0,
+      "pipeline_id": "issue-1743-v3",
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": null,
+      "session_id": "issue-1743-v3-state-ls-remote",
+      "session_status": "completed",
+      "tool_call_count": 0,
+      "total_tokens": 0,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-04-14T16:08:05.834247Z",
+  "last_updated": "2026-04-14T16:14:54.910200Z",
   "schemaVersion": "2.0"
 }
