@@ -459,9 +459,9 @@ At each phase boundary, the orchestrator writes a **lossless** chronological log
 
 **Markdown file format:**
 
-Each message is rendered with a header showing `from_role`, `to_role` (for directed messages only — omitted for broadcasts), `message_type`, and `subject`, followed by the message body and a fenced YAML metadata block containing the message `id`, `phase`, and the full `metadata` dict (when non-empty). This preserves structured fields that were previously dropped: `artifact_references`, `ack_version`, `commit_sha`, `revision_count`, and `version`.
+Each message is rendered with a header showing `from_role`, `to_role` (for directed messages only — omitted for broadcasts), `message_type`, and `subject`, followed by the message body and a fenced YAML metadata block containing the message `id`, `phase`, and the full `metadata` dict (when non-empty). YAML blocks use a 4-backtick fence (` ```` `) so that triple-backtick code fences in message bodies cannot break the metadata block. This preserves structured fields that were previously dropped: `artifact_references`, `ack_version`, `commit_sha`, `revision_count`, and `version`.
 
-```markdown
+`````markdown
 # BRC Consensus History — {phase} phase
 
 Generated: {timestamp}
@@ -471,7 +471,7 @@ Pipeline: {pipeline_id}
 
 Summary of proposal and artifacts...
 
-```yaml
+````yaml
 id: abc123def456
 phase: implement
 metadata:
@@ -480,13 +480,13 @@ metadata:
   payload:
     artifact_references:
       - orchestrator/routes/pipelines.py
-```
+````
 
 ### [2026-04-08T12:05:00Z] reviewer_code → coder (CONSENSUS_ACK): Reviewed coder proposal
 
 ACK with file-level feedback...
 
-```yaml
+````yaml
 id: def789abc012
 phase: implement
 metadata:
@@ -496,10 +496,10 @@ metadata:
     artifact_references:
       - orchestrator/routes/pipelines.py
       - orchestrator/tests/test_brc_history.py
-```
+````
 
 ### [2026-04-08T12:10:00Z] coder (CONSENSUS_CONFIRMED): All reviewers ACKed
-```
+`````
 
 > In the example above, note `reviewer_code → coder` on the ACK — the `→ {to_role}` component appears only when the message is directed (i.e., `to_role` is not `"all"`). Broadcast messages omit this.
 

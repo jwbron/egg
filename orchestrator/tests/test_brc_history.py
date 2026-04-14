@@ -1081,7 +1081,7 @@ class TestWriteBrcHistoryLossless:
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
         content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
-        assert "```yaml" in content
+        assert "````yaml" in content
         assert "artifact_references" in content
         assert "orchestrator/routes/pipelines.py" in content
         assert "ack_version" in content
@@ -1111,7 +1111,7 @@ class TestWriteBrcHistoryLossless:
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
         content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
-        assert "```yaml" in content
+        assert "````yaml" in content
         assert "revision_count" in content
         assert "payload" in content
         assert "Missing error handling" in content
@@ -1714,7 +1714,7 @@ class TestBrcConsensusSummaryInline:
 
         content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
         # Should still have a yaml block with id and phase, but no metadata key
-        assert "```yaml" in content
+        assert "````yaml" in content
         assert "id:" in content
         assert "phase:" in content
         # metadata key should NOT appear since it's empty
@@ -1808,10 +1808,10 @@ class TestYamlMetadataRoundTrip:
         in_yaml = False
         yaml_lines: list[str] = []
         for line in content.split("\n"):
-            if line.strip() == "```yaml":
+            if line.strip() == "````yaml":
                 in_yaml = True
                 yaml_lines = []
-            elif line.strip() == "```" and in_yaml:
+            elif line.strip() == "````" and in_yaml:
                 in_yaml = False
                 parsed = yaml.safe_load("\n".join(yaml_lines))
                 assert isinstance(parsed, dict)
@@ -1862,10 +1862,10 @@ class TestYamlMetadataRoundTrip:
         yaml_lines: list[str] = []
         found_yaml = False
         for line in content.split("\n"):
-            if line.strip() == "```yaml":
+            if line.strip() == "````yaml":
                 in_yaml = True
                 yaml_lines = []
-            elif line.strip() == "```" and in_yaml:
+            elif line.strip() == "````" and in_yaml:
                 in_yaml = False
                 parsed = yaml.safe_load("\n".join(yaml_lines))
                 # Verify nested structure round-trips correctly

@@ -4220,9 +4220,11 @@ def _write_brc_history(
             meta_block["metadata"] = msg.metadata
         if meta_block:
             lines.append("")
-            lines.append("```yaml")
-            lines.append(yaml.dump(meta_block, sort_keys=False, default_flow_style=False).rstrip())
-            lines.append("```")
+            lines.append("````yaml")
+            lines.append(
+                yaml.safe_dump(meta_block, sort_keys=False, default_flow_style=False).rstrip()
+            )
+            lines.append("````")
         lines.append("")
 
     history_dir = worktree_path / ".egg-state" / "brc-history"
@@ -4483,6 +4485,17 @@ def _reconcile_and_push_pr_branch(
     return retry_ok
 
 
+def _msg_version(m: Any) -> int:
+    """Extract the integer version from a BRC message's metadata."""
+    v = (m.metadata or {}).get("version", 0)
+    if not isinstance(v, int):
+        try:
+            v = int(v)
+        except (ValueError, TypeError):
+            v = 0
+    return v
+
+
 def _build_brc_consensus_summary(
     pipeline_id: str,
     identifier: int | str | None = None,
@@ -4506,6 +4519,8 @@ def _build_brc_consensus_summary(
             When ``None``, artifact links are omitted.
     """
     _MAX_BODY_INLINE = 2000  # Max chars for an individual inlined body
+    # GitHub's PR body limit is 65,536 chars.  40k leaves room for the PR
+    # description, test plan, pipeline context, and other sections.
     _TOTAL_CAP = 40000
 
     store_fn = _get_message_store()
@@ -4567,13 +4582,7 @@ def _build_brc_consensus_summary(
         propose_versions: list[tuple[int, Any]] = []
         for m in phase_msgs:
             if m.message_type == "CONSENSUS_PROPOSE":
-                version = (m.metadata or {}).get("version", 0)
-                if not isinstance(version, int):
-                    try:
-                        version = int(version)
-                    except (ValueError, TypeError):
-                        version = 0
-                propose_versions.append((version, m))
+                propose_versions.append((_msg_version(m), m))
 
         final_version = max((v for v, _ in propose_versions), default=0) if propose_versions else 0
 
@@ -4581,12 +4590,7 @@ def _build_brc_consensus_summary(
         final_round_msgs: list[Any] = []
         earlier_round_msgs: list[Any] = []
         for m in phase_msgs:
-            msg_version = (m.metadata or {}).get("version", 0)
-            if not isinstance(msg_version, int):
-                try:
-                    msg_version = int(msg_version)
-                except (ValueError, TypeError):
-                    msg_version = 0
+            msg_version = _msg_version(m)
             # CONFIRMED and RE_REVIEW don't have version — always final
             if m.message_type in ("CONSENSUS_CONFIRMED", "CONSENSUS_RE_REVIEW"):
                 final_round_msgs.append(m)
@@ -4614,6 +4618,8 @@ def _build_brc_consensus_summary(
                             body_text[:_MAX_BODY_INLINE] + "… _(full content in brc-history/*.md)_"
                         )
                     block_lines.append(f"  **{m.from_role}** ({m.message_type}): {body_text}")
+                else:
+                    block_lines.append(f"  **{m.from_role}** ({m.message_type})")
 
         # Wrap earlier rounds in <details> if any
         if earlier_round_msgs:
@@ -4643,7 +4649,7 @@ def _build_brc_consensus_summary(
             md_link = f".egg-state/brc-history/{identifier}-{phase_name}.md"
             json_link = f".egg-state/brc-history/{identifier}-{phase_name}.json"
             block_lines.append(
-                f"Full record: [{md_link}](./{md_link}) · [{'.json'}](./{json_link})"
+                f"Full record: [{md_link}](./{md_link}) · [{json_link}](./{json_link})"
             )
 
         block_lines.append("")
