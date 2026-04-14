@@ -351,3 +351,24 @@ class TestMessageSendTypeHelpText:
         assert args.to == "tester"
         assert args.subject == "Test files ready"
         assert args.body == "See commit abc1234"
+
+    def test_message_send_rejects_invalid_type(self):
+        """``egg-orch message send --type HANDOF`` (typo) exits non-zero."""
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(
+                [
+                    "message",
+                    "send",
+                    "issue-42",
+                    "--to",
+                    "tester",
+                    "--type",
+                    "HANDOF",
+                    "--subject",
+                    "Test files ready",
+                    "--body",
+                    "See commit abc1234",
+                ]
+            )
+        assert exc_info.value.code != 0
