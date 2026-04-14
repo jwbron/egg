@@ -148,7 +148,7 @@ The local distributed orchestrator (`orchestrator/` package) manages the full li
 |-----------|----------|
 | Contract schema | `.egg/schemas/contract.schema.json` |
 | Contract instances | `.egg-state/contracts/{identifier}.json` |
-| Phase drafts | `.egg-state/drafts/{identifier}-{analysis\|plan}.md` (removed before PR creation) |
+| Phase drafts | `.egg-state/drafts/{identifier}-{analysis\|plan}.md` (preserved on PR branch as pipeline artifacts) |
 | BRC consensus history | `.egg-state/brc-history/{identifier}-{phase}.md` (re-written in PR phase as safety net) |
 | Review verdicts | `.egg-state/reviews/{identifier}-{phase}-{reviewer}.json` |
 | Contract library | `shared/egg_contracts/` |

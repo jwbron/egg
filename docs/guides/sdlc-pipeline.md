@@ -333,8 +333,8 @@ The refine and plan phases include an automated internal review step before huma
 .egg-state/
 ├── contracts/{identifier}.json      # Contract state
 ├── drafts/
-│   ├── {identifier}-analysis.md     # Refine phase draft (removed before PR creation)
-│   └── {identifier}-plan.md         # Plan phase draft (removed before PR creation)
+│   ├── {identifier}-analysis.md     # Refine phase draft (preserved on PR branch)
+│   └── {identifier}-plan.md         # Plan phase draft (preserved on PR branch)
 ├── brc-history/
 │   ├── {identifier}-refine.md       # BRC consensus messages from refine phase
 │   ├── {identifier}-plan.md         # BRC consensus messages from plan phase
@@ -422,7 +422,7 @@ This structural enforcement prevents incidents where agents push code during pla
 | `.egg/schemas/` | Contract JSON schema definitions | `main` |
 | `.egg/phase-permissions.json` | Phase operation restrictions | `main` |
 | `.egg-state/contracts/` | Per-issue contract instances | Feature branches only |
-| `.egg-state/drafts/` | Draft analysis and plan documents (cleaned up before PR creation) | Feature branches only |
+| `.egg-state/drafts/` | Draft analysis and plan documents (preserved on PR branch for review) | Feature branches only |
 | `.egg-state/brc-history/` | Per-phase BRC consensus message logs (re-written in PR phase as safety net) | Feature branches only |
 | `.egg-state/reviews/` | Internal review verdicts (JSON) | Feature branches only |
 
@@ -728,7 +728,7 @@ The orchestrator pushes worktree state (including `.egg-state/` files) to the re
 
 1. **After contract initialization** — Pushes initial contract and analysis/plan drafts so the first agents in the next phase see them
 2. **After phase completion** — Pushes statefiles (drafts, reviews, BRC history, check results, contract updates) so the next phase's agents don't have unpushed `.egg-state/` files in their diff
-3. **Before PR creation** — Pushes BRC history re-writes, draft cleanup commits, and any pending statefiles. This is a safety net for cases where post-phase pushes (point 2) failed silently. Push outcomes are logged at INFO level with the number of local commits ahead of remote (see [PR-Phase State File Troubleshooting](#pr-phase-state-file-troubleshooting))
+3. **Before PR creation** — Pushes BRC history re-writes and any pending statefiles. This is a safety net for cases where post-phase pushes (point 2) failed silently. Push outcomes are logged at INFO level with the number of local commits ahead of remote (see [PR-Phase State File Troubleshooting](#pr-phase-state-file-troubleshooting))
 4. **On pipeline failure** — Best-effort failsafe push to preserve in-progress work
 
 All pushes use `GatewayClient.push_worktree_branch()`, which registers a temporary session token, pushes the branch, and cleans up the session.
