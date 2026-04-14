@@ -5845,7 +5845,8 @@ def _build_brc_preamble(
         lines.extend(
             [
                 "### Reviewer Lifecycle",
-                "1. **PREPARE** (while waiting): " + _build_reviewer_preparation(role_value, phase, branch=branch),
+                "1. **PREPARE** (while waiting): "
+                + _build_reviewer_preparation(role_value, phase, branch=branch),
                 "2. **POLL**: Wait for `CONSENSUS_PROPOSE` from assigned producers "
                 "(`egg-orch message poll --wait 30`). While waiting, continue "
                 "your preparation work from step 1.",
