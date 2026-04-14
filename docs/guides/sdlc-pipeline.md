@@ -313,6 +313,9 @@ The gateway enforces file access patterns for each agent role via `gateway/agent
 **Handoff Data:**
 Agents communicate via handoff data stored in `.egg-state/agent-outputs/{identifier}-{role}-output.json` (where `{identifier}` is the issue number or pipeline ID). For example, the Coder agent outputs a list of changed files, which the Tester and Documenter agents read to focus their work. The identifier prefix prevents merge conflicts when concurrent pipelines merge to main.
 
+**BRC Content Enforcement:**
+All BRC consensus messages (proposals, ACKs, NACKs, withdrawals) must carry substantive content — the orchestrator enforces a minimum content floor (≥50 characters, no boilerplate) at the protocol boundary. This ensures ACKs carry the same deliberative weight as NACKs and prevents rubber-stamping. See [Minimum Content Enforcement](concurrent-execution.md#minimum-content-enforcement) for validation rules and [Agent Teams](agent-teams.md#cheap-talk-vs-costly-signals) for the anti-sycophancy rationale.
+
 **Orchestration:**
 Multi-agent orchestration is managed by the local orchestrator (`orchestrator/container_spawner.py`). The orchestrator reads the contract state, determines which agents can run based on dependencies, and dispatches them in parallel where possible.
 

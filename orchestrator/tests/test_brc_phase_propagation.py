@@ -244,7 +244,10 @@ class TestProposePhasePropagation:
                 "issue-42",
                 {
                     "agent_role": "coder",
-                    "payload": {"summary": "Did the work", "commit_sha": "abc123"},
+                    "payload": {
+                        "summary": "Implemented authentication module with JWT validation and session management",
+                        "commit_sha": "abc123",
+                    },
                 },
                 Path("/tmp/repo"),
             )
@@ -292,7 +295,9 @@ class TestProposePhasePropagation:
                 "issue-42",
                 {
                     "agent_role": "coder",
-                    "payload": {"summary": "Updated work"},
+                    "payload": {
+                        "summary": "Updated authentication module: fixed token expiry and added session refresh logic"
+                    },
                     "changed_artifacts": ["file.py"],
                 },
                 Path("/tmp/repo"),
@@ -344,7 +349,9 @@ class TestAckPhasePropagation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
-                    "payload": {"reason": "LGTM"},
+                    "payload": {
+                        "reason": "Reviewed src/auth.py: token validation logic is correct, all branches covered by tests"
+                    },
                 },
                 Path("/tmp/repo"),
             )
@@ -385,7 +392,9 @@ class TestAckPhasePropagation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
-                    "payload": {"reason": "LGTM"},
+                    "payload": {
+                        "reason": "Reviewed src/auth.py: token validation logic is correct, all branches covered by tests"
+                    },
                 },
                 Path("/tmp/repo"),
             )
@@ -438,7 +447,9 @@ class TestNackPhasePropagation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
-                    "payload": {"reason": "Missing tests"},
+                    "payload": {
+                        "reason": "Missing unit tests for token expiry edge cases and invalid signature handling paths"
+                    },
                 },
                 Path("/tmp/repo"),
             )
@@ -480,7 +491,10 @@ class TestWithdrawPhasePropagation:
 
             response, status_code = handle_consensus_withdraw_signal(
                 "issue-42",
-                {"agent_role": "coder", "reason": "Need to rework"},
+                {
+                    "agent_role": "coder",
+                    "reason": "Withdrawing: discovered timing attack vulnerability in JWT comparison, need constant-time implementation",
+                },
                 Path("/tmp/repo"),
             )
 
@@ -911,7 +925,12 @@ class TestPhasePropagationEdgeCases:
 
             handle_consensus_propose_signal(
                 "issue-42",
-                {"agent_role": "planner", "payload": {"summary": "Plan done"}},
+                {
+                    "agent_role": "planner",
+                    "payload": {
+                        "summary": "Completed architecture plan: defined API endpoints, database schema, and auth flow for user management"
+                    },
+                },
                 Path("/tmp/repo"),
             )
 
@@ -924,7 +943,10 @@ class TestPhasePropagationEdgeCases:
         mock_store.load_pipeline.return_value = mock_pipeline
 
         mock_tracker = MagicMock()
-        mock_tracker.handle_nack.return_value = {"reason": "Bad", "revision_count": 1}
+        mock_tracker.handle_nack.return_value = {
+            "reason": "Implementation has SQL injection in query builder module",
+            "revision_count": 1,
+        }
         mock_msg_store = MagicMock()
 
         with (
@@ -943,7 +965,9 @@ class TestPhasePropagationEdgeCases:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
-                    "payload": {"reason": "Bad"},
+                    "payload": {
+                        "reason": "Implementation has SQL injection in query builder module, user input is not sanitized"
+                    },
                 },
                 Path("/tmp/my-repo"),
             )

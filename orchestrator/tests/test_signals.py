@@ -971,7 +971,7 @@ class TestConsensusProposeBranchVerification:
                 {
                     "agent_role": "coder",
                     "payload": {
-                        "summary": "impl",
+                        "summary": "Implemented authentication with JWT validation and session management for issue-42",
                         "artifacts": ["src/a.py"],
                         "commit_sha": "abc1234",
                     },
@@ -1026,7 +1026,7 @@ class TestConsensusProposeBranchVerification:
                 {
                     "agent_role": "coder",
                     "payload": {
-                        "summary": "impl",
+                        "summary": "Implemented authentication with JWT validation and session management for issue-42",
                         "artifacts": ["src/a.py"],
                         "commit_sha": "abc1234",
                     },
@@ -1069,7 +1069,7 @@ class TestConsensusProposeBranchVerification:
                 {
                     "agent_role": "coder",
                     "payload": {
-                        "summary": "impl",
+                        "summary": "Implemented authentication with JWT validation and session management for issue-42",
                         "artifacts": ["src/a.py"],
                         "commit_sha": "abc1234",
                     },
@@ -1127,7 +1127,7 @@ class TestConsensusProposeBranchVerification:
                     {
                         "agent_role": "coder",
                         "payload": {
-                            "summary": "impl",
+                            "summary": "Implemented authentication with JWT validation and session management for issue-42",
                             "artifacts": ["src/a.py"],
                             "commit_sha": "deadbeef",
                         },
@@ -1339,7 +1339,9 @@ class TestAckVersionForwarding:
                         "agent_role": "reviewer_code",
                         "producer_role": "coder",
                         "ack_version": 1,
-                        "payload": {"reason": "Looks good"},
+                        "payload": {
+                            "reason": "Reviewed src/auth.py: token validation covers expiry and invalid signatures correctly, all branches tested"
+                        },
                     },
                     Path("/tmp/repo"),
                 )
@@ -1380,7 +1382,10 @@ class TestAckVersionForwarding:
                         "agent_role": "reviewer_code",
                         "producer_role": "coder",
                         "ack_version": 1,
-                        "payload": {"reason": "Looks good", "ack_version": 3},
+                        "payload": {
+                            "reason": "Reviewed src/auth.py: token validation covers expiry and invalid signatures correctly, all branches tested",
+                            "ack_version": 3,
+                        },
                     },
                     Path("/tmp/repo"),
                 )
