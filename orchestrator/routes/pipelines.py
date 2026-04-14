@@ -5389,6 +5389,32 @@ def _build_brc_preamble(
             ]
         )
 
+    # Directed coordination guidance (role-gated)
+    if is_producer:
+        lines.extend(
+            [
+                "### Directed Coordination",
+                "- When blocked by a role boundary (e.g., you cannot push test or doc files), "
+                "send a handoff: "
+                '`egg-orch message send --to <role> --type HANDOFF --subject "..." --body "..."`',
+                "- When another producer's proposal is ambiguous, send a question: "
+                '`egg-orch message send --to <role> --type QUESTION --subject "..." --body "..."`',
+                "- **Coordination requests belong in directed messages, NOT in proposal-body "
+                "footnotes.** Proposals are for reviewers; use messages for peer coordination.\n",
+            ]
+        )
+
+    if is_reviewer:
+        lines.extend(
+            [
+                "### Directed Coordination",
+                "- When a proposal is ambiguous, send a question to the proposing producer: "
+                '`egg-orch message send --to <role> --type QUESTION --subject "..." --body "..."`',
+                "- **Coordination requests belong in directed messages, NOT in proposal-body "
+                "footnotes.** Proposals are for review verdicts; use messages for clarification.\n",
+            ]
+        )
+
     lines.extend(
         [
             "**If you exit before the orchestrator stops you, you have FAILED your role.** "
