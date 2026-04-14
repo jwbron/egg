@@ -434,10 +434,10 @@ egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.
   --reason "Reviewed src/feature.py lines 10-85: token validation handles expiry and invalid signatures. Tests cover all branches."
 
 # Reviewer: NACK with a reason
-egg-orch consensus nack coder --reason "Missing error handling in edge case" --files-reviewed src/feature.py
+egg-orch consensus nack coder --reason "Missing error handling in edge case on line 42 of src/feature.py" --files-reviewed src/feature.py
 
 # Producer: withdraw proposal to address NACK feedback
-egg-orch consensus withdraw --reason "Addressing NACK: adding error handling"
+egg-orch consensus withdraw --reason "Addressing NACK: adding retry logic for transient HTTP failures in src/feature.py"
 
 # Producer: confirm after all reviewers ACK
 # Exit 0 = confirmed. Exit 1 = error. Exit 2 = waiting for reviewer re-ACKs (retry after polling).
