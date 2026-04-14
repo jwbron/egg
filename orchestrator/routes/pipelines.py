@@ -5861,23 +5861,23 @@ def _build_brc_preamble(
                 "\n"
                 "   **NACK format** (use when blocking issues exist):\n"
                 "   ```\n"
-                "   egg-orch consensus nack <role> --files-reviewed \"f1\" \"f2\" --reason \"\n"
+                '   egg-orch consensus nack <role> --files-reviewed "f1" "f2" --reason "\n'
                 "   ### Blocking\n"
                 "   1. **file.py:123** — Description of the issue. Fix: suggested fix.\n"
                 "   2. **file.py:456** — Description of the issue. Fix: suggested fix.\n"
                 "   ### Non-blocking\n"
                 "   - **file.py:789** — Suggestion for improvement.\n"
-                "   \"\n"
+                '   "\n'
                 "   ```\n"
                 "\n"
                 "   **ACK format** (use when no blocking issues):\n"
                 "   ```\n"
-                "   egg-orch consensus ack <role> --files-reviewed \"f1\" \"f2\" --reason \"\n"
+                '   egg-orch consensus ack <role> --files-reviewed "f1" "f2" --reason "\n'
                 "   Reviewed [N files / specific areas]. Verified [what was checked].\n"
                 "   [Specific observations about correctness, security, etc.]\n"
                 "   ### Non-blocking\n"
                 "   - **file.py:123** — Optional suggestions for improvement.\n"
-                "   \"\n"
+                '   "\n'
                 "   ```\n"
                 "\n"
                 "   `--reason` must be ≥50 chars of substantive content. "
