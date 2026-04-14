@@ -192,16 +192,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-14T02:16:47.454203Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-14T02:18:53.950893Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Restart both tester and reviewer_contract with fresh instructions for independent work\"}",
       "phase": "implement",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-14T01:34:26.450683Z",
-  "updated_at": "2026-04-14T02:16:47.455935Z",
+  "updated_at": "2026-04-14T02:18:53.954602Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -212,5 +212,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-14T02:13:45.532812Z",
-  "version": 18
+  "version": 19
 }
