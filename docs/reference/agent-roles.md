@@ -139,6 +139,8 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 - Commits on the worktree branch
 - `.egg-state/agent-outputs/{identifier}-coder-output.json` — Handoff data
 
+**Directed coordination**: When role boundaries prevent the coder from pushing certain file types (e.g., test files, documentation), use `egg-orch message send --to <role> --type HANDOFF` to notify the responsible agent with file paths, commit SHAs, and guidance. See [Directed Coordination](../guides/concurrent-execution.md#directed-coordination) for details and a worked coder→tester example.
+
 **Prompt context**: Plan document, summarized background.
 
 ### `tester`
@@ -153,6 +155,8 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 - Test file commits on the worktree branch
 - `.egg-state/agent-outputs/{identifier}-tester-output.json` — Handoff data (includes lint/type-check results and gaps found)
 
+**Directed coordination**: The tester may receive `HANDOFF` messages from the coder when role boundaries prevent the coder from pushing test files. On receiving a HANDOFF, sync the worktree (`git fetch origin && git merge origin/<branch> --no-edit`), review the coder's guidance, and create the test files. Acknowledge via a `STATUS` or `PROGRESS` message back. See [Directed Coordination](../guides/concurrent-execution.md#directed-coordination).
+
 **Prompt context**: Summarized background, coder handoff data, task list.
 
 ### `documenter`
@@ -166,6 +170,8 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 **Outputs**:
 - Documentation commits on the worktree branch
 - `.egg-state/agent-outputs/{identifier}-documenter-output.json` — Handoff data
+
+**Directed coordination**: The documenter may receive `STATUS` or `PROGRESS` messages from the coder about API changes, new features, or breaking changes that require documentation updates. Use `QUESTION` messages (`egg-orch message send --to coder --type QUESTION`) to ask for clarification about implementation details when the code diff is ambiguous. See [Directed Coordination](../guides/concurrent-execution.md#directed-coordination).
 
 **Prompt context**: Summarized background, task list, pointers to relevant docs.
 

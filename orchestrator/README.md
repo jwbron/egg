@@ -75,7 +75,7 @@ Pipeline state is stored on a dedicated `egg/pipeline-state` orphan branch acces
 
 By default, agents within the refine, plan, and implement phases run simultaneously via BRC consensus (configurable via `concurrent_phases`). When `concurrent_execution: true` is set, this extends to all phases. Agents coordinate through:
 
-- **Message bus** — Agents exchange typed messages (PROGRESS, QUESTION, RESPONSE, STATUS, AGENT_FAILED) via the orchestrator's message API. Messages can target a specific role or broadcast to all agents.
+- **Message bus** — Agents exchange typed messages (PROGRESS, QUESTION, STATUS, HANDOFF, AGENT_FAILED) via the orchestrator's message API. Messages can target a specific role or broadcast to all agents.
 - **BRC action guards** — Each protocol action (propose, ACK, NACK, confirm, withdraw) has formal preconditions defined in `orchestrator/action_guards.py`. Guards are the canonical protocol specification — `PeerConsensusTracker` delegates to them before mutating state. See [Concurrent Execution — Action Guards](../docs/guides/concurrent-execution.md#action-guards).
 - **Readiness consensus** — Each agent signals its readiness state (WORKING, READY, BLOCKED, OBJECTING). The phase advances only when all agents reach READY. Any OBJECTING agent blocks phase completion.
 - **Shared pipeline branch** — All concurrent agents operate on the pipeline's shared branch (e.g., `egg/issue-999`). Agents coordinate commits via the message bus.

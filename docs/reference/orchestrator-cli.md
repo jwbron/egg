@@ -36,7 +36,7 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch gateway health` | Check gateway health |
 | `egg-orch gateway phase --issue <n>` | Get current phase from gateway |
 | `egg-orch gateway permissions <phase>` | Get allowed ops for a phase |
-| `egg-orch message send [<id>] --to <role\|all> --type <type> --subject "..." --body "..."` | Send inter-agent message (concurrent mode) |
+| `egg-orch message send [<id>] --to <role\|all> --type <type> --subject "..." --body "..."` | Send directed or broadcast message. Types: `HANDOFF`, `QUESTION`, `STATUS`, `PROGRESS` |
 | `egg-orch message poll [<id>] [--since <id>] [--limit <n>]` | Poll for messages from other agents (concurrent mode) |
 | `egg-orch message status [<id>]` | Get message bus status (concurrent mode) |
 | `egg-orch signal readiness [<id>] --state <WORKING\|READY\|BLOCKED\|OBJECTING> [--reason "..."]` | Signal readiness state (concurrent mode) |
@@ -89,6 +89,26 @@ egg-orch signal progress --percent 50 --task "Running tests"
 egg-orch signal complete --commit abc1234
 egg-orch signal error --error "Test failure" --recoverable
 ```
+
+**Send directed messages to peers (concurrent mode):**
+```bash
+# HANDOFF: Signal a role-boundary artifact for another agent
+egg-orch message send --to tester --type HANDOFF \
+  --subject "Test files for auth module" \
+  --body "Test scaffolding ready — see commit abc1234"
+
+# QUESTION: Ask a specific agent for clarification
+egg-orch message send --to coder --type QUESTION \
+  --subject "Expected return type" \
+  --body "What should process_batch() return on empty input?"
+
+# STATUS: Inform a peer of your current state
+egg-orch message send --to reviewer_code --type STATUS \
+  --subject "Docs in progress" \
+  --body "Documentation not ready for review yet, finishing API docs"
+```
+
+See [Directed Coordination](../guides/concurrent-execution.md#directed-coordination) for detailed usage guidance and worked examples.
 
 **Emit structured progress (health monitoring):**
 ```bash

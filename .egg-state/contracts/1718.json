@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1718,
+    "title": "Issue #1718",
+    "url": "https://github.com/jwbron/egg/issues/1718"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Extend `_build_brc_preamble` in `orchestrator/routes/pipelines.py` with role-gated directed coordination guidance for HANDOFF/QUESTION/STATUS.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Preamble for producer contains `egg-orch message send` and `HANDOFF`; reviewer contains `QUESTION` guidance.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Update `--type` help text in `sandbox/egg_lib/orch_cli.py:1782` to include `HANDOFF`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Help text lists HANDOFF.",
+          "files_affected": [
+            "sandbox/egg_lib/orch_cli.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add 'Directed Coordination' subsection to `docs/guides/concurrent-execution.md` with CLI form, use cases, and coder-to-tester worked example.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Guide contains new section with CLI example and worked example.",
+          "files_affected": [
+            "docs/guides/concurrent-execution.md"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add test in `orchestrator/tests/test_pipeline_prompts.py` asserting BRC preamble contains directed coordination guidance.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes; fails if task-1-1 reverted.",
+          "files_affected": [
+            "orchestrator/tests/test_pipeline_prompts.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Teach agents to use directed BRC messages for coordination (#1718)",
+    "description": "Resolves #1718. Adds prompt-level guidance for directed peer-to-peer coordination,\nfixes CLI --type help text, and documents the pattern with a worked example.",
+    "test_plan": "- Automated: new prompt test asserts `_build_brc_preamble` contains `egg-orch message send` and `HANDOFF`\n- Manual: run `egg-orch message send --help` and confirm `HANDOFF` appears\n- Manual: read `docs/guides/concurrent-execution.md` new section",
+    "manual_steps": "Pre-merge: none.\nPost-merge: none."
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}

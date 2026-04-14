@@ -48,7 +48,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Reusable Workflows](guides/reusable-workflows.md) | Using egg's reusable workflows in external repositories |
 | [SDLC Pipeline](guides/sdlc-pipeline.md) | Operational guide for the structurally enforced SDLC pipeline |
 | [Agent Teams](guides/agent-teams.md) | Agent team communication and Deliberative Consensus (BRC protocol + evidence-backed deliberation) |
-| [Concurrent Execution](guides/concurrent-execution.md) | Concurrent agent execution: message bus, readiness signaling, consensus protocol |
+| [Concurrent Execution](guides/concurrent-execution.md) | Concurrent agent execution: message bus, directed coordination, readiness signaling, consensus protocol |
 | [Checkpoint Access](guides/checkpoint-access.md) | Querying cross-agent checkpoints in multi-agent pipelines |
 | [Pipeline Health Monitoring](guides/pipeline-health-monitoring.md) | Two-tier health monitoring: orchestrator tripwires + overseer agent |
 | [Babysit-PR](guides/babysit-pr.md) | Autonomous PR review/fix loop: conflict resolution, CI fixing, code review, feedback addressing |
@@ -121,6 +121,7 @@ Each major component has detailed documentation:
 | **Agent anchor / recovery changes** | [Anchor Recovery Guide](guides/anchor-recovery.md) | [egg_anchor README](../shared/egg_anchor/README.md), [Orchestrator CLI](reference/orchestrator-cli.md), [Concurrent Execution](guides/concurrent-execution.md) |
 | **Babysit-PR / PR review loops** | [Babysit-PR Guide](guides/babysit-pr.md) | [GitHub Automation](guides/github-automation.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [`egg_babysit` README](../shared/egg_babysit/README.md) |
 | **Concurrent execution mode** | [Concurrent Execution Guide](guides/concurrent-execution.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Checkpoint Access](guides/checkpoint-access.md), [Orchestrator Architecture](architecture/orchestrator.md) |
+| **Directed agent coordination** | [Concurrent Execution: Directed Coordination](guides/concurrent-execution.md#directed-coordination) | [Orchestrator CLI](reference/orchestrator-cli.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md) |
 | **Agent roles and file permissions** | [Agent Roles Reference](reference/agent-roles.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Architecture Overview](architecture/README.md) |
 | **Agent failure recovery** | [Agent Recovery Reference](reference/agent-recovery.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Restarting stuck agents/phases** | [Agent Recovery Reference](reference/agent-recovery.md#agent-level-restart) | [Pipeline Health Monitoring](guides/pipeline-health-monitoring.md), [Orchestrator CLI](reference/orchestrator-cli.md), [Phase Management MCP Tools](reference/orchestrator-cli.md#phase-management-mcp-tools) |

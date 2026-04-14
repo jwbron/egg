@@ -5460,6 +5460,52 @@ def _build_brc_preamble(
             ]
         )
 
+    # Directed coordination guidance — role-gated
+    lines.append("### Directed Coordination")
+    lines.append(
+        "In addition to the BRC consensus flow (PROPOSE/ACK/NACK), you can send "
+        "directed peer-to-peer messages to specific agents using "
+        "`egg-orch message send --to <role> --type <TYPE>`. These directed messages "
+        "are **supplementary** to BRC consensus — they do NOT replace the "
+        "PROPOSE/ACK/NACK lifecycle and are never required for consensus to proceed.\n"
+    )
+
+    if is_producer:
+        lines.extend(
+            [
+                "**As a producer**, use directed messages to coordinate handoffs and "
+                "broadcast progress:",
+                "- **HANDOFF**: When your work is ready for a specific peer to act on, "
+                "send a HANDOFF message so they know to begin. For example, a coder "
+                "notifying the tester that implementation is complete.",
+                "  ```",
+                '  egg-orch message send --to tester --type HANDOFF --subject "Auth module ready" '
+                '--body "auth.py is complete, tests can begin"',
+                "  ```",
+                "- **STATUS**: Broadcast progress updates to all agents when you reach "
+                "significant milestones (e.g., halfway through implementation, blocked "
+                "on a dependency).",
+                "  ```",
+                '  egg-orch message send --to all --type STATUS --subject "Implementation 50% complete" '
+                '--body "Core logic done, working on edge cases"',
+                "  ```\n",
+            ]
+        )
+
+    if is_reviewer:
+        lines.extend(
+            [
+                "**As a reviewer**, use directed messages to request clarification:",
+                "- **QUESTION**: Ask a producer for clarification before or during your "
+                "review. This avoids unnecessary NACKs for ambiguities that can be "
+                "resolved with a quick exchange.",
+                "  ```",
+                '  egg-orch message send --to coder --type QUESTION --subject "Clarify auth flow" '
+                '--body "Is the token refresh handled in auth.py or middleware?"',
+                "  ```\n",
+            ]
+        )
+
     lines.extend(
         [
             "**If you exit before the orchestrator stops you, you have FAILED your role.** "
