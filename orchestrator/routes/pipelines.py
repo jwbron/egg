@@ -10,6 +10,8 @@ import subprocess
 import sys
 import threading
 import time
+
+import yaml
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -4049,7 +4051,7 @@ def _handle_pr_creation_failure(
         store.save_pipeline(pipeline)
 
 
-BRC_MESSAGE_TYPES = frozenset(
+BRC_SUMMARY_TYPES = frozenset(
     {
         "CONSENSUS_PROPOSE",
         "CONSENSUS_ACK",
@@ -4059,6 +4061,20 @@ BRC_MESSAGE_TYPES = frozenset(
         "CONSENSUS_RE_REVIEW",
     }
 )
+
+BRC_HISTORY_TYPES = BRC_SUMMARY_TYPES | frozenset(
+    {
+        "STATUS",
+        "HANDOFF",
+        "QUESTION",
+        "AGENT_FAILED",
+        "NUDGE",
+        "OVERSEER_ALERT",
+    }
+)
+
+# Backward-compatible alias for external callers
+BRC_MESSAGE_TYPES = BRC_SUMMARY_TYPES
 
 
 def _get_message_store():
@@ -4129,7 +4145,7 @@ def _write_brc_history(
         )
         return
 
-    brc_messages = [m for m in messages if m.message_type in BRC_MESSAGE_TYPES and m.phase == phase]
+    brc_messages = [m for m in messages if m.message_type in BRC_HISTORY_TYPES and m.phase == phase]
     if not brc_messages:
         logger.info(
             "_write_brc_history: early return — no BRC messages for phase",
@@ -4162,16 +4178,60 @@ def _write_brc_history(
 
     for msg in brc_messages:
         ts = msg.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if msg.timestamp else "unknown"
-        lines.append(f"### [{ts}] {msg.from_role} ({msg.message_type}): {msg.subject}")
+        # Include to_role for directed messages (not broadcast "all")
+        if msg.to_role and msg.to_role != "all":
+            header = f"### [{ts}] {msg.from_role} → {msg.to_role} ({msg.message_type}): {msg.subject}"
+        else:
+            header = f"### [{ts}] {msg.from_role} ({msg.message_type}): {msg.subject}"
+        lines.append(header)
         if msg.body:
             lines.append("")
             lines.append(msg.body)
+
+        # Emit a YAML metadata block with id, phase, and non-empty metadata
+        meta_block: dict[str, Any] = {}
+        if msg.id:
+            meta_block["id"] = msg.id
+        if msg.phase:
+            meta_block["phase"] = msg.phase
+        if msg.metadata:
+            meta_block["metadata"] = msg.metadata
+        if meta_block:
+            lines.append("")
+            lines.append("```yaml")
+            lines.append(
+                yaml.dump(meta_block, sort_keys=False, default_flow_style=False).rstrip()
+            )
+            lines.append("```")
         lines.append("")
 
     history_dir = worktree_path / ".egg-state" / "brc-history"
     history_dir.mkdir(parents=True, exist_ok=True)
     history_file = history_dir / f"{identifier}-{phase}.md"
-    history_file.write_text("\n".join(lines))
+
+    # Write the markdown history file
+    try:
+        history_file.write_text("\n".join(lines))
+    except Exception as md_err:
+        logger.warning(
+            "Failed to write BRC history markdown file",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            error=str(md_err),
+        )
+
+    # Write a JSON companion artifact containing the full message dicts
+    json_file = history_dir / f"{identifier}-{phase}.json"
+    try:
+        json_data = [msg.to_dict() for msg in brc_messages]
+        json_file.write_text(json.dumps(json_data, indent=2, default=str))
+    except Exception as json_err:
+        logger.warning(
+            "Failed to write BRC history JSON companion file",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            error=str(json_err),
+        )
 
     logger.info(
         "Wrote BRC history file",
@@ -4403,17 +4463,31 @@ def _reconcile_and_push_pr_branch(
     return retry_ok
 
 
-def _build_brc_consensus_summary(pipeline_id: str) -> str:
-    """Build a concise BRC consensus summary for the PR body.
+def _build_brc_consensus_summary(
+    pipeline_id: str,
+    identifier: int | str | None = None,
+) -> str:
+    """Build a BRC consensus summary for the PR body with inline content.
 
     Retrieves BRC messages from the message store, groups by phase, and
-    produces a summary showing agent roles, message counts, and whether
-    consensus was reached per phase.
+    produces a summary showing agent roles, message counts, whether
+    consensus was reached per phase, and the final-round proposal body
+    and ACK/NACK rationales inline.  Older rounds are wrapped in
+    ``<details>`` blocks.  Each phase block ends with a link to the
+    committed ``.egg-state/brc-history/`` artifacts.
 
     Returns an empty string if no BRC messages exist or the message store
-    is unavailable.  Output is capped at ~2000 characters by truncating
+    is unavailable.  Output is capped at ~40000 characters by truncating
     at phase-block boundaries to avoid broken markdown.
+
+    Args:
+        pipeline_id: The pipeline ID to retrieve messages for.
+        identifier: The pipeline identifier for artifact link filenames.
+            When ``None``, artifact links are omitted.
     """
+    _MAX_BODY_INLINE = 2000  # Max chars for an individual inlined body
+    _TOTAL_CAP = 40000
+
     store_fn = _get_message_store()
     if store_fn is None:
         return ""
@@ -4424,7 +4498,7 @@ def _build_brc_consensus_summary(pipeline_id: str) -> str:
     except Exception:
         return ""
 
-    brc_messages = [m for m in messages if m.message_type in BRC_MESSAGE_TYPES]
+    brc_messages = [m for m in messages if m.message_type in BRC_SUMMARY_TYPES]
     if not brc_messages:
         return ""
 
@@ -4468,6 +4542,99 @@ def _build_brc_consensus_summary(pipeline_id: str) -> str:
             block_lines.append(f"  {' · '.join(counts)}")
         consensus_str = "✅ Consensus reached" if all_confirmed else "⏳ Consensus not reached"
         block_lines.append(f"  {consensus_str}")
+
+        # Determine the final round (highest version number in proposals)
+        propose_versions: list[tuple[int, Any]] = []
+        for m in phase_msgs:
+            if m.message_type == "CONSENSUS_PROPOSE":
+                version = (m.metadata or {}).get("version", 0)
+                if not isinstance(version, int):
+                    try:
+                        version = int(version)
+                    except (ValueError, TypeError):
+                        version = 0
+                propose_versions.append((version, m))
+
+        final_version = max((v for v, _ in propose_versions), default=0) if propose_versions else 0
+
+        # Collect final-round messages and earlier-round messages
+        final_round_msgs: list[Any] = []
+        earlier_round_msgs: list[Any] = []
+        for m in phase_msgs:
+            msg_version = (m.metadata or {}).get("version", 0)
+            if not isinstance(msg_version, int):
+                try:
+                    msg_version = int(msg_version)
+                except (ValueError, TypeError):
+                    msg_version = 0
+            # CONFIRMED and RE_REVIEW don't have version — always final
+            if m.message_type in ("CONSENSUS_CONFIRMED", "CONSENSUS_RE_REVIEW"):
+                final_round_msgs.append(m)
+            elif msg_version >= final_version and final_version > 0:
+                final_round_msgs.append(m)
+            elif final_version == 0:
+                # No versioned proposals — treat all as final round
+                final_round_msgs.append(m)
+            else:
+                earlier_round_msgs.append(m)
+
+        # Inline final-round content
+        if final_round_msgs:
+            block_lines.append("")
+            for m in final_round_msgs:
+                body_text = m.body or ""
+                # For NACKs, also check metadata.payload.reason
+                if m.message_type == "CONSENSUS_NACK" and not body_text:
+                    payload = (m.metadata or {}).get("payload", {})
+                    if isinstance(payload, dict):
+                        body_text = payload.get("reason", "")
+                if body_text:
+                    if len(body_text) > _MAX_BODY_INLINE:
+                        body_text = (
+                            body_text[:_MAX_BODY_INLINE]
+                            + "… _(full content in brc-history/*.md)_"
+                        )
+                    block_lines.append(
+                        f"  **{m.from_role}** ({m.message_type}): {body_text}"
+                    )
+
+        # Wrap earlier rounds in <details> if any
+        if earlier_round_msgs:
+            block_lines.append("")
+            block_lines.append("<details><summary>Earlier rounds</summary>")
+            block_lines.append("")
+            for m in earlier_round_msgs:
+                body_text = m.body or ""
+                if m.message_type == "CONSENSUS_NACK" and not body_text:
+                    payload = (m.metadata or {}).get("payload", {})
+                    if isinstance(payload, dict):
+                        body_text = payload.get("reason", "")
+                if body_text:
+                    if len(body_text) > _MAX_BODY_INLINE:
+                        body_text = (
+                            body_text[:_MAX_BODY_INLINE]
+                            + "… _(full content in brc-history/*.md)_"
+                        )
+                    block_lines.append(
+                        f"  **{m.from_role}** ({m.message_type}): {body_text}"
+                    )
+                else:
+                    block_lines.append(
+                        f"  **{m.from_role}** ({m.message_type})"
+                    )
+            block_lines.append("")
+            block_lines.append("</details>")
+
+        # Artifact links
+        if identifier is not None:
+            block_lines.append("")
+            md_link = f".egg-state/brc-history/{identifier}-{phase_name}.md"
+            json_link = f".egg-state/brc-history/{identifier}-{phase_name}.json"
+            block_lines.append(
+                f"Full record: [{md_link}](./{md_link})"
+                f" · [{'.json'}](./{json_link})"
+            )
+
         block_lines.append("")
         phase_blocks.append("\n".join(block_lines))
 
@@ -4475,7 +4642,7 @@ def _build_brc_consensus_summary(pipeline_id: str) -> str:
     summary = header
     for block in phase_blocks:
         candidate = summary + "\n" + block
-        if len(candidate) > 2000:
+        if len(candidate) > _TOTAL_CAP:
             break
         summary = candidate
 
@@ -4559,7 +4726,7 @@ def _build_pr_body(
         body_parts.append("\n".join(context_parts))
 
     # BRC consensus summary (omitted when no BRC messages exist)
-    brc_summary = _build_brc_consensus_summary(pipeline.id)
+    brc_summary = _build_brc_consensus_summary(pipeline.id, identifier=identifier)
     if brc_summary:
         body_parts.append(brc_summary)
 
