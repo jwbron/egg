@@ -1,0 +1,126 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1717,
+    "title": "Issue #1717",
+    "url": "https://github.com/jwbron/egg/issues/1717"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In orchestrator/routes/pipelines.py, split BRC_MESSAGE_TYPES into BRC_SUMMARY_TYPES (existing six CONSENSUS_* types, used for summary counts) and BRC_HISTORY_TYPES (CONSENSUS_* plus STATUS, HANDOFF, QUESTION, AGENT_FAILED, NUDGE, OVERSEER_ALERT, used for the history file). Keep BRC_MESSAGE_TYPES as an alias of BRC_SUMMARY_TYPES for external callers.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "_build_brc_consensus_summary counts only CONSENSUS_* types; _write_brc_history filters using the wider BRC_HISTORY_TYPES set.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Rewrite _write_brc_history (pipelines.py:4196-4290) to losslessly project messages: render `### [ts] {from_role} \u2192 {to_role if not all} ({type}): {subject}`, body, and a fenced yaml block with id, phase, and full metadata dict (when non-empty). YAML-dump with sort_keys=False, default_flow_style=False. Filter using BRC_HISTORY_TYPES.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Markdown contains a YAML metadata block per message including artifact_references, ack_version, commit_sha, revision_count, and version where present; to_role appears on directed messages and is omitted for broadcasts.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In _write_brc_history, emit a companion .egg-state/brc-history/{identifier}-{phase}.json containing a list of msg.to_dict() for every filtered message. Use json.dumps(..., indent=2, default=str). Wrap the JSON write in its own try/except logging warnings so a JSON failure does not block the markdown write and vice versa.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "JSON file is written on the PR branch alongside the .md file, round-trips through json.loads to a list of dicts matching Message.to_dict() output, and includes HANDOFF/AGENT_FAILED/OVERSEER_ALERT/STATUS/NUDGE/QUESTION messages.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Rewrite _build_brc_consensus_summary (pipelines.py:4515-4591) to inline content: keep per-phase roles/counts/consensus marker, then emit the final round's CONSENSUS_PROPOSE body and all final-round ACK/NACK rationales inline; wrap older rounds in <details><summary>Earlier rounds</summary>\u2026</details>; append per phase a `Full record:` link line pointing to the .md and .json artifacts; raise the total cap to ~40000 chars; when truncating an individual body, replace the tail with `\u2026 _(full content in brc-history/*.md)_`. Extend the signature (or add a lookup) so the function can emit correct identifier-based filenames; update the call site in _build_pr_body at line 4671.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "PR body per phase contains final-round proposal body and final-round ACK/NACK rationale inline, older rounds wrapped in <details>, and `.md` plus `.json` artifact links present.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Update existing tests (test_brc_history.py, test_pr_phase_brc_rewrite.py, test_diagnostic_logging_1633.py, test_brc_phase_propagation.py if affected) and add new tests covering: ACK artifact_references/ack_version round-trip; NACK reason/revision_count round-trip; PROPOSE commit_sha round-trip; HANDOFF/OVERSEER_ALERT included in history but excluded from summary counts; JSON companion round-trips; directed-message to_role shown/broadcast omitted; PR body summary inline final-round content; <details> wrapping older rounds; artifact links in PR body.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`make test` passes; new tests cover each listed behavior.",
+          "files_affected": [
+            "orchestrator/tests/test_brc_history.py",
+            "orchestrator/tests/test_pr_phase_brc_rewrite.py",
+            "orchestrator/tests/test_diagnostic_logging_1633.py",
+            "orchestrator/tests/test_brc_phase_propagation.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Losslessly persist BRC message context to the PR",
+    "description": "Rewrites the three lossy BRC renderers in orchestrator/routes/pipelines.py so the PR body and the committed `.egg-state/brc-history/*` files preserve full BRC message context \u2014 including metadata (artifact references, versions, commit SHAs, revision counts), directed-message `to_role`, and non-CONSENSUS_* BRC-adjacent message types (HANDOFF, AGENT_FAILED, OVERSEER_ALERT, STATUS, NUDGE, QUESTION). Adds a JSON companion artifact for machine consumers. Rewrites the PR-body summary to inline final-round proposal and rationale content with older rounds collapsed in `<details>`, and links to the committed artifacts. Fixes #1717.",
+    "test_plan": "- Automated: `make test` \u2014 orchestrator/tests/test_brc_history.py, test_pr_phase_brc_rewrite.py, test_diagnostic_logging_1633.py (updated), test_brc_phase_propagation.py, plus new tests covering metadata round-trip, JSON companion, non-CONSENSUS type inclusion/exclusion, directed-message `to_role`, PR body inline content, `<details>` collapsing, and artifact links.\n- Manual: Inspect a PR produced by a BRC pipeline \u2014 verify the BRC summary contains the final-round proposal body and rationales inline, older rounds are collapsed, artifact links render, and the committed `.egg-state/brc-history/{id}-{phase}.md` and `.json` on the branch contain the full metadata for ACKs/NACKs/PROPOSEs plus non-CONSENSUS BRC-adjacent messages.",
+    "manual_steps": "Pre-merge: None \u2014 all verification is covered by automated tests and PR-body inspection.\nPost-merge: None \u2014 this is a PR-rendering change. Subsequent pipeline runs automatically regenerate the improved history files and PR bodies."
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
