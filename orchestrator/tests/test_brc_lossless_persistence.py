@@ -14,7 +14,6 @@ Covers:
 import json
 import sys
 from datetime import UTC, datetime
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import yaml
@@ -25,8 +24,7 @@ sys.modules.setdefault("docker", _docker_mock)
 sys.modules.setdefault("docker.errors", _docker_mock.errors)
 sys.modules.setdefault("docker.types", _docker_mock.types)
 
-from message_store import Message, MessageStore, MessageType
-
+from message_store import Message, MessageStore, MessageType  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -98,17 +96,17 @@ def _msg(
     msg_id=None,
 ):
     """Create a Message for testing with full control over fields."""
-    kwargs = dict(
-        pipeline_id=pipeline_id,
-        from_role=from_role,
-        to_role=to_role,
-        message_type=message_type,
-        subject=subject,
-        body=body,
-        phase=phase,
-        timestamp=timestamp or datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
-        metadata=metadata or {},
-    )
+    kwargs = {
+        "pipeline_id": pipeline_id,
+        "from_role": from_role,
+        "to_role": to_role,
+        "message_type": message_type,
+        "subject": subject,
+        "body": body,
+        "phase": phase,
+        "timestamp": timestamp or datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
+        "metadata": metadata or {},
+    }
     if msg_id is not None:
         kwargs["id"] = msg_id
     return Message(**kwargs)
@@ -329,7 +327,7 @@ class TestWriteBrcHistoryMetadata:
         assert "version" in content
 
     def test_no_yaml_block_when_metadata_empty(self, tmp_path):
-        """Messages with empty metadata should not have a YAML block."""
+        """Messages with empty metadata do NOT get a YAML block."""
         from routes.pipelines import _write_brc_history
 
         messages = [
@@ -348,7 +346,7 @@ class TestWriteBrcHistoryMetadata:
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
         content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
-        # Empty metadata -> no yaml block (per contract "when non-empty")
+        # Empty metadata -> no YAML block
         assert "```yaml" not in content
 
     def test_yaml_block_is_valid_yaml(self, tmp_path):
@@ -397,8 +395,9 @@ class TestWriteBrcHistoryMetadata:
         assert len(yaml_blocks) >= 1, "Expected at least one YAML block"
         parsed = yaml.safe_load(yaml_blocks[0])
         assert isinstance(parsed, dict)
-        # Verify the parsed YAML round-trips the metadata
-        assert "payload" in parsed or "version" in parsed
+        # Metadata fields are merged at the top level of the YAML block
+        assert "payload" in parsed
+        assert "version" in parsed
 
 
 # ---------------------------------------------------------------------------
@@ -1237,9 +1236,10 @@ class TestArtifactLinksInPrBody:
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
+            result = _build_brc_consensus_summary("issue-42", identifier=42)
 
-        assert ".md" in result or "brc-history" in result
+        assert ".md" in result
+        assert "brc-history" in result
 
     def test_summary_contains_json_artifact_link(self, tmp_path):
         """PR body summary contains a link to the .json history artifact."""
@@ -1265,9 +1265,32 @@ class TestArtifactLinksInPrBody:
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
+            result = _build_brc_consensus_summary("issue-42", identifier=42)
 
-        assert ".json" in result or "brc-history" in result
+        assert ".json" in result
+        assert "brc-history" in result
+
+    def test_no_artifact_links_without_identifier(self, tmp_path):
+        """When identifier is None (default), no artifact links are emitted."""
+        from routes.pipelines import _build_brc_consensus_summary
+
+        messages = [
+            _msg(
+                from_role="coder",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject="Proposal",
+                body="Done",
+                metadata={"version": 1},
+            ),
+        ]
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            result = _build_brc_consensus_summary("issue-42")  # No identifier
+
+        assert "Full record:" not in result
+        assert "brc-history" not in result
 
     def test_build_pr_body_passes_identifier_for_links(self, tmp_path):
         """_build_pr_body passes the identifier so artifact links have correct filenames."""

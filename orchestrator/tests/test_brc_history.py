@@ -223,8 +223,12 @@ class TestWriteBrcHistory:
         if history_dir.exists():
             assert list(history_dir.iterdir()) == [], "No files should be created for empty store"
 
-    def test_no_file_when_only_non_brc_messages(self, tmp_path):
-        """When only non-BRC messages exist, no history file is created."""
+    def test_no_file_when_only_non_history_messages(self, tmp_path):
+        """When only non-BRC-history messages exist, no history file is created.
+
+        Note: STATUS is now included in BRC_HISTORY_TYPES (issue #1717), so
+        this test uses PROGRESS which remains excluded.
+        """
         from routes.pipelines import _write_brc_history
 
         non_brc_messages = [
@@ -233,13 +237,6 @@ class TestWriteBrcHistory:
                 message_type=MessageType.PROGRESS,
                 subject="Working",
                 body="Starting",
-                phase="implement",
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                message_type=MessageType.STATUS,
-                subject="Status",
-                body="Running",
                 phase="implement",
             ),
         ]
@@ -251,7 +248,7 @@ class TestWriteBrcHistory:
 
         history_dir = tmp_path / ".egg-state" / "brc-history"
         if history_dir.exists():
-            assert list(history_dir.iterdir()) == [], "No files for non-BRC messages"
+            assert list(history_dir.iterdir()) == [], "No files for non-history messages"
 
     def test_filters_only_brc_messages(self, tmp_path):
         """Mixed message types: only CONSENSUS_* types appear in history file."""
@@ -534,8 +531,8 @@ class TestBuildPrBodyBrcSummary:
         authored_pos = body.index("Authored-by: egg")
         assert brc_pos < authored_pos, "BRC summary must appear before Authored-by footer"
 
-    def test_brc_summary_under_2000_chars(self, tmp_path):
-        """BRC summary section stays under ~2000 characters."""
+    def test_brc_summary_under_40000_chars(self, tmp_path):
+        """BRC summary section stays under ~40000 characters (raised from 2000 in #1717)."""
         from routes.pipelines import _build_pr_body
 
         pipeline = _make_pipeline()
@@ -578,8 +575,8 @@ class TestBuildPrBodyBrcSummary:
                     if idx < next_section:
                         next_section = idx
             brc_section = rest[:next_section].strip()
-            assert len(brc_section) <= 2000, (
-                f"BRC summary section is {len(brc_section)} chars, should be <=2000"
+            assert len(brc_section) <= 40000, (
+                f"BRC summary section is {len(brc_section)} chars, should be <=40000"
             )
 
     def test_brc_summary_shows_phase_grouping(self, tmp_path):
@@ -867,8 +864,8 @@ class TestBuildBrcConsensusSummary:
 
         assert "Consensus reached" in result or "consensus reached" in result.lower()
 
-    def test_capped_at_2000_chars(self):
-        """Summary is capped at approximately 2000 characters (truncated at phase-block boundaries)."""
+    def test_capped_at_40000_chars(self):
+        """Summary is capped at approximately 40000 characters (raised from 2000 in #1717)."""
         from routes.pipelines import _build_brc_consensus_summary
 
         # Create many messages to exceed the cap
@@ -883,7 +880,7 @@ class TestBuildBrcConsensusSummary:
                         if i % 3 == 0
                         else MessageType.CONSENSUS_ACK,
                         subject=f"Message {i} with a somewhat longer subject line",
-                        body=f"Body content for message {i} " * 5,
+                        body=f"Body content for message {i} " * 500,
                         phase=phase,
                     )
                 )
@@ -894,8 +891,8 @@ class TestBuildBrcConsensusSummary:
         with patch("message_store.get_message_store", return_value=mock_store):
             result = _build_brc_consensus_summary("issue-42")
 
-        # Truncated at phase-block boundary — must be under 2000 chars
-        assert len(result) <= 2000
+        # Truncated at phase-block boundary — must be under 40000 chars
+        assert len(result) <= 40000
 
     def test_groups_by_phase(self):
         """Messages from different phases appear in separate groups."""
