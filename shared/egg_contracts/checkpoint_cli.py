@@ -743,6 +743,56 @@ def _add_checkpoint_resolution_params(params: dict[str, Any], args: argparse.Nam
         params["source_repo"] = source_repo
 
 
+def _decompose_composite_role(
+    agent_type: str | None,
+) -> tuple[str | None, str | None]:
+    """Decompose a composite reviewer role for API queries.
+
+    Returns ``(api_agent_type, composite_role)`` where *api_agent_type* is the
+    base ``AgentType`` value suitable for the gateway API (e.g. ``"reviewer"``)
+    and *composite_role* is the original composite name for client-side
+    post-filtering.  When *agent_type* is not a composite role, it is returned
+    unchanged and *composite_role* is ``None``.
+    """
+    if agent_type in COMPOSITE_REVIEWER_ROLES:
+        return AgentType.REVIEWER.value, agent_type
+    return agent_type, None
+
+
+def _http_filter_composite_role(
+    summaries: list[dict[str, Any]],
+    composite_role: str,
+    gateway_url: str,
+    params: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Post-filter HTTP results by composite reviewer role (N+1 fetches).
+
+    The gateway index only stores the base ``AgentType`` (e.g. ``"reviewer"``).
+    To filter by a specific composite role (e.g. ``"reviewer_code"``), we must
+    fetch each full checkpoint and inspect ``session.agent_role``.
+    """
+    filtered: list[dict[str, Any]] = []
+    repo_path = params.get("repo_path", "")
+    for s in summaries:
+        cp_id = s.get("id", "")
+        try:
+            show_params: dict[str, Any] = {"repo_path": repo_path}
+            if params.get("checkpoint_repo"):
+                show_params["checkpoint_repo"] = params["checkpoint_repo"]
+            elif params.get("source_repo"):
+                show_params["source_repo"] = params["source_repo"]
+            cp_result = _http_get(
+                gateway_url, f"/api/v1/checkpoints/{cp_id}", show_params
+            )
+            cp_data = cp_result.get("data", {}).get("checkpoint", {})
+            session = cp_data.get("session", {})
+            if session.get("agent_role") == composite_role:
+                filtered.append(s)
+        except RuntimeError:
+            continue
+    return filtered
+
+
 def _build_list_params(args: argparse.Namespace) -> dict[str, Any]:
     """Build query parameters for checkpoint list from CLI args."""
     params: dict[str, Any] = {"limit": args.limit}
@@ -759,7 +809,8 @@ def _build_list_params(args: argparse.Namespace) -> dict[str, Any]:
     if getattr(args, "status", None):
         params["status"] = args.status
     if getattr(args, "agent_type", None):
-        params["agent_type"] = args.agent_type
+        api_agent_type, _ = _decompose_composite_role(args.agent_type)
+        params["agent_type"] = api_agent_type
     if getattr(args, "phase", None):
         params["phase"] = args.phase
     if getattr(args, "pipeline", None):
@@ -775,8 +826,15 @@ def _build_list_params(args: argparse.Namespace) -> dict[str, Any]:
 def _cmd_list_http(args: argparse.Namespace, gateway_url: str) -> int:
     """List checkpoints via gateway HTTP API."""
     params = _build_list_params(args)
+    _, composite_role = _decompose_composite_role(getattr(args, "agent_type", None))
     result = _http_get(gateway_url, "/api/v1/checkpoints", params)
     summaries = result.get("data", {}).get("checkpoints", [])
+
+    # Post-filter by composite reviewer role if needed
+    if composite_role and summaries:
+        summaries = _http_filter_composite_role(
+            summaries, composite_role, gateway_url, params
+        )
 
     if not summaries:
         checkpoint_repo = params.get("checkpoint_repo")
@@ -1079,8 +1137,10 @@ def _cmd_context_http(args: argparse.Namespace, gateway_url: str) -> int:
         params["pipeline"] = args.pipeline
     if getattr(args, "issue", None):
         params["issue"] = args.issue
+    composite_role: str | None = None
     if getattr(args, "agent_type", None):
-        params["agent_type"] = args.agent_type
+        api_agent_type, composite_role = _decompose_composite_role(args.agent_type)
+        params["agent_type"] = api_agent_type
     if getattr(args, "phase", None):
         params["phase"] = args.phase
     if getattr(args, "repo", None):
@@ -1089,6 +1149,12 @@ def _cmd_context_http(args: argparse.Namespace, gateway_url: str) -> int:
 
     result = _http_get(gateway_url, "/api/v1/checkpoints", params)
     summaries = result.get("data", {}).get("checkpoints", [])
+
+    # Post-filter by composite reviewer role if needed
+    if composite_role and summaries:
+        summaries = _http_filter_composite_role(
+            summaries, composite_role, gateway_url, params
+        )
 
     if not summaries:
         checkpoint_repo = params.get("checkpoint_repo")
@@ -1674,8 +1740,15 @@ def _cmd_search_http(args: argparse.Namespace, gateway_url: str) -> int:
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
+    _, composite_role = _decompose_composite_role(getattr(args, "agent_type", None))
     result = _http_get(gateway_url, "/api/v1/checkpoints", params)
     summaries = result.get("data", {}).get("checkpoints", [])
+
+    # Post-filter by composite reviewer role before transcript search
+    if composite_role and summaries:
+        summaries = _http_filter_composite_role(
+            summaries, composite_role, gateway_url, params
+        )
 
     if not summaries:
         checkpoint_repo = params.get("checkpoint_repo")
