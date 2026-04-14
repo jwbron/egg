@@ -63,10 +63,10 @@
         {
           "container_id": "fd966a50b7475c2c3930b1ed2c570d7dc7eb2fa12f8f981941b5c0cb39491479",
           "container_name": "issue-1716-v2-documenter",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-14T02:40:39.890230Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-14T02:53:08.480689Z",
+          "exit_code": 1,
           "agent_role": "documenter",
           "session_token": null
         },
@@ -116,13 +116,13 @@
         },
         {
           "role": "documenter",
-          "status": "running",
+          "status": "failed",
           "container_id": "fd966a50b7475c2c3930b1ed2c570d7dc7eb2fa12f8f981941b5c0cb39491479",
           "started_at": "2026-04-14T02:40:39.890235Z",
-          "completed_at": null,
+          "completed_at": "2026-04-14T02:53:12.103023Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -181,7 +181,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-14T02:39:32.043993Z",
-  "updated_at": "2026-04-14T02:53:12.077710Z",
+  "updated_at": "2026-04-14T02:53:12.103092Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -192,5 +192,5 @@
   "source_branch": "egg/issue-1716",
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 10
+  "version": 11
 }
