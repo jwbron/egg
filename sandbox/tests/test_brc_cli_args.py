@@ -4,8 +4,8 @@ Tests for BRC CLI argument changes (issue #1716).
 Verifies:
 - ``egg-orch consensus ack`` requires ``--reason`` (exits non-zero without it)
   and threads the reason value into the signal payload.
-- ``egg-orch consensus propose`` accepts new structured args (``--commit``,
-  ``--files-changed``, ``--tests-run``, ``--tasks``) and includes them in
+- ``egg-orch consensus propose`` accepts new structured args
+  (``--files-changed``, ``--tests-run``, ``--tasks``) and includes them in
   the signal payload under the correct keys.
 """
 
