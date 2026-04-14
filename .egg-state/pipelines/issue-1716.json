@@ -5,7 +5,7 @@
   "branch": "egg/issue-1716",
   "base_branch": null,
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -45,152 +45,33 @@
   "phases": {
     "implement": {
       "phase": "implement",
-      "status": "failed",
-      "started_at": "2026-04-14T02:11:04.994961Z",
-      "work_started_at": "2026-04-14T02:11:05.701903Z",
-      "completed_at": "2026-04-14T02:11:12.319342Z",
-      "containers": [
-        {
-          "container_id": "028b271091c3cd16909a3e53d19c7387d3b28e0a834ed503c9e9c2187eadde79",
-          "container_name": "issue-1716-coder",
-          "status": "exited",
-          "started_at": "2026-04-14T02:11:07.137807Z",
-          "exited_at": "2026-04-14T02:11:09.154524Z",
-          "exit_code": 1,
-          "agent_role": "coder",
-          "session_token": null
-        },
-        {
-          "container_id": "2595aef4f3bab53198b1a851eb39d9869b0dd29d98f334e9ee03efe4ce1da4dd",
-          "container_name": "issue-1716-reviewer_code",
-          "status": "exited",
-          "started_at": "2026-04-14T02:11:07.137822Z",
-          "exited_at": "2026-04-14T02:11:09.108138Z",
-          "exit_code": 1,
-          "agent_role": "reviewer_code",
-          "session_token": null
-        },
-        {
-          "container_id": "a11993a141aca3c2c1d61e3220b519268ede99bbeb7210364d0478e9357aefe6",
-          "container_name": "issue-1716-tester",
-          "status": "exited",
-          "started_at": "2026-04-14T02:11:07.137826Z",
-          "exited_at": "2026-04-14T02:11:09.068874Z",
-          "exit_code": 1,
-          "agent_role": "tester",
-          "session_token": null
-        },
-        {
-          "container_id": "275d42c33299d1c371319ece3cf3b405f3a9e013fd095f26b4a51788ddd21480",
-          "container_name": "issue-1716-reviewer_contract",
-          "status": "exited",
-          "started_at": "2026-04-14T02:11:07.137831Z",
-          "exited_at": "2026-04-14T02:11:09.121269Z",
-          "exit_code": 1,
-          "agent_role": "reviewer_contract",
-          "session_token": null
-        },
-        {
-          "container_id": "9cd58ff1e60a6ab510ed0b65ae9379f7e10975979232b0ec79b18825eaf113e2",
-          "container_name": "issue-1716-documenter",
-          "status": "exited",
-          "started_at": "2026-04-14T02:11:07.137834Z",
-          "exited_at": "2026-04-14T02:11:09.153517Z",
-          "exit_code": 1,
-          "agent_role": "documenter",
-          "session_token": null
-        }
-      ],
-      "agents": [
-        {
-          "role": "coder",
-          "status": "failed",
-          "container_id": "028b271091c3cd16909a3e53d19c7387d3b28e0a834ed503c9e9c2187eadde79",
-          "started_at": "2026-04-14T02:11:07.137817Z",
-          "completed_at": "2026-04-14T02:11:12.192245Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_code",
-          "status": "failed",
-          "container_id": "2595aef4f3bab53198b1a851eb39d9869b0dd29d98f334e9ee03efe4ce1da4dd",
-          "started_at": "2026-04-14T02:11:07.137824Z",
-          "completed_at": "2026-04-14T02:11:12.226338Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "tester",
-          "status": "failed",
-          "container_id": "a11993a141aca3c2c1d61e3220b519268ede99bbeb7210364d0478e9357aefe6",
-          "started_at": "2026-04-14T02:11:07.137828Z",
-          "completed_at": "2026-04-14T02:11:12.248126Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_contract",
-          "status": "failed",
-          "container_id": "275d42c33299d1c371319ece3cf3b405f3a9e013fd095f26b4a51788ddd21480",
-          "started_at": "2026-04-14T02:11:07.137832Z",
-          "completed_at": "2026-04-14T02:11:12.278050Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "documenter",
-          "status": "failed",
-          "container_id": "9cd58ff1e60a6ab510ed0b65ae9379f7e10975979232b0ec79b18825eaf113e2",
-          "started_at": "2026-04-14T02:11:07.137836Z",
-          "completed_at": "2026-04-14T02:11:12.305747Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        }
-      ],
+      "status": "pending",
+      "started_at": null,
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [
-        {
-          "cycle": 0,
-          "started_at": "2026-04-14T02:11:05.701903Z",
-          "completed_at": "2026-04-14T02:11:12.319339Z",
-          "commit_sha": "9a2ad7309368d33b2c6e43c78e62734d67eba64c"
-        }
-      ],
+      "cycle_timings": [],
       "artifacts": {},
-      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-14T02:11:09.120451555Z     Status: healthy\n2026-04-14T02:11:09.120453888Z     GitHub token valid: True\n2026-04-14T02:11:09.120456138Z     Auth configured: True\n2026-04-14T02:11:09.120458471Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-14T02:11:09.120460930Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-14T02:11:09.120463471Z   Credentials injected by gateway (not in container)\n2026-04-14T02:11:09.120465930Z Signaled error to orchestrator\n2026-04-14T02:11:09.120468305Z \n2026-04-14T02:11:09.120470471Z Cleaning up on container exit...\n2026-04-14T02:11:09.120472805Z ✓ Cleanup complete",
+      "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "db9d26c2db0968499206495186050e7aa70a795e"
     }
   },
   "decisions": [],
   "created_at": "2026-04-14T01:25:03.370621Z",
-  "updated_at": "2026-04-14T02:11:12.319402Z",
+  "updated_at": "2026-04-14T02:12:39.485343Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
-  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-14T02:11:09.120451555Z     Status: healthy\n2026-04-14T02:11:09.120453888Z     GitHub token valid: True\n2026-04-14T02:11:09.120456138Z     Auth configured: True\n2026-04-14T02:11:09.120458471Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-14T02:11:09.120460930Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-14T02:11:09.120463471Z   Credentials injected by gateway (not in container)\n2026-04-14T02:11:09.120465930Z Signaled error to orchestrator\n2026-04-14T02:11:09.120468305Z \n2026-04-14T02:11:09.120470471Z Cleaning up on container exit...\n2026-04-14T02:11:09.120472805Z ✓ Cleanup complete",
+  "error": null,
   "analysis": "### Task Analysis\n\n**Problem statement**: In BRC, reviewers send ACKs that carry no rationale because the CLI literally has no way to express one. Observed on pipeline issue-1707: `reviewer_code` rubber-stamped a coder proposal (5 empty-body ACKs across 3 producers) that `reviewer_contract` correctly NACKed. Proposals share a weaker form of the same problem: producers pack everything into a free-form `summary` with no structured slots for commit SHA, files changed, tests run, or tasks satisfied.\n\n**Source context**: Issue #1716, first of three sibling issues (#1717 persistence, #1718 cross-agent structured messaging). Framed as a CLI/protocol asymmetry fix, not an agent-discipline problem — the content bar has to be enforceable at the protocol boundary. Replaces #1712 (split for scope). Can land first and produces better content in Redis immediately, even before persistence improves.\n\n**Workarounds**: None known — there is no way to attach rationale to an ACK today. Reviewers who want reasoning on record must NACK.\n\n**System context**: BRC consensus is driven through CLI entry points in `sandbox/bin/egg-orch` that POST signals to the orchestrator:\n- `cmd_consensus_propose` (egg-orch:1225) → `handle_consensus_propose_signal` (signals.py ~895)\n- `cmd_consensus_ack` (egg-orch:1296) → `handle_consensus_ack_signal` (signals.py:991)\n- `cmd_consensus_nack` (egg-orch:1323) → `handle_consensus_nack_signal` (signals.py:1071)\n- `cmd_consensus_withdraw` (egg-orch:1351) → `handle_consensus_withdraw_signal` (signals.py:1127)\n\nEach handler writes a `Message` to the message store. Proposals write `body=payload.get(\"summary\",\"\")`, ACKs write `body=payload.get(\"reason\",\"\")`, NACKs write `body=payload.get(\"reason\",\"\")`, withdraws write `body=reason`. Agents learn these commands from the BRC protocol block rendered by `_build_brc_protocol_block` in `orchestrator/routes/pipelines.py` (producer lifecycle ~5330, reviewer lifecycle ~5352).\n\n**Technical root cause**:\n1. **ACK**: The argparser at `sandbox/bin/egg-orch:1837-1849` accepts only `--files-reviewed`; does not expose `--reason`. `cmd_consensus_ack` (1296-1320) builds `payload = {\"artifact_references\": args.files_reviewed}` — no reason key, so `handle_consensus_ack_signal` at `signals.py:1034` resolves `payload.get(\"reason\",\"\")` to `\"\"` every time. ACK messages are guaranteed-empty by construction.\n2. **PROPOSE**: The argparser (egg-orch:1811-1834) accepts `--summary`, `--artifacts`, `--risk`, `--commit-sha`, `--changed-artifacts`, `--push`. `cmd_consensus_propose` (1261-1267) packs these into `{summary, attestation: {}, artifacts, risk_considered, commit_sha}`. Nothing for tests-run or tasks-satisfied; `summary` is free-form prose with no structured sections. `handle_consensus_propose_signal` writes `body=payload.get(\"summary\",\"\")` (signals.py:942) — the rest survives in `metadata.payload` but is invisible to consumers reading `body`.\n3. **No minimum-content floor**: None of the four BRC handlers reject empty/short content. (`signals.py` has an attestation `checks_passed` guard ~line 808; separate concern, no analogue for rationale length.)\n4. **Reviewer prompt** at `orchestrator/routes/pipelines.py:5366-5367` mirrors the CLI: `egg-orch consensus ack <role> --files-reviewed \"f1\" \"f2\"` with no slot for a reason. Producer prompt at 5337 likewise has no structured commit/tests/tasks breakdown.\n\n**Files affected**:\n- `sandbox/bin/egg-orch` — (a) add `--reason` (required) to `ack` parser; (b) thread it through `cmd_consensus_ack` into `payload[\"reason\"]`; (c) add `--commit`, `--files-changed`, `--tests-run`, `--tasks` to `propose` parser and fold into payload in `cmd_consensus_propose`.\n- `orchestrator/routes/signals.py` — add `_validate_brc_content` helper and invoke from `handle_consensus_propose_signal`, `handle_consensus_ack_signal`, `handle_consensus_nack_signal`, `handle_consensus_withdraw_signal`. Returns 400 with actionable message when content is missing, <50 chars, or matches boilerplate.\n- `orchestrator/routes/pipelines.py` — update reviewer/producer lifecycle text in `_build_brc_protocol_block` (lines 5330–5377) to describe new required args and what substantive content looks like.\n- Tests: `sandbox/tests/` for new CLI flags; `orchestrator/tests/` for content-validation behavior and the four BRC handlers.\n\n**Risks / edge cases**:\n- **Backward-compat mid-flight**: Making `--reason` required on `ack` breaks any running agent. Mitigation: agents are stateless per run; new pipelines use new prompts + new CLI. Error messages must be loud so stragglers fail visibly, not silently.\n- **Boilerplate false positives**: Too-aggressive regex (\"LGTM\", \"looks good\") could reject legitimate short rationales. Use length floor (≥50 chars, as issue proposes) + small case-insensitive exact-match boilerplate list, both tunable via a module constant.\n- **Withdraw is symmetric**: `--reason` already required at CLI (egg-orch:1870). Minimum-content floor must still apply.\n- **Re-propose flow**: `--changed-artifacts` triggers re-propose (signals.py:924). Content bar must apply on re-propose — tests must cover this.\n- **Scope boundary**: Issue step 6 (overseer anomaly detection, post-consensus quality gate) is explicitly follow-on; belongs to #1717/#1718 and must NOT land in this PR.",
   "plan": "# Plan: BRC messages must carry substantive content (CLI + protocol enforcement)\n\n## Summary\n\nACK messages are guaranteed-empty because the CLI has no slot for rationale; proposals carry only a free-form `summary`. The fix is to close the CLI/protocol asymmetry and enforce a minimum-content floor in the orchestrator so the content bar becomes a protocol-level guarantee rather than an agent-discretion one.\n\nApproach: (a) extend `egg-orch` argparsers and payload construction for `ack` and `propose`; (b) add a `_validate_brc_content` helper in `orchestrator/routes/signals.py` and invoke it from the four BRC signal handlers before any state mutation; (c) update the reviewer/producer lifecycle text in `_build_brc_protocol_block` in `orchestrator/routes/pipelines.py` so agents learn the new CLI shapes and what substantive content looks like. The downstream enforcement bullets in the issue (overseer anomaly detection, post-consensus quality gate) are explicitly out of scope for this PR — they are tracked separately on #1717/#1718.\n\n**Risks / edge cases**: Making `--reason` required on `ack` breaks any mid-flight agent — mitigated by the fact that agents are stateless per run and new pipelines use the new prompt + CLI together, so error messages must be loud. Boilerplate regex must be kept small and conservative (exact-match, case-insensitive) to avoid false positives against legitimate short rationales; the length floor (≥50 chars) is the primary bar. Content validation must run on the re-propose path as well (`changed_artifacts` branch in `handle_consensus_propose_signal`). `consensus withdraw` already requires `--reason` at the CLI but still needs to pass through the content validator. The reviewer/producer prompt text must match the new CLI shapes exactly so agents' commands don't get rejected by the validator.\n\n## Implementation\n\n### Phase 1: Implement\n\nClose the CLI/protocol asymmetry and add a content-floor validator. Update agent-facing prompts to match.\n\n**Tasks**:\n1. **[task-1-1]** In `sandbox/bin/egg-orch`, add `cons_ack.add_argument(\"--reason\", required=True, help=\"Substantive rationale: what was read, what was checked, why the verdict follows\")` to the `ack` parser (near line 1848), and in `cmd_consensus_ack` (line 1305-1308) add `\"reason\": args.reason` to the payload dict alongside `artifact_references`. Also extend the `propose` parser (near line 1811-1834) with `--commit`, `--files-changed` (nargs=\"*\"), `--tests-run` (nargs=\"*\"), `--tasks` (nargs=\"*\"), and fold them into the payload in `cmd_consensus_propose` (after line 1267) under keys `commit`, `files_changed`, `tests_run`, `tasks_satisfied`. Acceptance: `egg-orch consensus ack` fails argparse without `--reason`; `egg-orch consensus propose` accepts the new args and serializes them into the signal payload.\n2. **[task-1-2]** In `orchestrator/routes/signals.py`, add a module-level `_validate_brc_content(body: str, kind: str) -> str | None` helper returning an error message (or `None`) when `body.strip()` is empty, shorter than a configurable `_BRC_MIN_CONTENT_LEN = 50`, or matches a short case-insensitive exact-match boilerplate list (`{\"lgtm\", \"looks good\", \"no issues\", \"approved\", \"ok\"}`). Invoke it at the top of `handle_consensus_propose_signal` (validate `payload[\"summary\"]`), `handle_consensus_ack_signal` (validate `payload[\"reason\"]`), `handle_consensus_nack_signal` (validate `payload[\"reason\"]`), and `handle_consensus_withdraw_signal` (validate `reason`). On failure, return `make_error_response(<reason>, 400)` **before** touching the tracker or message store (no partial state). The re-propose path (when `changed_artifacts` is present) must also pass through validation. Acceptance: each handler rejects empty/short/boilerplate content with a 400 and does not mutate state; substantive content passes through unchanged.\n3. **[task-1-3]** In `orchestrator/routes/pipelines.py` `_build_brc_protocol_block`, update the producer lifecycle line at 5336-5337 to describe the new propose args (`--summary`, `--commit`, `--files-changed`, `--tests-run`, `--tasks`, `--artifacts`) and describe what substantive proposal content looks like (what was built, what was tested, which contract tasks it satisfies, ≥50 chars). Update the reviewer lifecycle lines at 5366-5367 to require `--reason \"<rationale>\"` on `ack` and describe what substantive review content looks like (what was read, what was checked, why the verdict follows, ≥50 chars). Acceptance: the rendered BRC protocol block produces commands whose argument shapes pass `_validate_brc_content`, and explains the content bar to agents.\n4. **[task-1-4]** Add tests covering: in `sandbox/tests/` — (a) `egg-orch consensus ack` exits non-zero when `--reason` is missing, and threads the reason into the payload when present; (b) `egg-orch consensus propose` accepts `--commit`, `--files-changed`, `--tests-run`, `--tasks` and includes them in the payload. In `orchestrator/tests/` — (a) `_validate_brc_content` unit tests for empty, whitespace-only, <50-char, boilerplate, and substantive inputs; (b) integration-style tests per handler (`propose`, `ack`, `nack`, `withdraw`) confirming a 400 return and no message-store write on validation failure, and a 200 on success; (c) re-propose (with `changed_artifacts`) is subject to the same validation. Acceptance: all new tests pass; existing BRC tests still pass or are updated in-place to supply valid content.\n\n```yaml\n# yaml-tasks\npr:\n  title: \"BRC CLI + orchestrator enforce minimum rationale content\"\n  description: |\n    Closes the CLI/protocol asymmetry that let ACKs carry empty bodies. Adds\n    `--reason` (required) to `egg-orch consensus ack`, extends `propose`\n    with `--commit`, `--files-changed`, `--tests-run`, `--tasks`, and\n    enforces a minimum-content floor in the orchestrator for the four BRC\n    signal handlers (propose, ack, nack, withdraw). Updates the producer\n    and reviewer lifecycle text so agents learn the new contract. Closes\n    #1716.\n  test_plan: |\n    - Automated: new tests under `sandbox/tests/` for CLI argparse + payload\n      construction, and under `orchestrator/tests/` for `_validate_brc_content`\n      and each BRC handler's 400-on-empty / 200-on-valid behavior (including\n      the re-propose path).\n    - Manual: run a small concurrent-mode pipeline, confirm `egg-orch\n      consensus ack` without `--reason` fails argparse, confirm a 49-char\n      reason returns 400 from the orchestrator with an actionable message,\n      and confirm a substantive ACK body appears in the message store.\n  manual_steps: |\n    Pre-merge: none.\n    Post-merge: none. The new prompt+CLI ship together so new pipelines pick\n    up the change atomically; no stateful migration needed.\nphases:\n  - id: 1\n    name: Implement\n    goal: \"Close CLI/protocol asymmetry and enforce minimum-content floor for BRC signals\"\n    tasks:\n      - id: task-1-1\n        description: \"In `sandbox/bin/egg-orch`, add `--reason` (required) to the `ack` parser (~line 1848) and thread it into `cmd_consensus_ack` payload (line 1305-1308). Also add `--commit`, `--files-changed` (nargs='*'), `--tests-run` (nargs='*'), `--tasks` (nargs='*') to the `propose` parser (~line 1811-1834) and fold them into the payload in `cmd_consensus_propose` (after line 1267) under keys `commit`, `files_changed`, `tests_run`, `tasks_satisfied`.\"\n        acceptance: \"`egg-orch consensus ack` exits non-zero at argparse without `--reason`; with `--reason` the value appears in the `reason` key of the signal payload. `egg-orch consensus propose` accepts the new structured args and includes `commit`, `files_changed`, `tests_run`, `tasks_satisfied` in the signal payload.\"\n        files:\n          - sandbox/bin/egg-orch\n      - id: task-1-2\n        description: \"In `orchestrator/routes/signals.py`, add `_validate_brc_content(body: str, kind: str) -> str | None` returning an error message (or None) when `body.strip()` is empty, shorter than `_BRC_MIN_CONTENT_LEN = 50`, or matches a small case-insensitive boilerplate set (`{'lgtm', 'looks good', 'no issues', 'approved', 'ok'}`). Invoke it at the top of `handle_consensus_propose_signal` (on `payload['summary']`), `handle_consensus_ack_signal` (on `payload['reason']`), `handle_consensus_nack_signal` (on `payload['reason']`), and `handle_consensus_withdraw_signal` (on `reason`). On failure return `make_error_response(msg, 400)` before tracker/message-store mutation. The re-propose path (when `changed_artifacts` is present) must also validate.\"\n        acceptance: \"Each of the four BRC handlers returns HTTP 400 with an actionable error message and writes nothing to the tracker or message store when content is empty/short/boilerplate. Substantive content passes through and still produces the normal 2xx success. Re-propose is validated on the same path.\"\n        files:\n          - orchestrator/routes/signals.py\n      - id: task-1-3\n        description: \"In `orchestrator/routes/pipelines.py` `_build_brc_protocol_block`, update the producer lifecycle text near line 5336-5337 to describe the new propose args (`--summary`, `--commit`, `--files-changed`, `--tests-run`, `--tasks`, `--artifacts`) and what substantive proposal content looks like (what was built, what was tested, which contract tasks it satisfies, ≥50 chars). Update the reviewer lifecycle text at 5366-5367 to require `--reason` on `ack` and describe what substantive review content looks like (what was read, what was checked, why the verdict follows, ≥50 chars).\"\n        acceptance: \"The rendered BRC protocol block produces commands whose argument shapes pass `_validate_brc_content`, and explicitly teaches both producer and reviewer what substantive content looks like and the ≥50-char floor.\"\n        files:\n          - orchestrator/routes/pipelines.py\n      - id: task-1-4\n        description: \"Add tests. In `sandbox/tests/`: (a) `egg-orch consensus ack` exits non-zero when `--reason` missing, threads reason into payload when present; (b) `egg-orch consensus propose` accepts the new structured args and includes them in the payload. In `orchestrator/tests/`: (a) unit tests for `_validate_brc_content` covering empty, whitespace-only, <50-char, boilerplate, and substantive; (b) per-handler tests that validation failure returns 400 with no message-store write, and that success still writes normally; (c) re-propose (with `changed_artifacts`) is validated.\"\n        acceptance: \"All new tests pass. Existing BRC tests in `orchestrator/tests/` and `sandbox/tests/` either continue to pass or are updated in-place to supply valid (≥50-char non-boilerplate) content.\"\n        files:\n          - sandbox/tests/\n          - orchestrator/tests/\n```\n",
   "source_branch": null,
   "source_artifact_prefix": null,
-  "run_epoch": "2026-04-14T02:11:03.351905Z",
-  "version": 24
+  "run_epoch": "2026-04-14T02:12:39.484999Z",
+  "version": 25
 }
