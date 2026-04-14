@@ -1264,7 +1264,6 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
             "artifacts": getattr(args, "artifacts", []) or [],
             "risk_considered": getattr(args, "risk", "") or "",
             "commit_sha": commit_sha,
-            "commit": getattr(args, "commit", "") or "",
             "files_changed": getattr(args, "files_changed", []) or [],
             "tests_run": getattr(args, "tests_run", []) or [],
             "tasks_satisfied": getattr(args, "tasks", []) or [],
@@ -1830,7 +1829,6 @@ def create_parser() -> argparse.ArgumentParser:
         nargs="*",
         help="Changed artifacts (for re-proposals after NACK)",
     )
-    cons_propose.add_argument("--commit", help="Commit SHA associated with the proposal")
     cons_propose.add_argument("--files-changed", nargs="*", help="Files changed in this proposal")
     cons_propose.add_argument("--tests-run", nargs="*", help="Tests executed for this proposal")
     cons_propose.add_argument(

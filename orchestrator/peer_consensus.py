@@ -806,7 +806,10 @@ class PeerConsensusTracker:
             if not artifacts:
                 artifacts = [commit_sha]  # Last resort: use the commit SHA itself
             payload = {
-                "summary": f"Auto re-proposal: new push by {agent_role} ({commit_sha[:8]})",
+                "summary": (
+                    f"Auto re-proposal: new push by {agent_role} (commit {commit_sha[:8]}). "
+                    f"Prior proposal invalidated by new commits — re-review required."
+                ),
                 "artifacts": artifacts,
                 "commit_sha": commit_sha,
             }

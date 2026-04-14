@@ -5226,7 +5226,7 @@ def _build_brc_preamble(
                 "2. **WORK**: Complete your assigned task (see Your Task below).",
                 "3. **PROPOSE**: When done, run: "
                 '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2" '
-                '--commit "<sha>" --files-changed "f1.py" "f2.py" --tests-run "test_a" "test_b" '
+                '--files-changed "f1.py" "f2.py" --tests-run "test_a" "test_b" '
                 '--tasks "task-1-1" "task-1-2" --commit-sha $(git rev-parse HEAD)`. '
                 "The `--summary` must be ≥50 chars of substantive content describing what was "
                 "built, what was tested, and which contract tasks it satisfies. "

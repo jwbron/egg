@@ -103,22 +103,6 @@ class TestAckReasonInPayload:
 class TestProposeStructuredArgs:
     """``egg-orch consensus propose`` accepts new structured args."""
 
-    def test_commit_arg_parsed(self):
-        """--commit is accepted and parsed."""
-        parser = create_parser()
-        args = parser.parse_args(
-            [
-                "consensus",
-                "propose",
-                "issue-42",
-                "--summary",
-                "Implemented feature",
-                "--commit",
-                "abc1234",
-            ]
-        )
-        assert args.commit == "abc1234"
-
     def test_files_changed_arg_parsed(self):
         """--files-changed accepts multiple files."""
         parser = create_parser()
@@ -180,8 +164,6 @@ class TestProposeStructuredArgs:
                 "issue-42",
                 "--summary",
                 "Full implementation with tests",
-                "--commit",
-                "deadbeef",
                 "--files-changed",
                 "src/a.py",
                 "src/b.py",
@@ -194,7 +176,6 @@ class TestProposeStructuredArgs:
                 "src/a.py",
             ]
         )
-        assert args.commit == "deadbeef"
         assert args.files_changed == ["src/a.py", "src/b.py"]
         assert args.tests_run == ["pytest", "mypy"]
         assert args.tasks == ["task-1-1"]
@@ -214,7 +195,6 @@ class TestProposeStructuredArgs:
             ]
         )
         # New args should default to None when not provided
-        assert args.commit is None
         assert args.files_changed is None
         assert args.tests_run is None
         assert args.tasks is None
@@ -233,8 +213,6 @@ class TestProposeStructuredArgsInPayload:
                 "issue-42",
                 "--summary",
                 "Auth implementation",
-                "--commit",
-                "abc123",
                 "--files-changed",
                 "src/auth.py",
                 "--tests-run",
@@ -253,12 +231,10 @@ class TestProposeStructuredArgsInPayload:
             "artifacts": getattr(args, "artifacts", []) or [],
             "risk_considered": getattr(args, "risk", "") or "",
             "commit_sha": args.commit_sha,
-            "commit": getattr(args, "commit", "") or "",
             "files_changed": getattr(args, "files_changed", []) or [],
             "tests_run": getattr(args, "tests_run", []) or [],
             "tasks_satisfied": getattr(args, "tasks", []) or [],
         }
-        assert payload["commit"] == "abc123"
         assert payload["files_changed"] == ["src/auth.py"]
         assert payload["tests_run"] == ["pytest"]
         assert payload["tasks_satisfied"] == ["task-1-1", "task-1-2"]
@@ -279,12 +255,10 @@ class TestProposeStructuredArgsInPayload:
         )
         # Simulate payload construction
         payload = {
-            "commit": getattr(args, "commit", "") or "",
             "files_changed": getattr(args, "files_changed", []) or [],
             "tests_run": getattr(args, "tests_run", []) or [],
             "tasks_satisfied": getattr(args, "tasks", []) or [],
         }
-        assert payload["commit"] == ""
         assert payload["files_changed"] == []
         assert payload["tests_run"] == []
         assert payload["tasks_satisfied"] == []
