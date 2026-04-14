@@ -15,6 +15,10 @@ Reads checkpoint data via `git show` so it works both inside the egg container
 (through the gateway sidecar) and outside with direct git access — no worktrees
 required.
 
+Note: Reviewer agents may not produce checkpoints if session-end triggers don't
+fire (e.g., container eviction, OOM, or reviewer sessions that complete before
+the capture hook runs). Use ``--agent-type reviewer`` results as a lower bound.
+
 Commands:
     egg-checkpoint list [--branch <branch>] [--issue <number>] [--limit <n>]
                         [--trigger <type>] [--status <status>] [--agent-type <type>]
@@ -34,7 +38,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +68,63 @@ _CHECKPOINT_REPO_HINT = (
 
 # Validation pattern for checkpoint_repo values (must be "owner/repo" format)
 _REPO_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$")
+
+# Composite BRC reviewer role names that map to AgentType.REVIEWER in the index
+# but carry a more specific agent_role in SessionMetadata.
+COMPOSITE_REVIEWER_ROLES: frozenset[str] = frozenset(
+    {
+        "reviewer_code",
+        "reviewer_contract",
+        "reviewer_agent_design",
+        "reviewer_refine",
+        "reviewer_plan",
+    }
+)
+
+# All valid --agent-type choices: base AgentType values + composite reviewer names
+_AGENT_TYPE_CHOICES: list[str] = sorted({a.value for a in AgentType} | COMPOSITE_REVIEWER_ROLES)
+
+
+def _print_empty_result(
+    checkpoint_repo: str | None,
+    branch: str,
+    json_mode: bool,
+    message: str = "No checkpoints found matching filters",
+    shape: Literal["list", "cost"] = "list",
+    hint: bool = True,
+) -> None:
+    """Print a standardised empty-result message.
+
+    Args:
+        checkpoint_repo: The checkpoint repo that was searched (or None).
+        branch: The checkpoint branch that was searched.
+        json_mode: Whether ``--json`` was passed.
+        message: Human-readable description printed to stderr.
+        shape: ``"list"`` emits ``[]`` to stdout when *json_mode* is True;
+               ``"cost"`` emits a structured empty cost object.
+        hint: Whether to print the checkpoint-repo hint.
+    """
+    repo_label = checkpoint_repo or "(local)"
+    print(f"Searched {repo_label} branch {branch}", file=sys.stderr)
+    if not json_mode:
+        print(message, file=sys.stderr)
+    if hint:
+        _print_repo_hint(checkpoint_repo)
+    if json_mode:
+        if shape == "cost":
+            empty: dict[str, Any] = {
+                "pipeline_id": None,
+                "issue_number": None,
+                "pr_number": None,
+                "checkpoint_count": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_cost_usd": 0.0,
+                "breakdown": [],
+            }
+            print(json.dumps(empty, indent=2))
+        else:
+            print("[]")
 
 
 def _get_gateway_url() -> str | None:
@@ -680,6 +741,55 @@ def _add_checkpoint_resolution_params(params: dict[str, Any], args: argparse.Nam
         params["source_repo"] = source_repo
 
 
+def _decompose_composite_role(
+    agent_type: str | None,
+) -> tuple[str | None, str | None]:
+    """Decompose a composite reviewer role for API queries.
+
+    Returns ``(api_agent_type, composite_role)`` where *api_agent_type* is the
+    base ``AgentType`` value suitable for the gateway API (e.g. ``"reviewer"``)
+    and *composite_role* is the original composite name for client-side
+    post-filtering.  When *agent_type* is not a composite role, it is returned
+    unchanged and *composite_role* is ``None``.
+    """
+    if agent_type in COMPOSITE_REVIEWER_ROLES:
+        return AgentType.REVIEWER.value, agent_type
+    return agent_type, None
+
+
+def _http_filter_composite_role(
+    summaries: list[dict[str, Any]],
+    composite_role: str,
+    gateway_url: str,
+    params: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Post-filter HTTP results by composite reviewer role (N+1 fetches).
+
+    The gateway index only stores the base ``AgentType`` (e.g. ``"reviewer"``).
+    To filter by a specific composite role (e.g. ``"reviewer_code"``), we must
+    fetch each full checkpoint and inspect ``session.agent_role``.
+    """
+    filtered: list[dict[str, Any]] = []
+    repo_path = params.get("repo_path", "")
+    for s in summaries:
+        cp_id = s.get("id", "")
+        try:
+            show_params: dict[str, Any] = {"repo_path": repo_path}
+            if params.get("checkpoint_repo"):
+                show_params["checkpoint_repo"] = params["checkpoint_repo"]
+            elif params.get("source_repo"):
+                show_params["source_repo"] = params["source_repo"]
+            cp_result = _http_get(gateway_url, f"/api/v1/checkpoints/{cp_id}", show_params)
+            cp_data = cp_result.get("data", {}).get("checkpoint", {})
+            session = cp_data.get("session", {})
+            if session.get("agent_role") == composite_role:
+                filtered.append(s)
+        except RuntimeError as exc:
+            print(f"Warning: failed to fetch checkpoint {cp_id}: {exc}", file=sys.stderr)
+            continue
+    return filtered
+
+
 def _build_list_params(args: argparse.Namespace) -> dict[str, Any]:
     """Build query parameters for checkpoint list from CLI args."""
     params: dict[str, Any] = {"limit": args.limit}
@@ -696,7 +806,8 @@ def _build_list_params(args: argparse.Namespace) -> dict[str, Any]:
     if getattr(args, "status", None):
         params["status"] = args.status
     if getattr(args, "agent_type", None):
-        params["agent_type"] = args.agent_type
+        api_agent_type, _ = _decompose_composite_role(args.agent_type)
+        params["agent_type"] = api_agent_type
     if getattr(args, "phase", None):
         params["phase"] = args.phase
     if getattr(args, "pipeline", None):
@@ -712,11 +823,19 @@ def _build_list_params(args: argparse.Namespace) -> dict[str, Any]:
 def _cmd_list_http(args: argparse.Namespace, gateway_url: str) -> int:
     """List checkpoints via gateway HTTP API."""
     params = _build_list_params(args)
+    _, composite_role = _decompose_composite_role(getattr(args, "agent_type", None))
     result = _http_get(gateway_url, "/api/v1/checkpoints", params)
     summaries = result.get("data", {}).get("checkpoints", [])
 
+    # Post-filter by composite reviewer role if needed
+    if composite_role and summaries:
+        summaries = _http_filter_composite_role(summaries, composite_role, gateway_url, params)
+
     if not summaries:
-        print("No checkpoints found matching filters")
+        checkpoint_repo = params.get("checkpoint_repo")
+        _print_empty_result(
+            checkpoint_repo, CHECKPOINT_BRANCH, args.json, hint=(checkpoint_repo is None)
+        )
         return 0
 
     if args.json:
@@ -745,15 +864,26 @@ def cmd_list(args: argparse.Namespace) -> int:
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
-        print("No checkpoints found (checkpoint branch does not exist)")
-        _print_repo_hint(checkpoint_repo)
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message="No checkpoints found (checkpoint branch does not exist)",
+        )
         return 0
 
     index = load_index_from_ref(ref, repo_path)
     if not index:
-        print("No checkpoints found")
-        _print_repo_hint(checkpoint_repo)
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message="No checkpoints found",
+        )
         return 0
+
+    # Resolve composite reviewer roles to base AgentType for index lookup
+    agent_type_filter, composite_role = _decompose_composite_role(getattr(args, "agent_type", None))
 
     summaries = filter_checkpoints_v2(
         index,
@@ -763,16 +893,24 @@ def cmd_list(args: argparse.Namespace) -> int:
         session_id=getattr(args, "session", None),
         trigger_type=getattr(args, "trigger", None),
         session_status=getattr(args, "status", None),
-        agent_type=getattr(args, "agent_type", None),
+        agent_type=agent_type_filter,
         pipeline_phase=getattr(args, "phase", None),
         pipeline_id=getattr(args, "pipeline", None),
         repo=getattr(args, "repo", None),
         limit=args.limit,
     )
 
+    # Post-filter by composite reviewer role if requested
+    if composite_role and summaries:
+        filtered = []
+        for s in summaries:
+            cp = load_checkpoint_from_ref(s.id, ref, repo_path)
+            if cp and cp.session and cp.session.agent_role == composite_role:
+                filtered.append(s)
+        summaries = filtered
+
     if not summaries:
-        print("No checkpoints found matching filters")
-        _print_repo_hint(checkpoint_repo)
+        _print_empty_result(checkpoint_repo, CHECKPOINT_BRANCH, args.json)
         return 0
 
     if args.json:
@@ -794,7 +932,7 @@ def _cmd_show_http(args: argparse.Namespace, gateway_url: str) -> int:
     result = _http_get(gateway_url, f"/api/v1/checkpoints/{args.identifier}", params)
 
     if not result.get("success"):
-        print(f"No checkpoint found for '{args.identifier}'")
+        print(f"No checkpoint found for '{args.identifier}'", file=sys.stderr)
         return 1
 
     data = result.get("data", {}).get("checkpoint", {})
@@ -821,7 +959,7 @@ def cmd_show(args: argparse.Namespace) -> int:
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
-        print("No checkpoints found (checkpoint branch does not exist)")
+        print("No checkpoints found (checkpoint branch does not exist)", file=sys.stderr)
         _print_repo_hint(checkpoint_repo)
         return 1
 
@@ -838,7 +976,7 @@ def cmd_show(args: argparse.Namespace) -> int:
                 checkpoint = load_checkpoint_from_ref(checkpoint_id, ref, repo_path)
 
     if not checkpoint:
-        print(f"No checkpoint found for '{identifier}'")
+        print(f"No checkpoint found for '{identifier}'", file=sys.stderr)
         return 1
 
     if args.json:
@@ -864,7 +1002,14 @@ def _cmd_browse_http(args: argparse.Namespace, gateway_url: str) -> int:
     summaries = result.get("data", {}).get("checkpoints", [])
 
     if not summaries:
-        print(f"No checkpoints found for issue #{args.issue}")
+        checkpoint_repo = params.get("checkpoint_repo")
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message=f"No checkpoints found for issue #{args.issue}",
+            hint=(checkpoint_repo is None),
+        )
         return 0
 
     if args.json:
@@ -910,14 +1055,22 @@ def cmd_browse(args: argparse.Namespace) -> int:
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
-        print("No checkpoints found (checkpoint branch does not exist)")
-        _print_repo_hint(checkpoint_repo)
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message="No checkpoints found (checkpoint branch does not exist)",
+        )
         return 0
 
     index = load_index_from_ref(ref, repo_path)
     if not index:
-        print("No checkpoints found")
-        _print_repo_hint(checkpoint_repo)
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message="No checkpoints found",
+        )
         return 0
 
     summaries = filter_checkpoints_v2(
@@ -928,8 +1081,12 @@ def cmd_browse(args: argparse.Namespace) -> int:
     )
 
     if not summaries:
-        print(f"No checkpoints found for issue #{args.issue}")
-        _print_repo_hint(checkpoint_repo)
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message=f"No checkpoints found for issue #{args.issue}",
+        )
         return 0
 
     if args.json:
@@ -971,8 +1128,10 @@ def _cmd_context_http(args: argparse.Namespace, gateway_url: str) -> int:
         params["pipeline"] = args.pipeline
     if getattr(args, "issue", None):
         params["issue"] = args.issue
+    composite_role: str | None = None
     if getattr(args, "agent_type", None):
-        params["agent_type"] = args.agent_type
+        api_agent_type, composite_role = _decompose_composite_role(args.agent_type)
+        params["agent_type"] = api_agent_type
     if getattr(args, "phase", None):
         params["phase"] = args.phase
     if getattr(args, "repo", None):
@@ -982,8 +1141,15 @@ def _cmd_context_http(args: argparse.Namespace, gateway_url: str) -> int:
     result = _http_get(gateway_url, "/api/v1/checkpoints", params)
     summaries = result.get("data", {}).get("checkpoints", [])
 
+    # Post-filter by composite reviewer role if needed
+    if composite_role and summaries:
+        summaries = _http_filter_composite_role(summaries, composite_role, gateway_url, params)
+
     if not summaries:
-        print("No checkpoints found matching filters")
+        checkpoint_repo = params.get("checkpoint_repo")
+        _print_empty_result(
+            checkpoint_repo, CHECKPOINT_BRANCH, args.json, hint=(checkpoint_repo is None)
+        )
         return 0
 
     if args.json:
@@ -1114,29 +1280,48 @@ def cmd_context(args: argparse.Namespace) -> int:
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
-        print("No checkpoints found (checkpoint branch does not exist)")
-        _print_repo_hint(checkpoint_repo)
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message="No checkpoints found (checkpoint branch does not exist)",
+        )
         return 0
 
     index = load_index_from_ref(ref, repo_path)
     if not index:
-        print("No checkpoints found")
-        _print_repo_hint(checkpoint_repo)
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message="No checkpoints found",
+        )
         return 0
+
+    # Resolve composite reviewer roles to base AgentType for index lookup
+    agent_type_filter, composite_role = _decompose_composite_role(getattr(args, "agent_type", None))
 
     summaries = filter_checkpoints_v2(
         index,
         pipeline_id=getattr(args, "pipeline", None),
         issue_number=getattr(args, "issue", None),
-        agent_type=getattr(args, "agent_type", None),
+        agent_type=agent_type_filter,
         pipeline_phase=getattr(args, "phase", None),
         repo=getattr(args, "repo", None),
         limit=args.limit,
     )
 
+    # Post-filter by composite reviewer role if requested
+    if composite_role and summaries:
+        filtered = []
+        for s in summaries:
+            cp = load_checkpoint_from_ref(s.id, ref, repo_path)
+            if cp and cp.session and cp.session.agent_role == composite_role:
+                filtered.append(s)
+        summaries = filtered
+
     if not summaries:
-        print("No checkpoints found matching filters")
-        _print_repo_hint(checkpoint_repo)
+        _print_empty_result(checkpoint_repo, CHECKPOINT_BRANCH, args.json)
         return 0
 
     if args.json:
@@ -1242,7 +1427,15 @@ def _cmd_cost_http(args: argparse.Namespace, gateway_url: str) -> int:
     data = result.get("data", {})
 
     if not data or data.get("checkpoint_count", 0) == 0:
-        print("No checkpoints with token usage data found")
+        checkpoint_repo = params.get("checkpoint_repo")
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message="No checkpoints with token usage data found",
+            shape="cost",
+            hint=(checkpoint_repo is None),
+        )
         return 0
 
     pipeline_id = getattr(args, "pipeline", None)
@@ -1302,14 +1495,24 @@ def cmd_cost(args: argparse.Namespace) -> int:
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
-        print("No checkpoints found (checkpoint branch does not exist)")
-        _print_repo_hint(checkpoint_repo)
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message="No checkpoints found (checkpoint branch does not exist)",
+            shape="cost",
+        )
         return 0
 
     index = load_index_from_ref(ref, repo_path)
     if not index:
-        print("No checkpoints found")
-        _print_repo_hint(checkpoint_repo)
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message="No checkpoints found",
+            shape="cost",
+        )
         return 0
 
     summaries = filter_checkpoints_v2(
@@ -1321,8 +1524,13 @@ def cmd_cost(args: argparse.Namespace) -> int:
     )
 
     if not summaries:
-        print("No checkpoints found matching filters")
-        _print_repo_hint(checkpoint_repo)
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message="No checkpoints found matching filters",
+            shape="cost",
+        )
         return 0
 
     # Load full checkpoints to get token_usage and model info
@@ -1357,7 +1565,13 @@ def cmd_cost(args: argparse.Namespace) -> int:
         )
 
     if not rows:
-        print("No checkpoints with token usage data found")
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message="No checkpoints with token usage data found",
+            shape="cost",
+        )
         return 0
 
     # Aggregate by (phase, agent)
@@ -1511,11 +1725,19 @@ def _cmd_search_http(args: argparse.Namespace, gateway_url: str) -> int:
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
+    _, composite_role = _decompose_composite_role(getattr(args, "agent_type", None))
     result = _http_get(gateway_url, "/api/v1/checkpoints", params)
     summaries = result.get("data", {}).get("checkpoints", [])
 
+    # Post-filter by composite reviewer role before transcript search
+    if composite_role and summaries:
+        summaries = _http_filter_composite_role(summaries, composite_role, gateway_url, params)
+
     if not summaries:
-        print("No checkpoints found matching filters")
+        checkpoint_repo = params.get("checkpoint_repo")
+        _print_empty_result(
+            checkpoint_repo, CHECKPOINT_BRANCH, args.json, hint=(checkpoint_repo is None)
+        )
         return 0
 
     matches: list[tuple[CheckpointSummaryV2 | dict[str, Any], list[str]]] = []
@@ -1562,7 +1784,14 @@ def _cmd_search_http(args: argparse.Namespace, gateway_url: str) -> int:
             matches.append((s, snippets))
 
     if not matches:
-        print(f"No checkpoints found with transcript matching {text!r}")
+        checkpoint_repo = params.get("checkpoint_repo")
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message=f"No checkpoints found with transcript matching {text!r}",
+            hint=(checkpoint_repo is None),
+        )
         return 0
 
     _print_search_results(matches, text, args)
@@ -1588,15 +1817,26 @@ def cmd_search(args: argparse.Namespace) -> int:
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
-        print("No checkpoints found (checkpoint branch does not exist)")
-        _print_repo_hint(checkpoint_repo)
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message="No checkpoints found (checkpoint branch does not exist)",
+        )
         return 0
 
     index = load_index_from_ref(ref, repo_path)
     if not index:
-        print("No checkpoints found")
-        _print_repo_hint(checkpoint_repo)
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message="No checkpoints found",
+        )
         return 0
+
+    # Resolve composite reviewer roles to base AgentType for index lookup
+    agent_type_filter, composite_role = _decompose_composite_role(getattr(args, "agent_type", None))
 
     # Filter by metadata first to narrow the search space
     summaries = filter_checkpoints_v2(
@@ -1607,7 +1847,7 @@ def cmd_search(args: argparse.Namespace) -> int:
         session_id=getattr(args, "session", None),
         trigger_type=getattr(args, "trigger", None),
         session_status=getattr(args, "status", None),
-        agent_type=getattr(args, "agent_type", None),
+        agent_type=agent_type_filter,
         pipeline_phase=getattr(args, "phase", None),
         pipeline_id=getattr(args, "pipeline", None),
         repo=getattr(args, "repo", None),
@@ -1615,8 +1855,7 @@ def cmd_search(args: argparse.Namespace) -> int:
     )
 
     if not summaries:
-        print("No checkpoints found matching filters")
-        _print_repo_hint(checkpoint_repo)
+        _print_empty_result(checkpoint_repo, CHECKPOINT_BRANCH, args.json)
         return 0
 
     # Load each full checkpoint and search its transcript
@@ -1626,12 +1865,21 @@ def cmd_search(args: argparse.Namespace) -> int:
         checkpoint = load_checkpoint_from_ref(s.id, ref, repo_path)
         if not checkpoint:
             continue
+        # Post-filter by composite reviewer role if requested
+        if composite_role:
+            if not (checkpoint.session and checkpoint.session.agent_role == composite_role):
+                continue
         snippets = _search_checkpoint_transcript(checkpoint, text)
         if snippets:
             matches.append((s, snippets))
 
     if not matches:
-        print(f"No checkpoints found with transcript matching {text!r}")
+        _print_empty_result(
+            checkpoint_repo,
+            CHECKPOINT_BRANCH,
+            args.json,
+            message=f"No checkpoints found with transcript matching {text!r}",
+        )
         return 0
 
     _print_search_results(matches, text, args)
@@ -1640,10 +1888,35 @@ def cmd_search(args: argparse.Namespace) -> int:
 
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
+
+    # Shared parent parser for subcommands.  Uses argparse.SUPPRESS as default
+    # so that values set by the *main* parser (before the subcommand name) are
+    # not overwritten by subparser defaults.  This lets users place
+    # --checkpoint-repo / --repo-path before OR after the subcommand.
+    common_parser = argparse.ArgumentParser(add_help=False)
+    common_parser.add_argument(
+        "--repo-path",
+        default=argparse.SUPPRESS,
+        help="Repository path (defaults to EGG_REPO_PATH or cwd)",
+    )
+    common_parser.add_argument(
+        "--checkpoint-repo",
+        default=argparse.SUPPRESS,
+        help="External checkpoint repo in 'owner/repo' format "
+        "(overrides EGG_CHECKPOINT_REPO env var and repo_settings config)",
+    )
+
     parser = argparse.ArgumentParser(
         prog="egg-checkpoint",
-        description="CLI for browsing and querying agent checkpoints",
+        description=(
+            "CLI for browsing and querying agent checkpoints.\n\n"
+            "Note: Reviewer agents may not produce checkpoints if session-end\n"
+            "triggers don't fire (e.g., container eviction or OOM). Use reviewer\n"
+            "results as a lower bound."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    # Main-parser copies use default=None so the namespace always has the attr.
     parser.add_argument(
         "--repo-path",
         help="Repository path (defaults to EGG_REPO_PATH or cwd)",
@@ -1656,8 +1929,19 @@ def create_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
+    _agent_type_help = (
+        "Filter by agent type. Accepts base types (coder, tester, reviewer, …) "
+        "and composite BRC reviewer roles (reviewer_code, reviewer_contract, etc.). "
+        "Composite roles are post-filtered via session metadata and work only in "
+        "the direct-git path; they collapse to 'reviewer' when queried via the "
+        "gateway HTTP API. Note: reviewer agents may not produce checkpoints if "
+        "session-end triggers don't fire."
+    )
+
     # list command
-    list_parser = subparsers.add_parser("list", help="List checkpoints with metadata")
+    list_parser = subparsers.add_parser(
+        "list", help="List checkpoints with metadata", parents=[common_parser]
+    )
     list_parser.add_argument("--branch", help="Filter by branch name")
     list_parser.add_argument("--issue", type=int, help="Filter by issue number")
     list_parser.add_argument("--pr", type=int, help="Filter by PR number")
@@ -1674,8 +1958,8 @@ def create_parser() -> argparse.ArgumentParser:
     )
     list_parser.add_argument(
         "--agent-type",
-        choices=[a.value for a in AgentType],
-        help="Filter by agent type",
+        choices=_AGENT_TYPE_CHOICES,
+        help=_agent_type_help,
     )
     list_parser.add_argument(
         "--phase",
@@ -1689,13 +1973,17 @@ def create_parser() -> argparse.ArgumentParser:
     list_parser.set_defaults(func=cmd_list)
 
     # show command
-    show_parser = subparsers.add_parser("show", help="Display full checkpoint details")
+    show_parser = subparsers.add_parser(
+        "show", help="Display full checkpoint details", parents=[common_parser]
+    )
     show_parser.add_argument("identifier", help="Checkpoint ID (ckpt-...) or commit SHA")
     show_parser.add_argument("--json", action="store_true", help="Output as JSON")
     show_parser.set_defaults(func=cmd_show)
 
     # browse command
-    browse_parser = subparsers.add_parser("browse", help="Filter checkpoints by issue")
+    browse_parser = subparsers.add_parser(
+        "browse", help="Filter checkpoints by issue", parents=[common_parser]
+    )
     browse_parser.add_argument("--issue", type=int, required=True, help="Issue number to browse")
     browse_parser.add_argument("--repo", help="Filter by source repository (owner/repo format)")
     browse_parser.add_argument("--limit", type=int, default=100, help="Maximum checkpoints to show")
@@ -1704,14 +1992,16 @@ def create_parser() -> argparse.ArgumentParser:
 
     # context command
     context_parser = subparsers.add_parser(
-        "context", help="Show cross-agent context summary for a pipeline or issue"
+        "context",
+        help="Show cross-agent context summary for a pipeline or issue",
+        parents=[common_parser],
     )
     context_parser.add_argument("--pipeline", help="Filter by pipeline run ID")
     context_parser.add_argument("--issue", type=int, help="Filter by issue number")
     context_parser.add_argument(
         "--agent-type",
-        choices=[a.value for a in AgentType],
-        help="Filter by agent type",
+        choices=_AGENT_TYPE_CHOICES,
+        help=_agent_type_help,
     )
     context_parser.add_argument(
         "--phase",
@@ -1730,7 +2020,9 @@ def create_parser() -> argparse.ArgumentParser:
 
     # cost command
     cost_parser = subparsers.add_parser(
-        "cost", help="Show cost breakdown for a pipeline, issue, or PR"
+        "cost",
+        help="Show cost breakdown for a pipeline, issue, or PR",
+        parents=[common_parser],
     )
     cost_parser.add_argument("--pipeline", help="Filter by pipeline run ID")
     cost_parser.add_argument("--issue", type=int, help="Filter by issue number")
@@ -1741,7 +2033,9 @@ def create_parser() -> argparse.ArgumentParser:
 
     # search command
     search_parser = subparsers.add_parser(
-        "search", help="Search checkpoint transcripts for matching text"
+        "search",
+        help="Search checkpoint transcripts for matching text",
+        parents=[common_parser],
     )
     search_parser.add_argument(
         "--text", required=True, help="Text to search for in transcripts (case-insensitive)"
@@ -1762,8 +2056,8 @@ def create_parser() -> argparse.ArgumentParser:
     )
     search_parser.add_argument(
         "--agent-type",
-        choices=[a.value for a in AgentType],
-        help="Filter by agent type",
+        choices=_AGENT_TYPE_CHOICES,
+        help=_agent_type_help,
     )
     search_parser.add_argument(
         "--phase",

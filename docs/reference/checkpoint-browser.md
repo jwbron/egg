@@ -20,7 +20,15 @@ By default, `egg-checkpoint` looks for checkpoints in the current repo's `egg/ch
 3. `repositories.yaml` config lookup (auto-detected)
 4. Gateway fallback via `source_repo`
 
-Example: `EGG_CHECKPOINT_REPO=jwbron/egg-checkpoints egg-checkpoint list --limit 5`
+The `--checkpoint-repo` and `--repo-path` flags can be placed **before or after** the subcommand name — both positions are accepted:
+
+```bash
+# Both of these are equivalent:
+egg-checkpoint --checkpoint-repo jwbron/egg-checkpoints list --issue 42
+egg-checkpoint list --checkpoint-repo jwbron/egg-checkpoints --issue 42
+```
+
+If the flag is supplied in both positions, the last value wins (standard argparse behavior).
 
 ## Commands
 
@@ -33,7 +41,7 @@ Example: `EGG_CHECKPOINT_REPO=jwbron/egg-checkpoints egg-checkpoint list --limit
 | `egg-checkpoint cost` | Show cost breakdown (token usage and USD) by phase and agent type |
 | `egg-checkpoint search --text <t>` | Search checkpoint transcripts for matching text |
 
-All commands support `--json` for machine-readable output.
+All commands support `--json` for machine-readable output. When `--json` is set and results are empty, the CLI emits valid parseable JSON to stdout (`[]` for list-shaped commands; a structured empty object for `context` and `cost`) instead of plain text, ensuring downstream consumers can always `json.loads()` the output.
 
 ## Filtering
 
@@ -45,9 +53,50 @@ All list/context filters use AND logic. Common filters:
 | PR | `--pr N` | `--pr 42` |
 | Pipeline | `--pipeline ID` | `--pipeline issue-530` |
 | Repo | `--repo OWNER/REPO` | `--repo jwbron/egg` |
-| Agent | `--agent-type TYPE` | `--agent-type coder` |
+| Agent | `--agent-type TYPE` | `--agent-type coder` or `--agent-type reviewer_code` |
 | Phase | `--phase PHASE` | `--phase implement` |
 | Status | `--status STATUS` | `--status failed` |
+
+### Composite BRC Role Filtering
+
+The `--agent-type` flag accepts both coarse agent types (e.g., `reviewer`) and composite BRC role names:
+
+| Composite Role | Description |
+|----------------|-------------|
+| `reviewer_code` | Code quality reviewer |
+| `reviewer_contract` | Contract compliance reviewer |
+| `reviewer_agent_design` | Agent design reviewer |
+| `reviewer_refine` | Refinement reviewer |
+| `reviewer_plan` | Plan reviewer |
+
+When a composite role name is used, the CLI filters by `AgentType.REVIEWER` at the index level, then post-filters by loading each checkpoint and matching the `session.agent_role` field.
+
+**Limitations:**
+- Composite role filtering works only via the **direct-git path**. When querying through the gateway HTTP API, composite roles collapse to `reviewer` — the gateway does not preserve the full role name in its index.
+- Reviewer agents may not produce checkpoints if session-end triggers don't fire (e.g., container killed before checkpoint write). An empty result for a reviewer role does not necessarily mean the reviewer was inactive.
+
+```bash
+# Find code reviewer checkpoints for a specific issue
+egg-checkpoint list --agent-type reviewer_code --issue 1707
+
+# Find all reviewer checkpoints (all composite roles included)
+egg-checkpoint list --agent-type reviewer --pipeline $EGG_PIPELINE_ID
+```
+
+### Empty Results
+
+When a query matches no checkpoints, the CLI prints the repository and branch that were searched to stderr, helping diagnose whether the correct checkpoint source was used:
+
+```
+Searched jwbron/egg branch egg/checkpoints/v2
+No checkpoints found matching filters
+```
+
+When `--json` is set, empty results produce valid JSON on stdout:
+- **List-shaped commands** (`list`, `browse`, `search`): `[]`
+- **Structured commands** (`context`, `cost`): schema-appropriate empty object
+
+The exit code is always `0` for empty results — this is not an error condition.
 
 ## Common Workflows
 
@@ -84,12 +133,16 @@ egg-checkpoint cost --issue $EGG_ISSUE_NUMBER
 
 ## Troubleshooting
 
-**"No checkpoints found"**: If you see this message with a hint about `--checkpoint-repo`:
-1. Check if checkpoints are in a separate repo — set `EGG_CHECKPOINT_REPO=OWNER/REPO`
+**"No checkpoints found"**: The CLI now prints which repository and branch it searched (e.g., `Searched jwbron/egg branch egg/checkpoints/v2`) to stderr, making it easier to diagnose configuration issues. If the repo/branch shown is unexpected:
+1. Check if checkpoints are in a separate repo — set `EGG_CHECKPOINT_REPO=OWNER/REPO` or use `--checkpoint-repo`
 2. Check if `repositories.yaml` exists (it may not be present in the sandbox)
 3. Try listing without metadata filters — some checkpoints (ad-hoc sessions) have no issue/pipeline metadata
 
+**Reviewer checkpoints not found**: Reviewer agents (`reviewer_code`, `reviewer_contract`, etc.) may not produce checkpoints if session-end triggers don't fire. This can happen when a reviewer's container is stopped before the checkpoint write completes. An empty result does not necessarily mean the reviewer was inactive — check pipeline logs for the agent's status.
+
 **Finding unlabeled checkpoints**: Non-pipeline sessions may lack issue/pipeline metadata. Use `egg-checkpoint list --limit 20` without filters, or search by transcript content: `egg-checkpoint search --text "your topic"`
+
+**Composite role filtering via gateway**: If `--agent-type reviewer_code` returns no results but `--agent-type reviewer` does, you may be querying through the gateway HTTP API which collapses composite roles to `reviewer`. Set `GATEWAY_URL=` (empty) to force the direct-git path, or filter results manually.
 
 ## MCP Tools
 
