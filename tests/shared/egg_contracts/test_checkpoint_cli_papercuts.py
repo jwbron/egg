@@ -394,9 +394,7 @@ class TestCompositeAgentType:
         assert result == 0
         # Should have called filter with "reviewer" (the AgentType value)
         call_kwargs = mock_filter.call_args
-        assert call_kwargs[1].get("agent_type") == "reviewer" or (
-            len(call_kwargs[0]) > 0 and call_kwargs[0]
-        )
+        assert call_kwargs[1]["agent_type"] == "reviewer"
 
     @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
     @patch("egg_contracts.checkpoint_cli.load_checkpoint_from_ref")

@@ -38,7 +38,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ def _print_empty_result(
     branch: str,
     json_mode: bool,
     message: str = "No checkpoints found matching filters",
-    shape: str = "list",
+    shape: Literal["list", "cost"] = "list",
     hint: bool = True,
 ) -> None:
     """Print a standardised empty-result message.
@@ -107,7 +107,7 @@ def _print_empty_result(
     repo_label = checkpoint_repo or "(local)"
     print(f"Searched {repo_label} branch {branch}", file=sys.stderr)
     if not json_mode:
-        print(message)
+        print(message, file=sys.stderr)
     if hint:
         _print_repo_hint(checkpoint_repo)
     if json_mode:
@@ -784,7 +784,8 @@ def _http_filter_composite_role(
             session = cp_data.get("session", {})
             if session.get("agent_role") == composite_role:
                 filtered.append(s)
-        except RuntimeError:
+        except RuntimeError as exc:
+            print(f"Warning: failed to fetch checkpoint {cp_id}: {exc}", file=sys.stderr)
             continue
     return filtered
 
@@ -882,11 +883,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         return 0
 
     # Resolve composite reviewer roles to base AgentType for index lookup
-    agent_type_filter = getattr(args, "agent_type", None)
-    composite_role: str | None = None
-    if agent_type_filter in COMPOSITE_REVIEWER_ROLES:
-        composite_role = agent_type_filter
-        agent_type_filter = AgentType.REVIEWER.value
+    agent_type_filter, composite_role = _decompose_composite_role(getattr(args, "agent_type", None))
 
     summaries = filter_checkpoints_v2(
         index,
@@ -1302,11 +1299,7 @@ def cmd_context(args: argparse.Namespace) -> int:
         return 0
 
     # Resolve composite reviewer roles to base AgentType for index lookup
-    agent_type_filter = getattr(args, "agent_type", None)
-    composite_role: str | None = None
-    if agent_type_filter in COMPOSITE_REVIEWER_ROLES:
-        composite_role = agent_type_filter
-        agent_type_filter = AgentType.REVIEWER.value
+    agent_type_filter, composite_role = _decompose_composite_role(getattr(args, "agent_type", None))
 
     summaries = filter_checkpoints_v2(
         index,
@@ -1843,11 +1836,7 @@ def cmd_search(args: argparse.Namespace) -> int:
         return 0
 
     # Resolve composite reviewer roles to base AgentType for index lookup
-    agent_type_filter = getattr(args, "agent_type", None)
-    composite_role: str | None = None
-    if agent_type_filter in COMPOSITE_REVIEWER_ROLES:
-        composite_role = agent_type_filter
-        agent_type_filter = AgentType.REVIEWER.value
+    agent_type_filter, composite_role = _decompose_composite_role(getattr(args, "agent_type", None))
 
     # Filter by metadata first to narrow the search space
     summaries = filter_checkpoints_v2(
