@@ -971,7 +971,7 @@ class TestConsensusProposeBranchVerification:
                 {
                     "agent_role": "coder",
                     "payload": {
-                        "summary": "impl",
+                        "summary": "Implemented authentication with login, logout, session management, and input validation covering all edge cases",
                         "artifacts": ["src/a.py"],
                         "commit_sha": "abc1234",
                     },
@@ -1026,7 +1026,7 @@ class TestConsensusProposeBranchVerification:
                 {
                     "agent_role": "coder",
                     "payload": {
-                        "summary": "impl",
+                        "summary": "Implemented authentication with login, logout, session management, and input validation covering all edge cases",
                         "artifacts": ["src/a.py"],
                         "commit_sha": "abc1234",
                     },
@@ -1069,7 +1069,7 @@ class TestConsensusProposeBranchVerification:
                 {
                     "agent_role": "coder",
                     "payload": {
-                        "summary": "impl",
+                        "summary": "Implemented authentication with login, logout, session management, and input validation covering all edge cases",
                         "artifacts": ["src/a.py"],
                         "commit_sha": "abc1234",
                     },
@@ -1127,7 +1127,7 @@ class TestConsensusProposeBranchVerification:
                     {
                         "agent_role": "coder",
                         "payload": {
-                            "summary": "impl",
+                            "summary": "Implemented authentication with login, logout, session management, and input validation covering all edge cases",
                             "artifacts": ["src/a.py"],
                             "commit_sha": "deadbeef",
                         },
@@ -1339,7 +1339,7 @@ class TestAckVersionForwarding:
                         "agent_role": "reviewer_code",
                         "producer_role": "coder",
                         "ack_version": 1,
-                        "payload": {"reason": "Looks good"},
+                        "payload": {"reason": "Reviewed auth module: input validation correct, error handling robust, tests comprehensive with boundary conditions"},
                     },
                     Path("/tmp/repo"),
                 )
@@ -1380,7 +1380,7 @@ class TestAckVersionForwarding:
                         "agent_role": "reviewer_code",
                         "producer_role": "coder",
                         "ack_version": 1,
-                        "payload": {"reason": "Looks good", "ack_version": 3},
+                        "payload": {"reason": "Reviewed auth module: input validation correct, error handling robust, tests comprehensive with boundary conditions", "ack_version": 3},
                     },
                     Path("/tmp/repo"),
                 )

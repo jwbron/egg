@@ -244,7 +244,7 @@ class TestProposePhasePropagation:
                 "issue-42",
                 {
                     "agent_role": "coder",
-                    "payload": {"summary": "Did the work", "commit_sha": "abc123"},
+                    "payload": {"summary": "Implemented authentication module with login, logout, session management, and comprehensive input validation", "commit_sha": "abc123"},
                 },
                 Path("/tmp/repo"),
             )
@@ -292,7 +292,7 @@ class TestProposePhasePropagation:
                 "issue-42",
                 {
                     "agent_role": "coder",
-                    "payload": {"summary": "Updated work"},
+                    "payload": {"summary": "Updated authentication module: fixed input validation edge cases and added comprehensive error handling"},
                     "changed_artifacts": ["file.py"],
                 },
                 Path("/tmp/repo"),
@@ -344,7 +344,7 @@ class TestAckPhasePropagation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
-                    "payload": {"reason": "LGTM"},
+                    "payload": {"reason": "Reviewed auth module: input validation correct, error handling robust, tests comprehensive with boundary conditions"},
                 },
                 Path("/tmp/repo"),
             )
@@ -385,7 +385,7 @@ class TestAckPhasePropagation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
-                    "payload": {"reason": "LGTM"},
+                    "payload": {"reason": "Reviewed auth module: input validation correct, error handling robust, tests comprehensive with boundary conditions"},
                 },
                 Path("/tmp/repo"),
             )
@@ -420,7 +420,7 @@ class TestNackPhasePropagation:
 
         mock_tracker = MagicMock()
         mock_tracker.handle_nack.return_value = {
-            "reason": "Missing tests",
+            "reason": "Missing test coverage for edge cases: null input handling, rate limiting boundaries, and session expiration scenarios",
             "revision_count": 1,
         }
 
@@ -438,7 +438,7 @@ class TestNackPhasePropagation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
-                    "payload": {"reason": "Missing tests"},
+                    "payload": {"reason": "Missing test coverage for edge cases: null input handling, rate limiting boundaries, and session expiration scenarios"},
                 },
                 Path("/tmp/repo"),
             )
@@ -480,7 +480,7 @@ class TestWithdrawPhasePropagation:
 
             response, status_code = handle_consensus_withdraw_signal(
                 "issue-42",
-                {"agent_role": "coder", "reason": "Need to rework"},
+                {"agent_role": "coder", "reason": "Need to rework the authentication module: the session management approach conflicts with existing architecture"},
                 Path("/tmp/repo"),
             )
 
@@ -911,7 +911,7 @@ class TestPhasePropagationEdgeCases:
 
             handle_consensus_propose_signal(
                 "issue-42",
-                {"agent_role": "planner", "payload": {"summary": "Plan done"}},
+                {"agent_role": "planner", "payload": {"summary": "Completed implementation plan: authentication module with login, logout, session management, and full test coverage"}},
                 Path("/tmp/repo"),
             )
 
@@ -924,7 +924,7 @@ class TestPhasePropagationEdgeCases:
         mock_store.load_pipeline.return_value = mock_pipeline
 
         mock_tracker = MagicMock()
-        mock_tracker.handle_nack.return_value = {"reason": "Bad", "revision_count": 1}
+        mock_tracker.handle_nack.return_value = {"reason": "Implementation has critical security vulnerability: SQL injection possible via the username field in the login endpoint", "revision_count": 1}
         mock_msg_store = MagicMock()
 
         with (
@@ -943,7 +943,7 @@ class TestPhasePropagationEdgeCases:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
-                    "payload": {"reason": "Bad"},
+                    "payload": {"reason": "Implementation has critical security vulnerability: SQL injection possible via the username field in the login endpoint"},
                 },
                 Path("/tmp/my-repo"),
             )

@@ -9,12 +9,13 @@ Covers:
 - Backward compatibility: existing args still work as expected
 """
 
-import importlib
+import importlib.machinery
+import importlib.util
 import json
 import os
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -23,13 +24,14 @@ _sandbox_path = str(Path(__file__).parent.parent)
 if _sandbox_path not in sys.path:
     sys.path.insert(0, _sandbox_path)
 
-# egg-orch is a script without .py extension; import it via importlib
-_egg_orch_path = Path(__file__).parent.parent / "bin" / "egg-orch"
+# egg-orch is a script without .py extension; import via SourceFileLoader
+_egg_orch_path = str(Path(__file__).parent.parent / "bin" / "egg-orch")
 
 
 def _import_egg_orch():
     """Import the egg-orch CLI script as a module."""
-    spec = importlib.util.spec_from_file_location("egg_orch", _egg_orch_path)
+    loader = importlib.machinery.SourceFileLoader("egg_orch", _egg_orch_path)
+    spec = importlib.util.spec_from_loader("egg_orch", loader)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
