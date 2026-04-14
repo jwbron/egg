@@ -93,10 +93,10 @@
         {
           "container_id": "241406a453e3da777f917465dfeb28915254550d2841022fde4c539d7b9e0415",
           "container_name": "issue-1716-v2-reviewer_code",
-          "status": "failed",
+          "status": "exited",
           "started_at": "2026-04-14T02:40:39.890263Z",
-          "exited_at": "2026-04-14T02:53:04.151683Z",
-          "exit_code": -1,
+          "exited_at": "2026-04-14T02:53:02.649720Z",
+          "exit_code": 1,
           "agent_role": "reviewer_code",
           "session_token": null
         }
@@ -155,10 +155,10 @@
           "status": "failed",
           "container_id": "241406a453e3da777f917465dfeb28915254550d2841022fde4c539d7b9e0415",
           "started_at": "2026-04-14T02:40:39.890268Z",
-          "completed_at": "2026-04-14T02:53:04.151717Z",
+          "completed_at": "2026-04-14T02:53:07.051132Z",
           "commit": null,
           "outputs": {},
-          "error": "Container exited unexpectedly during execution — detected by runtime container monitor",
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         }
@@ -181,7 +181,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-14T02:39:32.043993Z",
-  "updated_at": "2026-04-14T02:53:04.151948Z",
+  "updated_at": "2026-04-14T02:53:07.051199Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -192,5 +192,5 @@
   "source_branch": "egg/issue-1716",
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 8
+  "version": 9
 }
