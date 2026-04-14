@@ -10,13 +10,12 @@ import subprocess
 import sys
 import threading
 import time
-
-import yaml
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
+import yaml
 from docker.errors import DockerException
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
