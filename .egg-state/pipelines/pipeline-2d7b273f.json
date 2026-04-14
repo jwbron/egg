@@ -1,0 +1,196 @@
+{
+  "id": "pipeline-2d7b273f",
+  "issue_number": null,
+  "repo": "jwbron/egg",
+  "branch": "egg/pipeline-2d7b273f/work",
+  "base_branch": null,
+  "prompt": "Address five concrete `egg-checkpoint` CLI papercuts reported in #1715:\n\n1. `--checkpoint-repo` must be passed before the subcommand; error message is misleading. Accept it in either position.\n2. On empty results, the CLI doesn't reveal which repo/branch it searched. Print `Searched <repo> branch <branch>` to stderr.\n3. `--agent-type` rejects composite BRC role names (`reviewer_code`, `reviewer_contract`, etc.), even though those names appear everywhere else in the system. Accept them and filter by the preserved `SessionMetadata.agent_role`.\n4. `--json` on empty results prints plain text, not `[]`, breaking scripts that `json.load(sys.stdin)`. Emit valid empty JSON.\n5. Reviewer agents may not produce checkpoints (session-end triggers don't always fire). Document this in `--help`.\n\nSee the full plan attached for implementation detail and acceptance criteria.",
+  "status": "running",
+  "current_phase": "pr",
+  "config": {
+    "auto_create_pr": true,
+    "parallel_agents": true,
+    "max_review_cycles": 3,
+    "max_hitl_review_cycles": 3,
+    "hitl_gates": false,
+    "concurrent_execution": false,
+    "concurrent_phases": [
+      "refine",
+      "plan",
+      "implement"
+    ],
+    "max_concurrent_agents": 6,
+    "message_poll_hint_seconds": 30,
+    "consensus_timeout_minutes": 30,
+    "agent_idle_timeout_minutes": 60,
+    "overseer_enabled": true,
+    "orchestrator_heartbeat_timeout_seconds": 120,
+    "orchestrator_implement_heartbeat_timeout_seconds": 600,
+    "orchestrator_error_repeat_threshold": 3,
+    "orchestrator_message_rate_limit": 20,
+    "overseer_poll_interval_seconds": 30,
+    "overseer_max_redirects_before_escalation": 2,
+    "overseer_decision_maker_model": "sonnet",
+    "overseer_max_turns": 2000,
+    "overseer_max_respawns": 3,
+    "overseer_rerun_min_work_seconds": 60,
+    "overseer_hitl_propagation_timeout_seconds": 300,
+    "post_proposal_grace_seconds": 300,
+    "auto_repropose_debounce_seconds": 60,
+    "max_auto_repropose": 5,
+    "orchestrator_post_ack_confirmation_timeout_seconds": 180,
+    "active_agent_stall_extension_seconds": 120,
+    "start_phase": "implement"
+  },
+  "phases": {
+    "implement": {
+      "phase": "implement",
+      "status": "complete",
+      "started_at": "2026-04-14T06:24:54.475722Z",
+      "work_started_at": "2026-04-14T06:24:56.590296Z",
+      "completed_at": "2026-04-14T06:51:52.374523Z",
+      "containers": [
+        {
+          "container_id": "dc1b6b270c94ed9a18b1adc1333f0e7c599ca31228dfa47ccc59af86a8030042",
+          "container_name": "pipeline-2d7b273f-reviewer_contract",
+          "status": "exited",
+          "started_at": "2026-04-14T06:25:01.743917Z",
+          "exited_at": "2026-04-14T06:51:50.407275Z",
+          "exit_code": 0,
+          "agent_role": "reviewer_contract",
+          "session_token": null
+        },
+        {
+          "container_id": "b014945cb466a5fa2bcdd657794a91e4d0d4bbe88944e603fb5d3116fdf57252",
+          "container_name": "pipeline-2d7b273f-tester",
+          "status": "exited",
+          "started_at": "2026-04-14T06:25:01.743932Z",
+          "exited_at": "2026-04-14T06:51:50.407285Z",
+          "exit_code": 0,
+          "agent_role": "tester",
+          "session_token": null
+        },
+        {
+          "container_id": "24d59b1bbb5fbf325507ffc3f252959ba80aed761c70475c0bbf8be603e16256",
+          "container_name": "pipeline-2d7b273f-coder",
+          "status": "exited",
+          "started_at": "2026-04-14T06:25:01.743937Z",
+          "exited_at": "2026-04-14T06:51:50.407288Z",
+          "exit_code": 0,
+          "agent_role": "coder",
+          "session_token": null
+        },
+        {
+          "container_id": "ed34d1fa8e3f54ba9813032ef0ddf4c191bdf70df6a55180403c3ef7186897b4",
+          "container_name": "pipeline-2d7b273f-reviewer_code",
+          "status": "exited",
+          "started_at": "2026-04-14T06:25:01.743941Z",
+          "exited_at": "2026-04-14T06:51:50.407291Z",
+          "exit_code": 0,
+          "agent_role": "reviewer_code",
+          "session_token": null
+        },
+        {
+          "container_id": "2a5f72c9f6f8fdc6aec72fa635e8e5fb3aff3eb009b27153fa5648137535374b",
+          "container_name": "pipeline-2d7b273f-documenter",
+          "status": "exited",
+          "started_at": "2026-04-14T06:25:01.743945Z",
+          "exited_at": "2026-04-14T06:51:50.407293Z",
+          "exit_code": 0,
+          "agent_role": "documenter",
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "reviewer_contract",
+          "status": "complete",
+          "container_id": "dc1b6b270c94ed9a18b1adc1333f0e7c599ca31228dfa47ccc59af86a8030042",
+          "started_at": "2026-04-14T06:25:01.743928Z",
+          "completed_at": "2026-04-14T06:51:50.407199Z",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "tester",
+          "status": "complete",
+          "container_id": "b014945cb466a5fa2bcdd657794a91e4d0d4bbe88944e603fb5d3116fdf57252",
+          "started_at": "2026-04-14T06:25:01.743935Z",
+          "completed_at": "2026-04-14T06:51:50.407222Z",
+          "commit": "6e07cf82b53186ec88c0ad8e28442d5520701b28",
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "coder",
+          "status": "complete",
+          "container_id": "24d59b1bbb5fbf325507ffc3f252959ba80aed761c70475c0bbf8be603e16256",
+          "started_at": "2026-04-14T06:25:01.743939Z",
+          "completed_at": "2026-04-14T06:51:50.407244Z",
+          "commit": "496d81f0df",
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_code",
+          "status": "complete",
+          "container_id": "ed34d1fa8e3f54ba9813032ef0ddf4c191bdf70df6a55180403c3ef7186897b4",
+          "started_at": "2026-04-14T06:25:01.743943Z",
+          "completed_at": "2026-04-14T06:51:50.407248Z",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "documenter",
+          "status": "complete",
+          "container_id": "2a5f72c9f6f8fdc6aec72fa635e8e5fb3aff3eb009b27153fa5648137535374b",
+          "started_at": "2026-04-14T06:25:01.743947Z",
+          "completed_at": "2026-04-14T06:51:50.407252Z",
+          "commit": "f989928dfbce03c9e800b03679e0d74200829104",
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [
+        {
+          "cycle": 0,
+          "started_at": "2026-04-14T06:24:56.590296Z",
+          "completed_at": null,
+          "commit_sha": "4a4e6faba2c26cf936ffd9564c06ce009ea05ae3"
+        }
+      ],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": "4a4e6faba2c26cf936ffd9564c06ce009ea05ae3"
+    }
+  },
+  "decisions": [],
+  "created_at": "2026-04-14T06:24:09.858272Z",
+  "updated_at": "2026-04-14T06:52:28.416126Z",
+  "contract_synced": true,
+  "network_mode": null,
+  "mode": "issue",
+  "pr_number": null,
+  "error": null,
+  "analysis": "## Task Analysis — Issue #1715\n\n**Problem statement**: `egg-checkpoint` has five distinct usability papercuts that caused the reporter to burn ~6 failed invocations before getting useful output when investigating pipeline `issue-1707`. Individually small, collectively they make the tool feel like a guessing game.\n\n**Source context**: GitHub issue jwbron/egg#1715, reporter self-filed during investigation of #1712 (empty reviewer ACKs in pipeline issue-1707). Clear, actionable report with concrete command/output examples and suggested fixes. Five concrete frictions listed in priority order.\n\n**Workarounds**: Users reach for `EGG_CHECKPOINT_REPO=...` env var when the flag fails, never discovering the top-level flag. For agent-type filter, users have to translate `reviewer_code` → `reviewer` manually. For `--json` empty, scripts must special-case empty stdout.\n\n**System context**: `egg-checkpoint` is a CLI for browsing agent session checkpoints stored on the `egg/checkpoints/v2` branch (see `CHECKPOINT_BRANCH` in `egg_config.constants`). It runs either directly via git (reading `.checkpoints/` dir on the checkpoint branch) or through the gateway HTTP API (`/api/v1/checkpoints`). Parser and commands live in `shared/egg_contracts/checkpoint_cli.py`; `sandbox/egg_lib/checkpoint_cli.py` is a re-export. Agent role mapping to the coarser `AgentType` enum happens in `gateway/checkpoint_handler.py:219-233` (`_ROLE_TO_AGENT_TYPE`); the `AgentType` enum lives in `shared/egg_contracts/checkpoints.py:158`. The full `SessionMetadata.agent_role` string is preserved inside each checkpoint (see `checkpoints.py:49`), but the `CheckpointSummaryV2` (checkpoints.py:314-348) and its index store only the coarse `AgentType`, so fast-path filtering in `filter_checkpoints_v2` (checkpoint_loader.py:386) cannot use the raw role directly.\n\n**Technical root causes**:\n\n1. **`--checkpoint-repo` position**: It's added only to the top-level `ArgumentParser` (checkpoint_cli.py:1651). argparse does not accept top-level options after the subcommand name, so `egg-checkpoint list --checkpoint-repo ...` fails with \"unrecognized arguments.\" No shared parent parser is used.\n2. **Silent empty results**: When `ensure_checkpoint_ref` returns a ref but filters match nothing (cli:773-776) or when the index is empty (cli:748-756), the error messages don't reveal which repo/branch was actually searched. `_print_repo_hint` only fires when `checkpoint_repo` is None.\n3. **`--agent-type` collapse**: Parser uses `choices=[a.value for a in AgentType]` (cli:1677, 1713, 1765) which only contains `reviewer`, not `reviewer_code`/`reviewer_contract`/etc. `_ROLE_TO_AGENT_TYPE` maps them all to `AgentType.REVIEWER` on ingest. The raw role is preserved in `SessionMetadata.agent_role` per-checkpoint but not in the summary index.\n4. **`--json` on empty**: All \"no checkpoints\" branches print plain text and return 0 regardless of `args.json` (cli:719, 748, 754, 774, 823, 867, 913, 919, 931, and more). Consumers receive text on stdout and a parsing error.\n5. **Silent missing roles**: `reviewer_code`/`reviewer_contract` never produced checkpoints for `issue-1707`. The CLI has no docs clarifying that reviewer agents may not produce checkpoints (trigger pattern depends on session-end behaviour); help text doesn't mention this.\n\n**Files affected**:\n- `shared/egg_contracts/checkpoint_cli.py` — all five fixes land here\n- `tests/shared/egg_contracts/test_checkpoint_cli.py` — new tests for each fix\n- `tests/shared/egg_contracts/test_checkpoint_cli_http.py` — HTTP empty-result JSON handling if changed\n\n**Risks / edge cases**:\n- `--checkpoint-repo` after subcommand: use a shared parent parser passed via `parents=[common_parser]` so both positions resolve to the same `Namespace` attribute. argparse last-wins semantics handle conflicts naturally.\n- For composite role names: filter at the index level by `AgentType.REVIEWER` (fast), then post-filter by loading each `CheckpointV2` and checking `session.agent_role`. Cost: one full-checkpoint load per reviewer summary in the result set — bounded and acceptable.\n- `--json` empty must still exit 0 and emit valid JSON. `list`/`browse`/`search` emit `[]`; `context`/`cost` emit structured empty payloads matching their non-empty shape.\n- Empty-result informational line goes to stderr so `--json` stdout stays pure.\n- HTTP path: the gateway collapses roles server-side, so composite-role filtering for `--agent-type` works only in the direct-git path. Document this limitation in the help text.\n- Documentation (#5) is a help-text-only change; no behavior impact.",
+  "plan": "# Plan: egg-checkpoint CLI papercut fixes (#1715)\n\n## Summary\n\nAddress the five concrete `egg-checkpoint` CLI papercuts reported in jwbron/egg#1715. All fixes land in `shared/egg_contracts/checkpoint_cli.py`; the sandbox CLI is a re-export, so no additional edits are needed there. Strategy: (1) extract a shared parent parser so `--checkpoint-repo` and `--repo-path` are accepted both before and after the subcommand — the simplest argparse idiom for this; (2) factor empty-result rendering into a single helper that knows the checkpoint repo + branch that were searched and respects `--json` by emitting `[]` (or the equivalent structured empty payload for context/cost), with the informational \"Searched X branch Y\" line going to stderr so stdout remains valid JSON; (3) accept the full set of BRC composite role names in `--agent-type` choices, collapse them to `AgentType.REVIEWER` for the fast index lookup, then post-filter the resulting summaries by loading each `CheckpointV2` and matching `SessionMetadata.agent_role` — cost is acceptable since REVIEWER-tagged subsets are bounded per pipeline; (4) add a note to the relevant `--help` strings that reviewer agents may not produce checkpoints if session-end triggers don't fire, and that composite role filtering is a direct-git-path feature.\n\n**Risks / edge cases**: Parent parser precedence uses argparse last-wins for `--checkpoint-repo` if supplied in both positions. JSON empty must be valid JSON — `list`/`browse`/`search` emit `[]`; `context`/`cost` emit schema-shaped empty payloads. Composite role post-filter is O(N) git reads on the REVIEWER subset — acceptable for typical pipelines. Gateway HTTP path collapses roles server-side, so composite-role filtering works only in the direct-git path; document this limitation in help. Info line always goes to stderr even with `--json`.\n\n## Implementation\n\n### Phase 1: Implement\n\nSingle phase — five small, independent fixes bundled into one PR.\n\n**Tasks**:\n1. **[task-1-1]** Refactor `create_parser()` in `shared/egg_contracts/checkpoint_cli.py:1641` to add `--checkpoint-repo` and `--repo-path` to a shared parent `ArgumentParser(add_help=False)`. Pass it via `parents=[common_parser]` to every `subparsers.add_parser(...)` call so the flags are accepted before or after the subcommand. Add tests that cover both positions and the both-supplied conflict (argparse last-wins).\n2. **[task-1-2]** Add a helper `_print_empty_result(checkpoint_repo, branch, json_mode, stream=sys.stderr, shape=\"list\")` and route all \"No checkpoints found...\" branches in `cmd_list`, `cmd_browse`, `cmd_search`, `cmd_context`, `cmd_cost`, and their `_cmd_*_http` counterparts through it. Helper must (a) print `Searched <repo> branch <branch>` to stderr, (b) still emit the existing hint when appropriate, and (c) when `json_mode` is True, print the shape-appropriate empty JSON payload to stdout (`[]` for list-shaped commands; structured empty object for `context`/`cost`).\n3. **[task-1-3]** In `create_parser()`, extend `--agent-type` choices for `list`, `context`, and `search` subparsers to include composite BRC role names (`reviewer_code`, `reviewer_contract`, `reviewer_agent_design`, `reviewer_refine`, `reviewer_plan`). In each `cmd_*` function, when `args.agent_type` is a composite reviewer name: (a) pass `AgentType.REVIEWER.value` to `filter_checkpoints_v2`, (b) after filtering, load each summary's full `CheckpointV2` via `load_checkpoint_from_ref` and keep only those whose `session.agent_role` equals the composite name. Fall through unchanged for non-composite values. Note the HTTP-path limitation in the `--agent-type` help string.\n4. **[task-1-4]** In task-1-2's helper, ensure `--json` empty output is always valid parseable JSON. Add test cases that call each command with an empty result and `--json`, run `json.loads(stdout)`, and assert it succeeds and produces the expected empty shape. Exit code must remain 0.\n5. **[task-1-5]** Update the top-level parser description and the `--agent-type` help strings to note that (a) reviewer agents may not produce checkpoints if session-end triggers don't fire, and (b) composite BRC roles are supported in the direct-git path but collapse to `reviewer` when querying via the gateway. Update the doc comment at the top of the module if necessary.\n\n```yaml\n# yaml-tasks\npr:\n  title: \"egg-checkpoint: fix five CLI papercuts from #1715\"\n  description: |\n    Addresses the five concrete `egg-checkpoint` usability issues from #1715:\n    flag positioning, silent empty results, composite BRC role filtering,\n    invalid JSON on empty results, and missing docs about reviewer checkpoints.\n    All fixes land in `shared/egg_contracts/checkpoint_cli.py`.\n  test_plan: |\n    - Automated: new unit tests in `tests/shared/egg_contracts/test_checkpoint_cli.py` covering each fix (both flag positions, empty-result stderr line, `--json` empty emits valid JSON, composite reviewer filter returns expected rows, help text mentions caveats).\n    - Manual: run `egg-checkpoint --checkpoint-repo jwbron/egg-checkpoints list --issue 1707`, `egg-checkpoint list --checkpoint-repo jwbron/egg-checkpoints --issue 1707`, `egg-checkpoint list --agent-type reviewer_code --issue 1707`, and `egg-checkpoint list --agent-type reviewer --issue 9999 --json | jq .` to confirm each papercut is resolved.\n  manual_steps: |\n    Pre-merge: none.\n    Post-merge: none.\nphases:\n  - id: 1\n    name: Implement\n    goal: \"Ship all five #1715 papercut fixes in one PR with tests.\"\n    tasks:\n      - id: task-1-1\n        description: \"In `shared/egg_contracts/checkpoint_cli.py:create_parser()`, build a shared `ArgumentParser(add_help=False)` that declares `--checkpoint-repo` and `--repo-path`, and pass it via `parents=[...]` to every `subparsers.add_parser(...)` call so both flags are accepted before or after the subcommand name. Ensure the top-level parser still accepts them too — argparse last-wins resolves conflicts.\"\n        acceptance: \"`egg-checkpoint --checkpoint-repo X list --issue 42` and `egg-checkpoint list --checkpoint-repo X --issue 42` both succeed and resolve the same checkpoint_repo; a test exercises both positions and the both-supplied case.\"\n        files:\n          - shared/egg_contracts/checkpoint_cli.py\n          - tests/shared/egg_contracts/test_checkpoint_cli.py\n      - id: task-1-2\n        description: \"Add `_print_empty_result(checkpoint_repo, branch, json_mode, shape)` to `shared/egg_contracts/checkpoint_cli.py` and replace every `print('No checkpoints found...')` branch in `cmd_list`, `cmd_browse`, `cmd_search`, `cmd_context`, `cmd_cost`, and their `_cmd_*_http` siblings. The helper prints `Searched <repo> branch <branch>` to stderr, keeps the existing repo-hint behavior, and when `json_mode` is True prints the shape-appropriate empty JSON to stdout (`[]` for list-shaped commands; structured empty object for context/cost).\"\n        acceptance: \"Every empty-result path prints the informational line to stderr; when `--json` is set, stdout is parseable via `json.loads` and matches the expected empty shape; exit code stays 0.\"\n        files:\n          - shared/egg_contracts/checkpoint_cli.py\n          - tests/shared/egg_contracts/test_checkpoint_cli.py\n      - id: task-1-3\n        description: \"In `shared/egg_contracts/checkpoint_cli.py:create_parser()`, extend the `--agent-type` choices for the `list`, `context`, and `search` subparsers to include `reviewer_code`, `reviewer_contract`, `reviewer_agent_design`, `reviewer_refine`, `reviewer_plan`. In the `cmd_list`, `cmd_context`, and `cmd_search` functions, when `args.agent_type` is a composite reviewer name: (a) call `filter_checkpoints_v2(agent_type=AgentType.REVIEWER.value, ...)`, (b) for each resulting summary load the full `CheckpointV2` via the existing `load_checkpoint_from_ref` pathway and keep only entries where `session.agent_role == args.agent_type`. Non-composite values fall through unchanged. Update the `--agent-type` help to note the HTTP-path limitation.\"\n        acceptance: \"`egg-checkpoint list --agent-type reviewer_code --issue 1707` returns only checkpoints whose session metadata records `agent_role == 'reviewer_code'`; unknown roles still produce an argparse error; help text mentions the gateway-path limitation.\"\n        files:\n          - shared/egg_contracts/checkpoint_cli.py\n          - tests/shared/egg_contracts/test_checkpoint_cli.py\n      - id: task-1-4\n        description: \"Extend `tests/shared/egg_contracts/test_checkpoint_cli.py` (and `test_checkpoint_cli_http.py` as needed) to verify `--json` empty output for every command (list, browse, search, context, cost) is valid parseable JSON. Call `json.loads(stdout)` and assert the empty shape (`[]` or structured object) and exit code 0.\"\n        acceptance: \"All `--json` empty-result tests pass; `json.loads` on stdout never raises for any command; the informational line appears on stderr.\"\n        files:\n          - tests/shared/egg_contracts/test_checkpoint_cli.py\n          - tests/shared/egg_contracts/test_checkpoint_cli_http.py\n      - id: task-1-5\n        description: \"Update the top-level parser description in `create_parser()` and the `--agent-type` help strings in the list, context, and search subparsers to state: (a) reviewer agents may not produce checkpoints if session-end triggers don't fire, and (b) composite BRC role values are supported via the direct-git path but collapse to `reviewer` when queried via the gateway HTTP API. Adjust the module-level docstring at the top of `checkpoint_cli.py` if needed.\"\n        acceptance: \"`egg-checkpoint --help` and `egg-checkpoint list --help` mention the reviewer-trigger caveat; `egg-checkpoint list --help` mentions the gateway composite-role caveat.\"\n        files:\n          - shared/egg_contracts/checkpoint_cli.py\n```\n",
+  "source_branch": null,
+  "source_artifact_prefix": null,
+  "run_epoch": null,
+  "version": 11
+}
