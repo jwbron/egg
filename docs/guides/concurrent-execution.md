@@ -520,13 +520,19 @@ egg-orch consensus propose --push \
 git fetch origin && git merge origin/egg/feature-x --no-edit
 
 # Reviewer: ACK after reviewing
-# --reason is required and must be ≥50 chars: what was read, what was checked, why the verdict follows.
+# --reason is required and must be ≥50 chars. Your --reason IS your review — include full analysis.
 # Boilerplate like "lgtm" or "no issues" is rejected with HTTP 400.
 egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
-  --reason "Reviewed src/feature.py lines 10-85: token validation handles expiry and invalid signatures. Tests cover all branches."
+  --reason "Reviewed src/feature.py lines 10-85 and tests/test_feature.py. Verified JWT expiry and invalid-signature handling. All branches covered by tests.
+### Non-blocking
+- **src/feature.py:72** — Consider extracting token_from_header() for readability."
 
-# Reviewer: NACK with a reason
-egg-orch consensus nack coder --reason "Missing error handling in edge case on line 42 of src/feature.py" --files-reviewed src/feature.py
+# Reviewer: NACK with structured blocking/non-blocking sections
+egg-orch consensus nack coder --files-reviewed src/feature.py --reason "
+### Blocking
+1. **src/feature.py:42** — Missing error handling for expired tokens; auth bypass possible. Fix: wrap in try/except and return 401.
+### Non-blocking
+- **src/feature.py:18** — Unused import \`datetime\`."
 
 # Producer: withdraw proposal to address NACK feedback
 egg-orch consensus withdraw --reason "Addressing NACK: adding retry logic for transient HTTP failures in src/feature.py"
