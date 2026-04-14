@@ -82,9 +82,7 @@ COMPOSITE_REVIEWER_ROLES: frozenset[str] = frozenset(
 )
 
 # All valid --agent-type choices: base AgentType values + composite reviewer names
-_AGENT_TYPE_CHOICES: list[str] = sorted(
-    {a.value for a in AgentType} | COMPOSITE_REVIEWER_ROLES
-)
+_AGENT_TYPE_CHOICES: list[str] = sorted({a.value for a in AgentType} | COMPOSITE_REVIEWER_ROLES)
 
 
 def _print_empty_result(
@@ -781,9 +779,7 @@ def _http_filter_composite_role(
                 show_params["checkpoint_repo"] = params["checkpoint_repo"]
             elif params.get("source_repo"):
                 show_params["source_repo"] = params["source_repo"]
-            cp_result = _http_get(
-                gateway_url, f"/api/v1/checkpoints/{cp_id}", show_params
-            )
+            cp_result = _http_get(gateway_url, f"/api/v1/checkpoints/{cp_id}", show_params)
             cp_data = cp_result.get("data", {}).get("checkpoint", {})
             session = cp_data.get("session", {})
             if session.get("agent_role") == composite_role:
@@ -832,9 +828,7 @@ def _cmd_list_http(args: argparse.Namespace, gateway_url: str) -> int:
 
     # Post-filter by composite reviewer role if needed
     if composite_role and summaries:
-        summaries = _http_filter_composite_role(
-            summaries, composite_role, gateway_url, params
-        )
+        summaries = _http_filter_composite_role(summaries, composite_role, gateway_url, params)
 
     if not summaries:
         checkpoint_repo = params.get("checkpoint_repo")
@@ -1152,9 +1146,7 @@ def _cmd_context_http(args: argparse.Namespace, gateway_url: str) -> int:
 
     # Post-filter by composite reviewer role if needed
     if composite_role and summaries:
-        summaries = _http_filter_composite_role(
-            summaries, composite_role, gateway_url, params
-        )
+        summaries = _http_filter_composite_role(summaries, composite_role, gateway_url, params)
 
     if not summaries:
         checkpoint_repo = params.get("checkpoint_repo")
@@ -1746,9 +1738,7 @@ def _cmd_search_http(args: argparse.Namespace, gateway_url: str) -> int:
 
     # Post-filter by composite reviewer role before transcript search
     if composite_role and summaries:
-        summaries = _http_filter_composite_role(
-            summaries, composite_role, gateway_url, params
-        )
+        summaries = _http_filter_composite_role(summaries, composite_role, gateway_url, params)
 
     if not summaries:
         checkpoint_repo = params.get("checkpoint_repo")
