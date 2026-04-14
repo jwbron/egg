@@ -1245,7 +1245,7 @@ Agents communicate via the orchestrator message bus using structured envelopes:
 │  pipeline_id: "issue-999"                            │
 │  from_role: "coder"                                  │
 │  to_role: "tester" | "all"                           │
-│  message_type: "PROGRESS" | "QUESTION" | "STATUS"    │
+│  message_type: "PROGRESS" | "QUESTION" | "STATUS" | "HANDOFF" │
 │  subject: "API endpoints complete"                   │
 │  body: "Implemented GET/POST/DELETE for /api/users"  │
 │  timestamp: "2026-03-11T10:30:00Z"                   │
@@ -1260,13 +1260,17 @@ Agents communicate via the orchestrator message bus using structured envelopes:
 | `QUESTION` | Ask another agent for clarification | Tester: "Expected status for invalid input?" |
 | `RESPONSE` | Reply to a question | Coder: "400 Bad Request" |
 | `STATUS` | Share current activity | Documenter: "Documenting API section" |
+| `HANDOFF` | Signal a role-boundary artifact for another agent | Coder: "Test scaffolding ready — tester should create test files" |
 | `AGENT_FAILED` | System notification of failure | System: "Tester agent crashed" |
 
 **CLI commands**:
 
 ```bash
-# Send a message to another agent
+# Send a progress update to another agent
 egg-orch message send --to tester --type PROGRESS --subject "API done" --body "..."
+
+# Send a role-boundary handoff
+egg-orch message send --to tester --type HANDOFF --subject "Test files ready" --body "See commit abc1234"
 
 # Poll for new messages
 egg-orch message poll [--since msg-abc123] [--limit 50]
