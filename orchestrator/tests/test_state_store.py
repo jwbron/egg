@@ -1413,3 +1413,104 @@ class TestRemoteSync:
             state_store.delete_pipeline("issue-500")
 
         mock_sync.assert_called_once()
+
+
+class TestCommitFailureResilience:
+    """Tests for issue #1736: _commit_state failure must not corrupt pipeline state."""
+
+    def test_commit_state_tolerates_nothing_to_commit(self, state_store, mock_git):
+        """_commit_state returns HEAD SHA when git commit fails with 'nothing to commit'."""
+        pipeline = Pipeline(
+            id="issue-700",
+            issue_number=700,
+            repo="owner/repo",
+            branch="egg/issue-700",
+        )
+
+        def mock_git_responses(*args, **kwargs):
+            if args[0] == "diff" and "--cached" in args:
+                return MagicMock(stdout="", returncode=1)  # Changes staged
+            if args[0] == "commit":
+                raise GitOperationError("Git command failed: nothing to commit")
+            if args[0] == "rev-parse" and "HEAD" in args:
+                return MagicMock(stdout="aaa1111\n", returncode=0)
+            return MagicMock(stdout="", returncode=0)
+
+        mock_git.side_effect = mock_git_responses
+
+        sha = state_store._commit_state(pipeline)
+        assert sha == "aaa1111"
+
+    def test_commit_state_reraises_non_benign_errors(self, state_store, mock_git):
+        """_commit_state still raises for non-benign git errors."""
+        pipeline = Pipeline(
+            id="issue-701",
+            issue_number=701,
+            repo="owner/repo",
+            branch="egg/issue-701",
+        )
+
+        def mock_git_responses(*args, **kwargs):
+            if args[0] == "diff" and "--cached" in args:
+                return MagicMock(stdout="", returncode=1)
+            if args[0] == "commit":
+                raise GitOperationError("Git command failed: fatal: unable to write")
+            return MagicMock(stdout="", returncode=0)
+
+        mock_git.side_effect = mock_git_responses
+
+        with pytest.raises(GitOperationError, match="unable to write"):
+            state_store._commit_state(pipeline)
+
+    def test_save_pipeline_atomic_write_survives_commit_failure(self, state_store, mock_git):
+        """File on disk is valid JSON even when _commit_state raises."""
+        pipeline = state_store.create_pipeline(
+            issue_number=702,
+            repo="owner/repo",
+            branch="egg/issue-702",
+        )
+
+        # Make commit fail with a non-benign error (caught by save_pipeline's try/except)
+        def failing_git(*args, **kwargs):
+            if args[0] == "commit":
+                raise GitOperationError("Git command failed: index corruption")
+            if args[0] == "diff" and "--cached" in args:
+                return MagicMock(stdout="", returncode=1)
+            return MagicMock(stdout="abc1234\n", returncode=0)
+
+        mock_git.side_effect = failing_git
+
+        pipeline.status = PipelineStatus.RUNNING
+        path = state_store.save_pipeline(pipeline, force_commit=True)
+
+        # File must be valid JSON and loadable
+        loaded = state_store.load_pipeline("issue-702")
+        assert loaded.status == PipelineStatus.RUNNING
+        assert path.exists()
+
+    def test_save_pipeline_does_not_raise_on_commit_failure(self, state_store, mock_git):
+        """save_pipeline returns path successfully even when _commit_state raises."""
+        pipeline = Pipeline(
+            id="issue-703",
+            issue_number=None,
+            repo="owner/repo",
+            branch="egg/pipeline-703",
+            prompt="test prompt",
+        )
+
+        with patch.object(state_store, "_commit_state", side_effect=GitOperationError("boom")):
+            path = state_store.save_pipeline(pipeline, force_commit=True)
+
+        assert path.exists()
+        loaded = state_store.load_pipeline("issue-703")
+        assert loaded.id == "issue-703"
+
+    def test_load_pipeline_empty_file_returns_not_found(self, state_store, mock_git):
+        """Empty state file raises PipelineNotFoundError, not StateValidationError."""
+        # Create the pipeline directory and write an empty file
+        pipelines_dir = state_store.worktree / ".egg-state" / "pipelines"
+        pipelines_dir.mkdir(parents=True, exist_ok=True)
+        (pipelines_dir / "issue-704.json").write_text("")
+
+        with pytest.raises(PipelineNotFoundError, match="empty"):
+            state_store.load_pipeline("issue-704")
