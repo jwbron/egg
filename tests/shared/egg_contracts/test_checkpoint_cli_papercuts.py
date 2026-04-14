@@ -12,9 +12,8 @@ import json
 from datetime import UTC, datetime
 from unittest.mock import patch
 
-from egg_config import GATEWAY_PORT
-
 import pytest
+from egg_config import GATEWAY_PORT
 from egg_contracts.checkpoint_cli import (
     cmd_browse,
     cmd_context,
