@@ -3891,13 +3891,20 @@ def _cleanup_agent_outputs_for_pr(
         return
 
     # Only commit when the index actually changed (idempotent on re-runs).
-    diff_result = subprocess.run(
-        [*git_base, "diff", "--cached", "--quiet"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=30,
-    )
+    try:
+        diff_result = subprocess.run(
+            [*git_base, "diff", "--cached", "--quiet"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            "_cleanup_agent_outputs_for_pr: git diff --cached timed out — continuing",
+            pipeline_id=pipeline_id,
+        )
+        return
     if diff_result.returncode == 0:
         logger.info(
             "_cleanup_agent_outputs_for_pr: nothing tracked — skipping commit",
@@ -4224,12 +4231,12 @@ def _format_rescue_hint(pipeline) -> str:
     return (
         f"Agent work is on origin/{branch} in {repo}. "
         f"To open the PR manually:\n"
-        f"  gh pr create --repo {repo} --head {branch} --base {base} "
+        f"  gh pr create --repo '{repo}' --head '{branch}' --base '{base}' "
         f'--title "..." --body "..."'
     )
 
 
-def _finalize_pr_phase(
+def _finalize_pr_phase_failed(
     pipeline,
     worktree_repo_path: Path,
     spawner,
@@ -4253,10 +4260,11 @@ def _finalize_pr_phase(
     (the agents' work), dropping the orchestrator's housekeeping commits
     rather than failing the whole pipeline.
 
-    Returns ``True`` when the phase should be marked as failed, ``False``
-    when the PR was created (URL captured).  Side effects: persists
-    ``pr_url`` artifact on success, or marks the pipeline FAILED with a
-    rescue hint on failure.
+    Returns ``True`` when the phase failed (no PR URL), ``False`` when the
+    PR was created successfully (URL captured).  The name explicitly
+    encodes the return-value semantics: ``if _finalize_pr_phase_failed(...):``.
+    Side effects: persists ``pr_url`` artifact on success, or marks the
+    pipeline FAILED with a rescue hint on failure.
     """
     pr_url = _auto_create_pr(pipeline, worktree_repo_path, spawner, gateway_mode=gateway_mode)
 
@@ -4783,7 +4791,11 @@ def _rebase_with_agent_output_autoresolve(
         )
         continue_cmd = "--skip" if diff_result.returncode == 0 else "--continue"
 
-        env = {**os.environ, "GIT_EDITOR": "true"}
+        # GIT_EDITOR=true is only needed for --continue (suppresses editor
+        # prompt); --skip never opens an editor.  Avoid copying os.environ
+        # when unnecessary — it's mutable global state and the dict snapshot
+        # could race with background threads (e.g. _health_monitor_poll).
+        env = {**os.environ, "GIT_EDITOR": "true"} if continue_cmd == "--continue" else None
         try:
             rebase_result = subprocess.run(
                 [*git_base, "rebase", continue_cmd],
@@ -4817,7 +4829,11 @@ def _rebase_with_agent_output_autoresolve(
 
 
 def _list_unmerged_paths(git_base: list[str]) -> list[str]:
-    """Return the set of paths currently in a conflicted state in the worktree."""
+    """Return the set of paths currently in a conflicted state in the worktree.
+
+    Returns an empty list when the query itself fails — callers should be
+    aware that ``[]`` can mean either "no conflicts" or "query failed".
+    """
     result = subprocess.run(
         [*git_base, "diff", "--name-only", "--diff-filter=U"],
         capture_output=True,
@@ -4826,6 +4842,11 @@ def _list_unmerged_paths(git_base: list[str]) -> list[str]:
         timeout=30,
     )
     if result.returncode != 0:
+        logger.warning(
+            "_list_unmerged_paths: git diff --diff-filter=U failed",
+            returncode=result.returncode,
+            stderr=result.stderr,
+        )
         return []
     return [line for line in result.stdout.splitlines() if line.strip()]
 
@@ -9196,7 +9217,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # the PR opens against whatever is on origin/<branch>
                 # (the agents' work), dropping orchestrator housekeeping
                 # commits rather than failing the whole pipeline (#1731).
-                if _finalize_pr_phase(
+                if _finalize_pr_phase_failed(
                     pipeline,
                     worktree_repo_path,
                     spawner,

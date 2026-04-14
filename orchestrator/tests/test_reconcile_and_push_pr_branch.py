@@ -15,21 +15,7 @@ conflicts under ``.egg-state/agent-outputs/`` by taking the remote side):
 """
 
 import subprocess
-import sys
 from unittest.mock import MagicMock, patch
-
-# Mock heavy dependencies that pipelines.py imports at module level
-_docker_mock = MagicMock()
-sys.modules.setdefault("docker", _docker_mock)
-sys.modules.setdefault("docker.errors", _docker_mock.errors)
-sys.modules.setdefault("docker.types", _docker_mock.types)
-
-
-def _make_spawner(push_results):
-    """Return a spawner whose ``gateway.push_worktree_branch`` yields ``push_results`` in order."""
-    spawner = MagicMock()
-    spawner.gateway.push_worktree_branch.side_effect = list(push_results)
-    return spawner
 
 
 def _run_result(returncode=0, stdout="", stderr=""):
@@ -39,6 +25,13 @@ def _run_result(returncode=0, stdout="", stderr=""):
     result.stdout = stdout
     result.stderr = stderr
     return result
+
+
+def _make_spawner(push_results):
+    """Return a spawner whose ``gateway.push_worktree_branch`` yields ``push_results`` in order."""
+    spawner = MagicMock()
+    spawner.gateway.push_worktree_branch.side_effect = list(push_results)
+    return spawner
 
 
 class TestReconcileAndPushPrBranch:

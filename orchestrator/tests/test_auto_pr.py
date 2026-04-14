@@ -459,7 +459,7 @@ class TestHandlePrCreationFailure:
         assert "origin/egg/issue-42" in pipeline.error
         assert "owner/repo" in pipeline.error
         assert "gh pr create" in pipeline.error
-        assert "--head egg/issue-42" in pipeline.error
+        assert "--head 'egg/issue-42'" in pipeline.error
 
         phase_execution = pipeline.get_phase_execution(PipelinePhase.PR)
         assert phase_execution.status == PipelineStatus.FAILED

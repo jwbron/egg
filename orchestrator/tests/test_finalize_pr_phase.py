@@ -1,5 +1,5 @@
 """
-Tests for ``_finalize_pr_phase`` — the PR-phase finalizer that creates
+Tests for ``_finalize_pr_phase_failed`` — the PR-phase finalizer that creates
 the PR (possibly against a stale remote HEAD) and persists the result.
 
 These tests cover the fallback path added for jwbron/egg#1731:
@@ -7,18 +7,11 @@ when the orchestrator's push fails but the agents' work is already on
 origin, the pipeline should still open the PR rather than failing.
 """
 
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-# Mock heavy dependencies that pipelines.py imports at module level
-_docker_mock = MagicMock()
-sys.modules.setdefault("docker", _docker_mock)
-sys.modules.setdefault("docker.errors", _docker_mock.errors)
-sys.modules.setdefault("docker.types", _docker_mock.types)
-
-from models import Pipeline, PipelinePhase, PipelineStatus  # noqa: E402
-from routes.pipelines import _finalize_pr_phase  # noqa: E402
+from models import Pipeline, PipelinePhase, PipelineStatus
+from routes.pipelines import _finalize_pr_phase_failed
 
 
 def _make_pipeline(
@@ -50,7 +43,7 @@ class TestFinalizePrPhase:
             patch("routes.pipelines.get_pipeline_state_lock"),
         ):
             mock_create.return_value = "https://github.com/owner/repo/pull/99"
-            failed = _finalize_pr_phase(
+            failed = _finalize_pr_phase_failed(
                 pipeline=pipeline,
                 worktree_repo_path=Path("/tmp/wt"),
                 spawner=MagicMock(),
@@ -78,7 +71,7 @@ class TestFinalizePrPhase:
             patch("routes.pipelines.get_pipeline_state_lock"),
         ):
             mock_create.return_value = "https://github.com/owner/repo/pull/100"
-            failed = _finalize_pr_phase(
+            failed = _finalize_pr_phase_failed(
                 pipeline=pipeline,
                 worktree_repo_path=Path("/tmp/wt"),
                 spawner=MagicMock(),
@@ -108,7 +101,7 @@ class TestFinalizePrPhase:
             patch("routes.pipelines._handle_pr_creation_failure") as mock_fail,
         ):
             mock_create.return_value = None
-            failed = _finalize_pr_phase(
+            failed = _finalize_pr_phase_failed(
                 pipeline=pipeline,
                 worktree_repo_path=Path("/tmp/wt"),
                 spawner=MagicMock(),
@@ -137,7 +130,7 @@ class TestFinalizePrPhase:
             patch("routes.pipelines._handle_pr_creation_failure") as mock_fail,
         ):
             mock_create.return_value = None
-            failed = _finalize_pr_phase(
+            failed = _finalize_pr_phase_failed(
                 pipeline=pipeline,
                 worktree_repo_path=Path("/tmp/wt"),
                 spawner=MagicMock(),

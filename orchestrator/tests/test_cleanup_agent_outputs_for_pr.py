@@ -7,17 +7,11 @@ created.  See jwbron/egg#1731.
 """
 
 import subprocess
-import sys
 from unittest.mock import MagicMock, patch
-
-# Mock heavy dependencies that pipelines.py imports at module level
-_docker_mock = MagicMock()
-sys.modules.setdefault("docker", _docker_mock)
-sys.modules.setdefault("docker.errors", _docker_mock.errors)
-sys.modules.setdefault("docker.types", _docker_mock.types)
 
 
 def _run_result(returncode=0, stdout="", stderr=""):
+    """Build a CompletedProcess stand-in for subprocess.run mocks."""
     result = MagicMock(spec=subprocess.CompletedProcess)
     result.returncode = returncode
     result.stdout = stdout
