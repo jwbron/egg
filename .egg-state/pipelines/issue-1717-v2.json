@@ -6,7 +6,7 @@
   "base_branch": null,
   "prompt": null,
   "status": "running",
-  "current_phase": "implement",
+  "current_phase": "pr",
   "config": {
     "auto_create_pr": true,
     "parallel_agents": true,
@@ -181,7 +181,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-14T02:39:47.502877Z",
-  "updated_at": "2026-04-14T03:25:48.931337Z",
+  "updated_at": "2026-04-14T03:26:25.895604Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -192,5 +192,5 @@
   "source_branch": "egg/issue-1717",
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-14T03:06:46.361134Z",
-  "version": 20
+  "version": 21
 }
