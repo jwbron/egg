@@ -370,17 +370,17 @@ class TestCompositeAgentType:
 
         # Return two REVIEWER summaries
         summaries = [
-            _make_summary("ckpt-rev1", agent_type=AgentType.REVIEWER),
-            _make_summary("ckpt-rev2", agent_type=AgentType.REVIEWER),
+            _make_summary("ckpt-aabb11112222", agent_type=AgentType.REVIEWER),
+            _make_summary("ckpt-aabb33334444", agent_type=AgentType.REVIEWER),
         ]
         mock_filter.return_value = summaries
 
         # First checkpoint has reviewer_code, second has reviewer_contract
         ckpt1 = _make_checkpoint(
-            "ckpt-rev1", agent_type=AgentType.REVIEWER, agent_role="reviewer_code"
+            "ckpt-aabb11112222", agent_type=AgentType.REVIEWER, agent_role="reviewer_code"
         )
         ckpt2 = _make_checkpoint(
-            "ckpt-rev2", agent_type=AgentType.REVIEWER, agent_role="reviewer_contract"
+            "ckpt-aabb33334444", agent_type=AgentType.REVIEWER, agent_role="reviewer_contract"
         )
         mock_load.side_effect = [ckpt1, ckpt2]
 
@@ -410,12 +410,12 @@ class TestCompositeAgentType:
         mock_index.return_value = _empty_index()
 
         summaries = [
-            _make_summary("ckpt-rev1", agent_type=AgentType.REVIEWER),
+            _make_summary("ckpt-aabb11112222", agent_type=AgentType.REVIEWER),
         ]
         mock_filter.return_value = summaries
 
         ckpt = _make_checkpoint(
-            "ckpt-rev1", agent_type=AgentType.REVIEWER, agent_role="reviewer_code"
+            "ckpt-aabb11112222", agent_type=AgentType.REVIEWER, agent_role="reviewer_code"
         )
         # Add a minimal transcript so search has something to scan
         from egg_contracts.checkpoints import Message, MessageRole, Transcript
@@ -451,12 +451,12 @@ class TestCompositeAgentType:
         mock_index.return_value = _empty_index()
 
         summaries = [
-            _make_summary("ckpt-rev1", agent_type=AgentType.REVIEWER),
+            _make_summary("ckpt-aabb11112222", agent_type=AgentType.REVIEWER),
         ]
         mock_filter.return_value = summaries
 
         ckpt = _make_checkpoint(
-            "ckpt-rev1", agent_type=AgentType.REVIEWER, agent_role="reviewer_code"
+            "ckpt-aabb11112222", agent_type=AgentType.REVIEWER, agent_role="reviewer_code"
         )
         mock_load.return_value = ckpt
 
@@ -481,7 +481,7 @@ class TestCompositeAgentType:
         mock_index.return_value = _empty_index()
 
         summaries = [
-            _make_summary("ckpt-rev1", agent_type=AgentType.REVIEWER),
+            _make_summary("ckpt-aabb11112222", agent_type=AgentType.REVIEWER),
         ]
         mock_filter.return_value = summaries
 
@@ -571,7 +571,7 @@ class TestJsonEmptyOutput:
     @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
     @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
     def test_context_empty_json_is_valid(self, mock_ref, _mock_gw, capsys):
-        """cmd_context --json emits valid JSON (structured empty object) on empty results."""
+        """cmd_context --json emits valid JSON on empty results."""
         mock_ref.return_value = None
 
         parser = create_parser()
@@ -581,8 +581,9 @@ class TestJsonEmptyOutput:
         assert result == 0
         out = capsys.readouterr().out
         data = json.loads(out)
-        # context returns structured object, not simple list
-        assert isinstance(data, dict)
+        # context uses list shape for empty results
+        assert isinstance(data, list)
+        assert data == []
 
     @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
     @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
@@ -726,7 +727,9 @@ class TestJsonEmptyOutputHttp:
         assert result == 0
         out = capsys.readouterr().out
         data = json.loads(out)
-        assert isinstance(data, dict)
+        # context uses list shape for empty results
+        assert isinstance(data, list)
+        assert data == []
 
     @patch("egg_contracts.checkpoint_cli._http_get")
     def test_cost_http_empty_json_is_valid(self, mock_http_get, capsys):
@@ -900,13 +903,13 @@ class TestEdgeCases:
         mock_index.return_value = _empty_index()
 
         summaries = [
-            _make_summary("ckpt-rev1", agent_type=AgentType.REVIEWER),
+            _make_summary("ckpt-aabb11112222", agent_type=AgentType.REVIEWER),
         ]
         mock_filter.return_value = summaries
 
         # Checkpoint has reviewer_contract but we're searching for reviewer_code
         ckpt = _make_checkpoint(
-            "ckpt-rev1", agent_type=AgentType.REVIEWER, agent_role="reviewer_contract"
+            "ckpt-aabb11112222", agent_type=AgentType.REVIEWER, agent_role="reviewer_contract"
         )
         mock_load.return_value = ckpt
 
@@ -934,12 +937,12 @@ class TestEdgeCases:
         mock_index.return_value = _empty_index()
 
         summaries = [
-            _make_summary("ckpt-rev1", agent_type=AgentType.REVIEWER),
+            _make_summary("ckpt-aabb11112222", agent_type=AgentType.REVIEWER),
         ]
         mock_filter.return_value = summaries
 
         # Checkpoint has no agent_role set
-        ckpt = _make_checkpoint("ckpt-rev1", agent_type=AgentType.REVIEWER, agent_role=None)
+        ckpt = _make_checkpoint("ckpt-aabb11112222", agent_type=AgentType.REVIEWER, agent_role=None)
         mock_load.return_value = ckpt
 
         parser = create_parser()
