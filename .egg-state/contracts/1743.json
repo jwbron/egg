@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1743,
+    "title": "Issue #1743",
+    "url": "https://github.com/jwbron/egg/issues/1743"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create `scripts/hello_world.py` with a `#!/usr/bin/env python3` shebang and `print('hello world')` statement",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Running `python3 scripts/hello_world.py` prints exactly 'hello world' to stdout",
+          "files_affected": [
+            "scripts/hello_world.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Create hello world script",
+    "description": "Add a simple hello world script to the scripts directory.\nCloses #1743.",
+    "test_plan": "- Manual: Run `python3 scripts/hello_world.py` and verify it prints \"hello world\"",
+    "manual_steps": ""
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
