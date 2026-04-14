@@ -1784,7 +1784,10 @@ def create_parser() -> argparse.ArgumentParser:
     msg_send.add_argument("--role", help="Sender role (default: EGG_AGENT_ROLE)")
     msg_send.add_argument("--to", required=True, help="Target role or 'all'")
     msg_send.add_argument(
-        "--type", required=True, help="Message type (PROGRESS, QUESTION, STATUS, HANDOFF)"
+        "--type",
+        required=True,
+        choices=["PROGRESS", "QUESTION", "STATUS", "HANDOFF"],
+        help="Message type (PROGRESS, QUESTION, STATUS, HANDOFF)",
     )
     msg_send.add_argument("--subject", help="Message subject")
     msg_send.add_argument("--body", help="Message body")

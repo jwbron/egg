@@ -275,7 +275,13 @@ class TestProposeStructuredArgsInPayload:
 def _find_msg_send_type_action(
     parser: argparse.ArgumentParser,
 ) -> argparse.Action:
-    """Navigate argparse tree to find the ``--type`` action of ``message send``."""
+    """Navigate argparse tree to find the ``--type`` action of ``message send``.
+
+    NOTE: This helper accesses argparse private APIs (``_subparsers``,
+    ``_SubParsersAction``) because there is no public API for introspecting
+    subparser trees.  If a future Python version changes these internals,
+    update the traversal logic here.
+    """
     subparsers_group = parser._subparsers
     assert subparsers_group is not None, "parser has no _subparsers"
     msg_send_parser: argparse.ArgumentParser | None = None

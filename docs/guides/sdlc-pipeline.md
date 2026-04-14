@@ -1258,7 +1258,7 @@ Agents communicate via the orchestrator message bus using structured envelopes:
 |------|---------|---------|
 | `PROGRESS` | Notify about completed work | Coder: "API endpoints committed" |
 | `QUESTION` | Ask another agent for clarification | Tester: "Expected status for invalid input?" |
-| `RESPONSE` | Reply to a question | Coder: "400 Bad Request" |
+| `STATUS` (reply) | Reply to a question | Coder: "400 Bad Request" |
 | `STATUS` | Share current activity | Documenter: "Documenting API section" |
 | `HANDOFF` | Signal a role-boundary artifact for another agent | Coder: "Test scaffolding ready — tester should create test files" |
 | `AGENT_FAILED` | System notification of failure | System: "Tester agent crashed" |
@@ -1379,7 +1379,7 @@ Response includes a `concurrent` section:
     "max_concurrent_agents": 6,
     "messages": {
       "total": 12,
-      "by_type": {"PROGRESS": 5, "QUESTION": 3, "RESPONSE": 3, "STATUS": 1}
+      "by_type": {"PROGRESS": 5, "QUESTION": 3, "STATUS": 4, "HANDOFF": 0}
     },
     "consensus": {
       "agents": {

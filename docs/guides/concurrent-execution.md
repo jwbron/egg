@@ -249,7 +249,7 @@ egg-orch message poll --wait 30
 When a directed message arrives:
 
 1. **HANDOFF**: Act on the handoff artifact. If it requires work, do the work and acknowledge via a `STATUS` or `PROGRESS` message back.
-2. **QUESTION**: Answer the question via a `STATUS` message or `egg-orch message send --to <asker> --type STATUS`.
+2. **QUESTION**: Answer the question via `egg-orch message send --to <asker> --type STATUS`. (`STATUS` serves as the generic reply type since the directed coordination vocabulary does not include a dedicated `RESPONSE` type.)
 3. **STATUS/PROGRESS**: Use the information to inform your own work — no response required unless the status changes your plan.
 
 ### Best Practices
