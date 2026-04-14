@@ -1191,6 +1191,59 @@ class TestWriteBrcHistoryLossless:
         content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
         assert "→" not in content
 
+    def test_triple_backtick_body_does_not_corrupt_yaml_block(self, tmp_path):
+        """Message body containing triple backticks must not break the YAML metadata block.
+
+        Regression test: the YAML metadata is fenced with 4-backtick delimiters
+        (````yaml ... ````) so that triple-backtick code fences in the body cannot
+        open/close an unexpected fence and corrupt subsequent content.
+        """
+        from routes.pipelines import _write_brc_history
+
+        body_with_fences = "Here is code:\n```python\nprint('hi')\n```\nDone."
+        messages = [
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="coder",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject="Proposal with code",
+                body=body_with_fences,
+                phase="implement",
+                metadata={"version": 1, "commit_sha": "abc123"},
+            ),
+        ]
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        # The body should appear verbatim
+        assert "```python" in content
+        assert "print('hi')" in content
+        # The YAML block should still be parseable — find all ````yaml ... ```` blocks
+        import yaml
+
+        in_yaml = False
+        yaml_lines: list[str] = []
+        yaml_blocks_found = 0
+        for line in content.splitlines():
+            if line.strip() == "````yaml":
+                in_yaml = True
+                yaml_lines = []
+            elif line.strip() == "````" and in_yaml:
+                in_yaml = False
+                yaml_blocks_found += 1
+                parsed = yaml.safe_load("\n".join(yaml_lines))
+                assert parsed is not None, "YAML block should be parseable"
+                assert "metadata" in parsed
+                assert parsed["metadata"]["commit_sha"] == "abc123"
+            elif in_yaml:
+                yaml_lines.append(line)
+        assert yaml_blocks_found >= 1, "Should find at least one YAML metadata block"
+
     def test_handoff_included_in_history(self, tmp_path):
         """HANDOFF messages are included in the history file (BRC_HISTORY_TYPES)."""
         from routes.pipelines import _write_brc_history

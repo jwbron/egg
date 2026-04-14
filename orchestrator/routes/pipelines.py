@@ -4496,6 +4496,22 @@ def _msg_version(m: Any) -> int:
     return v
 
 
+def _extract_body_text(m: Any, max_length: int) -> str:
+    """Extract display body text from a BRC message.
+
+    For NACK messages without a body, falls back to metadata.payload.reason.
+    Truncates to *max_length* chars with a pointer to the full history file.
+    """
+    body_text = m.body or ""
+    if m.message_type == "CONSENSUS_NACK" and not body_text:
+        payload = (m.metadata or {}).get("payload", {})
+        if isinstance(payload, dict):
+            body_text = payload.get("reason", "")
+    if body_text and len(body_text) > max_length:
+        body_text = body_text[:max_length] + "… _(full content in brc-history/*.md)_"
+    return body_text
+
+
 def _build_brc_consensus_summary(
     pipeline_id: str,
     identifier: int | str | None = None,
@@ -4606,17 +4622,8 @@ def _build_brc_consensus_summary(
         if final_round_msgs:
             block_lines.append("")
             for m in final_round_msgs:
-                body_text = m.body or ""
-                # For NACKs, also check metadata.payload.reason
-                if m.message_type == "CONSENSUS_NACK" and not body_text:
-                    payload = (m.metadata or {}).get("payload", {})
-                    if isinstance(payload, dict):
-                        body_text = payload.get("reason", "")
+                body_text = _extract_body_text(m, _MAX_BODY_INLINE)
                 if body_text:
-                    if len(body_text) > _MAX_BODY_INLINE:
-                        body_text = (
-                            body_text[:_MAX_BODY_INLINE] + "… _(full content in brc-history/*.md)_"
-                        )
                     block_lines.append(f"  **{m.from_role}** ({m.message_type}): {body_text}")
                 else:
                     block_lines.append(f"  **{m.from_role}** ({m.message_type})")
@@ -4627,16 +4634,8 @@ def _build_brc_consensus_summary(
             block_lines.append("<details><summary>Earlier rounds</summary>")
             block_lines.append("")
             for m in earlier_round_msgs:
-                body_text = m.body or ""
-                if m.message_type == "CONSENSUS_NACK" and not body_text:
-                    payload = (m.metadata or {}).get("payload", {})
-                    if isinstance(payload, dict):
-                        body_text = payload.get("reason", "")
+                body_text = _extract_body_text(m, _MAX_BODY_INLINE)
                 if body_text:
-                    if len(body_text) > _MAX_BODY_INLINE:
-                        body_text = (
-                            body_text[:_MAX_BODY_INLINE] + "… _(full content in brc-history/*.md)_"
-                        )
                     block_lines.append(f"  **{m.from_role}** ({m.message_type}): {body_text}")
                 else:
                     block_lines.append(f"  **{m.from_role}** ({m.message_type})")
