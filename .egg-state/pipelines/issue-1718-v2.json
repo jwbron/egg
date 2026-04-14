@@ -5,7 +5,7 @@
   "branch": "egg/issue-1718-v2",
   "base_branch": null,
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -45,152 +45,33 @@
   "phases": {
     "implement": {
       "phase": "implement",
-      "status": "failed",
-      "started_at": "2026-04-14T02:38:52.034119Z",
-      "work_started_at": "2026-04-14T02:38:55.442879Z",
-      "completed_at": "2026-04-14T02:53:12.976307Z",
-      "containers": [
-        {
-          "container_id": "cbff92ac7b181815c0dc61012151deb213dd41d77788f1a2a0f7b4030c31098a",
-          "container_name": "issue-1718-v2-documenter",
-          "status": "exited",
-          "started_at": "2026-04-14T02:38:59.860832Z",
-          "exited_at": "2026-04-14T02:53:03.314473Z",
-          "exit_code": 1,
-          "agent_role": "documenter",
-          "session_token": null
-        },
-        {
-          "container_id": "3ae507f352108519644bb23d5ab55f8b2bfdaaed47e313210f5db335f55c20eb",
-          "container_name": "issue-1718-v2-tester",
-          "status": "exited",
-          "started_at": "2026-04-14T02:38:59.860845Z",
-          "exited_at": "2026-04-14T02:53:07.747823Z",
-          "exit_code": 1,
-          "agent_role": "tester",
-          "session_token": null
-        },
-        {
-          "container_id": "d7c48e13768113549a9626bc0c76f9303671c2500be2819c070478622ded9ca0",
-          "container_name": "issue-1718-v2-reviewer_contract",
-          "status": "exited",
-          "started_at": "2026-04-14T02:38:59.860851Z",
-          "exited_at": "2026-04-14T02:53:07.438134Z",
-          "exit_code": 1,
-          "agent_role": "reviewer_contract",
-          "session_token": null
-        },
-        {
-          "container_id": "68ce1d5161ef145b7bab19bb98c70690cb5f4e183404034e9028b8d8f201e514",
-          "container_name": "issue-1718-v2-reviewer_code",
-          "status": "exited",
-          "started_at": "2026-04-14T02:38:59.860854Z",
-          "exited_at": "2026-04-14T02:53:10.681639Z",
-          "exit_code": 1,
-          "agent_role": "reviewer_code",
-          "session_token": null
-        },
-        {
-          "container_id": "99e44b0d2a3f69291a0f3f2b91580fb31488c7d037b78c4b796cdb947d5e33ad",
-          "container_name": "issue-1718-v2-coder",
-          "status": "exited",
-          "started_at": "2026-04-14T02:38:59.860857Z",
-          "exited_at": "2026-04-14T02:53:06.900762Z",
-          "exit_code": 1,
-          "agent_role": "coder",
-          "session_token": null
-        }
-      ],
-      "agents": [
-        {
-          "role": "documenter",
-          "status": "failed",
-          "container_id": "cbff92ac7b181815c0dc61012151deb213dd41d77788f1a2a0f7b4030c31098a",
-          "started_at": "2026-04-14T02:38:59.860841Z",
-          "completed_at": "2026-04-14T02:53:07.402863Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "tester",
-          "status": "failed",
-          "container_id": "3ae507f352108519644bb23d5ab55f8b2bfdaaed47e313210f5db335f55c20eb",
-          "started_at": "2026-04-14T02:38:59.860848Z",
-          "completed_at": "2026-04-14T02:53:12.923496Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_contract",
-          "status": "failed",
-          "container_id": "d7c48e13768113549a9626bc0c76f9303671c2500be2819c070478622ded9ca0",
-          "started_at": "2026-04-14T02:38:59.860852Z",
-          "completed_at": "2026-04-14T02:53:07.844298Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_code",
-          "status": "failed",
-          "container_id": "68ce1d5161ef145b7bab19bb98c70690cb5f4e183404034e9028b8d8f201e514",
-          "started_at": "2026-04-14T02:38:59.860856Z",
-          "completed_at": "2026-04-14T02:53:12.957292Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "coder",
-          "status": "failed",
-          "container_id": "99e44b0d2a3f69291a0f3f2b91580fb31488c7d037b78c4b796cdb947d5e33ad",
-          "started_at": "2026-04-14T02:38:59.860860Z",
-          "completed_at": "2026-04-14T02:53:07.889913Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        }
-      ],
+      "status": "pending",
+      "started_at": null,
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [
-        {
-          "cycle": 0,
-          "started_at": "2026-04-14T02:38:55.442879Z",
-          "completed_at": "2026-04-14T02:53:12.976286Z",
-          "commit_sha": "493cf680b3d28857bd9b6b4741d4fee95c56e46f"
-        }
-      ],
+      "cycle_timings": [],
       "artifacts": {},
-      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-14T02:53:10.656735954Z     Status: healthy\n2026-04-14T02:53:10.656760204Z     GitHub token valid: True\n2026-04-14T02:53:10.656785037Z     Auth configured: True\n2026-04-14T02:53:10.656809454Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-14T02:53:10.656835079Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-14T02:53:10.656861579Z   Credentials injected by gateway (not in container)\n2026-04-14T02:53:10.656886621Z Signaled error to orchestrator\n2026-04-14T02:53:10.656911162Z \n2026-04-14T02:53:10.656934704Z Cleaning up on container exit...\n2026-04-14T02:53:10.656959454Z ✓ Cleanup complete",
+      "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "493cf680b3d28857bd9b6b4741d4fee95c56e46f"
     }
   },
   "decisions": [],
   "created_at": "2026-04-14T02:38:21.049248Z",
-  "updated_at": "2026-04-14T02:53:12.976379Z",
+  "updated_at": "2026-04-14T04:12:39.049286Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
-  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-14T02:53:10.656735954Z     Status: healthy\n2026-04-14T02:53:10.656760204Z     GitHub token valid: True\n2026-04-14T02:53:10.656785037Z     Auth configured: True\n2026-04-14T02:53:10.656809454Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-14T02:53:10.656835079Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-14T02:53:10.656861579Z   Credentials injected by gateway (not in container)\n2026-04-14T02:53:10.656886621Z Signaled error to orchestrator\n2026-04-14T02:53:10.656911162Z \n2026-04-14T02:53:10.656934704Z Cleaning up on container exit...\n2026-04-14T02:53:10.656959454Z ✓ Cleanup complete",
+  "error": null,
   "analysis": "## Analysis — Issue #1718\n\n### Problem\nDuring BRC consensus, agents have no clear structured path to coordinate with peers. The `egg-orch message send` CLI exists but the BRC preamble never tells agents to use it.\n\n### Files affected\n- `orchestrator/routes/pipelines.py` — extend `_build_brc_preamble` (~5251) with directed coordination guidance\n- `sandbox/egg_lib/orch_cli.py:1782` — update `--type` help text to include `HANDOFF`\n- `docs/guides/concurrent-execution.md` — add directed coordination subsection with worked example\n- `orchestrator/tests/test_pipeline_prompts.py` — add test asserting BRC preamble contains new guidance",
   "plan": "# Plan: Teach agents to use directed BRC messaging\n\n## Summary\n\nAdd prompt-level guidance in `_build_brc_preamble` for HANDOFF/QUESTION/STATUS. Fix CLI help text, add docs with worked example, add prompt test.\n\n## Implementation\n\n### Phase 1: Implement\n\n**Tasks**:\n1. **[task-1-1]** Extend `_build_brc_preamble` with role-gated directed coordination guidance.\n2. **[task-1-2]** Update `--type` help text to include `HANDOFF`.\n3. **[task-1-3]** Add \"Directed Coordination\" subsection to concurrent-execution guide.\n4. **[task-1-4]** Add prompt test asserting guidance is injected.\n\n```yaml\n# yaml-tasks\npr:\n  title: \"Teach agents to use directed BRC messages for coordination (#1718)\"\n  description: |\n    Resolves #1718. Adds prompt-level guidance for directed peer-to-peer coordination,\n    fixes CLI --type help text, and documents the pattern with a worked example.\n  test_plan: |\n    - Automated: new prompt test asserts `_build_brc_preamble` contains `egg-orch message send` and `HANDOFF`\n    - Manual: run `egg-orch message send --help` and confirm `HANDOFF` appears\n    - Manual: read `docs/guides/concurrent-execution.md` new section\n  manual_steps: |\n    Pre-merge: none.\n    Post-merge: none.\nphases:\n  - id: 1\n    name: Implement\n    goal: \"Agents know via BRC preamble when to use egg-orch message send for directed coordination.\"\n    tasks:\n      - id: task-1-1\n        description: \"Extend `_build_brc_preamble` in `orchestrator/routes/pipelines.py` with role-gated directed coordination guidance for HANDOFF/QUESTION/STATUS.\"\n        acceptance: \"Preamble for producer contains `egg-orch message send` and `HANDOFF`; reviewer contains `QUESTION` guidance.\"\n        files:\n          - orchestrator/routes/pipelines.py\n      - id: task-1-2\n        description: \"Update `--type` help text in `sandbox/egg_lib/orch_cli.py:1782` to include `HANDOFF`.\"\n        acceptance: \"Help text lists HANDOFF.\"\n        files:\n          - sandbox/egg_lib/orch_cli.py\n      - id: task-1-3\n        description: \"Add 'Directed Coordination' subsection to `docs/guides/concurrent-execution.md` with CLI form, use cases, and coder-to-tester worked example.\"\n        acceptance: \"Guide contains new section with CLI example and worked example.\"\n        files:\n          - docs/guides/concurrent-execution.md\n      - id: task-1-4\n        description: \"Add test in `orchestrator/tests/test_pipeline_prompts.py` asserting BRC preamble contains directed coordination guidance.\"\n        acceptance: \"Test passes; fails if task-1-1 reverted.\"\n        files:\n          - orchestrator/tests/test_pipeline_prompts.py\n```\n",
   "source_branch": "egg/issue-1718",
   "source_artifact_prefix": null,
-  "run_epoch": null,
-  "version": 14
+  "run_epoch": "2026-04-14T04:12:39.045629Z",
+  "version": 15
 }
