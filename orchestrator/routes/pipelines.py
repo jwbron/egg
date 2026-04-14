@@ -4301,15 +4301,18 @@ def _write_brc_history(
             lines.append("")
             lines.append(msg.body)
 
-        # Emit a YAML metadata block when there is meaningful metadata
-        meta_block: dict[str, Any] = {}
-        if msg.id:
-            meta_block["id"] = msg.id
-        if msg.phase:
-            meta_block["phase"] = msg.phase
+        # Emit a YAML metadata block only when metadata dict is non-empty.
+        # The block contains id, phase, and the full metadata dict contents
+        # (metadata fields are merged at the top level alongside id/phase).
         if msg.metadata:
-            meta_block["metadata"] = msg.metadata
-        if meta_block:
+            meta_block: dict[str, Any] = {}
+            if msg.id:
+                meta_block["id"] = msg.id
+            if msg.phase:
+                meta_block["phase"] = msg.phase
+            # Merge metadata contents at the top level of the YAML block
+            for k, v in msg.metadata.items():
+                meta_block[k] = v
             lines.append("")
             lines.append("```yaml")
             lines.append(yaml.dump(meta_block, sort_keys=False, default_flow_style=False).rstrip())
