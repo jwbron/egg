@@ -413,16 +413,25 @@ Use `egg-orch consensus` commands to participate in the BRC protocol:
 
 ```bash
 # Producer: commit and push work, then propose for review (--commit-sha defaults to HEAD if omitted)
+# --summary must be ≥50 chars describing what was built, tested, and which contract tasks it satisfies.
+# Boilerplate like "looks good" or "approved" is rejected with HTTP 400.
 git add src/feature.py && git commit -m "Implement feature X"
-egg-orch consensus propose --push --summary "Implemented feature X" --artifacts src/feature.py --risk "No retry on transient failures" --commit-sha $(git rev-parse HEAD)
+egg-orch consensus propose --push \
+  --summary "Implemented feature X with JWT validation and session management. All contract tasks satisfied." \
+  --artifacts src/feature.py --files-changed src/feature.py --tests-run tests/test_feature.py \
+  --tasks task-1-1 task-1-2 --risk "No retry on transient failures" --commit-sha $(git rev-parse HEAD)
 # --push runs git push before sending the proposal; because the push is bundled with the
 # explicit proposal, auto re-propose is suppressed for that push (no redundant re-review).
+# --files-changed, --tests-run, --tasks are optional but recommended for traceability.
 
 # Reviewer: sync worktree before reviewing (fetch producer's commits)
 git fetch origin && git merge origin/egg/feature-x --no-edit
 
 # Reviewer: ACK after reviewing
-egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py
+# --reason is required and must be ≥50 chars: what was read, what was checked, why the verdict follows.
+# Boilerplate like "lgtm" or "no issues" is rejected with HTTP 400.
+egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
+  --reason "Reviewed src/feature.py lines 10-85: token validation handles expiry and invalid signatures. Tests cover all branches."
 
 # Reviewer: NACK with a reason
 egg-orch consensus nack coder --reason "Missing error handling in edge case" --files-reviewed src/feature.py
