@@ -93,10 +93,10 @@
         {
           "container_id": "5aa6480003b31d705e33d782b91dc960b92efccdfbe268a0e6281c6303e3301c",
           "container_name": "issue-1718-tester",
-          "status": "removed",
+          "status": "failed",
           "started_at": "2026-04-14T02:13:52.958148Z",
-          "exited_at": "2026-04-14T02:21:17.975851Z",
-          "exit_code": null,
+          "exited_at": "2026-04-14T02:22:45.542642Z",
+          "exit_code": 137,
           "agent_role": "tester",
           "session_token": null
         }
@@ -155,10 +155,10 @@
           "status": "failed",
           "container_id": "5aa6480003b31d705e33d782b91dc960b92efccdfbe268a0e6281c6303e3301c",
           "started_at": "2026-04-14T02:13:52.958150Z",
-          "completed_at": "2026-04-14T02:21:17.975851Z",
+          "completed_at": "2026-04-14T02:22:58.611955Z",
           "commit": null,
           "outputs": {},
-          "error": "Pipeline cancelled",
+          "error": "Container exited with code 137",
           "retry_count": 0,
           "conflicts": []
         }
@@ -201,7 +201,7 @@
     }
   ],
   "created_at": "2026-04-14T01:34:26.450683Z",
-  "updated_at": "2026-04-14T02:22:33.143830Z",
+  "updated_at": "2026-04-14T02:22:58.612138Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -212,5 +212,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-14T02:13:45.532812Z",
-  "version": 25
+  "version": 26
 }
