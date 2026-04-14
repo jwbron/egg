@@ -177,11 +177,27 @@
       "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "19bef2da65c82027ba0e6a6ac86a048e74c2ba0e"
+    },
+    "pr": {
+      "phase": "pr",
+      "status": "running",
+      "started_at": "2026-04-14T03:23:24.404065Z",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": "ed9eac9778cb014c2b2985f848dda6f4a962a678"
     }
   },
   "decisions": [],
   "created_at": "2026-04-14T02:39:32.043993Z",
-  "updated_at": "2026-04-14T03:23:24.385416Z",
+  "updated_at": "2026-04-14T03:23:24.404129Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -192,5 +208,5 @@
   "source_branch": "egg/issue-1716",
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-14T03:00:50.950526Z",
-  "version": 21
+  "version": 22
 }
