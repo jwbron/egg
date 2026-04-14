@@ -1047,7 +1047,9 @@ def cmd_message_poll(args: argparse.Namespace) -> int:
         print(f"  [{ts}] {from_r} -> {to_r} ({mtype}): {subject}")
         body = msg.get("body", "")
         if body:
-            print(f"    {body[:200]}")
+            # Indent multi-line bodies for readability
+            indented = body.replace("\n", "\n    ")
+            print(f"    {indented}")
 
     print(f"\n{len(messages)} message(s)")
     return 0

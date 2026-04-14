@@ -2460,6 +2460,99 @@ class TestBuildReviewPrompt:
         assert "WebSearch" in prompt
         assert "WebFetch" in prompt
 
+    # --- Concurrent mode tests ---
+
+    def test_concurrent_reviewer_omits_verdict_format(self):
+        """Concurrent reviewer prompt does not include verdict JSON template."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+            concurrent=True,
+        )
+        assert "## Verdict Format" not in prompt
+        assert '"verdict"' not in prompt
+        assert ".egg-state/reviews/" not in prompt
+
+    def test_concurrent_reviewer_omits_verdict_phase_restriction(self):
+        """Concurrent reviewer does not get 'CAN write verdict files' restriction."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+            concurrent=True,
+        )
+        assert "CAN write verdict files" not in prompt
+
+    def test_concurrent_reviewer_uses_ack_nack_in_steps(self):
+        """Concurrent code reviewer procedural steps reference ACK/NACK, not verdict file."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+            concurrent=True,
+        )
+        assert "ACK/NACK" in prompt
+        assert "Commit the verdict file" not in prompt
+
+    def test_concurrent_reviewer_uses_nack_ack_labels(self):
+        """Concurrent code reviewer verdict classification uses NACK/ACK labels."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+            concurrent=True,
+        )
+        assert "NACK for" in prompt
+        assert "ACK for" in prompt
+
+    def test_sequential_reviewer_still_has_verdict_format(self):
+        """Sequential (non-concurrent) reviewer still gets verdict JSON template."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+            concurrent=False,
+        )
+        assert "## Verdict Format" in prompt
+        assert '"analysis"' in prompt
+        assert ".egg-state/reviews/" in prompt
+
+    def test_concurrent_non_code_reviewer_omits_verdict(self):
+        """Concurrent contract reviewer also omits verdict file."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="contract",
+            issue_number=100,
+            concurrent=True,
+        )
+        assert "## Verdict Format" not in prompt
+        assert "ACK/NACK" in prompt
+
+    def test_word_cap_removed_from_analysis_guidelines(self):
+        """Sequential reviewer analysis guidelines no longer include 200-500 word cap."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+            concurrent=False,
+        )
+        assert "200-500 words" not in prompt
+
 
 class TestExternalResearchInstructions:
     """Verify all roles include WebSearch/WebFetch external research instructions."""
@@ -2596,6 +2689,40 @@ class TestReviewerBrcPreamble:
         )
         assert "consensus" in result.lower()
 
+    def test_brc_preamble_no_do_not_inspect(self):
+        """BRC preamble does not tell reviewers to avoid inspecting artifacts."""
+        preamble = _build_brc_preamble("reviewer_code", "implement")
+        assert "Do NOT inspect" not in preamble
+
+    def test_brc_preamble_has_structured_nack_format(self):
+        """BRC preamble includes structured NACK format with Blocking section."""
+        preamble = _build_brc_preamble("reviewer_code", "implement")
+        assert "### Blocking" in preamble
+        assert "### Non-blocking" in preamble
+
+    def test_brc_preamble_has_structured_ack_format(self):
+        """BRC preamble includes structured ACK format guidance."""
+        preamble = _build_brc_preamble("reviewer_code", "implement")
+        assert "ACK format" in preamble
+        assert "Reviewed" in preamble
+
+    def test_brc_preamble_reason_is_review(self):
+        """BRC preamble tells reviewers their --reason IS the review."""
+        preamble = _build_brc_preamble("reviewer_code", "implement")
+        assert "--reason" in preamble
+        assert "full analysis" in preamble.lower()
+
+    def test_reviewer_preparation_proactive_diff_review(self):
+        """Code reviewer preparation encourages proactive diff review."""
+        prep = _build_reviewer_preparation("reviewer_code", "implement")
+        assert "Start reviewing immediately" in prep
+        assert "git diff" in prep
+
+    def test_brc_preamble_threads_branch_to_reviewer_preparation(self):
+        """BRC preamble passes branch to reviewer preparation for reliable git commands."""
+        preamble = _build_brc_preamble("reviewer_code", "implement", branch="egg/my-feature")
+        assert "origin/egg/my-feature" in preamble
+
 
 class TestAgentRoster:
     """Tests for _build_agent_roster — active agent listing in BRC preamble."""
@@ -2643,12 +2770,18 @@ class TestAgentRoster:
 class TestReviewerPreparation:
     """Tests for _build_reviewer_preparation — proactive prep instructions."""
 
-    def test_code_reviewer_gets_codebase_exploration(self):
-        """Code reviewer prep includes codebase exploration instructions."""
+    def test_code_reviewer_gets_proactive_review(self):
+        """Code reviewer prep includes proactive diff review instructions."""
         prep = _build_reviewer_preparation("reviewer_code", "implement")
         assert "egg-contract show" in prep
-        assert "codebase" in prep.lower()
-        assert "grep" in prep.lower() or "exploring" in prep.lower()
+        assert "git diff" in prep
+        assert "Start reviewing immediately" in prep
+
+    def test_code_reviewer_uses_branch_when_provided(self):
+        """Code reviewer prep uses explicit branch name instead of shell subcommand."""
+        prep = _build_reviewer_preparation("reviewer_code", "implement", branch="egg/my-feature")
+        assert "origin/egg/my-feature" in prep
+        assert "$(git branch --show-current)" not in prep
 
     def test_contract_reviewer_gets_acceptance_criteria(self):
         """Contract reviewer prep focuses on acceptance criteria."""

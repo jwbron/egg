@@ -3079,20 +3079,24 @@ def _build_review_prompt(
     repo_path: str | None = None,
     last_reviewed_commit: str | None = None,
     base_branch: str | None = None,
+    concurrent: bool = False,
 ) -> str:
     """Build a review prompt for the reviewer agent.
 
-    Tells the reviewer to evaluate the draft for the given phase and write
-    a typed verdict JSON file to .egg-state/reviews/.
+    In sequential mode, tells the reviewer to write a typed verdict JSON
+    file to .egg-state/reviews/.  In concurrent (BRC) mode, the reviewer's
+    ACK/NACK reason IS the review output — no verdict file is written.
     """
     draft_path = _get_draft_path(phase, issue_number=issue_number, pipeline_id=pipeline_id)
 
-    verdict_path = _verdict_path_for_type(
-        phase,
-        reviewer_type,
-        issue_number=issue_number,
-        pipeline_id=pipeline_id,
-    )
+    verdict_path: str | None = None
+    if not concurrent:
+        verdict_path = _verdict_path_for_type(
+            phase,
+            reviewer_type,
+            issue_number=issue_number,
+            pipeline_id=pipeline_id,
+        )
 
     lines = [
         f"You are reviewing the **{phase}** phase output of the SDLC pipeline "
@@ -3147,8 +3151,14 @@ def _build_review_prompt(
         )
         lines.append("7. Consider edge cases the author may not have tested")
         lines.append("8. Evaluate against the criteria below")
-        lines.append(f"9. Write your verdict to `{verdict_path}` as JSON")
-        lines.append("10. Commit the verdict file")
+        if concurrent:
+            lines.append(
+                "9. Deliver your full review via ACK/NACK (see BRC protocol below). "
+                "Your `--reason` IS your review — include all findings there."
+            )
+        else:
+            lines.append(f"9. Write your verdict to `{verdict_path}` as JSON")
+            lines.append("10. Commit the verdict file")
         lines.append("")
         lines.append(
             "**Find ALL issues on the first pass** — do not stop after identifying "
@@ -3164,12 +3174,24 @@ def _build_review_prompt(
         lines.append("4. Cite specific sections, quotes, or omissions as evidence in your analysis")
         lines.append("5. Evaluate completeness — identify any criteria not adequately addressed")
         lines.append("6. Assess overall quality and coherence of the draft")
-        lines.append(f"7. Write your verdict to `{verdict_path}` as JSON")
-        lines.append("8. Commit the verdict file")
+        if concurrent:
+            lines.append(
+                "7. Deliver your full review via ACK/NACK (see BRC protocol below). "
+                "Your `--reason` IS your review — include all findings there."
+            )
+        else:
+            lines.append(f"7. Write your verdict to `{verdict_path}` as JSON")
+            lines.append("8. Commit the verdict file")
     else:
         lines.append("2. Evaluate it against the criteria below")
-        lines.append(f"3. Write your verdict to `{verdict_path}` as JSON")
-        lines.append("4. Commit the verdict file")
+        if concurrent:
+            lines.append(
+                "3. Deliver your full review via ACK/NACK (see BRC protocol below). "
+                "Your `--reason` IS your review — include all findings there."
+            )
+        else:
+            lines.append(f"3. Write your verdict to `{verdict_path}` as JSON")
+            lines.append("4. Commit the verdict file")
     lines.append("")
 
     # Review criteria
@@ -3213,27 +3235,29 @@ def _build_review_prompt(
     # Non-code reviewers get appropriate guidance from their type-specific criteria
     # (e.g., _get_plan_review_criteria() already says "flag as needs_revision")
     if reviewer_type == "code":
-        lines.append("### When to Use `needs_revision` vs `approved`\n")
+        _nack_label = "NACK" if concurrent else "`needs_revision`"
+        _ack_label = "ACK" if concurrent else "`approved`"
+        lines.append(f"### When to {_nack_label} vs {_ack_label}\n")
         lines.append(
-            "**Use `needs_revision` for**: Security vulnerabilities, logic errors, correctness "
+            f"**{_nack_label} for**: Security vulnerabilities, logic errors, correctness "
             "issues, non-functional features (core purpose doesn't work end-to-end), missing "
             "error handling, resource leaks, breaking changes, violations of codebase patterns. "
-            "When in doubt, use `needs_revision`."
+            f"When in doubt, {_nack_label}."
         )
         lines.append(
-            "**Use `approved` for**: No blocking issues found after thorough review. "
-            "Non-blocking suggestions belong in the `suggestions` field."
+            f"**{_ack_label} for**: No blocking issues found after thorough review. "
+            "Non-blocking suggestions should still be included."
         )
         lines.append("")
         lines.append(
             "**Key distinction**: A feature that doesn't work is a correctness issue, not a "
             "style issue. If the feature's core functionality is broken — not just degraded or "
-            "missing edge cases — always use `needs_revision`, even if the code structure looks "
+            f"missing edge cases — always {_nack_label}, even if the code structure looks "
             "reasonable or matches an existing pattern."
         )
         lines.append(
             "**Pre-existing issues are still blocking**: If the code being reviewed modifies "
-            "areas with existing broken or inconsistent behavior, use `needs_revision` — do not "
+            f"areas with existing broken or inconsistent behavior, {_nack_label} — do not "
             'dismiss it as "not a regression." The code is already being changed in that area, '
             "making it the natural place to fix the issue. Code that adds new paths through "
             "already-broken logic makes the problem worse."
@@ -3260,45 +3284,47 @@ def _build_review_prompt(
         lines.append(prior_feedback)
         lines.append("")
 
-    # Verdict format
-    lines.append("## Verdict Format\n")
-    lines.append(f"Write the following JSON to `{verdict_path}`:\n")
-    lines.append("```json")
-    lines.append("{")
-    lines.append(f'  "reviewer": "{reviewer_type}",')
-    lines.append('  "verdict": "approved" or "needs_revision",')
-    lines.append('  "summary": "Brief summary of findings (1-2 sentences)",')
-    lines.append('  "analysis": "Detailed analysis of the reviewed work (see below)",')
-    lines.append('  "suggestions": "Non-blocking suggestions for improvement",')
-    lines.append('  "feedback": "Blocking issues requiring revision before approval",')
-    lines.append('  "timestamp": "ISO 8601 timestamp"')
-    lines.append("}")
-    lines.append("```\n")
-    lines.append("**Field guidelines:**\n")
-    lines.append(
-        "- **analysis**: Always provide detailed analysis regardless of verdict. "
-        "Describe what you reviewed, what you found, and your reasoning. "
-        "Be thorough but concise (200-500 words)."
-    )
-    lines.append(
-        "- **suggestions**: Non-blocking observations and improvement ideas. "
-        "Include these even when approving — they help the team improve over time."
-    )
-    lines.append(
-        "- **feedback**: Reserved for **blocking issues only** — problems that must "
-        "be fixed before the work can be approved. Leave empty when approving."
-    )
-    lines.append(
-        "\nIf the work meets all criteria, set verdict to `approved`. "
-        "If significant issues remain, set verdict to `needs_revision` "
-        "and provide actionable feedback in the `feedback` field."
-    )
+    # Verdict format — only for sequential (non-concurrent) reviewers.
+    # In concurrent/BRC mode, the ACK/NACK reason IS the review output.
+    if not concurrent:
+        lines.append("## Verdict Format\n")
+        lines.append(f"Write the following JSON to `{verdict_path}`:\n")
+        lines.append("```json")
+        lines.append("{")
+        lines.append(f'  "reviewer": "{reviewer_type}",')
+        lines.append('  "verdict": "approved" or "needs_revision",')
+        lines.append('  "summary": "Brief summary of findings (1-2 sentences)",')
+        lines.append('  "analysis": "Detailed analysis of the reviewed work (see below)",')
+        lines.append('  "suggestions": "Non-blocking suggestions for improvement",')
+        lines.append('  "feedback": "Blocking issues requiring revision before approval",')
+        lines.append('  "timestamp": "ISO 8601 timestamp"')
+        lines.append("}")
+        lines.append("```\n")
+        lines.append("**Field guidelines:**\n")
+        lines.append(
+            "- **analysis**: Always provide detailed analysis regardless of verdict. "
+            "Describe what you reviewed, what you found, and your reasoning."
+        )
+        lines.append(
+            "- **suggestions**: Non-blocking observations and improvement ideas. "
+            "Include these even when approving — they help the team improve over time."
+        )
+        lines.append(
+            "- **feedback**: Reserved for **blocking issues only** — problems that must "
+            "be fixed before the work can be approved. Leave empty when approving."
+        )
+        lines.append(
+            "\nIf the work meets all criteria, set verdict to `approved`. "
+            "If significant issues remain, set verdict to `needs_revision` "
+            "and provide actionable feedback in the `feedback` field."
+        )
 
     # Phase restrictions for reviewers
     lines.append("")
     lines.append("## Phase Restrictions\n")
     lines.append("- You CAN read all source files and review artifacts")
-    lines.append("- You CAN write verdict files to `.egg-state/reviews/`")
+    if not concurrent:
+        lines.append("- You CAN write verdict files to `.egg-state/reviews/`")
     if reviewer_type == "contract":
         lines.append(
             "- You CAN update the contract in `.egg-state/contracts/` (e.g. marking items as done)"
@@ -5819,10 +5845,11 @@ def _build_brc_preamble(
         lines.extend(
             [
                 "### Reviewer Lifecycle",
-                "1. **PREPARE** (while waiting): " + _build_reviewer_preparation(role_value, phase),
+                "1. **PREPARE** (while waiting): "
+                + _build_reviewer_preparation(role_value, phase, branch=branch),
                 "2. **POLL**: Wait for `CONSENSUS_PROPOSE` from assigned producers "
-                "(`egg-orch message poll --wait 30`). Do NOT inspect producer "
-                "artifacts or form judgments before the proposal arrives.",
+                "(`egg-orch message poll --wait 30`). While waiting, continue "
+                "your preparation work from step 1.",
                 "3. **SYNC**: Before reviewing, sync your worktree so you have the "
                 "producer's commits: `git fetch origin && git merge origin/"
                 + (branch or base_branch or "main")
@@ -5830,12 +5857,32 @@ def _build_brc_preamble(
                 "4. **REVIEW**: Once a proposal arrives, form independent judgment from "
                 "the referenced code artifacts. Read the actual files — do not rely "
                 "solely on the proposal summary.",
-                '5. **ACK/NACK**: `egg-orch consensus ack <role> --files-reviewed "f1" "f2" '
-                '--reason "Substantive rationale ≥50 chars: what was read, what was checked, '
-                'why the verdict follows"` or '
-                '`egg-orch consensus nack <role> --reason "..." --files-reviewed "f1" "f2"`. '
-                "`--reason` is required on both ACK and NACK and must be ≥50 chars of "
-                "substantive content. Boilerplate like 'lgtm' or 'no issues' will be rejected.",
+                "5. **ACK/NACK**: Your `--reason` IS your review. Put your **full analysis** "
+                "there — this is what the producer reads and acts on.\n"
+                "\n"
+                "   **NACK format** (use when blocking issues exist):\n"
+                "   ```\n"
+                '   egg-orch consensus nack <role> --files-reviewed "f1" "f2" --reason "\n'
+                "   ### Blocking\n"
+                "   1. **file.py:123** — Description of the issue. Fix: suggested fix.\n"
+                "   2. **file.py:456** — Description of the issue. Fix: suggested fix.\n"
+                "   ### Non-blocking\n"
+                "   - **file.py:789** — Suggestion for improvement.\n"
+                '   "\n'
+                "   ```\n"
+                "\n"
+                "   **ACK format** (use when no blocking issues):\n"
+                "   ```\n"
+                '   egg-orch consensus ack <role> --files-reviewed "f1" "f2" --reason "\n'
+                "   Reviewed [N files / specific areas]. Verified [what was checked].\n"
+                "   [Specific observations about correctness, security, etc.]\n"
+                "   ### Non-blocking\n"
+                "   - **file.py:123** — Optional suggestions for improvement.\n"
+                '   "\n'
+                "   ```\n"
+                "\n"
+                "   `--reason` must be ≥50 chars of substantive content. "
+                "Boilerplate like 'lgtm' or 'no issues' will be rejected.",
                 "6. **CONFIRM**: When all assigned producers reviewed: "
                 "`egg-orch consensus confirmed`",
                 "7. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
@@ -5981,7 +6028,7 @@ def _build_agent_roster(all_roles: list[str], current_role: str, phase: str) -> 
     return "\n".join(roster_lines)
 
 
-def _build_reviewer_preparation(role_value: str, phase: str) -> str:
+def _build_reviewer_preparation(role_value: str, phase: str, *, branch: str | None = None) -> str:
     """Build proactive preparation instructions for reviewer agents.
 
     Tells reviewers what to do while waiting for proposals — e.g., reading
@@ -5991,15 +6038,18 @@ def _build_reviewer_preparation(role_value: str, phase: str) -> str:
     if phase == "implement":
         if role_value == "reviewer_code":
             return (
-                "While waiting for proposals, prepare by: "
-                "(a) reading the contract with `egg-contract show` to understand "
-                "what was planned, "
-                "(b) reviewing the issue/PR description for context, "
-                "(c) exploring the codebase areas likely to be changed "
-                "(grep for relevant classes, read key files), "
-                "(d) noting existing test patterns and code conventions. "
-                "This background research will make your review faster "
-                "and more thorough once proposals arrive. "
+                "Start reviewing immediately — do not wait idle for proposals. "
+                "(a) Read the contract with `egg-contract show` to understand "
+                "what was planned. "
+                "(b) Review the issue/PR description for context. "
+                "(c) Check for commits on the branch: run "
+                f"`git fetch origin && git log --oneline origin/main..origin/{branch or '$(git branch --show-current)'}` "
+                "and if changes exist, begin reviewing the diff with "
+                "`git diff origin/main...HEAD`. "
+                "(d) Note existing test patterns and code conventions. "
+                "By the time a proposal arrives, you should already have "
+                "a thorough understanding of the changes and be ready to "
+                "ACK or NACK with specific, detailed feedback. "
                 "When reviewing the tester's proposal, check whether tests were "
                 "actually executed (look for `tests_run` and `tests_execution_blocked` "
                 "in the attestation). If the tester reports `tests_execution_blocked: true`, "
@@ -6651,6 +6701,7 @@ def _build_agent_prompt(
             prior_feedback=review_feedback,
             repo_path=repo_path,
             base_branch=base_branch,
+            concurrent=concurrent,
         )
         if concurrent:
             review_prompt += "\n" + _build_brc_preamble(

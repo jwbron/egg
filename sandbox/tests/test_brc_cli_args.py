@@ -14,6 +14,7 @@ Verifies:
 import argparse
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -22,7 +23,7 @@ _sandbox_path = str(Path(__file__).parent.parent)
 if _sandbox_path not in sys.path:
     sys.path.insert(0, _sandbox_path)
 
-from egg_lib.orch_cli import create_parser
+from egg_lib.orch_cli import cmd_message_poll, create_parser
 
 # ---------------------------------------------------------------------------
 # ACK: --reason is required
@@ -372,3 +373,108 @@ class TestMessageSendTypeHelpText:
                 ]
             )
         assert exc_info.value.code != 0
+
+
+# ---------------------------------------------------------------------------
+# MESSAGE POLL: body display (no truncation, indented multi-line)
+# ---------------------------------------------------------------------------
+
+
+def _make_poll_args(**overrides: object) -> argparse.Namespace:
+    """Build a minimal ``argparse.Namespace`` for ``cmd_message_poll``."""
+    defaults = {
+        "pipeline_id": "pipe-1",
+        "json": False,
+        "role": "reviewer_code",
+        "since": None,
+        "limit": None,
+        "wait": None,
+    }
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
+
+
+class TestMessagePollBodyDisplay:
+    """``cmd_message_poll`` displays full message bodies with indentation."""
+
+    @patch("egg_lib.orch_cli.orch_request")
+    def test_multiline_body_fully_displayed(self, mock_request, capsys):
+        """Multi-line bodies are printed in full, not truncated."""
+        long_body = (
+            "### Blocking\n"
+            "1. **auth.py:42** — SQL injection risk\n"
+            "2. **models.py:99** — Missing null check\n"
+            "\n"
+            "### Non-blocking\n"
+            "- Consider renaming `do_thing` for clarity"
+        )
+        mock_request.return_value = {
+            "data": {
+                "messages": [
+                    {
+                        "timestamp": "2026-04-14T12:00:00Z",
+                        "from_role": "reviewer_code",
+                        "to_role": "coder",
+                        "message_type": "NACK",
+                        "subject": "Review feedback",
+                        "body": long_body,
+                    }
+                ]
+            }
+        }
+        args = _make_poll_args()
+        rc = cmd_message_poll(args)
+        assert rc == 0
+        output = capsys.readouterr().out
+        # Every line of the body must appear in output
+        for line in long_body.split("\n"):
+            assert line in output, f"Missing body line: {line!r}"
+
+    @patch("egg_lib.orch_cli.orch_request")
+    def test_multiline_body_indented(self, mock_request, capsys):
+        """Multi-line bodies are indented with 4 spaces on continuation lines."""
+        body = "Line one\nLine two\nLine three"
+        mock_request.return_value = {
+            "data": {
+                "messages": [
+                    {
+                        "timestamp": "2026-04-14T12:00:00Z",
+                        "from_role": "reviewer_code",
+                        "to_role": "coder",
+                        "message_type": "NACK",
+                        "subject": "Feedback",
+                        "body": body,
+                    }
+                ]
+            }
+        }
+        args = _make_poll_args()
+        cmd_message_poll(args)
+        output = capsys.readouterr().out
+        # Continuation lines should be indented with 4 spaces
+        assert "    Line two" in output
+        assert "    Line three" in output
+
+    @patch("egg_lib.orch_cli.orch_request")
+    def test_empty_body_not_printed(self, mock_request, capsys):
+        """Messages with empty bodies don't produce extra blank lines."""
+        mock_request.return_value = {
+            "data": {
+                "messages": [
+                    {
+                        "timestamp": "2026-04-14T12:00:00Z",
+                        "from_role": "coder",
+                        "to_role": "reviewer_code",
+                        "message_type": "PROGRESS",
+                        "subject": "Tests passing",
+                        "body": "",
+                    }
+                ]
+            }
+        }
+        args = _make_poll_args()
+        cmd_message_poll(args)
+        output = capsys.readouterr().out
+        lines = [line for line in output.strip().split("\n") if line.strip()]
+        # Should only have the header line and the count line
+        assert len(lines) == 2
