@@ -5460,43 +5460,52 @@ def _build_brc_preamble(
             ]
         )
 
-    # Directed peer-to-peer coordination guidance
-    coord_lines: list[str] = [
-        "### Directed Coordination\n",
-        "Use `egg-orch message send` to communicate directly with specific agents "
-        "when broadcast is unnecessary:\n",
-        "```",
-        'egg-orch message send --to <role> --type <TYPE> --subject "..." --body "..."',
-        "```\n",
-    ]
+    # Directed coordination guidance — role-gated
+    lines.append("### Directed Coordination")
+    lines.append(
+        "In addition to the BRC consensus flow (PROPOSE/ACK/NACK), you can send "
+        "directed peer-to-peer messages to specific agents using "
+        "`egg-orch message send --to <role> --type <TYPE>`. These directed messages "
+        "are **supplementary** to BRC consensus — they do NOT replace the "
+        "PROPOSE/ACK/NACK lifecycle and are never required for consensus to proceed.\n"
+    )
 
     if is_producer:
-        coord_lines.extend(
+        lines.extend(
             [
-                "**As a producer, use:**",
-                "- **HANDOFF**: Signal a downstream agent that your output is ready for them. "
-                "Example: coder → tester after pushing test-relevant commits.",
-                "- **STATUS**: Share progress updates with a specific peer "
-                "(e.g., notify documenter of API changes).\n",
+                "**As a producer**, use directed messages to coordinate handoffs and "
+                "broadcast progress:",
+                "- **HANDOFF**: When your work is ready for a specific peer to act on, "
+                "send a HANDOFF message so they know to begin. For example, a coder "
+                "notifying the tester that implementation is complete.",
+                "  ```",
+                '  egg-orch message send --to tester --type HANDOFF --subject "Auth module ready" '
+                '--body "auth.py is complete, tests can begin"',
+                "  ```",
+                "- **STATUS**: Broadcast progress updates to all agents when you reach "
+                "significant milestones (e.g., halfway through implementation, blocked "
+                "on a dependency).",
+                "  ```",
+                '  egg-orch message send --to all --type STATUS --subject "Implementation 50% complete" '
+                '--body "Core logic done, working on edge cases"',
+                "  ```\n",
             ]
         )
 
     if is_reviewer:
-        coord_lines.extend(
+        lines.extend(
             [
-                "**As a reviewer, use:**",
-                "- **QUESTION**: Ask a producer for clarification before ACK/NACK. "
-                "Prefer this over NACK when the issue might be a misunderstanding.\n",
+                "**As a reviewer**, use directed messages to request clarification:",
+                "- **QUESTION**: Ask a producer for clarification before or during your "
+                "review. This avoids unnecessary NACKs for ambiguities that can be "
+                "resolved with a quick exchange.",
+                "  ```",
+                '  egg-orch message send --to coder --type QUESTION --subject "Clarify auth flow" '
+                '--body "Is the token refresh handled in auth.py or middleware?"',
+                "  ```\n",
             ]
         )
 
-    coord_lines.append(
-        "Only use directed messages for coordination that does NOT fit the "
-        "consensus flow (propose/ack/nack). Never replace a NACK with a QUESTION "
-        "when you've identified a real defect.\n"
-    )
-
-    lines.extend(coord_lines)
 
     lines.extend(
         [
