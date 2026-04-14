@@ -4281,11 +4281,19 @@ def _write_brc_history(
     history_dir.mkdir(parents=True, exist_ok=True)
 
     # --- Markdown history (lossless projection) ---
+    # `Generated:` is derived from the latest message timestamp (not
+    # wall-clock time) so regenerating the file from the same message
+    # set produces byte-identical output.  This keeps the PR-phase
+    # safety-net rewrite idempotent.  See #1714 / #1719.
+    message_timestamps = [m.timestamp for m in brc_messages if m.timestamp is not None]
+    if message_timestamps:
+        generated_str = max(message_timestamps).strftime("%Y-%m-%dT%H:%M:%SZ")
+    else:
+        generated_str = "unknown"
     lines: list[str] = []
-    now_str = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     lines.append(f"# BRC Consensus History — {phase} phase")
     lines.append("")
-    lines.append(f"Generated: {now_str}")
+    lines.append(f"Generated: {generated_str}")
     lines.append(f"Pipeline: {pipeline_id}")
     lines.append("")
 
@@ -4301,15 +4309,18 @@ def _write_brc_history(
             lines.append("")
             lines.append(msg.body)
 
-        # Emit a YAML metadata block when there is meaningful metadata
-        meta_block: dict[str, Any] = {}
-        if msg.id:
-            meta_block["id"] = msg.id
-        if msg.phase:
-            meta_block["phase"] = msg.phase
+        # Emit a YAML metadata block only when metadata dict is non-empty.
+        # The block contains id, phase, and the full metadata dict contents
+        # (metadata fields are merged at the top level alongside id/phase).
         if msg.metadata:
-            meta_block["metadata"] = msg.metadata
-        if meta_block:
+            meta_block: dict[str, Any] = {}
+            if msg.id:
+                meta_block["id"] = msg.id
+            if msg.phase:
+                meta_block["phase"] = msg.phase
+            # Merge metadata contents at the top level of the YAML block
+            for k, v in msg.metadata.items():
+                meta_block[k] = v
             lines.append("")
             lines.append("```yaml")
             lines.append(yaml.dump(meta_block, sort_keys=False, default_flow_style=False).rstrip())
