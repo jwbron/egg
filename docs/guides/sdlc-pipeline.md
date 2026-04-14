@@ -1456,7 +1456,7 @@ Use `git show origin/<branch>:.egg-state/drafts/` to list draft files on the rem
 
 ### PR-Phase State File Troubleshooting
 
-The PR phase runs three state file operations before creating the PR: BRC history re-write, draft cleanup, and a final push. Each operation has diagnostic INFO-level logging to help identify failures.
+The PR phase runs two state file operations before creating the PR: BRC history re-write and a final push. Each operation has diagnostic INFO-level logging to help identify failures.
 
 **BRC history files missing from PR** (`.egg-state/brc-history/` absent):
 
