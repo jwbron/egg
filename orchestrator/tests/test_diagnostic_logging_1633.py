@@ -1,7 +1,7 @@
 """Tests for diagnostic logging added in #1633.
 
 Validates INFO-level logging for _write_brc_history, _commit_statefiles_to_worktree,
-_rewrite_brc_history_for_pr, _cleanup_drafts_for_pr, and the PR-phase push handler.
+_rewrite_brc_history_for_pr, and the PR-phase push handler.
 Also includes the integration test (task-1-5) verifying the full call chain in a
 real git repo.
 """
@@ -399,159 +399,10 @@ class TestRewriteBrcHistoryForPrLogging:
 
 
 # ---------------------------------------------------------------------------
-# _cleanup_drafts_for_pr logging tests
-# ---------------------------------------------------------------------------
-class TestCleanupDraftsForPrLogging:
-    """Verify INFO/WARNING diagnostic logging in _cleanup_drafts_for_pr (#1633 task-1-3)."""
-
-    def test_logs_no_drafts_directory(self, tmp_path):
-        """Logs INFO when drafts directory doesn't exist."""
-        from routes.pipelines import _cleanup_drafts_for_pr
-
-        with patch("routes.pipelines.logger") as mock_logger:
-            _cleanup_drafts_for_pr(tmp_path, 42)
-
-        info_msgs = [str(c) for c in mock_logger.info.call_args_list]
-        assert any("no drafts directory" in msg for msg in info_msgs), (
-            f"Expected 'no drafts directory' log, got: {info_msgs}"
-        )
-
-    def test_logs_entry_with_match_count(self, tmp_path):
-        """Entry log is first, matched drafts log includes match_count and matched_files."""
-        from routes.pipelines import _cleanup_drafts_for_pr
-
-        drafts = tmp_path / ".egg-state" / "drafts"
-        drafts.mkdir(parents=True)
-        (drafts / "42-analysis.md").write_text("analysis", encoding="utf-8")
-        (drafts / "42-plan.md").write_text("plan", encoding="utf-8")
-
-        with patch("routes.pipelines.logger") as mock_logger:
-            _cleanup_drafts_for_pr(tmp_path, 42)
-
-        info_msgs = [str(c) for c in mock_logger.info.call_args_list]
-        # "entering" is the first log emitted
-        assert any("entering" in msg for msg in info_msgs)
-        # match_count and matched_files are on the "matched drafts" log
-        match_call = [c for c in mock_logger.info.call_args_list if "matched drafts" in str(c)]
-        assert len(match_call) == 1
-        kwargs = match_call[0][1]
-        assert kwargs.get("match_count") == 2
-        assert set(kwargs.get("matched_files", [])) == {"42-analysis.md", "42-plan.md"}
-
-    def test_logs_git_rm_success(self, tmp_path, monkeypatch):
-        """Logs INFO for each successful git rm."""
-        import routes.pipelines as mod
-
-        drafts = tmp_path / ".egg-state" / "drafts"
-        drafts.mkdir(parents=True)
-        (drafts / "42-analysis.md").write_text("analysis", encoding="utf-8")
-
-        mock_logger = MagicMock()
-        monkeypatch.setattr(mod, "logger", mock_logger)
-
-        def fake_run(cmd, **kwargs):
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = ""
-            result.stderr = ""
-            return result
-
-        monkeypatch.setattr(mod.subprocess, "run", fake_run)
-
-        _cleanup_result = mod._cleanup_drafts_for_pr(tmp_path, 42)
-
-        info_msgs = [str(c) for c in mock_logger.info.call_args_list]
-        assert any("git rm succeeded" in msg for msg in info_msgs), (
-            f"Expected 'git rm succeeded' log, got: {info_msgs}"
-        )
-
-    def test_logs_commit_success(self, tmp_path, monkeypatch):
-        """Logs INFO when commit succeeds."""
-        import routes.pipelines as mod
-
-        drafts = tmp_path / ".egg-state" / "drafts"
-        drafts.mkdir(parents=True)
-        (drafts / "42-plan.md").write_text("plan", encoding="utf-8")
-
-        mock_logger = MagicMock()
-        monkeypatch.setattr(mod, "logger", mock_logger)
-
-        def fake_run(cmd, **kwargs):
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = ""
-            return result
-
-        monkeypatch.setattr(mod.subprocess, "run", fake_run)
-
-        result = mod._cleanup_drafts_for_pr(tmp_path, 42)
-        assert result is True
-
-        info_msgs = [str(c) for c in mock_logger.info.call_args_list]
-        assert any("commit succeeded" in msg for msg in info_msgs), (
-            f"Expected 'commit succeeded' log, got: {info_msgs}"
-        )
-
-    def test_commit_failure_logs_warning_not_debug(self, tmp_path, monkeypatch):
-        """Commit failure now logs at WARNING level (promoted from DEBUG in #1633)."""
-        import routes.pipelines as mod
-
-        drafts = tmp_path / ".egg-state" / "drafts"
-        drafts.mkdir(parents=True)
-        (drafts / "42-analysis.md").write_text("analysis", encoding="utf-8")
-
-        mock_logger = MagicMock()
-        monkeypatch.setattr(mod, "logger", mock_logger)
-
-        def fake_run(cmd, **kwargs):
-            if "commit" in cmd:
-                raise subprocess.CalledProcessError(1, cmd)
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = ""
-            result.stderr = ""
-            return result
-
-        monkeypatch.setattr(mod.subprocess, "run", fake_run)
-
-        result = mod._cleanup_drafts_for_pr(tmp_path, 42)
-        assert result is False
-
-        # Should be WARNING, not DEBUG
-        warning_msgs = [str(c) for c in mock_logger.warning.call_args_list]
-        assert any("commit failed" in msg for msg in warning_msgs), (
-            f"Expected WARNING about commit failure, got warnings: {warning_msgs}"
-        )
-        # Make sure it's NOT logged at DEBUG
-        debug_msgs = [str(c) for c in mock_logger.debug.call_args_list]
-        assert not any("commit" in msg.lower() and "fail" in msg.lower() for msg in debug_msgs), (
-            "Commit failure should NOT be logged at DEBUG level anymore"
-        )
-
-    def test_logs_exit_without_commit(self, tmp_path):
-        """Logs INFO when exiting without a commit (git rm failed for all files)."""
-        from routes.pipelines import _cleanup_drafts_for_pr
-
-        drafts = tmp_path / ".egg-state" / "drafts"
-        drafts.mkdir(parents=True)
-        (drafts / "42-analysis.md").write_text("analysis", encoding="utf-8")
-
-        with patch("routes.pipelines.logger") as mock_logger:
-            # In non-git tmp_path, git rm will fail → unlink fallback → removed=False
-            _cleanup_drafts_for_pr(tmp_path, 42)
-
-        info_msgs = [str(c) for c in mock_logger.info.call_args_list]
-        assert any("exiting without commit" in msg for msg in info_msgs), (
-            f"Expected 'exiting without commit' log, got: {info_msgs}"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Integration test: real git repo with BRC history and draft cleanup (task-1-5)
+# Integration test: real git repo with BRC history (task-1-5)
 # ---------------------------------------------------------------------------
 class TestIntegrationBrcHistoryAndDraftCleanup:
-    """Integration test for the full _rewrite_brc_history_for_pr + _cleanup_drafts_for_pr
-    call chain (#1633 task-1-5).
+    """Integration test for the full _rewrite_brc_history_for_pr call chain (#1633 task-1-5).
 
     Exercises real function calls (not mocked away) with BRC messages in a
     mock store and draft files on disk.  Git operations are intercepted via
@@ -561,9 +412,7 @@ class TestIntegrationBrcHistoryAndDraftCleanup:
       (a) _write_brc_history is called for each COMPLETE phase (not mocked)
       (b) BRC history files are written to disk with correct content
       (c) _commit_statefiles_to_worktree is called with "Persist BRC history" message
-      (d) _cleanup_drafts_for_pr removes matching draft files
-      (e) Non-matching draft files are preserved
-      (f) The commit messages match the expected patterns
+      (d) Draft files are preserved on disk (no cleanup — see #1713)
     """
 
     @pytest.fixture()
@@ -590,8 +439,8 @@ class TestIntegrationBrcHistoryAndDraftCleanup:
 
         return repo
 
-    def test_full_chain_writes_brc_files_and_removes_drafts(self, worktree, monkeypatch):
-        """Full integration: rewrite writes BRC history files, cleanup removes drafts."""
+    def test_full_chain_writes_brc_files_and_preserves_drafts(self, worktree, monkeypatch):
+        """Full integration: rewrite writes BRC history files and drafts remain on disk."""
         import routes.pipelines as mod
 
         pipeline_id = "issue-42"
@@ -687,23 +536,15 @@ class TestIntegrationBrcHistoryAndDraftCleanup:
             f"Expected commit with 'Persist BRC history' message, got: {commit_cmds}"
         )
 
-        # Step 2: Cleanup drafts
-        git_commands.clear()
-        mod._cleanup_drafts_for_pr(worktree, identifier)
-
-        # Assertion (d): git rm commands issued for matching drafts
-        rm_cmds = [c for c in git_commands if "rm" in c]
-        assert len(rm_cmds) == 2, f"Expected 2 git rm commands, got: {rm_cmds}"
-
-        # Assertion (e): Commit message includes identifier
-        cleanup_commits = [c for c in git_commands if "commit" in c]
-        assert len(cleanup_commits) >= 1
-        assert any("42" in arg for c in cleanup_commits for arg in c)
-
-        # Assertion (f): Non-matching draft preserved on disk
-        assert (worktree / ".egg-state" / "drafts" / "99-analysis.md").exists(), (
-            "Pipeline 99's draft should be preserved"
+        # Assertion (d): draft files are preserved — the PR phase no longer
+        # removes them (see #1713). All three drafts (this pipeline's and
+        # another pipeline's) must still be on disk.
+        drafts_dir = worktree / ".egg-state" / "drafts"
+        assert (drafts_dir / "42-analysis.md").exists(), (
+            "Pipeline 42 analysis draft should be preserved"
         )
+        assert (drafts_dir / "42-plan.md").exists(), "Pipeline 42 plan draft should be preserved"
+        assert (drafts_dir / "99-analysis.md").exists(), "Pipeline 99's draft should be preserved"
 
     def test_brc_history_file_content(self, worktree, monkeypatch):
         """BRC history files contain expected markdown content."""
@@ -773,19 +614,6 @@ class TestIntegrationBrcHistoryAndDraftCleanup:
         brc_dir = worktree / ".egg-state" / "brc-history"
         brc_files = list(brc_dir.glob("42-*.md"))
         assert len(brc_files) == 0, "No BRC files should be created when no messages exist"
-
-    def test_cleanup_noop_when_no_matching_drafts(self, worktree):
-        """Cleanup returns False for non-matching pipeline identifier."""
-        from routes.pipelines import _cleanup_drafts_for_pr
-
-        result = _cleanup_drafts_for_pr(worktree, 999)
-        assert result is False
-
-        # Original drafts should still exist on disk
-        drafts_dir = worktree / ".egg-state" / "drafts"
-        assert (drafts_dir / "42-analysis.md").exists()
-        assert (drafts_dir / "42-plan.md").exists()
-        assert (drafts_dir / "99-analysis.md").exists()
 
     def test_rewrite_only_processes_complete_phases(self, worktree, monkeypatch):
         """Only phases with COMPLETE status get BRC history written."""
@@ -869,22 +697,6 @@ class TestEdgeCases:
 
         history_file = tmp_path / ".egg-state" / "brc-history" / "my-pipeline-implement.md"
         assert history_file.exists()
-
-    def test_cleanup_drafts_string_identifier_logging(self, tmp_path):
-        """Logging works correctly with string pipeline identifiers."""
-        from routes.pipelines import _cleanup_drafts_for_pr
-
-        drafts = tmp_path / ".egg-state" / "drafts"
-        drafts.mkdir(parents=True)
-        (drafts / "my-pipeline-analysis.md").write_text("analysis", encoding="utf-8")
-
-        with patch("routes.pipelines.logger") as mock_logger:
-            _cleanup_drafts_for_pr(tmp_path, "my-pipeline")
-
-        info_msgs = [str(c) for c in mock_logger.info.call_args_list]
-        assert any("entering" in msg for msg in info_msgs)
-        entry_call = [c for c in mock_logger.info.call_args_list if "entering" in str(c)]
-        assert entry_call[0][1].get("pipeline_identifier") == "my-pipeline"
 
     def test_rewrite_brc_history_mixed_statuses_logging(self, tmp_path):
         """Entry log correctly reports completed vs non-completed phase counts."""

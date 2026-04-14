@@ -2404,126 +2404,6 @@ def _cleanup_stale_generic_drafts(worktree_path: Path) -> bool:
     return False
 
 
-def _cleanup_drafts_for_pr(
-    worktree_path: Path,
-    pipeline_identifier: int | str,
-) -> bool:
-    """Remove pipeline-scoped draft files before PR creation.
-
-    Finds files matching ``{pipeline_identifier}-*.md`` in
-    ``.egg-state/drafts/`` and removes them with ``git rm`` so the PR
-    diff is focused on code changes rather than intermediate drafts.
-
-    Uses ``git rm -f --ignore-unmatch`` for each matching file so the
-    call is safe when files are already absent or untracked.  Commits
-    the removal as a single commit when any tracked files were staged.
-
-    Safe to call when the drafts directory does not exist (no-op).
-
-    Returns ``True`` if a commit was made, ``False`` otherwise.
-    """
-    pid = str(pipeline_identifier)
-    drafts_dir = worktree_path / ".egg-state" / "drafts"
-
-    logger.info(
-        "_cleanup_drafts_for_pr: entering",
-        pipeline_identifier=pid,
-    )
-
-    if not drafts_dir.is_dir():
-        logger.info(
-            "_cleanup_drafts_for_pr: no drafts directory — skipping",
-            pipeline_identifier=pid,
-        )
-        return False
-
-    matches = list(drafts_dir.glob(f"{pid}-*.md"))
-    logger.info(
-        "_cleanup_drafts_for_pr: matched drafts",
-        pipeline_identifier=pid,
-        match_count=len(matches),
-        matched_files=[m.name for m in matches[:20]],
-        truncated=len(matches) > 20,
-    )
-    if not matches:
-        logger.info(
-            "_cleanup_drafts_for_pr: no matching drafts — exiting",
-            pipeline_identifier=pid,
-        )
-        return False
-
-    git_base = [
-        "git",
-        "-c",
-        "core.hooksPath=/dev/null",
-        "-c",
-        f"safe.directory={worktree_path}",
-        "-C",
-        str(worktree_path),
-    ]
-    removed = False
-
-    for draft in matches:
-        logger.info(
-            "Removing pipeline draft for PR",
-            path=str(draft),
-        )
-        try:
-            subprocess.run(
-                [*git_base, "rm", "-f", "--ignore-unmatch", str(draft.relative_to(worktree_path))],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=10,
-            )
-            logger.info(
-                "_cleanup_drafts_for_pr: git rm succeeded",
-                path=str(draft.relative_to(worktree_path)),
-            )
-            removed = True
-        except subprocess.CalledProcessError as exc:
-            logger.warning(
-                "git rm failed for pipeline draft, falling back to unlink",
-                path=str(draft),
-                error=str(exc),
-            )
-            draft.unlink(missing_ok=True)
-
-    if removed:
-        try:
-            subprocess.run(
-                [
-                    *git_base,
-                    "commit",
-                    "--no-verify",
-                    "-m",
-                    f"Remove pipeline draft files for {pid}",
-                ],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=30,
-            )
-            logger.info(
-                "_cleanup_drafts_for_pr: commit succeeded",
-                pipeline_identifier=pid,
-            )
-            return True
-        except subprocess.CalledProcessError as commit_err:
-            logger.warning(
-                "_cleanup_drafts_for_pr: commit failed — no changes to commit after draft cleanup",
-                pipeline_identifier=pid,
-                error=str(commit_err),
-            )
-
-    logger.info(
-        "_cleanup_drafts_for_pr: exiting without commit",
-        pipeline_identifier=pid,
-        removed=removed,
-    )
-    return False
-
-
 def _get_generic_draft_path(phase: str) -> str | None:
     """Return the generic (unprefixed) draft path for a phase.
 
@@ -4368,9 +4248,8 @@ def _reconcile_and_push_pr_branch(
 
     The PR-phase worktree is checked out from ``origin/{branch}`` at phase
     entry, then has local-only commits layered on top (BRC history rewrite
-    and draft cleanup via :func:`_rewrite_brc_history_for_pr` and
-    :func:`_cleanup_drafts_for_pr`). Between the worktree checkout and this
-    push, the remote tip can advance — for example from checkpoint-handler
+    via :func:`_rewrite_brc_history_for_pr`). Between the worktree checkout
+    and this push, the remote tip can advance — for example from checkpoint-handler
     pushes or concurrent agent activity — leaving the worktree behind its
     remote and causing the non-fast-forward ``HEAD:refs/heads/{branch}``
     push to be rejected (see #1706).
@@ -8658,8 +8537,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     identifier,
                 )
 
-                # Clean up pipeline draft files so PR diffs stay focused
-                _cleanup_drafts_for_pr(worktree_repo_path, identifier)
+                # Pipeline draft files (.egg-state/drafts/{id}-*.md) are
+                # intentionally *preserved* on the PR branch so that analysis
+                # and plan artifacts remain reviewable alongside the code
+                # (see issue #1713).
 
                 # Push latest commits before creating PR.  If the push fails
                 # (e.g. the remote advanced while the PR-phase worktree was
