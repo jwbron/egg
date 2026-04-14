@@ -10,6 +10,16 @@ All `egg-checkpoint` commands support these top-level options:
 - `--checkpoint-repo OWNER/REPO` — External checkpoint repository in `owner/repo` format. Overrides auto-detection from repository settings.
   Use this when querying checkpoints from a different repository than the current one.
 
+Both `--repo-path` and `--checkpoint-repo` can be placed **before or after** the subcommand name:
+
+```bash
+# These are equivalent:
+egg-checkpoint --checkpoint-repo jwbron/egg-checkpoints list --issue 42
+egg-checkpoint list --checkpoint-repo jwbron/egg-checkpoints --issue 42
+```
+
+If the flag is supplied in both positions, the last value wins.
+
 The checkpoint repository is resolved in this order:
 1. `--checkpoint-repo` CLI flag
 2. `EGG_CHECKPOINT_REPO` environment variable
@@ -38,6 +48,9 @@ egg-checkpoint list --pipeline $EGG_PIPELINE_ID
 
 # Coder checkpoints in implement phase
 egg-checkpoint list --agent-type coder --phase implement
+
+# Code reviewer checkpoints (composite BRC role)
+egg-checkpoint list --agent-type reviewer_code --issue 1707
 
 # Failed sessions
 egg-checkpoint list --status failed
@@ -143,8 +156,45 @@ All list/context filters use AND logic (all must match). Filters available:
 | Branch | `--branch NAME` | `--branch egg/feature` |
 | Trigger | `--trigger TYPE` | `--trigger commit` or `--trigger session_end` |
 | Status | `--status STATUS` | `--status failed` |
-| Agent | `--agent-type TYPE` | `--agent-type coder` |
+| Agent | `--agent-type TYPE` | `--agent-type coder` or `--agent-type reviewer_code` |
 | Phase | `--phase PHASE` | `--phase implement` |
+
+### Composite BRC Role Names
+
+The `--agent-type` flag accepts composite BRC role names in addition to coarse agent types. This is useful for finding checkpoints from specific reviewer roles in multi-agent pipelines:
+
+```bash
+# Find checkpoints from the code reviewer specifically
+egg-checkpoint list --agent-type reviewer_code --issue 1707
+
+# Find checkpoints from the contract reviewer
+egg-checkpoint list --agent-type reviewer_contract --pipeline $EGG_PIPELINE_ID
+```
+
+Supported composite role names: `reviewer_code`, `reviewer_contract`, `reviewer_agent_design`, `reviewer_refine`, `reviewer_plan`.
+
+**How it works:** The CLI filters by `AgentType.REVIEWER` at the index level, then loads each checkpoint to match the exact `session.agent_role` field.
+
+**Gateway limitation:** Composite role filtering works only via the direct-git path. The gateway HTTP API collapses composite roles to `reviewer`, so `--agent-type reviewer_code` may return no results when querying through the gateway even if matching checkpoints exist. The CLI help text notes this limitation.
+
+**Reviewer checkpoint availability:** Reviewer agents may not produce checkpoints if session-end triggers don't fire. An empty result does not necessarily mean the reviewer was inactive.
+
+### Empty Result Behavior
+
+When a query matches no checkpoints, the CLI now prints the repository and branch it searched to stderr:
+
+```
+Searched jwbron/egg branch egg/checkpoints/v2
+No checkpoints found matching filters
+```
+
+This helps diagnose whether the correct checkpoint source is configured.
+
+When `--json` is set, empty results produce valid parseable JSON to stdout:
+- `list`, `browse`, `search`: `[]`
+- `context`, `cost`: structured empty object matching the non-empty schema
+
+Exit code is `0` for empty results. Downstream scripts can safely call `json.loads()` on the output without special-casing empty responses.
 
 ## Common Multi-Agent Scenarios
 
@@ -219,11 +269,17 @@ egg-checkpoint cost --issue $EGG_ISSUE_NUMBER
 
 ### "No checkpoints found"
 
-If you see this with a hint about `--checkpoint-repo` or `EGG_CHECKPOINT_REPO`:
+The CLI now shows which repository and branch it searched when no results are found (e.g., `Searched jwbron/egg branch egg/checkpoints/v2`). Check the displayed repo/branch — if it's unexpected:
 
-1. **Checkpoints in a separate repo**: Some projects store checkpoints in a dedicated repo (e.g., `owner/project-checkpoints`). Set the `EGG_CHECKPOINT_REPO` env var or use the `--checkpoint-repo` flag.
+1. **Checkpoints in a separate repo**: Some projects store checkpoints in a dedicated repo (e.g., `owner/project-checkpoints`). Set the `EGG_CHECKPOINT_REPO` env var or use `--checkpoint-repo`.
 2. **Missing `repositories.yaml`**: Auto-detection relies on a config file that may not exist in the sandbox. Set the env var instead.
 3. **No metadata on checkpoint**: Non-pipeline (ad-hoc) sessions may not have issue, PR, or pipeline metadata. Try listing without filters or search by transcript content.
+
+### Reviewer checkpoints not found
+
+Reviewer agents (`reviewer_code`, `reviewer_contract`, etc.) may not produce checkpoints if session-end triggers don't fire. This can happen when a reviewer's container is stopped before the checkpoint write completes. An empty result does not mean the reviewer was inactive — check pipeline logs for the agent's status.
+
+If `--agent-type reviewer_code` returns no results but `--agent-type reviewer` does, you may be querying through the gateway HTTP API which collapses composite roles. Use the direct-git path (ensure `GATEWAY_URL` is unset) or filter by `reviewer` and inspect results manually.
 
 ### Private mode access
 
