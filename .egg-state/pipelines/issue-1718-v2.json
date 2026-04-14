@@ -73,7 +73,7 @@
         {
           "container_id": "138919df7d06fbbeb91e742e4034969d2c29e9f9531ea2b1c910b6f4a2faf1e6",
           "container_name": "issue-1718-v2-reviewer_contract",
-          "status": "failed",
+          "status": "exited",
           "started_at": "2026-04-14T04:12:46.973672Z",
           "exited_at": "2026-04-14T04:18:40.837241Z",
           "exit_code": 1,
@@ -131,10 +131,10 @@
           "status": "failed",
           "container_id": "138919df7d06fbbeb91e742e4034969d2c29e9f9531ea2b1c910b6f4a2faf1e6",
           "started_at": "2026-04-14T04:12:46.973677Z",
-          "completed_at": "2026-04-14T04:18:42.381834Z",
+          "completed_at": "2026-04-14T04:18:45.925714Z",
           "commit": null,
           "outputs": {},
-          "error": "Container exited unexpectedly during execution — detected by runtime container monitor",
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -181,7 +181,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-14T02:38:21.049248Z",
-  "updated_at": "2026-04-14T04:18:45.874806Z",
+  "updated_at": "2026-04-14T04:18:45.925783Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -192,5 +192,5 @@
   "source_branch": "egg/issue-1718",
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-14T04:12:39.045629Z",
-  "version": 20
+  "version": 21
 }
