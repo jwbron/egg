@@ -32,7 +32,7 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 from routes.signals import (
-    _BRC_BOILERPLATE_SET,
+    _BRC_BOILERPLATE,
     _BRC_MIN_CONTENT_LEN,
     _validate_brc_content,
 )
@@ -87,80 +87,80 @@ class TestValidateBrcContentEmpty:
     """Validation rejects empty or None bodies."""
 
     def test_empty_string_rejected(self):
-        err = _validate_brc_content("", "propose")
+        err = _validate_brc_content("", "Proposal summary")
         assert err is not None
-        assert "empty" in err
-        assert "propose" in err
+        assert "empty" in err.lower()
+        assert "Proposal summary" in err
 
     def test_none_rejected(self):
-        err = _validate_brc_content(None, "ack")  # type: ignore[arg-type]
+        err = _validate_brc_content(None, "ACK reason")  # type: ignore[arg-type]
         assert err is not None
-        assert "empty" in err
+        assert "empty" in err.lower()
 
     def test_whitespace_only_rejected(self):
-        err = _validate_brc_content("   \t\n  ", "nack")
+        err = _validate_brc_content("   \t\n  ", "NACK reason")
         assert err is not None
-        assert "empty" in err
+        assert "empty" in err.lower()
 
 
 class TestValidateBrcContentBoilerplate:
     """Validation rejects known boilerplate strings."""
 
-    @pytest.mark.parametrize("text", sorted(_BRC_BOILERPLATE_SET))
+    @pytest.mark.parametrize("text", sorted(_BRC_BOILERPLATE))
     def test_exact_boilerplate_rejected(self, text: str):
-        err = _validate_brc_content(text, "ack")
+        err = _validate_brc_content(text, "ACK reason")
         assert err is not None
-        assert "boilerplate" in err
+        assert "boilerplate" in err.lower()
 
-    @pytest.mark.parametrize("text", sorted(_BRC_BOILERPLATE_SET))
+    @pytest.mark.parametrize("text", sorted(_BRC_BOILERPLATE))
     def test_boilerplate_case_insensitive(self, text: str):
         # Mixed case variant
         mixed = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
-        err = _validate_brc_content(mixed, "ack")
+        err = _validate_brc_content(mixed, "ACK reason")
         assert err is not None
-        assert "boilerplate" in err
+        assert "boilerplate" in err.lower()
 
-    @pytest.mark.parametrize("text", sorted(_BRC_BOILERPLATE_SET))
+    @pytest.mark.parametrize("text", sorted(_BRC_BOILERPLATE))
     def test_boilerplate_with_whitespace_padding(self, text: str):
-        err = _validate_brc_content(f"  {text}  ", "propose")
+        err = _validate_brc_content(f"  {text}  ", "Proposal summary")
         assert err is not None
-        assert "boilerplate" in err
+        assert "boilerplate" in err.lower()
 
     def test_boilerplate_all_upper_rejected(self):
-        err = _validate_brc_content("LGTM", "ack")
+        err = _validate_brc_content("LGTM", "ACK reason")
         assert err is not None
-        assert "boilerplate" in err
+        assert "boilerplate" in err.lower()
 
     def test_boilerplate_ok_rejected(self):
-        err = _validate_brc_content("OK", "ack")
+        err = _validate_brc_content("OK", "ACK reason")
         assert err is not None
-        assert "boilerplate" in err
+        assert "boilerplate" in err.lower()
 
 
 class TestValidateBrcContentTooShort:
     """Validation rejects content below the minimum length threshold."""
 
     def test_one_char_rejected(self):
-        err = _validate_brc_content("x", "propose")
+        err = _validate_brc_content("x", "Proposal summary")
         assert err is not None
         assert "1 chars" in err
-        assert f"minimum is {_BRC_MIN_CONTENT_LEN}" in err
+        assert f"minimum {_BRC_MIN_CONTENT_LEN}" in err
 
     def test_just_under_minimum_rejected(self):
         text = "a" * (_BRC_MIN_CONTENT_LEN - 1)
-        err = _validate_brc_content(text, "ack")
+        err = _validate_brc_content(text, "ACK reason")
         assert err is not None
         assert f"{_BRC_MIN_CONTENT_LEN - 1} chars" in err
 
     def test_short_sentence_rejected(self):
-        err = _validate_brc_content("Implemented the feature.", "propose")
+        err = _validate_brc_content("Implemented the feature.", "Proposal summary")
         assert err is not None
         assert "chars" in err
 
     def test_whitespace_does_not_count_toward_length(self):
         # 48 real chars + leading/trailing whitespace
         padded = "   " + "a" * (_BRC_MIN_CONTENT_LEN - 2) + "   "
-        err = _validate_brc_content(padded, "nack")
+        err = _validate_brc_content(padded, "NACK reason")
         assert err is not None
         assert "chars" in err
 
@@ -170,17 +170,17 @@ class TestValidateBrcContentBoundary:
 
     def test_exactly_minimum_accepted(self):
         text = "a" * _BRC_MIN_CONTENT_LEN
-        err = _validate_brc_content(text, "ack")
+        err = _validate_brc_content(text, "ACK reason")
         assert err is None
 
     def test_one_below_minimum_rejected(self):
         text = "a" * (_BRC_MIN_CONTENT_LEN - 1)
-        err = _validate_brc_content(text, "ack")
+        err = _validate_brc_content(text, "ACK reason")
         assert err is not None
 
     def test_one_above_minimum_accepted(self):
         text = "a" * (_BRC_MIN_CONTENT_LEN + 1)
-        err = _validate_brc_content(text, "propose")
+        err = _validate_brc_content(text, "Proposal summary")
         assert err is None
 
 
@@ -188,11 +188,11 @@ class TestValidateBrcContentSubstantive:
     """Validation accepts substantive content."""
 
     def test_long_summary_accepted(self):
-        err = _validate_brc_content(_SUBSTANTIVE_SUMMARY, "propose")
+        err = _validate_brc_content(_SUBSTANTIVE_SUMMARY, "Proposal summary")
         assert err is None
 
     def test_long_reason_accepted(self):
-        err = _validate_brc_content(_SUBSTANTIVE_REASON, "ack")
+        err = _validate_brc_content(_SUBSTANTIVE_REASON, "ACK reason")
         assert err is None
 
     def test_technical_content_accepted(self):
@@ -200,14 +200,17 @@ class TestValidateBrcContentSubstantive:
             "Checked src/auth.py:42-60 for SQL injection, confirmed parameterized "
             "queries throughout."
         )
-        err = _validate_brc_content(text, "nack")
+        err = _validate_brc_content(text, "NACK reason")
         assert err is None
 
 
 class TestValidateBrcContentKindLabel:
     """Error messages include the correct signal kind label."""
 
-    @pytest.mark.parametrize("kind", ["propose", "ack", "nack", "withdraw"])
+    @pytest.mark.parametrize(
+        "kind",
+        ["Proposal summary", "ACK reason", "NACK reason", "Withdrawal reason"],
+    )
     def test_kind_in_error_message(self, kind: str):
         err = _validate_brc_content("", kind)
         assert err is not None
@@ -933,22 +936,22 @@ class TestWithdrawContentValidation:
 class TestErrorMessageActionable:
     """Error messages guide the agent to fix the issue."""
 
-    def test_empty_error_mentions_minimum_length(self):
-        err = _validate_brc_content("", "ack")
+    def test_empty_error_mentions_empty(self):
+        err = _validate_brc_content("", "ACK reason")
         assert err is not None
-        assert str(_BRC_MIN_CONTENT_LEN) in err
+        assert "empty" in err.lower()
 
     def test_short_error_reports_actual_length(self):
-        err = _validate_brc_content("short", "propose")
+        err = _validate_brc_content("short", "Proposal summary")
         assert err is not None
         assert "5 chars" in err
 
     def test_boilerplate_error_quotes_input(self):
-        err = _validate_brc_content("lgtm", "ack")
+        err = _validate_brc_content("lgtm", "ACK reason")
         assert err is not None
         assert "lgtm" in err
 
     def test_error_suggests_what_to_include(self):
-        err = _validate_brc_content("ok", "ack")
+        err = _validate_brc_content("ok", "ACK reason")
         assert err is not None
-        assert "what was done/reviewed and why" in err
+        assert "substantive rationale" in err.lower()
