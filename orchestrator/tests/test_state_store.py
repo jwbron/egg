@@ -1462,9 +1462,7 @@ class TestCommitFailureResilience:
         with pytest.raises(GitOperationError, match="unable to write"):
             state_store._commit_state(pipeline)
 
-    def test_save_pipeline_atomic_write_survives_commit_failure(
-        self, state_store, mock_git
-    ):
+    def test_save_pipeline_atomic_write_survives_commit_failure(self, state_store, mock_git):
         """File on disk is valid JSON even when _commit_state raises."""
         pipeline = state_store.create_pipeline(
             issue_number=702,
@@ -1490,9 +1488,7 @@ class TestCommitFailureResilience:
         assert loaded.status == PipelineStatus.RUNNING
         assert path.exists()
 
-    def test_save_pipeline_does_not_raise_on_commit_failure(
-        self, state_store, mock_git
-    ):
+    def test_save_pipeline_does_not_raise_on_commit_failure(self, state_store, mock_git):
         """save_pipeline returns path successfully even when _commit_state raises."""
         pipeline = Pipeline(
             id="issue-703",
@@ -1502,9 +1498,7 @@ class TestCommitFailureResilience:
             prompt="test prompt",
         )
 
-        with patch.object(
-            state_store, "_commit_state", side_effect=GitOperationError("boom")
-        ):
+        with patch.object(state_store, "_commit_state", side_effect=GitOperationError("boom")):
             path = state_store.save_pipeline(pipeline, force_commit=True)
 
         assert path.exists()

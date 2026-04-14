@@ -20,8 +20,8 @@ import os
 import re
 import shutil
 import subprocess
-import threading
 import tempfile
+import threading
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -590,14 +590,8 @@ class StateStore:
                         pipeline.id,
                         e,
                     )
-                    head_result = self._run_git(
-                        "rev-parse", "HEAD", cwd=wt, check=False
-                    )
-                    return (
-                        head_result.stdout.strip()
-                        if head_result.returncode == 0
-                        else ""
-                    )
+                    head_result = self._run_git("rev-parse", "HEAD", cwd=wt, check=False)
+                    return head_result.stdout.strip() if head_result.returncode == 0 else ""
                 raise
             sha = self._run_git("rev-parse", "HEAD", cwd=wt).stdout.strip()
 
