@@ -1,569 +1,819 @@
-diff --git a/orchestrator/tests/test_restart_agent.py b/orchestrator/tests/test_restart_agent.py
-index 88252f8e09..bb14617a46 100644
---- a/orchestrator/tests/test_restart_agent.py
-+++ b/orchestrator/tests/test_restart_agent.py
-@@ -118,6 +118,7 @@ class TestRestartAgentContainer:
-             pipeline_id="issue-100",
-             agent_role=AgentRole.CODER,
-             issue_number=100,
-+            mode="public",
-         )
+diff --git a/orchestrator/tests/test_brc_history.py b/orchestrator/tests/test_brc_history.py
+index 101292b761..d1b4dd2894 100644
+--- a/orchestrator/tests/test_brc_history.py
++++ b/orchestrator/tests/test_brc_history.py
+@@ -224,7 +224,11 @@ class TestWriteBrcHistory:
+             assert list(history_dir.iterdir()) == [], "No files should be created for empty store"
  
-         assert isinstance(result, SpawnedContainer)
-@@ -134,6 +135,7 @@ class TestRestartAgentContainer:
-             pipeline_id="issue-100",
-             agent_role=AgentRole.CODER,
-             issue_number=100,
-+            mode="public",
-         )
- 
-         # Should call stop on the old container
-@@ -147,6 +149,7 @@ class TestRestartAgentContainer:
-             pipeline_id="issue-100",
-             agent_role=AgentRole.CODER,
-             issue_number=100,
-+            mode="public",
-         )
- 
-         # Force removal should be called
-@@ -158,6 +161,7 @@ class TestRestartAgentContainer:
-             pipeline_id="issue-100",
-             agent_role=AgentRole.CODER,
-             issue_number=100,
-+            mode="public",
-         )
- 
-         mock_docker_client.create_container.assert_called()
-@@ -171,6 +175,7 @@ class TestRestartAgentContainer:
-             pipeline_id="issue-100",
-             agent_role=AgentRole.CODER,
-             issue_number=100,
-+            mode="public",
-         )
-         assert spawner.get_restart_count("issue-100", "coder") == 1
- 
-@@ -184,6 +189,7 @@ class TestRestartAgentContainer:
-                 pipeline_id="issue-100",
-                 agent_role=AgentRole.CODER,
-                 issue_number=100,
-+                mode="public",
-                 max_restarts=2,
-             )
- 
-@@ -196,6 +202,7 @@ class TestRestartAgentContainer:
-                 pipeline_id="issue-100",
-                 agent_role=AgentRole.CODER,
-                 issue_number=100,
-+                mode="public",
-                 max_restarts=5,
-             )
- 
-@@ -209,6 +216,7 @@ class TestRestartAgentContainer:
-             pipeline_id="issue-100",
-             agent_role=AgentRole.CODER,
-             issue_number=100,
-+            mode="public",
-         )
- 
-         # Should still succeed — the method handles stop failures gracefully
-@@ -224,6 +232,7 @@ class TestRestartAgentContainer:
-             pipeline_id="issue-100",
-             agent_role=AgentRole.CODER,
-             issue_number=100,
-+            mode="public",
-         )
- 
-         assert isinstance(result, SpawnedContainer)
-@@ -239,6 +248,7 @@ class TestRestartAgentContainer:
-                 pipeline_id="issue-100",
-                 agent_role=AgentRole.CODER,
-                 issue_number=100,
-+                mode="public",
-             )
- 
-     def test_restart_with_extra_env(self, spawner, mock_docker_client, mock_gateway_client):
-@@ -247,6 +257,7 @@ class TestRestartAgentContainer:
-             pipeline_id="issue-100",
-             agent_role=AgentRole.CODER,
-             issue_number=100,
-+            mode="public",
-             extra_env={"RESTART_REASON": "stall detected"},
-         )
- 
-@@ -259,6 +270,7 @@ class TestRestartAgentContainer:
-             pipeline_id="issue-100",
-             agent_role=AgentRole.CODER,
-             issue_number=100,
-+            mode="public",
-             reason="Agent stalled after Edit tool error",
-         )
- 
-@@ -280,6 +292,7 @@ class TestRestartAgentContainer:
-                 pipeline_id="issue-100",
-                 agent_role=AgentRole.CODER,
-                 issue_number=100,
-+                mode="public",
-             )
- 
-             mock_spawn.assert_called_once()
-@@ -684,3 +697,129 @@ class TestRestartAgentEndpoint:
-         assert restart_call[1].get("mode") == "private", (
-             "Expected computed gateway mode 'private', not hardcoded 'public'"
-         )
+     def test_no_file_when_only_non_brc_messages(self, tmp_path):
+-        """When only non-BRC messages exist, no history file is created."""
++        """When only non-BRC/non-history messages exist, no history file is created.
 +
-+    @patch("routes.pipelines.get_pipeline_state_lock")
-+    @patch("routes.pipelines.get_container_spawner")
-+    @patch("routes.pipelines._resolve_pipeline")
-+    @patch("routes.pipelines.get_repo_path")
-+    def test_consensus_not_reset_on_spawn_failure(
-+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
-+    ):
-+        """Consensus state must NOT be reset when container spawn fails.
-+
-+        Issue #1695 item 5: consensus reset should only happen after a
-+        successful spawn, so a failed spawn preserves the agent's prior
-+        consensus participation.
++        PROGRESS is not in BRC_HISTORY_TYPES, so it is filtered out.
++        (STATUS *is* in BRC_HISTORY_TYPES since #1717.)
 +        """
-+        mock_repo.return_value = "/repo"
-+        mock_lock_fn.return_value = MagicMock()
-+        pipeline = _make_pipeline_with_running_agent()
-+
-+        mock_store = MagicMock()
-+        mock_store.load_pipeline.return_value = pipeline
-+        mock_resolve.return_value = (mock_store, pipeline)
-+
-+        mock_spawner = MagicMock()
-+        mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("Failed")
-+        mock_spawner_fn.return_value = mock_spawner
-+
-+        # Patch consensus modules to track if they were called
-+        with patch("routes.pipelines.get_peer_consensus_tracker", create=True) as mock_pct:
-+            mock_tracker = MagicMock()
-+            mock_pct.return_value = mock_tracker
-+
-+            response = client.post(
-+                "/api/v1/pipelines/issue-100/agents/coder/restart",
-+                json={},
-+            )
-+
-+            assert response.status_code == 500
-+            # Consensus tracker.remove_agent should NOT have been called
-+            mock_tracker.remove_agent.assert_not_called()
-+
-+
-+# ---------------------------------------------------------------------------
-+# New tests for issue #1695 items
-+# ---------------------------------------------------------------------------
-+
-+
-+class TestRestartConcurrencyGuard:
-+    """Tests for per-(pipeline_id, agent_role) lock serialisation (issue #1695 item 1)."""
-+
-+    def test_concurrent_restarts_serialised(self, spawner, mock_docker_client, mock_gateway_client):
-+        """Two threads calling restart_agent_container simultaneously: only one
-+        succeeds past the limit when max_restarts=1."""
-+        import threading
-+
-+        results: list[SpawnedContainer | Exception] = [None, None]  # type: ignore[list-item]
-+
-+        def do_restart(idx: int) -> None:
-+            try:
-+                r = spawner.restart_agent_container(
-+                    pipeline_id="issue-100",
-+                    agent_role=AgentRole.CODER,
-+                    issue_number=100,
-+                    mode="public",
-+                    max_restarts=1,
-+                )
-+                results[idx] = r
-+            except Exception as exc:
-+                results[idx] = exc
-+
-+        t1 = threading.Thread(target=do_restart, args=(0,))
-+        t2 = threading.Thread(target=do_restart, args=(1,))
-+        t1.start()
-+        t2.start()
-+        t1.join(timeout=10)
-+        t2.join(timeout=10)
-+
-+        successes = [r for r in results if isinstance(r, SpawnedContainer)]
-+        failures = [r for r in results if isinstance(r, ContainerSpawnError)]
-+
-+        assert len(successes) == 1, f"Expected exactly 1 success, got {len(successes)}"
-+        assert len(failures) == 1, f"Expected exactly 1 failure, got {len(failures)}"
-+
-+
-+class TestFailedSpawnIncrementsCount:
-+    """Tests that a failed spawn_agent_container still increments restart count (issue #1695 item 4)."""
-+
-+    def test_failed_spawn_increments_count(self, spawner, mock_docker_client, mock_gateway_client):
-+        """A spawn failure should still burn one restart budget slot."""
-+        mock_docker_client.create_container.side_effect = ContainerOperationError("no space")
-+
-+        assert spawner.get_restart_count("issue-100", "coder") == 0
-+
-+        with pytest.raises(ContainerSpawnError):
-+            spawner.restart_agent_container(
-+                pipeline_id="issue-100",
-+                agent_role=AgentRole.CODER,
-+                issue_number=100,
-+                mode="public",
-+            )
-+
-+        # Count should be incremented even though spawn failed
-+        assert spawner.get_restart_count("issue-100", "coder") == 1
-+
-+
-+class TestModeValidation:
-+    """Tests for mode=None ValueError (issue #1695 item 7)."""
-+
-+    def test_mode_none_raises_value_error(self, spawner, mock_docker_client, mock_gateway_client):
-+        """Calling restart_agent_container without explicit mode raises ValueError."""
-+        with pytest.raises(ValueError, match="mode must be explicitly provided"):
-+            spawner.restart_agent_container(
-+                pipeline_id="issue-100",
-+                agent_role=AgentRole.CODER,
-+                issue_number=100,
-+                mode=None,
-+            )
-+
-+    def test_mode_default_is_none(self, spawner, mock_docker_client, mock_gateway_client):
-+        """The default value for mode should be None, not 'public'."""
-+        with pytest.raises(ValueError, match="mode must be explicitly provided"):
-+            spawner.restart_agent_container(
-+                pipeline_id="issue-100",
-+                agent_role=AgentRole.CODER,
-+                issue_number=100,
-+                # mode intentionally omitted
-+            )
-diff --git a/orchestrator/tests/test_restart_overseer.py b/orchestrator/tests/test_restart_overseer.py
-index fcc332539d..04d116d61e 100644
---- a/orchestrator/tests/test_restart_overseer.py
-+++ b/orchestrator/tests/test_restart_overseer.py
-@@ -219,8 +219,6 @@ class TestMonitorExecuteRestartAgent:
-         monitor._create_hitl_decision = AsyncMock()
-         monitor._broadcast_alert = AsyncMock()
-         monitor._log_oversight_event = MagicMock()
--        monitor._agent_restart_counts = {}
--        monitor._max_agent_restarts = 2
-         return monitor
+         from routes.pipelines import _write_brc_history
  
-     @patch("urllib.request.build_opener")
-@@ -228,7 +226,7 @@ class TestMonitorExecuteRestartAgent:
-     def test_restart_agent_calls_rest_api(self, mock_request_cls, mock_build_opener, monitor):
-         """restart_agent action should POST to the REST API endpoint."""
-         mock_resp = MagicMock()
--        mock_resp.read.return_value = b'{"success": true}'
-+        mock_resp.read.return_value = b'{"success": true, "data": {"restart_count": 1}}'
-         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
-         mock_resp.__exit__ = MagicMock(return_value=False)
-         mock_opener = MagicMock()
-@@ -252,12 +250,12 @@ class TestMonitorExecuteRestartAgent:
+         non_brc_messages = [
+@@ -235,13 +239,6 @@ class TestWriteBrcHistory:
+                 body="Starting",
+                 phase="implement",
+             ),
+-            _make_brc_message(
+-                pipeline_id="issue-42",
+-                message_type=MessageType.STATUS,
+-                subject="Status",
+-                body="Running",
+-                phase="implement",
+-            ),
+         ]
+         mock_store = MagicMock(spec=MessageStore)
+         mock_store.get_messages.return_value = non_brc_messages
+@@ -253,8 +250,12 @@ class TestWriteBrcHistory:
+         if history_dir.exists():
+             assert list(history_dir.iterdir()) == [], "No files for non-BRC messages"
  
-     @patch("urllib.request.build_opener")
-     @patch("urllib.request.Request")
--    def test_restart_agent_increments_count_on_success(
-+    def test_restart_agent_reads_count_from_api_response(
-         self, mock_request_cls, mock_build_opener, monitor
-     ):
--        """Successful restart should increment the agent's restart count."""
-+        """Successful restart should read restart_count from the API response (no shadow counter)."""
-         mock_resp = MagicMock()
--        mock_resp.read.return_value = b'{"success": true}'
-+        mock_resp.read.return_value = b'{"success": true, "data": {"restart_count": 3}}'
-         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
-         mock_resp.__exit__ = MagicMock(return_value=False)
-         mock_opener = MagicMock()
-@@ -272,7 +270,16 @@ class TestMonitorExecuteRestartAgent:
+-    def test_filters_only_brc_messages(self, tmp_path):
+-        """Mixed message types: only CONSENSUS_* types appear in history file."""
++    def test_filters_only_brc_history_messages(self, tmp_path):
++        """Mixed message types: only BRC_HISTORY_TYPES appear in history file.
++
++        Since #1717, CONSENSUS_* and BRC-adjacent types (STATUS, HANDOFF, etc.)
++        are included in history. PROGRESS is still excluded.
++        """
+         from routes.pipelines import _write_brc_history
  
-         _run(monitor._execute_action(decision, "coder"))
+         messages = _make_mixed_messages(pipeline_id="issue-42", phase="implement")
+@@ -268,11 +269,12 @@ class TestWriteBrcHistory:
+         assert expected_path.exists()
  
--        assert monitor._agent_restart_counts.get("coder", 0) == 1
-+        # The monitor should NOT maintain its own counter — verify no shadow dict
-+        assert not hasattr(monitor, "_agent_restart_counts") or not monitor._agent_restart_counts
-+        # Oversight log should contain the count read from the API
-+        restart_events = [
-+            call[0][0]
-+            for call in monitor._log_oversight_event.call_args_list
-+            if call[0][0].get("event") == "agent_restarted"
-+        ]
-+        assert len(restart_events) == 1
-+        assert restart_events[0]["restart_count"] == 3
+         content = expected_path.read_text()
+-        # Should contain the BRC message
++        # Should contain the CONSENSUS message
+         assert "CONSENSUS_PROPOSE" in content
+-        # Should NOT contain non-BRC message types as entries
+-        # (PROGRESS/STATUS should be filtered out)
+-        assert "PROGRESS" not in content or content.count("PROGRESS") == 0
++        # STATUS is now in BRC_HISTORY_TYPES, so it should be included
++        assert "STATUS" in content
++        # PROGRESS is NOT in BRC_HISTORY_TYPES, so it should be excluded
++        assert "PROGRESS" not in content
  
-     @patch("urllib.request.build_opener")
-     @patch("urllib.request.Request")
-@@ -296,9 +303,21 @@ class TestMonitorExecuteRestartAgent:
+     def test_creates_directory_if_not_exists(self, tmp_path):
+         """_write_brc_history creates the brc-history directory if needed."""
+@@ -534,8 +536,8 @@ class TestBuildPrBodyBrcSummary:
+         authored_pos = body.index("Authored-by: egg")
+         assert brc_pos < authored_pos, "BRC summary must appear before Authored-by footer"
  
-         monitor._create_hitl_decision.assert_called()
+-    def test_brc_summary_under_2000_chars(self, tmp_path):
+-        """BRC summary section stays under ~2000 characters."""
++    def test_brc_summary_under_40000_chars(self, tmp_path):
++        """BRC summary section stays under ~40000 characters (#1717 raised cap)."""
+         from routes.pipelines import _build_pr_body
  
--    def test_restart_agent_limit_creates_hitl(self, monitor):
--        """When restart limit is reached, should create HITL decision."""
--        monitor._agent_restart_counts["coder"] = 2  # At limit
-+    @patch("urllib.request.build_opener")
-+    @patch("urllib.request.Request")
-+    def test_restart_agent_limit_creates_hitl_via_api(
-+        self, mock_request_cls, mock_build_opener, monitor
-+    ):
-+        """When spawner returns limit-exceeded error, monitor should create HITL decision."""
-+        mock_resp = MagicMock()
-+        mock_resp.read.return_value = (
-+            b'{"success": false, "message": "Restart limit (2) exceeded for coder"}'
-+        )
-+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
-+        mock_resp.__exit__ = MagicMock(return_value=False)
-+        mock_opener = MagicMock()
-+        mock_opener.open.return_value = mock_resp
-+        mock_build_opener.return_value = mock_opener
- 
-         decision = {
-             "action": "restart_agent",
-@@ -308,43 +327,10 @@ class TestMonitorExecuteRestartAgent:
- 
-         _run(monitor._execute_action(decision, "coder"))
- 
--        # Should not call CLI — limit reached
--        monitor._run_cli.assert_not_called()
--        # Should escalate to HITL
--        monitor._create_hitl_decision.assert_called()
--
--    def test_restart_multi_agent_exhaustion_escalates_to_phase(self, monitor):
--        """When 2+ agents exhaust restart limits, should mention phase restart."""
--        monitor._agent_restart_counts["coder"] = 2
--        monitor._agent_restart_counts["tester"] = 2
--
--        decision = {
--            "action": "restart_agent",
--            "message": "Documenter also stalled",
--            "priority": "high",
--        }
--
--        # Now a 3rd agent hits its limit
--        monitor._agent_restart_counts["documenter"] = 2
--
--        _run(monitor._execute_action(decision, "documenter"))
--
-+        # Should escalate to HITL since the spawner refused the restart
-         monitor._create_hitl_decision.assert_called()
--        call_args = monitor._create_hitl_decision.call_args
--        message = str(call_args)
--        message_lower = message.lower()
--        # Should mention that restart limits were exhausted
--        assert "exhausted" in message_lower or "limit" in message_lower, (
--            f"Expected 'exhausted' or 'limit' in HITL message: {message}"
--        )
--        # Should reference at least two of the exhausted agents by name
--        exhausted_mentioned = sum(
--            1 for agent in ("coder", "tester", "documenter") if agent in message_lower
--        )
--        assert exhausted_mentioned >= 2, (
--            f"Expected at least 2 exhausted agent names in HITL message, "
--            f"found {exhausted_mentioned}: {message}"
--        )
-+        call_msg = str(monitor._create_hitl_decision.call_args)
-+        assert "limit" in call_msg.lower() or "failed" in call_msg.lower()
- 
- 
- class TestMonitorExecuteRestartPhase:
-@@ -362,8 +348,6 @@ class TestMonitorExecuteRestartPhase:
-         monitor._create_hitl_decision = AsyncMock()
-         monitor._broadcast_alert = AsyncMock()
-         monitor._log_oversight_event = MagicMock()
--        monitor._agent_restart_counts = {}
--        monitor._max_agent_restarts = 2
-         return monitor
- 
-     def test_restart_phase_creates_hitl_by_default(self, monitor):
-@@ -399,3 +383,157 @@ class TestMonitorExecuteRestartPhase:
-             args = call[0] if call[0] else []
-             cli_str = " ".join(str(a) for a in args)
-             assert "restart-phase" not in cli_str
-+
-+
-+# ---------------------------------------------------------------------------
-+# Decision maker: restartable infrastructure error routing (issue #1695 item 6)
-+# ---------------------------------------------------------------------------
-+
-+
-+class TestDecisionMakerRestartableInfraErrors:
-+    """Tests that infrastructure errors with restartable patterns produce restart_agent,
-+    while non-matching infra errors still produce hitl."""
-+
-+    def test_unresponsive_routes_to_restart_agent(self) -> None:
-+        """Infrastructure error with 'unresponsive' in reasoning should auto-restart."""
-+        result = _run(
-+            decide_corrective_action(
-+                classification={
-+                    "classification": "infrastructure_error",
-+                    "reasoning": "Agent container became unresponsive after OOM kill",
-+                },
-+                context={"agent_role": "coder", "pipeline_id": "issue-100"},
-+            )
-+        )
-+        assert result["action"] == "restart_agent"
-+        assert result["priority"] in ("high", "critical")
-+
-+    def test_crashed_routes_to_restart_agent(self) -> None:
-+        """Infrastructure error with 'crashed' should auto-restart."""
-+        result = _run(
-+            decide_corrective_action(
-+                classification={
-+                    "classification": "infrastructure_error",
-+                    "reasoning": "Container crashed with exit code 137",
-+                },
-+                context={},
-+            )
-+        )
-+        assert result["action"] == "restart_agent"
-+
-+    def test_timeout_routes_to_restart_agent(self) -> None:
-+        """Infrastructure error with 'timeout' should auto-restart."""
-+        result = _run(
-+            decide_corrective_action(
-+                classification={
-+                    "classification": "infrastructure_error",
-+                    "reasoning": "Gateway health check timeout after 60s",
-+                },
-+                context={},
-+            )
-+        )
-+        assert result["action"] == "restart_agent"
-+
-+    def test_oom_routes_to_restart_agent(self) -> None:
-+        """Infrastructure error with 'oom' should auto-restart."""
-+        result = _run(
-+            decide_corrective_action(
-+                classification={
-+                    "classification": "infrastructure_error",
-+                    "reasoning": "Container killed by OOM killer",
-+                },
-+                context={},
-+            )
-+        )
-+        assert result["action"] == "restart_agent"
-+
-+    def test_hung_routes_to_restart_agent(self) -> None:
-+        """Infrastructure error with 'hung' should auto-restart."""
-+        result = _run(
-+            decide_corrective_action(
-+                classification={
-+                    "classification": "infrastructure_error",
-+                    "reasoning": "Process appears hung — no output for 30 minutes",
-+                },
-+                context={},
-+            )
-+        )
-+        assert result["action"] == "restart_agent"
-+
-+    def test_permission_denied_routes_to_hitl(self) -> None:
-+        """Infrastructure error with 'permission denied' should go to hitl (not restartable)."""
-+        result = _run(
-+            decide_corrective_action(
-+                classification={
-+                    "classification": "infrastructure_error",
-+                    "reasoning": "Permission denied writing to /var/run/docker.sock",
-+                },
-+                context={},
-+            )
-+        )
-+        assert result["action"] == "hitl"
-+        assert result["priority"] == "critical"
-+
-+    def test_filesystem_error_routes_to_hitl(self) -> None:
-+        """Infrastructure error with 'read-only filesystem' should go to hitl."""
-+        result = _run(
-+            decide_corrective_action(
-+                classification={
-+                    "classification": "infrastructure_error",
-+                    "reasoning": "Read-only filesystem: cannot write to /home/egg/repos",
-+                },
-+                context={},
-+            )
-+        )
-+        assert result["action"] == "hitl"
-+
-+    def test_non_infra_error_still_uses_llm(self) -> None:
-+        """Non-infrastructure classifications should still go through the LLM path."""
-+        with patch(_AGENT_PATCH, new_callable=AsyncMock) as mock_agent:
-+            mock_agent.return_value = _make_result(
-+                json.dumps({"action": "nudge", "message": "ok", "priority": "low"})
-+            )
-+            result = _run(
-+                decide_corrective_action(
-+                    classification={"classification": "stalled", "reasoning": "No progress"},
-+                    context={},
-+                )
-+            )
-+            assert result["action"] == "nudge"
-+            mock_agent.assert_called_once()
-+
-+
-+class TestEscalationLevelRestartableRouting:
-+    """Tests for decide_escalation_level restartable infra error routing."""
-+
-+    def test_unresponsive_escalates_to_restart_agent(self) -> None:
-+        """Restartable infra errors should escalate to restart_agent level."""
-+        from overseer.decision_maker import decide_escalation_level
-+
-+        result = _run(
-+            decide_escalation_level(
-+                classification={
-+                    "classification": "infrastructure_error",
-+                    "reasoning": "Agent unresponsive for 10 minutes",
-+                },
-+                redirect_history=[],
-+            )
-+        )
-+        assert result["escalate"] is True
-+        assert result["level"] == "restart_agent"
-+
-+    def test_permission_denied_escalates_to_hitl(self) -> None:
-+        """Non-restartable infra errors should escalate to hitl."""
-+        from overseer.decision_maker import decide_escalation_level
-+
-+        result = _run(
-+            decide_escalation_level(
-+                classification={
-+                    "classification": "infrastructure_error",
-+                    "reasoning": "Permission denied accessing secrets volume",
-+                },
-+                redirect_history=[],
-+            )
-+        )
-+        assert result["escalate"] is True
-+        assert result["level"] == "hitl"
-diff --git a/orchestrator/tests/test_spawn_worktree_guard.py b/orchestrator/tests/test_spawn_worktree_guard.py
-index 15044e5a1f..6ef9f3d481 100644
---- a/orchestrator/tests/test_spawn_worktree_guard.py
-+++ b/orchestrator/tests/test_spawn_worktree_guard.py
-@@ -405,6 +405,7 @@ class TestRestartWorktreeIntegration:
-             pipeline_id="issue-200",
-             agent_role=AgentRole.CODER,
-             issue_number=200,
-+            mode="public",
-             repos=["owner/my-repo"],
-             # repo_volumes intentionally omitted — this is the restart path
-         )
-@@ -441,6 +442,7 @@ class TestRestartWorktreeIntegration:
-             pipeline_id="issue-200",
-             agent_role=AgentRole.CODER,
-             issue_number=200,
-+            mode="public",
-             repos=["owner/my-repo"],
-         )
- 
-@@ -466,6 +468,7 @@ class TestRestartWorktreeIntegration:
-                 pipeline_id="issue-200",
-                 agent_role=AgentRole.CODER,
-                 issue_number=200,
-+                mode="public",
-                 repos=["owner/my-repo"],
+         pipeline = _make_pipeline()
+@@ -578,8 +580,8 @@ class TestBuildPrBodyBrcSummary:
+                     if idx < next_section:
+                         next_section = idx
+             brc_section = rest[:next_section].strip()
+-            assert len(brc_section) <= 2000, (
+-                f"BRC summary section is {len(brc_section)} chars, should be <=2000"
++            assert len(brc_section) <= 40000, (
++                f"BRC summary section is {len(brc_section)} chars, should be <=40000"
              )
  
-@@ -493,6 +496,7 @@ class TestRestartWorktreeIntegration:
-                 pipeline_id="issue-200",
-                 agent_role=AgentRole.CODER,
-                 issue_number=200,
-+                mode="public",
-                 repos=["owner/my-repo"],
-                 branch="egg/issue-200",
-                 base_branch="egg/issue-200",
+     def test_brc_summary_shows_phase_grouping(self, tmp_path):
+@@ -867,8 +869,11 @@ class TestBuildBrcConsensusSummary:
+ 
+         assert "Consensus reached" in result or "consensus reached" in result.lower()
+ 
+-    def test_capped_at_2000_chars(self):
+-        """Summary is capped at approximately 2000 characters (truncated at phase-block boundaries)."""
++    def test_capped_at_40000_chars(self):
++        """Summary is capped at approximately 40000 characters (#1717 raised cap).
++
++        Truncation still happens at phase-block boundaries to keep markdown intact.
++        """
+         from routes.pipelines import _build_brc_consensus_summary
+ 
+         # Create many messages to exceed the cap
+@@ -883,7 +888,7 @@ class TestBuildBrcConsensusSummary:
+                         if i % 3 == 0
+                         else MessageType.CONSENSUS_ACK,
+                         subject=f"Message {i} with a somewhat longer subject line",
+-                        body=f"Body content for message {i} " * 5,
++                        body=f"Body content for message {i} " * 50,
+                         phase=phase,
+                     )
+                 )
+@@ -894,8 +899,8 @@ class TestBuildBrcConsensusSummary:
+         with patch("message_store.get_message_store", return_value=mock_store):
+             result = _build_brc_consensus_summary("issue-42")
+ 
+-        # Truncated at phase-block boundary — must be under 2000 chars
+-        assert len(result) <= 2000
++        # Truncated at phase-block boundary — must be under 40000 chars
++        assert len(result) <= 40000
+ 
+     def test_groups_by_phase(self):
+         """Messages from different phases appear in separate groups."""
+@@ -945,6 +950,11 @@ class TestBuildBrcConsensusSummary:
+         summary counts orchestrator as a participant, consensus will always
+         appear unreached after a re-review cycle, even when every real agent
+         has confirmed.
++
++        Since #1717, the summary inlines final-round content, so orchestrator
++        may appear in the body of inline messages (e.g., RE_REVIEW). The key
++        assertion is that consensus is shown as reached and that orchestrator
++        is excluded from the *participant role list* on the first line.
+         """
+         from routes.pipelines import _build_brc_consensus_summary
+ 
+@@ -995,8 +1005,13 @@ class TestBuildBrcConsensusSummary:
+ 
+         assert "Consensus reached" in result
+         assert "not reached" not in result
+-        # Orchestrator should not appear in the participant role list
+-        assert "orchestrator" not in result
++        # Orchestrator should not appear in the participant role list (first line
++        # of the phase block: "**implement**: coder, reviewer_code")
++        first_phase_line = [
++            line for line in result.split("\n") if line.startswith("**implement**")
++        ]
++        assert first_phase_line, "Expected a line starting with **implement**"
++        assert "orchestrator" not in first_phase_line[0]
+ 
+     def test_consensus_not_reached_ignores_orchestrator_presence(self):
+         """Orchestrator-only absence from CONFIRMED should not change the
+@@ -1038,3 +1053,671 @@ class TestBuildBrcConsensusSummary:
+             result = _build_brc_consensus_summary("issue-42")
+ 
+         assert "not reached" in result
++
++
++class TestWriteBrcHistoryLossless:
++    """Tests for lossless message projection in _write_brc_history (#1717)."""
++
++    def test_ack_metadata_round_trips_into_yaml_block(self, tmp_path):
++        """ACK artifact_references and ack_version appear in the YAML metadata block."""
++        from routes.pipelines import _write_brc_history
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="reviewer_code",
++                message_type=MessageType.CONSENSUS_ACK,
++                subject="ACK from reviewer",
++                body="Looks good",
++                phase="implement",
++                metadata={
++                    "artifact_references": ["orchestrator/routes/pipelines.py"],
++                    "ack_version": 2,
++                },
++            ),
++        ]
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            _write_brc_history(tmp_path, "issue-42", "implement", 42)
++
++        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
++        assert "```yaml" in content
++        assert "artifact_references" in content
++        assert "orchestrator/routes/pipelines.py" in content
++        assert "ack_version" in content
++
++    def test_nack_metadata_reason_and_revision_count_round_trip(self, tmp_path):
++        """NACK metadata.payload.reason and revision_count appear in YAML block."""
++        from routes.pipelines import _write_brc_history
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="reviewer_code",
++                message_type=MessageType.CONSENSUS_NACK,
++                subject="NACK from reviewer",
++                body="Missing error handling",
++                phase="implement",
++                metadata={
++                    "payload": {"reason": "Missing error handling"},
++                    "revision_count": 3,
++                },
++            ),
++        ]
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            _write_brc_history(tmp_path, "issue-42", "implement", 42)
++
++        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
++        assert "```yaml" in content
++        assert "revision_count" in content
++        assert "payload" in content
++        assert "Missing error handling" in content
++
++    def test_propose_commit_sha_in_metadata(self, tmp_path):
++        """PROPOSE commit_sha appears in the YAML metadata block."""
++        from routes.pipelines import _write_brc_history
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.CONSENSUS_PROPOSE,
++                subject="Proposal",
++                body="Implementation done",
++                phase="implement",
++                metadata={"commit_sha": "abc123def456"},
++            ),
++        ]
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            _write_brc_history(tmp_path, "issue-42", "implement", 42)
++
++        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
++        assert "commit_sha" in content
++        assert "abc123def456" in content
++
++    def test_to_role_shown_for_directed_messages(self, tmp_path):
++        """Directed messages (to_role != 'all') show the → to_role in the header."""
++        from routes.pipelines import _write_brc_history
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="orchestrator",
++                message_type=MessageType.CONSENSUS_RE_REVIEW,
++                subject="Re-review",
++                body="Coder updated proposal",
++                phase="implement",
++            ),
++        ]
++        # Override to_role
++        messages[0].to_role = "reviewer_code"
++
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            _write_brc_history(tmp_path, "issue-42", "implement", 42)
++
++        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
++        assert "→ reviewer_code" in content
++
++    def test_to_role_omitted_for_broadcast(self, tmp_path):
++        """Broadcast messages (to_role == 'all') do NOT show → in the header."""
++        from routes.pipelines import _write_brc_history
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.CONSENSUS_PROPOSE,
++                subject="Proposal",
++                body="Work done",
++                phase="implement",
++            ),
++        ]
++
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            _write_brc_history(tmp_path, "issue-42", "implement", 42)
++
++        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
++        assert "→" not in content
++
++    def test_handoff_included_in_history(self, tmp_path):
++        """HANDOFF messages are included in the history file (BRC_HISTORY_TYPES)."""
++        from routes.pipelines import _write_brc_history
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.HANDOFF,
++                subject="Handoff to tester",
++                body="Code ready for testing",
++                phase="implement",
++            ),
++        ]
++
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            _write_brc_history(tmp_path, "issue-42", "implement", 42)
++
++        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
++        assert "HANDOFF" in content
++        assert "Code ready for testing" in content
++
++    def test_overseer_alert_included_in_history(self, tmp_path):
++        """OVERSEER_ALERT messages are included in the history file."""
++        from routes.pipelines import _write_brc_history
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="orchestrator",
++                message_type=MessageType.OVERSEER_ALERT,
++                subject="Alert: agent stall",
++                body="Agent coder has not progressed in 10 minutes",
++                phase="implement",
++            ),
++        ]
++
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            _write_brc_history(tmp_path, "issue-42", "implement", 42)
++
++        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
++        assert "OVERSEER_ALERT" in content
++
++    def test_handoff_excluded_from_summary_counts(self):
++        """HANDOFF messages appear in history but NOT in the consensus summary counts."""
++        from routes.pipelines import _build_brc_consensus_summary
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.CONSENSUS_PROPOSE,
++                subject="Proposal",
++                body="Work",
++                phase="implement",
++            ),
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.HANDOFF,
++                subject="Handoff",
++                body="Handing off",
++                phase="implement",
++            ),
++        ]
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            result = _build_brc_consensus_summary("issue-42")
++
++        # Summary should only count CONSENSUS_* types
++        assert "1 proposal" in result
++        assert "HANDOFF" not in result
++
++    def test_overseer_alert_excluded_from_summary_counts(self):
++        """OVERSEER_ALERT messages appear in history but NOT in the consensus summary."""
++        from routes.pipelines import _build_brc_consensus_summary
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.CONSENSUS_PROPOSE,
++                subject="Proposal",
++                body="Work",
++                phase="implement",
++            ),
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="orchestrator",
++                message_type=MessageType.OVERSEER_ALERT,
++                subject="Alert",
++                body="Stall detected",
++                phase="implement",
++            ),
++        ]
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            result = _build_brc_consensus_summary("issue-42")
++
++        assert "OVERSEER_ALERT" not in result
++
++
++class TestJsonCompanionFile:
++    """Tests for the JSON companion file written by _write_brc_history (#1717)."""
++
++    def test_json_file_written_alongside_md(self, tmp_path):
++        """JSON companion file is written next to the .md file."""
++        from routes.pipelines import _write_brc_history
++
++        messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            _write_brc_history(tmp_path, "issue-42", "implement", 42)
++
++        json_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.json"
++        assert json_path.exists(), "JSON companion file should exist"
++
++    def test_json_round_trips_to_message_dicts(self, tmp_path):
++        """JSON companion deserializes to a list of dicts matching Message.to_dict()."""
++        from routes.pipelines import _write_brc_history
++
++        messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            _write_brc_history(tmp_path, "issue-42", "implement", 42)
++
++        json_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.json"
++        data = json.loads(json_path.read_text())
++        assert isinstance(data, list)
++        assert len(data) == len(messages)
++
++        # Each entry should have the expected Message fields
++        for entry in data:
++            assert "id" in entry
++            assert "pipeline_id" in entry
++            assert "from_role" in entry
++            assert "to_role" in entry
++            assert "message_type" in entry
++            assert "phase" in entry
++            assert "metadata" in entry
++            assert "timestamp" in entry
++
++    def test_json_includes_non_consensus_types(self, tmp_path):
++        """JSON companion includes HANDOFF, AGENT_FAILED, OVERSEER_ALERT, STATUS, NUDGE, QUESTION."""
++        from routes.pipelines import _write_brc_history
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.CONSENSUS_PROPOSE,
++                subject="Proposal",
++                body="Work",
++                phase="implement",
++            ),
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.HANDOFF,
++                subject="Handoff",
++                body="Ready",
++                phase="implement",
++            ),
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="orchestrator",
++                message_type=MessageType.AGENT_FAILED,
++                subject="Agent failed",
++                body="Tester crashed",
++                phase="implement",
++            ),
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="orchestrator",
++                message_type=MessageType.OVERSEER_ALERT,
++                subject="Alert",
++                body="Stall",
++                phase="implement",
++            ),
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.STATUS,
++                subject="Status update",
++                body="Working",
++                phase="implement",
++            ),
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="orchestrator",
++                message_type=MessageType.NUDGE,
++                subject="Nudge",
++                body="Please proceed",
++                phase="implement",
++            ),
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.QUESTION,
++                subject="Question",
++                body="Need clarification",
++                phase="implement",
++            ),
++        ]
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            _write_brc_history(tmp_path, "issue-42", "implement", 42)
++
++        json_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.json"
++        data = json.loads(json_path.read_text())
++        types_in_json = {entry["message_type"] for entry in data}
++
++        assert "CONSENSUS_PROPOSE" in types_in_json
++        assert "HANDOFF" in types_in_json
++        assert "AGENT_FAILED" in types_in_json
++        assert "OVERSEER_ALERT" in types_in_json
++        assert "STATUS" in types_in_json
++        assert "NUDGE" in types_in_json
++        assert "QUESTION" in types_in_json
++
++    def test_json_includes_metadata_fields(self, tmp_path):
++        """JSON companion preserves full metadata including artifact_references."""
++        from routes.pipelines import _write_brc_history
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="reviewer_code",
++                message_type=MessageType.CONSENSUS_ACK,
++                subject="ACK",
++                body="LGTM",
++                phase="implement",
++                metadata={
++                    "artifact_references": ["file1.py", "file2.py"],
++                    "ack_version": 2,
++                    "version": 1,
++                },
++            ),
++        ]
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            _write_brc_history(tmp_path, "issue-42", "implement", 42)
++
++        json_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.json"
++        data = json.loads(json_path.read_text())
++        assert len(data) == 1
++        metadata = data[0]["metadata"]
++        assert metadata["artifact_references"] == ["file1.py", "file2.py"]
++        assert metadata["ack_version"] == 2
++        assert metadata["version"] == 1
++
++    def test_json_write_failure_does_not_block_md(self, tmp_path):
++        """If JSON write fails, the markdown file is still written."""
++        from routes.pipelines import _write_brc_history
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.CONSENSUS_PROPOSE,
++                subject="Proposal",
++                body="Work",
++                phase="implement",
++            ),
++        ]
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        # Make json.dumps raise to simulate a JSON write failure
++        with (
++            patch("message_store.get_message_store", return_value=mock_store),
++            patch("routes.pipelines.json.dumps", side_effect=RuntimeError("Serialization failed")),
++        ):
++            _write_brc_history(tmp_path, "issue-42", "implement", 42)
++
++        md_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.md"
++        assert md_path.exists(), "Markdown file should still be written despite JSON failure"
++
++
++class TestBrcConsensusSummaryInline:
++    """Tests for inline content and artifact links in _build_brc_consensus_summary (#1717)."""
++
++    def test_final_round_proposal_body_inline(self):
++        """PR body summary contains the final-round proposal body inline."""
++        from routes.pipelines import _build_brc_consensus_summary
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.CONSENSUS_PROPOSE,
++                subject="Proposal",
++                body="Implemented auth fix with input validation",
++                phase="implement",
++                metadata={"version": 1},
++            ),
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="reviewer_code",
++                message_type=MessageType.CONSENSUS_ACK,
++                subject="ACK",
++                body="Code looks clean",
++                phase="implement",
++                metadata={"version": 1},
++            ),
++        ]
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            result = _build_brc_consensus_summary("issue-42")
++
++        assert "Implemented auth fix with input validation" in result
++        assert "Code looks clean" in result
++
++    def test_final_round_nack_rationale_inline(self):
++        """PR body summary contains final-round NACK rationale inline."""
++        from routes.pipelines import _build_brc_consensus_summary
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.CONSENSUS_PROPOSE,
++                subject="Proposal",
++                body="First attempt",
++                phase="implement",
++                metadata={"version": 1},
++            ),
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="reviewer_code",
++                message_type=MessageType.CONSENSUS_NACK,
++                subject="NACK",
++                body="Missing error handling in auth flow",
++                phase="implement",
++                metadata={"version": 1},
++            ),
++        ]
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            result = _build_brc_consensus_summary("issue-42")
++
++        assert "Missing error handling in auth flow" in result
++
++    def test_earlier_rounds_wrapped_in_details(self):
++        """Older/earlier-round messages are wrapped in <details> blocks."""
++        from routes.pipelines import _build_brc_consensus_summary
++
++        messages = [
++            # Round 1 (earlier)
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.CONSENSUS_PROPOSE,
++                subject="First proposal",
++                body="First attempt",
++                phase="implement",
++                metadata={"version": 1},
++                timestamp=datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
++            ),
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="reviewer_code",
++                message_type=MessageType.CONSENSUS_NACK,
++                subject="NACK round 1",
++                body="Missing tests",
++                phase="implement",
++                metadata={"version": 1},
++                timestamp=datetime(2026, 4, 8, 12, 5, 0, tzinfo=UTC),
++            ),
++            # Round 2 (final)
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.CONSENSUS_PROPOSE,
++                subject="Second proposal",
++                body="Fixed with tests",
++                phase="implement",
++                metadata={"version": 2},
++                timestamp=datetime(2026, 4, 8, 13, 0, 0, tzinfo=UTC),
++            ),
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="reviewer_code",
++                message_type=MessageType.CONSENSUS_ACK,
++                subject="ACK round 2",
++                body="All good now",
++                phase="implement",
++                metadata={"version": 2},
++                timestamp=datetime(2026, 4, 8, 13, 5, 0, tzinfo=UTC),
++            ),
++        ]
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            result = _build_brc_consensus_summary("issue-42")
++
++        # Final round content should be inline (not in <details>)
++        assert "Fixed with tests" in result
++        assert "All good now" in result
++
++        # Earlier round content should be in <details>
++        assert "<details>" in result
++        assert "Earlier rounds" in result
++        assert "First attempt" in result or "Missing tests" in result
++
++    def test_artifact_links_present(self):
++        """Per-phase artifact links to .md and .json files are present."""
++        from routes.pipelines import _build_brc_consensus_summary
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.CONSENSUS_PROPOSE,
++                subject="Proposal",
++                body="Work done",
++                phase="implement",
++            ),
++        ]
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            result = _build_brc_consensus_summary("issue-42", identifier=42)
++
++        assert "Full record:" in result
++        assert ".egg-state/brc-history/42-implement.md" in result
++        assert ".egg-state/brc-history/42-implement.json" in result
++
++    def test_artifact_links_omitted_without_identifier(self):
++        """Artifact links are omitted when identifier is None."""
++        from routes.pipelines import _build_brc_consensus_summary
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.CONSENSUS_PROPOSE,
++                subject="Proposal",
++                body="Work done",
++                phase="implement",
++            ),
++        ]
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            result = _build_brc_consensus_summary("issue-42")
++
++        assert "Full record:" not in result
++
++    def test_truncated_body_has_pointer(self):
++        """When an individual body exceeds the inline limit, it is truncated with a pointer."""
++        from routes.pipelines import _build_brc_consensus_summary
++
++        long_body = "X" * 3000  # Exceeds _MAX_BODY_INLINE of 2000
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.CONSENSUS_PROPOSE,
++                subject="Proposal",
++                body=long_body,
++                phase="implement",
++            ),
++        ]
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            result = _build_brc_consensus_summary("issue-42")
++
++        # Should contain truncated body with pointer
++        assert "full content in brc-history/*.md" in result
++        # Original 3000-char body should NOT be fully present
++        assert long_body not in result
++
++    def test_no_empty_metadata_yaml_block(self, tmp_path):
++        """Messages with empty metadata should not have a YAML block."""
++        from routes.pipelines import _write_brc_history
++
++        messages = [
++            _make_brc_message(
++                pipeline_id="issue-42",
++                from_role="coder",
++                message_type=MessageType.CONSENSUS_CONFIRMED,
++                subject="Confirmed",
++                body="",
++                phase="implement",
++                metadata={},
++            ),
++        ]
++        mock_store = MagicMock(spec=MessageStore)
++        mock_store.get_messages.return_value = messages
++
++        with patch("message_store.get_message_store", return_value=mock_store):
++            _write_brc_history(tmp_path, "issue-42", "implement", 42)
++
++        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
++        # Should still have a yaml block with id and phase, but no metadata key
++        assert "```yaml" in content
++        assert "id:" in content
++        assert "phase:" in content
++        # metadata key should NOT appear since it's empty
++        assert "metadata:" not in content
