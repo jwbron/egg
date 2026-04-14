@@ -336,9 +336,12 @@ The refine and plan phases include an automated internal review step before huma
 │   ├── {identifier}-analysis.md     # Refine phase draft (preserved on PR branch)
 │   └── {identifier}-plan.md         # Plan phase draft (preserved on PR branch)
 ├── brc-history/
-│   ├── {identifier}-refine.md       # BRC consensus messages from refine phase
+│   ├── {identifier}-refine.md       # BRC consensus messages from refine phase (human-readable, with YAML metadata)
+│   ├── {identifier}-refine.json     # BRC consensus messages from refine phase (machine-readable)
 │   ├── {identifier}-plan.md         # BRC consensus messages from plan phase
-│   └── {identifier}-implement.md    # BRC consensus messages from implement phase
+│   ├── {identifier}-plan.json       # BRC consensus messages from plan phase (machine-readable)
+│   ├── {identifier}-implement.md    # BRC consensus messages from implement phase
+│   └── {identifier}-implement.json  # BRC consensus messages from implement phase (machine-readable)
 └── reviews/
     ├── {identifier}-refine-refine-review.json        # Refine review verdict
     ├── {identifier}-refine-agent-design-review.json   # Agent-design review verdict
@@ -423,7 +426,7 @@ This structural enforcement prevents incidents where agents push code during pla
 | `.egg/phase-permissions.json` | Phase operation restrictions | `main` |
 | `.egg-state/contracts/` | Per-issue contract instances | Feature branches only |
 | `.egg-state/drafts/` | Draft analysis and plan documents (preserved on PR branch for review) | Feature branches only |
-| `.egg-state/brc-history/` | Per-phase BRC consensus message logs (re-written in PR phase as safety net) | Feature branches only |
+| `.egg-state/brc-history/` | Per-phase BRC consensus message logs — `.md` (human-readable with YAML metadata) and `.json` (machine-readable) per phase (re-written in PR phase as safety net) | Feature branches only |
 | `.egg-state/reviews/` | Internal review verdicts (JSON) | Feature branches only |
 
 ### Conflict-Resistant Contract Updates
@@ -1468,7 +1471,7 @@ Look for these log entries in chronological order:
    - `_write_brc_history: early return — message store unavailable` — The message store factory returned `None`.
    - `_write_brc_history: early return — failed to retrieve messages` — Exception calling `store.get_messages()`. Includes `error` detail.
    - `_write_brc_history: early return — no messages in store` — Store returned an empty list.
-   - `_write_brc_history: early return — no BRC messages for phase` — Messages exist but none match `CONSENSUS_*` types for the specified phase. Includes `total_messages` count.
+   - `_write_brc_history: early return — no BRC messages for phase` — Messages exist but none match `BRC_HISTORY_TYPES` (the `CONSENSUS_*` types plus `STATUS`, `HANDOFF`, `QUESTION`, `AGENT_FAILED`, `NUDGE`, `OVERSEER_ALERT`) for the specified phase. Includes `total_messages` count.
 4. `Wrote BRC history file` — The history file was written to disk. Includes `path` and `message_count`. If this log is missing after step 2, an early-return was taken (check step 3).
 5. `_commit_statefiles_to_worktree: glob match results` — Shows `match_count` and `matched_paths` for `.egg-state/` files found by the pipeline-scoped glob. If `match_count` is 0, the BRC history file was not written to disk (check step 4 above).
 6. `_commit_statefiles_to_worktree: nothing staged — skipping commit` — The `git diff --cached --quiet` check returned 0, meaning `git add --force` did not stage anything. Possible causes: file permissions, `.gitignore` override, or the file was already committed identically.

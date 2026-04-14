@@ -112,7 +112,7 @@ Request body:
 }
 ```
 
-The pipeline's current phase is automatically attached to each message. This applies to both the general message endpoint and the consensus signal handlers — all `CONSENSUS_*` messages (propose, ACK, NACK, withdraw, confirmed, re-review) include the phase field so that downstream consumers like BRC history persistence and PR summary generation can correctly group messages by phase.
+The pipeline's current phase is automatically attached to each message. This applies to both the general message endpoint and the consensus signal handlers — all `CONSENSUS_*` messages (propose, ACK, NACK, withdraw, confirmed, re-review) and other BRC-adjacent types (`STATUS`, `HANDOFF`, `AGENT_FAILED`, etc.) include the phase field so that downstream consumers like BRC history persistence and PR summary generation can correctly group messages by phase.
 
 ### Polling Messages
 
@@ -165,7 +165,7 @@ The message store uses Redis Streams when Redis is available, falling back to an
 
 The message store is cleared when the phase transitions. Each new phase execution starts with an empty message bus for the pipeline. This prevents stale messages from a prior phase from being delivered to agents in the next phase.
 
-**Note:** BRC consensus messages are persisted to `.egg-state/brc-history/{identifier}-{phase}.md` at phase completion. Messages are filtered by phase, so each history file contains only that phase's BRC activity. See [BRC History Persistence](#brc-history-persistence) below.
+**Note:** BRC messages (consensus messages and orchestrator-adjacent types like `HANDOFF`, `AGENT_FAILED`, `STATUS`, etc.) are persisted to `.egg-state/brc-history/{identifier}-{phase}.md` and `.json` at phase completion. Messages are filtered by phase, so each history file contains only that phase's BRC activity. See [BRC History Persistence](#brc-history-persistence) below.
 
 ## Readiness Signaling Protocol
 
@@ -440,14 +440,16 @@ egg-orch consensus status
 
 ### BRC History Persistence
 
-At each phase boundary, the orchestrator writes a chronological log of all BRC consensus messages to `.egg-state/brc-history/{identifier}-{phase}.md` (where `{identifier}` is the issue number or pipeline ID). This deterministically preserves agent communication context in git history for code review reference.
+At each phase boundary, the orchestrator writes a **lossless** chronological log of all BRC-related messages to `.egg-state/brc-history/{identifier}-{phase}.md` and a companion `.egg-state/brc-history/{identifier}-{phase}.json` (where `{identifier}` is the issue number or pipeline ID). This deterministically preserves the full agent communication context — including structured metadata — in git history for code review reference and machine consumption.
 
 **How it works:**
 
 1. After a phase completes (before `_commit_statefiles_to_worktree`), the orchestrator retrieves all messages from the message store for the pipeline
-2. Messages are filtered to `CONSENSUS_*` types (`CONSENSUS_PROPOSE`, `CONSENSUS_ACK`, `CONSENSUS_NACK`, `CONSENSUS_WITHDRAW`, `CONSENSUS_CONFIRMED`, `CONSENSUS_RE_REVIEW`) **and** by phase, so each file contains only that phase's BRC activity
-3. If matching BRC messages exist, they are formatted as chronological markdown entries and written to `.egg-state/brc-history/{identifier}-{phase}.md`
-4. If no BRC messages exist for that phase, no file is created (graceful no-op)
+2. Messages are filtered using `BRC_HISTORY_TYPES` — the six `CONSENSUS_*` types (`CONSENSUS_PROPOSE`, `CONSENSUS_ACK`, `CONSENSUS_NACK`, `CONSENSUS_WITHDRAW`, `CONSENSUS_CONFIRMED`, `CONSENSUS_RE_REVIEW`) **plus** orchestrator-adjacent types (`STATUS`, `HANDOFF`, `QUESTION`, `AGENT_FAILED`, `NUDGE`, `OVERSEER_ALERT`) — **and** by phase, so each file contains only that phase's BRC and coordination activity
+3. If matching messages exist, they are formatted as chronological markdown entries with full metadata (see file format below) and written to `.egg-state/brc-history/{identifier}-{phase}.md`. A companion `.json` file containing `msg.to_dict()` for every filtered message is also written for machine consumers
+4. If no matching messages exist for that phase, no files are created (graceful no-op)
+
+> **Note:** The separate `BRC_SUMMARY_TYPES` set (only the six `CONSENSUS_*` types) is used by the PR-body summary for counting purposes, so non-consensus message types contribute to the history file but do not inflate PR-body tallies.
 
 **PR-phase safety net:** The per-phase write (step 1) is best-effort — if the commit or push fails, BRC history files may not make it to the branch. As a safety net, the PR phase re-writes BRC history for **all completed phases** before creating the PR. Since `_write_brc_history()` is idempotent (it overwrites existing files), the re-write is safe regardless of whether the per-phase write succeeded. This ensures BRC history files are always present in the PR diff.
 
@@ -455,36 +457,72 @@ At each phase boundary, the orchestrator writes a chronological log of all BRC c
 
 **Phase tracking requirement:** The phase filter in step 2 (`m.phase == phase`) means that every BRC message must have its `phase` field set at creation time. The consensus signal handlers in `orchestrator/routes/signals.py` resolve the phase via `_resolve_pipeline_phase()`, which loads the pipeline state and returns the current phase name (falling back to `"implement"` on error). Without a phase value, messages would be invisible to the phase filter and the history file would be empty.
 
-**File format:**
+**Markdown file format:**
+
+Each message is rendered with a header showing `from_role`, `to_role` (for directed messages only — omitted for broadcasts), `message_type`, and `subject`, followed by the message body and a fenced YAML metadata block containing the message `id`, `phase`, and the full `metadata` dict (when non-empty). This preserves structured fields that were previously dropped: `artifact_references`, `ack_version`, `commit_sha`, `revision_count`, and `version`.
 
 ```markdown
-# BRC History: {phase} phase
+# BRC Consensus History — {phase} phase
 
-Generated at: {timestamp}
+Generated: {timestamp}
+Pipeline: {pipeline_id}
 
----
+### [2026-04-08T12:00:00Z] coder (CONSENSUS_PROPOSE): Implemented feature X
 
-[2026-04-08T12:00:00Z] coder (CONSENSUS_PROPOSE): Implemented feature X
-  Summary of proposal and artifacts...
+Summary of proposal and artifacts...
 
-[2026-04-08T12:05:00Z] reviewer_code (CONSENSUS_ACK): Reviewed coder proposal
-  ACK with file-level feedback...
-
-[2026-04-08T12:10:00Z] coder (CONSENSUS_CONFIRMED): All reviewers ACKed
+```yaml
+id: abc123def456
+phase: implement
+metadata:
+  commit_sha: 9f3a1b2c
+  version: 1
+  payload:
+    artifact_references:
+      - orchestrator/routes/pipelines.py
 ```
 
-**Design rationale:** BRC messages live in the in-memory/Redis `MessageStore` and are cleared at phase transitions. Without persistence, this valuable communication context is lost. Previously, some agents would commit review files to `.egg-state/agent-outputs/`, but this was non-deterministic — it depended on whether the LLM agent happened to `git add` those files. Writing BRC history from the orchestrator at phase boundaries makes persistence deterministic.
+### [2026-04-08T12:05:00Z] reviewer_code → coder (CONSENSUS_ACK): Reviewed coder proposal
+
+ACK with file-level feedback...
+
+```yaml
+id: def789abc012
+phase: implement
+metadata:
+  version: 1
+  payload:
+    ack_version: 1
+    artifact_references:
+      - orchestrator/routes/pipelines.py
+      - orchestrator/tests/test_brc_history.py
+```
+
+### [2026-04-08T12:10:00Z] coder (CONSENSUS_CONFIRMED): All reviewers ACKed
+```
+
+> In the example above, note `reviewer_code → coder` on the ACK — the `→ {to_role}` component appears only when the message is directed (i.e., `to_role` is not `"all"`). Broadcast messages omit this.
+
+**JSON companion file:** The `.json` file contains an array of `msg.to_dict()` dicts for every filtered message, serialized with `json.dumps(..., indent=2, default=str)` to tolerate non-JSON-serializable metadata values. The JSON write is independent of the markdown write — a failure in one does not block the other (both log at warning level). This file is the authoritative machine-readable record; the markdown file is the human-readable projection.
+
+**Design rationale:** BRC messages live in the in-memory/Redis `MessageStore` and are cleared at phase transitions. Without persistence, this valuable communication context is lost. Previously, some agents would commit review files to `.egg-state/agent-outputs/`, but this was non-deterministic — it depended on whether the LLM agent happened to `git add` those files. Writing BRC history from the orchestrator at phase boundaries makes persistence deterministic. The lossless projection (full metadata in YAML blocks, all BRC-adjacent message types, and a JSON companion) ensures that no structured data is dropped during persistence — even if agents send rich metadata (artifact references, commit SHAs, ack versions), it all reaches the PR branch.
 
 ### BRC Consensus Summary in PR Body
 
-When the orchestrator auto-creates the PR (during the PR phase), it includes a **## BRC Consensus Summary** section in the PR body if BRC messages exist. This gives human reviewers a quick overview of how agents communicated and reached consensus.
+When the orchestrator auto-creates the PR (during the PR phase), it includes a **## BRC Consensus Summary** section in the PR body if BRC messages exist. This gives human reviewers full visibility into how agents communicated and reached consensus — not just tallies, but the actual proposal and rationale content.
 
 The summary is grouped by phase (using each message's `phase` field) and includes:
 - Agent roles involved in each phase
-- Counts of proposals, ACKs, NACKs, and confirmations
+- Counts of proposals, ACKs, NACKs, and confirmations (counted from `BRC_SUMMARY_TYPES` — `CONSENSUS_*` messages only)
 - Whether consensus was reached for that phase
+- **The final round's full proposal body** (`CONSENSUS_PROPOSE`) inline — the "final round" is determined by the highest `metadata.version` number among proposals
+- **All final-round ACK and NACK rationales** inline (so reviewers see what was approved or challenged; for NACKs, the summary also checks `metadata.payload.reason` as a fallback when the body is empty)
+- **Older/earlier-round messages** (from prior NACK cycles) wrapped in `<details><summary>Earlier rounds</summary>…</details>` to keep the PR body scannable
+- **Artifact links** pointing to the committed `.egg-state/brc-history/{identifier}-{phase}.md` and `.json` files for the full record
 
-Messages without a `phase` value are grouped under `"unknown"` — if this appears in a PR summary, it indicates a bug where consensus messages were created without their phase field set. The section is capped at ~2000 characters and is omitted entirely when no BRC messages exist. It appears before the `Authored-by: egg` footer.
+When an individual message body exceeds 2,000 characters, the tail is replaced with `… _(full content in brc-history/*.md)_` — messages are never dropped entirely.
+
+Messages without a `phase` value are grouped under `"unknown"` — if this appears in a PR summary, it indicates a bug where consensus messages were created without their phase field set. The section is capped at ~40,000 characters (raised from the previous ~2,000 limit to accommodate inline content) and is omitted entirely when no BRC messages exist. It appears before the `Authored-by: egg` footer.
 
 ### Consensus Check
 
