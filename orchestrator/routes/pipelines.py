@@ -5460,6 +5460,44 @@ def _build_brc_preamble(
             ]
         )
 
+    # Directed peer-to-peer coordination guidance
+    coord_lines: list[str] = [
+        "### Directed Coordination\n",
+        "Use `egg-orch message send` to communicate directly with specific agents "
+        "when broadcast is unnecessary:\n",
+        "```",
+        'egg-orch message send --to <role> --type <TYPE> --subject "..." --body "..."',
+        "```\n",
+    ]
+
+    if is_producer:
+        coord_lines.extend(
+            [
+                "**As a producer, use:**",
+                "- **HANDOFF**: Signal a downstream agent that your output is ready for them. "
+                "Example: coder → tester after pushing test-relevant commits.",
+                "- **STATUS**: Share progress updates with a specific peer "
+                "(e.g., notify documenter of API changes).\n",
+            ]
+        )
+
+    if is_reviewer:
+        coord_lines.extend(
+            [
+                "**As a reviewer, use:**",
+                "- **QUESTION**: Ask a producer for clarification before ACK/NACK. "
+                "Prefer this over NACK when the issue might be a misunderstanding.\n",
+            ]
+        )
+
+    coord_lines.append(
+        "Only use directed messages for coordination that does NOT fit the "
+        "consensus flow (propose/ack/nack). Never replace a NACK with a QUESTION "
+        "when you've identified a real defect.\n"
+    )
+
+    lines.extend(coord_lines)
+
     lines.extend(
         [
             "**If you exit before the orchestrator stops you, you have FAILED your role.** "
