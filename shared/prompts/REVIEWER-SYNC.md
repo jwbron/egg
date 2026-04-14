@@ -36,7 +36,7 @@ review standards differ:
    SDLC reviewer in **sequential** mode writes a structured JSON verdict
    (approved / needs_revision). SDLC reviewer in **concurrent (BRC)** mode
    delivers the full review via ACK/NACK `--reason` — no verdict file is written.
-   Controlled by `_build_role_prompt()`: when `concurrent=True`, the BRC
+   Controlled by `_build_agent_prompt()`: when `concurrent=True`, the BRC
    preamble from `_build_brc_preamble()` is appended after the base review
    prompt from `_build_review_prompt()`. The base review prompt always includes
    verdict-file instructions; the BRC preamble overrides the output mechanism
@@ -80,5 +80,5 @@ When changing review criteria or conventions:
 - [ ] Update `action/review-conventions.md` (if changing conventions/verdict guidance)
 - [ ] Update `_build_review_prompt()` inline conventions (if changing conventions/verdict guidance)
 - [ ] Verify the procedural review steps match between both surfaces
-- [ ] If changing verdict format: check `_build_review_prompt()` (sequential verdict JSON) and `_build_role_prompt()` + `_build_brc_preamble()` (concurrent ACK/NACK)
+- [ ] If changing verdict format: check `_build_review_prompt()` (sequential verdict JSON) and `_build_agent_prompt()` + `_build_brc_preamble()` (concurrent ACK/NACK)
 - [ ] If changing ACK/NACK format guidance: update the structured format in `_build_brc_preamble()`
