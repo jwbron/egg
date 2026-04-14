@@ -5,7 +5,7 @@
   "branch": "egg/issue-1718",
   "base_branch": null,
   "prompt": null,
-  "status": "failed",
+  "status": "cancelled",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -45,7 +45,7 @@
   "phases": {},
   "decisions": [],
   "created_at": "2026-04-14T02:36:16.074187Z",
-  "updated_at": "2026-04-14T02:36:26.421109Z",
+  "updated_at": "2026-04-14T02:37:16.568614Z",
   "contract_synced": false,
   "network_mode": null,
   "mode": "issue",
@@ -56,5 +56,5 @@
   "source_branch": "egg/issue-1718",
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 4
+  "version": 5
 }
