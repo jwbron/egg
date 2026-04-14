@@ -561,7 +561,9 @@ class StateStore:
             Commit SHA (on the state branch)
 
         Raises:
-            GitOperationError: If commit fails
+            GitOperationError: If commit fails for non-benign reasons (e.g., index
+                corruption, disk full). Benign "nothing to commit" errors are caught
+                and the current HEAD SHA is returned instead.
         """
         if not message:
             message = self._generate_commit_message(pipeline)
