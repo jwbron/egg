@@ -4313,18 +4313,23 @@ def _write_brc_history(
         # The block contains id, phase, and the full metadata dict contents
         # (metadata fields are merged at the top level alongside id/phase).
         if msg.metadata:
-            meta_block: dict[str, Any] = {}
-            if msg.id:
-                meta_block["id"] = msg.id
-            if msg.phase:
-                meta_block["phase"] = msg.phase
-            # Merge metadata contents at the top level of the YAML block
-            for k, v in msg.metadata.items():
-                meta_block[k] = v
-            lines.append("")
-            lines.append("```yaml")
-            lines.append(yaml.dump(meta_block, sort_keys=False, default_flow_style=False).rstrip())
-            lines.append("```")
+            try:
+                meta_block: dict[str, Any] = {}
+                if msg.id:
+                    meta_block["id"] = msg.id
+                if msg.phase:
+                    meta_block["phase"] = msg.phase
+                # Merge metadata contents at the top level of the YAML block
+                for k, v in msg.metadata.items():
+                    meta_block[k] = v
+                lines.append("")
+                lines.append("```yaml")
+                lines.append(yaml.dump(meta_block, sort_keys=False, default_flow_style=False).rstrip())
+                lines.append("```")
+            except Exception:
+                # Fall back to repr if YAML serialization fails
+                lines.append("")
+                lines.append(f"<!-- metadata: {msg.metadata!r} -->")
         lines.append("")
 
     md_written = False
