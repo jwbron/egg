@@ -4259,12 +4259,24 @@ def _write_brc_history(
         )
         return
 
-    # Format as markdown
+    # Format as markdown.  `Generated:` is derived from the latest
+    # message timestamp (not wall-clock time) so regenerating the
+    # file from the same message set produces byte-identical output.
+    # This keeps the PR-phase safety-net rewrite
+    # (_rewrite_brc_history_for_pr) idempotent: when no new BRC
+    # messages arrived between phase completion and PR creation,
+    # the rewritten file matches the previous commit and the
+    # follow-up commit is skipped by _commit_statefiles_to_worktree.
+    # See #1714.
+    message_timestamps = [m.timestamp for m in brc_messages if m.timestamp is not None]
+    if message_timestamps:
+        generated_str = max(message_timestamps).strftime("%Y-%m-%dT%H:%M:%SZ")
+    else:
+        generated_str = "unknown"
     lines: list[str] = []
-    now_str = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     lines.append(f"# BRC Consensus History — {phase} phase")
     lines.append("")
-    lines.append(f"Generated: {now_str}")
+    lines.append(f"Generated: {generated_str}")
     lines.append(f"Pipeline: {pipeline_id}")
     lines.append("")
 
