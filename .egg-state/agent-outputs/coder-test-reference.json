@@ -1,0 +1,27 @@
+{
+  "issue": 1716,
+  "description": "BRC content validation tests - written by coder, needs tester to push",
+  "test_files": {
+    "new": [
+      "orchestrator/tests/test_brc_content_validation.py",
+      "sandbox/tests/test_consensus_cli_args.py"
+    ],
+    "modified": [
+      "orchestrator/tests/test_brc_phase_propagation.py",
+      "orchestrator/tests/test_signals.py",
+      "orchestrator/tests/test_pipeline_prompts.py"
+    ]
+  },
+  "test_results": {
+    "new_tests_count": 41,
+    "all_existing_tests_pass": true,
+    "full_orchestrator_suite": "3290 passed, 1 skipped",
+    "full_sandbox_suite": "58 passed"
+  },
+  "modifications_summary": {
+    "existing_tests_updated": "Short summary/reason strings (<50 chars or boilerplate) updated to substantive content (>=50 chars) to comply with new validation. Pattern: 'impl' -> full sentence, 'LGTM'/'Looks good' -> substantive rationale, 'Missing tests'/'Bad'/'Need to rework' -> detailed explanation.",
+    "new_test_file_orchestrator": "test_brc_content_validation.py: 37 tests covering _validate_brc_content unit tests + per-handler integration tests (propose, ack, nack, withdraw) verifying 400 on bad content, no state mutation, and 200 on valid content. Includes re-propose path validation.",
+    "new_test_file_sandbox": "test_consensus_cli_args.py: 4 tests verifying --reason is required for ack (argparse), --reason threads into payload, and new propose args (--commit, --files-changed, --tests-run, --tasks) are accepted."
+  },
+  "commit_sha": "ecd2e53916"
+}
