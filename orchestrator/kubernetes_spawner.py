@@ -731,7 +731,10 @@ class KubernetesSpawner:
         Returns:
             Number of times the agent has been restarted.
         """
-        return self._restart_counts.get((pipeline_id, agent_role), 0)
+        key = (pipeline_id, agent_role)
+        lock = self._get_restart_lock(key)
+        with lock:
+            return self._restart_counts.get(key, 0)
 
     def reset_restart_counts(self, pipeline_id: str) -> None:
         """Reset all restart counts and locks for a pipeline (e.g., on phase transition).
@@ -739,14 +742,14 @@ class KubernetesSpawner:
         Args:
             pipeline_id: Pipeline ID.
         """
-        keys_to_remove = [k for k in self._restart_counts if k[0] == pipeline_id]
-        for k in keys_to_remove:
-            del self._restart_counts[k]
-        # Clean up per-key locks to prevent memory leak
+        # Acquire the global lock to iterate safely, then clear matching keys.
         with self._restart_locks_lock:
-            lock_keys = [k for k in self._restart_locks if k[0] == pipeline_id]
-            for k in lock_keys:
-                del self._restart_locks[k]
+            keys_to_remove = [k for k in self._restart_counts if k[0] == pipeline_id]
+            for k in keys_to_remove:
+                del self._restart_counts[k]
+            # Also clean up per-key locks for this pipeline to prevent unbounded growth.
+            for k in keys_to_remove:
+                self._restart_locks.pop(k, None)
 
     def detect_uncommitted_changes(
         self,
