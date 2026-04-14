@@ -95,6 +95,35 @@ def make_success_response(
     return jsonify(response), status_code
 
 
+# --- BRC content validation (#1716) ---
+_BRC_MIN_CONTENT_LEN = 50
+_BRC_BOILERPLATE = frozenset({"lgtm", "looks good", "no issues", "approved", "ok"})
+
+
+def _validate_brc_content(body: str, kind: str) -> str | None:
+    """Validate that BRC message content is substantive.
+
+    Returns an error message string if validation fails, or None if content
+    is acceptable.  ``kind`` is a human-readable label for the message type
+    (e.g. "proposal summary", "ACK reason") used in error messages.
+    """
+    stripped = (body or "").strip()
+    if not stripped:
+        return f"{kind} must not be empty"
+    if stripped.lower() in _BRC_BOILERPLATE:
+        return (
+            f"{kind} is boilerplate ('{stripped}'). Provide substantive rationale: "
+            f"what was read/built, what was checked/tested, why the verdict follows"
+        )
+    if len(stripped) < _BRC_MIN_CONTENT_LEN:
+        return (
+            f"{kind} is too short ({len(stripped)} chars, minimum {_BRC_MIN_CONTENT_LEN}). "
+            f"Provide substantive rationale: what was read/built, what was checked/tested, "
+            f"why the verdict follows"
+        )
+    return None
+
+
 from routes import (  # noqa: E402 — shared helper
     get_repo_path,
     resolve_repo_path_for_pipeline,
@@ -868,6 +897,11 @@ def handle_consensus_propose_signal(
     if not payload:
         return make_error_response("Missing payload")
 
+    # Validate proposal summary content (#1716)
+    summary_error = _validate_brc_content(payload.get("summary", ""), "Proposal summary")
+    if summary_error:
+        return make_error_response(summary_error, 400)
+
     try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
@@ -1008,6 +1042,11 @@ def handle_consensus_ack_signal(
     if "ack_version" in data and "ack_version" not in payload:
         payload["ack_version"] = int(data["ack_version"])
 
+    # Validate ACK reason content (#1716)
+    reason_error = _validate_brc_content(payload.get("reason", ""), "ACK reason")
+    if reason_error:
+        return make_error_response(reason_error, 400)
+
     try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
@@ -1083,6 +1122,11 @@ def handle_consensus_nack_signal(
 
     payload = data.get("payload", {})
 
+    # Validate NACK reason content (#1716)
+    reason_error = _validate_brc_content(payload.get("reason", ""), "NACK reason")
+    if reason_error:
+        return make_error_response(reason_error, 400)
+
     try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
@@ -1135,6 +1179,11 @@ def handle_consensus_withdraw_signal(
         return make_error_response("Missing agent_role")
 
     reason = data.get("reason", "")
+
+    # Validate withdrawal reason content (#1716)
+    reason_error = _validate_brc_content(reason, "Withdrawal reason")
+    if reason_error:
+        return make_error_response(reason_error, 400)
 
     try:
         from peer_consensus import get_peer_consensus_tracker
