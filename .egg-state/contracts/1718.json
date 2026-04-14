@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1718,
+    "title": "Issue #1718",
+    "url": "https://github.com/jwbron/egg/issues/1718"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/routes/pipelines.py`, extend `_build_brc_preamble` (~line 5251) with a role-gated 'Directed Coordination' section. For producers: guide them to send `egg-orch message send --to <role> --type HANDOFF` when blocked by role boundaries (e.g., can't push test files) and `--type QUESTION` when another producer's proposal is ambiguous. For reviewers: `--type QUESTION` when a proposal is ambiguous. For both: explicitly forbid burying coordination requests in proposal-body footnotes. Keep additions tight (~8-12 lines per role).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Preamble output for a producer role in `implement` phase contains both the literal strings `egg-orch message send` and `HANDOFF`; reviewer preamble contains `QUESTION` guidance; both role preambles contain text forbidding coordination requests in proposal bodies.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `sandbox/egg_lib/orch_cli.py` around line 1782, update the `msg_send --type` argument help text from `'Message type (PROGRESS, QUESTION, STATUS)'` to include `HANDOFF` (e.g., `'Message type (HANDOFF, QUESTION, STATUS, PROGRESS)'`). This is a discoverability fix \u2014 HANDOFF is already accepted by the backend.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`egg-orch message send --help` output includes `HANDOFF` in the --type option's listed values.",
+          "files_affected": [
+            "sandbox/egg_lib/orch_cli.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In `docs/guides/concurrent-execution.md`, add a 'Directed Coordination' subsection under the 'Sending Messages' area (near line 113 \u2014 after the HTTP example, before 'Polling Messages'). Include (a) the CLI form `egg-orch message send --to <role> --type <type> --subject ... --body ...`, (b) the three canonical use cases (role-boundary HANDOFF, blocking QUESTION, peer-affecting STATUS), (c) a worked example based on the issue-1707 coder\u2192tester handoff (coder sends HANDOFF to tester with subject 'Tests need to be pushed' and body referencing the relevant files), and (d) an explicit note that coordination requests belong in directed messages, not proposal bodies.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Guide contains a new 'Directed Coordination' heading under 'Sending Messages'; includes a CLI `egg-orch message send` example; includes the coder\u2192tester worked example; includes a statement forbidding coordination in proposal bodies.",
+          "files_affected": [
+            "docs/guides/concurrent-execution.md"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "In `orchestrator/tests/test_pipeline_prompts.py`, add a test `test_brc_preamble_includes_directed_coordination_guidance` that calls `_build_brc_preamble` for a producer role (e.g., `coder` in `implement` phase) and asserts the output contains the literal strings `egg-orch message send` and `HANDOFF`. Add a second assertion for a reviewer role (e.g., `reviewer_code`) that the output contains `QUESTION` guidance. Use existing test fixtures/patterns in the file.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "New test is added and passes; test fails if task-1-1's prompt additions are reverted.",
+          "files_affected": [
+            "orchestrator/tests/test_pipeline_prompts.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Teach agents to use directed BRC messages for coordination (#1718)",
+    "description": "Resolves #1718. The `egg-orch message send` CLI already supports directed peer-to-peer\ncoordination (exists at `sandbox/egg_lib/orch_cli.py:978`, registered at line 1777), but\nagents don't know when to use it \u2014 the BRC preamble only covers consensus primitives.\nThis PR adds prompt-level guidance for producers and reviewers, fixes the CLI --type help\ntext to mention HANDOFF, and documents the pattern with a worked example.\n\nNote to reviewers: proposal #1 of the issue (\"Add egg-orch message send\") was already\nimplemented before this PR; this PR addresses only the remaining prompt + docs gap.\nRelated to #1717 (persistence) but independent \u2014 real-time coordination value is captured\nwithout persistence.",
+    "test_plan": "- Automated: new prompt test in `orchestrator/tests/test_pipeline_prompts.py` asserts\n  `_build_brc_preamble` contains `egg-orch message send` and `HANDOFF` for a producer\n  role in `implement` phase.\n- Manual: run `egg-orch message send --help` and confirm `HANDOFF` appears in the --type\n  option's listed values.\n- Manual: read `docs/guides/concurrent-execution.md` and confirm the new \"Directed\n  Coordination\" subsection renders cleanly with the worked example.",
+    "manual_steps": "Pre-merge: none.\nPost-merge: none. Agents in new pipelines will automatically pick up the new preamble\nguidance."
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
