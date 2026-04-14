@@ -13,7 +13,7 @@ egg/
 ├── integration_tests/      # Integration tests (require Docker)
 ├── orchestrator/           # SDLC pipeline orchestrator (local execution)
 ├── sandbox/                # Sandbox container (untrusted, runs the LLM agent)
-├── scripts/                # Validation and lint scripts
+├── scripts/                # Validation, lint, and utility scripts
 ├── shared/                 # Shared Python libraries (used by gateway + sandbox)
 ├── skills/                 # Claude Code skills (installed into sandbox at startup)
 ├── tests/                  # Unit tests
@@ -32,7 +32,7 @@ egg/
 | `integration_tests/` | Integration tests requiring Docker and real containers | CI / local |
 | `orchestrator/` | SDLC pipeline orchestrator: state management, container lifecycle, HITL queue | Orchestrator container |
 | `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
-| `scripts/` | CI/lint scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement, LLM API boundary enforcement, model alias enforcement, harness parity validation) | CI / local |
+| `scripts/` | CI/lint scripts and utilities (config validation, import checks, hardcoded port detection, reviewer job name enforcement, LLM API boundary enforcement, model alias enforcement, harness parity validation) | CI / local |
 | `shared/` | Shared libraries: logging, config, git utilities, centralized constants | All containers |
 | `skills/` | Claude Code skills (each subdirectory is a skill with `SKILL.md`) | Sandbox container |
 | `tests/` | Test suite | CI / local |
