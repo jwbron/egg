@@ -45,8 +45,8 @@
   "phases": {
     "implement": {
       "phase": "implement",
-      "status": "pending",
-      "started_at": null,
+      "status": "running",
+      "started_at": "2026-04-14T02:13:46.407569Z",
       "work_started_at": null,
       "completed_at": null,
       "containers": [],
@@ -57,12 +57,12 @@
       "artifacts": {},
       "error": null,
       "hitl_feedback": null,
-      "phase_start_sha": "c374d9fa6f343fe9abfd4f43af2cefd1dfd5a934"
+      "phase_start_sha": "4b9731b67d51ec90691eb374b445dde621a825a3"
     }
   },
   "decisions": [],
   "created_at": "2026-04-14T01:25:03.168233Z",
-  "updated_at": "2026-04-14T02:13:44.913749Z",
+  "updated_at": "2026-04-14T02:13:46.407628Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -73,5 +73,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-14T02:13:44.912959Z",
-  "version": 14
+  "version": 15
 }
