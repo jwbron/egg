@@ -50,7 +50,68 @@
       "work_started_at": "2026-04-14T16:08:58.670127Z",
       "completed_at": null,
       "containers": [],
-      "agents": [],
+      "agents": [
+        {
+          "role": "reviewer_code",
+          "status": "failed",
+          "container_id": null,
+          "started_at": "2026-04-14T16:09:32.046772Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "tester",
+          "status": "failed",
+          "container_id": null,
+          "started_at": "2026-04-14T16:09:32.046779Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "coder",
+          "status": "failed",
+          "container_id": null,
+          "started_at": "2026-04-14T16:09:32.046782Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_contract",
+          "status": "failed",
+          "container_id": null,
+          "started_at": "2026-04-14T16:09:32.046783Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "documenter",
+          "status": "failed",
+          "container_id": null,
+          "started_at": "2026-04-14T16:09:32.046785Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -69,7 +130,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-14T16:08:04.444135Z",
-  "updated_at": "2026-04-14T16:08:58.671838Z",
+  "updated_at": "2026-04-14T16:09:32.046855Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -80,5 +141,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 6
+  "version": 7
 }
