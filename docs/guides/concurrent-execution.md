@@ -209,8 +209,8 @@ Each agent tracks two state machines (producer and reviewer) independently:
 
 ### BRC Protocol Flow
 
-1. **Propose**: Producer completes work, commits and pushes to the remote branch, then sends `CONSENSUS_PROPOSE` with a summary, artifact list, pushed commit SHA, and structured metadata (`--commit-sha`, `--files-changed`, `--tests-run`, `--tasks`). The `--summary` must be substantive (≥50 characters, non-boilerplate) — the orchestrator rejects proposals that fail the minimum content floor with HTTP 400. The orchestrator also rejects proposals whose commit SHA is confirmed absent from the branch (verification failures due to network errors are non-blocking).
-2. **Review**: Assigned reviewers discover proposals via polling. Before a reviewer has submitted their own evaluation, the Delphi filter delivers a **redacted** version of the `CONSENSUS_PROPOSE` message (`body` cleared, `metadata.payload` stripped except `version` and `commit_sha`, `metadata.delphi_redacted=True`). This notifies the reviewer that a proposal exists without exposing the producer's self-assessment. Reviewers must **sync their worktree** before reviewing (`git fetch origin && git merge origin/{branch} --no-edit`) to pull in the producer's pushed commits. After reviewing the git artifacts, the reviewer submits `CONSENSUS_ACK` or `CONSENSUS_NACK` — both require a `--reason` argument with substantive rationale (≥50 characters, non-boilerplate). ACK rationale must describe what was read, what was checked, and why the verdict follows. NACK rationale must be specific and actionable, citing file paths and line numbers. The orchestrator rejects ACKs and NACKs that fail the minimum content floor with HTTP 400. After submitting, subsequent polls return the full unredacted proposal message.
+1. **Propose**: Producer completes work, commits and pushes to the remote branch, then sends `CONSENSUS_PROPOSE` with a summary, artifact list, pushed commit SHA (`--commit-sha`), and structured metadata (`--files-changed`, `--tests-run`, `--tasks`). The `--summary` must be substantive (≥50 characters, non-boilerplate) — the orchestrator rejects proposals that fail the minimum content floor with HTTP 400 (see [Content Validation](#content-validation)). The orchestrator also rejects proposals whose commit SHA is confirmed absent from the branch (verification failures due to network errors are non-blocking).
+2. **Review**: Assigned reviewers discover proposals via polling. Before a reviewer has submitted their own evaluation, the Delphi filter delivers a **redacted** version of the `CONSENSUS_PROPOSE` message (`body` cleared, `metadata.payload` stripped except `version` and `commit_sha`, `metadata.delphi_redacted=True`). This notifies the reviewer that a proposal exists without exposing the producer's self-assessment. Reviewers must **sync their worktree** before reviewing (`git fetch origin && git merge origin/{branch} --no-edit`) to pull in the producer's pushed commits. After reviewing the git artifacts, the reviewer submits `CONSENSUS_ACK` or `CONSENSUS_NACK` — both require `--reason` (substantive rationale, ≥50 characters) and `--files-reviewed`. The orchestrator enforces a minimum content floor on the `reason` field — messages that fail content validation are rejected with HTTP 400 before any state mutation (see [Content Validation](#content-validation)). After submitting, subsequent polls return the full unredacted proposal message.
 3. **Converge**: When all critical reviewers ACK, the producer sends `CONSENSUS_CONFIRMED`. When all agents are confirmed, the phase advances. Reviewers also call `CONSENSUS_CONFIRMED` after completing all reviews; the protocol enforces multiple guards in both the producer and reviewer confirmation paths (see [Action Guards](#action-guards) and [Deadlock Prevention Guards](#deadlock-prevention-guards) below).
 4. **Re-propose**: If a NACK is received, the producer addresses the feedback and re-proposes (with `changed_artifacts` to scope re-evaluation). Flip-flop cycles are capped at `max_flip_flops` (default: 3). If any reviewer had already confirmed on a prior proposal version, they automatically receive a `CONSENSUS_RE_REVIEW` message and are un-confirmed so they re-enter the review loop — preventing a deadlock where a stale-confirmed reviewer can never see the new proposal.
 
@@ -339,7 +339,7 @@ The minimum length (`_BRC_MIN_CONTENT_LEN = 50`) and boilerplate set are module-
 
 **What substantive content looks like:**
 
-- **Proposals**: Describe what was built, what was tested, which contract tasks it satisfies, and any risks considered. The structured `--commit-sha`, `--files-changed`, `--tests-run`, and `--tasks` arguments complement the narrative summary.
+- **Proposals**: Describe what was built, what was tested, which contract tasks it satisfies, and any risks considered. The structured `--files-changed`, `--tests-run`, and `--tasks` arguments complement the narrative summary.
 - **ACKs**: Describe what files were read, what logic/patterns were checked, and why the implementation is correct. Cite specific file paths and line numbers.
 - **NACKs**: Identify the specific issue with file path and line number, explain why it is a problem, and describe what needs to change.
 - **Withdrawals**: Cite the specific new information discovered after proposing that justifies retraction.
@@ -458,7 +458,9 @@ egg-orch consensus propose --push \
   --commit-sha $(git rev-parse HEAD)
 # --push runs git push before sending the proposal; because the push is bundled with the
 # explicit proposal, auto re-propose is suppressed for that push (no redundant re-review).
-# --summary must be ≥50 chars and substantive (no boilerplate).
+# --summary must be ≥50 chars and substantive (no boilerplate) — the orchestrator rejects
+# proposals that fail content validation with HTTP 400.
+# --files-changed, --tests-run, --tasks provide structured metadata in the signal payload.
 
 # Reviewer: sync worktree before reviewing (fetch producer's commits)
 git fetch origin && git merge origin/egg/feature-x --no-edit

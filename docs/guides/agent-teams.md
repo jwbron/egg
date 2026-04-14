@@ -141,7 +141,7 @@ The reasoning layer ensures agents don't just signal states — they make **stru
 
 **Producer proposals (`CONSENSUS_PROPOSE`):**
 
-Proposals carry both a narrative `--summary` (≥50 characters, enforced by the orchestrator) and structured metadata via `--commit-sha`, `--files-changed`, `--tests-run`, and `--tasks` CLI arguments. The structured fields are folded into the signal payload under `commit`, `files_changed`, `tests_run`, and `tasks_satisfied` keys.
+Proposals carry both a narrative `--summary` (≥50 characters, enforced by the orchestrator's `_validate_brc_content()` validator) and structured metadata via `--commit`, `--files-changed`, `--tests-run`, and `--tasks` CLI arguments. The structured fields are folded into the signal payload under `commit`, `files_changed`, `tests_run`, and `tasks_satisfied` keys. Proposals also include `--artifacts` (file paths produced), `--commit-sha` (git commit SHA, defaults to HEAD), and `--risk` (risk assessment).
 
 | Role | Required attestation |
 |------|---------------------|
@@ -155,7 +155,7 @@ Proposals carry both a narrative `--summary` (≥50 characters, enforced by the 
 
 **Reviewer evaluations (`CONSENSUS_ACK/NACK`):**
 
-Both ACKs and NACKs require a `--reason` argument with substantive rationale (≥50 characters, enforced by the orchestrator). The rationale is stored in the `reason` key of the signal payload and written to the message body, making review reasoning visible to all participants and in BRC history.
+Both ACKs and NACKs require a `--reason` argument with substantive rationale (≥50 characters, enforced by the orchestrator's `_validate_brc_content()` validator). The orchestrator rejects messages that fail validation with HTTP 400 before any state mutation. The rationale is stored in the `reason` key of the signal payload and written to the message body, making review reasoning visible to all participants and in BRC history.
 
 | Role | Required attestation |
 |------|---------------------|
@@ -169,7 +169,7 @@ Not all messages need the same rigor:
 | Message type | Signal cost | Rationale |
 |-------------|-------------|-----------|
 | STATUS, PROGRESS | Cheap talk | Low overhead, informative when interests are aligned |
-| CONSENSUS_PROPOSE | Costly signal | Attestations are harder to produce without doing the work; structured metadata (`--commit`, `--files-changed`, `--tests-run`, `--tasks`) complements narrative summary; ≥50-char floor enforced |
+| CONSENSUS_PROPOSE | Costly signal | Attestations are harder to produce without doing the work; structured metadata (`--files-changed`, `--tests-run`, `--tasks`) complements narrative summary; ≥50-char floor enforced |
 | CONSENSUS_ACK | Costly signal | Must reference specific artifacts reviewed AND provide substantive rationale via `--reason` (≥50 chars, enforced); prevents rubber-stamping at both the schema and content layers |
 | CONSENSUS_NACK | Costly signal | Must include specific, actionable objection with artifact references via `--reason` (≥50 chars, enforced) |
 | CONSENSUS_WITHDRAW | Costly signal | Must cite specific new information justifying retraction via `--reason` (≥50 chars, enforced); subject to cooldown and flip-flop limits |

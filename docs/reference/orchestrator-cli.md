@@ -213,10 +213,10 @@ The BRC (Broadcast-Review-Converge) protocol is used during concurrent execution
 **Consensus commands:**
 ```bash
 # Producer: propose work for review with structured metadata
-# --summary is required (≥50 chars, substantive — see content requirements below)
-# --commit defaults to HEAD if omitted
+# --summary must be substantive (≥50 chars) — the orchestrator rejects empty/short/boilerplate
+# --commit-sha defaults to HEAD if omitted
 egg-orch consensus propose \
-  --summary "Implemented auth module: added JWT validation, rate limiting, and session management" \
+  --summary "Implemented auth module: added JWT validation, rate limiting, and session management. Tests pass." \
   --artifacts src/auth.py src/middleware.py \
   --commit-sha $(git rev-parse HEAD) \
   --files-changed src/auth.py src/middleware.py tests/test_auth.py \
@@ -226,19 +226,19 @@ egg-orch consensus propose \
 # Producer: push and propose atomically (required in concurrent mode, suppresses auto re-propose)
 # Sets consensus_push marker so the gateway allows the push through concurrent-mode enforcement
 egg-orch consensus propose --push \
-  --summary "Implemented auth module: added JWT validation, rate limiting, and session management" \
+  --summary "Implemented auth module: added JWT validation, rate limiting, and session management. Tests pass." \
   --artifacts src/auth.py src/middleware.py \
   --commit-sha $(git rev-parse HEAD) \
   --files-changed src/auth.py src/middleware.py \
   --tests-run tests/test_auth.py \
   --tasks task-1-1
 
-# Reviewer: ACK a producer's proposal (--reason is required, ≥50 chars)
+# Reviewer: ACK a producer's proposal (--reason is required, ≥50 chars, substantive)
 egg-orch consensus ack coder \
   --reason "Reviewed auth.py (JWT validation) and middleware.py (rate limiting). Token refresh logic is correct, rate limit headers follow RFC 6585. No issues found." \
   --files-reviewed src/auth.py src/middleware.py
 
-# Reviewer: NACK a producer's proposal (--reason is required, ≥50 chars)
+# Reviewer: NACK a producer's proposal (--reason is required, ≥50 chars, specific and actionable)
 egg-orch consensus nack coder \
   --reason "auth.py line 42: JWT expiry check uses <= instead of <, allowing expired tokens for up to 1 second. Fix the comparison operator." \
   --files-reviewed src/auth.py
@@ -259,30 +259,41 @@ egg-orch consensus status
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `--summary` | Yes | Substantive description of work done (≥50 chars). Must describe what was built, what was tested, and which contract tasks it satisfies. |
+| `--summary` | No | Substantive description of work done. The orchestrator enforces ≥50 chars, non-boilerplate (see content requirements below). |
 | `--artifacts` | No | File paths of artifacts produced |
 | `--commit-sha` | No | Git commit SHA (defaults to HEAD) |
+| `--commit` | No | Commit SHA for the proposal (structured metadata) |
 | `--files-changed` | No | List of files changed in this proposal |
 | `--tests-run` | No | List of test files executed |
 | `--tasks` | No | Contract task IDs satisfied by this proposal |
 | `--risk` | No | Risk assessment text |
 | `--push` | No | Push and propose atomically (required in concurrent mode) |
 | `--changed-artifacts` | No | Files changed since last proposal (for re-proposals) |
+| `--file` | No | JSON file with full proposal payload (alternative to individual flags) |
 
 **ACK/NACK arguments:**
 
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `<role>` | Yes | Producer role being reviewed (positional) |
-| `--reason` | Yes | Substantive rationale (≥50 chars). For ACKs: what was read, what was checked, why the verdict follows. For NACKs: specific, actionable objection with file/line references. |
-| `--files-reviewed` | No | Specific file paths that were reviewed |
+| `--reason` | Yes | Substantive rationale (≥50 chars, enforced by orchestrator). For ACKs: what was read, what was checked, why the verdict follows. For NACKs: specific, actionable objection with file/line references. |
+| `--files-reviewed` | Yes | Specific file paths that were reviewed |
 
-**Content requirements:** The orchestrator enforces a minimum content floor on all BRC messages. Proposals (`--summary`), ACKs (`--reason`), NACKs (`--reason`), and withdrawals (`--reason`) must be:
-- Non-empty and ≥50 characters after trimming whitespace
-- Not boilerplate (e.g., "lgtm", "looks good", "no issues", "approved", "ok" are rejected)
-- Substantive — describe specific artifacts, findings, or reasoning
+**Content requirements (server-side enforcement):** The orchestrator enforces a minimum content floor on BRC signal bodies via `_validate_brc_content()` in `orchestrator/routes/signals.py`. The following signal payloads are validated before any state mutation:
 
-Messages that fail content validation are rejected with HTTP 400 and an actionable error message. No state mutation occurs on rejection.
+| Signal | Validated field | CLI argument |
+|--------|----------------|--------------|
+| `consensus_propose` | Proposal summary | `--summary` |
+| `consensus_ack` | ACK rationale | `--reason` |
+| `consensus_nack` | NACK rationale | `--reason` |
+| `consensus_withdraw` | Withdrawal rationale | `--reason` |
+
+Validation rejects content that is:
+- Empty or whitespace-only
+- Shorter than 50 characters after trimming
+- An exact case-insensitive match for boilerplate strings: `"lgtm"`, `"looks good"`, `"no issues"`, `"approved"`, `"ok"`
+
+Rejected messages receive HTTP 400 with an actionable error message. No state mutation occurs — the tracker and message store are untouched.
 
 **Signal types for consensus:**
 
