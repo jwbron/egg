@@ -212,31 +212,22 @@ The BRC (Broadcast-Review-Converge) protocol is used during concurrent execution
 
 **Consensus commands:**
 ```bash
-# Producer: propose work for review with structured metadata
-# --summary is required (≥50 chars, substantive — see content requirements below)
-# --commit defaults to HEAD if omitted
+# Producer: propose work for review (commit SHA defaults to HEAD if omitted)
+# The --summary must be substantive (≥50 chars) — the orchestrator rejects empty/short/boilerplate summaries
 egg-orch consensus propose \
-  --summary "Implemented auth module: added JWT validation, rate limiting, and session management" \
+  --summary "Implemented auth module: added JWT validation, rate limiting, and session management. Tests pass." \
   --artifacts src/auth.py src/middleware.py \
-  --commit-sha $(git rev-parse HEAD) \
-  --files-changed src/auth.py src/middleware.py tests/test_auth.py \
-  --tests-run tests/test_auth.py tests/test_middleware.py \
-  --tasks task-1-1 task-1-2
+  --commit-sha $(git rev-parse HEAD)
 
 # Producer: push and propose atomically (required in concurrent mode, suppresses auto re-propose)
 # Sets consensus_push marker so the gateway allows the push through concurrent-mode enforcement
 egg-orch consensus propose --push \
-  --summary "Implemented auth module: added JWT validation, rate limiting, and session management" \
+  --summary "Implemented auth module: added JWT validation, rate limiting, and session management. Tests pass." \
   --artifacts src/auth.py src/middleware.py \
-  --commit-sha $(git rev-parse HEAD) \
-  --files-changed src/auth.py src/middleware.py \
-  --tests-run tests/test_auth.py \
-  --tasks task-1-1
+  --commit-sha $(git rev-parse HEAD)
 
-# Reviewer: ACK a producer's proposal (--reason is required, ≥50 chars)
-egg-orch consensus ack coder \
-  --reason "Reviewed auth.py (JWT validation) and middleware.py (rate limiting). Token refresh logic is correct, rate limit headers follow RFC 6585. No issues found." \
-  --files-reviewed src/auth.py src/middleware.py
+# Reviewer: ACK a producer's proposal
+egg-orch consensus ack coder --files-reviewed src/auth.py src/middleware.py
 
 # Reviewer: NACK a producer's proposal (--reason is required, ≥50 chars)
 egg-orch consensus nack coder \
@@ -259,37 +250,51 @@ egg-orch consensus status
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `--summary` | Yes | Substantive description of work done (≥50 chars). Must describe what was built, what was tested, and which contract tasks it satisfies. |
+| `--summary` | No | Substantive description of work done. The orchestrator enforces ≥50 chars, non-boilerplate (see content requirements below). |
 | `--artifacts` | No | File paths of artifacts produced |
 | `--commit-sha` | No | Git commit SHA (defaults to HEAD) |
-| `--files-changed` | No | List of files changed in this proposal |
-| `--tests-run` | No | List of test files executed |
-| `--tasks` | No | Contract task IDs satisfied by this proposal |
 | `--risk` | No | Risk assessment text |
 | `--push` | No | Push and propose atomically (required in concurrent mode) |
 | `--changed-artifacts` | No | Files changed since last proposal (for re-proposals) |
+| `--file` | No | JSON file with full proposal payload (alternative to individual flags) |
 
-**ACK/NACK arguments:**
+**ACK arguments:**
 
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `<role>` | Yes | Producer role being reviewed (positional) |
-| `--reason` | Yes | Substantive rationale (≥50 chars). For ACKs: what was read, what was checked, why the verdict follows. For NACKs: specific, actionable objection with file/line references. |
-| `--files-reviewed` | No | Specific file paths that were reviewed |
+| `--files-reviewed` | Yes | Specific file paths that were reviewed |
 
-**Content requirements:** The orchestrator enforces a minimum content floor on all BRC messages. Proposals (`--summary`), ACKs (`--reason`), NACKs (`--reason`), and withdrawals (`--reason`) must be:
-- Non-empty and ≥50 characters after trimming whitespace
-- Not boilerplate (e.g., "lgtm", "looks good", "no issues", "approved", "ok" are rejected)
-- Substantive — describe specific artifacts, findings, or reasoning
+**NACK arguments:**
 
-Messages that fail content validation are rejected with HTTP 400 and an actionable error message. No state mutation occurs on rejection.
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `<role>` | Yes | Producer role being reviewed (positional) |
+| `--reason` | Yes | Specific, actionable objection with file/line references (≥50 chars, enforced by orchestrator) |
+| `--files-reviewed` | Yes | Specific file paths that were reviewed |
+
+**Content requirements (server-side enforcement):** The orchestrator enforces a minimum content floor on BRC signal bodies via `_validate_brc_content()` in `orchestrator/routes/signals.py`. The following signal payloads are validated before any state mutation:
+
+| Signal | Validated field | Payload key |
+|--------|----------------|-------------|
+| `consensus_propose` | Proposal summary | `payload.summary` |
+| `consensus_ack` | ACK rationale | `payload.reason` |
+| `consensus_nack` | NACK rationale | `payload.reason` |
+| `consensus_withdraw` | Withdrawal rationale | `reason` |
+
+Validation rejects content that is:
+- Empty or whitespace-only
+- Shorter than 50 characters after trimming
+- An exact case-insensitive match for boilerplate strings: `"lgtm"`, `"looks good"`, `"no issues"`, `"approved"`, `"ok"`
+
+Rejected messages receive HTTP 400 with an actionable error message. No state mutation occurs — the tracker and message store are untouched.
 
 **Signal types for consensus:**
 
 | Signal type | Purpose |
 |-------------|---------|
-| `consensus_propose` | Producer proposes artifacts for review (with structured metadata: commit, files changed, tests run, tasks satisfied) |
-| `consensus_ack` | Reviewer ACKs a producer's proposal (with required substantive rationale) |
+| `consensus_propose` | Producer proposes artifacts for review |
+| `consensus_ack` | Reviewer ACKs a producer's proposal |
 | `consensus_nack` | Reviewer NACKs a producer's proposal (with required substantive rationale) |
 | `consensus_withdraw` | Producer withdraws proposal (with required rationale; cooldown + flip-flop limits apply) |
 | `consensus_confirmed` | Agent confirms consensus (action guards enforced) |

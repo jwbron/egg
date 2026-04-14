@@ -141,7 +141,7 @@ The reasoning layer ensures agents don't just signal states — they make **stru
 
 **Producer proposals (`CONSENSUS_PROPOSE`):**
 
-Proposals carry both a narrative `--summary` (≥50 characters, enforced by the orchestrator) and structured metadata via `--commit-sha`, `--files-changed`, `--tests-run`, and `--tasks` CLI arguments. The structured fields are folded into the signal payload under `commit`, `files_changed`, `tests_run`, and `tasks_satisfied` keys.
+Proposals carry a narrative `--summary` that must be substantive (≥50 characters, enforced by the orchestrator's `_validate_brc_content()` validator). The summary is stored in the `body` field of the message store entry. Proposals also include `--artifacts` (file paths produced), `--commit-sha` (git commit), and `--risk` (risk assessment) as structured metadata in the signal payload.
 
 | Role | Required attestation |
 |------|---------------------|
@@ -155,7 +155,7 @@ Proposals carry both a narrative `--summary` (≥50 characters, enforced by the 
 
 **Reviewer evaluations (`CONSENSUS_ACK/NACK`):**
 
-Both ACKs and NACKs require a `--reason` argument with substantive rationale (≥50 characters, enforced by the orchestrator). The rationale is stored in the `reason` key of the signal payload and written to the message body, making review reasoning visible to all participants and in BRC history.
+The orchestrator enforces a minimum content floor on both ACK and NACK signal payloads. The `reason` field in the signal payload must be substantive (≥50 characters, non-boilerplate) — the orchestrator rejects messages that fail validation with HTTP 400 before any state mutation. For NACKs, the `--reason` CLI argument is required. The rationale is stored in the message body, making review reasoning visible to all participants and in BRC history.
 
 | Role | Required attestation |
 |------|---------------------|
@@ -169,12 +169,12 @@ Not all messages need the same rigor:
 | Message type | Signal cost | Rationale |
 |-------------|-------------|-----------|
 | STATUS, PROGRESS | Cheap talk | Low overhead, informative when interests are aligned |
-| CONSENSUS_PROPOSE | Costly signal | Attestations are harder to produce without doing the work; structured metadata (`--commit`, `--files-changed`, `--tests-run`, `--tasks`) complements narrative summary; ≥50-char floor enforced |
-| CONSENSUS_ACK | Costly signal | Must reference specific artifacts reviewed AND provide substantive rationale via `--reason` (≥50 chars, enforced); prevents rubber-stamping at both the schema and content layers |
+| CONSENSUS_PROPOSE | Costly signal | Attestations are harder to produce without doing the work; ≥50-char summary floor enforced by orchestrator |
+| CONSENSUS_ACK | Costly signal | Must reference specific artifacts reviewed; orchestrator enforces ≥50-char content floor on `reason` payload field, preventing rubber-stamping |
 | CONSENSUS_NACK | Costly signal | Must include specific, actionable objection with artifact references via `--reason` (≥50 chars, enforced) |
 | CONSENSUS_WITHDRAW | Costly signal | Must cite specific new information justifying retraction via `--reason` (≥50 chars, enforced); subject to cooldown and flip-flop limits |
 
-This distinction comes from game theory: cheap talk (Crawford & Sobel, 1982) works when interests are fully aligned, but LLM agents are *unreliable communicators* — they may genuinely believe bad work is good. Costly signals (requiring verifiable evidence) address this. The ≥50-character content floor ([#1716](https://github.com/jwbron/egg/issues/1716)) closes a gap where ACK messages were structurally empty — the CLI had no `--reason` argument, making every ACK body `""` by construction regardless of agent intent.
+This distinction comes from game theory: cheap talk (Crawford & Sobel, 1982) works when interests are fully aligned, but LLM agents are *unreliable communicators* — they may genuinely believe bad work is good. Costly signals (requiring verifiable evidence) address this. The ≥50-character content floor ([#1716](https://github.com/jwbron/egg/issues/1716)) closes a gap where ACK messages were structurally empty — the `reason` field in ACK signal payloads was always `""` by construction, regardless of agent intent.
 
 #### Anti-Sycophancy Measures
 
