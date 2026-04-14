@@ -13,6 +13,8 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+
+import yaml
 from uuid import uuid4
 
 from docker.errors import DockerException
@@ -4169,7 +4171,7 @@ def _handle_pr_creation_failure(
         store.save_pipeline(pipeline)
 
 
-BRC_MESSAGE_TYPES = frozenset(
+BRC_SUMMARY_TYPES = frozenset(
     {
         "CONSENSUS_PROPOSE",
         "CONSENSUS_ACK",
@@ -4179,6 +4181,22 @@ BRC_MESSAGE_TYPES = frozenset(
         "CONSENSUS_RE_REVIEW",
     }
 )
+
+# Wider set for the committed history file — includes BRC-adjacent operational
+# message types so the full flow is preserved for humans and tools.
+BRC_HISTORY_TYPES = BRC_SUMMARY_TYPES | frozenset(
+    {
+        "STATUS",
+        "HANDOFF",
+        "QUESTION",
+        "AGENT_FAILED",
+        "NUDGE",
+        "OVERSEER_ALERT",
+    }
+)
+
+# Backwards-compatible alias for any external callers.
+BRC_MESSAGE_TYPES = BRC_SUMMARY_TYPES
 
 
 def _get_message_store():
@@ -4249,7 +4267,7 @@ def _write_brc_history(
         )
         return
 
-    brc_messages = [m for m in messages if m.message_type in BRC_MESSAGE_TYPES and m.phase == phase]
+    brc_messages = [m for m in messages if m.message_type in BRC_HISTORY_TYPES and m.phase == phase]
     if not brc_messages:
         logger.info(
             "_write_brc_history: early return — no BRC messages for phase",
@@ -4259,7 +4277,10 @@ def _write_brc_history(
         )
         return
 
-    # Format as markdown
+    history_dir = worktree_path / ".egg-state" / "brc-history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+
+    # --- Markdown history (lossless projection) ---
     lines: list[str] = []
     now_str = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     lines.append(f"# BRC Consensus History — {phase} phase")
@@ -4270,24 +4291,66 @@ def _write_brc_history(
 
     for msg in brc_messages:
         ts = msg.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if msg.timestamp else "unknown"
-        lines.append(f"### [{ts}] {msg.from_role} ({msg.message_type}): {msg.subject}")
+        # Show to_role for directed messages, omit for broadcasts
+        if msg.to_role and msg.to_role != "all":
+            header = f"### [{ts}] {msg.from_role} → {msg.to_role} ({msg.message_type}): {msg.subject}"
+        else:
+            header = f"### [{ts}] {msg.from_role} ({msg.message_type}): {msg.subject}"
+        lines.append(header)
         if msg.body:
             lines.append("")
             lines.append(msg.body)
+
+        # Emit a YAML metadata block when there is meaningful metadata
+        meta_block: dict[str, Any] = {}
+        if msg.id:
+            meta_block["id"] = msg.id
+        if msg.phase:
+            meta_block["phase"] = msg.phase
+        if msg.metadata:
+            meta_block["metadata"] = msg.metadata
+        if meta_block:
+            lines.append("")
+            lines.append("```yaml")
+            lines.append(yaml.dump(meta_block, sort_keys=False, default_flow_style=False).rstrip())
+            lines.append("```")
         lines.append("")
 
-    history_dir = worktree_path / ".egg-state" / "brc-history"
-    history_dir.mkdir(parents=True, exist_ok=True)
-    history_file = history_dir / f"{identifier}-{phase}.md"
-    history_file.write_text("\n".join(lines))
+    md_written = False
+    try:
+        history_file = history_dir / f"{identifier}-{phase}.md"
+        history_file.write_text("\n".join(lines))
+        md_written = True
+    except Exception as e:
+        logger.warning(
+            "_write_brc_history: failed to write markdown file",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            error=str(e),
+        )
 
-    logger.info(
-        "Wrote BRC history file",
-        pipeline_id=pipeline_id,
-        phase=phase,
-        path=str(history_file),
-        message_count=len(brc_messages),
-    )
+    # --- JSON companion (machine-readable full message dicts) ---
+    json_written = False
+    try:
+        json_file = history_dir / f"{identifier}-{phase}.json"
+        json_file.write_text(json.dumps([m.to_dict() for m in brc_messages], indent=2, default=str))
+        json_written = True
+    except Exception as e:
+        logger.warning(
+            "_write_brc_history: failed to write JSON companion file",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            error=str(e),
+        )
+
+    if md_written or json_written:
+        logger.info(
+            "Wrote BRC history file",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            path=str(history_dir / f"{identifier}-{phase}.md"),
+            message_count=len(brc_messages),
+        )
 
 
 def _rewrite_brc_history_for_pr(
@@ -4512,16 +4575,29 @@ def _reconcile_and_push_pr_branch(
     return retry_ok
 
 
-def _build_brc_consensus_summary(pipeline_id: str) -> str:
-    """Build a concise BRC consensus summary for the PR body.
+def _truncate_body(text: str, max_len: int = 2000) -> str:
+    """Truncate a message body with a pointer to the full history file."""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "\n… _(full content in brc-history/*.md)_"
+
+
+def _build_brc_consensus_summary(
+    pipeline_id: str,
+    identifier: int | str | None = None,
+) -> str:
+    """Build an inline BRC consensus summary for the PR body.
 
     Retrieves BRC messages from the message store, groups by phase, and
-    produces a summary showing agent roles, message counts, and whether
-    consensus was reached per phase.
+    produces a summary showing agent roles, message counts, consensus
+    status, the final-round proposal body and ACK/NACK rationales inline,
+    with older rounds collapsed in ``<details>`` blocks and links to the
+    committed ``.egg-state/brc-history/*`` artifacts.
 
     Returns an empty string if no BRC messages exist or the message store
-    is unavailable.  Output is capped at ~2000 characters by truncating
-    at phase-block boundaries to avoid broken markdown.
+    is unavailable.  Output is capped at ~40 000 characters by truncating
+    individual message bodies (never dropping whole messages) and at
+    phase-block boundaries as a last resort.
     """
     store_fn = _get_message_store()
     if store_fn is None:
@@ -4533,7 +4609,7 @@ def _build_brc_consensus_summary(pipeline_id: str) -> str:
     except Exception:
         return ""
 
-    brc_messages = [m for m in messages if m.message_type in BRC_MESSAGE_TYPES]
+    brc_messages = [m for m in messages if m.message_type in BRC_SUMMARY_TYPES]
     if not brc_messages:
         return ""
 
@@ -4577,6 +4653,63 @@ def _build_brc_consensus_summary(pipeline_id: str) -> str:
             block_lines.append(f"  {' · '.join(counts)}")
         consensus_str = "✅ Consensus reached" if all_confirmed else "⏳ Consensus not reached"
         block_lines.append(f"  {consensus_str}")
+
+        # --- Inline final-round content ---
+        # Identify the "final round" as messages following the last CONSENSUS_PROPOSE
+        last_propose_idx = -1
+        for i, m in enumerate(phase_msgs):
+            if m.message_type == "CONSENSUS_PROPOSE":
+                last_propose_idx = i
+        if last_propose_idx >= 0:
+            final_round = phase_msgs[last_propose_idx:]
+            earlier_round = phase_msgs[:last_propose_idx]
+        else:
+            final_round = phase_msgs
+            earlier_round = []
+
+        # Emit earlier rounds in a collapsed <details> block
+        if earlier_round:
+            block_lines.append("")
+            block_lines.append("<details><summary>Earlier rounds</summary>")
+            block_lines.append("")
+            for m in earlier_round:
+                body_text = (
+                    m.body
+                    or m.metadata.get("payload", {}).get("reason", "")
+                    if isinstance(m.metadata, dict)
+                    else m.body or ""
+                )
+                block_lines.append(f"- **{m.from_role}** ({m.message_type}): {m.subject}")
+                if body_text:
+                    block_lines.append(f"  > {_truncate_body(body_text, 500)}")
+            block_lines.append("")
+            block_lines.append("</details>")
+
+        # Emit final-round proposal body and ACK/NACK rationales inline
+        for m in final_round:
+            body_text = m.body or ""
+            reason = ""
+            if isinstance(m.metadata, dict):
+                reason = m.metadata.get("payload", {}).get("reason", "") if isinstance(m.metadata.get("payload"), dict) else ""
+            display_text = body_text or reason
+            if m.message_type == "CONSENSUS_PROPOSE":
+                block_lines.append("")
+                block_lines.append(f"**Proposal** ({m.from_role}):")
+                if display_text:
+                    block_lines.append(_truncate_body(display_text))
+            elif m.message_type in ("CONSENSUS_ACK", "CONSENSUS_NACK"):
+                label = "ACK" if m.message_type == "CONSENSUS_ACK" else "NACK"
+                block_lines.append(f"- **{label}** ({m.from_role}): {_truncate_body(display_text or m.subject, 1000)}")
+
+        # Artifact links (only when identifier is available)
+        if identifier is not None:
+            block_lines.append("")
+            md_path = f".egg-state/brc-history/{identifier}-{phase_name}.md"
+            json_path = f".egg-state/brc-history/{identifier}-{phase_name}.json"
+            block_lines.append(
+                f"Full record: [{md_path}](./{md_path}) · [.json](./{json_path})"
+            )
+
         block_lines.append("")
         phase_blocks.append("\n".join(block_lines))
 
@@ -4584,7 +4717,7 @@ def _build_brc_consensus_summary(pipeline_id: str) -> str:
     summary = header
     for block in phase_blocks:
         candidate = summary + "\n" + block
-        if len(candidate) > 2000:
+        if len(candidate) > 40000:
             break
         summary = candidate
 
@@ -4668,7 +4801,7 @@ def _build_pr_body(
         body_parts.append("\n".join(context_parts))
 
     # BRC consensus summary (omitted when no BRC messages exist)
-    brc_summary = _build_brc_consensus_summary(pipeline.id)
+    brc_summary = _build_brc_consensus_summary(pipeline.id, identifier=identifier)
     if brc_summary:
         body_parts.append(brc_summary)
 

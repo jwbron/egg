@@ -79,6 +79,7 @@ By default, agents within the refine, plan, and implement phases run simultaneou
 - **BRC action guards** — Each protocol action (propose, ACK, NACK, confirm, withdraw) has formal preconditions defined in `orchestrator/action_guards.py`. Guards are the canonical protocol specification — `PeerConsensusTracker` delegates to them before mutating state. See [Concurrent Execution — Action Guards](../docs/guides/concurrent-execution.md#action-guards).
 - **Readiness consensus** — Each agent signals its readiness state (WORKING, READY, BLOCKED, OBJECTING). The phase advances only when all agents reach READY. Any OBJECTING agent blocks phase completion.
 - **Shared pipeline branch** — All concurrent agents operate on the pipeline's shared branch (e.g., `egg/issue-999`). Agents coordinate commits via the message bus.
+- **Lossless BRC history** — At each phase boundary, all BRC-related messages (consensus messages plus contextual types like HANDOFF, AGENT_FAILED, STATUS) are persisted to `.egg-state/brc-history/` as both markdown (with full metadata in YAML blocks) and JSON companion files. The PR body inlines final-round proposal/review content. See [Concurrent Execution — BRC History Persistence](../docs/guides/concurrent-execution.md#brc-history-persistence).
 
 The `GET /pipelines/{id}/status` endpoint includes a `concurrent` section when this mode is active, showing message counts, consensus state, and agent lifecycle info. See [SDLC Pipeline Guide — Concurrent Execution](../docs/guides/sdlc-pipeline.md#concurrent-execution-mode) for full details.
 
