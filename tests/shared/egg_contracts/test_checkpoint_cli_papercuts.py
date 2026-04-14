@@ -20,6 +20,7 @@ from egg_contracts.checkpoint_cli import (
     cmd_cost,
     cmd_list,
     cmd_search,
+    cmd_show,
     create_parser,
 )
 from egg_contracts.checkpoints import (
@@ -954,3 +955,78 @@ class TestEdgeCases:
         out = capsys.readouterr().out
         data = json.loads(out)
         assert data == []
+
+
+# ──────────────────────────────────────────────────────────────
+# cmd_show error paths print to stderr (not stdout)
+# ──────────────────────────────────────────────────────────────
+
+
+class TestShowErrorStderr:
+    """cmd_show error messages go to stderr so stdout stays clean for scripting."""
+
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
+    @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
+    def test_show_no_ref_prints_to_stderr(self, mock_ref, _mock_gw, capsys):
+        """cmd_show prints 'No checkpoints found' to stderr when ref is missing."""
+        mock_ref.return_value = None
+
+        parser = create_parser()
+        args = parser.parse_args(["show", "ckpt-abc12345"])
+        result = cmd_show(args)
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "No checkpoints found" in captured.err
+
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
+    @patch("egg_contracts.checkpoint_cli.load_checkpoint_from_ref", return_value=None)
+    @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
+    def test_show_not_found_by_id_prints_to_stderr(self, mock_ref, _mock_load, _mock_gw, capsys):
+        """cmd_show prints 'No checkpoint found' to stderr when ID lookup fails."""
+        mock_ref.return_value = "origin/egg/checkpoints/v2"
+
+        parser = create_parser()
+        args = parser.parse_args(["show", "ckpt-doesnotexist"])
+        result = cmd_show(args)
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "No checkpoint found" in captured.err
+
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
+    @patch("egg_contracts.checkpoint_cli.load_index_from_ref")
+    @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
+    def test_show_not_found_by_commit_sha_prints_to_stderr(
+        self, mock_ref, mock_index, _mock_gw, capsys
+    ):
+        """cmd_show prints 'No checkpoint found' to stderr when commit SHA lookup fails."""
+        mock_ref.return_value = "origin/egg/checkpoints/v2"
+        mock_index.return_value = _empty_index()
+
+        parser = create_parser()
+        args = parser.parse_args(["show", "abcdef1234567890"])
+        result = cmd_show(args)
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "No checkpoint found" in captured.err
+
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url")
+    @patch("egg_contracts.checkpoint_cli._http_get")
+    def test_show_http_not_found_prints_to_stderr(self, mock_http, mock_gw, capsys):
+        """_cmd_show_http prints 'No checkpoint found' to stderr on failed response."""
+        mock_gw.return_value = f"http://localhost:{GATEWAY_PORT}"
+        mock_http.return_value = {"success": False}
+
+        parser = create_parser()
+        args = parser.parse_args(["show", "ckpt-abc12345"])
+        result = cmd_show(args)
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "No checkpoint found" in captured.err
