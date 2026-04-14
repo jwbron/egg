@@ -4281,11 +4281,19 @@ def _write_brc_history(
     history_dir.mkdir(parents=True, exist_ok=True)
 
     # --- Markdown history (lossless projection) ---
+    # `Generated:` is derived from the latest message timestamp (not
+    # wall-clock time) so regenerating the file from the same message
+    # set produces byte-identical output.  This keeps the PR-phase
+    # safety-net rewrite idempotent.  See #1714 / #1719.
+    message_timestamps = [m.timestamp for m in brc_messages if m.timestamp is not None]
+    if message_timestamps:
+        generated_str = max(message_timestamps).strftime("%Y-%m-%dT%H:%M:%SZ")
+    else:
+        generated_str = "unknown"
     lines: list[str] = []
-    now_str = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     lines.append(f"# BRC Consensus History — {phase} phase")
     lines.append("")
-    lines.append(f"Generated: {now_str}")
+    lines.append(f"Generated: {generated_str}")
     lines.append(f"Pipeline: {pipeline_id}")
     lines.append("")
 
