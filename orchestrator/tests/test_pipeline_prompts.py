@@ -3265,3 +3265,208 @@ class TestAgentPromptBaseBranchPassthrough:
         )
         # Coder prompt uses _build_phase_prompt, not _build_role_context
         assert result  # Just verify it doesn't crash
+
+
+class TestDirectedCoordinationGuidance:
+    """Tests for directed coordination guidance in BRC preamble (issue #1718).
+
+    Validates that ``_build_brc_preamble`` includes the new 'Directed Coordination'
+    section with ``egg-orch message send`` CLI form and role-appropriate guidance
+    for HANDOFF, STATUS, and QUESTION message types.
+    """
+
+    # --- Section presence ---
+
+    def test_preamble_includes_directed_coordination_section(self):
+        """BRC preamble includes the 'Directed Coordination' subsection header."""
+        preamble = _build_brc_preamble("coder", "implement")
+        assert "### Directed Coordination" in preamble
+
+    def test_preamble_includes_message_send_cli(self):
+        """BRC preamble includes the ``egg-orch message send`` CLI example."""
+        preamble = _build_brc_preamble("coder", "implement")
+        assert "egg-orch message send" in preamble
+
+    def test_preamble_includes_cli_full_form(self):
+        """BRC preamble shows the full CLI form with --to, --type, --subject, --body."""
+        preamble = _build_brc_preamble("coder", "implement")
+        assert "--to <role>" in preamble
+        assert "--type <TYPE>" in preamble
+
+    # --- Producer-specific guidance ---
+
+    def test_producer_gets_handoff_guidance(self):
+        """Producer preamble includes HANDOFF guidance."""
+        preamble = _build_brc_preamble("coder", "implement")
+        assert "HANDOFF" in preamble
+
+    def test_producer_gets_status_guidance(self):
+        """Producer preamble includes STATUS guidance for directed messages."""
+        preamble = _build_brc_preamble("coder", "implement")
+        assert "STATUS" in preamble
+
+    def test_producer_handoff_has_example(self):
+        """Producer HANDOFF guidance includes a concrete example."""
+        preamble = _build_brc_preamble("coder", "implement")
+        # Should mention coder → tester as the canonical handoff example
+        assert "coder" in preamble and "tester" in preamble
+
+    def test_producer_guidance_labeled(self):
+        """Producer guidance is labeled 'As a producer'."""
+        preamble = _build_brc_preamble("coder", "implement")
+        assert "As a producer" in preamble
+
+    # --- Reviewer-specific guidance ---
+
+    def test_reviewer_gets_question_guidance(self):
+        """Reviewer preamble includes QUESTION guidance."""
+        preamble = _build_brc_preamble("reviewer_code", "implement")
+        assert "QUESTION" in preamble
+
+    def test_reviewer_guidance_labeled(self):
+        """Reviewer guidance is labeled 'As a reviewer'."""
+        preamble = _build_brc_preamble("reviewer_code", "implement")
+        assert "As a reviewer" in preamble
+
+    def test_reviewer_question_avoids_unnecessary_nacks(self):
+        """Reviewer guidance recommends QUESTION to avoid unnecessary NACKs."""
+        preamble = _build_brc_preamble("reviewer_code", "implement")
+        assert "unnecessary NACKs" in preamble or "NACK" in preamble
+
+    def test_reviewer_does_not_get_producer_guidance(self):
+        """Pure reviewer does not get producer-specific guidance (HANDOFF/STATUS)."""
+        preamble = _build_brc_preamble("reviewer_code", "implement")
+        assert "As a producer" not in preamble
+
+    def test_producer_does_not_get_reviewer_question_guidance(self):
+        """Pure producer does not get reviewer-specific QUESTION guidance."""
+        preamble = _build_brc_preamble("coder", "implement")
+        assert "As a reviewer" not in preamble
+
+    # --- Dual-role agents (tester) ---
+
+    def test_dual_role_gets_both_producer_and_reviewer_guidance(self):
+        """Dual-role agent (tester) gets both producer and reviewer guidance."""
+        preamble = _build_brc_preamble("tester", "implement")
+        assert "As a producer" in preamble
+        assert "As a reviewer" in preamble
+
+    def test_dual_role_gets_handoff_and_question(self):
+        """Dual-role agent gets both HANDOFF and QUESTION guidance."""
+        preamble = _build_brc_preamble("tester", "implement")
+        assert "HANDOFF" in preamble
+        assert "QUESTION" in preamble
+
+    # --- Guard-rail guidance ---
+
+    def test_directed_messages_supplementary_to_consensus(self):
+        """Preamble clarifies directed messages are supplementary to BRC consensus."""
+        preamble = _build_brc_preamble("coder", "implement")
+        assert "supplementary" in preamble or "do NOT replace" in preamble.lower()
+
+    # --- Section ordering ---
+
+    def test_directed_coordination_after_reviewer_lifecycle(self):
+        """Directed Coordination appears after Reviewer Lifecycle for dual-role agents."""
+        preamble = _build_brc_preamble("tester", "implement")
+        reviewer_pos = preamble.index("### Reviewer Lifecycle")
+        coord_pos = preamble.index("### Directed Coordination")
+        assert reviewer_pos < coord_pos, (
+            "Directed Coordination should come after Reviewer Lifecycle"
+        )
+
+    def test_directed_coordination_after_producer_lifecycle(self):
+        """Directed Coordination appears after Producer Lifecycle."""
+        preamble = _build_brc_preamble("coder", "implement")
+        producer_pos = preamble.index("### Producer Lifecycle")
+        coord_pos = preamble.index("### Directed Coordination")
+        assert producer_pos < coord_pos, (
+            "Directed Coordination should come after Producer Lifecycle"
+        )
+
+    def test_directed_coordination_before_exit_warning(self):
+        """Directed Coordination appears before the 'exit = FAILED' warning."""
+        preamble = _build_brc_preamble("coder", "implement")
+        coord_pos = preamble.index("### Directed Coordination")
+        exit_pos = preamble.index("you have FAILED your role")
+        assert coord_pos < exit_pos, "Directed Coordination should come before the exit warning"
+
+    # --- Phase variations ---
+
+    def test_directed_coordination_in_plan_phase(self):
+        """Directed Coordination section is present in plan phase preamble."""
+        preamble = _build_brc_preamble("architect", "plan")
+        assert "### Directed Coordination" in preamble
+        assert "egg-orch message send" in preamble
+
+    def test_directed_coordination_in_refine_phase(self):
+        """Directed Coordination section is present in refine phase preamble."""
+        preamble = _build_brc_preamble("refiner", "refine")
+        assert "### Directed Coordination" in preamble
+        assert "HANDOFF" in preamble
+
+    # --- Contract reviewer (pure reviewer) ---
+
+    def test_contract_reviewer_gets_question_not_handoff_producer_block(self):
+        """Contract reviewer gets QUESTION guidance but not producer HANDOFF block."""
+        preamble = _build_brc_preamble("reviewer_contract", "implement")
+        assert "QUESTION" in preamble
+        assert "As a reviewer" in preamble
+        assert "As a producer" not in preamble
+
+    # --- Full agent prompt integration ---
+
+    def test_directed_coordination_in_concurrent_agent_prompt(self):
+        """Directed Coordination appears in the full agent prompt when concurrent=True."""
+        result = _build_agent_prompt(
+            role_value="coder",
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="# Feature",
+            issue_number=42,
+            concurrent=True,
+        )
+        assert "### Directed Coordination" in result
+        assert "egg-orch message send" in result
+
+    def test_no_directed_coordination_in_sequential_agent_prompt(self):
+        """Directed Coordination does NOT appear in sequential (non-concurrent) agent prompt."""
+        result = _build_agent_prompt(
+            role_value="coder",
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="# Feature",
+            issue_number=42,
+            concurrent=False,
+        )
+        assert "### Directed Coordination" not in result
+
+    # --- CLI examples in guidance ---
+
+    def test_producer_handoff_has_cli_example(self):
+        """Producer HANDOFF guidance includes a concrete egg-orch CLI example."""
+        preamble = _build_brc_preamble("coder", "implement")
+        assert "egg-orch message send --to tester --type HANDOFF" in preamble
+
+    def test_producer_status_has_cli_example(self):
+        """Producer STATUS guidance includes a concrete egg-orch CLI example."""
+        preamble = _build_brc_preamble("coder", "implement")
+        assert "egg-orch message send --to all --type STATUS" in preamble
+
+    def test_reviewer_question_has_cli_example(self):
+        """Reviewer QUESTION guidance includes a concrete egg-orch CLI example."""
+        preamble = _build_brc_preamble("reviewer_code", "implement")
+        assert "egg-orch message send --to coder --type QUESTION" in preamble
+
+    # --- Regression guard ---
+
+    def test_revert_of_coordination_detected(self):
+        """If directed coordination is removed, this test fails — regression guard."""
+        preamble = _build_brc_preamble("coder", "implement")
+        # Must contain the CLI example AND at least one message type
+        assert "egg-orch message send" in preamble
+        assert "HANDOFF" in preamble
+        # Must clarify relationship to consensus
+        assert "supplementary" in preamble or "consensus" in preamble.lower()
