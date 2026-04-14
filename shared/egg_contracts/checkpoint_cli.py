@@ -932,7 +932,7 @@ def _cmd_show_http(args: argparse.Namespace, gateway_url: str) -> int:
     result = _http_get(gateway_url, f"/api/v1/checkpoints/{args.identifier}", params)
 
     if not result.get("success"):
-        print(f"No checkpoint found for '{args.identifier}'")
+        print(f"No checkpoint found for '{args.identifier}'", file=sys.stderr)
         return 1
 
     data = result.get("data", {}).get("checkpoint", {})
@@ -959,7 +959,7 @@ def cmd_show(args: argparse.Namespace) -> int:
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
-        print("No checkpoints found (checkpoint branch does not exist)")
+        print("No checkpoints found (checkpoint branch does not exist)", file=sys.stderr)
         _print_repo_hint(checkpoint_repo)
         return 1
 
@@ -976,7 +976,7 @@ def cmd_show(args: argparse.Namespace) -> int:
                 checkpoint = load_checkpoint_from_ref(checkpoint_id, ref, repo_path)
 
     if not checkpoint:
-        print(f"No checkpoint found for '{identifier}'")
+        print(f"No checkpoint found for '{identifier}'", file=sys.stderr)
         return 1
 
     if args.json:
