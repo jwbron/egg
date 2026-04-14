@@ -49,4 +49,4 @@ make lint
 
 ## Tests
 
-Script-specific tests are in `scripts/tests/`.
+Script-specific tests are in `scripts/tests/` and `tests/scripts/`.
