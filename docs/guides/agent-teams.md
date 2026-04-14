@@ -94,6 +94,8 @@ Revision rounds are bounded: max 2 rounds (`max_revision_rounds`) per producer-r
 
 When a producer has proposed and received ACKs from all assigned reviewers, it broadcasts `CONSENSUS_CONFIRMED`. When a reviewer has ACKed all assigned producers, it broadcasts `CONSENSUS_CONFIRMED`. When all agents have confirmed, the orchestrator observes consensus and acts. The orchestrator does not *decide* consensus — it *observes* that all agents independently confirmed.
 
+**Persistence:** All BRC messages — including proposals, ACK/NACK rationales, artifact references, commit SHAs, and version metadata — are losslessly persisted to the PR branch at each phase boundary. The committed `.egg-state/brc-history/{identifier}-{phase}.md` (human-readable with YAML metadata blocks) and `.json` (machine-readable) files provide the authoritative record. The PR body itself inlines the final round's content so human reviewers see what was said during consensus directly on GitHub. See [Concurrent Execution — BRC History Persistence](concurrent-execution.md#brc-history-persistence) for format details.
+
 #### State Machines
 
 **Producer:**
