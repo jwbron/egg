@@ -209,8 +209,8 @@ Each agent tracks two state machines (producer and reviewer) independently:
 
 ### BRC Protocol Flow
 
-1. **Propose**: Producer completes work, commits and pushes to the remote branch, then sends `CONSENSUS_PROPOSE` with a summary, artifact list, and the pushed commit SHA (`--commit-sha`). The orchestrator rejects proposals whose commit SHA is confirmed absent from the branch (verification failures due to network errors are non-blocking).
-2. **Review**: Assigned reviewers discover proposals via polling. Before a reviewer has submitted their own evaluation, the Delphi filter delivers a **redacted** version of the `CONSENSUS_PROPOSE` message (`body` cleared, `metadata.payload` stripped except `version` and `commit_sha`, `metadata.delphi_redacted=True`). This notifies the reviewer that a proposal exists without exposing the producer's self-assessment. Reviewers must **sync their worktree** before reviewing (`git fetch origin && git merge origin/{branch} --no-edit`) to pull in the producer's pushed commits. After reviewing the git artifacts and submitting `CONSENSUS_ACK` or `CONSENSUS_NACK`, subsequent polls return the full unredacted message.
+1. **Propose**: Producer completes work, commits and pushes to the remote branch, then sends `CONSENSUS_PROPOSE` with a narrative summary (≥50 chars), artifact list, structured metadata (`--commit`, `--files-changed`, `--tests-run`, `--tasks`), and the pushed commit SHA (`--commit-sha`). The orchestrator validates that the summary meets the minimum content floor before accepting the proposal; proposals with empty, too-short, or boilerplate summaries are rejected with HTTP 400. The orchestrator also rejects proposals whose commit SHA is confirmed absent from the branch (verification failures due to network errors are non-blocking).
+2. **Review**: Assigned reviewers discover proposals via polling. Before a reviewer has submitted their own evaluation, the Delphi filter delivers a **redacted** version of the `CONSENSUS_PROPOSE` message (`body` cleared, `metadata.payload` stripped except `version` and `commit_sha`, `metadata.delphi_redacted=True`). This notifies the reviewer that a proposal exists without exposing the producer's self-assessment. Reviewers must **sync their worktree** before reviewing (`git fetch origin && git merge origin/{branch} --no-edit`) to pull in the producer's pushed commits. After reviewing the git artifacts and submitting `CONSENSUS_ACK` (with required `--reason` rationale) or `CONSENSUS_NACK`, subsequent polls return the full unredacted message. Both ACK and NACK reasons must meet the same minimum content floor (≥50 chars, no boilerplate).
 3. **Converge**: When all critical reviewers ACK, the producer sends `CONSENSUS_CONFIRMED`. When all agents are confirmed, the phase advances. Reviewers also call `CONSENSUS_CONFIRMED` after completing all reviews; the protocol enforces multiple guards in both the producer and reviewer confirmation paths (see [Action Guards](#action-guards) and [Deadlock Prevention Guards](#deadlock-prevention-guards) below).
 4. **Re-propose**: If a NACK is received, the producer addresses the feedback and re-proposes (with `changed_artifacts` to scope re-evaluation). Flip-flop cycles are capped at `max_flip_flops` (default: 3). If any reviewer had already confirmed on a prior proposal version, they automatically receive a `CONSENSUS_RE_REVIEW` message and are un-confirmed so they re-enter the review loop — preventing a deadlock where a stale-confirmed reviewer can never see the new proposal.
 
@@ -409,26 +409,40 @@ The redacted message preserves enough information for the reviewer to know *who*
 
 > **Why redact instead of withhold?** Previously, the filter dropped `CONSENSUS_PROPOSE` messages entirely from reviewers who hadn't evaluated the producer. This created a deadlock: reviewers waiting for a PROPOSE message to discover proposals never received one, because the filter withheld it until they reviewed. Redaction preserves the notification while protecting independent evaluation.
 
-Use `egg-orch consensus` commands to participate in the BRC protocol:
+Use `egg-orch consensus` commands to participate in the BRC protocol. All BRC messages must carry **substantive content** — the orchestrator enforces a minimum content floor (≥50 characters, no boilerplate phrases like "lgtm" or "looks good") and rejects non-substantive messages with HTTP 400 before any state mutation.
 
 ```bash
 # Producer: commit and push work, then propose for review (--commit-sha defaults to HEAD if omitted)
+# --summary must be ≥50 chars describing what was built, tested, and which tasks it satisfies
+# Structured args (--commit, --files-changed, --tests-run, --tasks) provide machine-readable metadata
 git add src/feature.py && git commit -m "Implement feature X"
-egg-orch consensus propose --push --summary "Implemented feature X" --artifacts src/feature.py --risk "No retry on transient failures" --commit-sha $(git rev-parse HEAD)
+egg-orch consensus propose --push \
+  --summary "Implemented feature X with input validation and retry logic. Covers task-1-1." \
+  --artifacts src/feature.py \
+  --commit $(git rev-parse HEAD) \
+  --files-changed src/feature.py src/utils.py \
+  --tests-run tests/test_feature.py \
+  --tasks task-1-1 \
+  --risk "No retry on transient failures" \
+  --commit-sha $(git rev-parse HEAD)
 # --push runs git push before sending the proposal; because the push is bundled with the
 # explicit proposal, auto re-propose is suppressed for that push (no redundant re-review).
 
 # Reviewer: sync worktree before reviewing (fetch producer's commits)
 git fetch origin && git merge origin/egg/feature-x --no-edit
 
-# Reviewer: ACK after reviewing
-egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py
+# Reviewer: ACK after reviewing (--reason is REQUIRED: what was read, what was checked, why the verdict follows)
+egg-orch consensus ack coder \
+  --files-reviewed src/feature.py tests/test_feature.py \
+  --reason "Reviewed src/feature.py: input validation covers null and empty cases, retry logic uses exponential backoff with max 3 attempts. Tests in test_feature.py verify both paths."
 
-# Reviewer: NACK with a reason
-egg-orch consensus nack coder --reason "Missing error handling in edge case" --files-reviewed src/feature.py
+# Reviewer: NACK with a reason (must be specific and actionable, ≥50 chars)
+egg-orch consensus nack coder \
+  --reason "Missing error handling in src/feature.py:42 — the retry loop has no max-attempt cap, risking infinite retries on persistent failures" \
+  --files-reviewed src/feature.py
 
-# Producer: withdraw proposal to address NACK feedback
-egg-orch consensus withdraw --reason "Addressing NACK: adding error handling"
+# Producer: withdraw proposal to address NACK feedback (reason must cite new information, ≥50 chars)
+egg-orch consensus withdraw --reason "Addressing NACK from reviewer_code: adding max-retry cap and exponential backoff to retry loop"
 
 # Producer: confirm after all reviewers ACK
 # Exit 0 = confirmed. Exit 1 = error. Exit 2 = waiting for reviewer re-ACKs (retry after polling).
@@ -437,6 +451,18 @@ egg-orch consensus confirmed
 # Check overall consensus status
 egg-orch consensus status
 ```
+
+#### Minimum Content Enforcement
+
+The orchestrator validates all BRC message content (propose summaries, ACK/NACK reasons, withdraw reasons) before accepting the signal. Messages that fail validation receive HTTP 400 with an actionable error message — no tracker or message store state is mutated.
+
+| Rule | Description |
+|------|-------------|
+| **Minimum length** | Content must be ≥50 characters after trimming whitespace |
+| **No empty content** | Whitespace-only or empty strings are rejected |
+| **No boilerplate** | Case-insensitive exact-match rejection of trivial phrases: "lgtm", "looks good", "no issues", "approved", "ok" |
+
+This enforcement ensures that ACKs carry the same deliberative weight as NACKs — previously, ACKs had no mechanism to carry rationale (the CLI had no `--reason` flag), so all ACK messages were guaranteed-empty by construction. The minimum content floor makes the content bar a protocol-level guarantee rather than an agent-discretion one.
 
 ### BRC History Persistence
 

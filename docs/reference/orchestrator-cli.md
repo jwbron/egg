@@ -213,20 +213,35 @@ The BRC (Broadcast-Review-Converge) protocol is used during concurrent execution
 **Consensus commands:**
 ```bash
 # Producer: propose work for review (commit SHA defaults to HEAD if omitted)
-egg-orch consensus propose --summary "Implemented feature X" --artifacts src/feature.py --commit-sha $(git rev-parse HEAD)
+# --summary is a narrative description (≥50 chars, no boilerplate); structured args provide machine-readable metadata
+egg-orch consensus propose --summary "Implemented feature X with retry logic and input validation" \
+  --artifacts src/feature.py \
+  --commit $(git rev-parse HEAD) \
+  --files-changed src/feature.py src/utils.py \
+  --tests-run tests/test_feature.py tests/test_utils.py \
+  --tasks task-1-1 task-1-2 \
+  --commit-sha $(git rev-parse HEAD)
 
 # Producer: push and propose atomically (required in concurrent mode, suppresses auto re-propose)
 # Sets consensus_push marker so the gateway allows the push through concurrent-mode enforcement
-egg-orch consensus propose --push --summary "Implemented feature X" --artifacts src/feature.py --commit-sha $(git rev-parse HEAD)
+egg-orch consensus propose --push --summary "Implemented feature X with retry logic and input validation" \
+  --artifacts src/feature.py \
+  --commit $(git rev-parse HEAD) \
+  --files-changed src/feature.py src/utils.py \
+  --tests-run tests/test_feature.py \
+  --tasks task-1-1 \
+  --commit-sha $(git rev-parse HEAD)
 
-# Reviewer: ACK a producer's proposal
-egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py
+# Reviewer: ACK a producer's proposal (--reason is required: what was read, what was checked, why the verdict follows)
+egg-orch consensus ack coder \
+  --files-reviewed src/feature.py tests/test_feature.py \
+  --reason "Reviewed src/feature.py: retry logic is correct with exponential backoff, input validation covers edge cases. Tests verify both happy path and error conditions."
 
 # Reviewer: NACK a producer's proposal
-egg-orch consensus nack coder --reason "Missing error handling" --files-reviewed src/feature.py
+egg-orch consensus nack coder --reason "Missing error handling in src/feature.py:42 — the retry loop does not cap attempts, risking infinite loops on persistent failures" --files-reviewed src/feature.py
 
 # Producer: withdraw proposal (requires reason citing new information)
-egg-orch consensus withdraw --reason "Addressing NACK: adding error handling"
+egg-orch consensus withdraw --reason "Addressing NACK: adding max-retry cap and exponential backoff to the retry loop in src/feature.py"
 
 # Agent: confirm after all reviews complete
 # Exit 0 = confirmed. Exit 1 = error. Exit 2 = waiting for reviewer re-ACKs (retry after polling).
@@ -236,16 +251,40 @@ egg-orch consensus confirmed
 egg-orch consensus status
 ```
 
+**Structured propose arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `--summary` | Yes | Narrative description of what was built, tested, and why (≥50 chars) |
+| `--artifacts` | No | Artifact file paths included in the proposal |
+| `--commit` | No | Commit SHA of the work (distinct from `--commit-sha` for proposal tracking) |
+| `--files-changed` | No | List of files modified in this work unit |
+| `--tests-run` | No | List of test files executed |
+| `--tasks` | No | Contract task IDs satisfied by this proposal (e.g., `task-1-1`) |
+| `--commit-sha` | No | Commit SHA pushed to the remote branch (defaults to HEAD) |
+| `--risk` | No | Risk considerations |
+| `--push` | No | Run `git push` before sending the proposal |
+
+**Minimum content requirements:**
+
+All BRC messages (propose, ACK, NACK, withdraw) must carry **substantive content** — the orchestrator enforces a minimum content floor and rejects messages that fail validation with HTTP 400:
+
+- **Length:** Summary/reason must be ≥50 characters after trimming whitespace
+- **No boilerplate:** Exact-match rejection of trivial strings like "lgtm", "looks good", "no issues", "approved", "ok" (case-insensitive)
+- **No empty content:** Whitespace-only or empty strings are rejected
+
+When a message is rejected, the error response includes an actionable message explaining why and what to fix. No state is mutated (no message written to the store, no tracker update) until validation passes.
+
 **Signal types for consensus:**
 
-| Signal type | Purpose |
-|-------------|---------|
-| `consensus_propose` | Producer proposes artifacts for review |
-| `consensus_ack` | Reviewer ACKs a producer's proposal |
-| `consensus_nack` | Reviewer NACKs a producer's proposal |
-| `consensus_withdraw` | Producer withdraws proposal (cooldown + flip-flop limits apply) |
-| `consensus_confirmed` | Agent confirms consensus (action guards enforced) |
-| `consensus_producer_push` | Triggers auto re-proposal when a producer pushes new commits after proposing — invalidates stale ACKs and notifies reviewers |
+| Signal type | Purpose | Content validated |
+|-------------|---------|-------------------|
+| `consensus_propose` | Producer proposes artifacts for review | `summary` (≥50 chars, no boilerplate) |
+| `consensus_ack` | Reviewer ACKs a producer's proposal | `reason` (≥50 chars, no boilerplate) |
+| `consensus_nack` | Reviewer NACKs a producer's proposal | `reason` (≥50 chars, no boilerplate) |
+| `consensus_withdraw` | Producer withdraws proposal (cooldown + flip-flop limits apply) | `reason` (≥50 chars, no boilerplate) |
+| `consensus_confirmed` | Agent confirms consensus (action guards enforced) | — |
+| `consensus_producer_push` | Triggers auto re-proposal when a producer pushes new commits after proposing — invalidates stale ACKs and notifies reviewers | — |
 
 The `consensus_producer_push` signal accepts `agent_role`, `commit_sha`, and optional `changed_files` parameters. When the producer is still in `WORKING` state, the signal is a no-op. See [Auto Re-Propose on Push/Commit](../guides/concurrent-execution.md#auto-re-propose-on-pushcommit).
 

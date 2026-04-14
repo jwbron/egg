@@ -76,11 +76,11 @@ This gives 5 directed review edges (4 critical + 1 advisory to documenter) for t
 
 **Phase 1 — Broadcast** (barrier sync)
 
-Each producer completes its work and broadcasts a `CONSENSUS_PROPOSE` to all peers. The proposal includes a summary of work done, artifacts produced, and per-role attestations (see [Reasoning Layer](#reasoning-evidence-backed-deliberation) below). The protocol waits until all producers have proposed (or times out and escalates missing agents).
+Each producer completes its work and broadcasts a `CONSENSUS_PROPOSE` to all peers. The proposal includes a narrative summary (≥50 chars), structured metadata (`--commit`, `--files-changed`, `--tests-run`, `--tasks`), artifact paths, and per-role attestations (see [Reasoning Layer](#reasoning-evidence-backed-deliberation) below). The protocol waits until all producers have proposed (or times out and escalates missing agents).
 
 **Phase 2 — Review** (asymmetric ack)
 
-Each reviewer evaluates proposals from its assigned producers and sends `CONSENSUS_ACK` (agree, with artifact references) or `CONSENSUS_NACK` (disagree, with structured reason and artifact references). A NACK drops the producer back to WORKING — the producer addresses the concern and re-proposes.
+Each reviewer evaluates proposals from its assigned producers and sends `CONSENSUS_ACK` (agree, with artifact references and substantive rationale via `--reason`) or `CONSENSUS_NACK` (disagree, with structured reason and artifact references). Both ACKs and NACKs must carry substantive content (≥50 characters, no boilerplate) — the orchestrator enforces this at the protocol boundary. A NACK drops the producer back to WORKING — the producer addresses the concern and re-proposes.
 
 Producers can also withdraw their own proposal by sending `CONSENSUS_WITHDRAW`, which returns them to WORKING. Withdrawal must cite specific new information justifying the retraction (e.g., discovering a failing test or a design flaw after proposing). This is a commitment device — withdrawal without justification is rejected.
 
@@ -155,8 +155,8 @@ The reasoning layer ensures agents don't just signal states — they make **stru
 
 | Role | Required attestation |
 |------|---------------------|
-| Reviewer (code) | Files reviewed (specific paths), issues found + resolved count, one risk considered |
-| Reviewer (contract) | Tasks verified (specific IDs), acceptance criteria checked, gaps identified |
+| Reviewer (code) | Files reviewed (specific paths via `--files-reviewed`), substantive rationale (via `--reason`: what was read, what was checked, why the verdict follows), issues found + resolved count, one risk considered |
+| Reviewer (contract) | Tasks verified (specific IDs), acceptance criteria checked, gaps identified, substantive rationale (via `--reason`) |
 
 #### Cheap Talk vs Costly Signals
 
@@ -165,11 +165,13 @@ Not all messages need the same rigor:
 | Message type | Signal cost | Rationale |
 |-------------|-------------|-----------|
 | STATUS, PROGRESS | Cheap talk | Low overhead, informative when interests are aligned |
-| CONSENSUS_PROPOSE | Costly signal | Attestations are harder to produce without doing the work |
-| CONSENSUS_ACK | Costly signal | Must reference specific artifacts reviewed (prevents rubber-stamping) |
+| CONSENSUS_PROPOSE | Costly signal | Attestations are harder to produce without doing the work. Structured args (`--commit`, `--files-changed`, `--tests-run`, `--tasks`) provide machine-readable metadata alongside the narrative summary. |
+| CONSENSUS_ACK | Costly signal | Must reference specific artifacts reviewed AND provide substantive rationale via `--reason` (what was read, what was checked, why the verdict follows). Previously ACKs carried empty bodies by construction — the CLI had no `--reason` flag. |
 | CONSENSUS_NACK | Costly signal | Must include specific, actionable objection with artifact references |
 
 This distinction comes from game theory: cheap talk (Crawford & Sobel, 1982) works when interests are fully aligned, but LLM agents are *unreliable communicators* — they may genuinely believe bad work is good. Costly signals (requiring verifiable evidence) address this.
+
+The orchestrator enforces a **minimum content floor** on all four BRC signal types (propose, ACK, NACK, withdraw): content must be ≥50 characters, non-empty, and not match trivial boilerplate phrases (e.g., "lgtm", "looks good"). Messages that fail validation are rejected with HTTP 400 before any state mutation — this makes the content bar a protocol-level guarantee, not an agent-discretion one.
 
 #### Anti-Sycophancy Measures
 
@@ -177,11 +179,15 @@ Research (CONSENSAGENT, ACL 2025) shows LLM agents exhibit strong sycophancy in 
 
 1. **Artifact reference requirement.** ACKs and NACKs must cite specific file paths, line numbers, commit SHAs, or test names. Generic "looks good" is rejected by schema validation. This is the primary anti-sycophancy mechanism — citing specific artifacts is mechanically hard to satisfy without doing the work.
 
-2. **Delphi ordering.** Reviewers form independent judgments from git artifacts before seeing the producer's self-assessment.
+2. **Mandatory ACK rationale.** The `--reason` flag on `egg-orch consensus ack` is required. Previously, ACKs had no mechanism to carry rationale — the CLI had no `--reason` flag, so ACK message bodies were guaranteed-empty by construction. Reviewers must now articulate what they read, what they checked, and why their verdict follows.
 
-3. **Critical thinking prompt.** Every proposal/review must include "one risk I considered." This is a secondary measure — easy to satisfy with generic output and should not be weighted equally.
+3. **Minimum content floor.** The orchestrator rejects all BRC messages (propose, ACK, NACK, withdraw) whose content is empty, shorter than 50 characters, or matches trivial boilerplate phrases ("lgtm", "looks good", "no issues", "approved", "ok"). This is enforced at the protocol boundary with HTTP 400 — no state mutation occurs on rejection.
 
-4. **Dynamic prompt refinement.** Evolve prompts based on observed rubber-stamping patterns rather than relying solely on procedural rules.
+4. **Delphi ordering.** Reviewers form independent judgments from git artifacts before seeing the producer's self-assessment.
+
+5. **Critical thinking prompt.** Every proposal/review must include "one risk I considered." This is a secondary measure — easy to satisfy with generic output and should not be weighted equally.
+
+6. **Dynamic prompt refinement.** Evolve prompts based on observed rubber-stamping patterns rather than relying solely on procedural rules.
 
 ## Consensus Failure Modes
 
