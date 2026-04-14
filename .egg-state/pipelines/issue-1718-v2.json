@@ -45,10 +45,10 @@
   "phases": {
     "implement": {
       "phase": "implement",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-04-14T02:38:52.034119Z",
       "work_started_at": "2026-04-14T02:38:55.442879Z",
-      "completed_at": null,
+      "completed_at": "2026-04-14T02:53:12.976307Z",
       "containers": [
         {
           "container_id": "cbff92ac7b181815c0dc61012151deb213dd41d77788f1a2a0f7b4030c31098a",
@@ -169,28 +169,28 @@
         {
           "cycle": 0,
           "started_at": "2026-04-14T02:38:55.442879Z",
-          "completed_at": null,
+          "completed_at": "2026-04-14T02:53:12.976286Z",
           "commit_sha": "493cf680b3d28857bd9b6b4741d4fee95c56e46f"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-14T02:53:10.656735954Z     Status: healthy\n2026-04-14T02:53:10.656760204Z     GitHub token valid: True\n2026-04-14T02:53:10.656785037Z     Auth configured: True\n2026-04-14T02:53:10.656809454Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-14T02:53:10.656835079Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-14T02:53:10.656861579Z   Credentials injected by gateway (not in container)\n2026-04-14T02:53:10.656886621Z Signaled error to orchestrator\n2026-04-14T02:53:10.656911162Z \n2026-04-14T02:53:10.656934704Z Cleaning up on container exit...\n2026-04-14T02:53:10.656959454Z ✓ Cleanup complete",
       "hitl_feedback": null,
       "phase_start_sha": "493cf680b3d28857bd9b6b4741d4fee95c56e46f"
     }
   },
   "decisions": [],
   "created_at": "2026-04-14T02:38:21.049248Z",
-  "updated_at": "2026-04-14T02:53:12.957364Z",
+  "updated_at": "2026-04-14T02:53:12.976379Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
-  "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-14T02:53:10.656735954Z     Status: healthy\n2026-04-14T02:53:10.656760204Z     GitHub token valid: True\n2026-04-14T02:53:10.656785037Z     Auth configured: True\n2026-04-14T02:53:10.656809454Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-14T02:53:10.656835079Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-14T02:53:10.656861579Z   Credentials injected by gateway (not in container)\n2026-04-14T02:53:10.656886621Z Signaled error to orchestrator\n2026-04-14T02:53:10.656911162Z \n2026-04-14T02:53:10.656934704Z Cleaning up on container exit...\n2026-04-14T02:53:10.656959454Z ✓ Cleanup complete",
   "analysis": "## Analysis — Issue #1718\n\n### Problem\nDuring BRC consensus, agents have no clear structured path to coordinate with peers. The `egg-orch message send` CLI exists but the BRC preamble never tells agents to use it.\n\n### Files affected\n- `orchestrator/routes/pipelines.py` — extend `_build_brc_preamble` (~5251) with directed coordination guidance\n- `sandbox/egg_lib/orch_cli.py:1782` — update `--type` help text to include `HANDOFF`\n- `docs/guides/concurrent-execution.md` — add directed coordination subsection with worked example\n- `orchestrator/tests/test_pipeline_prompts.py` — add test asserting BRC preamble contains new guidance",
   "plan": "# Plan: Teach agents to use directed BRC messaging\n\n## Summary\n\nAdd prompt-level guidance in `_build_brc_preamble` for HANDOFF/QUESTION/STATUS. Fix CLI help text, add docs with worked example, add prompt test.\n\n## Implementation\n\n### Phase 1: Implement\n\n**Tasks**:\n1. **[task-1-1]** Extend `_build_brc_preamble` with role-gated directed coordination guidance.\n2. **[task-1-2]** Update `--type` help text to include `HANDOFF`.\n3. **[task-1-3]** Add \"Directed Coordination\" subsection to concurrent-execution guide.\n4. **[task-1-4]** Add prompt test asserting guidance is injected.\n\n```yaml\n# yaml-tasks\npr:\n  title: \"Teach agents to use directed BRC messages for coordination (#1718)\"\n  description: |\n    Resolves #1718. Adds prompt-level guidance for directed peer-to-peer coordination,\n    fixes CLI --type help text, and documents the pattern with a worked example.\n  test_plan: |\n    - Automated: new prompt test asserts `_build_brc_preamble` contains `egg-orch message send` and `HANDOFF`\n    - Manual: run `egg-orch message send --help` and confirm `HANDOFF` appears\n    - Manual: read `docs/guides/concurrent-execution.md` new section\n  manual_steps: |\n    Pre-merge: none.\n    Post-merge: none.\nphases:\n  - id: 1\n    name: Implement\n    goal: \"Agents know via BRC preamble when to use egg-orch message send for directed coordination.\"\n    tasks:\n      - id: task-1-1\n        description: \"Extend `_build_brc_preamble` in `orchestrator/routes/pipelines.py` with role-gated directed coordination guidance for HANDOFF/QUESTION/STATUS.\"\n        acceptance: \"Preamble for producer contains `egg-orch message send` and `HANDOFF`; reviewer contains `QUESTION` guidance.\"\n        files:\n          - orchestrator/routes/pipelines.py\n      - id: task-1-2\n        description: \"Update `--type` help text in `sandbox/egg_lib/orch_cli.py:1782` to include `HANDOFF`.\"\n        acceptance: \"Help text lists HANDOFF.\"\n        files:\n          - sandbox/egg_lib/orch_cli.py\n      - id: task-1-3\n        description: \"Add 'Directed Coordination' subsection to `docs/guides/concurrent-execution.md` with CLI form, use cases, and coder-to-tester worked example.\"\n        acceptance: \"Guide contains new section with CLI example and worked example.\"\n        files:\n          - docs/guides/concurrent-execution.md\n      - id: task-1-4\n        description: \"Add test in `orchestrator/tests/test_pipeline_prompts.py` asserting BRC preamble contains directed coordination guidance.\"\n        acceptance: \"Test passes; fails if task-1-1 reverted.\"\n        files:\n          - orchestrator/tests/test_pipeline_prompts.py\n```\n",
   "source_branch": "egg/issue-1718",
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13
+  "version": 14
 }
