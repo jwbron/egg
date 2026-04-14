@@ -233,20 +233,28 @@ The BRC (Broadcast-Review-Converge) protocol is used during concurrent execution
 **Consensus commands:**
 ```bash
 # Producer: propose work for review (commit SHA defaults to HEAD if omitted)
-egg-orch consensus propose --summary "Implemented feature X" --artifacts src/feature.py --commit-sha $(git rev-parse HEAD)
+# --summary must be ≥50 chars of substantive content (what was built, tested, which tasks satisfied)
+# --files-changed, --tests-run, --tasks are optional but recommended for traceability
+egg-orch consensus propose --summary "Implemented feature X with JWT validation and session management. All contract tasks satisfied." \
+  --artifacts src/feature.py --files-changed src/feature.py --tests-run tests/test_feature.py \
+  --tasks task-1-1 task-1-2 --commit-sha $(git rev-parse HEAD)
 
 # Producer: push and propose atomically (required in concurrent mode, suppresses auto re-propose)
 # Sets consensus_push marker so the gateway allows the push through concurrent-mode enforcement
-egg-orch consensus propose --push --summary "Implemented feature X" --artifacts src/feature.py --commit-sha $(git rev-parse HEAD)
+egg-orch consensus propose --push --summary "Implemented feature X with JWT validation and session management. All contract tasks satisfied." \
+  --artifacts src/feature.py --files-changed src/feature.py --tests-run tests/test_feature.py \
+  --tasks task-1-1 task-1-2 --commit-sha $(git rev-parse HEAD)
 
 # Reviewer: ACK a producer's proposal
-egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py
+# --reason is required and must be ≥50 chars: what was read, what was checked, why the verdict follows
+egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
+  --reason "Reviewed src/feature.py lines 10-85: token validation handles expiry and invalid signatures. Tests cover all branches."
 
 # Reviewer: NACK a producer's proposal
-egg-orch consensus nack coder --reason "Missing error handling" --files-reviewed src/feature.py
+egg-orch consensus nack coder --reason "Missing error handling in edge case on line 42 of src/feature.py" --files-reviewed src/feature.py
 
 # Producer: withdraw proposal (requires reason citing new information)
-egg-orch consensus withdraw --reason "Addressing NACK: adding error handling"
+egg-orch consensus withdraw --reason "Addressing NACK: adding retry logic for transient HTTP failures in src/feature.py"
 
 # Agent: confirm after all reviews complete
 # Exit 0 = confirmed. Exit 1 = error. Exit 2 = waiting for reviewer re-ACKs (retry after polling).
