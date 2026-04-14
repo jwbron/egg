@@ -339,9 +339,12 @@ The refine and plan phases include an automated internal review step before huma
 │   ├── {identifier}-analysis.md     # Refine phase draft (preserved on PR branch)
 │   └── {identifier}-plan.md         # Plan phase draft (preserved on PR branch)
 ├── brc-history/
-│   ├── {identifier}-refine.md       # BRC consensus messages from refine phase
-│   ├── {identifier}-plan.md         # BRC consensus messages from plan phase
-│   └── {identifier}-implement.md    # BRC consensus messages from implement phase
+│   ├── {identifier}-refine.md       # BRC consensus messages from refine phase (human-readable, with YAML metadata)
+│   ├── {identifier}-refine.json     # BRC consensus messages from refine phase (machine-readable)
+│   ├── {identifier}-plan.md         # BRC consensus messages from plan phase (human-readable, with YAML metadata)
+│   ├── {identifier}-plan.json       # BRC consensus messages from plan phase (machine-readable)
+│   ├── {identifier}-implement.md    # BRC consensus messages from implement phase (human-readable, with YAML metadata)
+│   └── {identifier}-implement.json  # BRC consensus messages from implement phase (machine-readable)
 └── reviews/
     ├── {identifier}-refine-refine-review.json        # Refine review verdict
     ├── {identifier}-refine-agent-design-review.json   # Agent-design review verdict
@@ -426,7 +429,7 @@ This structural enforcement prevents incidents where agents push code during pla
 | `.egg/phase-permissions.json` | Phase operation restrictions | `main` |
 | `.egg-state/contracts/` | Per-issue contract instances | Feature branches only |
 | `.egg-state/drafts/` | Draft analysis and plan documents (preserved on PR branch for review) | Feature branches only |
-| `.egg-state/brc-history/` | Per-phase BRC consensus message logs (re-written in PR phase as safety net) | Feature branches only |
+| `.egg-state/brc-history/` | Per-phase BRC consensus message logs — `.md` (human-readable with YAML metadata) and `.json` (machine-readable) per phase (re-written in PR phase as safety net) | Feature branches only |
 | `.egg-state/reviews/` | Internal review verdicts (JSON) | Feature branches only |
 
 ### Conflict-Resistant Contract Updates
@@ -907,7 +910,7 @@ Default checks for each phase are defined in `shared/egg_contracts/phase_default
 
 **PR phase:**
 - No checks
-- PR is auto-created by the orchestrator (no agent spawned). The PR title and description are sourced from the contract's `pr` field (populated by the plan agent), with commit log and diff stats appended automatically. When BRC consensus was active, a **BRC Consensus Summary** section is included in the PR body showing per-phase agent participation, proposal/ACK/NACK counts, and consensus outcomes.
+- PR is auto-created by the orchestrator (no agent spawned). The PR title and description are sourced from the contract's `pr` field (populated by the plan agent), with commit log and diff stats appended automatically. When BRC consensus was active, a **BRC Consensus Summary** section is included in the PR body showing per-phase agent participation, message counts, consensus status, and **inline content from the final consensus round** — the full proposal body and all ACK/NACK rationales are shown directly in the PR body, with older rounds collapsed in `<details>` blocks. Each phase block links to the committed `.egg-state/brc-history/` artifacts (`.md` and `.json`) for the full record. See [Concurrent Execution — BRC Consensus Summary in PR Body](concurrent-execution.md#brc-consensus-summary-in-pr-body) for details.
 - **BRC history safety net**: Before PR creation, the orchestrator re-writes BRC history files for all completed phases via `_write_brc_history()`. This is a safety net — BRC history is normally written at each phase boundary, but per-phase pushes can fail silently. Re-writing in the PR phase ensures BRC history files are always present in the PR diff. All functions in this chain emit INFO-level diagnostic logs at entry, exit, and each early-return path (see [PR-Phase State File Troubleshooting](#pr-phase-state-file-troubleshooting)).
 - **Draft preservation**: Pipeline-specific draft files (`.egg-state/drafts/{id}-analysis.md`, `.egg-state/drafts/{id}-plan.md`) are **preserved** on the PR branch as artifacts of the pipeline's reasoning. Reviewers can compare the planned approach against the shipped code, and post-hoc debugging has the analysis and plan available as a baseline (see #1713). The PR phase used to remove these files to keep diffs focused; that behavior was reverted because the audit value outweighs the diff noise.
 - If PR creation returns no URL, the pipeline is marked **FAILED** immediately. The overseer also runs a safety-net check at pipeline completion: if `current_phase=pr` but no `pr_url` is in the phase artifacts, it creates a HITL decision and Slack notification to prevent stranded branch work from going unnoticed.
@@ -1471,7 +1474,7 @@ Look for these log entries in chronological order:
    - `_write_brc_history: early return — message store unavailable` — The message store factory returned `None`.
    - `_write_brc_history: early return — failed to retrieve messages` — Exception calling `store.get_messages()`. Includes `error` detail.
    - `_write_brc_history: early return — no messages in store` — Store returned an empty list.
-   - `_write_brc_history: early return — no BRC messages for phase` — Messages exist but none match `CONSENSUS_*` types for the specified phase. Includes `total_messages` count.
+   - `_write_brc_history: early return — no BRC messages for phase` — Messages exist but none match `BRC_HISTORY_TYPES` (the `CONSENSUS_*` types plus `STATUS`, `HANDOFF`, `QUESTION`, `AGENT_FAILED`, `NUDGE`, `OVERSEER_ALERT`) for the specified phase. Includes `total_messages` count.
 4. `Wrote BRC history file` — The history file was written to disk. Includes `path` and `message_count`. If this log is missing after step 2, an early-return was taken (check step 3).
 5. `_commit_statefiles_to_worktree: glob match results` — Shows `match_count` and `matched_paths` for `.egg-state/` files found by the pipeline-scoped glob. If `match_count` is 0, the BRC history file was not written to disk (check step 4 above).
 6. `_commit_statefiles_to_worktree: nothing staged — skipping commit` — The `git diff --cached --quiet` check returned 0, meaning `git add --force` did not stage anything. Possible causes: file permissions, `.gitignore` override, or the file was already committed identically.
