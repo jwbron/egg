@@ -835,6 +835,90 @@ class TestRestartPhaseLaunchesPollingThread:
         assert len(agents) == 3
         assert set(agents) == {"coder", "tester", "documenter"}
 
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_deletes_per_agent_worktrees(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
+    ):
+        """Phase restart must delete per-agent worktrees before respawning.
+
+        Regression test for #1723: without worktree cleanup, stale/broken
+        btrfs mounts survive container removal and cause respawned containers
+        to get invalid worktrees.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 200
+
+        # Verify delete_worktrees was called for each agent role
+        delete_calls = mock_spawner.gateway.delete_worktrees.call_args_list
+        deleted_ids = {
+            call.kwargs.get("container_id", call.args[0] if call.args else None)
+            for call in delete_calls
+        }
+        expected_ids = {
+            "issue-200-coder",
+            "issue-200-tester",
+            "issue-200-documenter",
+        }
+        assert expected_ids.issubset(deleted_ids), (
+            f"Expected worktree deletion for {expected_ids}, got {deleted_ids}"
+        )
+        # All calls should use force=True
+        for call in delete_calls:
+            assert call.kwargs.get("force") is True, (
+                "Expected force=True for worktree deletion during phase restart"
+            )
+
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_worktree_deletion_failure_is_nonfatal(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
+    ):
+        """Worktree deletion failure during phase restart must not abort the restart.
+
+        The deletion is best-effort — if it fails (e.g. gateway down), the
+        restart should still proceed.  The gateway's create_worktree has its
+        own defensive cleanup for stale directories.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.gateway.delete_worktrees.side_effect = RuntimeError("Gateway unavailable")
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        # Should still succeed despite worktree deletion failures
+        assert response.status_code == 200
+
 
 # ---------------------------------------------------------------------------
 # Test: _run_pipeline marks pipeline FAILED on fatal error (restart path)

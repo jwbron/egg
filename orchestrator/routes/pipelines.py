@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
+import yaml
+
 try:
     from docker.errors import DockerException
 except ImportError:
@@ -1666,6 +1668,27 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
                 error=str(e),
             )
 
+    # 4b. Delete per-agent worktrees so respawned containers get fresh mounts.
+    #     Without this, stale worktree directories (e.g. broken btrfs mounts)
+    #     survive container removal and cause create_worktree to skip creation
+    #     or fail.  Mirrors cleanup_pipeline's worktree deletion.  (#1723)
+    for role in agent_roles:
+        agent_worktree_id = f"{pipeline_id}-{role.value}"
+        try:
+            spawner.gateway.delete_worktrees(container_id=agent_worktree_id, force=True)
+            logger.info(
+                "Deleted per-agent worktree during phase restart",
+                agent_worktree_id=agent_worktree_id,
+                pipeline_id=pipeline_id,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to delete per-agent worktree during phase restart",
+                agent_worktree_id=agent_worktree_id,
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+
     # 5. Reset consensus state
     try:
         try:
@@ -2438,126 +2461,6 @@ def _cleanup_stale_generic_drafts(worktree_path: Path) -> bool:
                 error=str(commit_err),
             )
 
-    return False
-
-
-def _cleanup_drafts_for_pr(
-    worktree_path: Path,
-    pipeline_identifier: int | str,
-) -> bool:
-    """Remove pipeline-scoped draft files before PR creation.
-
-    Finds files matching ``{pipeline_identifier}-*.md`` in
-    ``.egg-state/drafts/`` and removes them with ``git rm`` so the PR
-    diff is focused on code changes rather than intermediate drafts.
-
-    Uses ``git rm -f --ignore-unmatch`` for each matching file so the
-    call is safe when files are already absent or untracked.  Commits
-    the removal as a single commit when any tracked files were staged.
-
-    Safe to call when the drafts directory does not exist (no-op).
-
-    Returns ``True`` if a commit was made, ``False`` otherwise.
-    """
-    pid = str(pipeline_identifier)
-    drafts_dir = worktree_path / ".egg-state" / "drafts"
-
-    logger.info(
-        "_cleanup_drafts_for_pr: entering",
-        pipeline_identifier=pid,
-    )
-
-    if not drafts_dir.is_dir():
-        logger.info(
-            "_cleanup_drafts_for_pr: no drafts directory — skipping",
-            pipeline_identifier=pid,
-        )
-        return False
-
-    matches = list(drafts_dir.glob(f"{pid}-*.md"))
-    logger.info(
-        "_cleanup_drafts_for_pr: matched drafts",
-        pipeline_identifier=pid,
-        match_count=len(matches),
-        matched_files=[m.name for m in matches[:20]],
-        truncated=len(matches) > 20,
-    )
-    if not matches:
-        logger.info(
-            "_cleanup_drafts_for_pr: no matching drafts — exiting",
-            pipeline_identifier=pid,
-        )
-        return False
-
-    git_base = [
-        "git",
-        "-c",
-        "core.hooksPath=/dev/null",
-        "-c",
-        f"safe.directory={worktree_path}",
-        "-C",
-        str(worktree_path),
-    ]
-    removed = False
-
-    for draft in matches:
-        logger.info(
-            "Removing pipeline draft for PR",
-            path=str(draft),
-        )
-        try:
-            subprocess.run(
-                [*git_base, "rm", "-f", "--ignore-unmatch", str(draft.relative_to(worktree_path))],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=10,
-            )
-            logger.info(
-                "_cleanup_drafts_for_pr: git rm succeeded",
-                path=str(draft.relative_to(worktree_path)),
-            )
-            removed = True
-        except subprocess.CalledProcessError as exc:
-            logger.warning(
-                "git rm failed for pipeline draft, falling back to unlink",
-                path=str(draft),
-                error=str(exc),
-            )
-            draft.unlink(missing_ok=True)
-
-    if removed:
-        try:
-            subprocess.run(
-                [
-                    *git_base,
-                    "commit",
-                    "--no-verify",
-                    "-m",
-                    f"Remove pipeline draft files for {pid}",
-                ],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=30,
-            )
-            logger.info(
-                "_cleanup_drafts_for_pr: commit succeeded",
-                pipeline_identifier=pid,
-            )
-            return True
-        except subprocess.CalledProcessError as commit_err:
-            logger.warning(
-                "_cleanup_drafts_for_pr: commit failed — no changes to commit after draft cleanup",
-                pipeline_identifier=pid,
-                error=str(commit_err),
-            )
-
-    logger.info(
-        "_cleanup_drafts_for_pr: exiting without commit",
-        pipeline_identifier=pid,
-        removed=removed,
-    )
     return False
 
 
@@ -4206,7 +4109,7 @@ def _handle_pr_creation_failure(
         store.save_pipeline(pipeline)
 
 
-BRC_MESSAGE_TYPES = frozenset(
+BRC_SUMMARY_TYPES = frozenset(
     {
         "CONSENSUS_PROPOSE",
         "CONSENSUS_ACK",
@@ -4216,6 +4119,20 @@ BRC_MESSAGE_TYPES = frozenset(
         "CONSENSUS_RE_REVIEW",
     }
 )
+
+BRC_HISTORY_TYPES = BRC_SUMMARY_TYPES | frozenset(
+    {
+        "STATUS",
+        "HANDOFF",
+        "QUESTION",
+        "AGENT_FAILED",
+        "NUDGE",
+        "OVERSEER_ALERT",
+    }
+)
+
+# Backward-compatible alias for external callers
+BRC_MESSAGE_TYPES = BRC_SUMMARY_TYPES
 
 
 def _get_message_store():
@@ -4286,7 +4203,7 @@ def _write_brc_history(
         )
         return
 
-    brc_messages = [m for m in messages if m.message_type in BRC_MESSAGE_TYPES and m.phase == phase]
+    brc_messages = [m for m in messages if m.message_type in BRC_HISTORY_TYPES and m.phase == phase]
     if not brc_messages:
         logger.info(
             "_write_brc_history: early return — no BRC messages for phase",
@@ -4296,27 +4213,85 @@ def _write_brc_history(
         )
         return
 
-    # Format as markdown
+    # Format as markdown.  `Generated:` is derived from the latest
+    # message timestamp (not wall-clock time) so regenerating the
+    # file from the same message set produces byte-identical output.
+    # This keeps the PR-phase safety-net rewrite
+    # (_rewrite_brc_history_for_pr) idempotent: when no new BRC
+    # messages arrived between phase completion and PR creation,
+    # the rewritten file matches the previous commit and the
+    # follow-up commit is skipped by _commit_statefiles_to_worktree.
+    # See #1714.
+    message_timestamps = [m.timestamp for m in brc_messages if m.timestamp is not None]
+    if message_timestamps:
+        generated_str = max(message_timestamps).strftime("%Y-%m-%dT%H:%M:%SZ")
+    else:
+        generated_str = "unknown"
     lines: list[str] = []
-    now_str = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     lines.append(f"# BRC Consensus History — {phase} phase")
     lines.append("")
-    lines.append(f"Generated: {now_str}")
+    lines.append(f"Generated: {generated_str}")
     lines.append(f"Pipeline: {pipeline_id}")
     lines.append("")
 
     for msg in brc_messages:
         ts = msg.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if msg.timestamp else "unknown"
-        lines.append(f"### [{ts}] {msg.from_role} ({msg.message_type}): {msg.subject}")
+        # Include to_role for directed messages (not broadcast "all")
+        if msg.to_role and msg.to_role != "all":
+            header = (
+                f"### [{ts}] {msg.from_role} → {msg.to_role} ({msg.message_type}): {msg.subject}"
+            )
+        else:
+            header = f"### [{ts}] {msg.from_role} ({msg.message_type}): {msg.subject}"
+        lines.append(header)
         if msg.body:
             lines.append("")
             lines.append(msg.body)
+
+        # Emit a YAML metadata block with id, phase, and non-empty metadata
+        meta_block: dict[str, Any] = {}
+        if msg.id:
+            meta_block["id"] = msg.id
+        if msg.phase:
+            meta_block["phase"] = msg.phase
+        if msg.metadata:
+            meta_block["metadata"] = msg.metadata
+        if meta_block:
+            lines.append("")
+            lines.append("````yaml")
+            lines.append(
+                yaml.safe_dump(meta_block, sort_keys=False, default_flow_style=False).rstrip()
+            )
+            lines.append("````")
         lines.append("")
 
     history_dir = worktree_path / ".egg-state" / "brc-history"
     history_dir.mkdir(parents=True, exist_ok=True)
     history_file = history_dir / f"{identifier}-{phase}.md"
-    history_file.write_text("\n".join(lines))
+
+    # Write the markdown history file
+    try:
+        history_file.write_text("\n".join(lines))
+    except Exception as md_err:
+        logger.warning(
+            "Failed to write BRC history markdown file",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            error=str(md_err),
+        )
+
+    # Write a JSON companion artifact containing the full message dicts
+    json_file = history_dir / f"{identifier}-{phase}.json"
+    try:
+        json_data = [msg.to_dict() for msg in brc_messages]
+        json_file.write_text(json.dumps(json_data, indent=2, default=str))
+    except Exception as json_err:
+        logger.warning(
+            "Failed to write BRC history JSON companion file",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            error=str(json_err),
+        )
 
     logger.info(
         "Wrote BRC history file",
@@ -4405,9 +4380,8 @@ def _reconcile_and_push_pr_branch(
 
     The PR-phase worktree is checked out from ``origin/{branch}`` at phase
     entry, then has local-only commits layered on top (BRC history rewrite
-    and draft cleanup via :func:`_rewrite_brc_history_for_pr` and
-    :func:`_cleanup_drafts_for_pr`). Between the worktree checkout and this
-    push, the remote tip can advance — for example from checkpoint-handler
+    via :func:`_rewrite_brc_history_for_pr`). Between the worktree checkout
+    and this push, the remote tip can advance — for example from checkpoint-handler
     pushes or concurrent agent activity — leaving the worktree behind its
     remote and causing the non-fast-forward ``HEAD:refs/heads/{branch}``
     push to be rejected (see #1706).
@@ -4549,17 +4523,60 @@ def _reconcile_and_push_pr_branch(
     return retry_ok
 
 
-def _build_brc_consensus_summary(pipeline_id: str) -> str:
-    """Build a concise BRC consensus summary for the PR body.
+def _msg_version(m: Any) -> int:
+    """Extract the integer version from a BRC message's metadata."""
+    v = (m.metadata or {}).get("version", 0)
+    if not isinstance(v, int):
+        try:
+            v = int(v)
+        except (ValueError, TypeError):
+            v = 0
+    return v
+
+
+def _extract_body_text(m: Any, max_length: int) -> str:
+    """Extract display body text from a BRC message.
+
+    For NACK messages without a body, falls back to metadata.payload.reason.
+    Truncates to *max_length* chars with a pointer to the full history file.
+    """
+    body_text = m.body or ""
+    if m.message_type == "CONSENSUS_NACK" and not body_text:
+        payload = (m.metadata or {}).get("payload", {})
+        if isinstance(payload, dict):
+            body_text = payload.get("reason", "")
+    if body_text and len(body_text) > max_length:
+        body_text = body_text[:max_length] + "… _(full content in brc-history/*.md)_"
+    return body_text
+
+
+def _build_brc_consensus_summary(
+    pipeline_id: str,
+    identifier: int | str | None = None,
+) -> str:
+    """Build a BRC consensus summary for the PR body with inline content.
 
     Retrieves BRC messages from the message store, groups by phase, and
-    produces a summary showing agent roles, message counts, and whether
-    consensus was reached per phase.
+    produces a summary showing agent roles, message counts, whether
+    consensus was reached per phase, and the final-round proposal body
+    and ACK/NACK rationales inline.  Older rounds are wrapped in
+    ``<details>`` blocks.  Each phase block ends with a link to the
+    committed ``.egg-state/brc-history/`` artifacts.
 
     Returns an empty string if no BRC messages exist or the message store
-    is unavailable.  Output is capped at ~2000 characters by truncating
+    is unavailable.  Output is capped at ~40000 characters by truncating
     at phase-block boundaries to avoid broken markdown.
+
+    Args:
+        pipeline_id: The pipeline ID to retrieve messages for.
+        identifier: The pipeline identifier for artifact link filenames.
+            When ``None``, artifact links are omitted.
     """
+    _MAX_BODY_INLINE = 2000  # Max chars for an individual inlined body
+    # GitHub's PR body limit is 65,536 chars.  40k leaves room for the PR
+    # description, test plan, pipeline context, and other sections.
+    _TOTAL_CAP = 40000
+
     store_fn = _get_message_store()
     if store_fn is None:
         return ""
@@ -4570,7 +4587,7 @@ def _build_brc_consensus_summary(pipeline_id: str) -> str:
     except Exception:
         return ""
 
-    brc_messages = [m for m in messages if m.message_type in BRC_MESSAGE_TYPES]
+    brc_messages = [m for m in messages if m.message_type in BRC_SUMMARY_TYPES]
     if not brc_messages:
         return ""
 
@@ -4614,6 +4631,64 @@ def _build_brc_consensus_summary(pipeline_id: str) -> str:
             block_lines.append(f"  {' · '.join(counts)}")
         consensus_str = "✅ Consensus reached" if all_confirmed else "⏳ Consensus not reached"
         block_lines.append(f"  {consensus_str}")
+
+        # Determine the final round (highest version number in proposals)
+        propose_versions: list[tuple[int, Any]] = []
+        for m in phase_msgs:
+            if m.message_type == "CONSENSUS_PROPOSE":
+                propose_versions.append((_msg_version(m), m))
+
+        final_version = max((v for v, _ in propose_versions), default=0) if propose_versions else 0
+
+        # Collect final-round messages and earlier-round messages
+        final_round_msgs: list[Any] = []
+        earlier_round_msgs: list[Any] = []
+        for m in phase_msgs:
+            msg_version = _msg_version(m)
+            # CONFIRMED and RE_REVIEW don't have version — always final
+            if m.message_type in ("CONSENSUS_CONFIRMED", "CONSENSUS_RE_REVIEW"):
+                final_round_msgs.append(m)
+            elif msg_version >= final_version and final_version > 0:
+                final_round_msgs.append(m)
+            elif final_version == 0:
+                # No versioned proposals — treat all as final round
+                final_round_msgs.append(m)
+            else:
+                earlier_round_msgs.append(m)
+
+        # Inline final-round content
+        if final_round_msgs:
+            block_lines.append("")
+            for m in final_round_msgs:
+                body_text = _extract_body_text(m, _MAX_BODY_INLINE)
+                if body_text:
+                    block_lines.append(f"  **{m.from_role}** ({m.message_type}): {body_text}")
+                else:
+                    block_lines.append(f"  **{m.from_role}** ({m.message_type})")
+
+        # Wrap earlier rounds in <details> if any
+        if earlier_round_msgs:
+            block_lines.append("")
+            block_lines.append("<details><summary>Earlier rounds</summary>")
+            block_lines.append("")
+            for m in earlier_round_msgs:
+                body_text = _extract_body_text(m, _MAX_BODY_INLINE)
+                if body_text:
+                    block_lines.append(f"  **{m.from_role}** ({m.message_type}): {body_text}")
+                else:
+                    block_lines.append(f"  **{m.from_role}** ({m.message_type})")
+            block_lines.append("")
+            block_lines.append("</details>")
+
+        # Artifact links
+        if identifier is not None:
+            block_lines.append("")
+            md_link = f".egg-state/brc-history/{identifier}-{phase_name}.md"
+            json_link = f".egg-state/brc-history/{identifier}-{phase_name}.json"
+            block_lines.append(
+                f"Full record: [{md_link}](./{md_link}) · [{json_link}](./{json_link})"
+            )
+
         block_lines.append("")
         phase_blocks.append("\n".join(block_lines))
 
@@ -4621,7 +4696,7 @@ def _build_brc_consensus_summary(pipeline_id: str) -> str:
     summary = header
     for block in phase_blocks:
         candidate = summary + "\n" + block
-        if len(candidate) > 2000:
+        if len(candidate) > _TOTAL_CAP:
             break
         summary = candidate
 
@@ -4705,7 +4780,7 @@ def _build_pr_body(
         body_parts.append("\n".join(context_parts))
 
     # BRC consensus summary (omitted when no BRC messages exist)
-    brc_summary = _build_brc_consensus_summary(pipeline.id)
+    brc_summary = _build_brc_consensus_summary(pipeline.id, identifier=identifier)
     if brc_summary:
         body_parts.append(brc_summary)
 
@@ -5371,7 +5446,12 @@ def _build_brc_preamble(
                 + _build_producer_orientation(role_value, phase, reviewers, branch=branch),
                 "2. **WORK**: Complete your assigned task (see Your Task below).",
                 "3. **PROPOSE**: When done, run: "
-                '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2" --commit-sha $(git rev-parse HEAD)`',
+                '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2" '
+                '--files-changed "f1.py" "f2.py" --tests-run "test_a" "test_b" '
+                '--tasks "task-1-1" "task-1-2" --commit-sha $(git rev-parse HEAD)`. '
+                "The `--summary` must be ≥50 chars of substantive content describing what was "
+                "built, what was tested, and which contract tasks it satisfies. "
+                "Boilerplate like 'looks good' or 'approved' will be rejected.",
                 "4. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers. "
                 "Handle NACKs by fixing issues and re-proposing.",
                 "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
@@ -5400,8 +5480,12 @@ def _build_brc_preamble(
                 "4. **REVIEW**: Once a proposal arrives, form independent judgment from "
                 "the referenced code artifacts. Read the actual files — do not rely "
                 "solely on the proposal summary.",
-                '5. **ACK/NACK**: `egg-orch consensus ack <role> --files-reviewed "f1" "f2"` or '
-                '`egg-orch consensus nack <role> --reason "..." --files-reviewed "f1" "f2"`',
+                '5. **ACK/NACK**: `egg-orch consensus ack <role> --files-reviewed "f1" "f2" '
+                '--reason "Substantive rationale ≥50 chars: what was read, what was checked, '
+                'why the verdict follows"` or '
+                '`egg-orch consensus nack <role> --reason "..." --files-reviewed "f1" "f2"`. '
+                "`--reason` is required on both ACK and NACK and must be ≥50 chars of "
+                "substantive content. Boilerplate like 'lgtm' or 'no issues' will be rejected.",
                 "6. **CONFIRM**: When all assigned producers reviewed: "
                 "`egg-orch consensus confirmed`",
                 "7. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
@@ -8727,12 +8811,14 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     identifier,
                 )
 
-                # Clean up pipeline draft files so PR diffs stay focused
-                _cleanup_drafts_for_pr(worktree_repo_path, identifier)
+                # Pipeline draft files (.egg-state/drafts/{id}-*.md) are
+                # intentionally *preserved* on the PR branch so that analysis
+                # and plan artifacts remain reviewable alongside the code
+                # (see issue #1713).
 
                 # Push latest commits before creating PR.  If the push fails
                 # (e.g. the remote advanced while the PR-phase worktree was
-                # adding BRC/cleanup commits), reconcile via fetch+merge and
+                # adding BRC commits), reconcile via fetch+merge and
                 # retry once — see _reconcile_and_push_pr_branch and #1706.
                 push_ok = True
                 if pipeline.branch and worktree_repo_path != repo_path:

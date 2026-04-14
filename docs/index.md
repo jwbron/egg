@@ -93,6 +93,7 @@ Each major component has detailed documentation:
 | [Orchestrator](../orchestrator/README.md) | `orchestrator/` | Local SDLC pipeline execution, state management, container lifecycle |
 | [Sandbox Container](../sandbox/README.md) | `sandbox/` | Agent environment, tools, entrypoint |
 | [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, git utilities, SDLC contracts, babysit-pr loop, custom harness |
+| [Logging](../shared/egg_logging/README.md) | `shared/egg_logging/` | Structured JSON logging with grep-friendly inline console format |
 | [Custom Harness](../shared/egg_harness/README.md) | `shared/egg_harness/` | Provider-abstracted agent runtime with context management |
 | [Harness Integration](../shared/egg_harness_integration/README.md) | `shared/egg_harness_integration/` | Egg-specific harness wiring (tools, permissions, prompt, compaction) |
 | [Configuration](../config/README.md) | `config/` | Repository and host configuration |

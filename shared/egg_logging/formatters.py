@@ -205,7 +205,7 @@ class ConsoleFormatter(logging.Formatter):
         "threadName",
         "message",
         "taskName",
-        # Our custom context fields (shown separately)
+        # Our custom context fields (rendered inline when show_context is enabled)
         "trace_id",
         "span_id",
         "trace_flags",
@@ -274,23 +274,27 @@ class ConsoleFormatter(logging.Formatter):
 
         parts.append(f": {record.getMessage()}")
 
-        # Add context if present and enabled
-        if self.show_context:
-            context_parts = []
-            if hasattr(record, "task_id") and record.task_id:
-                context_parts.append(f"task={record.task_id}")
-            if hasattr(record, "repository") and record.repository:
-                context_parts.append(f"repo={record.repository}")
-            if hasattr(record, "pr_number") and record.pr_number:
-                context_parts.append(f"pr=#{record.pr_number}")
+        # Collect all structured fields inline as key=value pairs
+        inline_pairs = []
 
-            if context_parts:
-                context_str = " ".join(context_parts)
-                if self.use_colors:
-                    context_str = f"\033[90m({context_str})\033[0m"
-                else:
-                    context_str = f"({context_str})"
-                parts.append(f" {context_str}")
+        if self.show_context:
+            if hasattr(record, "task_id") and record.task_id:
+                inline_pairs.append(f"task_id={self._format_inline_value(record.task_id)}")
+            if hasattr(record, "repository") and record.repository:
+                inline_pairs.append(f"repository={self._format_inline_value(record.repository)}")
+            if hasattr(record, "pr_number") and record.pr_number:
+                inline_pairs.append(f"pr_number={self._format_inline_value(record.pr_number)}")
+
+        if self.show_extra:
+            extra = self._extract_extra(record)
+            for key, value in extra.items():
+                inline_pairs.append(f"{key}={self._format_inline_value(value)}")
+
+        if inline_pairs:
+            inline_str = " ".join(inline_pairs)
+            if self.use_colors:
+                inline_str = f"\033[90m{inline_str}\033[0m"
+            parts.append(f" {inline_str}")
 
         # Add source location if enabled
         if self.show_source_location:
@@ -303,28 +307,29 @@ class ConsoleFormatter(logging.Formatter):
 
         message = "".join(parts)
 
-        # Add extra fields if present and enabled
-        if self.show_extra:
-            extra = self._extract_extra(record)
-            if extra:
-                extra_lines = []
-                for key, value in extra.items():
-                    # Format the value, handling multi-line strings
-                    value_str = str(value) if value is not None else ""
-                    if "\n" in value_str or len(value_str) > 100:
-                        # Multi-line or long values get their own indented block
-                        indented = "\n    ".join(value_str.split("\n"))
-                        extra_lines.append(f"  {key}:\n    {indented}")
-                    else:
-                        extra_lines.append(f"  {key}={value_str}")
-                if extra_lines:
-                    message += "\n" + "\n".join(extra_lines)
-
-        # Add exception info if present
+        # Add exception info if present (remains multi-line)
         if record.exc_info:
             message += "\n" + self.formatException(record.exc_info)
 
         return message
+
+    def _format_inline_value(self, value: Any) -> str:
+        """Format a value for inline key=value display.
+
+        Truncates values longer than 80 chars and quotes values containing spaces.
+        Newlines and carriage returns are replaced with spaces to keep the output
+        on a single line. Embedded double quotes are escaped.
+        """
+        value_str = str(value) if value is not None else ""
+        # Replace newlines and carriage returns with spaces for inline display
+        value_str = value_str.replace("\r", " ").replace("\n", " ")
+        # Truncate long values
+        if len(value_str) > 80:
+            value_str = value_str[:77] + "..."
+        # Quote values containing spaces
+        if " " in value_str:
+            value_str = f'"{value_str.replace(chr(34), chr(92) + chr(34))}"'
+        return value_str
 
     def _extract_extra(self, record: logging.LogRecord) -> dict[str, Any]:
         """Extract extra fields that were passed to the log call."""

@@ -524,6 +524,44 @@ class TestWorktreeManagerDockerGitDir:
         assert not info.worktree_path.exists()
         assert not info.git_dir.exists()
 
+    def test_create_worktree_cleans_stale_admin_dir(self, git_repo):
+        """When a stale git admin dir exists from a broken previous worktree,
+        create_worktree should clean it up before recreating.
+
+        Regression test for #1723: after restart_phase, a stale btrfs mount
+        leaves an invalid worktree directory AND a stale admin dir in
+        .git/worktrees/.  Without admin dir cleanup, ``git worktree add``
+        fails with "already registered".
+        """
+        worktree_base, repos_base, repo_dir = git_repo
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        # First, create a valid worktree to populate the admin dir
+        info1 = manager.create_worktree("test-repo", "stale-container")
+        assert info1.worktree_path.exists()
+        admin_dir = info1.git_dir
+        assert admin_dir.exists()
+
+        # Simulate a broken state: remove the worktree directory but leave the
+        # git admin dir (as happens when a btrfs mount is removed externally
+        # but git state is not cleaned up).
+        shutil.rmtree(info1.worktree_path)
+        # Re-create the worktree path as an empty directory (simulating a
+        # broken mount point that exists but has no valid .git file).
+        info1.worktree_path.mkdir(parents=True)
+
+        # Admin dir still exists (stale)
+        assert admin_dir.exists()
+
+        # create_worktree should clean up the stale admin dir and succeed
+        info2 = manager.create_worktree("test-repo", "stale-container")
+
+        assert info2.worktree_path.exists()
+        assert info2.git_dir.exists()
+        git_file = info2.worktree_path / ".git"
+        assert git_file.is_file()
+        assert git_file.read_text().strip().startswith("gitdir:")
+
 
 class TestWorktreeManagerRemoteBranchFetch:
     """Tests for create_worktree fetching remote branches that don't exist locally."""

@@ -313,6 +313,9 @@ The gateway enforces file access patterns for each agent role via `gateway/agent
 **Handoff Data:**
 Agents communicate via handoff data stored in `.egg-state/agent-outputs/{identifier}-{role}-output.json` (where `{identifier}` is the issue number or pipeline ID). For example, the Coder agent outputs a list of changed files, which the Tester and Documenter agents read to focus their work. The identifier prefix prevents merge conflicts when concurrent pipelines merge to main.
 
+**BRC Content Enforcement:**
+All BRC consensus messages (proposals, ACKs, NACKs, withdrawals) must carry substantive content — the orchestrator enforces a minimum content floor (≥50 characters, no boilerplate) at the protocol boundary. This ensures ACKs carry the same deliberative weight as NACKs and prevents rubber-stamping.
+
 **Orchestration:**
 Multi-agent orchestration is managed by the local orchestrator (`orchestrator/container_spawner.py`). The orchestrator reads the contract state, determines which agents can run based on dependencies, and dispatches them in parallel where possible.
 
@@ -333,12 +336,15 @@ The refine and plan phases include an automated internal review step before huma
 .egg-state/
 ├── contracts/{identifier}.json      # Contract state
 ├── drafts/
-│   ├── {identifier}-analysis.md     # Refine phase draft (removed before PR creation)
-│   └── {identifier}-plan.md         # Plan phase draft (removed before PR creation)
+│   ├── {identifier}-analysis.md     # Refine phase draft (preserved on PR branch)
+│   └── {identifier}-plan.md         # Plan phase draft (preserved on PR branch)
 ├── brc-history/
-│   ├── {identifier}-refine.md       # BRC consensus messages from refine phase
-│   ├── {identifier}-plan.md         # BRC consensus messages from plan phase
-│   └── {identifier}-implement.md    # BRC consensus messages from implement phase
+│   ├── {identifier}-refine.md       # BRC consensus messages from refine phase (human-readable, with YAML metadata)
+│   ├── {identifier}-refine.json     # BRC consensus messages from refine phase (machine-readable)
+│   ├── {identifier}-plan.md         # BRC consensus messages from plan phase (human-readable, with YAML metadata)
+│   ├── {identifier}-plan.json       # BRC consensus messages from plan phase (machine-readable)
+│   ├── {identifier}-implement.md    # BRC consensus messages from implement phase (human-readable, with YAML metadata)
+│   └── {identifier}-implement.json  # BRC consensus messages from implement phase (machine-readable)
 └── reviews/
     ├── {identifier}-refine-refine-review.json        # Refine review verdict
     ├── {identifier}-refine-agent-design-review.json   # Agent-design review verdict
@@ -347,7 +353,7 @@ The refine and plan phases include an automated internal review step before huma
     └── {identifier}-implement-contract-review.json    # Contract review verdict
 ```
 
-**Note:** Draft files are removed from the branch during the PR phase by `_cleanup_drafts_for_pr()`. This keeps PR diffs focused on code changes. Draft content is preserved in git history and in BRC history files.
+**Note:** Draft files are preserved on the PR branch as artifacts of the pipeline's reasoning. The analysis and plan documents produced before implementation are kept alongside the code so reviewers can see the intended scope, and so later debugging can compare the planned approach against what shipped (see #1713).
 
 **Review Verdict JSON Schema:**
 ```json
@@ -422,8 +428,8 @@ This structural enforcement prevents incidents where agents push code during pla
 | `.egg/schemas/` | Contract JSON schema definitions | `main` |
 | `.egg/phase-permissions.json` | Phase operation restrictions | `main` |
 | `.egg-state/contracts/` | Per-issue contract instances | Feature branches only |
-| `.egg-state/drafts/` | Draft analysis and plan documents (cleaned up before PR creation) | Feature branches only |
-| `.egg-state/brc-history/` | Per-phase BRC consensus message logs (re-written in PR phase as safety net) | Feature branches only |
+| `.egg-state/drafts/` | Draft analysis and plan documents (preserved on PR branch for review) | Feature branches only |
+| `.egg-state/brc-history/` | Per-phase BRC consensus message logs — `.md` (human-readable with YAML metadata) and `.json` (machine-readable) per phase (re-written in PR phase as safety net) | Feature branches only |
 | `.egg-state/reviews/` | Internal review verdicts (JSON) | Feature branches only |
 
 ### Conflict-Resistant Contract Updates
@@ -728,7 +734,7 @@ The orchestrator pushes worktree state (including `.egg-state/` files) to the re
 
 1. **After contract initialization** — Pushes initial contract and analysis/plan drafts so the first agents in the next phase see them
 2. **After phase completion** — Pushes statefiles (drafts, reviews, BRC history, check results, contract updates) so the next phase's agents don't have unpushed `.egg-state/` files in their diff
-3. **Before PR creation** — Pushes BRC history re-writes, draft cleanup commits, and any pending statefiles. This is a safety net for cases where post-phase pushes (point 2) failed silently. Push outcomes are logged at INFO level with the number of local commits ahead of remote (see [PR-Phase State File Troubleshooting](#pr-phase-state-file-troubleshooting))
+3. **Before PR creation** — Pushes BRC history re-writes and any pending statefiles. This is a safety net for cases where post-phase pushes (point 2) failed silently. Push outcomes are logged at INFO level with the number of local commits ahead of remote (see [PR-Phase State File Troubleshooting](#pr-phase-state-file-troubleshooting))
 4. **On pipeline failure** — Best-effort failsafe push to preserve in-progress work
 
 All pushes use `GatewayClient.push_worktree_branch()`, which registers a temporary session token, pushes the branch, and cleans up the session.
@@ -904,9 +910,9 @@ Default checks for each phase are defined in `shared/egg_contracts/phase_default
 
 **PR phase:**
 - No checks
-- PR is auto-created by the orchestrator (no agent spawned). The PR title and description are sourced from the contract's `pr` field (populated by the plan agent), with commit log and diff stats appended automatically. When BRC consensus was active, a **BRC Consensus Summary** section is included in the PR body showing per-phase agent participation, proposal/ACK/NACK counts, and consensus outcomes.
+- PR is auto-created by the orchestrator (no agent spawned). The PR title and description are sourced from the contract's `pr` field (populated by the plan agent), with commit log and diff stats appended automatically. When BRC consensus was active, a **BRC Consensus Summary** section is included in the PR body showing per-phase agent participation, message counts, consensus status, and **inline content from the final consensus round** — the full proposal body and all ACK/NACK rationales are shown directly in the PR body, with older rounds collapsed in `<details>` blocks. Each phase block links to the committed `.egg-state/brc-history/` artifacts (`.md` and `.json`) for the full record. See [Concurrent Execution — BRC Consensus Summary in PR Body](concurrent-execution.md#brc-consensus-summary-in-pr-body) for details.
 - **BRC history safety net**: Before PR creation, the orchestrator re-writes BRC history files for all completed phases via `_write_brc_history()`. This is a safety net — BRC history is normally written at each phase boundary, but per-phase pushes can fail silently. Re-writing in the PR phase ensures BRC history files are always present in the PR diff. All functions in this chain emit INFO-level diagnostic logs at entry, exit, and each early-return path (see [PR-Phase State File Troubleshooting](#pr-phase-state-file-troubleshooting)).
-- **Draft cleanup**: Pipeline-specific draft files (`.egg-state/drafts/{id}-analysis.md`, `.egg-state/drafts/{id}-plan.md`) are removed from the branch via `_cleanup_drafts_for_pr()` before PR creation. By the time the PR phase runs, all review cycles and HITL gates that read drafts are complete, so these files are no longer needed. Removing them keeps the PR diff focused on actual code changes. The cleanup is scoped to the current pipeline's identifier to avoid affecting concurrent pipelines. Commit failures in `_cleanup_drafts_for_pr()` are logged at WARNING level.
+- **Draft preservation**: Pipeline-specific draft files (`.egg-state/drafts/{id}-analysis.md`, `.egg-state/drafts/{id}-plan.md`) are **preserved** on the PR branch as artifacts of the pipeline's reasoning. Reviewers can compare the planned approach against the shipped code, and post-hoc debugging has the analysis and plan available as a baseline (see #1713). The PR phase used to remove these files to keep diffs focused; that behavior was reverted because the audit value outweighs the diff noise.
 - If PR creation returns no URL, the pipeline is marked **FAILED** immediately. The overseer also runs a safety-net check at pipeline completion: if `current_phase=pr` but no `pr_url` is in the phase artifacts, it creates a HITL decision and Slack notification to prevent stranded branch work from going unnoticed.
 
 ### Customizing Phase Checks
@@ -1456,7 +1462,7 @@ Use `git show origin/<branch>:.egg-state/drafts/` to list draft files on the rem
 
 ### PR-Phase State File Troubleshooting
 
-The PR phase runs three state file operations before creating the PR: BRC history re-write, draft cleanup, and a final push. Each operation has diagnostic INFO-level logging to help identify failures.
+The PR phase runs two state file operations before creating the PR: BRC history re-write and a final push. Each operation has diagnostic INFO-level logging to help identify failures.
 
 **BRC history files missing from PR** (`.egg-state/brc-history/` absent):
 
@@ -1468,7 +1474,7 @@ Look for these log entries in chronological order:
    - `_write_brc_history: early return — message store unavailable` — The message store factory returned `None`.
    - `_write_brc_history: early return — failed to retrieve messages` — Exception calling `store.get_messages()`. Includes `error` detail.
    - `_write_brc_history: early return — no messages in store` — Store returned an empty list.
-   - `_write_brc_history: early return — no BRC messages for phase` — Messages exist but none match `CONSENSUS_*` types for the specified phase. Includes `total_messages` count.
+   - `_write_brc_history: early return — no BRC messages for phase` — Messages exist but none match `BRC_HISTORY_TYPES` (the `CONSENSUS_*` types plus `STATUS`, `HANDOFF`, `QUESTION`, `AGENT_FAILED`, `NUDGE`, `OVERSEER_ALERT`) for the specified phase. Includes `total_messages` count.
 4. `Wrote BRC history file` — The history file was written to disk. Includes `path` and `message_count`. If this log is missing after step 2, an early-return was taken (check step 3).
 5. `_commit_statefiles_to_worktree: glob match results` — Shows `match_count` and `matched_paths` for `.egg-state/` files found by the pipeline-scoped glob. If `match_count` is 0, the BRC history file was not written to disk (check step 4 above).
 6. `_commit_statefiles_to_worktree: nothing staged — skipping commit` — The `git diff --cached --quiet` check returned 0, meaning `git add --force` did not stage anything. Possible causes: file permissions, `.gitignore` override, or the file was already committed identically.
@@ -1476,16 +1482,7 @@ Look for these log entries in chronological order:
 7. `_commit_statefiles_to_worktree: commit succeeded` — Confirms the commit was created. If this log appears but files are still missing from the PR, the push likely failed (see "Both issues" below).
 8. `_rewrite_brc_history_for_pr: commit step completed successfully` / `_rewrite_brc_history_for_pr: exiting` — Confirms the full function completed.
 
-**Draft files still in PR** (`.egg-state/drafts/{id}-*.md` present):
-
-1. `_cleanup_drafts_for_pr: entering` — Confirms the function was called (first log emitted).
-   - `_cleanup_drafts_for_pr: no drafts directory — skipping` — The `.egg-state/drafts/` directory doesn't exist in the worktree.
-   - `_cleanup_drafts_for_pr: matched drafts` — Shows `match_count` and `matched_files` list (truncated to 20 entries with `truncated=True` when exceeding 20).
-   - `_cleanup_drafts_for_pr: no matching drafts — exiting` — The directory exists but no files matched the identifier pattern (`{id}-*.md`).
-2. `_cleanup_drafts_for_pr: git rm succeeded` — Per-file log showing each successfully staged removal (includes relative `path`). Failures trigger a WARNING and fall back to `unlink()`.
-3. `_cleanup_drafts_for_pr: commit succeeded` — The removal commit was created successfully.
-   - `_cleanup_drafts_for_pr: commit failed — no changes to commit after draft cleanup` (WARNING) — Nothing was staged after git rm, or the commit command failed. Includes `error` detail. Promoted from DEBUG to WARNING as of #1633.
-4. `_cleanup_drafts_for_pr: exiting without commit` — The function completed without creating a commit. Includes `removed` flag (whether any files were deleted via fallback).
+**Draft files present in PR** (`.egg-state/drafts/{id}-*.md`): This is the expected state. Draft files are deliberately preserved on the PR branch as artifacts of the pipeline's reasoning (see #1713). Earlier pipeline versions removed them via `_cleanup_drafts_for_pr()`; that helper has been removed.
 
 **Both issues — state file commits not reaching the PR**:
 
@@ -1502,12 +1499,12 @@ If the commit logs show success but files are missing/present in the PR diff, th
 # Check if BRC history files exist on the remote branch
 git show origin/egg/issue-<N>:.egg-state/brc-history/ 2>&1
 
-# Check if draft files still exist on the remote branch
+# Check that draft files are present on the remote branch (they should be — see #1713)
 git show origin/egg/issue-<N>:.egg-state/drafts/ 2>&1
 
 # Search orchestrator logs for the pipeline's PR-phase activity
 # (adjust log source for your deployment)
-grep -E "(rewrite_brc_history|cleanup_drafts|commit_statefiles|PR-phase push)" /path/to/orchestrator.log | grep "<pipeline-id>"
+grep -E "(rewrite_brc_history|commit_statefiles|PR-phase push)" /path/to/orchestrator.log | grep "<pipeline-id>"
 ```
 
 ---

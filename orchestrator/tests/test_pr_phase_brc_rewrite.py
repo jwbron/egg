@@ -172,6 +172,83 @@ class TestPrPhaseBrcRewrite:
         if history_dir.exists():
             assert list(history_dir.iterdir()) == []
 
+    def test_regeneration_with_same_messages_is_byte_identical(self, tmp_path):
+        """Same BRC messages produce byte-identical output across calls (#1714).
+
+        The PR phase re-writes BRC history for all completed phases as a
+        safety net.  When no new messages have arrived since the original
+        per-phase write, the regenerated file must match byte-for-byte so
+        `_commit_statefiles_to_worktree` skips the redundant commit.
+        """
+        from routes.pipelines import _write_brc_history
+
+        messages = [
+            _make_brc_message(
+                phase="implement",
+                subject="Proposal",
+                body="work",
+                timestamp=datetime(2026, 4, 13, 20, 30, 0, tzinfo=UTC),
+            ),
+            _make_brc_message(
+                phase="implement",
+                from_role="reviewer_code",
+                message_type=MessageType.CONSENSUS_ACK,
+                subject="ACK",
+                body="looks good",
+                timestamp=datetime(2026, 4, 13, 20, 34, 54, tzinfo=UTC),
+            ),
+        ]
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        history_file = tmp_path / ".egg-state" / "brc-history" / "42-implement.md"
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+            first = history_file.read_text()
+
+            # Simulate the PR-phase safety-net rewrite ~30s later.
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+            second = history_file.read_text()
+
+        assert first == second
+        # Generated timestamp is derived from the latest message, not wall clock.
+        assert "Generated: 2026-04-13T20:34:54Z" in first
+
+    def test_generated_timestamp_tracks_latest_message(self, tmp_path):
+        """When a new BRC message arrives, `Generated:` advances with it."""
+        from routes.pipelines import _write_brc_history
+
+        messages = [
+            _make_brc_message(
+                phase="implement",
+                subject="Proposal",
+                body="work",
+                timestamp=datetime(2026, 4, 13, 20, 30, 0, tzinfo=UTC),
+            ),
+        ]
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        history_file = tmp_path / ".egg-state" / "brc-history" / "42-implement.md"
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+            assert "Generated: 2026-04-13T20:30:00Z" in history_file.read_text()
+
+            messages.append(
+                _make_brc_message(
+                    phase="implement",
+                    from_role="reviewer_code",
+                    message_type=MessageType.CONSENSUS_ACK,
+                    subject="ACK",
+                    body="",
+                    timestamp=datetime(2026, 4, 13, 21, 0, 0, tzinfo=UTC),
+                ),
+            )
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+            assert "Generated: 2026-04-13T21:00:00Z" in history_file.read_text()
+
 
 class TestRewriteBrcHistoryForPr:
     """Integration tests for _rewrite_brc_history_for_pr.
