@@ -326,8 +326,8 @@ class TestWriteBrcHistoryMetadata:
         content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
         assert "version" in content
 
-    def test_yaml_block_present_even_with_empty_metadata(self, tmp_path):
-        """Messages with empty metadata still get a YAML block (id/phase are always set)."""
+    def test_no_yaml_block_when_metadata_empty(self, tmp_path):
+        """Messages with empty metadata do NOT get a YAML block."""
         from routes.pipelines import _write_brc_history
 
         messages = [
@@ -346,28 +346,8 @@ class TestWriteBrcHistoryMetadata:
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
         content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
-        # YAML block should still be present (id and phase are always populated)
-        assert "```yaml" in content
-        # But "metadata" key should NOT appear since metadata dict is empty
-        yaml_blocks = []
-        in_yaml = False
-        yaml_lines = []
-        for line in content.splitlines():
-            if line.strip().startswith("```yaml"):
-                in_yaml = True
-                yaml_lines = []
-                continue
-            if in_yaml and line.strip() == "```":
-                in_yaml = False
-                yaml_blocks.append("\n".join(yaml_lines))
-                continue
-            if in_yaml:
-                yaml_lines.append(line)
-        assert len(yaml_blocks) == 1
-        parsed = yaml.safe_load(yaml_blocks[0])
-        assert "metadata" not in parsed  # empty dict should not be serialized
-        assert "id" in parsed
-        assert "phase" in parsed
+        # Empty metadata -> no YAML block
+        assert "```yaml" not in content
 
     def test_yaml_block_is_valid_yaml(self, tmp_path):
         """The fenced YAML block can be parsed by a YAML parser."""
@@ -415,10 +395,9 @@ class TestWriteBrcHistoryMetadata:
         assert len(yaml_blocks) >= 1, "Expected at least one YAML block"
         parsed = yaml.safe_load(yaml_blocks[0])
         assert isinstance(parsed, dict)
-        # Verify the parsed YAML round-trips the metadata — metadata is nested under "metadata" key
-        assert "metadata" in parsed
-        assert "payload" in parsed["metadata"]
-        assert "version" in parsed["metadata"]
+        # Metadata fields are merged at the top level of the YAML block
+        assert "payload" in parsed
+        assert "version" in parsed
 
 
 # ---------------------------------------------------------------------------
