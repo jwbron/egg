@@ -179,9 +179,29 @@
       "phase_start_sha": "5f26b8ae2e8962de7ad3752126305fc8548e925d"
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "BRC consensus is permanently deadlocked in pipeline issue-1718 (implement phase). The tester agent exited code 1 before ever proposing, and reviewer_contract also exited code 1. BRC requires ALL producers to propose before any agent can confirm. Coder committed BRC preamble changes (5f26b8ae) and documenter committed docs (94ff4e1b). Tester's test patch is at .egg-state/agent-outputs/task-1-4-test-diff.patch. How should we proceed?",
+      "context": "Surviving agents (coder, documenter, reviewer_code) are stuck in polling loop. Overseer on respawn 2/3. Two committed SHAs represent real deliverable work. Test coverage gap exists for task 1-4.",
+      "options": [
+        "Accept existing commits as implement output and advance to next phase (test gap in follow-up)",
+        "Restart tester to apply patch and propose, restart reviewer_contract to complete BRC round",
+        "Restart both tester and reviewer_contract with fresh instructions for independent work",
+        "Fail implement phase and re-run from scratch with a new BRC round"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-14T02:16:47.454203Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "implement",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-04-14T01:34:26.450683Z",
-  "updated_at": "2026-04-14T02:13:52.958217Z",
+  "updated_at": "2026-04-14T02:16:47.455935Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -192,5 +212,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-14T02:13:45.532812Z",
-  "version": 17
+  "version": 18
 }
