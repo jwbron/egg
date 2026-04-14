@@ -1497,7 +1497,7 @@ If the commit logs show success but files are missing/present in the PR diff, th
 2. `Pre-PR push failed — PR may reference stale code` (ERROR) — Initial push failed. Includes `commits_ahead` count and `error` details. The orchestrator then attempts a fetch+rebase reconcile and a second push.
 3. `PR-phase push failed after reconcile — falling back to PR against remote HEAD; orchestrator housekeeping commits dropped` (WARNING) — The second push also failed after reconcile. The PR is still created against the current remote HEAD — agent commits are preserved, but orchestrator housekeeping commits (BRC history rewrite, cleanup) are not included. This is preferable to failing the whole pipeline.
 4. `PR-phase push skipped` — The push was not attempted. The `reason` field explains why: `"worktree_repo_path == repo_path"` (no separate worktree to push from) or `"no branch set"` (pipeline has no branch configured).
-4. Check the gateway health: `curl http://egg-gateway:9848/api/v1/health`.
+5. Check the gateway health: `curl http://egg-gateway:9848/api/v1/health`.
 
 **Quick diagnostic checklist**:
 
