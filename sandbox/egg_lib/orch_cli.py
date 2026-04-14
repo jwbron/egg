@@ -1833,7 +1833,9 @@ def create_parser() -> argparse.ArgumentParser:
     cons_propose.add_argument("--commit", help="Commit SHA associated with the proposal")
     cons_propose.add_argument("--files-changed", nargs="*", help="Files changed in this proposal")
     cons_propose.add_argument("--tests-run", nargs="*", help="Tests executed for this proposal")
-    cons_propose.add_argument("--tasks", nargs="*", help="Contract tasks satisfied by this proposal")
+    cons_propose.add_argument(
+        "--tasks", nargs="*", help="Contract tasks satisfied by this proposal"
+    )
     cons_propose.add_argument(
         "--push",
         action="store_true",
