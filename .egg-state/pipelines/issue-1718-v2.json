@@ -93,10 +93,10 @@
         {
           "container_id": "d197b5c3f1e0f7f212216a10954f781bbea77dd138a064fcbfe31523063ea37a",
           "container_name": "issue-1718-v2-coder",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-14T04:12:46.973693Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-14T04:18:44.320600Z",
+          "exit_code": 1,
           "agent_role": "coder",
           "session_token": null
         }
@@ -152,13 +152,13 @@
         },
         {
           "role": "coder",
-          "status": "running",
+          "status": "failed",
           "container_id": "d197b5c3f1e0f7f212216a10954f781bbea77dd138a064fcbfe31523063ea37a",
           "started_at": "2026-04-14T04:12:46.973698Z",
-          "completed_at": null,
+          "completed_at": "2026-04-14T04:18:46.028943Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         }
@@ -181,7 +181,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-14T02:38:21.049248Z",
-  "updated_at": "2026-04-14T04:18:45.973306Z",
+  "updated_at": "2026-04-14T04:18:46.029260Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -192,5 +192,5 @@
   "source_branch": "egg/issue-1718",
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-14T04:12:39.045629Z",
-  "version": 22
+  "version": 23
 }
