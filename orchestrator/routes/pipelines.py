@@ -13,10 +13,9 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
-
-import yaml
 from uuid import uuid4
 
+import yaml
 from docker.errors import DockerException
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
