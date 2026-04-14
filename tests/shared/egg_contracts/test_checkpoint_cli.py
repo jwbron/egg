@@ -1018,3 +1018,126 @@ class TestCmdSearchHttp:
         assert result == 1
         err = capsys.readouterr().err
         assert "Invalid checkpoint_repo format" in err
+
+
+class TestCommonFlagPlacement:
+    """Covers jwbron/egg#1715 (1): --checkpoint-repo and --repo-path must work
+    both before and after the subcommand."""
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--checkpoint-repo", "foo/bar", "list", "--issue", "1"],
+            ["list", "--checkpoint-repo", "foo/bar", "--issue", "1"],
+        ],
+    )
+    def test_checkpoint_repo_accepted_in_both_positions(self, argv):
+        """--checkpoint-repo parses the same whether it precedes or follows the
+        subcommand.  Before the fix, argparse rejected the post-subcommand form
+        with 'unrecognized arguments'."""
+        parser = create_parser()
+        args = parser.parse_args(argv)
+        assert getattr(args, "checkpoint_repo", None) == "foo/bar"
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--repo-path", "/tmp/repo", "list", "--issue", "1"],
+            ["list", "--repo-path", "/tmp/repo", "--issue", "1"],
+        ],
+    )
+    def test_repo_path_accepted_in_both_positions(self, argv):
+        """--repo-path behaves the same."""
+        parser = create_parser()
+        args = parser.parse_args(argv)
+        assert getattr(args, "repo_path", None) == "/tmp/repo"
+
+    def test_flags_accepted_on_all_subcommands(self):
+        """Every subcommand must accept the common flags (parents=[common])."""
+        parser = create_parser()
+        for sub, extras in [
+            ("list", []),
+            ("show", ["ckpt-aaabbbcc"]),
+            ("browse", ["--issue", "1"]),
+            ("context", []),
+            ("cost", []),
+            ("search", ["--text", "x"]),
+        ]:
+            args = parser.parse_args([sub, "--checkpoint-repo", "foo/bar", *extras])
+            assert getattr(args, "checkpoint_repo", None) == "foo/bar"
+
+
+class TestEmptyResultMessaging:
+    """Covers jwbron/egg#1715 (2) and (4): empty results must state which
+    repo/branch was searched, and ``--json`` must emit valid JSON."""
+
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
+    @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
+    @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
+    def test_empty_result_includes_search_target(
+        self, mock_ref, mock_resolve, _mock_gw, capsys
+    ):
+        """Non-JSON empty result mentions the repo and branch searched."""
+        mock_ref.return_value = None
+        mock_resolve.return_value = ("jwbron/egg-checkpoints", None)
+
+        result = main(["list", "--issue", "99999999"])
+
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "No checkpoints found" in captured.out
+        assert "Searched jwbron/egg-checkpoints branch egg/checkpoints/v2" in captured.out
+
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
+    @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
+    @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
+    def test_empty_result_json_emits_array(self, mock_ref, mock_resolve, _mock_gw, capsys):
+        """--json empty result must be parseable JSON (an empty list for list)."""
+        mock_ref.return_value = None
+        mock_resolve.return_value = ("jwbron/egg-checkpoints", None)
+
+        result = main(["list", "--issue", "99999999", "--json"])
+
+        assert result == 0
+        captured = capsys.readouterr()
+        assert json.loads(captured.out) == []
+        # The human-readable message still surfaces, but on stderr so it
+        # doesn't corrupt scripted JSON consumers.
+        assert "No checkpoints found" in captured.err
+        assert "Searched jwbron/egg-checkpoints branch egg/checkpoints/v2" in captured.err
+
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
+    @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
+    @patch("egg_contracts.checkpoint_cli.load_checkpoint_from_ref")
+    @patch("egg_contracts.checkpoint_cli.filter_checkpoints_v2")
+    @patch("egg_contracts.checkpoint_cli.load_index_from_ref")
+    @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
+    def test_empty_cost_json_emits_zero_payload(
+        self,
+        mock_ref,
+        mock_index,
+        mock_filter,
+        mock_load,
+        mock_resolve,
+        _mock_gw,
+        capsys,
+    ):
+        """`cost --json` empty result emits a zero-valued dict, not a bare list."""
+        mock_ref.return_value = "origin/egg/checkpoints/v2"
+        mock_index.return_value = CheckpointIndexV2(
+            schemaVersion="2.0",
+            checkpoints=[],
+            last_updated=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
+        )
+        mock_filter.return_value = []
+        mock_resolve.return_value = ("jwbron/egg-checkpoints", None)
+
+        result = main(["cost", "--pipeline", "issue-745", "--json"])
+
+        assert result == 0
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["checkpoint_count"] == 0
+        assert data["breakdown"] == []
+        assert data["total_cost_usd"] == 0
+        assert data["pipeline_id"] == "issue-745"

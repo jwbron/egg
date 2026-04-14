@@ -638,7 +638,7 @@ def _get_checkpoint_repo_from_args(
         return _validate_checkpoint_repo(env_repo), None
     # Try to auto-detect from repo config by reading the git remote URL
     # and looking up checkpoint_repo in repositories.yaml.
-    repo_path = args.repo_path or get_repo_path()
+    repo_path = _resolve_repo_path(args)
     source_repo = _get_source_repo(repo_path)
     if not source_repo:
         return None, None
@@ -661,6 +661,105 @@ def _print_repo_hint(checkpoint_repo: str | None = None) -> None:
     if checkpoint_repo is not None:
         return
     print(_CHECKPOINT_REPO_HINT, file=sys.stderr)
+
+
+def _empty_cost_payload(args: argparse.Namespace) -> dict[str, Any]:
+    """Build the canonical zero-valued cost payload for ``--json`` empty results.
+
+    Mirrors the shape returned by ``cmd_cost`` so downstream scripts can
+    ``json.load`` the output and find familiar keys even when the query
+    matched nothing.
+    """
+    return {
+        "pipeline_id": getattr(args, "pipeline", None),
+        "issue_number": getattr(args, "issue", None),
+        "pr_number": getattr(args, "pr", None),
+        "checkpoint_count": 0,
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "total_cost_usd": 0,
+        "breakdown": [],
+    }
+
+
+def _resolve_repo_path(args: argparse.Namespace) -> str:
+    """Return the caller-intended repo path, falling back to defaults.
+
+    The common-parent ``--repo-path`` arg uses ``argparse.SUPPRESS`` so that
+    parsing a subcommand doesn't clobber a top-level value.  Callers must
+    therefore use ``getattr`` (the attribute may be absent entirely), which
+    this helper centralizes.
+    """
+    return getattr(args, "repo_path", None) or get_repo_path()
+
+
+def _describe_search_target(args: argparse.Namespace) -> str:
+    """Describe the repo and branch that will be (or was) searched.
+
+    Returns a human-readable string such as
+    ``"jwbron/egg-checkpoints branch egg/checkpoints/v2"`` suitable for
+    including in empty-result messages so users immediately see where the
+    tool looked.  Falls back to ``"<unresolved> branch egg/checkpoints/v2"``
+    if no checkpoint repo can be determined.
+    """
+    checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
+    target = checkpoint_repo or source_repo or "<unresolved>"
+    return f"{target} branch {CHECKPOINT_BRANCH}"
+
+
+_EMPTY_RESULT_DEFAULT: Any = object()
+
+
+def _emit_empty_result(
+    args: argparse.Namespace,
+    message: str,
+    *,
+    checkpoint_repo: str | None = None,
+    include_repo_hint: bool = True,
+    include_search_target: bool = True,
+    json_empty: Any = _EMPTY_RESULT_DEFAULT,
+    return_code: int = 0,
+) -> int:
+    """Emit a uniform empty-result message and return ``return_code``.
+
+    Consolidates ~20 "No checkpoints found…" call sites.  Behaviour:
+
+    * ``--json`` path: emit ``json_empty`` (default ``[]``) on **stdout** so
+      downstream ``json.load`` succeeds; emit ``message`` and the searched
+      target on **stderr**.
+    * Non-JSON path: emit ``message`` and the searched target on **stdout**
+      (preserves existing test expectations asserting the text is in stdout),
+      with the optional checkpoint-repo hint on stderr.
+
+    Args:
+        args: Parsed CLI arguments (used for ``--json`` and target resolution).
+        message: Primary text, e.g. ``"No checkpoints found matching filters"``.
+        checkpoint_repo: Already-resolved checkpoint repo, used only to decide
+            whether to suppress the ``_print_repo_hint`` stderr line.
+        include_repo_hint: Suppress the hint entirely if False.
+        include_search_target: Suppress the ``Searched ...`` line when the
+            caller ran a secondary search (e.g. transcript match) over an
+            already-located set of checkpoints.
+        json_empty: Object to serialize for ``--json``.  Defaults to ``[]``
+            because list/browse/context/search all return arrays; ``cost``
+            passes an empty-result dict instead.
+        return_code: Exit code to return.  Defaults to 0.
+    """
+    target_line = f"Searched {_describe_search_target(args)}."
+    is_json = bool(getattr(args, "json", False))
+    payload = [] if json_empty is _EMPTY_RESULT_DEFAULT else json_empty
+    if is_json:
+        print(json.dumps(payload))
+        print(message, file=sys.stderr)
+        if include_search_target:
+            print(target_line, file=sys.stderr)
+    else:
+        print(message)
+        if include_search_target:
+            print(target_line)
+    if include_repo_hint:
+        _print_repo_hint(checkpoint_repo)
+    return return_code
 
 
 def _add_checkpoint_resolution_params(params: dict[str, Any], args: argparse.Namespace) -> None:
@@ -703,7 +802,7 @@ def _build_list_params(args: argparse.Namespace) -> dict[str, Any]:
         params["pipeline"] = args.pipeline
     if getattr(args, "repo", None):
         params["repo"] = args.repo
-    repo_path = args.repo_path or get_repo_path()
+    repo_path = _resolve_repo_path(args)
     params["repo_path"] = repo_path
     _add_checkpoint_resolution_params(params, args)
     return params
@@ -716,8 +815,7 @@ def _cmd_list_http(args: argparse.Namespace, gateway_url: str) -> int:
     summaries = result.get("data", {}).get("checkpoints", [])
 
     if not summaries:
-        print("No checkpoints found matching filters")
-        return 0
+        return _emit_empty_result(args, "No checkpoints found matching filters")
 
     if args.json:
         print(json.dumps(summaries, indent=2))
@@ -740,20 +838,22 @@ def cmd_list(args: argparse.Namespace) -> int:
             logger.debug("HTTP list failed, falling back to git: %s", e)
             print(f"Warning: gateway checkpoint query failed: {e}", file=sys.stderr)
 
-    repo_path = args.repo_path or get_repo_path()
+    repo_path = _resolve_repo_path(args)
     checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
-        print("No checkpoints found (checkpoint branch does not exist)")
-        _print_repo_hint(checkpoint_repo)
-        return 0
+        return _emit_empty_result(
+            args,
+            "No checkpoints found (checkpoint branch does not exist)",
+            checkpoint_repo=checkpoint_repo,
+        )
 
     index = load_index_from_ref(ref, repo_path)
     if not index:
-        print("No checkpoints found")
-        _print_repo_hint(checkpoint_repo)
-        return 0
+        return _emit_empty_result(
+            args, "No checkpoints found", checkpoint_repo=checkpoint_repo
+        )
 
     summaries = filter_checkpoints_v2(
         index,
@@ -771,9 +871,9 @@ def cmd_list(args: argparse.Namespace) -> int:
     )
 
     if not summaries:
-        print("No checkpoints found matching filters")
-        _print_repo_hint(checkpoint_repo)
-        return 0
+        return _emit_empty_result(
+            args, "No checkpoints found matching filters", checkpoint_repo=checkpoint_repo
+        )
 
     if args.json:
         output = [s.model_dump(mode="json") for s in summaries]
@@ -789,13 +889,19 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 def _cmd_show_http(args: argparse.Namespace, gateway_url: str) -> int:
     """Show checkpoint via gateway HTTP API."""
-    params: dict[str, Any] = {"repo_path": args.repo_path or get_repo_path()}
+    params: dict[str, Any] = {"repo_path": _resolve_repo_path(args)}
     _add_checkpoint_resolution_params(params, args)
     result = _http_get(gateway_url, f"/api/v1/checkpoints/{args.identifier}", params)
 
     if not result.get("success"):
-        print(f"No checkpoint found for '{args.identifier}'")
-        return 1
+        return _emit_empty_result(
+            args,
+            f"No checkpoint found for '{args.identifier}'",
+            include_search_target=False,
+            include_repo_hint=False,
+            json_empty=None,
+            return_code=1,
+        )
 
     data = result.get("data", {}).get("checkpoint", {})
     if args.json:
@@ -815,15 +921,19 @@ def cmd_show(args: argparse.Namespace) -> int:
             logger.debug("HTTP show failed, falling back to git: %s", e)
             print(f"Warning: gateway checkpoint query failed: {e}", file=sys.stderr)
 
-    repo_path = args.repo_path or get_repo_path()
+    repo_path = _resolve_repo_path(args)
     identifier = args.identifier
     checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
-        print("No checkpoints found (checkpoint branch does not exist)")
-        _print_repo_hint(checkpoint_repo)
-        return 1
+        return _emit_empty_result(
+            args,
+            "No checkpoints found (checkpoint branch does not exist)",
+            checkpoint_repo=checkpoint_repo,
+            json_empty=None,
+            return_code=1,
+        )
 
     checkpoint: CheckpointV2 | None = None
 
@@ -838,8 +948,14 @@ def cmd_show(args: argparse.Namespace) -> int:
                 checkpoint = load_checkpoint_from_ref(checkpoint_id, ref, repo_path)
 
     if not checkpoint:
-        print(f"No checkpoint found for '{identifier}'")
-        return 1
+        return _emit_empty_result(
+            args,
+            f"No checkpoint found for '{identifier}'",
+            include_search_target=False,
+            include_repo_hint=False,
+            json_empty=None,
+            return_code=1,
+        )
 
     if args.json:
         print(json.dumps(checkpoint.model_dump(mode="json"), indent=2))
@@ -854,7 +970,7 @@ def _cmd_browse_http(args: argparse.Namespace, gateway_url: str) -> int:
     params: dict[str, Any] = {
         "issue": args.issue,
         "limit": args.limit,
-        "repo_path": args.repo_path or get_repo_path(),
+        "repo_path": _resolve_repo_path(args),
     }
     if getattr(args, "repo", None):
         params["repo"] = args.repo
@@ -864,8 +980,7 @@ def _cmd_browse_http(args: argparse.Namespace, gateway_url: str) -> int:
     summaries = result.get("data", {}).get("checkpoints", [])
 
     if not summaries:
-        print(f"No checkpoints found for issue #{args.issue}")
-        return 0
+        return _emit_empty_result(args, f"No checkpoints found for issue #{args.issue}")
 
     if args.json:
         print(json.dumps(summaries, indent=2))
@@ -905,20 +1020,22 @@ def cmd_browse(args: argparse.Namespace) -> int:
             logger.debug("HTTP browse failed, falling back to git: %s", e)
             print(f"Warning: gateway checkpoint query failed: {e}", file=sys.stderr)
 
-    repo_path = args.repo_path or get_repo_path()
+    repo_path = _resolve_repo_path(args)
     checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
-        print("No checkpoints found (checkpoint branch does not exist)")
-        _print_repo_hint(checkpoint_repo)
-        return 0
+        return _emit_empty_result(
+            args,
+            "No checkpoints found (checkpoint branch does not exist)",
+            checkpoint_repo=checkpoint_repo,
+        )
 
     index = load_index_from_ref(ref, repo_path)
     if not index:
-        print("No checkpoints found")
-        _print_repo_hint(checkpoint_repo)
-        return 0
+        return _emit_empty_result(
+            args, "No checkpoints found", checkpoint_repo=checkpoint_repo
+        )
 
     summaries = filter_checkpoints_v2(
         index,
@@ -928,9 +1045,11 @@ def cmd_browse(args: argparse.Namespace) -> int:
     )
 
     if not summaries:
-        print(f"No checkpoints found for issue #{args.issue}")
-        _print_repo_hint(checkpoint_repo)
-        return 0
+        return _emit_empty_result(
+            args,
+            f"No checkpoints found for issue #{args.issue}",
+            checkpoint_repo=checkpoint_repo,
+        )
 
     if args.json:
         output = [s.model_dump(mode="json") for s in summaries]
@@ -965,7 +1084,7 @@ def _cmd_context_http(args: argparse.Namespace, gateway_url: str) -> int:
     """Context summary via gateway HTTP API."""
     params: dict[str, Any] = {
         "limit": args.limit,
-        "repo_path": args.repo_path or get_repo_path(),
+        "repo_path": _resolve_repo_path(args),
     }
     if getattr(args, "pipeline", None):
         params["pipeline"] = args.pipeline
@@ -983,8 +1102,7 @@ def _cmd_context_http(args: argparse.Namespace, gateway_url: str) -> int:
     summaries = result.get("data", {}).get("checkpoints", [])
 
     if not summaries:
-        print("No checkpoints found matching filters")
-        return 0
+        return _emit_empty_result(args, "No checkpoints found matching filters")
 
     if args.json:
         # In HTTP mode with --files, fetch each full checkpoint
@@ -1076,7 +1194,7 @@ def _print_context_summary_from_dicts(
                 print(" | ".join(parts))
 
                 if getattr(args, "files", False):
-                    repo_path = args.repo_path or get_repo_path()
+                    repo_path = _resolve_repo_path(args)
                     cp_id = cp.get("id", "")
                     try:
                         show_params: dict[str, Any] = {"repo_path": repo_path}
@@ -1109,20 +1227,22 @@ def cmd_context(args: argparse.Namespace) -> int:
             logger.debug("HTTP context failed, falling back to git: %s", e)
             print(f"Warning: gateway checkpoint query failed: {e}", file=sys.stderr)
 
-    repo_path = args.repo_path or get_repo_path()
+    repo_path = _resolve_repo_path(args)
     checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
-        print("No checkpoints found (checkpoint branch does not exist)")
-        _print_repo_hint(checkpoint_repo)
-        return 0
+        return _emit_empty_result(
+            args,
+            "No checkpoints found (checkpoint branch does not exist)",
+            checkpoint_repo=checkpoint_repo,
+        )
 
     index = load_index_from_ref(ref, repo_path)
     if not index:
-        print("No checkpoints found")
-        _print_repo_hint(checkpoint_repo)
-        return 0
+        return _emit_empty_result(
+            args, "No checkpoints found", checkpoint_repo=checkpoint_repo
+        )
 
     summaries = filter_checkpoints_v2(
         index,
@@ -1135,9 +1255,9 @@ def cmd_context(args: argparse.Namespace) -> int:
     )
 
     if not summaries:
-        print("No checkpoints found matching filters")
-        _print_repo_hint(checkpoint_repo)
-        return 0
+        return _emit_empty_result(
+            args, "No checkpoints found matching filters", checkpoint_repo=checkpoint_repo
+        )
 
     if args.json:
         output = _build_context_json(summaries, ref, repo_path, args)
@@ -1228,7 +1348,7 @@ def _cmd_cost_http(args: argparse.Namespace, gateway_url: str) -> int:
     """Cost breakdown via gateway HTTP API."""
     params: dict[str, Any] = {
         "limit": args.limit,
-        "repo_path": args.repo_path or get_repo_path(),
+        "repo_path": _resolve_repo_path(args),
     }
     if getattr(args, "pipeline", None):
         params["pipeline"] = args.pipeline
@@ -1242,8 +1362,13 @@ def _cmd_cost_http(args: argparse.Namespace, gateway_url: str) -> int:
     data = result.get("data", {})
 
     if not data or data.get("checkpoint_count", 0) == 0:
-        print("No checkpoints with token usage data found")
-        return 0
+        return _emit_empty_result(
+            args,
+            "No checkpoints with token usage data found",
+            include_search_target=False,
+            include_repo_hint=False,
+            json_empty=_empty_cost_payload(args),
+        )
 
     pipeline_id = getattr(args, "pipeline", None)
     issue = getattr(args, "issue", None)
@@ -1297,20 +1422,26 @@ def cmd_cost(args: argparse.Namespace) -> int:
 
     from .usage import TokenCounts
 
-    repo_path = args.repo_path or get_repo_path()
+    repo_path = _resolve_repo_path(args)
     checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
-        print("No checkpoints found (checkpoint branch does not exist)")
-        _print_repo_hint(checkpoint_repo)
-        return 0
+        return _emit_empty_result(
+            args,
+            "No checkpoints found (checkpoint branch does not exist)",
+            checkpoint_repo=checkpoint_repo,
+            json_empty=_empty_cost_payload(args),
+        )
 
     index = load_index_from_ref(ref, repo_path)
     if not index:
-        print("No checkpoints found")
-        _print_repo_hint(checkpoint_repo)
-        return 0
+        return _emit_empty_result(
+            args,
+            "No checkpoints found",
+            checkpoint_repo=checkpoint_repo,
+            json_empty=_empty_cost_payload(args),
+        )
 
     summaries = filter_checkpoints_v2(
         index,
@@ -1321,9 +1452,12 @@ def cmd_cost(args: argparse.Namespace) -> int:
     )
 
     if not summaries:
-        print("No checkpoints found matching filters")
-        _print_repo_hint(checkpoint_repo)
-        return 0
+        return _emit_empty_result(
+            args,
+            "No checkpoints found matching filters",
+            checkpoint_repo=checkpoint_repo,
+            json_empty=_empty_cost_payload(args),
+        )
 
     # Load full checkpoints to get token_usage and model info
     rows: list[dict[str, Any]] = []
@@ -1357,8 +1491,13 @@ def cmd_cost(args: argparse.Namespace) -> int:
         )
 
     if not rows:
-        print("No checkpoints with token usage data found")
-        return 0
+        return _emit_empty_result(
+            args,
+            "No checkpoints with token usage data found",
+            include_search_target=False,
+            include_repo_hint=False,
+            json_empty=_empty_cost_payload(args),
+        )
 
     # Aggregate by (phase, agent)
     agg: dict[tuple[str, str], dict[str, Any]] = {}
@@ -1515,13 +1654,12 @@ def _cmd_search_http(args: argparse.Namespace, gateway_url: str) -> int:
     summaries = result.get("data", {}).get("checkpoints", [])
 
     if not summaries:
-        print("No checkpoints found matching filters")
-        return 0
+        return _emit_empty_result(args, "No checkpoints found matching filters")
 
     matches: list[tuple[CheckpointSummaryV2 | dict[str, Any], list[str]]] = []
     text = args.text
     text_lower = text.lower()
-    repo_path = args.repo_path or get_repo_path()
+    repo_path = _resolve_repo_path(args)
 
     # Resolve checkpoint repo once outside the loop (same for every iteration)
     checkpoint_repo = params.get("checkpoint_repo")
@@ -1562,8 +1700,12 @@ def _cmd_search_http(args: argparse.Namespace, gateway_url: str) -> int:
             matches.append((s, snippets))
 
     if not matches:
-        print(f"No checkpoints found with transcript matching {text!r}")
-        return 0
+        return _emit_empty_result(
+            args,
+            f"No checkpoints found with transcript matching {text!r}",
+            include_search_target=False,
+            include_repo_hint=False,
+        )
 
     _print_search_results(matches, text, args)
     return 0
@@ -1579,7 +1721,7 @@ def cmd_search(args: argparse.Namespace) -> int:
             logger.debug("HTTP search failed, falling back to git: %s", e)
             print(f"Warning: gateway checkpoint query failed: {e}", file=sys.stderr)
 
-    repo_path = args.repo_path or get_repo_path()
+    repo_path = _resolve_repo_path(args)
     try:
         checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
     except ValueError as e:
@@ -1588,15 +1730,17 @@ def cmd_search(args: argparse.Namespace) -> int:
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
-        print("No checkpoints found (checkpoint branch does not exist)")
-        _print_repo_hint(checkpoint_repo)
-        return 0
+        return _emit_empty_result(
+            args,
+            "No checkpoints found (checkpoint branch does not exist)",
+            checkpoint_repo=checkpoint_repo,
+        )
 
     index = load_index_from_ref(ref, repo_path)
     if not index:
-        print("No checkpoints found")
-        _print_repo_hint(checkpoint_repo)
-        return 0
+        return _emit_empty_result(
+            args, "No checkpoints found", checkpoint_repo=checkpoint_repo
+        )
 
     # Filter by metadata first to narrow the search space
     summaries = filter_checkpoints_v2(
@@ -1615,9 +1759,9 @@ def cmd_search(args: argparse.Namespace) -> int:
     )
 
     if not summaries:
-        print("No checkpoints found matching filters")
-        _print_repo_hint(checkpoint_repo)
-        return 0
+        return _emit_empty_result(
+            args, "No checkpoints found matching filters", checkpoint_repo=checkpoint_repo
+        )
 
     # Load each full checkpoint and search its transcript
     text = args.text
@@ -1631,33 +1775,61 @@ def cmd_search(args: argparse.Namespace) -> int:
             matches.append((s, snippets))
 
     if not matches:
-        print(f"No checkpoints found with transcript matching {text!r}")
-        return 0
+        return _emit_empty_result(
+            args,
+            f"No checkpoints found with transcript matching {text!r}",
+            include_search_target=False,
+            include_repo_hint=False,
+        )
 
     _print_search_results(matches, text, args)
     return 0
 
 
+def _common_parent_parser() -> argparse.ArgumentParser:
+    """Build a parent parser carrying flags valid at both top-level and per-subcommand.
+
+    Passed via ``parents=[...]`` to each subparser so that users may write
+    ``egg-checkpoint list --checkpoint-repo X`` **or**
+    ``egg-checkpoint --checkpoint-repo X list`` interchangeably — a papercut
+    called out in jwbron/egg#1715.
+
+    The flags default to ``argparse.SUPPRESS`` so that when the user passes
+    them on the *top-level* parser only, the subparser's parse pass doesn't
+    overwrite the already-populated namespace attr with ``None``.  Callers
+    use ``getattr(args, "checkpoint_repo", None)`` to read the value, which
+    already is the established pattern in this module.
+    """
+    parent = argparse.ArgumentParser(add_help=False)
+    parent.add_argument(
+        "--repo-path",
+        default=argparse.SUPPRESS,
+        help="Repository path (defaults to EGG_REPO_PATH or cwd)",
+    )
+    parent.add_argument(
+        "--checkpoint-repo",
+        default=argparse.SUPPRESS,
+        help="External checkpoint repo in 'owner/repo' format "
+        "(overrides EGG_CHECKPOINT_REPO env var and repo_settings config)",
+    )
+    return parent
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
+    common = _common_parent_parser()
     parser = argparse.ArgumentParser(
         prog="egg-checkpoint",
         description="CLI for browsing and querying agent checkpoints",
-    )
-    parser.add_argument(
-        "--repo-path",
-        help="Repository path (defaults to EGG_REPO_PATH or cwd)",
-    )
-    parser.add_argument(
-        "--checkpoint-repo",
-        help="External checkpoint repo in 'owner/repo' format "
-        "(overrides EGG_CHECKPOINT_REPO env var and repo_settings config)",
+        parents=[common],
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # list command
-    list_parser = subparsers.add_parser("list", help="List checkpoints with metadata")
+    list_parser = subparsers.add_parser(
+        "list", help="List checkpoints with metadata", parents=[common]
+    )
     list_parser.add_argument("--branch", help="Filter by branch name")
     list_parser.add_argument("--issue", type=int, help="Filter by issue number")
     list_parser.add_argument("--pr", type=int, help="Filter by PR number")
@@ -1689,13 +1861,17 @@ def create_parser() -> argparse.ArgumentParser:
     list_parser.set_defaults(func=cmd_list)
 
     # show command
-    show_parser = subparsers.add_parser("show", help="Display full checkpoint details")
+    show_parser = subparsers.add_parser(
+        "show", help="Display full checkpoint details", parents=[common]
+    )
     show_parser.add_argument("identifier", help="Checkpoint ID (ckpt-...) or commit SHA")
     show_parser.add_argument("--json", action="store_true", help="Output as JSON")
     show_parser.set_defaults(func=cmd_show)
 
     # browse command
-    browse_parser = subparsers.add_parser("browse", help="Filter checkpoints by issue")
+    browse_parser = subparsers.add_parser(
+        "browse", help="Filter checkpoints by issue", parents=[common]
+    )
     browse_parser.add_argument("--issue", type=int, required=True, help="Issue number to browse")
     browse_parser.add_argument("--repo", help="Filter by source repository (owner/repo format)")
     browse_parser.add_argument("--limit", type=int, default=100, help="Maximum checkpoints to show")
@@ -1704,7 +1880,9 @@ def create_parser() -> argparse.ArgumentParser:
 
     # context command
     context_parser = subparsers.add_parser(
-        "context", help="Show cross-agent context summary for a pipeline or issue"
+        "context",
+        help="Show cross-agent context summary for a pipeline or issue",
+        parents=[common],
     )
     context_parser.add_argument("--pipeline", help="Filter by pipeline run ID")
     context_parser.add_argument("--issue", type=int, help="Filter by issue number")
@@ -1730,7 +1908,9 @@ def create_parser() -> argparse.ArgumentParser:
 
     # cost command
     cost_parser = subparsers.add_parser(
-        "cost", help="Show cost breakdown for a pipeline, issue, or PR"
+        "cost",
+        help="Show cost breakdown for a pipeline, issue, or PR",
+        parents=[common],
     )
     cost_parser.add_argument("--pipeline", help="Filter by pipeline run ID")
     cost_parser.add_argument("--issue", type=int, help="Filter by issue number")
@@ -1741,7 +1921,9 @@ def create_parser() -> argparse.ArgumentParser:
 
     # search command
     search_parser = subparsers.add_parser(
-        "search", help="Search checkpoint transcripts for matching text"
+        "search",
+        help="Search checkpoint transcripts for matching text",
+        parents=[common],
     )
     search_parser.add_argument(
         "--text", required=True, help="Text to search for in transcripts (case-insensitive)"
