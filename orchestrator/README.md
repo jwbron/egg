@@ -141,6 +141,8 @@ All endpoints are prefixed with `/api/v1`.
 
 **Signal types include:** `complete`, `progress`, `error`, `heartbeat`, `readiness`, `consensus_propose`, `consensus_ack`, `consensus_nack`, `consensus_withdraw`, `consensus_confirmed`, `consensus_producer_push`. The `consensus_producer_push` signal triggers automatic re-proposal when a producer pushes new commits after proposing — see [Auto Re-Propose on Push/Commit](../docs/guides/concurrent-execution.md#auto-re-propose-on-pushcommit).
 
+**BRC content validation:** The four BRC signal handlers (`consensus_propose`, `consensus_ack`, `consensus_nack`, `consensus_withdraw`) enforce a minimum content floor — message bodies must be ≥50 characters, non-empty, and not match trivial boilerplate phrases. Non-substantive messages are rejected with HTTP 400 before any tracker or message store state is mutated. See [Minimum Content Enforcement](../docs/guides/concurrent-execution.md#minimum-content-enforcement) for details.
+
 ### Restart
 
 | Method | Path | Description |
