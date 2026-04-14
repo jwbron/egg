@@ -179,9 +179,28 @@
       "phase_start_sha": "db9d26c2db0968499206495186050e7aa70a795e"
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Worktree provisioning failure blocking implement phase - should I restart the phase or continue monitoring workarounds?",
+      "context": "In implement phase cycle 0 (started 02:13:05 UTC), gateway-managed worktrees were not provisioned for coder, tester, and documenter containers. All three emitted blocked progress events: 'Worktree not found for container issue-1716-{role}'. reviewer_contract recovered using /tmp/review-repo/ read-only clone. Coder is attempting gh API workaround to download files. Previous phase cycle had 2 coder AGENT_FAILED exits. Tester never proposed in previous cycle (likely same root cause). The implement phase needs a working git environment for producers to commit changes.",
+      "options": [
+        "Restart implement phase to re-provision worktrees",
+        "Continue monitoring - agents are attempting workarounds",
+        "Escalate to human operator"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-14T02:17:36.018776Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "implement",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-04-14T01:25:03.370621Z",
-  "updated_at": "2026-04-14T02:13:07.845608Z",
+  "updated_at": "2026-04-14T02:17:36.021226Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -192,5 +211,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-14T02:12:39.484999Z",
-  "version": 28
+  "version": 29
 }
