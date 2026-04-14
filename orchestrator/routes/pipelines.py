@@ -3256,7 +3256,7 @@ def _build_review_prompt(
             "reasonable or matches an existing pattern."
         )
         lines.append(
-            f"**Pre-existing issues are still blocking**: If the code being reviewed modifies "
+            "**Pre-existing issues are still blocking**: If the code being reviewed modifies "
             f"areas with existing broken or inconsistent behavior, {_nack_label} — do not "
             'dismiss it as "not a regression." The code is already being changed in that area, '
             "making it the natural place to fix the issue. Code that adds new paths through "
@@ -5845,7 +5845,7 @@ def _build_brc_preamble(
         lines.extend(
             [
                 "### Reviewer Lifecycle",
-                "1. **PREPARE** (while waiting): " + _build_reviewer_preparation(role_value, phase),
+                "1. **PREPARE** (while waiting): " + _build_reviewer_preparation(role_value, phase, branch=branch),
                 "2. **POLL**: Wait for `CONSENSUS_PROPOSE` from assigned producers "
                 "(`egg-orch message poll --wait 30`). While waiting, continue "
                 "your preparation work from step 1.",
@@ -6027,7 +6027,7 @@ def _build_agent_roster(all_roles: list[str], current_role: str, phase: str) -> 
     return "\n".join(roster_lines)
 
 
-def _build_reviewer_preparation(role_value: str, phase: str) -> str:
+def _build_reviewer_preparation(role_value: str, phase: str, *, branch: str | None = None) -> str:
     """Build proactive preparation instructions for reviewer agents.
 
     Tells reviewers what to do while waiting for proposals — e.g., reading
@@ -6042,7 +6042,7 @@ def _build_reviewer_preparation(role_value: str, phase: str) -> str:
                 "what was planned. "
                 "(b) Review the issue/PR description for context. "
                 "(c) Check for commits on the branch: run "
-                "`git fetch origin && git log --oneline origin/main..origin/$(git branch --show-current)` "
+                f"`git fetch origin && git log --oneline origin/main..origin/{branch or '$(git branch --show-current)'}` "
                 "and if changes exist, begin reviewing the diff with "
                 "`git diff origin/main...HEAD`. "
                 "(d) Note existing test patterns and code conventions. "

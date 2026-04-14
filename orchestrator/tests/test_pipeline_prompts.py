@@ -2718,6 +2718,11 @@ class TestReviewerBrcPreamble:
         assert "Start reviewing immediately" in prep
         assert "git diff" in prep
 
+    def test_brc_preamble_threads_branch_to_reviewer_preparation(self):
+        """BRC preamble passes branch to reviewer preparation for reliable git commands."""
+        preamble = _build_brc_preamble("reviewer_code", "implement", branch="egg/my-feature")
+        assert "origin/egg/my-feature" in preamble
+
 
 class TestAgentRoster:
     """Tests for _build_agent_roster — active agent listing in BRC preamble."""
@@ -2771,6 +2776,12 @@ class TestReviewerPreparation:
         assert "egg-contract show" in prep
         assert "git diff" in prep
         assert "Start reviewing immediately" in prep
+
+    def test_code_reviewer_uses_branch_when_provided(self):
+        """Code reviewer prep uses explicit branch name instead of shell subcommand."""
+        prep = _build_reviewer_preparation("reviewer_code", "implement", branch="egg/my-feature")
+        assert "origin/egg/my-feature" in prep
+        assert "$(git branch --show-current)" not in prep
 
     def test_contract_reviewer_gets_acceptance_criteria(self):
         """Contract reviewer prep focuses on acceptance criteria."""
