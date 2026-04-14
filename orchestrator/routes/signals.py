@@ -854,6 +854,42 @@ def _resolve_pipeline_phase(pipeline_id: str, repo_path: Path) -> str:
         return "implement"
 
 
+# ---- BRC content validation (issue #1716) ----
+
+_BRC_MIN_CONTENT_LEN = 50
+
+_BRC_BOILERPLATE = frozenset({
+    "lgtm",
+    "looks good",
+    "no issues",
+    "approved",
+    "ok",
+})
+
+
+def _validate_brc_content(body: str, kind: str) -> str | None:
+    """Return an error message if *body* fails the minimum-content bar for BRC signals.
+
+    Returns ``None`` when the content is acceptable.
+    """
+    stripped = (body or "").strip()
+    if not stripped:
+        return f"BRC {kind} rejected: body is empty. Provide substantive rationale (≥{_BRC_MIN_CONTENT_LEN} chars)."
+    if stripped.lower() in _BRC_BOILERPLATE:
+        return (
+            f"BRC {kind} rejected: \"{stripped}\" is boilerplate. "
+            f"Provide substantive rationale — what was read, what was checked, "
+            f"and why the verdict follows (≥{_BRC_MIN_CONTENT_LEN} chars)."
+        )
+    if len(stripped) < _BRC_MIN_CONTENT_LEN:
+        return (
+            f"BRC {kind} rejected: body is {len(stripped)} chars, minimum is "
+            f"{_BRC_MIN_CONTENT_LEN}. Expand your rationale — cite specific "
+            f"files, line numbers, or test results."
+        )
+    return None
+
+
 def handle_consensus_propose_signal(
     pipeline_id: str,
     data: dict[str, Any],
@@ -867,6 +903,11 @@ def handle_consensus_propose_signal(
     payload = data.get("payload", {})
     if not payload:
         return make_error_response("Missing payload")
+
+    # Validate proposal summary content (#1716)
+    content_err = _validate_brc_content(payload.get("summary", ""), "proposal")
+    if content_err:
+        return make_error_response(content_err, 400)
 
     try:
         from peer_consensus import get_peer_consensus_tracker
@@ -1008,6 +1049,11 @@ def handle_consensus_ack_signal(
     if "ack_version" in data and "ack_version" not in payload:
         payload["ack_version"] = int(data["ack_version"])
 
+    # Validate ACK rationale content (#1716)
+    content_err = _validate_brc_content(payload.get("reason", ""), "ACK")
+    if content_err:
+        return make_error_response(content_err, 400)
+
     try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
@@ -1083,6 +1129,11 @@ def handle_consensus_nack_signal(
 
     payload = data.get("payload", {})
 
+    # Validate NACK rationale content (#1716)
+    content_err = _validate_brc_content(payload.get("reason", ""), "NACK")
+    if content_err:
+        return make_error_response(content_err, 400)
+
     try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
@@ -1135,6 +1186,11 @@ def handle_consensus_withdraw_signal(
         return make_error_response("Missing agent_role")
 
     reason = data.get("reason", "")
+
+    # Validate withdrawal rationale content (#1716)
+    content_err = _validate_brc_content(reason, "withdrawal")
+    if content_err:
+        return make_error_response(content_err, 400)
 
     try:
         from peer_consensus import get_peer_consensus_tracker
