@@ -1264,6 +1264,10 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
             "artifacts": getattr(args, "artifacts", []) or [],
             "risk_considered": getattr(args, "risk", "") or "",
             "commit_sha": commit_sha,
+            "commit": getattr(args, "commit", "") or "",
+            "files_changed": getattr(args, "files_changed", []) or [],
+            "tests_run": getattr(args, "tests_run", []) or [],
+            "tasks_satisfied": getattr(args, "tasks", []) or [],
         }
 
     changed_artifacts = getattr(args, "changed_artifacts", None)
@@ -1304,6 +1308,7 @@ def cmd_consensus_ack(args: argparse.Namespace) -> int:
         "producer_role": args.producer_role,
         "payload": {
             "artifact_references": args.files_reviewed,
+            "reason": args.reason,
         },
     }
 
@@ -1825,6 +1830,10 @@ def create_parser() -> argparse.ArgumentParser:
         nargs="*",
         help="Changed artifacts (for re-proposals after NACK)",
     )
+    cons_propose.add_argument("--commit", help="Commit SHA associated with the proposal")
+    cons_propose.add_argument("--files-changed", nargs="*", help="Files changed in this proposal")
+    cons_propose.add_argument("--tests-run", nargs="*", help="Tests executed for this proposal")
+    cons_propose.add_argument("--tasks", nargs="*", help="Contract tasks satisfied by this proposal")
     cons_propose.add_argument(
         "--push",
         action="store_true",
@@ -1844,6 +1853,11 @@ def create_parser() -> argparse.ArgumentParser:
         nargs="+",
         required=True,
         help="Artifact references (files, commits) reviewed",
+    )
+    cons_ack.add_argument(
+        "--reason",
+        required=True,
+        help="Substantive rationale: what was read, what was checked, why the verdict follows",
     )
     _add_json_flag(cons_ack)
     cons_ack.set_defaults(func=cmd_consensus_ack)

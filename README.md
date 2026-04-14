@@ -49,10 +49,9 @@ Phase 1: Broadcast     Each producer (coder, tester, documenter) completes work
                        files changed, tests run, risks considered.
 
 Phase 2: Review        Reviewers evaluate proposals from assigned producers.
-                       ACKs require substantive rationale (--reason): what was
-                       read, what was checked, why the verdict follows.
+                       ACKs must cite specific file paths, line numbers, commit SHAs.
                        NACKs must include specific, actionable objections.
-                       All messages enforced ≥50 chars; boilerplate rejected.
+                       Generic "looks good" is rejected by schema validation.
 
 Phase 3: Converge      When all reviewers have ACKed all assigned producers,
                        each agent independently confirms. The orchestrator
@@ -62,7 +61,7 @@ Phase 3: Converge      When all reviewers have ACKed all assigned producers,
 **Anti-sycophancy by design:**
 
 - **Delphi-style ordering.** Reviewers form independent judgments from git artifacts before seeing the producer's self-assessment. The server holds back producer metadata until the reviewer submits their own evaluation.
-- **Costly signals.** Proposals and reviews require structured attestations tied to real artifacts (commit SHAs, file paths, test counts). The orchestrator enforces a minimum content floor (≥50 chars, no boilerplate) on all BRC messages at the protocol boundary — making the content bar a structural guarantee, not agent discretion.
+- **Costly signals.** Proposals and reviews require structured attestations tied to real artifacts (commit SHAs, file paths, test counts). These are mechanically hard to produce without doing the work (game theory: costly signaling over cheap talk).
 - **Commitment devices.** Proposals have cooldown periods. Retracting a proposal requires citing specific new information. After 3 flip-flops, the agent is locked out and escalated to a human.
 
 The review topology is asymmetric and sparse: reviewers evaluate producers, not each other. This keeps overhead at ~5 review edges instead of ~20 for full pairwise review across 5 agents.

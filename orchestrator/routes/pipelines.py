@@ -5225,13 +5225,12 @@ def _build_brc_preamble(
                 + _build_producer_orientation(role_value, phase, reviewers, branch=branch),
                 "2. **WORK**: Complete your assigned task (see Your Task below).",
                 "3. **PROPOSE**: When done, run: "
-                '`egg-orch consensus propose --summary "..." --commit "..." '
-                '--files-changed "f1" "f2" --tests-run "suite1" "suite2" '
-                '--tasks "task-1-1" "task-1-2" '
-                '--artifacts "file1" "file2" --commit-sha $(git rev-parse HEAD)`\n'
-                "   Your `--summary` must be **substantive** (≥50 chars): describe what was built, "
-                "what was tested, and which contract tasks it satisfies. "
-                "Boilerplate like \"done\" or \"implemented\" will be rejected.",
+                '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2" '
+                '--commit "<sha>" --files-changed "f1.py" "f2.py" --tests-run "test_a" "test_b" '
+                '--tasks "task-1-1" "task-1-2" --commit-sha $(git rev-parse HEAD)`. '
+                "The `--summary` must be ≥50 chars of substantive content describing what was "
+                "built, what was tested, and which contract tasks it satisfies. "
+                "Boilerplate like 'looks good' or 'approved' will be rejected.",
                 "4. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers. "
                 "Handle NACKs by fixing issues and re-proposing.",
                 "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
@@ -5261,11 +5260,11 @@ def _build_brc_preamble(
                 "the referenced code artifacts. Read the actual files — do not rely "
                 "solely on the proposal summary.",
                 '5. **ACK/NACK**: `egg-orch consensus ack <role> --files-reviewed "f1" "f2" '
-                '--reason "<rationale>"` or '
-                '`egg-orch consensus nack <role> --reason "..." --files-reviewed "f1" "f2"`\n'
-                "   Your `--reason` must be **substantive** (≥50 chars): describe what files you read, "
-                "what you checked (logic, tests, security, contract compliance), and why your verdict follows. "
-                "Boilerplate like \"lgtm\" or \"looks good\" will be rejected.",
+                '--reason "Substantive rationale ≥50 chars: what was read, what was checked, '
+                'why the verdict follows"` or '
+                '`egg-orch consensus nack <role> --reason "..." --files-reviewed "f1" "f2"`. '
+                "`--reason` is required on both ACK and NACK and must be ≥50 chars of "
+                "substantive content. Boilerplate like 'lgtm' or 'no issues' will be rejected.",
                 "6. **CONFIRM**: When all assigned producers reviewed: "
                 "`egg-orch consensus confirmed`",
                 "7. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
