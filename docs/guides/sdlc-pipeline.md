@@ -911,6 +911,7 @@ Default checks for each phase are defined in `shared/egg_contracts/phase_default
 **PR phase:**
 - No checks
 - PR is auto-created by the orchestrator (no agent spawned). The PR title and description are sourced from the contract's `pr` field (populated by the plan agent), with commit log and diff stats appended automatically. When BRC consensus was active, a **BRC Consensus Summary** section is included in the PR body showing per-phase agent participation, message counts, consensus status, and **inline content from the final consensus round** — the full proposal body and all ACK/NACK rationales are shown directly in the PR body, with older rounds collapsed in `<details>` blocks. Each phase block links to the committed `.egg-state/brc-history/` artifacts (`.md` and `.json`) for the full record. See [Concurrent Execution — BRC Consensus Summary in PR Body](concurrent-execution.md#brc-consensus-summary-in-pr-body) for details.
+- **Agent-outputs cleanup**: At PR-phase entry, the orchestrator removes `.egg-state/agent-outputs/` from the branch via `_cleanup_agent_outputs_for_pr()`. These files are ephemeral coder→tester handoff artifacts (e.g., `coder-test-changes.patch`) that the tester has already consumed. Leaving them causes merge conflicts in concurrent pipelines and pollutes the PR diff. Cleanup is best-effort — failures are logged but do not block PR creation.
 - **BRC history safety net**: Before PR creation, the orchestrator re-writes BRC history files for all completed phases via `_write_brc_history()`. This is a safety net — BRC history is normally written at each phase boundary, but per-phase pushes can fail silently. Re-writing in the PR phase ensures BRC history files are always present in the PR diff. All functions in this chain emit INFO-level diagnostic logs at entry, exit, and each early-return path (see [PR-Phase State File Troubleshooting](#pr-phase-state-file-troubleshooting)).
 - **Draft preservation**: Pipeline-specific draft files (`.egg-state/drafts/{id}-analysis.md`, `.egg-state/drafts/{id}-plan.md`) are **preserved** on the PR branch as artifacts of the pipeline's reasoning. Reviewers can compare the planned approach against the shipped code, and post-hoc debugging has the analysis and plan available as a baseline (see #1713). The PR phase used to remove these files to keep diffs focused; that behavior was reverted because the audit value outweighs the diff noise.
 - If PR creation returns no URL, the pipeline is marked **FAILED** immediately. The overseer also runs a safety-net check at pipeline completion: if `current_phase=pr` but no `pr_url` is in the phase artifacts, it creates a HITL decision and Slack notification to prevent stranded branch work from going unnoticed.
@@ -1466,7 +1467,7 @@ Use `git show origin/<branch>:.egg-state/drafts/` to list draft files on the rem
 
 ### PR-Phase State File Troubleshooting
 
-The PR phase runs two state file operations before creating the PR: BRC history re-write and a final push. Each operation has diagnostic INFO-level logging to help identify failures.
+The PR phase runs three operations before creating the PR: agent-outputs cleanup, BRC history re-write, and a final push. Each operation has diagnostic INFO-level logging to help identify failures.
 
 **BRC history files missing from PR** (`.egg-state/brc-history/` absent):
 
@@ -1493,9 +1494,10 @@ Look for these log entries in chronological order:
 If the commit logs show success but files are missing/present in the PR diff, the push failed:
 
 1. `PR-phase push succeeded` — Push completed. Includes `commits_ahead` showing how many local commits were ahead of remote before the push.
-2. `Pre-PR push failed — PR may reference stale code` (ERROR) — Push failed. Includes `commits_ahead` count and `error` details. Push failures are caught but do not block PR creation — the PR is created from the **remote** branch state, so unpushed local commits are invisible in the PR.
-3. `PR-phase push skipped` — The push was not attempted. The `reason` field explains why: `"worktree_repo_path == repo_path"` (no separate worktree to push from) or `"no branch set"` (pipeline has no branch configured).
-4. Check the gateway health: `curl http://egg-gateway:9848/api/v1/health`.
+2. `Pre-PR push failed — PR may reference stale code` (ERROR) — Initial push failed. Includes `commits_ahead` count and `error` details. The orchestrator then attempts a fetch+rebase reconcile and a second push.
+3. `PR-phase push failed after reconcile — falling back to PR against remote HEAD; orchestrator housekeeping commits dropped` (WARNING) — The second push also failed after reconcile. The PR is still created against the current remote HEAD — agent commits are preserved, but orchestrator housekeeping commits (BRC history rewrite, cleanup) are not included. This is preferable to failing the whole pipeline.
+4. `PR-phase push skipped` — The push was not attempted. The `reason` field explains why: `"worktree_repo_path == repo_path"` (no separate worktree to push from) or `"no branch set"` (pipeline has no branch configured).
+5. Check the gateway health: `curl http://egg-gateway:9848/api/v1/health`.
 
 **Quick diagnostic checklist**:
 
