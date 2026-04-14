@@ -5334,7 +5334,13 @@ def _build_brc_preamble(
                 + _build_producer_orientation(role_value, phase, reviewers, branch=branch),
                 "2. **WORK**: Complete your assigned task (see Your Task below).",
                 "3. **PROPOSE**: When done, run: "
-                '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2" --commit-sha $(git rev-parse HEAD)`',
+                '`egg-orch consensus propose --summary "..." --commit "<sha>" '
+                '--files-changed "f1.py" "f2.py" --tests-run "test_foo.py" '
+                '--tasks "task-1-1" "task-1-2" --artifacts "file1" "file2" '
+                "--commit-sha $(git rev-parse HEAD)`. "
+                "Your `--summary` must be substantive (≥50 chars, no boilerplate): "
+                "describe what was built, what was tested, which contract tasks it satisfies, "
+                "and any risks considered.",
                 "4. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers. "
                 "Handle NACKs by fixing issues and re-proposing.",
                 "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
@@ -5363,8 +5369,12 @@ def _build_brc_preamble(
                 "4. **REVIEW**: Once a proposal arrives, form independent judgment from "
                 "the referenced code artifacts. Read the actual files — do not rely "
                 "solely on the proposal summary.",
-                '5. **ACK/NACK**: `egg-orch consensus ack <role> --files-reviewed "f1" "f2"` or '
-                '`egg-orch consensus nack <role> --reason "..." --files-reviewed "f1" "f2"`',
+                '5. **ACK/NACK**: `egg-orch consensus ack <role> --reason "..." --files-reviewed "f1" "f2"` or '
+                '`egg-orch consensus nack <role> --reason "..." --files-reviewed "f1" "f2"`. '
+                "Your `--reason` must be substantive (≥50 chars, no boilerplate like "
+                '"lgtm" or "looks good"): describe what was read, what was checked, '
+                "and why the verdict follows. Cite specific files, line numbers, or "
+                "test results.",
                 "6. **CONFIRM**: When all assigned producers reviewed: "
                 "`egg-orch consensus confirmed`",
                 "7. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
