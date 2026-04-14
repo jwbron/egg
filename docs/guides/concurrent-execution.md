@@ -114,6 +114,39 @@ Request body:
 
 The pipeline's current phase is automatically attached to each message. This applies to both the general message endpoint and the consensus signal handlers — all `CONSENSUS_*` messages (propose, ACK, NACK, withdraw, confirmed, re-review) include the phase field so that downstream consumers like BRC history persistence and PR summary generation can correctly group messages by phase.
 
+### Directed Coordination
+
+Beyond the BRC consensus primitives (`propose`, `ack`, `nack`, `confirmed`), agents can send **directed messages** to specific peers for coordination that falls outside the consensus flow. Use the CLI:
+
+```bash
+egg-orch message send --to <role> --type <type> --subject "..." --body "..."
+```
+
+Supported types for directed coordination:
+
+| Type | When to use |
+|------|-------------|
+| `HANDOFF` | You are blocked by a **role boundary** — you've produced an artifact that another agent must push or act on. Example: coder produces test files but can't push them (only the tester role can push to `tests/`). |
+| `QUESTION` | You need **clarification from a specific peer** before you can proceed. Example: a reviewer finds an ambiguous design choice in a proposal and needs the producer to explain intent before ACK/NACK. |
+| `STATUS` | A **status change that affects a peer's work**. Example: documenter discovers a breaking API change that the tester should know about before writing tests. |
+
+**Worked example — role-boundary handoff (from issue-1707):**
+
+During the issue-1707 pipeline, the coder implemented both source and test files but could not push the test files due to role boundaries (the gateway restricts coders to source file patterns). Rather than embedding the request in the proposal body, the coder should send a directed `HANDOFF` to the tester:
+
+```bash
+# Coder: hand off test files to the tester agent
+egg-orch message send \
+  --to tester \
+  --type HANDOFF \
+  --subject "Tests need to be pushed" \
+  --body "Test files for the auth module are ready in my worktree at tests/test_auth.py and tests/test_auth_integration.py. I can't push them due to role boundaries — please pull from the branch, verify, and push."
+```
+
+The tester discovers this message via `egg-orch message poll`, pulls the latest changes, verifies the test files, and pushes them under its own role.
+
+> **Important:** Coordination requests belong in **directed messages**, not in proposal-body footnotes. Embedding requests like "tester agent should push those" in a `CONSENSUS_PROPOSE` body is unreliable — the target agent may not read proposal text promptly, and there is no structured record of the request. Use `egg-orch message send` to create an explicit, discoverable coordination record that the target agent picks up during its normal `message poll` loop.
+
 ### Polling Messages
 
 ```

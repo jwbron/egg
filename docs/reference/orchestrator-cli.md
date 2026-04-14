@@ -97,6 +97,26 @@ egg-orch progress emit --step "blocked on dependency" --state blocked --blocker 
 egg-orch progress query --agent coder
 ```
 
+**Send directed coordination messages (concurrent mode):**
+```bash
+# Role-boundary handoff: coder can't push test files, hands off to tester
+egg-orch message send --to tester --type HANDOFF \
+  --subject "Tests need to be pushed" \
+  --body "Test files ready at tests/test_auth.py — please pull and push."
+
+# Blocking question: reviewer needs clarification before ACK/NACK
+egg-orch message send --to coder --type QUESTION \
+  --subject "Retry logic unclear" \
+  --body "Is the retry in auth.py:42 intentional or a TODO? Blocking my review."
+
+# Peer-affecting status: documenter flags a breaking change for tester
+egg-orch message send --to tester --type STATUS \
+  --subject "API signature changed" \
+  --body "create_user() now requires an email param — test fixtures may need updating."
+```
+
+See [Concurrent Execution — Directed Coordination](../guides/concurrent-execution.md#directed-coordination) for when to use each type.
+
 **Check health monitoring alerts:**
 ```bash
 egg-orch health alerts
