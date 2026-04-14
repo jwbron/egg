@@ -4200,7 +4200,9 @@ def _write_brc_history(
         ts = msg.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if msg.timestamp else "unknown"
         # Include to_role for directed messages (not broadcast "all")
         if msg.to_role and msg.to_role != "all":
-            header = f"### [{ts}] {msg.from_role} → {msg.to_role} ({msg.message_type}): {msg.subject}"
+            header = (
+                f"### [{ts}] {msg.from_role} → {msg.to_role} ({msg.message_type}): {msg.subject}"
+            )
         else:
             header = f"### [{ts}] {msg.from_role} ({msg.message_type}): {msg.subject}"
         lines.append(header)
@@ -4219,9 +4221,7 @@ def _write_brc_history(
         if meta_block:
             lines.append("")
             lines.append("```yaml")
-            lines.append(
-                yaml.dump(meta_block, sort_keys=False, default_flow_style=False).rstrip()
-            )
+            lines.append(yaml.dump(meta_block, sort_keys=False, default_flow_style=False).rstrip())
             lines.append("```")
         lines.append("")
 
@@ -4611,12 +4611,9 @@ def _build_brc_consensus_summary(
                 if body_text:
                     if len(body_text) > _MAX_BODY_INLINE:
                         body_text = (
-                            body_text[:_MAX_BODY_INLINE]
-                            + "… _(full content in brc-history/*.md)_"
+                            body_text[:_MAX_BODY_INLINE] + "… _(full content in brc-history/*.md)_"
                         )
-                    block_lines.append(
-                        f"  **{m.from_role}** ({m.message_type}): {body_text}"
-                    )
+                    block_lines.append(f"  **{m.from_role}** ({m.message_type}): {body_text}")
 
         # Wrap earlier rounds in <details> if any
         if earlier_round_msgs:
@@ -4632,16 +4629,11 @@ def _build_brc_consensus_summary(
                 if body_text:
                     if len(body_text) > _MAX_BODY_INLINE:
                         body_text = (
-                            body_text[:_MAX_BODY_INLINE]
-                            + "… _(full content in brc-history/*.md)_"
+                            body_text[:_MAX_BODY_INLINE] + "… _(full content in brc-history/*.md)_"
                         )
-                    block_lines.append(
-                        f"  **{m.from_role}** ({m.message_type}): {body_text}"
-                    )
+                    block_lines.append(f"  **{m.from_role}** ({m.message_type}): {body_text}")
                 else:
-                    block_lines.append(
-                        f"  **{m.from_role}** ({m.message_type})"
-                    )
+                    block_lines.append(f"  **{m.from_role}** ({m.message_type})")
             block_lines.append("")
             block_lines.append("</details>")
 
@@ -4651,8 +4643,7 @@ def _build_brc_consensus_summary(
             md_link = f".egg-state/brc-history/{identifier}-{phase_name}.md"
             json_link = f".egg-state/brc-history/{identifier}-{phase_name}.json"
             block_lines.append(
-                f"Full record: [{md_link}](./{md_link})"
-                f" · [{'.json'}](./{json_link})"
+                f"Full record: [{md_link}](./{md_link}) · [{'.json'}](./{json_link})"
             )
 
         block_lines.append("")
