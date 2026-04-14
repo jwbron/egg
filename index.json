@@ -529,7 +529,8 @@
       "ckpt-9d86da6dec9fb9d5",
       "ckpt-0fc6a27a98a07306",
       "ckpt-b0d5995441a0dae1",
-      "ckpt-f8d02ab3f1e34349"
+      "ckpt-f8d02ab3f1e34349",
+      "ckpt-9fb79575549f552d"
     ]
   },
   "by_commit": {},
@@ -645,7 +646,8 @@
       "ckpt-b0d5995441a0dae1"
     ],
     "issue-1743-v2": [
-      "ckpt-f8d02ab3f1e34349"
+      "ckpt-f8d02ab3f1e34349",
+      "ckpt-9fb79575549f552d"
     ],
     "local-0a770e0f": [
       "ckpt-241ef0fa799dd61d"
@@ -1294,6 +1296,9 @@
     ],
     "issue-1743-state-ls-remote": [
       "ckpt-b0d5995441a0dae1"
+    ],
+    "issue-1743-v2-failsafe-fetch": [
+      "ckpt-9fb79575549f552d"
     ],
     "issue-1743-v2-state-ls-remote": [
       "ckpt-f8d02ab3f1e34349"
@@ -2270,7 +2275,8 @@
       "ckpt-9d86da6dec9fb9d5",
       "ckpt-0fc6a27a98a07306",
       "ckpt-b0d5995441a0dae1",
-      "ckpt-f8d02ab3f1e34349"
+      "ckpt-f8d02ab3f1e34349",
+      "ckpt-9fb79575549f552d"
     ]
   },
   "by_trigger": {
@@ -2803,7 +2809,8 @@
       "ckpt-9d86da6dec9fb9d5",
       "ckpt-0fc6a27a98a07306",
       "ckpt-b0d5995441a0dae1",
-      "ckpt-f8d02ab3f1e34349"
+      "ckpt-f8d02ab3f1e34349",
+      "ckpt-9fb79575549f552d"
     ]
   },
   "checkpoints": [
@@ -12857,8 +12864,27 @@
       "tool_call_count": 0,
       "total_tokens": 0,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-04-14T16:08:05.024417Z",
+      "files_touched_count": 0,
+      "id": "ckpt-9fb79575549f552d",
+      "issue_number": null,
+      "message_count": 0,
+      "pipeline_id": "issue-1743-v2",
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": null,
+      "session_id": "issue-1743-v2-failsafe-fetch",
+      "session_status": "completed",
+      "tool_call_count": 0,
+      "total_tokens": 0,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-04-14T16:08:03.121872Z",
+  "last_updated": "2026-04-14T16:08:05.834247Z",
   "schemaVersion": "2.0"
 }
