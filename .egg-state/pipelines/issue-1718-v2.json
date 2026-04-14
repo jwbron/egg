@@ -182,7 +182,7 @@
       "phase": "pr",
       "status": "running",
       "started_at": "2026-04-14T05:16:03.765378Z",
-      "work_started_at": null,
+      "work_started_at": "2026-04-14T05:16:08.524742Z",
       "completed_at": null,
       "containers": [],
       "agents": [],
@@ -197,7 +197,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-14T02:38:21.049248Z",
-  "updated_at": "2026-04-14T05:16:03.765445Z",
+  "updated_at": "2026-04-14T05:16:08.524910Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -208,5 +208,5 @@
   "source_branch": "egg/issue-1718",
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-14T05:00:15.607469Z",
-  "version": 33
+  "version": 34
 }
