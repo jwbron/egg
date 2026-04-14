@@ -189,7 +189,9 @@
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [],
-      "artifacts": {},
+      "artifacts": {
+        "pr_url": "https://github.com/jwbron/egg/pull/1729"
+      },
       "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "d1bdee69d399b40a06495b25e8742dc9785200bc"
@@ -197,7 +199,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-14T02:39:47.502877Z",
-  "updated_at": "2026-04-14T03:26:29.988784Z",
+  "updated_at": "2026-04-14T03:27:28.142299Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -208,5 +210,5 @@
   "source_branch": "egg/issue-1717",
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-14T03:06:46.361134Z",
-  "version": 23
+  "version": 24
 }
