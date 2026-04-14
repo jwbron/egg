@@ -5506,7 +5506,6 @@ def _build_brc_preamble(
             ]
         )
 
-
     lines.extend(
         [
             "**If you exit before the orchestrator stops you, you have FAILED your role.** "
