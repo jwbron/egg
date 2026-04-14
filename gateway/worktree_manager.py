@@ -325,23 +325,24 @@ class WorktreeManager:
             if git_path.exists() and git_path.is_dir():
                 shutil.rmtree(git_path, ignore_errors=True)
 
-        # Clean up stale git admin dir (.git/worktrees/<name>) left by a
-        # previous worktree that was not properly removed (e.g. broken btrfs
-        # mount after restart_phase).  Without this, `git worktree add` fails
-        # with "already registered" even though the worktree itself is
-        # invalid.  (#1723)
-        admin_dir = self._find_worktree_git_dir(main_repo, worktree_path)
-        if admin_dir is not None and admin_dir.exists():
-            logger.warning(
-                "Removing stale worktree admin dir before recreation",
-                admin_dir=str(admin_dir),
-                container_id=container_id,
-                repo=repo_name,
-            )
-            shutil.rmtree(admin_dir, ignore_errors=True)
-
         # Serialize git operations against this repo to prevent index.lock contention
         with self._get_repo_lock(repo_name):
+            # Clean up stale git admin dir (.git/worktrees/<name>) left by a
+            # previous worktree that was not properly removed (e.g. broken btrfs
+            # mount after restart_phase).  Without this, `git worktree add` fails
+            # with "already registered" even though the worktree itself is
+            # invalid.  Must be inside the repo lock to avoid TOCTOU race with
+            # concurrent create_worktree / remove_worktree calls.  (#1723)
+            admin_dir = self._find_worktree_git_dir(main_repo, worktree_path)
+            if admin_dir is not None and admin_dir.exists():
+                logger.warning(
+                    "Removing stale worktree admin dir before recreation",
+                    admin_dir=str(admin_dir),
+                    container_id=container_id,
+                    repo=repo_name,
+                )
+                shutil.rmtree(admin_dir, ignore_errors=True)
+
             # Check if branch already exists (from crashed session)
             branch_exists = (
                 subprocess.run(

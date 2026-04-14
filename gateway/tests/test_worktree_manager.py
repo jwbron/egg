@@ -545,8 +545,6 @@ class TestWorktreeManagerDockerGitDir:
         # Simulate a broken state: remove the worktree directory but leave the
         # git admin dir (as happens when a btrfs mount is removed externally
         # but git state is not cleaned up).
-        import shutil
-
         shutil.rmtree(info1.worktree_path)
         # Re-create the worktree path as an empty directory (simulating a
         # broken mount point that exists but has no valid .git file).
@@ -559,6 +557,7 @@ class TestWorktreeManagerDockerGitDir:
         info2 = manager.create_worktree("test-repo", "stale-container")
 
         assert info2.worktree_path.exists()
+        assert info2.git_dir.exists()
         git_file = info2.worktree_path / ".git"
         assert git_file.is_file()
         assert git_file.read_text().strip().startswith("gitdir:")
