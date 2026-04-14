@@ -490,7 +490,9 @@ class StateStore:
             Path to saved file
 
         Raises:
-            GitOperationError: If git operations fail
+            GitOperationError: If non-commit git operations fail (e.g., directory
+                setup). Commit failures are caught and logged — the file is saved
+                on disk but may not be committed to git until the next save.
             VersionConflictError: If expected_version doesn't match current version
         """
         self._ensure_dir()
@@ -535,7 +537,7 @@ class StateStore:
             try:
                 self._commit_state(pipeline, message)
             except GitOperationError:
-                logger.warning(
+                logger.error(
                     "Failed to commit pipeline state for %s; file is saved on disk, "
                     "commit will be retried on next save",
                     pipeline.id,
