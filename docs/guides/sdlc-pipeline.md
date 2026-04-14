@@ -1254,13 +1254,17 @@ Agents communicate via the orchestrator message bus using structured envelopes:
 | `QUESTION` | Ask another agent for clarification | Tester: "Expected status for invalid input?" |
 | `RESPONSE` | Reply to a question | Coder: "400 Bad Request" |
 | `STATUS` | Share current activity | Documenter: "Documenting API section" |
+| `HANDOFF` | Hand off an artifact blocked by role boundaries | Coder: "Test files ready — tester please push" |
 | `AGENT_FAILED` | System notification of failure | System: "Tester agent crashed" |
 
 **CLI commands**:
 
 ```bash
-# Send a message to another agent
+# Send a progress message to another agent
 egg-orch message send --to tester --type PROGRESS --subject "API done" --body "..."
+
+# Send a directed handoff when blocked by role boundaries
+egg-orch message send --to tester --type HANDOFF --subject "Tests need pushing" --body "Test files at tests/test_auth.py — can't push due to role boundaries."
 
 # Poll for new messages
 egg-orch message poll [--since msg-abc123] [--limit 50]
@@ -1268,6 +1272,8 @@ egg-orch message poll [--since msg-abc123] [--limit 50]
 # Check message bus status
 egg-orch message status
 ```
+
+See [Concurrent Execution — Directed Coordination](concurrent-execution.md#directed-coordination) for the full pattern for `HANDOFF`, `QUESTION`, and `STATUS` directed messages.
 
 ### Consensus Protocol
 
@@ -1312,11 +1318,14 @@ egg-orch signal readiness --state OBJECTING --reason "Found failing test"
 Each agent role has specific behavior patterns in concurrent mode:
 
 **Coder**: Implements code and sends `PROGRESS` messages when key interfaces are
-committed. Responds to `QUESTION` messages from tester/documenter. Signals `READY`
-after all implementation tasks are committed.
+committed. Responds to `QUESTION` messages from tester/documenter. When blocked by
+role boundaries (e.g., cannot push test files), sends a directed `HANDOFF` message
+to the appropriate agent rather than embedding the request in a proposal body. Signals
+`READY` after all implementation tasks are committed.
 
 **Tester**: Begins scaffolding tests early. Polls for coder `PROGRESS` to know when
-code is ready. Sends `QUESTION` messages for clarification. Signals `READY` after
+code is ready. Picks up `HANDOFF` messages for artifacts that the coder cannot push
+(e.g., test files). Sends `QUESTION` messages for clarification. Signals `READY` after
 tests pass.
 
 **Documenter**: Starts documentation based on the plan. Refines as implementation
@@ -1324,16 +1333,19 @@ solidifies. Polls for `PROGRESS` from coder/tester. Signals `READY` after docs c
 all changes.
 
 **Reviewer (code/contract)**: Reviews committed code or contract artifacts. Polls for
-`PROGRESS` from coder. Signals `READY` after review is complete.
+`PROGRESS` from coder. Sends directed `QUESTION` messages when a proposal is ambiguous
+rather than embedding questions in ACK/NACK text. Signals `READY` after review is
+complete.
 
 ### Shared Pipeline Branch
 
 All concurrent agents operate on the pipeline's shared branch (e.g., `egg/issue-999`).
 Rather than each agent having an isolated worktree branch, all agents commit directly
 to a single shared history. Agents coordinate via the message bus to sequence commits
-and avoid conflicts — for example, the coder signals `HANDOFF` when its changes are
-committed so downstream agents (tester, documenter) know it is safe to pull and build
-on top.
+and avoid conflicts — for example, the coder sends a directed `HANDOFF` message when
+its changes are committed so downstream agents (tester, documenter) know it is safe to
+pull and build on top. See [Concurrent Execution — Directed Coordination](concurrent-execution.md#directed-coordination)
+for the full directed messaging pattern.
 
 ### Failure Handling
 

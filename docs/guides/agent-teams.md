@@ -45,7 +45,12 @@ The original implementation used 30-second polling intervals — a message sent 
 ```bash
 # Long-poll for messages (blocks until messages arrive or timeout)
 egg-orch message poll --wait 30
+
+# Send a directed coordination message to a specific peer
+egg-orch message send --to <role> --type <HANDOFF|QUESTION|STATUS> --subject "..." --body "..."
 ```
+
+Directed messages enable peer-to-peer coordination outside the BRC consensus flow — for example, handing off artifacts blocked by role boundaries or asking a specific peer for clarification. See [Concurrent Execution — Directed Coordination](concurrent-execution.md#directed-coordination) for the full pattern and worked examples.
 
 ### Protocol: Broadcast-Review-Converge (BRC)
 
@@ -165,6 +170,8 @@ Not all messages need the same rigor:
 | Message type | Signal cost | Rationale |
 |-------------|-------------|-----------|
 | STATUS, PROGRESS | Cheap talk | Low overhead, informative when interests are aligned |
+| HANDOFF | Moderate signal | Must specify concrete artifacts and the target role — easier to verify than consensus attestations but requires identifying the right peer and artifact |
+| QUESTION | Cheap talk | Low overhead, but creates a discoverable record (unlike embedding questions in proposal text) |
 | CONSENSUS_PROPOSE | Costly signal | Attestations are harder to produce without doing the work |
 | CONSENSUS_ACK | Costly signal | Must reference specific artifacts reviewed (prevents rubber-stamping) |
 | CONSENSUS_NACK | Costly signal | Must include specific, actionable objection with artifact references |
@@ -265,7 +272,7 @@ The protocol design draws on research across three domains.
 | Nominal Group Technique | Separate generation from evaluation to prevent anchoring | Agents assess independently → share in fixed order → discuss → vote. |
 | Social Choice Theory (Arrow's theorem) | No perfect aggregation, but unanimity + structured deliberation avoids the worst pathologies. ACL 2025 comparison of 7 decision protocols found unanimity with structured deliberation outperforms majority voting for LLM agents. | Unanimity gives every agent veto power → require structured justification to veto. |
 | Groupthink / Sycophancy (CONSENSAGENT) | LLM agents have strong sycophancy in group settings. ICLR 2025 scaling study found rigid adversarial "Devil's Advocate" roles backfire — this is why the protocol has no dedicated adversarial agent role and instead embeds critical evaluation structurally. | Embed critical evaluation structurally, not just via role names. |
-| Stigmergy | Agents coordinate through artifacts; traces require cognitive infrastructure for interpretation | Make handoffs richer and structured. Ensure agents have context to interpret them. |
+| Stigmergy | Agents coordinate through artifacts; traces require cognitive infrastructure for interpretation | Make handoffs richer and structured. Ensure agents have context to interpret them. Implemented via [directed coordination messages](concurrent-execution.md#directed-coordination) (`HANDOFF`, `QUESTION`, `STATUS`). |
 | Shared Mental Models | Teams need shared understanding of "done" | Make acceptance criteria explicit and verifiable per role before the phase starts. |
 
 ### Game Theory
