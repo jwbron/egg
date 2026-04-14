@@ -12,6 +12,8 @@ import json
 from datetime import UTC, datetime
 from unittest.mock import patch
 
+from egg_config import GATEWAY_PORT
+
 import pytest
 from egg_contracts.checkpoint_cli import (
     cmd_browse,
@@ -674,7 +676,7 @@ class TestJsonEmptyOutputHttp:
 
         parser = create_parser()
         args = parser.parse_args(["list", "--json"])
-        result = _cmd_list_http(args, "http://gw:9848")
+        result = _cmd_list_http(args, f"http://gw:{GATEWAY_PORT}")
 
         assert result == 0
         out = capsys.readouterr().out
@@ -690,7 +692,7 @@ class TestJsonEmptyOutputHttp:
 
         parser = create_parser()
         args = parser.parse_args(["browse", "--issue", "9999", "--json"])
-        result = _cmd_browse_http(args, "http://gw:9848")
+        result = _cmd_browse_http(args, f"http://gw:{GATEWAY_PORT}")
 
         assert result == 0
         out = capsys.readouterr().out
@@ -706,7 +708,7 @@ class TestJsonEmptyOutputHttp:
 
         parser = create_parser()
         args = parser.parse_args(["search", "--text", "nonexistent", "--json"])
-        result = _cmd_search_http(args, "http://gw:9848")
+        result = _cmd_search_http(args, f"http://gw:{GATEWAY_PORT}")
 
         assert result == 0
         out = capsys.readouterr().out
@@ -722,7 +724,7 @@ class TestJsonEmptyOutputHttp:
 
         parser = create_parser()
         args = parser.parse_args(["context", "--pipeline", "issue-999", "--json"])
-        result = _cmd_context_http(args, "http://gw:9848")
+        result = _cmd_context_http(args, f"http://gw:{GATEWAY_PORT}")
 
         assert result == 0
         out = capsys.readouterr().out
@@ -740,7 +742,7 @@ class TestJsonEmptyOutputHttp:
 
         parser = create_parser()
         args = parser.parse_args(["cost", "--pipeline", "issue-999", "--json"])
-        result = _cmd_cost_http(args, "http://gw:9848")
+        result = _cmd_cost_http(args, f"http://gw:{GATEWAY_PORT}")
 
         assert result == 0
         out = capsys.readouterr().out
