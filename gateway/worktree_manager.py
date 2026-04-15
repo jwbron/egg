@@ -53,7 +53,7 @@ def _format_bytes(n: int) -> str:
     for unit in ("B", "KiB", "MiB", "GiB"):
         if abs(n) < 1024:
             return f"{n:.1f} {unit}"
-        n = n / 1024
+        n = n // 1024
     return f"{n:.1f} TiB"
 
 
