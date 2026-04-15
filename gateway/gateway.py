@@ -128,7 +128,13 @@ try:
         validate_session_for_request,
     )
     from .transcript_buffer import get_transcript_buffer
-    from .worktree_manager import WorktreeManager, get_active_docker_containers, startup_cleanup
+    from .worktree_manager import (
+        REPOS_BASE_DIR,
+        WORKTREE_BASE_DIR,
+        WorktreeManager,
+        get_active_docker_containers,
+        startup_cleanup,
+    )
 except ImportError:
     from agent_restrictions import (  # type: ignore[no-redef, import-untyped]
         check_agent_gh_operation,
@@ -201,6 +207,8 @@ except ImportError:
     )
     from transcript_buffer import get_transcript_buffer  # type: ignore[no-redef, import-untyped]
     from worktree_manager import (  # type: ignore[no-redef, import-untyped]
+        REPOS_BASE_DIR,
+        WORKTREE_BASE_DIR,
         WorktreeManager,
         get_active_docker_containers,
         startup_cleanup,
@@ -1845,6 +1853,7 @@ def git_fetch() -> tuple[Response, int] | Response:
             )
 
     except subprocess.TimeoutExpired:
+        _cleanup_stale_pack_files(exec_path)
         return make_error(f"{operation.capitalize()} timed out", status_code=504)
     except Exception as e:
         return make_error(f"{operation.capitalize()} failed: {e}", status_code=500)
@@ -3494,6 +3503,51 @@ def map_container_path_to_worktree(
             repo_name=repo_name,
         )
         return None
+
+
+def _cleanup_stale_pack_files(exec_path: str) -> None:
+    """Best-effort cleanup of stale temporary pack files after a failed git operation.
+
+    Resolves the main repo from ``exec_path`` (which may be a worktree path or
+    a main repo path) and removes ``tmp_pack_*``/``tmp_obj_*``/``tmp_idx_*``
+    files older than 5 minutes.  The age filter avoids racing with concurrent
+    fetch operations on the same repository.
+    """
+    try:
+        # Determine repo_name from exec_path.
+        # Worktree paths:  /home/egg/.egg-worktrees/{container_id}/{repo_name}[/subdir]
+        # Main repo paths: /home/egg/repos/{repo_name}[/subdir]
+        repo_name = None
+        worktree_prefix = str(WORKTREE_BASE_DIR) + "/"
+        repos_prefix = str(REPOS_BASE_DIR) + "/"
+
+        if exec_path.startswith(worktree_prefix):
+            # e.g. /home/egg/.egg-worktrees/container-123/my-repo/src → my-repo
+            relative = exec_path[len(worktree_prefix) :]
+            parts = relative.split("/")
+            if len(parts) >= 2:
+                repo_name = parts[1]
+        elif exec_path.startswith(repos_prefix):
+            # e.g. /home/egg/repos/my-repo/src → my-repo
+            relative = exec_path[len(repos_prefix) :]
+            parts = relative.split("/")
+            if parts and parts[0]:
+                repo_name = parts[0]
+
+        if not repo_name:
+            return
+
+        manager = get_worktree_manager()
+        manager.cleanup_orphaned_pack_files(
+            repo_name=repo_name,
+            max_age_seconds=300,
+        )
+    except Exception as e:
+        logger.debug(
+            "Stale pack file cleanup failed (best-effort)",
+            exec_path=exec_path,
+            error=str(e),
+        )
 
 
 @app.route("/api/v1/worktree/create", methods=["POST"])

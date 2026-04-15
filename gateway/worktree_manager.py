@@ -48,6 +48,15 @@ WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
 REPOS_BASE_DIR = Path("/home/egg/repos")
 
 
+def _format_bytes(n: int) -> str:
+    """Format byte count as human-readable string."""
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if abs(n) < 1024:
+            return f"{n:.1f} {unit}"
+        n = int(n / 1024)
+    return f"{n:.1f} TiB"
+
+
 @dataclass
 class WorktreeInfo:
     """Information about a git worktree."""
@@ -390,13 +399,19 @@ class WorktreeManager:
                             base_branch=base_branch,
                             container_id=container_id,
                         )
-                        fetch_result = subprocess.run(
-                            git_cmd("fetch", "origin", base_branch),
-                            cwd=main_repo,
-                            capture_output=True,
-                            text=True,
-                            check=False,
-                        )
+                        try:
+                            fetch_result = subprocess.run(
+                                git_cmd("fetch", "origin", base_branch),
+                                cwd=main_repo,
+                                capture_output=True,
+                                text=True,
+                                check=False,
+                                timeout=120,
+                            )
+                        except subprocess.TimeoutExpired as e:
+                            raise RuntimeError(
+                                f"Timed out fetching base branch '{base_branch}' from remote"
+                            ) from e
                         if fetch_result.returncode == 0:
                             effective_base = f"origin/{base_branch}"
                         else:
@@ -1349,6 +1364,115 @@ class WorktreeManager:
 
         return repos_checked
 
+    def cleanup_orphaned_pack_files(
+        self,
+        repo_name: str | None = None,
+        max_age_seconds: float | None = None,
+    ) -> tuple[int, int]:
+        """
+        Remove orphaned temporary pack files from git repositories.
+
+        Git creates ``tmp_pack_*``, ``tmp_obj_*``, and ``tmp_idx_*`` files in
+        ``.git/objects/pack/`` during fetch/clone/repack operations.  When the
+        operation completes, git renames them to their final names.  When the
+        operation is **interrupted** (SIGKILL, OOM, container stop, timeout),
+        the temp files are left behind as orphans — git never garbage-collects
+        them automatically, especially with ``gc.auto=0``.
+
+        These files are always safe to delete when no git operation is actively
+        writing them.  Use ``max_age_seconds`` to avoid racing with concurrent
+        operations at runtime.  At startup (no concurrent ops), pass
+        ``max_age_seconds=None`` to clean everything.
+
+        Args:
+            repo_name: If set, only clean this specific repo.  Otherwise scan
+                all repos in ``repos_base``.
+            max_age_seconds: If set, only remove files whose mtime is older
+                than this many seconds ago.  None means remove all.
+
+        Returns:
+            Tuple of (files_removed, bytes_reclaimed).
+        """
+        files_removed = 0
+        bytes_reclaimed = 0
+
+        if not self.repos_base.exists():
+            return files_removed, bytes_reclaimed
+
+        if repo_name is not None:
+            repo_dirs = [self.repos_base / repo_name]
+        else:
+            try:
+                repo_dirs = [d for d in self.repos_base.iterdir() if d.is_dir()]
+            except OSError as e:
+                logger.warning("Failed to list repos_base", error=str(e))
+                return files_removed, bytes_reclaimed
+
+        now = time.time()
+
+        for repo_dir in repo_dirs:
+            git_dir = repo_dir / ".git"
+            # Only process actual repos (with a .git directory, not a .git file
+            # which would indicate a worktree itself)
+            if not git_dir.is_dir():
+                continue
+
+            pack_dir = git_dir / "objects" / "pack"
+            if not pack_dir.is_dir():
+                continue
+
+            safe_name = repo_dir.name
+            with self._get_repo_lock(safe_name):
+                try:
+                    for entry in pack_dir.iterdir():
+                        name = entry.name
+                        if not (
+                            name.startswith("tmp_pack_")
+                            or name.startswith("tmp_obj_")
+                            or name.startswith("tmp_idx_")
+                        ):
+                            continue
+
+                        if not entry.is_file():
+                            continue
+
+                        if max_age_seconds is not None:
+                            try:
+                                mtime = entry.stat().st_mtime
+                                if (now - mtime) < max_age_seconds:
+                                    continue
+                            except OSError:
+                                continue
+
+                        try:
+                            file_size = entry.stat().st_size
+                            entry.unlink()
+                            files_removed += 1
+                            bytes_reclaimed += file_size
+                        except OSError as e:
+                            logger.warning(
+                                "Failed to remove orphaned pack file",
+                                file=str(entry),
+                                error=str(e),
+                            )
+                except OSError as e:
+                    logger.warning(
+                        "Failed to scan pack directory",
+                        repo=safe_name,
+                        pack_dir=str(pack_dir),
+                        error=str(e),
+                    )
+
+        if files_removed > 0:
+            logger.info(
+                "Cleaned up orphaned pack files",
+                files_removed=files_removed,
+                bytes_reclaimed=bytes_reclaimed,
+                bytes_reclaimed_human=_format_bytes(bytes_reclaimed),
+            )
+
+        return files_removed, bytes_reclaimed
+
     def get_worktree_paths(self, container_id: str, repo_name: str) -> tuple[Path, Path]:
         """
         Get worktree paths for path mapping.
@@ -1586,5 +1710,13 @@ def startup_cleanup(
         manager.prune_stale_worktrees()
     except Exception as e:
         logger.warning("git worktree prune failed during startup", error=str(e))
+
+    # Clean up orphaned temporary pack files left by interrupted git operations
+    # (fetch/clone/repack).  Safe at startup because no git operations are
+    # running yet, so all tmp_pack_*/tmp_obj_*/tmp_idx_* files are orphans.
+    try:
+        manager.cleanup_orphaned_pack_files()
+    except Exception as e:
+        logger.warning("Pack file cleanup failed during startup", error=str(e))
 
     return removed
