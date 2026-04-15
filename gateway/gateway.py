@@ -3506,12 +3506,14 @@ def map_container_path_to_worktree(
 
 
 def _cleanup_stale_pack_files(exec_path: str) -> None:
-    """Best-effort cleanup of stale temporary pack files after a failed git operation.
+    """Best-effort opportunistic cleanup of previously-orphaned temporary pack files.
 
-    Resolves the main repo from ``exec_path`` (which may be a worktree path or
-    a main repo path) and removes ``tmp_pack_*``/``tmp_obj_*``/``tmp_idx_*``
-    files older than 5 minutes.  The age filter avoids racing with concurrent
-    fetch operations on the same repository.
+    Called after a git operation times out, but does NOT target the specific
+    operation's artifacts (those are too recent to match the age filter).
+    Instead, it scans for ``tmp_pack_*``/``tmp_obj_*``/``tmp_idx_*`` files
+    older than 5 minutes — orphans left by *earlier* interrupted operations.
+    The age filter avoids racing with concurrent fetch operations on the same
+    repository.
     """
     try:
         # Determine repo_name from exec_path.

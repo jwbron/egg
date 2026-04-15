@@ -53,7 +53,7 @@ def _format_bytes(n: int) -> str:
     for unit in ("B", "KiB", "MiB", "GiB"):
         if abs(n) < 1024:
             return f"{n:.1f} {unit}"
-        n = int(n / 1024)
+        n = n / 1024
     return f"{n:.1f} TiB"
 
 
@@ -1436,19 +1436,19 @@ class WorktreeManager:
                         if not entry.is_file():
                             continue
 
+                        try:
+                            st = entry.stat()
+                        except OSError:
+                            continue
+
                         if max_age_seconds is not None:
-                            try:
-                                mtime = entry.stat().st_mtime
-                                if (now - mtime) < max_age_seconds:
-                                    continue
-                            except OSError:
+                            if (now - st.st_mtime) < max_age_seconds:
                                 continue
 
                         try:
-                            file_size = entry.stat().st_size
                             entry.unlink()
                             files_removed += 1
-                            bytes_reclaimed += file_size
+                            bytes_reclaimed += st.st_size
                         except OSError as e:
                             logger.warning(
                                 "Failed to remove orphaned pack file",
