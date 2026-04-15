@@ -50,11 +50,12 @@ REPOS_BASE_DIR = Path("/home/egg/repos")
 
 def _format_bytes(n: int) -> str:
     """Format byte count as human-readable string."""
+    size: float = float(n)
     for unit in ("B", "KiB", "MiB", "GiB"):
-        if abs(n) < 1024:
-            return f"{n:.1f} {unit}"
-        n = n // 1024
-    return f"{n:.1f} TiB"
+        if abs(size) < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TiB"
 
 
 @dataclass
