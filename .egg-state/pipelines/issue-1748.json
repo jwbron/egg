@@ -135,9 +135,28 @@
       "phase_start_sha": "ead88f5343b707f84a4f0bf916bd661ffe15f5dc"
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Refiner agent has stalled for ~5 minutes in the refine phase BRC cycle with no heartbeat or progress since orienting on issue 1748. Both reviewer agents (reviewer_refine, reviewer_agent_design) are blocked waiting for the refiner's proposal. No draft has been produced at .egg-state/drafts/1748-analysis.md. Active alerts: heartbeat_timeout + progress_stall (WARNING, 141s+). What action should be taken?",
+      "context": "Pipeline: issue-1748, Phase: refine, Protocol: BRC. Refiner last active at 18:10:23 UTC during orientation. Last progress event: 'orienting refiner: gathering context for issue 1748, no prior draft, fresh analysis'. Alert IDs: cfe043b9 (heartbeat_timeout), 3ca17002 (progress_stall). Both reviewers are in WORKING state but fully blocked on refiner.",
+      "options": [
+        "Wait 5 more minutes before re-escalating",
+        "Restart the refiner agent container",
+        "Abort pipeline issue-1748 and retry"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-16T18:15:31.028752Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-04-16T18:09:13.590628Z",
-  "updated_at": "2026-04-16T18:09:47.443919Z",
+  "updated_at": "2026-04-16T18:15:31.031599Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -148,5 +167,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 7
+  "version": 8
 }
