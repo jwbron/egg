@@ -49,8 +49,76 @@
       "started_at": "2026-04-16T18:09:44.334271Z",
       "work_started_at": "2026-04-16T18:09:45.707995Z",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "be9d4133fce88fa01014a9ed6d37c66f6e13144e478a162dec0ba278516c9ae5",
+          "container_name": "issue-1748-reviewer_agent_design",
+          "status": "running",
+          "started_at": "2026-04-16T18:09:47.443835Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_agent_design",
+          "session_token": null
+        },
+        {
+          "container_id": "14a4abedcdc201e3d14f76a5f1a8edc2bd4947b431fdb80b7f10c00fd9574f88",
+          "container_name": "issue-1748-reviewer_refine",
+          "status": "running",
+          "started_at": "2026-04-16T18:09:47.443846Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_refine",
+          "session_token": null
+        },
+        {
+          "container_id": "b7eea3e16b0335ed211ae1e0a7f2ed903ceba8d68cde4f81142d9f946fb49886",
+          "container_name": "issue-1748-refiner",
+          "status": "running",
+          "started_at": "2026-04-16T18:09:47.443850Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "refiner",
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "reviewer_agent_design",
+          "status": "running",
+          "container_id": "be9d4133fce88fa01014a9ed6d37c66f6e13144e478a162dec0ba278516c9ae5",
+          "started_at": "2026-04-16T18:09:47.443842Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_refine",
+          "status": "running",
+          "container_id": "14a4abedcdc201e3d14f76a5f1a8edc2bd4947b431fdb80b7f10c00fd9574f88",
+          "started_at": "2026-04-16T18:09:47.443848Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "refiner",
+          "status": "running",
+          "container_id": "b7eea3e16b0335ed211ae1e0a7f2ed903ceba8d68cde4f81142d9f946fb49886",
+          "started_at": "2026-04-16T18:09:47.443852Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -69,7 +137,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-16T18:09:13.590628Z",
-  "updated_at": "2026-04-16T18:09:45.709954Z",
+  "updated_at": "2026-04-16T18:09:47.443919Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -80,5 +148,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 6
+  "version": 7
 }
