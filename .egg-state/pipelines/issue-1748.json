@@ -164,16 +164,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-16T18:31:09.925659Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-16T23:36:13.608688Z",
+      "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved Questions (from refine draft inline HITL markers)\\n\\n### Decisions\\n\\n**D1 — PipelineMode migration**: Repurpose `PipelineMode.BABYSIT` to mean babysit-pr (silent semantic swap).\\n\\n**D2 — `reviewer_contract` filter plumbing**: Add a new `Pipeline.has_contract` field, set by the route handler; `get_roles_for_phase()` reads it.\\n\\n**D3 — MCP-skill scope**: Lean flavour only — take a PR number/URL + single confirmation, create pipeline and watch. No `--short`/full split.\\n\\n**D4 — Mid-cycle human commits**: Ignore until consensus. On final push, if PR head moved, abort the push and escalate via HITL.\\n\\n**D5 — `conflict_resolver` policy**: On-demand only. Producers detect overlap during their own conflict resolution and request it.\\n\\n**D6 — Base-branch parameterization scope**: Full sweep. Fix every hardcoded `origin/main` (pipelines.py:6048, health_checks/tier1/phase_output.py:175-185, health_checks/context.py:110-113, plus any thorough-audit turns up) so babysit-pr works against any base branch from day one.\\n\\n**D7 — Refactor orient builders first?**: No — inline branch (Option A). Ship babysit-pr behaviour faster; revisit when a third mode lands.\\n\\n### Feedback\\n\\n**F8 — Additional reviewer pre-filters**: Only `reviewer_contract`. IMPORTANT CLARIFICATION FROM USER: babysit-pr runs only the implement phase, not refine/plan. `reviewer_refine` and `reviewer_agent_design` operate on implement-phase artifacts (which exist), so they do NOT need filtering.\\n\\n**F9 — Fork-PR UX**: Fail-fast with a clear stdout/stderr error explaining the gateway cannot push to forks. No PR comment, no HITL.\\n\\n**F10 — Concurrent invocations**: 409 the second invocation (share pipeline-id `pr-{N}`, reject duplicate). Matches the issue's 'no lock' stance and the existing pr-{N} scheme. User can cancel the first if they want a retry.\\n\\n**F11 — Scope-expansion guardrails**: Soft orient hint only — include 'do not refactor outside the diff unless clearly needed' in the producer orient prompt. No hard cap on files or bytes.\\n\\n**F12 — BRC-history identifier**: `pr-{N}-{shorthash-of-head-SHA}`. Content-addressed — ties history to the commit actually reviewed.\\n\\n**F13 — egg-babysit CLI**: Remove entirely. Migrate docs/guides/babysit-pr.md, github-automation.md, sdlc-pipeline.md in the same PR. No deprecation shim.\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-16T18:09:13.590628Z",
-  "updated_at": "2026-04-16T18:31:09.942291Z",
+  "updated_at": "2026-04-16T23:36:13.611945Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -184,5 +184,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13
+  "version": 14
 }
