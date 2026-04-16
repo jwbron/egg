@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1748,
+    "title": "Issue #1748",
+    "url": "https://github.com/jwbron/egg/issues/1748"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Refiner agent has stalled for ~5 minutes in the refine phase BRC cycle with no heartbeat or progress since orienting on issue 1748. Both reviewer agents (reviewer_refine, reviewer_agent_design) are blocked waiting for the refiner's proposal. No draft has been produced at .egg-state/drafts/1748-analysis.md. Active alerts: heartbeat_timeout + progress_stall (WARNING, 141s+). What action should be taken?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Wait 5 more minutes before re-escalating",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Restart the refiner agent container",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Abort pipeline issue-1748 and retry",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Refiner self-recovered at 18:16:44 UTC after 6m21s stall (deep LLM analysis call). Now writing 1748-analysis.md. Alerts cleared. No human intervention required.",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-16T18:17:16.631266Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "## Resolved Questions (from refine draft inline HITL markers)\n\n### Decisions\n\n**D1 \u2014 PipelineMode migration**: Repurpose `PipelineMode.BABYSIT` to mean babysit-pr (silent semantic swap).\n\n**D2 \u2014 `reviewer_contract` filter plumbing**: Add a new `Pipeline.has_contract` field, set by the route handler; `get_roles_for_phase()` reads it.\n\n**D3 \u2014 MCP-skill scope**: Lean flavour only \u2014 take a PR number/URL + single confirmation, create pipeline and watch. No `--short`/full split.\n\n**D4 \u2014 Mid-cycle human commits**: Ignore until consensus. On final push, if PR head moved, abort the push and escalate via HITL.\n\n**D5 \u2014 `conflict_resolver` policy**: On-demand only. Producers detect overlap during their own conflict resolution and request it.\n\n**D6 \u2014 Base-branch parameterization scope**: Full sweep. Fix every hardcoded `origin/main` (pipelines.py:6048, health_checks/tier1/phase_output.py:175-185, health_checks/context.py:110-113, plus any thorough-audit turns up) so babysit-pr works against any base branch from day one.\n\n**D7 \u2014 Refactor orient builders first?**: No \u2014 inline branch (Option A). Ship babysit-pr behaviour faster; revisit when a third mode lands.\n\n### Feedback\n\n**F8 \u2014 Additional reviewer pre-filters**: Only `reviewer_contract`. IMPORTANT CLARIFICATION FROM USER: babysit-pr runs only the implement phase, not refine/plan. `reviewer_refine` and `reviewer_agent_design` operate on implement-phase artifacts (which exist), so they do NOT need filtering.\n\n**F9 \u2014 Fork-PR UX**: Fail-fast with a clear stdout/stderr error explaining the gateway cannot push to forks. No PR comment, no HITL.\n\n**F10 \u2014 Concurrent invocations**: 409 the second invocation (share pipeline-id `pr-{N}`, reject duplicate). Matches the issue's 'no lock' stance and the existing pr-{N} scheme. User can cancel the first if they want a retry.\n\n**F11 \u2014 Scope-expansion guardrails**: Soft orient hint only \u2014 include 'do not refactor outside the diff unless clearly needed' in the producer orient prompt. No hard cap on files or bytes.\n\n**F12 \u2014 BRC-history identifier**: `pr-{N}-{shorthash-of-head-SHA}`. Content-addressed \u2014 ties history to the commit actually reviewed.\n\n**F13 \u2014 egg-babysit CLI**: Remove entirely. Migrate docs/guides/babysit-pr.md, github-automation.md, sdlc-pipeline.md in the same PR. No deprecation shim.",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-16T23:36:13.608688Z",
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
