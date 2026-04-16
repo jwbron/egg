@@ -9,7 +9,35 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Refiner agent has stalled for ~5 minutes in the refine phase BRC cycle with no heartbeat or progress since orienting on issue 1748. Both reviewer agents (reviewer_refine, reviewer_agent_design) are blocked waiting for the refiner's proposal. No draft has been produced at .egg-state/drafts/1748-analysis.md. Active alerts: heartbeat_timeout + progress_stall (WARNING, 141s+). What action should be taken?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Wait 5 more minutes before re-escalating",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Restart the refiner agent container",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Abort pipeline issue-1748 and retry",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Refiner self-recovered at 18:16:44 UTC after 6m21s stall (deep LLM analysis call). Now writing 1748-analysis.md. Alerts cleared. No human intervention required.",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-16T18:17:16.631266Z",
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
   "audit_log": [],
   "refine_review_cycles": 0,
