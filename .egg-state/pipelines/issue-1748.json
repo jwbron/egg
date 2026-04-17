@@ -144,10 +144,10 @@
         {
           "container_id": "3b0298d78dcbf8e710eb7b69b8437675beb16ea5884a232109c75dbf9c74dd15",
           "container_name": "issue-1748-architect",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-16T23:37:10.435047Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-17T01:07:13.334226Z",
+          "exit_code": -1,
           "agent_role": "architect",
           "session_token": null
         },
@@ -185,13 +185,13 @@
       "agents": [
         {
           "role": "architect",
-          "status": "running",
+          "status": "failed",
           "container_id": "3b0298d78dcbf8e710eb7b69b8437675beb16ea5884a232109c75dbf9c74dd15",
           "started_at": "2026-04-16T23:37:10.435054Z",
-          "completed_at": null,
+          "completed_at": "2026-04-17T01:07:13.344397Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -421,7 +421,7 @@
     }
   ],
   "created_at": "2026-04-16T18:09:13.590628Z",
-  "updated_at": "2026-04-17T00:55:04.620375Z",
+  "updated_at": "2026-04-17T01:07:13.344503Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -432,5 +432,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-17T00:32:18.810919Z",
-  "version": 24
+  "version": 25
 }
