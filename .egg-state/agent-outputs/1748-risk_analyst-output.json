@@ -1,0 +1,487 @@
+{
+  "issue": 1748,
+  "phase": "plan",
+  "agent_role": "risk_analyst",
+  "summary": "Risk assessment for replacing egg-babysit with a one-off implement-phase BRC cycle against a PR diff (refine analysis recommends Option A: in-place mode-aware reuse). Twelve risks identified spanning correctness (hardcoded origin/main references, base-branch threading), compatibility (PipelineMode migration, reviewer_contract dependency, BRC history identifier collisions), operational (staging-branch push races, mid-cycle human commits, concurrent invocations, fork-PR push failures), quality (unbounded scope expansion), and process (surface-area of babysit package removal, orient-prompt conditional growth, doc migration). Mitigations cite specific file:line anchors where the change must land and propose rollback strategies. Seven HITL items flagged as blocking plan-phase task breakdown and six as human-input feedback.",
+  "assumptions": [
+    "Recommended approach is Option A (in-place mode-aware reuse) per .egg-state/drafts/1748-analysis.md; if the HITL operator selects Option D (refactor-first) the orient-prompt-growth risk changes character but the other twelve risks remain.",
+    "Base branch for a babysit-pr run comes from pr.base.ref via the GitHub API (already fetched at shared/egg_babysit/pr_state.py:132 as baseRefName) and is threaded through the Pipeline model rather than re-fetched at each call site.",
+    "Implement-phase agent roles, file-access restrictions, BRC tracker, and attestation schemas are reused without extension; no new attestation field, no protocol variant.",
+    "First-cut scope excludes recurring cycles, human-commit reactivity, and CI-status re-trigger; those are explicitly future work per the issue.",
+    "The plan-phase contract for issue #1748 does not yet exist at risk-assessment time (egg-contract add-decision returns 'Contract for #1748 not found'); HITL items will ride as inline <!-- egg-hitl-decision --> / <!-- egg-hitl-feedback --> markers in the plan doc, consistent with the refine analysis' fallback.",
+    "Gateway branch-ownership policy (only egg/ or egg- prefixed branches, or branches with agent's open PR) applies to babysit-pr push targets; fork PRs will silently fail the push per gateway/policy.py's is_branch_owner check."
+  ],
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Hardcoded `origin/main` references scattered across orchestrator, health checks, and prompts produce wrong diffs/orient text when PR base is not main",
+      "category": "correctness",
+      "impact": "high",
+      "likelihood": "high",
+      "severity": "high",
+      "description": "The refine analysis and follow-up audit found 10 call sites that hard-code `origin/main` or `\"main\"` as the diff base: orchestrator/routes/pipelines.py:2972-2973, :3119-3123, :5855, :6046, :6048, :6732, :6735, :6760, :6763; orchestrator/health_checks/tier1/phase_output.py:125,:175,:185; orchestrator/health_checks/context.py:112; shared/egg_babysit/prompts.py:305. For any PR whose base is a non-main branch (release/*, develop, stacked PRs), these produce: (a) reviewer orientation diffs against the wrong base — reviewers read 'diff' that includes unrelated commits; (b) phase-output tier-1 health check falsely reports 'no commits' when there are commits against the actual base; (c) merge-conflict fixer prompts instruct the agent to merge origin/main instead of the correct base. This is a direct correctness bug, not just an aesthetic one.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py:2972",
+        "orchestrator/routes/pipelines.py:3119",
+        "orchestrator/routes/pipelines.py:5855",
+        "orchestrator/routes/pipelines.py:6046",
+        "orchestrator/routes/pipelines.py:6048",
+        "orchestrator/routes/pipelines.py:6732",
+        "orchestrator/routes/pipelines.py:6735",
+        "orchestrator/routes/pipelines.py:6760",
+        "orchestrator/routes/pipelines.py:6763",
+        "orchestrator/health_checks/tier1/phase_output.py:125",
+        "orchestrator/health_checks/tier1/phase_output.py:175",
+        "orchestrator/health_checks/tier1/phase_output.py:185",
+        "orchestrator/health_checks/context.py:112"
+      ],
+      "mitigations": [
+        "Introduce a single helper (e.g., `get_pipeline_base_ref(pipeline) -> str` in orchestrator/routes/pipelines.py near the existing get_default_branch at :4145-4202) that returns pipeline.base_branch when set (babysit-pr) and falls back to get_default_branch() otherwise. Route every hardcoded site through this helper.",
+        "Add a regression test `orchestrator/tests/test_base_ref_threading.py` that exercises _build_reviewer_preparation and _build_producer_orientation with a non-main base and asserts the string 'origin/main' does not appear in the rendered prompt.",
+        "If Decision 6 selects 'mode-gated' (fix only babysit-pr call sites), add a linter rule or runtime assertion that raises when babysit-pr mode hits a hardcoded origin/main path — otherwise the bug becomes silent regression bait."
+      ],
+      "rollback": "Base-branch parameterization is additive at each call site (`base_branch or 'main'`). Revert the helper + call-site touches; behavior falls back to current (correct for main-based PRs, wrong for non-main) without schema change.",
+      "hitl_reference": "decision-6 (base-branch parameterization scope)"
+    },
+    {
+      "id": "R2",
+      "title": "PipelineMode.BABYSIT migration risks stranding persisted pipeline state or external automation that references the old value",
+      "category": "compatibility",
+      "impact": "medium",
+      "likelihood": "medium",
+      "severity": "medium",
+      "description": "PipelineMode is defined at orchestrator/models.py:28-32 (StrEnum {ISSUE, BABYSIT}) and serialized into .egg-state/pipelines/*.json via Pydantic. If 'BABYSIT' is silently repurposed (Decision 1 option A), any pipeline JSON persisted by the pre-change codebase that said `mode: babysit` will load cleanly but mean something semantically different after the merge — a running orchestrator restart could misroute an in-flight pipeline. A rename-plus-deprecate (Decision 1 option B) avoids this but requires a migration. Consumers of the HTTP endpoints (/pipelines) that query by mode may also break.",
+      "affected_files": [
+        "orchestrator/models.py:28",
+        "orchestrator/models.py:468",
+        "orchestrator/state_store.py:32",
+        "orchestrator/routes/pipelines.py:677",
+        "orchestrator/routes/pipelines.py:682",
+        "orchestrator/routes/pipelines.py:694",
+        "orchestrator/routes/pipelines.py:697",
+        "orchestrator/routes/pipelines.py:806"
+      ],
+      "mitigations": [
+        "If Decision 1 = repurpose: drain in-flight BABYSIT pipelines before merging (operator runbook entry); add a one-time migration in state_store load path that rejects-with-warning pipelines older than the merge SHA.",
+        "If Decision 1 = new BABYSIT_PR value with deprecation shim: keep BABYSIT in the enum for one release, have the route handler accept both and emit a deprecation warning when BABYSIT is used.",
+        "Add JSON schema test that round-trips a persisted pipeline with every mode value and verifies enum deserialization is backward-compatible.",
+        "Document the migration path in docs/guides/sdlc-pipeline.md and docs/architecture/orchestrator.md before the change lands."
+      ],
+      "rollback": "Keep old BABYSIT enum value reachable behind a feature flag (EGG_BABYSIT_LEGACY_MODE=1) during rollout; rollback = flip the flag and re-deploy.",
+      "hitl_reference": "decision-1 (PipelineMode migration strategy)"
+    },
+    {
+      "id": "R3",
+      "title": "reviewer_contract spawned without upstream plan artifacts will either fail orientation, produce vacuous reviews, or hard-block on missing dependencies",
+      "category": "compatibility",
+      "impact": "high",
+      "likelihood": "high",
+      "severity": "high",
+      "description": "REVIEWER_CONTRACT at shared/egg_contracts/agent_roles.py:525-546 declares `dependencies=[TASK_PLANNER, RISK_ANALYST]` (:534) and its orient prompt at orchestrator/routes/pipelines.py:6062-6070 tells it to 'read the contract with egg-contract show' — babysit-pr has no contract because no plan phase ran. If the filter is omitted or wired incorrectly, the reviewer will: (a) receive an empty or nonsensical contract view from egg-contract show and produce empty ACKs with no specific citations (defeating anti-sycophancy); (b) block BRC from reaching CONFIRMED because it's on the reviewer list and never produces substantive ACK/NACK; (c) worst case hard-fail on a dependency-missing assertion and crash the implement phase.",
+      "affected_files": [
+        "shared/egg_contracts/agent_roles.py:525",
+        "shared/egg_contracts/agent_roles.py:534",
+        "shared/egg_contracts/agent_roles.py:978",
+        "shared/egg_contracts/agent_roles.py:1002",
+        "orchestrator/routes/pipelines.py:6062",
+        "orchestrator/routes/pipelines.py:6867"
+      ],
+      "mitigations": [
+        "Plumb the filter via Decision 2's chosen option. Preferred: add `has_contract: bool` (or `mode: PipelineMode`) parameter to get_roles_for_phase at agent_roles.py:1002 and drop REVIEWER_CONTRACT when false/babysit_pr. Filter must happen *before* container spawn, not inside the reviewer.",
+        "Add an assertion at container-spawn time in orchestrator/concurrent_executor.py that fails fast if a reviewer's declared dependencies are not represented by producers in the current phase. This makes any future reviewer-dependency mismatch visible immediately rather than at runtime.",
+        "Add an integration test `integration_tests/test_babysit_pr/test_reviewer_roster.py` that creates a babysit-pr pipeline and asserts REVIEWER_CONTRACT is not in the spawned reviewer roster (and any other reviewer whose dependencies are missing).",
+        "Extend the filter generically — iterate every reviewer in _PHASE_REVIEWERS['implement'], check whether each required producer is present in the phase, drop reviewers whose deps aren't met. Avoids hand-maintaining a babysit-pr-specific skip list."
+      ],
+      "rollback": "Filter is additive; reverting it restores the full reviewer roster (broken on babysit-pr, correct on issue-mode). No data migration needed.",
+      "hitl_reference": "decision-2 (reviewer-roster filter plumbing); feedback-1 (additional reviewer pre-filters)"
+    },
+    {
+      "id": "R4",
+      "title": "Staging-branch abstraction layered onto concurrent_executor must avoid racing with human commits while preserving final-push atomicity",
+      "category": "operational",
+      "impact": "medium",
+      "likelihood": "medium",
+      "severity": "medium",
+      "description": "Concurrent executor today derives the worktree branch at orchestrator/concurrent_executor.py:109-119 from pipeline.branch or egg/issue-{N}. For babysit-pr, the issue mandates 'all work happens on a staging branch; only the final consensus commit is pushed to the PR branch.' There is no staging abstraction today — producers push directly to the pipeline branch mid-BRC. Risks: (a) if the staging-to-PR push is not atomic (force-push race with a human pushing to the PR), a human commit could be overwritten; (b) if the final push fails mid-way (network, branch-ownership policy), the staging branch is left behind and there's no consensus on rollback; (c) if staging branch lifecycle is not tied to pipeline lifecycle, orphaned staging branches accumulate.",
+      "affected_files": [
+        "orchestrator/concurrent_executor.py:109",
+        "orchestrator/routes/pipelines.py:5849",
+        "gateway/policy.py",
+        "shared/egg_babysit/pr_state.py:132"
+      ],
+      "mitigations": [
+        "Final push MUST use `git push --force-with-lease=origin/<pr_branch>:<fetched_pr_head_sha>` rather than `--force`. This aborts if a human commit landed after the cycle started. Abort → HITL escalation, not silent overwrite. Covers Decision 4 option B ('ignore until consensus; abort push on head-moved').",
+        "Name staging branches as `egg/babysit-staging/<pipeline_id>` so they (i) match gateway branch-ownership policy, (ii) are trivially distinguishable, (iii) can be garbage-collected by a periodic cleanup task keyed on terminated pipelines.",
+        "Add a post-phase cleanup hook in orchestrator/routes/pipelines.py that deletes the staging branch on successful final push, and on pipeline abort leaves it behind with a HITL decision attached so humans can recover partial work.",
+        "Add an integration test that simulates a human commit racing with the final push and asserts the lease fails cleanly with a HITL escalation, not a force-overwrite.",
+        "Gate mid-cycle human-commit detection behind Decision 4's chosen option. If Decision 4 = 'poll per NACK round', add a check at each BRC round entry that fetches PR head and aborts if SHA has moved since cycle start."
+      ],
+      "rollback": "Staging branch is a write-only construct; revert removes the branch derivation and reverts to pushing straight to pipeline.branch. No data migration; orphaned staging branches can be pruned with `git branch -r | grep egg/babysit-staging | xargs git push origin --delete` in an operator cleanup script.",
+      "hitl_reference": "decision-4 (mid-cycle human commits policy)"
+    },
+    {
+      "id": "R5",
+      "title": "BRC-history identifier collision overwrites prior cycle history when multiple babysit-pr cycles run against the same PR",
+      "category": "operational",
+      "impact": "medium",
+      "likelihood": "medium",
+      "severity": "medium",
+      "description": "_write_brc_history at orchestrator/routes/pipelines.py:4353-4473 writes `.egg-state/brc-history/{identifier}-{phase}.md` with `history_file.write_text()` — silent overwrite. Current format is `pipeline-{shorthash}` for prompt-driven and `{N}` (issue number) for issue-driven. If babysit-pr uses bare `pr-{N}`, the *second* cycle against the same PR overwrites the first's history. This destroys the audit trail that was specifically called out as a reason to reuse implement-phase machinery ('the PR carries a durable trail of what was raised and addressed').",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py:4353",
+        "orchestrator/routes/pipelines.py:4929"
+      ],
+      "mitigations": [
+        "Per Decision feedback-5, use `pr-{N}-{cycle_counter}` where cycle_counter is derived from an atomic read-max-plus-one on existing `.egg-state/brc-history/pr-{N}-*.md` files at pipeline-start time. Collision-free even with concurrent invocations.",
+        "Alternative: `pr-{N}-{pipeline_id_short}` using the last 8 chars of pipeline ID — guaranteed unique without counter bookkeeping.",
+        "Add a write-mode check in _write_brc_history that refuses to overwrite an existing history file unless an explicit `allow_overwrite=True` is passed; current overwrites of the same-cycle history on retry remain allowed.",
+        "Update _build_brc_consensus_summary at :4929 to aggregate across all matching `pr-{N}-*.md` files when rendering the PR body section, so repeated cycles show up as a chronological history instead of a single overwritten blob."
+      ],
+      "rollback": "Identifier is a string passed to the history writer; revert to the pre-change format. History files under the new naming remain on disk but are orphaned harmlessly.",
+      "hitl_reference": "feedback-5 (BRC-history identifier format)"
+    },
+    {
+      "id": "R6",
+      "title": "Fork-PR push failure mode is silent today — will appear as a generic gateway 403 with no actionable human error",
+      "category": "operational",
+      "impact": "medium",
+      "likelihood": "low",
+      "severity": "low",
+      "description": "The issue lists 'PR is from a fork where the gateway cannot push → exit with a clear error; do not attempt partial work' as an early-exit case. Today the gateway policy at gateway/policy.py's is_branch_owner check rejects pushes to branches outside the egg/ prefix (or not owned by the agent's PR). A fork PR's head branch is on the fork's origin, not the base repo, so the push target is either the PR branch (on a different origin) or a staging branch the gateway blocks. There is no explicit fork-detection surface today — the failure surfaces as a generic gateway rejection deep in the BRC cycle, long after producers have burned tokens on orientation and proposals.",
+      "affected_files": [
+        "gateway/policy.py",
+        "gateway/fork_policy.py",
+        "shared/egg_babysit/pr_state.py:132"
+      ],
+      "mitigations": [
+        "Add an early-exit check in the route handler that creates babysit-pr pipelines: fetch pr.head.repo.full_name and compare to the base repo. If different → fail with a 400 error and a human-readable message before spawning any containers.",
+        "Per feedback-2, pick a UX option: (i) CLI/MCP returns the error to the caller; (ii) bot posts a PR comment explaining the limitation; (iii) open a HITL decision. Recommend (i)+(ii) for first cut — fail-fast and leave a trail on the PR.",
+        "Add an integration test that mocks a fork-PR head.repo and asserts the pipeline is never created."
+      ],
+      "rollback": "Early-exit is additive check; revert removes it and surface reverts to current silent-failure behavior.",
+      "hitl_reference": "feedback-2 (fork-PR UX)"
+    },
+    {
+      "id": "R7",
+      "title": "Concurrent babysit-pr invocations against the same PR can produce conflicting pipelines or duplicate work",
+      "category": "operational",
+      "impact": "low",
+      "likelihood": "low",
+      "severity": "low",
+      "description": "The issue explicitly accepts no lock between concurrent invocations 'in this first cut'. Pipeline-ID format in state_store.py uses `pr-{number}` pattern; a second babysit-pr against the same PR would either collide on the pipeline ID (409) or need a suffix. Without a lock, two cycles can (a) both force-push to the same staging branch, clobbering each other; (b) both contend for the final push to the PR head, one wins the lease and the other escalates; (c) reviewers could ACK one cycle's proposal while another cycle's proposal is pending, causing confused HITL state.",
+      "affected_files": [
+        "orchestrator/state_store.py:42",
+        "orchestrator/routes/pipelines.py"
+      ],
+      "mitigations": [
+        "Per feedback-3, decide pipeline-id format. Recommended: `pr-{N}-{cycle_counter}` or `pr-{N}-{short_uuid}` so two invocations get distinct IDs. Second invocation gets its own staging branch naturally.",
+        "Add a soft advisory check: on babysit-pr create, list active pipelines matching `pr-{N}-*` and warn (not block) if one is running. Gives the human a chance to cancel the duplicate.",
+        "Document that concurrent babysit-pr on the same PR is unsupported-but-not-blocked; follow-up issue to add a distributed lock if this becomes a real problem."
+      ],
+      "rollback": "Pipeline-ID format is an additive choice; revert to `pr-{N}` and accept the 409 semantics.",
+      "hitl_reference": "feedback-3 (concurrency / pipeline-id collisions)"
+    },
+    {
+      "id": "R8",
+      "title": "Unbounded scope expansion — producers can turn a 2-line PR into a 50-file refactor",
+      "category": "quality",
+      "impact": "medium",
+      "likelihood": "medium",
+      "severity": "medium",
+      "description": "The issue explicitly says 'Scope expansion is unbounded. Producers are not given explicit guardrails. Trust the role prompts.' In practice, the coder and documenter prompts already encourage 'improve quality' framing; without a soft-cap hint, a babysit-pr cycle could produce a diff that dwarfs the original PR, which (a) makes human review slower rather than faster; (b) risks merging unrelated changes under a PR title the human originally wrote for a narrow fix; (c) increases the chance of a reviewer NACK just from scope shock. refine reviewer_agent_design specifically flagged this in the refine analysis.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py:6118",
+        "shared/egg_contracts/agent_roles.py:213",
+        "shared/egg_contracts/agent_roles.py:241",
+        "shared/egg_contracts/agent_roles.py:302"
+      ],
+      "mitigations": [
+        "Per feedback-4, add a soft orient hint in the babysit-pr branch of _build_producer_orientation: 'Stay within the scope of the existing diff. If you see opportunities for unrelated improvements, note them as follow-up issues in your attestation rather than implementing them.' Keeps the door open to quality improvements within scope.",
+        "Optionally add a hard cap (e.g., +500 LOC net delta) enforced at the proposal-validation stage in peer_consensus.py; proposals exceeding the cap trigger an automatic NACK with a 'scope-exceeded' reason. Revisit the cap in follow-up if too aggressive.",
+        "Capture scope-expansion incidents in orchestrator telemetry (delta size vs. original PR delta size) so we can measure the problem empirically before deciding on a hard cap."
+      ],
+      "rollback": "Soft hint is prompt text only — revert removes the hint, no state migration. Hard cap (if used) is a proposal-time check — revert disables it.",
+      "hitl_reference": "feedback-4 (scope-expansion guardrails)"
+    },
+    {
+      "id": "R9",
+      "title": "Removing shared/egg_babysit/ is a large surface-area delete that will break any external code, docs, or CI still referencing egg-babysit",
+      "category": "compatibility",
+      "impact": "medium",
+      "likelihood": "medium",
+      "severity": "medium",
+      "description": "shared/egg_babysit/ has 12 source files (cli.py, loop.py, fixer.py, reviewer.py, prompts.py, pr_state.py, ci_waiter.py, config.py, escalation.py, types.py, steps/, __main__.py), its console-script entry at shared/pyproject.toml:13, a test directory shared/tests/test_egg_babysit/ (~2600 lines across ~12 test files), integration_tests/test_babysit_pr/, and orchestrator/tests/test_babysit_pipeline_creation.py. Docs reference egg-babysit in at least 6 files (docs/guides/babysit-pr.md, docs/guides/sdlc-pipeline.md, docs/guides/github-automation.md, docs/architecture/orchestrator.md, docs/index.md, docs/development/STRUCTURE.md). External automation or CI jobs (GitHub Actions, cron scripts, operator playbooks) may still `pip install` and invoke egg-babysit directly; a hard delete breaks them without warning.",
+      "affected_files": [
+        "shared/egg_babysit/",
+        "shared/pyproject.toml:13",
+        "shared/tests/test_egg_babysit/",
+        "integration_tests/test_babysit_pr/",
+        "orchestrator/tests/test_babysit_pipeline_creation.py",
+        "docs/guides/babysit-pr.md",
+        "docs/guides/sdlc-pipeline.md",
+        "docs/guides/github-automation.md",
+        "docs/architecture/orchestrator.md",
+        "docs/index.md",
+        "docs/development/STRUCTURE.md"
+      ],
+      "mitigations": [
+        "Per feedback-6, choose between hard-delete vs deprecation-shim. Recommend: keep `egg-babysit` as a thin shim that prints 'egg-babysit is deprecated — use the babysit-pr MCP skill or POST /pipelines with mode=babysit_pr' and exits non-zero. One release of deprecation, then delete.",
+        "Split the delete into at least two PRs: (1) stand up the new path with the shim in place; (2) delete the old implementation once telemetry confirms no invocations. Each PR is independently reviewable and revertable.",
+        "Grep-sweep .github/, CI scripts, Dockerfiles, and any runbooks for `egg-babysit` references before merge; update or remove them in the same PR as the shim.",
+        "Update docs in the same PR as the code change — no doc-lag. Specifically remove the hardcoded `git merge origin/main` example in docs/guides/babysit-pr.md:305 and replace with a base-branch-parameterized example."
+      ],
+      "rollback": "Deprecation shim is thin; revert the shim and restore egg_babysit package from the preserved git history. Any consumers still on egg-babysit continue to work during rollback.",
+      "hitl_reference": "feedback-6 (CLI removal vs deprecation shim)"
+    },
+    {
+      "id": "R10",
+      "title": "Option A grows the if/elif chain in _build_*_orientation and _build_reviewer_preparation — future-mode churn compounds",
+      "category": "process",
+      "impact": "low",
+      "likelihood": "high",
+      "severity": "medium",
+      "description": "_build_reviewer_preparation at orchestrator/routes/pipelines.py:6031-~6120 and _build_producer_orientation at :6118-~6350 are already large if/elif chains keyed on (phase, role_value). Option A adds a second dimension (mode) inline, producing a 3-level if/elif. Every test that asserts on prompt content (and several do) becomes harder to maintain. If a third mode lands (e.g., 'babysit_issue' to revisit stale issue-mode pipelines), the conditional grows again. The refine analysis captured this as Option D (refactor-first) vs Option A (inline) via Decision 7.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py:6031",
+        "orchestrator/routes/pipelines.py:6118"
+      ],
+      "mitigations": [
+        "Per Decision 7, if a third mode is on the near-term roadmap, pay the refactor cost now (Option D); if not, accept Option A's growth and revisit when the third mode actually lands.",
+        "Even under Option A, extract the babysit-pr branch into a dedicated helper (e.g., `_build_babysit_reviewer_prep(role_value, base_branch)`) to keep the top-level chain readable and make the refactor-later path trivial.",
+        "Add a prompt-text smoke test that renders every (phase, mode, role) tuple and asserts no empty output — catches if a new mode is added but forgets to update the orient builders."
+      ],
+      "rollback": "Inline conditional is trivially reversible — removing the babysit-pr branch restores the current prompt text.",
+      "hitl_reference": "decision-7 (refactor _build_*_orientation first?)"
+    },
+    {
+      "id": "R11",
+      "title": "Producers doing their own conflict resolution may diverge — e.g., coder and tester resolve the same file (fixture) differently",
+      "category": "correctness",
+      "impact": "medium",
+      "likelihood": "low",
+      "severity": "low",
+      "description": "The issue mandates each producer resolves conflicts within their own role's file scope. shared/egg_contracts/agent_roles.py:213,:241,:302 defines disjoint write patterns for coder/tester/documenter. Real overlap is rare but not impossible (a fixture file the tester owns that the coder also touches, a docstring the documenter edits that the coder also modifies for signature reasons). Without a coordination mechanism, two producers could resolve a shared-edge conflict incompatibly, and the resulting proposal would fail review.",
+      "affected_files": [
+        "shared/egg_contracts/agent_roles.py:213",
+        "shared/egg_contracts/agent_roles.py:241",
+        "shared/egg_contracts/agent_roles.py:302",
+        "shared/egg_contracts/agent_roles.py:746"
+      ],
+      "mitigations": [
+        "Per Decision 5, choose the conflict_resolver invocation policy. Recommended: 'on-demand only' — producers detect cross-role overlap during their own resolution (via file-pattern check) and request the conflict_resolver role to mediate. Matches the 'rare overlap' framing.",
+        "Add a pre-flight check in the orchestrator that dry-run-merges the PR base into head and flags cross-role overlap *before* producers start. If overlap exists, spawn conflict_resolver eagerly (Decision 5 option B) — proactive but adds a step.",
+        "Fall-back: if overlap is detected post-BRC-start and conflict_resolver is not spawned, NACK the proposal with a specific 'cross-role overlap at <file>' reason so a human can intervene.",
+        "Add an integration test with a deliberately crafted conflict that spans coder/tester scopes and asserts the cycle terminates cleanly (via conflict_resolver or HITL)."
+      ],
+      "rollback": "Conflict-resolver invocation is opt-in; revert removes the dispatch and falls back to 'NACK on overlap'. No data impact.",
+      "hitl_reference": "decision-5 (conflict_resolver invocation policy)"
+    },
+    {
+      "id": "R12",
+      "title": "Test surface churn — 12+ babysit test files and orchestrator tests must be rewritten or removed, risking test gaps in transition",
+      "category": "process",
+      "impact": "medium",
+      "likelihood": "high",
+      "severity": "medium",
+      "description": "shared/tests/test_egg_babysit/ contains ~12 test files (~2600 lines) that test the old loop/fixer/reviewer code path. integration_tests/test_babysit_pr/ tests end-to-end flows. orchestrator/tests/test_babysit_pipeline_creation.py validates pipeline creation with mode=babysit. All of these either need to be rewritten against the new flow or deleted. During the transition window (between new-path-in-place and old-path-deleted), coverage can regress silently — the removed tests no longer fail but nothing equivalent replaces them.",
+      "affected_files": [
+        "shared/tests/test_egg_babysit/",
+        "integration_tests/test_babysit_pr/",
+        "orchestrator/tests/test_babysit_pipeline_creation.py"
+      ],
+      "mitigations": [
+        "Write the new integration test suite (test_babysit_pr_brc_cycle, test_reviewer_roster_filter, test_base_ref_threading, test_staging_branch_lifecycle, test_fork_pr_early_exit) *before* deleting the old babysit tests. Keep both green in the same PR, then delete the old ones in a follow-up.",
+        "Measure coverage delta before/after the delete and ensure no net coverage loss on shared/egg_babysit/pr_state.py (the one file that's preserved — it fetches PR state including baseRefName at :132).",
+        "Audit the old test files for any test cases that are actually still-relevant behavioral tests (e.g., CI waiter logic, conflict-detection heuristics) and port those into the new path before deleting."
+      ],
+      "rollback": "Deleted tests cannot be trivially restored; mitigation is to not delete them in the same PR as the replacement. Keep deletes in a separate follow-up PR that can be reverted independently.",
+      "hitl_reference": null
+    }
+  ],
+  "security_considerations": [
+    {
+      "id": "S1",
+      "title": "Force-push to PR head branch must use --force-with-lease, not --force",
+      "description": "A raw --force push from the staging branch to the PR head can silently overwrite a human contributor's commit. Use --force-with-lease=<pr_branch>:<fetched_sha> so the push aborts if HEAD has moved. Covered by R4 mitigation 1.",
+      "severity": "high",
+      "mitigation_ref": "R4"
+    },
+    {
+      "id": "S2",
+      "title": "Fork PRs must be detected before any agent is spawned",
+      "description": "Spawning producers that cannot push wastes tokens and leaks partial agent-generated code into logs/attestations for a branch the orchestrator doesn't own. Early-exit at route-handler time, before pipeline is created. Covered by R6.",
+      "severity": "medium",
+      "mitigation_ref": "R6"
+    },
+    {
+      "id": "S3",
+      "title": "Branch-ownership policy must apply to staging branches",
+      "description": "Staging branches must match egg/ or egg- prefix to clear gateway/policy.py's is_branch_owner check. Name them egg/babysit-staging/<pipeline_id> (see R4). If named otherwise, the gateway will reject all pushes mid-cycle, not just the final one.",
+      "severity": "medium",
+      "mitigation_ref": "R4"
+    },
+    {
+      "id": "S4",
+      "title": "Agent-generated commits on the PR branch must preserve the egg <egg@localhost> author",
+      "description": "Existing implement-phase already enforces this via gateway commit validation; babysit-pr inherits it. Verify no code path in the new flow passes a different author (e.g., preserving the original PR author's identity for rebased commits).",
+      "severity": "low",
+      "mitigation_ref": null
+    }
+  ],
+  "performance_considerations": [
+    {
+      "id": "P1",
+      "title": "Parallel producer orientation + reviewer diff-read may spike GitHub API quota",
+      "description": "Issue prescribes parallel orientation for producers (clone/rebase) and reviewers (read PR diff). Each of coder/tester/documenter runs `git fetch` and `git diff`; each reviewer runs `gh pr view` + `git diff`. For a PR with many base-branch commits this is a burst of 5-6 API calls within a few seconds of pipeline start. Existing GitHub rate limits (5000/hr authenticated, lower for bursts) likely tolerate this but a cold-start audit is prudent.",
+      "severity": "low",
+      "mitigation": "Stagger agent orientation by ~30s (existing wave-start jitter in concurrent_executor) or share a single fetched diff blob via .egg-state/drafts/ instead of each agent re-fetching."
+    },
+    {
+      "id": "P2",
+      "title": "Implement-phase heartbeat timeout of 600s is tight for long BRC cycles with many NACK rounds",
+      "description": "orchestrator/health_monitor.py:158-174 uses 600s for implement-phase heartbeat. A babysit-pr cycle with 3+ NACK rounds and long producer runs (tests, docs) could miss heartbeats during test execution. Not a new risk vs. issue-mode implement, but babysit-pr producers have extra conflict-resolution work that could push timing over.",
+      "severity": "low",
+      "mitigation": "Monitor heartbeat-miss rate during first-cut rollout; bump orchestrator_implement_heartbeat_timeout_seconds if needed. Producers must emit heartbeats during long test runs (egg-orch signal heartbeat)."
+    }
+  ],
+  "third_party_dependencies": {
+    "external_research_performed": false,
+    "rationale": "This is a purely internal orchestrator/agent change. No new third-party dependencies are introduced. Existing dependencies (httpx, pygithub, anthropic SDK, pydantic) are unchanged. External research was not conducted because the risk surface is entirely internal to the egg codebase."
+  },
+  "rollback_strategy": {
+    "level_1_individual_call_site": "Every hardcoded-origin-main fix (R1) is a single-line change; revert the helper introduction and each call site independently.",
+    "level_2_feature_flag": "Gate the babysit-pr path behind EGG_BABYSIT_PR_ENABLED=1 env var. If regressions surface post-merge, flip the flag and POST /pipelines with mode=babysit_pr returns 503. Old egg-babysit CLI (if still present as a shim) continues to work.",
+    "level_3_revert_pr": "Each of the 12 risks isolates cleanly to a distinct PR boundary (route handler, agent_roles filter, orient prompts, concurrent_executor staging, BRC history format, gateway fork check, docs). If a single area regresses, revert only that PR; the others stay in place.",
+    "level_4_schema_rollback": "No schema migrations are irreversible. PipelineMode migration (R2) has a one-release deprecation window. BRC history format change (R5) leaves old files on disk readable. Staging branches (R4) are git refs that can be pruned server-side.",
+    "recommendation": "Split the change into 5-6 PRs per R9 and R12 guidance. Sequence: (i) base-branch helper + call-site fixes; (ii) reviewer-roster filter; (iii) orient-prompt mode branch; (iv) staging-branch abstraction; (v) MCP skill + doc migration; (vi) egg-babysit deprecation shim. Each PR is independently mergeable and revertible."
+  },
+  "human_review_items": [
+    {
+      "id": "HITL-1",
+      "severity": "blocker",
+      "ref": "decision-1",
+      "summary": "PipelineMode.BABYSIT migration strategy (repurpose vs deprecate vs drop). Blocks R2 mitigation selection.",
+      "recommended_option": "Add new BABYSIT_PR value, deprecate BABYSIT (one-release migration). Safest for any external consumer.",
+      "reviewer": "human operator familiar with deployed pipelines"
+    },
+    {
+      "id": "HITL-2",
+      "severity": "blocker",
+      "ref": "decision-2",
+      "summary": "reviewer_contract filter plumbing: has_contract field vs PipelineMode-aware get_roles_for_phase vs call-site filter. Blocks R3 mitigation.",
+      "recommended_option": "Extend get_roles_for_phase() with a generic missing-dependency filter; avoids babysit-pr-specific special-case and covers feedback-1 (other reviewers that might need skipping) for free.",
+      "reviewer": "architecture"
+    },
+    {
+      "id": "HITL-3",
+      "severity": "blocker",
+      "ref": "decision-4",
+      "summary": "Mid-cycle human commits policy (poll-per-NACK vs ignore-until-push vs always-rebase). Blocks R4 mitigation.",
+      "recommended_option": "'Ignore until consensus; abort final push with --force-with-lease if head moved' — simplest correct behavior, matches staging-branch design, defers rebase complexity to follow-up.",
+      "reviewer": "human operator"
+    },
+    {
+      "id": "HITL-4",
+      "severity": "blocker",
+      "ref": "decision-5",
+      "summary": "conflict_resolver invocation policy (on-demand vs pre-flight vs never-in-first-cut). Blocks R11 mitigation.",
+      "recommended_option": "'Never spawn from babysit-pr first cut; NACK with overlap reason' — smallest first cut, empirical data before designing coordination.",
+      "reviewer": "architecture"
+    },
+    {
+      "id": "HITL-5",
+      "severity": "blocker",
+      "ref": "decision-6",
+      "summary": "Base-branch parameterization scope (full sweep vs mode-gated vs v1-restricted-to-main). Blocks R1 mitigation.",
+      "recommended_option": "Full sweep — the 10 call sites are trivial single-line changes; deferring leaves a correctness bug in issue-mode PRs whose base is not main. Also avoids mode-specific regression risk.",
+      "reviewer": "architecture"
+    },
+    {
+      "id": "HITL-6",
+      "severity": "blocker",
+      "ref": "decision-7",
+      "summary": "Refactor _build_*_orientation first (Option D) vs inline branch (Option A). Shapes R10.",
+      "recommended_option": "Option A (inline) — no third mode is on the near-term roadmap; ship babysit-pr faster and revisit when a concrete third-mode requirement arrives.",
+      "reviewer": "architecture"
+    },
+    {
+      "id": "HITL-7",
+      "severity": "blocker",
+      "ref": "decision-3",
+      "summary": "MCP-skill scope (mirror /sdlc vs lean vs two-flavors). Shapes the new skills/babysit-pr/SKILL.md.",
+      "recommended_option": "Lean — take a PR number/URL and a single confirmation. Users who want fuller orchestration can continue to use /sdlc; babysit-pr is a narrower surface.",
+      "reviewer": "product / UX"
+    },
+    {
+      "id": "HITL-8",
+      "severity": "feedback",
+      "ref": "feedback-1",
+      "summary": "Additional reviewer pre-filters beyond reviewer_contract (reviewer_agent_design, reviewer_refine). Informs R3 mitigation 4.",
+      "recommended_option": "Generic dependency-based filter covers all cases; no role-specific filter needed.",
+      "reviewer": "architecture"
+    },
+    {
+      "id": "HITL-9",
+      "severity": "feedback",
+      "ref": "feedback-2",
+      "summary": "Fork-PR UX (stderr vs PR comment vs HITL decision). Informs R6 mitigation.",
+      "recommended_option": "stderr error + PR comment — fail-fast and leave a trail on the PR. Not a HITL (no actionable human choice).",
+      "reviewer": "human operator"
+    },
+    {
+      "id": "HITL-10",
+      "severity": "feedback",
+      "ref": "feedback-3",
+      "summary": "Concurrent pipeline-id collision (share-id-with-409 vs unique qualifier). Informs R7 mitigation.",
+      "recommended_option": "Unique qualifier: pr-{N}-{cycle_counter}. Soft advisory on duplicate.",
+      "reviewer": "human operator"
+    },
+    {
+      "id": "HITL-11",
+      "severity": "feedback",
+      "ref": "feedback-4",
+      "summary": "Scope-expansion guardrails (none vs soft hint vs hard cap). Informs R8 mitigation.",
+      "recommended_option": "Soft orient hint + telemetry — capture data before deciding on a hard cap.",
+      "reviewer": "architecture"
+    },
+    {
+      "id": "HITL-12",
+      "severity": "feedback",
+      "ref": "feedback-5",
+      "summary": "BRC-history identifier format (pr-{N}-{counter} vs pr-{N}-{timestamp} vs pr-{N}-{short_uuid}). Informs R5 mitigation.",
+      "recommended_option": "pr-{N}-{cycle_counter} — human-readable, monotonic, easy to aggregate in the PR body summary.",
+      "reviewer": "architecture"
+    },
+    {
+      "id": "HITL-13",
+      "severity": "feedback",
+      "ref": "feedback-6",
+      "summary": "CLI removal vs deprecation shim. Informs R9 mitigation.",
+      "recommended_option": "Keep as deprecation shim for one release; delete in follow-up PR. Split into two PRs for revertability.",
+      "reviewer": "human operator"
+    }
+  ],
+  "areas_needing_human_review": [
+    "Operator-facing behavior changes (R2, R6, R9) — humans who run or invoke babysit-pr today need a migration story.",
+    "Gateway/staging-branch interaction (R4, S1, S3) — force-with-lease semantics and branch lifecycle have operational implications that benefit from a second pair of eyes.",
+    "MCP skill UX (HITL-7) — product-level decision on how thin the skill surface should be.",
+    "Any call site where the base-branch sweep (R1) touches health checks that gate HITL escalation — a wrong base-branch threading could mask real stalls."
+  ],
+  "overall_risk_rating": "medium-high",
+  "overall_risk_rationale": "Twelve distinct risks, three at high severity (R1 base-branch correctness, R3 reviewer_contract compatibility, and the cross-cutting process risk of R9 + R12 test churn). None of the risks are blockers for the recommended approach — all have well-defined mitigations with specific file:line anchors — but the change is broad enough (orchestrator routes, agent roles, concurrent executor, gateway, health checks, docs, tests, CLI) that disciplined PR-splitting and incremental rollout are essential. Recommend the plan-phase task-break produces 5-6 separately mergeable tasks per the rollback strategy sequencing, each with its own test coverage and HITL-resolution dependency.",
+  "related_artifacts": [
+    ".egg-state/drafts/1748-analysis.md"
+  ],
+  "metadata": {
+    "complexity_tier": "high",
+    "research_basis": "refine-analysis+codebase-audit",
+    "external_research_performed": false,
+    "hitl_items_total": 13,
+    "hitl_items_blocking": 7,
+    "hitl_items_feedback": 6,
+    "risks_total": 12,
+    "risks_high_severity": 3,
+    "risks_medium_severity": 6,
+    "risks_low_severity": 3
+  }
+}
