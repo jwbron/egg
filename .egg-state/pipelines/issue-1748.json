@@ -277,10 +277,10 @@
         {
           "container_id": "3ef01d6aa5d94412c841b7bf02f0f5355fd6f4d26bded3634ccfb56528bc701d",
           "container_name": "issue-1748-coder",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-17T00:33:13.262833Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-17T01:24:33.187740Z",
+          "exit_code": 1,
           "agent_role": "coder",
           "session_token": null
         },
@@ -332,13 +332,13 @@
         },
         {
           "role": "coder",
-          "status": "running",
+          "status": "failed",
           "container_id": "3ef01d6aa5d94412c841b7bf02f0f5355fd6f4d26bded3634ccfb56528bc701d",
           "started_at": "2026-04-17T00:33:13.262838Z",
-          "completed_at": null,
+          "completed_at": "2026-04-17T01:24:33.215096Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -421,7 +421,7 @@
     }
   ],
   "created_at": "2026-04-16T18:09:13.590628Z",
-  "updated_at": "2026-04-17T01:24:32.956893Z",
+  "updated_at": "2026-04-17T01:24:33.215343Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -432,5 +432,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-17T00:32:18.810919Z",
-  "version": 28
+  "version": 29
 }
