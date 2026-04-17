@@ -164,10 +164,10 @@
         {
           "container_id": "368e1a38fdaa9c7968873105784063928b3a4816d3b492f973d516d48eb9fe99",
           "container_name": "issue-1748-reviewer_plan",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-16T23:37:10.435062Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-17T01:07:13.371333Z",
+          "exit_code": -1,
           "agent_role": "reviewer_plan",
           "session_token": null
         },
@@ -209,13 +209,13 @@
         },
         {
           "role": "reviewer_plan",
-          "status": "running",
+          "status": "failed",
           "container_id": "368e1a38fdaa9c7968873105784063928b3a4816d3b492f973d516d48eb9fe99",
           "started_at": "2026-04-16T23:37:10.435064Z",
-          "completed_at": null,
+          "completed_at": "2026-04-17T01:07:13.379296Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -421,7 +421,7 @@
     }
   ],
   "created_at": "2026-04-16T18:09:13.590628Z",
-  "updated_at": "2026-04-17T01:07:13.356856Z",
+  "updated_at": "2026-04-17T01:07:13.379367Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -432,5 +432,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-17T00:32:18.810919Z",
-  "version": 26
+  "version": 27
 }
