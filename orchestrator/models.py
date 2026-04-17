@@ -29,7 +29,17 @@ class PipelineMode(StrEnum):
     """Pipeline execution mode."""
 
     ISSUE = "issue"  # Standard issue-driven SDLC pipeline
-    BABYSIT = "babysit"  # PR babysit loop (review/fix cycle)
+    BABYSIT = "babysit"
+    """One-off implement-phase BRC cycle targeted at an existing PR's diff.
+
+    Repurposed from the legacy ``egg-babysit`` fixer/reviewer loop. In this
+    mode the orchestrator creates an implement-phase pipeline with
+    ``has_contract=False`` against the PR's head branch; producers
+    (coder, tester, documenter) and reviewers (reviewer_code, tester) run
+    the standard Broadcast-Review-Converge protocol on a staging branch
+    derived from the PR head. Only the final consensus commit is pushed to
+    the PR branch. See #1748.
+    """
 
 
 class AgentExecutionStatus(StrEnum):
@@ -473,6 +483,24 @@ class Pipeline(BaseModel):
         default=None,
         ge=1,
         description="PR number for babysit mode pipelines",
+    )
+    pr_head_sha: str | None = Field(
+        default=None,
+        description="The PR head commit SHA captured at pipeline creation. "
+        "Used to namespace per-role staging branches "
+        "(egg/babysit-pr/{pr}/{short-sha}/{role}) and the BRC-history "
+        "identifier (pr-{pr}-{short-sha}). A subsequent remote HEAD move "
+        "invalidates the cycle because the stored SHA no longer matches "
+        "origin/<head_branch>.",
+    )
+    has_contract: bool = Field(
+        default=True,
+        description="Whether this pipeline has an upstream SDLC contract "
+        "(plan/refine artifacts, .egg-state/contracts/<issue>.json). "
+        "Babysit-pr pipelines set this to False so the implement-phase "
+        "reviewer roster is filtered to drop reviewer_contract, which "
+        "has no artifacts to verify. Default True preserves backward "
+        "compatibility for issue-mode pipelines.",
     )
     error: str | None = Field(default=None, description="Error if failed")
     analysis: str | None = Field(

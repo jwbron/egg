@@ -778,6 +778,8 @@ class StateStore:
         plan: str | None = None,
         source_branch: str | None = None,
         source_artifact_prefix: str | None = None,
+        has_contract: bool = True,
+        pr_head_sha: str | None = None,
     ) -> Pipeline:
         """Create a new pipeline.
 
@@ -843,11 +845,14 @@ class StateStore:
                 "plan": plan,
                 "source_branch": source_branch,
                 "source_artifact_prefix": source_artifact_prefix,
+                "has_contract": has_contract,
             }
             if mode is not None:
                 pipeline_kwargs["mode"] = mode
             if pr_number is not None:
                 pipeline_kwargs["pr_number"] = pr_number
+            if pr_head_sha is not None:
+                pipeline_kwargs["pr_head_sha"] = pr_head_sha
             pipeline = Pipeline(**pipeline_kwargs)
 
             if config:
