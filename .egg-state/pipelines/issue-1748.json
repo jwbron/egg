@@ -154,10 +154,10 @@
         {
           "container_id": "cc383d6652968e6b020cb4e12ea90251680e016cea91d8c304288442f06f2ec7",
           "container_name": "issue-1748-task_planner",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-16T23:37:10.435058Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-17T01:07:13.340136Z",
+          "exit_code": -1,
           "agent_role": "task_planner",
           "session_token": null
         },
@@ -197,13 +197,13 @@
         },
         {
           "role": "task_planner",
-          "status": "running",
+          "status": "failed",
           "container_id": "cc383d6652968e6b020cb4e12ea90251680e016cea91d8c304288442f06f2ec7",
           "started_at": "2026-04-16T23:37:10.435060Z",
-          "completed_at": null,
+          "completed_at": "2026-04-17T01:07:13.356729Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -421,7 +421,7 @@
     }
   ],
   "created_at": "2026-04-16T18:09:13.590628Z",
-  "updated_at": "2026-04-17T01:07:13.344503Z",
+  "updated_at": "2026-04-17T01:07:13.356856Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -432,5 +432,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-17T00:32:18.810919Z",
-  "version": 25
+  "version": 26
 }
