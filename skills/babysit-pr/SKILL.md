@@ -216,7 +216,13 @@ On successful consensus and final push:
   raised and addressed. The content-addressed suffix (`<short_sha>`) means
   multiple babysit cycles on the same PR over time produce distinct history
   files instead of overwriting one another.
-- A summary comment on the PR mirrors the issue-mode summary format.
+- **No PR comment is posted.** The final commit and the BRC-history
+  files on the branch are the only artifacts written back to the PR.
+  The orchestrator does not currently mirror the issue-mode "summary
+  comment" behaviour for babysit cycles — reviewers consult
+  `.egg-state/brc-history/...` on the branch or the pipeline status
+  (`egg-orch pipeline status pr-<N>`) to see what was raised and
+  addressed.
 
 Inform the user:
 

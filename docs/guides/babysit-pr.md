@@ -108,8 +108,8 @@ schema is identical to issue-mode pipelines.
 │  └──────────┬───────────┘                                       │
 │             ▼                                                   │
 │  ┌──────────────────────┐                                       │
-│  │ Summary comment +    │                                       │
-│  │ brc-history written  │                                       │
+│  │ BRC history written  │                                       │
+│  │ to branch            │                                       │
 │  └──────────────────────┘                                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -289,8 +289,16 @@ Typical escalation triggers specific to babysit:
 - **Unresolvable merge conflict** — a producer cannot rebase / merge
   `pr.base.ref` into their worktree even within their own role's scope.
 
-All escalations route through the orchestrator's DecisionQueue, post a
-GitHub comment on the PR, and send a Slack notification if configured.
+All escalations route through the orchestrator's DecisionQueue. HITL
+decisions are surfaced through the orchestrator's web UI and CLI
+(`egg-orch decision list pr-<N>`); the pipeline blocks until a human
+resolves them. The queue does **not** automatically post GitHub
+comments on the PR — the decision is visible via the orchestrator
+surfaces and, if configured, via external notification handlers (e.g.
+Slack). The final-consensus commit itself becomes the only automatic
+artifact written back to the PR; the durable BRC-history trail lives
+on the branch under `.egg-state/brc-history/` so reviewers can read it
+alongside the diff.
 
 ## What Changed (Migration Notes)
 
