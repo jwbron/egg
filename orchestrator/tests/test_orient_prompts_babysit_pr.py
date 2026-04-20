@@ -420,3 +420,212 @@ class TestBaseRefInterpolation:
             pr_number=1748,
         )
         assert "git diff origin/main...HEAD" in result
+
+
+class TestPRCheckoutStepB1:
+    """Step (0) ``gh pr checkout`` must pin into producer orient + reviewer prep.
+
+    Locks in the #1748 reviewer_code B1 fix (commit 7544b5300): before that
+    commit the producer worktree stayed on the base branch and
+    ``git diff base...HEAD`` was empty — the feature did nothing. A silent
+    regression that drops the checkout step from either ``_build_producer_orientation``
+    or ``_build_reviewer_preparation`` would pass the rest of the suite; this
+    class exists specifically to prevent that.
+    """
+
+    def test_producer_orient_includes_gh_pr_checkout_with_pr_number(self) -> None:
+        result = _build_producer_orientation(
+            "coder",
+            "implement",
+            reviewers=["reviewer_code"],
+            base_branch="main",
+            mode=PipelineMode.BABYSIT,
+            pr_number=1748,
+        )
+        # Exact ``gh pr checkout <N>`` command with the passed pr_number.
+        assert "gh pr checkout 1748" in result
+        # Step-(0) intent language — the "why" of the checkout.
+        assert "check out the PR head" in result
+
+    def test_producer_orient_uses_generic_fallback_when_pr_number_none(self) -> None:
+        # When pr_number is missing the prompt falls back to the literal
+        # placeholder ``<pr_number>`` (pipelines.py gh-checkout ternary).
+        result = _build_producer_orientation(
+            "coder",
+            "implement",
+            reviewers=[],
+            base_branch="main",
+            mode=PipelineMode.BABYSIT,
+            pr_number=None,
+        )
+        assert "gh pr checkout <pr_number>" in result
+        assert "gh pr checkout 1748" not in result
+
+    def test_producer_orient_explains_empty_diff_rationale(self) -> None:
+        # The rationale ties the checkout step to the empty-diff failure mode
+        # so the agent understands skipping it is not optional.
+        result = _build_producer_orientation(
+            "coder",
+            "implement",
+            reviewers=[],
+            base_branch="main",
+            mode=PipelineMode.BABYSIT,
+            pr_number=1748,
+        )
+        assert "sitting on the base branch" in result
+        assert "none of the PR's changes are" in result
+
+    def test_reviewer_code_prep_includes_gh_pr_checkout_with_pr_number(self) -> None:
+        result = _build_reviewer_preparation(
+            "reviewer_code",
+            "implement",
+            base_branch="main",
+            mode=PipelineMode.BABYSIT,
+            pr_number=1748,
+        )
+        assert "gh pr checkout 1748" in result
+        assert "check out the PR head" in result
+
+    def test_reviewer_code_prep_uses_generic_fallback_when_pr_number_none(self) -> None:
+        result = _build_reviewer_preparation(
+            "reviewer_code",
+            "implement",
+            base_branch="main",
+            mode=PipelineMode.BABYSIT,
+            pr_number=None,
+        )
+        assert "gh pr checkout <pr_number>" in result
+        assert "gh pr checkout 1748" not in result
+
+    def test_reviewer_code_prep_explains_empty_diff_rationale(self) -> None:
+        # Step (0)'s "otherwise the diff will be empty" rationale — the
+        # reviewer_code text says "diff below will be empty because your
+        # worktree is on the base branch" (pipelines.py:6421-6424).
+        result = _build_reviewer_preparation(
+            "reviewer_code",
+            "implement",
+            base_branch="main",
+            mode=PipelineMode.BABYSIT,
+            pr_number=1748,
+        )
+        assert "diff below will be empty" in result
+        assert "base branch" in result
+
+    def test_tester_prep_includes_gh_pr_checkout_with_pr_number(self) -> None:
+        result = _build_reviewer_preparation(
+            "tester",
+            "implement",
+            base_branch="main",
+            mode=PipelineMode.BABYSIT,
+            pr_number=1748,
+        )
+        assert "gh pr checkout 1748" in result
+        # Tester prep uses "Check out the PR head first" (capitalized C).
+        assert "Check out the PR head" in result
+
+    def test_tester_prep_uses_generic_fallback_when_pr_number_none(self) -> None:
+        result = _build_reviewer_preparation(
+            "tester",
+            "implement",
+            base_branch="main",
+            mode=PipelineMode.BABYSIT,
+            pr_number=None,
+        )
+        assert "gh pr checkout <pr_number>" in result
+        assert "gh pr checkout 1748" not in result
+
+    def test_tester_prep_explains_empty_diff_rationale(self) -> None:
+        result = _build_reviewer_preparation(
+            "tester",
+            "implement",
+            base_branch="main",
+            mode=PipelineMode.BABYSIT,
+            pr_number=1748,
+        )
+        # Tester text: "your worktree is sitting on the base branch and the
+        # diff below will be empty" (pipelines.py:6440-6442).
+        assert "diff below will be empty" in result
+        assert "sitting on the base branch" in result
+
+    def test_issue_mode_producer_orient_has_no_gh_pr_checkout(self) -> None:
+        """``gh pr checkout`` is babysit-only — issue-mode must not mention it."""
+        result = _build_producer_orientation(
+            "coder",
+            "implement",
+            reviewers=["reviewer_code"],
+            branch="egg/fix",
+            base_branch="main",
+        )
+        assert "gh pr checkout" not in result
+        # Also guard the fallback form in case someone wires it in loosely.
+        assert "<pr_number>" not in result
+
+    def test_issue_mode_producer_orient_has_no_gh_pr_checkout_with_mode_none(self) -> None:
+        """Explicit ``mode=None`` must also avoid the babysit-specific text."""
+        result = _build_producer_orientation(
+            "coder",
+            "implement",
+            reviewers=["reviewer_code"],
+            branch="egg/fix",
+            base_branch="main",
+            mode=None,
+            pr_number=1748,
+        )
+        assert "gh pr checkout" not in result
+
+    def test_issue_mode_reviewer_code_prep_has_no_gh_pr_checkout(self) -> None:
+        result = _build_reviewer_preparation(
+            "reviewer_code",
+            "implement",
+            branch="egg/fix",
+            base_branch="main",
+        )
+        assert "gh pr checkout" not in result
+        assert "<pr_number>" not in result
+
+    def test_issue_mode_tester_prep_has_no_gh_pr_checkout(self) -> None:
+        result = _build_reviewer_preparation(
+            "tester",
+            "implement",
+            branch="egg/fix",
+            base_branch="main",
+        )
+        assert "gh pr checkout" not in result
+        assert "<pr_number>" not in result
+
+    def test_producer_orient_checkout_command_precedes_rebase(self) -> None:
+        """Step (0) checkout must come BEFORE step (1) rebase — otherwise the
+        rebase runs against the base-branch tree and any conflicts are fake."""
+        result = _build_producer_orientation(
+            "coder",
+            "implement",
+            reviewers=[],
+            base_branch="main",
+            mode=PipelineMode.BABYSIT,
+            pr_number=1748,
+        )
+        checkout_idx = result.find("gh pr checkout 1748")
+        rebase_idx = result.find("rebase")
+        assert checkout_idx != -1, "producer orient should include gh pr checkout"
+        assert rebase_idx != -1, "producer orient should include rebase step"
+        assert checkout_idx < rebase_idx, (
+            "gh pr checkout (step 0) must appear before rebase (step 1)"
+        )
+
+    def test_reviewer_code_prep_checkout_precedes_diff(self) -> None:
+        """Step (0) checkout must come BEFORE the ``git diff`` step so the
+        reviewer reads the right tree."""
+        result = _build_reviewer_preparation(
+            "reviewer_code",
+            "implement",
+            base_branch="main",
+            mode=PipelineMode.BABYSIT,
+            pr_number=1748,
+        )
+        checkout_idx = result.find("gh pr checkout 1748")
+        diff_idx = result.find("git diff origin/main...HEAD")
+        assert checkout_idx != -1
+        assert diff_idx != -1
+        assert checkout_idx < diff_idx, (
+            "gh pr checkout (step 0) must appear before git diff (step 1)"
+        )
