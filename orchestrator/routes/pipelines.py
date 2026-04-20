@@ -4293,6 +4293,93 @@ def _detect_default_branch(worktree_repo_path: Path) -> str:
     return "main"
 
 
+def get_pr_base_branch(
+    pr_number: int | None,
+    repo: str | None = None,
+    *,
+    worktree_repo_path: Path | None = None,
+) -> str:
+    """Resolve the base branch for a PR, falling back to the repo's default branch.
+
+    .. deprecated::
+        Prefer :func:`_fetch_pr_state` for babysit-pr pipelines — it returns
+        the full PR state (base_ref, head_ref, head_sha, is_fork) in a single
+        ``gh`` call. This helper is kept as a thin single-field shim for
+        callers that only need the base branch (and for backwards-compatible
+        test coverage in ``orchestrator/tests/test_pr_base_branch.py``).
+
+    Fallback order:
+    1. If ``pr_number`` is provided, consult ``gh pr view <N> --json baseRefName``
+       (optionally pinning ``--repo`` when ``repo`` is supplied).
+    2. If ``worktree_repo_path`` is provided, delegate to
+       :func:`_detect_default_branch` which probes ``origin/HEAD`` and then
+       ``origin/main``/``origin/master``.
+    3. Literal ``"main"`` as an absolute fallback.
+
+    Args:
+        pr_number: GitHub PR number. When ``None``, the PR lookup is skipped.
+        repo: Repository in ``owner/name`` format. When provided, passed to
+            ``gh`` via ``--repo`` so the lookup is unambiguous even from a
+            worktree without a configured remote.
+        worktree_repo_path: Path of a local clone to fall back to when no
+            PR context is available. When ``None``, skips the local probe.
+
+    Returns:
+        The bare branch name (e.g. ``"main"`` or ``"develop"``), never prefixed
+        with ``"origin/"``.
+    """
+    # Primary: ask GitHub via the gh CLI.
+    if pr_number is not None:
+        gh_cmd = ["gh", "pr", "view", str(pr_number), "--json", "baseRefName"]
+        if repo:
+            gh_cmd.extend(["--repo", repo])
+        try:
+            result = subprocess.run(
+                gh_cmd,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                try:
+                    data = json.loads(result.stdout)
+                    ref = data.get("baseRefName")
+                    if isinstance(ref, str) and ref:
+                        return ref
+                except (json.JSONDecodeError, ValueError):
+                    logger.warning(
+                        "get_pr_base_branch: gh output was not valid JSON; falling back",
+                        pr_number=pr_number,
+                        repo=repo,
+                    )
+            else:
+                logger.warning(
+                    "get_pr_base_branch: gh pr view failed; falling back",
+                    pr_number=pr_number,
+                    repo=repo,
+                    returncode=result.returncode,
+                    stderr=result.stderr.strip()[:200],
+                )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "get_pr_base_branch: gh pr view raised; falling back",
+                pr_number=pr_number,
+                repo=repo,
+                error=str(exc),
+            )
+
+    # Secondary: probe the local clone's default branch.
+    if worktree_repo_path is not None:
+        try:
+            return _detect_default_branch(worktree_repo_path)
+        except Exception:
+            pass
+
+    # Absolute fallback.
+    return "main"
+
+
 def _resolve_origin_ref(base_branch: str | None) -> str:
     """Return ``origin/<branch>``, falling back to ``origin/main``.
 
