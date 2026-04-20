@@ -322,11 +322,7 @@ def _brc_history_identifier(pipeline) -> int | str:
         _PipelineMode = None  # type: ignore[assignment]
 
     mode = getattr(pipeline, "mode", None)
-    if (
-        _PipelineMode is not None
-        and mode is not None
-        and mode == _PipelineMode.BABYSIT
-    ):
+    if _PipelineMode is not None and mode is not None and mode == _PipelineMode.BABYSIT:
         pr = getattr(pipeline, "pr_number", None)
         sha = getattr(pipeline, "pr_head_sha", None)
         if pr and isinstance(sha, str) and len(sha) >= 7:
@@ -4394,9 +4390,7 @@ def _resolve_origin_ref(base_branch: str | None) -> str:
     return f"origin/{ref}"
 
 
-def _verify_pr_head_unchanged(
-    pipeline, worktree_repo_path: Path
-) -> tuple[bool, str | None]:
+def _verify_pr_head_unchanged(pipeline, worktree_repo_path: Path) -> tuple[bool, str | None]:
     """Return (ok, actual_sha) for the babysit-pr final-push head-move guard.
 
     Fetches ``origin`` and resolves ``origin/<pipeline.branch>`` (the PR
@@ -4509,9 +4503,7 @@ def _fetch_pr_state(pr_number: int, repo: str | None = None) -> dict[str, Any]:
     head_repo_name = head_repo.get("name") if isinstance(head_repo, dict) else None
     head_owner_login = head_owner.get("login") if isinstance(head_owner, dict) else None
     head_repo_full = (
-        f"{head_owner_login}/{head_repo_name}"
-        if head_owner_login and head_repo_name
-        else None
+        f"{head_owner_login}/{head_repo_name}" if head_owner_login and head_repo_name else None
     )
     return {
         "state": data.get("state"),
@@ -6409,11 +6401,7 @@ def _build_reviewer_preparation(
         # branch — ``git diff base...HEAD`` would be empty (#1748 reviewer_code
         # B1). ``gh pr checkout`` handles same-repo PRs; forks are already
         # rejected at pipeline-creation time.
-        pr_checkout = (
-            f"gh pr checkout {pr_number}"
-            if pr_number
-            else "gh pr checkout <pr_number>"
-        )
+        pr_checkout = f"gh pr checkout {pr_number}" if pr_number else "gh pr checkout <pr_number>"
         if role_value == "reviewer_code":
             return (
                 f"You are reviewing an existing pull request ({pr_hint}). "
@@ -6580,11 +6568,7 @@ def _build_producer_orientation(
         # on the base branch and none of the PR's changes are visible (#1748
         # reviewer_code B1). ``gh pr checkout`` handles same-repo PRs; we
         # require gh to be present in the sandbox (it is for all roles).
-        pr_checkout = (
-            f"gh pr checkout {pr_number}"
-            if pr_number
-            else "gh pr checkout <pr_number>"
-        )
+        pr_checkout = f"gh pr checkout {pr_number}" if pr_number else "gh pr checkout <pr_number>"
         babysit_preamble = (
             f"you are working on {pr_hint} via a one-off BRC cycle against the "
             "PR diff. Orient in this order: "
@@ -6602,7 +6586,7 @@ def _build_producer_orientation(
             "If a conflict spans another role's files, stop and escalate by "
             "requesting the on-demand `conflict_resolver` role via "
             "`egg-orch message send --to orchestrator --type HANDOFF --subject "
-            "\"conflict_resolver needed\" --body \"...\"`. "
+            '"conflict_resolver needed" --body "..."`. '
             f"(3) Read the PR diff at `git diff {base_ref}...HEAD` and the PR "
             "description for intent. "
             "(4) Identify quality/consistency improvements within your role's "
@@ -9704,9 +9688,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
             # --- Auto PR creation: skip agent spawn for PR phase ---
             if current_phase.value == "pr":
-                is_babysit_mode = (
-                    getattr(pipeline, "mode", None) == PipelineMode.BABYSIT
-                )
+                is_babysit_mode = getattr(pipeline, "mode", None) == PipelineMode.BABYSIT
                 logger.info(
                     "Auto-creating PR (skipping agent spawn)"
                     if not is_babysit_mode
@@ -9732,9 +9714,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # when we are in babysit mode (the PR already exists).
                 skip_pr_creation = False
                 if is_babysit_mode:
-                    head_ok, actual_sha = _verify_pr_head_unchanged(
-                        pipeline, worktree_repo_path
-                    )
+                    head_ok, actual_sha = _verify_pr_head_unchanged(pipeline, worktree_repo_path)
                     if not head_ok:
                         stored_sha = getattr(pipeline, "pr_head_sha", None) or "unknown"
                         actual_display = actual_sha or "unknown"

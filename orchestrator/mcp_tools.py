@@ -917,9 +917,7 @@ class PipelineToolHandler:
                     if reason:
                         error_info["reason"] = reason
                     if "existing_pipeline_id" in details:
-                        error_info["existing_pipeline_id"] = details.get(
-                            "existing_pipeline_id", ""
-                        )
+                        error_info["existing_pipeline_id"] = details.get("existing_pipeline_id", "")
                     if "existing_status" in details:
                         error_info["existing_status"] = details.get("existing_status", "")
                     if "existing_phase" in details:
@@ -929,9 +927,7 @@ class PipelineToolHandler:
             # 400 (fork / validation) and other non-409 errors: bubble the
             # structured message up so the caller sees why the PR was refused.
             error_info = {
-                "error": resp_body.get(
-                    "message", f"babysit-pr creation failed (HTTP {e.code})"
-                ),
+                "error": resp_body.get("message", f"babysit-pr creation failed (HTTP {e.code})"),
             }
             details = resp_body.get("details", {})
             if details and details.get("reason"):
@@ -947,15 +943,12 @@ class PipelineToolHandler:
                     method="POST",
                 )
             except Exception:
-                logger.error(
-                    "Failed to start babysit-pr pipeline", pipeline_id=pipeline_id
-                )
+                logger.error("Failed to start babysit-pr pipeline", pipeline_id=pipeline_id)
                 return {
                     "task_id": pipeline_id,
                     "status": "created_not_started",
                     "message": (
-                        "Babysit-pr pipeline created but failed to start. "
-                        "Use task_id to retry."
+                        "Babysit-pr pipeline created but failed to start. Use task_id to retry."
                     ),
                 }
 
