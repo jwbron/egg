@@ -258,7 +258,7 @@ are:
 The standalone `egg-babysit` console script and its `shared/egg_babysit/`
 package have been removed. If `uv run egg-babysit --help` or similar
 commands appear in any team-local scripts, Makefile targets, or CI
-workflows, migrate them to this skill. The replacement is functional
+workflows, migrate them to this skill. The replacement is functionally
 equivalent at the "run against one PR" granularity — the recurring-cadence
 and webhook-driven variants of the old CLI have no counterpart in this
 first cut and should be re-opened as a follow-up issue if needed.

@@ -166,19 +166,22 @@ class TestBranchMissing:
 
 
 class TestRevParseFailure:
-    """A non-zero rev-parse or empty stdout degrades to (True, None)."""
+    """A non-zero rev-parse or empty stdout fails closed -> (False, None) after retry."""
 
     @patch("routes.pipelines.subprocess.run")
     def test_rev_parse_returncode_128(self, mock_run):
         pipeline = _pipe()
 
+        # Two attempts: fetch succeeds, rev-parse fails on both.
         mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=128, stdout="", stderr="fatal: bad revision"),
             MagicMock(returncode=0, stdout="", stderr=""),
             MagicMock(returncode=128, stdout="", stderr="fatal: bad revision"),
         ]
 
         ok, actual = _verify_pr_head_unchanged(pipeline, Path("/tmp/repo"))
-        assert ok is True
+        assert ok is False
         assert actual is None
 
     @patch("routes.pipelines.subprocess.run")
@@ -188,10 +191,12 @@ class TestRevParseFailure:
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout="", stderr=""),
             MagicMock(returncode=1, stdout="", stderr="some stderr content"),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=1, stdout="", stderr="some stderr content"),
         ]
 
         ok, actual = _verify_pr_head_unchanged(pipeline, Path("/tmp/repo"))
-        assert ok is True
+        assert ok is False
         assert actual is None
 
     @patch("routes.pipelines.subprocess.run")
@@ -201,10 +206,12 @@ class TestRevParseFailure:
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout="", stderr=""),
             MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
         ]
 
         ok, actual = _verify_pr_head_unchanged(pipeline, Path("/tmp/repo"))
-        assert ok is True
+        assert ok is False
         assert actual is None
 
     @patch("routes.pipelines.subprocess.run")
@@ -214,42 +221,79 @@ class TestRevParseFailure:
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout="", stderr=""),
             MagicMock(returncode=0, stdout="   \n", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="   \n", stderr=""),
+        ]
+
+        ok, actual = _verify_pr_head_unchanged(pipeline, Path("/tmp/repo"))
+        assert ok is False
+        assert actual is None
+
+    @patch("routes.pipelines.subprocess.run")
+    def test_rev_parse_succeeds_on_retry(self, mock_run):
+        """First attempt fails rev-parse, second attempt succeeds — returns match result."""
+        pipeline = _pipe(pr_head_sha="abc1234def5678")
+
+        mock_run.side_effect = [
+            # Attempt 1: fetch ok, rev-parse fails
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=128, stdout="", stderr="fatal: bad revision"),
+            # Attempt 2: fetch ok, rev-parse succeeds
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="abc1234def5678", stderr=""),
         ]
 
         ok, actual = _verify_pr_head_unchanged(pipeline, Path("/tmp/repo"))
         assert ok is True
-        assert actual is None
+        assert actual == "abc1234def5678"
 
 
 class TestGitRaisesException:
-    """subprocess.run raising any exception is swallowed -> (True, None)."""
+    """subprocess.run raising any exception fails closed -> (False, None) after retry."""
 
     @patch("routes.pipelines.subprocess.run")
-    def test_timeout_expired_is_swallowed(self, mock_run):
+    def test_timeout_expired_fails_closed(self, mock_run):
         pipeline = _pipe()
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=30)
 
         ok, actual = _verify_pr_head_unchanged(pipeline, Path("/tmp/repo"))
-        assert ok is True
+        assert ok is False
         assert actual is None
 
     @patch("routes.pipelines.subprocess.run")
-    def test_os_error_is_swallowed(self, mock_run):
+    def test_os_error_fails_closed(self, mock_run):
         pipeline = _pipe()
         mock_run.side_effect = OSError("git not found")
 
         ok, actual = _verify_pr_head_unchanged(pipeline, Path("/tmp/repo"))
-        assert ok is True
+        assert ok is False
         assert actual is None
 
     @patch("routes.pipelines.subprocess.run")
-    def test_generic_exception_is_swallowed(self, mock_run):
+    def test_generic_exception_fails_closed(self, mock_run):
         pipeline = _pipe()
         mock_run.side_effect = Exception("boom")
 
         ok, actual = _verify_pr_head_unchanged(pipeline, Path("/tmp/repo"))
-        assert ok is True
+        assert ok is False
         assert actual is None
+
+    @patch("routes.pipelines.subprocess.run")
+    def test_exception_on_first_attempt_succeeds_on_retry(self, mock_run):
+        """First attempt raises, second attempt succeeds — returns match result."""
+        pipeline = _pipe()
+
+        mock_run.side_effect = [
+            # Attempt 1: fetch raises TimeoutExpired
+            subprocess.TimeoutExpired(cmd="git", timeout=30),
+            # Attempt 2: fetch ok, rev-parse returns stored SHA
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="abc1234deadbeef", stderr=""),
+        ]
+
+        ok, actual = _verify_pr_head_unchanged(pipeline, Path("/tmp/repo"))
+        assert ok is True
+        assert actual == "abc1234deadbeef"
 
 
 class TestFetchAndRevParseInvocations:

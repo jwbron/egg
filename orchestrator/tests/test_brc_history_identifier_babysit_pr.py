@@ -60,7 +60,7 @@ class TestBabysitHistoryIdentifierFormat:
 
     def test_large_pr_number_with_full_sha(self):
         # 40-char SHA — should be truncated to first 7
-        full_sha = "0000000abcdef1234567890abcdef1234567890ab"
+        full_sha = "0000000abcdef1234567890abcdef1234567890a"
         pipeline = _make_babysit_pipeline(pr_number=12345, pr_head_sha=full_sha)
         assert _brc_history_identifier(pipeline) == "pr-12345-0000000"
 
@@ -122,12 +122,26 @@ class TestBabysitFallbackToGeneric:
         assert _brc_history_identifier(pipeline) == "pr-42"
 
     def test_empty_pr_head_sha_falls_back(self):
-        pipeline = _make_babysit_pipeline(pr_number=42, pr_head_sha="", pipeline_id="pr-42")
+        # Use SimpleNamespace because Pipeline validator normalizes "" to None.
+        pipeline = SimpleNamespace(
+            mode=PipelineMode.BABYSIT,
+            pr_number=42,
+            pr_head_sha="",
+            id="pr-42",
+            issue_number=None,
+        )
         assert _brc_history_identifier(pipeline) == "pr-42"
 
     def test_short_pr_head_sha_falls_back(self):
-        # SHA is shorter than 7 characters -> should fall back
-        pipeline = _make_babysit_pipeline(pr_number=42, pr_head_sha="short", pipeline_id="pr-42")
+        # SHA is shorter than 7 characters -> should fall back.
+        # Use SimpleNamespace because Pipeline validator rejects non-hex SHAs.
+        pipeline = SimpleNamespace(
+            mode=PipelineMode.BABYSIT,
+            pr_number=42,
+            pr_head_sha="short",
+            id="pr-42",
+            issue_number=None,
+        )
         assert _brc_history_identifier(pipeline) == "pr-42"
 
     def test_non_string_pr_head_sha_falls_back(self):

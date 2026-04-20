@@ -761,6 +761,17 @@ def create_pipeline() -> tuple[Response, int]:
             if not base_branch and babysit_pr_state.get("base_ref"):
                 base_branch = babysit_pr_state["base_ref"]
 
+    # Validate branch and base_branch — reject values that could be
+    # interpreted as git flags (e.g. "--upload-pack=...") or contain
+    # path-traversal sequences.  Same regex used for source_branch above.
+    for _ref_name, _ref_val in [("branch", branch), ("base_branch", base_branch)]:
+        if _ref_val is not None:
+            if not re.match(r"^[a-zA-Z0-9_./-]+$", _ref_val) or ".." in _ref_val:
+                return make_error_response(
+                    f"Invalid {_ref_name}: {_ref_val!r}",
+                    status_code=400,
+                )
+
     # Issue-driven or explicitly-named pipelines require a branch;
     # prompt-driven ones do not.
     pipeline_id = data.get("pipeline_id")
@@ -4405,49 +4416,77 @@ def _verify_pr_head_unchanged(pipeline, worktree_repo_path: Path) -> tuple[bool,
     - Returns ``(False, <actual_sha>)`` when the remote head has advanced.
       Callers should abort the final push and raise a HITL decision.
 
-    The helper never raises; git/subprocess failures are treated as
-    "unknown" (returns ``(True, None)``) so a transient network hiccup
-    does not falsely fail a cycle.
+    The helper never raises.  Git/subprocess failures are retried once;
+    if both attempts fail the function returns ``(False, None)`` so that
+    callers treat the result as "unsafe" and escalate via HITL rather
+    than silently allowing a push that might overwrite concurrent work.
     """
     stored_sha = getattr(pipeline, "pr_head_sha", None)
     branch = getattr(pipeline, "branch", None)
     if not stored_sha or not branch:
         return True, None
-    try:
-        subprocess.run(
-            ["git", "-C", str(worktree_repo_path), "fetch", "origin", branch],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        rev = subprocess.run(
-            ["git", "-C", str(worktree_repo_path), "rev-parse", f"origin/{branch}"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning(
-            "_verify_pr_head_unchanged: git raised",
-            pipeline_id=getattr(pipeline, "id", None),
-            branch=branch,
-            error=str(exc),
-        )
-        return True, None
-    if rev.returncode != 0:
-        logger.warning(
-            "_verify_pr_head_unchanged: rev-parse failed",
-            pipeline_id=getattr(pipeline, "id", None),
-            branch=branch,
-            stderr=rev.stderr.strip()[:200],
-        )
-        return True, None
-    actual = rev.stdout.strip()
-    if not actual:
-        return True, None
-    return actual == stored_sha, actual
+
+    max_attempts = 2
+    for attempt in range(1, max_attempts + 1):
+        try:
+            fetch = subprocess.run(
+                ["git", "-C", str(worktree_repo_path), "fetch", "origin", branch],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            if fetch.returncode != 0:
+                logger.warning(
+                    "_verify_pr_head_unchanged: fetch failed (attempt %d/%d)",
+                    attempt,
+                    max_attempts,
+                    pipeline_id=getattr(pipeline, "id", None),
+                    branch=branch,
+                    stderr=fetch.stderr.strip()[:200],
+                )
+                if attempt < max_attempts:
+                    continue
+                return False, None
+            rev = subprocess.run(
+                ["git", "-C", str(worktree_repo_path), "rev-parse", f"origin/{branch}"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "_verify_pr_head_unchanged: git raised (attempt %d/%d)",
+                attempt,
+                max_attempts,
+                pipeline_id=getattr(pipeline, "id", None),
+                branch=branch,
+                error=str(exc),
+            )
+            if attempt < max_attempts:
+                continue
+            return False, None
+        if rev.returncode != 0:
+            logger.warning(
+                "_verify_pr_head_unchanged: rev-parse failed (attempt %d/%d)",
+                attempt,
+                max_attempts,
+                pipeline_id=getattr(pipeline, "id", None),
+                branch=branch,
+                stderr=rev.stderr.strip()[:200],
+            )
+            if attempt < max_attempts:
+                continue
+            return False, None
+        actual = rev.stdout.strip()
+        if not actual:
+            if attempt < max_attempts:
+                continue
+            return False, None
+        return actual == stored_sha, actual
+
+    return False, None  # pragma: no cover - unreachable but defensive
 
 
 def _fetch_pr_state(pr_number: int, repo: str | None = None) -> dict[str, Any]:
@@ -9753,37 +9792,40 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
                 # Ensure contract and statefiles exist before PR creation
                 # (safety net for short-flow pipelines where initial push
-                # may have failed).
-                if not _ensure_statefiles_on_branch(worktree_repo_path, pipeline):
-                    logger.warning(
-                        "Contract reconciliation failed — PR may be missing contract",
-                        pipeline_id=pipeline_id,
+                # may have failed).  Skip when the pipeline already failed
+                # (e.g. head-move guard tripped) — these are wasted work
+                # against a failed pipeline and could have side effects.
+                if not phase_failed:
+                    if not _ensure_statefiles_on_branch(worktree_repo_path, pipeline):
+                        logger.warning(
+                            "Contract reconciliation failed — PR may be missing contract",
+                            pipeline_id=pipeline_id,
+                        )
+
+                    # Safety net: re-write BRC history for all completed phases.
+                    # Per-phase writes happen at phase completion, but pushes
+                    # can fail silently — re-writing here guarantees the files
+                    # are on the branch before the PR is created.
+                    # Babysit-pr pipelines use pr-{N}-{short-sha} so repeated
+                    # babysit runs against the same PR do not clobber each
+                    # other's history (#1748).
+                    identifier = _brc_history_identifier(pipeline)
+
+                    # Drop .egg-state/agent-outputs/ before any other PR-phase
+                    # commits.  Those paths hold ephemeral coder→tester handoff
+                    # patches (e.g. coder-test-changes.patch) that the tester
+                    # has already consumed; leaving them on the branch pollutes
+                    # the PR diff and causes reconcile conflicts when concurrent
+                    # pipelines write divergent contents to the same filename
+                    # (see #1731).
+                    _cleanup_agent_outputs_for_pr(worktree_repo_path, pipeline_id)
+
+                    _rewrite_brc_history_for_pr(
+                        worktree_repo_path,
+                        pipeline_id,
+                        pipeline.phases,
+                        identifier,
                     )
-
-                # Safety net: re-write BRC history for all completed phases.
-                # Per-phase writes happen at phase completion, but pushes
-                # can fail silently — re-writing here guarantees the files
-                # are on the branch before the PR is created.
-                # Babysit-pr pipelines use pr-{N}-{short-sha} so repeated
-                # babysit runs against the same PR do not clobber each
-                # other's history (#1748).
-                identifier = _brc_history_identifier(pipeline)
-
-                # Drop .egg-state/agent-outputs/ before any other PR-phase
-                # commits.  Those paths hold ephemeral coder→tester handoff
-                # patches (e.g. coder-test-changes.patch) that the tester
-                # has already consumed; leaving them on the branch pollutes
-                # the PR diff and causes reconcile conflicts when concurrent
-                # pipelines write divergent contents to the same filename
-                # (see #1731).
-                _cleanup_agent_outputs_for_pr(worktree_repo_path, pipeline_id)
-
-                _rewrite_brc_history_for_pr(
-                    worktree_repo_path,
-                    pipeline_id,
-                    pipeline.phases,
-                    identifier,
-                )
 
                 # Pipeline draft files (.egg-state/drafts/{id}-*.md) are
                 # intentionally *preserved* on the PR branch so that analysis

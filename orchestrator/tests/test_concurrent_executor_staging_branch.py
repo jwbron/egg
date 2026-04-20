@@ -15,6 +15,7 @@ imported from there as requested.
 import sys
 import types
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 # sys.path setup — orchestrator + shared.  ``conftest.py`` already does
@@ -257,10 +258,17 @@ class TestBabysitFallbackToPrHeadBranch:
         assert executor.get_worktree_branch(AgentRole.CODER) == "feature-x"
 
     def test_short_sha_falls_back_to_pr_head_branch(self):
-        pipeline = _babysit_pipeline(
+        # Use SimpleNamespace because Pipeline validator rejects non-hex SHAs.
+        pipeline = SimpleNamespace(
+            id="babysit-test",
+            repo="test/repo",
+            issue_number=None,
+            branch="feature-x",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            mode=PipelineMode.BABYSIT,
             pr_number=42,
             pr_head_sha="short",
-            branch="feature-x",
         )
         executor = _make_executor(pipeline)
 

@@ -878,6 +878,8 @@ class PipelineToolHandler:
         repo = args.get("repo")
         if not repo or not isinstance(repo, str):
             return {"error": "repo is required (owner/name format)"}
+        if not re.match(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$", repo):
+            return {"error": "repo must be in owner/name format"}
 
         data: dict[str, Any] = {
             "repo": repo,
