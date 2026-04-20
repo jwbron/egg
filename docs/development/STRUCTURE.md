@@ -168,9 +168,9 @@ k8s/
 │   ├── orchestrator-service.yaml      # Service exposing port 9849
 │   ├── gateway-deployment.yaml        # Gateway Deployment + environment config
 │   ├── gateway-service.yaml           # Service exposing ports 9848, 3129, 9851
-│   ├── agent-job-template.yaml        # Agent Job template (parameterized by spawner)
 │   ├── network-policies.yaml          # Calico NetworkPolicies for agent isolation
 │   └── rbac.yaml                      # ServiceAccount + Role + RoleBinding for orchestrator
+(Agent Job specs are built programmatically by ``KubernetesClient.create_container`` — no standalone YAML template.)
 │
 └── overlays/
     └── local/                         # k3s-specific patches

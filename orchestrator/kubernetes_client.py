@@ -243,7 +243,7 @@ class KubernetesClient:
         if environment:
             env_vars = [k8s_client.V1EnvVar(name=k, value=v) for k, v in environment.items()]
 
-        # Resource limits — match the agent-job-template.yaml defaults.
+        # Resource limits are applied programmatically (no YAML template).
         # Callers can override via ``kwargs["resources"]``.
         resources = kwargs.get("resources") or k8s_client.V1ResourceRequirements(
             requests={"cpu": "500m", "memory": "512Mi"},

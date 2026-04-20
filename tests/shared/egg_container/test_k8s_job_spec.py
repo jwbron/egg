@@ -54,11 +54,11 @@ class TestToK8sJobKwargs:
         assert result["metadata"]["namespace"] == "egg-agents"
 
     def test_default_namespace(self):
-        """Default namespace is egg-system."""
+        """Default namespace is egg-agents — where agent pods run under NetworkPolicies/RBAC."""
         config = _make_config()
         result = to_k8s_job_kwargs(config)
 
-        assert result["metadata"]["namespace"] == "egg-system"
+        assert result["metadata"]["namespace"] == "egg-agents"
 
     def test_environment_variables(self):
         """Environment variables are converted to V1EnvVar-style dicts."""

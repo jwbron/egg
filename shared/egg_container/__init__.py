@@ -430,7 +430,7 @@ def to_dockerpy_kwargs(config: SandboxContainerConfig) -> dict[str, Any]:
 def to_k8s_job_kwargs(
     config: SandboxContainerConfig,
     *,
-    namespace: str = "egg-system",
+    namespace: str = "egg-agents",
     service_account: str = "egg-agent",
     restart_policy: str = "Never",
     backoff_limit: int = 0,
@@ -614,7 +614,7 @@ def build_sandbox_job_spec(
     mounts: list[MountSpec] | None = None,
     labels: dict[str, str] | None = None,
     command: list[str] | None = None,
-    namespace: str = "egg-system",
+    namespace: str = "egg-agents",
     active_deadline_seconds: int | None = None,
 ) -> dict[str, Any]:
     """Build a Kubernetes Job spec for a sandbox container.

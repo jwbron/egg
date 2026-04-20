@@ -656,7 +656,16 @@ class KubernetesSpawner:
         restart_key = (pipeline_id, agent_role.value)
         lock = self._get_restart_lock(restart_key)
 
-        with lock:
+        # Timeout prevents indefinite blocking if a concurrent restart of the
+        # same agent is stuck — the lock is held across remove_agent_job() and
+        # spawn_agent_job(), both of which invoke k8s API calls that can hang
+        # on network or control-plane issues.
+        if not lock.acquire(timeout=120):
+            raise KubernetesSpawnError(
+                f"Timed out waiting to acquire restart lock for "
+                f"{agent_role.value} in pipeline {pipeline_id}"
+            )
+        try:
             current_count = self._restart_counts.get(restart_key, 0)
 
             if current_count >= max_restarts:
@@ -720,6 +729,8 @@ class KubernetesSpawner:
             )
 
             return spawned
+        finally:
+            lock.release()
 
     def get_restart_count(self, pipeline_id: str, agent_role: str) -> int:
         """Get the current restart count for an agent.
