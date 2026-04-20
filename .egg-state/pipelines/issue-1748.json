@@ -277,10 +277,10 @@
         {
           "container_id": "f7d8d6c01815780dfe1cfad4bc0995f598ada26c01c07e1cff0e96ff965ae0b1",
           "container_name": "issue-1748-reviewer_contract",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-20T20:05:39.434646Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-20T21:11:58.961031Z",
+          "exit_code": 0,
           "agent_role": "reviewer_contract",
           "session_token": null
         },
@@ -332,10 +332,10 @@
         },
         {
           "role": "reviewer_contract",
-          "status": "running",
+          "status": "complete",
           "container_id": "f7d8d6c01815780dfe1cfad4bc0995f598ada26c01c07e1cff0e96ff965ae0b1",
           "started_at": "2026-04-20T20:05:39.434648Z",
-          "completed_at": null,
+          "completed_at": "2026-04-20T21:11:58.962154Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -421,7 +421,7 @@
     }
   ],
   "created_at": "2026-04-16T18:09:13.590628Z",
-  "updated_at": "2026-04-20T20:05:39.434727Z",
+  "updated_at": "2026-04-20T21:11:58.962343Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -432,5 +432,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-20T20:05:32.439499Z",
-  "version": 37
+  "version": 38
 }
