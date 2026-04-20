@@ -870,6 +870,13 @@ class StateStore:
             # gets to update it.
             if pipeline.config.start_phase:
                 pipeline.current_phase = PipelinePhase(pipeline.config.start_phase)
+            elif mode == PipelineMode.BABYSIT:
+                # babysit-pr is a one-off implement-phase BRC cycle against an
+                # existing PR; it skips refine/plan entirely (#1748 TASK-2-3).
+                # Set the phase at creation time so the first get_status call
+                # (e.g. from the scheduler) sees IMPLEMENT rather than the
+                # default REFINE.
+                pipeline.current_phase = PipelinePhase.IMPLEMENT
 
             commit_msg = f"Create pipeline {pipeline_id}"
             self.save_pipeline(pipeline, message=commit_msg)

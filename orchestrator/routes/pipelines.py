@@ -4293,89 +4293,6 @@ def _detect_default_branch(worktree_repo_path: Path) -> str:
     return "main"
 
 
-def get_pr_base_branch(
-    pr_number: int | None,
-    repo: str | None = None,
-    *,
-    worktree_repo_path: Path | None = None,
-) -> str:
-    """Resolve the base branch for a PR, falling back to the repo's default branch.
-
-    This is the single source of truth for "which branch does this PR target?"
-    used by babysit-pr flows and any PR-aware orient prompt / health check.
-
-    Fallback order:
-    1. If ``pr_number`` is provided, consult ``gh pr view <N> --json baseRefName``
-       (optionally pinning ``--repo`` when ``repo`` is supplied).
-    2. If ``worktree_repo_path`` is provided, delegate to
-       :func:`_detect_default_branch` which probes ``origin/HEAD`` and then
-       ``origin/main``/``origin/master``.
-    3. Literal ``"main"`` as an absolute fallback.
-
-    Args:
-        pr_number: GitHub PR number. When ``None``, the PR lookup is skipped.
-        repo: Repository in ``owner/name`` format. When provided, passed to
-            ``gh`` via ``--repo`` so the lookup is unambiguous even from a
-            worktree without a configured remote.
-        worktree_repo_path: Path of a local clone to fall back to when no
-            PR context is available. When ``None``, skips the local probe.
-
-    Returns:
-        The bare branch name (e.g. ``"main"`` or ``"develop"``), never prefixed
-        with ``"origin/"``.
-    """
-    # Primary: ask GitHub via the gh CLI.
-    if pr_number is not None:
-        gh_cmd = ["gh", "pr", "view", str(pr_number), "--json", "baseRefName"]
-        if repo:
-            gh_cmd.extend(["--repo", repo])
-        try:
-            result = subprocess.run(
-                gh_cmd,
-                capture_output=True,
-                text=True,
-                timeout=20,
-                check=False,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                try:
-                    data = json.loads(result.stdout)
-                    ref = data.get("baseRefName")
-                    if isinstance(ref, str) and ref:
-                        return ref
-                except (json.JSONDecodeError, ValueError):
-                    logger.warning(
-                        "get_pr_base_branch: gh output was not valid JSON; falling back",
-                        pr_number=pr_number,
-                        repo=repo,
-                    )
-            else:
-                logger.warning(
-                    "get_pr_base_branch: gh pr view failed; falling back",
-                    pr_number=pr_number,
-                    repo=repo,
-                    returncode=result.returncode,
-                    stderr=result.stderr.strip()[:200],
-                )
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning(
-                "get_pr_base_branch: gh pr view raised; falling back",
-                pr_number=pr_number,
-                repo=repo,
-                error=str(exc),
-            )
-
-    # Secondary: probe the local clone's default branch.
-    if worktree_repo_path is not None:
-        try:
-            return _detect_default_branch(worktree_repo_path)
-        except Exception:
-            pass
-
-    # Absolute fallback.
-    return "main"
-
-
 def _resolve_origin_ref(base_branch: str | None) -> str:
     """Return ``origin/<branch>``, falling back to ``origin/main``.
 
@@ -6401,10 +6318,23 @@ def _build_reviewer_preparation(
     # base branch, as if it were a fresh proposal from the producers (#1748).
     if mode is not None and mode == PipelineMode.BABYSIT and phase == "implement":
         pr_hint = f"PR #{pr_number}" if pr_number else "the PR under review"
+        # Without an explicit PR-head checkout the worktree sits on the base
+        # branch — ``git diff base...HEAD`` would be empty (#1748 reviewer_code
+        # B1). ``gh pr checkout`` handles same-repo PRs; forks are already
+        # rejected at pipeline-creation time.
+        pr_checkout = (
+            f"gh pr checkout {pr_number}"
+            if pr_number
+            else "gh pr checkout <pr_number>"
+        )
         if role_value == "reviewer_code":
             return (
                 f"You are reviewing an existing pull request ({pr_hint}). "
-                "Start reviewing immediately — **read the PR diff** at "
+                "Start reviewing immediately: "
+                f"(0) check out the PR head into your worktree — `{pr_checkout}` "
+                "(required; otherwise the diff below will be empty because your "
+                "worktree is on the base branch). "
+                "(1) **read the PR diff** at "
                 f"`git fetch origin && git diff {base_ref}...HEAD` and form "
                 "independent concerns BEFORE producers broadcast. "
                 "(a) Note the PR's stated intent (issue/description) for context. "
@@ -6420,7 +6350,10 @@ def _build_reviewer_preparation(
         if role_value == "tester":
             return (
                 f"You are reviewing an existing pull request ({pr_hint}). "
-                "Start by reading the PR diff: "
+                f"(0) Check out the PR head first: `{pr_checkout}` — without "
+                "this step your worktree is sitting on the base branch and the "
+                "diff below will be empty. "
+                "(1) Read the PR diff: "
                 f"`git fetch origin && git diff {base_ref}...HEAD`. "
                 "(a) Identify edge cases and regressions the current tests miss. "
                 "(b) Check the existing test infrastructure (frameworks, fixtures). "
@@ -6556,9 +6489,24 @@ def _build_producer_orientation(
         base_ref = _resolve_origin_ref(base_branch)
         base_label = (base_branch or "the PR base branch").strip() or "the PR base branch"
         pr_hint = f"PR #{pr_number}" if pr_number else "the PR under review"
+        # Step (0) is the PR-head checkout — without it the worktree is sitting
+        # on the base branch and none of the PR's changes are visible (#1748
+        # reviewer_code B1). ``gh pr checkout`` handles same-repo PRs; we
+        # require gh to be present in the sandbox (it is for all roles).
+        pr_checkout = (
+            f"gh pr checkout {pr_number}"
+            if pr_number
+            else "gh pr checkout <pr_number>"
+        )
         babysit_preamble = (
             f"you are working on {pr_hint} via a one-off BRC cycle against the "
             "PR diff. Orient in this order: "
+            f"(0) **check out the PR head into your worktree** first — run "
+            f"`{pr_checkout}` (or equivalently "
+            f"`git fetch origin pull/{pr_number or '<pr_number>'}/head:pr-head "
+            f"&& git reset --hard pr-head`). Without this step your worktree "
+            "is sitting on the base branch and **none of the PR's changes are "
+            "present**; any work you do will be against the wrong tree. "
             f"(1) fetch the latest base: `git fetch origin {base_label}`, then "
             f"rebase (or merge, if rebase is unsafe) {base_ref} into your "
             "staging worktree. "
