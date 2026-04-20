@@ -125,6 +125,51 @@ PIPELINE_TOOLS = [
         },
     },
     {
+        "name": "babysit_pr",
+        "description": (
+            "Run a one-off implement-phase BRC (Broadcast-Review-Converge) "
+            "cycle against a PR's diff. Creates a pipeline in BABYSIT mode: "
+            "no SDLC contract is created, reviewer_contract is excluded from "
+            "the roster, each cycle is isolated on per-role staging branches, "
+            "and the PR head is guarded against concurrent updates. The PR "
+            "must be open, non-fork, and have a non-empty diff — merged, "
+            "closed, fork, or empty-diff PRs are refused up-front. Pipeline "
+            "ID defaults to 'pr-<pr_number>'."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pr_number": {
+                    "type": "integer",
+                    "description": "GitHub PR number to babysit (must be open, non-fork, non-empty).",
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository to run against, in owner/name format (e.g. 'myorg/myrepo').",
+                },
+                "branch": {
+                    "type": "string",
+                    "description": (
+                        "Override PR head branch (optional). Auto-populated from the "
+                        "PR's head_ref when omitted."
+                    ),
+                },
+                "base_branch": {
+                    "type": "string",
+                    "description": (
+                        "Override PR base branch (optional). Auto-populated from the "
+                        "PR's base_ref when omitted."
+                    ),
+                },
+                "config": {
+                    "type": "object",
+                    "description": 'Optional pipeline configuration overrides (e.g. {"hitl_gates": false}).',
+                },
+            },
+            "required": ["pr_number", "repo"],
+        },
+    },
+    {
         "name": "get_status",
         "description": (
             "Get the current status of a pipeline task. "
@@ -650,6 +695,7 @@ class PipelineToolHandler:
         """
         handlers = {
             "submit_task": self._handle_submit_task,
+            "babysit_pr": self._handle_babysit_pr,
             "get_status": self._handle_get_status,
             "provide_input": self._handle_provide_input,
             "list_tasks": self._handle_list_tasks,
@@ -813,6 +859,105 @@ class PipelineToolHandler:
             "task_id": pipeline_id,
             "status": "started",
             "message": f"Task submitted: {args['description'][:100]}",
+        }
+
+    def _handle_babysit_pr(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Create a BABYSIT-mode pipeline that runs a one-off implement-phase
+        BRC cycle against a PR's diff.
+
+        The orchestrator route validates the PR (open, non-fork, non-empty
+        diff) and auto-populates branch/base_branch from ``gh pr view`` when
+        omitted. The pipeline ID defaults to ``pr-<pr_number>``.
+        """
+        import json
+        from urllib.error import HTTPError
+
+        pr_number = args.get("pr_number")
+        if not isinstance(pr_number, int) or pr_number < 1:
+            return {"error": "pr_number must be a positive integer"}
+        repo = args.get("repo")
+        if not repo or not isinstance(repo, str):
+            return {"error": "repo is required (owner/name format)"}
+        if not re.match(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$", repo):
+            return {"error": "repo must be in owner/name format"}
+
+        data: dict[str, Any] = {
+            "repo": repo,
+            "pr_number": pr_number,
+            "mode": "babysit",
+            "pipeline_id": f"pr-{pr_number}",
+        }
+        if args.get("branch"):
+            data["branch"] = args["branch"]
+        if args.get("base_branch"):
+            data["base_branch"] = args["base_branch"]
+        if args.get("config"):
+            config = args["config"]
+            if isinstance(config, str):
+                try:
+                    config = json.loads(config)
+                except json.JSONDecodeError as e:
+                    return {"error": f"Invalid config JSON: {e}"}
+            data["config"] = config
+
+        try:
+            result = self._make_request("/api/v1/pipelines", method="POST", data=data)
+        except HTTPError as e:
+            try:
+                raw_body = e.read()
+                resp_body = json.loads(raw_body.decode())
+            except Exception:
+                resp_body = {}
+
+            if e.code == 409:
+                error_info: dict[str, Any] = {
+                    "error": resp_body.get("message", "Pipeline already exists"),
+                }
+                details = resp_body.get("details", {})
+                if details:
+                    reason = details.get("reason")
+                    if reason:
+                        error_info["reason"] = reason
+                    if "existing_pipeline_id" in details:
+                        error_info["existing_pipeline_id"] = details.get("existing_pipeline_id", "")
+                    if "existing_status" in details:
+                        error_info["existing_status"] = details.get("existing_status", "")
+                    if "existing_phase" in details:
+                        error_info["existing_phase"] = details.get("existing_phase", "")
+                return error_info
+
+            # 400 (fork / validation) and other non-409 errors: bubble the
+            # structured message up so the caller sees why the PR was refused.
+            error_info = {
+                "error": resp_body.get("message", f"babysit-pr creation failed (HTTP {e.code})"),
+            }
+            details = resp_body.get("details", {})
+            if details and details.get("reason"):
+                error_info["reason"] = details["reason"]
+            return error_info
+
+        pipeline_id = result.get("data", {}).get("pipeline", {}).get("id", "")
+
+        if pipeline_id:
+            try:
+                self._make_request(
+                    f"/api/v1/pipelines/{quote(pipeline_id, safe='')}/start",
+                    method="POST",
+                )
+            except Exception:
+                logger.error("Failed to start babysit-pr pipeline", pipeline_id=pipeline_id)
+                return {
+                    "task_id": pipeline_id,
+                    "status": "created_not_started",
+                    "message": (
+                        "Babysit-pr pipeline created but failed to start. Use task_id to retry."
+                    ),
+                }
+
+        return {
+            "task_id": pipeline_id,
+            "status": "started",
+            "message": f"Babysit-pr cycle started for PR #{pr_number}",
         }
 
     def _handle_validate_config(self, args: dict[str, Any]) -> dict[str, Any]:

@@ -1,5 +1,5 @@
 """
-Tests for BRC CLI argument changes (issue #1716).
+Tests for BRC CLI argument changes (issues #1716 and #1718).
 
 Verifies:
 - ``egg-orch consensus ack`` requires ``--reason`` (exits non-zero without it)
@@ -7,10 +7,14 @@ Verifies:
 - ``egg-orch consensus propose`` accepts new structured args
   (``--files-changed``, ``--tests-run``, ``--tasks``) and includes them in
   the signal payload under the correct keys.
+- ``egg-orch message send --type`` help text includes HANDOFF.
+- ``egg-orch message send --type HANDOFF`` parses successfully.
 """
 
+import argparse
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -19,7 +23,7 @@ _sandbox_path = str(Path(__file__).parent.parent)
 if _sandbox_path not in sys.path:
     sys.path.insert(0, _sandbox_path)
 
-from egg_lib.orch_cli import create_parser
+from egg_lib.orch_cli import cmd_message_poll, create_parser
 
 # ---------------------------------------------------------------------------
 # ACK: --reason is required
@@ -262,3 +266,215 @@ class TestProposeStructuredArgsInPayload:
         assert payload["files_changed"] == []
         assert payload["tests_run"] == []
         assert payload["tasks_satisfied"] == []
+
+
+# ---------------------------------------------------------------------------
+# MESSAGE SEND: --type help text includes HANDOFF (issue #1718)
+# ---------------------------------------------------------------------------
+
+
+def _find_msg_send_type_action(
+    parser: argparse.ArgumentParser,
+) -> argparse.Action:
+    """Navigate argparse tree to find the ``--type`` action of ``message send``.
+
+    NOTE: This helper accesses argparse private APIs (``_subparsers``,
+    ``_SubParsersAction``) because there is no public API for introspecting
+    subparser trees.  If a future Python version changes these internals,
+    update the traversal logic here.
+    """
+    subparsers_group = parser._subparsers
+    assert subparsers_group is not None, "parser has no _subparsers"
+    msg_send_parser: argparse.ArgumentParser | None = None
+    for action in subparsers_group._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            msg_parser = action.choices.get("message")
+            if msg_parser:
+                inner_group = msg_parser._subparsers
+                assert inner_group is not None, "message parser has no _subparsers"
+                for sub_action in inner_group._actions:
+                    if isinstance(sub_action, argparse._SubParsersAction):
+                        msg_send_parser = sub_action.choices.get("send")
+                        break
+            break
+    assert msg_send_parser is not None, "Could not find 'message send' subparser"
+
+    type_action: argparse.Action | None = None
+    for act in msg_send_parser._actions:
+        if hasattr(act, "option_strings") and "--type" in act.option_strings:
+            type_action = act
+            break
+    assert type_action is not None, "Could not find --type argument"
+    return type_action
+
+
+class TestMessageSendTypeHelpText:
+    """``egg-orch message send --type`` help text includes HANDOFF."""
+
+    def test_type_help_includes_handoff(self):
+        """The --type argument help text lists HANDOFF as a valid type."""
+        parser = create_parser()
+        type_action = _find_msg_send_type_action(parser)
+        help_text = type_action.help
+        assert help_text is not None, "--type has no help text"
+        assert "HANDOFF" in help_text, f"Expected 'HANDOFF' in --type help text, got: {help_text}"
+
+    def test_type_help_includes_all_message_types(self):
+        """The --type argument help text lists all expected message types."""
+        parser = create_parser()
+        type_action = _find_msg_send_type_action(parser)
+        help_text = type_action.help
+        assert help_text is not None, "--type has no help text"
+        for msg_type in ("PROGRESS", "QUESTION", "STATUS", "HANDOFF"):
+            assert msg_type in help_text, (
+                f"Expected '{msg_type}' in --type help text, got: {help_text}"
+            )
+
+    def test_message_send_accepts_handoff_type(self):
+        """``egg-orch message send --type HANDOFF`` parses successfully."""
+        parser = create_parser()
+        args = parser.parse_args(
+            [
+                "message",
+                "send",
+                "issue-42",
+                "--to",
+                "tester",
+                "--type",
+                "HANDOFF",
+                "--subject",
+                "Test files ready",
+                "--body",
+                "See commit abc1234",
+            ]
+        )
+        assert args.type == "HANDOFF"
+        assert args.to == "tester"
+        assert args.subject == "Test files ready"
+        assert args.body == "See commit abc1234"
+
+    def test_message_send_rejects_invalid_type(self):
+        """``egg-orch message send --type HANDOF`` (typo) exits non-zero."""
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(
+                [
+                    "message",
+                    "send",
+                    "issue-42",
+                    "--to",
+                    "tester",
+                    "--type",
+                    "HANDOF",
+                    "--subject",
+                    "Test files ready",
+                    "--body",
+                    "See commit abc1234",
+                ]
+            )
+        assert exc_info.value.code != 0
+
+
+# ---------------------------------------------------------------------------
+# MESSAGE POLL: body display (no truncation, indented multi-line)
+# ---------------------------------------------------------------------------
+
+
+def _make_poll_args(**overrides: object) -> argparse.Namespace:
+    """Build a minimal ``argparse.Namespace`` for ``cmd_message_poll``."""
+    defaults = {
+        "pipeline_id": "pipe-1",
+        "json": False,
+        "role": "reviewer_code",
+        "since": None,
+        "limit": None,
+        "wait": None,
+    }
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
+
+
+class TestMessagePollBodyDisplay:
+    """``cmd_message_poll`` displays full message bodies with indentation."""
+
+    @patch("egg_lib.orch_cli.orch_request")
+    def test_multiline_body_fully_displayed(self, mock_request, capsys):
+        """Multi-line bodies are printed in full, not truncated."""
+        long_body = (
+            "### Blocking\n"
+            "1. **auth.py:42** — SQL injection risk\n"
+            "2. **models.py:99** — Missing null check\n"
+            "\n"
+            "### Non-blocking\n"
+            "- Consider renaming `do_thing` for clarity"
+        )
+        mock_request.return_value = {
+            "data": {
+                "messages": [
+                    {
+                        "timestamp": "2026-04-14T12:00:00Z",
+                        "from_role": "reviewer_code",
+                        "to_role": "coder",
+                        "message_type": "NACK",
+                        "subject": "Review feedback",
+                        "body": long_body,
+                    }
+                ]
+            }
+        }
+        args = _make_poll_args()
+        rc = cmd_message_poll(args)
+        assert rc == 0
+        output = capsys.readouterr().out
+        # Every line of the body must appear in output
+        for line in long_body.split("\n"):
+            assert line in output, f"Missing body line: {line!r}"
+
+    @patch("egg_lib.orch_cli.orch_request")
+    def test_multiline_body_indented(self, mock_request, capsys):
+        """Multi-line bodies are indented with 4 spaces on continuation lines."""
+        body = "Line one\nLine two\nLine three"
+        mock_request.return_value = {
+            "data": {
+                "messages": [
+                    {
+                        "timestamp": "2026-04-14T12:00:00Z",
+                        "from_role": "reviewer_code",
+                        "to_role": "coder",
+                        "message_type": "NACK",
+                        "subject": "Feedback",
+                        "body": body,
+                    }
+                ]
+            }
+        }
+        args = _make_poll_args()
+        cmd_message_poll(args)
+        output = capsys.readouterr().out
+        # Continuation lines should be indented with 4 spaces
+        assert "    Line two" in output
+        assert "    Line three" in output
+
+    @patch("egg_lib.orch_cli.orch_request")
+    def test_empty_body_not_printed(self, mock_request, capsys):
+        """Messages with empty bodies don't produce extra blank lines."""
+        mock_request.return_value = {
+            "data": {
+                "messages": [
+                    {
+                        "timestamp": "2026-04-14T12:00:00Z",
+                        "from_role": "coder",
+                        "to_role": "reviewer_code",
+                        "message_type": "PROGRESS",
+                        "subject": "Tests passing",
+                        "body": "",
+                    }
+                ]
+            }
+        }
+        args = _make_poll_args()
+        cmd_message_poll(args)
+        output = capsys.readouterr().out
+        lines = [line for line in output.strip().split("\n") if line.strip()]
+        # Should only have the header line and the count line
+        assert len(lines) == 2

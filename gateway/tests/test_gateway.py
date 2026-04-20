@@ -13,6 +13,7 @@ Tests cover:
 import json
 import os
 import socket
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -3240,6 +3241,48 @@ class TestGitFetch:
         assert response.status_code == 400
         data = json.loads(response.data)
         assert "Unsupported" in data["message"]
+
+    def test_fetch_timeout_triggers_pack_cleanup(self, client, auth_headers):
+        """Fetch timeout should attempt to clean up stale pack files."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+            patch.object(gateway, "_cleanup_stale_pack_files") as mock_cleanup,
+        ):
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+
+                if "remote" in cmd and "get-url" in cmd:
+                    result.stdout = "https://github.com/owner/repo.git\n"
+                elif "fetch" in cmd:
+                    raise subprocess.TimeoutExpired(cmd=cmd, timeout=120)
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/fetch",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "origin",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 504
+            data = json.loads(response.data)
+            assert "timed out" in data["message"]
+            mock_cleanup.assert_called_once()
 
 
 class TestBlockedCommands:

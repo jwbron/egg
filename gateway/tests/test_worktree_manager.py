@@ -1592,6 +1592,159 @@ class TestPruneStaleWorktrees:
         assert pruned == 1
 
 
+class TestCleanupOrphanedPackFiles:
+    """Tests for cleanup_orphaned_pack_files method."""
+
+    def _create_repo_with_pack_dir(self, repos_base, repo_name="test-repo"):
+        """Helper to create a fake repo with .git/objects/pack/ directory."""
+        repo_dir = repos_base / repo_name
+        repo_dir.mkdir(parents=True, exist_ok=True)
+        git_dir = repo_dir / ".git"
+        git_dir.mkdir(exist_ok=True)
+        pack_dir = git_dir / "objects" / "pack"
+        pack_dir.mkdir(parents=True, exist_ok=True)
+        return repo_dir, pack_dir
+
+    def test_removes_tmp_pack_files(self, tmp_path):
+        """Should remove tmp_pack_*, tmp_obj_*, and tmp_idx_* files."""
+        repos_base = tmp_path / "repos"
+        _, pack_dir = self._create_repo_with_pack_dir(repos_base)
+
+        # Create orphaned tmp files
+        (pack_dir / "tmp_pack_abc123").write_bytes(b"x" * 100)
+        (pack_dir / "tmp_obj_def456").write_bytes(b"x" * 200)
+        (pack_dir / "tmp_idx_ghi789").write_bytes(b"x" * 50)
+
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
+        files, bytes_reclaimed = manager.cleanup_orphaned_pack_files()
+
+        assert files == 3
+        assert bytes_reclaimed == 350
+        assert not (pack_dir / "tmp_pack_abc123").exists()
+        assert not (pack_dir / "tmp_obj_def456").exists()
+        assert not (pack_dir / "tmp_idx_ghi789").exists()
+
+    def test_preserves_legitimate_pack_files(self, tmp_path):
+        """Should NOT remove legitimate pack-*.pack and pack-*.idx files."""
+        repos_base = tmp_path / "repos"
+        _, pack_dir = self._create_repo_with_pack_dir(repos_base)
+
+        # Create legitimate pack files
+        (pack_dir / "pack-abc123def456.pack").write_bytes(b"x" * 500)
+        (pack_dir / "pack-abc123def456.idx").write_bytes(b"x" * 100)
+        (pack_dir / "pack-abc123def456.keep").write_bytes(b"")
+        # And one orphan
+        (pack_dir / "tmp_pack_orphan").write_bytes(b"x" * 50)
+
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
+        files, bytes_reclaimed = manager.cleanup_orphaned_pack_files()
+
+        assert files == 1
+        assert bytes_reclaimed == 50
+        # Legitimate files untouched
+        assert (pack_dir / "pack-abc123def456.pack").exists()
+        assert (pack_dir / "pack-abc123def456.idx").exists()
+        assert (pack_dir / "pack-abc123def456.keep").exists()
+
+    def test_respects_max_age_filter(self, tmp_path):
+        """Should only remove files older than max_age_seconds."""
+        import os
+        import time
+
+        repos_base = tmp_path / "repos"
+        _, pack_dir = self._create_repo_with_pack_dir(repos_base)
+
+        old_file = pack_dir / "tmp_pack_old"
+        old_file.write_bytes(b"x" * 100)
+        # Set mtime to 10 minutes ago
+        old_mtime = time.time() - 600
+        os.utime(old_file, (old_mtime, old_mtime))
+
+        recent_file = pack_dir / "tmp_pack_recent"
+        recent_file.write_bytes(b"x" * 200)
+        # Leave mtime as now (just created)
+
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
+        files, bytes_reclaimed = manager.cleanup_orphaned_pack_files(max_age_seconds=300)
+
+        assert files == 1
+        assert bytes_reclaimed == 100
+        assert not old_file.exists()
+        assert recent_file.exists()
+
+    def test_handles_missing_pack_dir(self, tmp_path):
+        """Should handle repos with .git but no objects/pack/ directory."""
+        repos_base = tmp_path / "repos"
+        repo_dir = repos_base / "test-repo"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / ".git").mkdir()
+        # No objects/pack/ directory
+
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
+        files, bytes_reclaimed = manager.cleanup_orphaned_pack_files()
+
+        assert files == 0
+        assert bytes_reclaimed == 0
+
+    def test_handles_missing_repos_base(self, tmp_path):
+        """Should return (0, 0) when repos_base doesn't exist."""
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path / "nonexistent-repos",
+        )
+        files, bytes_reclaimed = manager.cleanup_orphaned_pack_files()
+
+        assert files == 0
+        assert bytes_reclaimed == 0
+
+    def test_skips_worktree_git_files(self, tmp_path):
+        """Should skip entries where .git is a file (worktree pointer), not a directory."""
+        repos_base = tmp_path / "repos"
+        repo_dir = repos_base / "worktree-repo"
+        repo_dir.mkdir(parents=True)
+        # .git as a file (worktree pointer), not a directory
+        (repo_dir / ".git").write_text("gitdir: /some/other/path/.git/worktrees/wt1")
+
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
+        files, bytes_reclaimed = manager.cleanup_orphaned_pack_files()
+
+        assert files == 0
+        assert bytes_reclaimed == 0
+
+    def test_single_repo_mode(self, tmp_path):
+        """When repo_name is specified, only clean that repo."""
+        repos_base = tmp_path / "repos"
+        _, pack_dir1 = self._create_repo_with_pack_dir(repos_base, "repo1")
+        _, pack_dir2 = self._create_repo_with_pack_dir(repos_base, "repo2")
+
+        (pack_dir1 / "tmp_pack_a").write_bytes(b"x" * 100)
+        (pack_dir2 / "tmp_pack_b").write_bytes(b"x" * 200)
+
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
+        files, bytes_reclaimed = manager.cleanup_orphaned_pack_files(repo_name="repo1")
+
+        assert files == 1
+        assert bytes_reclaimed == 100
+        assert not (pack_dir1 / "tmp_pack_a").exists()
+        # repo2's file untouched
+        assert (pack_dir2 / "tmp_pack_b").exists()
+
+    def test_multiple_repos(self, tmp_path):
+        """Should clean across all repos when no repo_name specified."""
+        repos_base = tmp_path / "repos"
+        _, pack_dir1 = self._create_repo_with_pack_dir(repos_base, "repo1")
+        _, pack_dir2 = self._create_repo_with_pack_dir(repos_base, "repo2")
+
+        (pack_dir1 / "tmp_pack_a").write_bytes(b"x" * 100)
+        (pack_dir2 / "tmp_pack_b").write_bytes(b"x" * 200)
+
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
+        files, bytes_reclaimed = manager.cleanup_orphaned_pack_files()
+
+        assert files == 2
+        assert bytes_reclaimed == 300
+
+
 class TestStartupCleanupWithPrune:
     """Tests for startup_cleanup calling prune_stale_worktrees."""
 
@@ -1623,6 +1776,82 @@ class TestStartupCleanupWithPrune:
             # Should not raise
             removed = startup_cleanup(active_containers=set())
             assert removed == 2
+
+    def test_calls_pack_cleanup_after_prune(self):
+        """startup_cleanup should call cleanup_orphaned_pack_files after prune."""
+        from worktree_manager import startup_cleanup
+
+        with patch("worktree_manager.WorktreeManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.cleanup_orphaned_worktrees.return_value = 0
+            mock_instance.prune_stale_worktrees.return_value = 1
+            mock_instance.cleanup_orphaned_pack_files.return_value = (5, 1024000)
+            MockManager.return_value = mock_instance
+
+            startup_cleanup(active_containers=set())
+
+            mock_instance.cleanup_orphaned_worktrees.assert_called_once()
+            mock_instance.prune_stale_worktrees.assert_called_once()
+            mock_instance.cleanup_orphaned_pack_files.assert_called_once()
+
+    def test_pack_cleanup_failure_does_not_prevent_startup(self):
+        """If pack cleanup raises, startup_cleanup should still succeed."""
+        from worktree_manager import startup_cleanup
+
+        with patch("worktree_manager.WorktreeManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.cleanup_orphaned_worktrees.return_value = 1
+            mock_instance.prune_stale_worktrees.return_value = 0
+            mock_instance.cleanup_orphaned_pack_files.side_effect = RuntimeError("disk error")
+            MockManager.return_value = mock_instance
+
+            removed = startup_cleanup(active_containers=set())
+            assert removed == 1
+
+
+class TestCreateWorktreeFetchTimeout:
+    """Tests for fetch timeout handling in create_worktree."""
+
+    @pytest.fixture
+    def manager_with_repo(self, tmp_path):
+        """Create manager with a fake repo that has a .git directory."""
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+        repo_dir = repos_base / "test-repo"
+        repo_dir.mkdir()
+        (repo_dir / ".git").mkdir()
+        worktree_base = tmp_path / "worktrees"
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+        return manager, repos_base, repo_dir, worktree_base
+
+    def test_raises_when_fetch_times_out(self, manager_with_repo):
+        """When fetch times out, raise RuntimeError."""
+        manager, repos_base, repo_dir, worktree_base = manager_with_repo
+
+        def mock_run(args, **kwargs):
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            result.stdout = ""
+
+            if "rev-parse" in args and "--verify" in args:
+                result.returncode = 1  # branch not found locally
+            elif "fetch" in args and "origin" in args:
+                raise subprocess.TimeoutExpired(cmd=args, timeout=120)
+            return result
+
+        with patch("subprocess.run", side_effect=mock_run):
+            with patch.object(
+                manager, "_find_worktree_git_dir", return_value=Path("/fake/git/dir")
+            ):
+                with patch.object(manager, "_chown_recursive"):
+                    with patch.object(manager, "_chown_single"):
+                        with pytest.raises(RuntimeError, match="Timed out fetching base branch"):
+                            manager.create_worktree(
+                                "test-repo",
+                                "timeout-container",
+                                base_branch="egg/slow-branch",
+                            )
 
 
 if __name__ == "__main__":

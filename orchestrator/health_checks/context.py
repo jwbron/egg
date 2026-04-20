@@ -107,11 +107,29 @@ class PipelineHealthContext:
 
     @property
     def git_diff_stat(self) -> str:
-        """Diff stat against origin/main, truncated to ~4000 tokens."""
+        """Diff stat against the pipeline's base branch, truncated to ~4000 tokens."""
         if self._git_diff_stat is None:
-            raw = self._run_git("diff", "--stat", "origin/main...HEAD")
+            base_ref = self._resolve_base_ref()
+            raw = self._run_git("diff", "--stat", f"{base_ref}...HEAD")
             self._git_diff_stat = _truncate(raw, _TIER2_CHAR_CAP)
         return self._git_diff_stat
+
+    def _resolve_base_ref(self) -> str:
+        """Resolve the ``origin/<branch>`` ref for diff commands.
+
+        Prefers ``pipeline.base_branch`` when set; otherwise probes
+        ``origin/HEAD``; falls back to ``origin/main``.
+        """
+        base = getattr(self.pipeline, "base_branch", None)
+        if isinstance(base, str) and base.strip():
+            return f"origin/{base.strip()}"
+
+        # Probe origin/HEAD via the same _run_git infrastructure used elsewhere.
+        head_ref = self._run_git("symbolic-ref", "refs/remotes/origin/HEAD", "--short")
+        if head_ref:
+            return head_ref  # already "origin/<branch>"
+
+        return "origin/main"
 
     @property
     def agent_outputs(self) -> dict[str, str]:

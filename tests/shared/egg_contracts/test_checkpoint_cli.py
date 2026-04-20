@@ -293,7 +293,7 @@ class TestCostCommand:
         result = cmd_cost(args)
 
         assert result == 0
-        output = capsys.readouterr().out
+        output = capsys.readouterr().err
         assert "No checkpoints found" in output
 
     @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
@@ -327,7 +327,7 @@ class TestCostCommand:
         result = cmd_cost(args)
 
         assert result == 0
-        output = capsys.readouterr().out
+        output = capsys.readouterr().err
         assert "No checkpoints with token usage data found" in output
 
     @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
@@ -748,7 +748,7 @@ class TestCmdSearch:
         result = cmd_search(args)
 
         assert result == 0
-        output = capsys.readouterr().out
+        output = capsys.readouterr().err
         assert "No checkpoints found with transcript matching" in output
 
     @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
@@ -762,7 +762,7 @@ class TestCmdSearch:
         result = cmd_search(args)
 
         assert result == 0
-        output = capsys.readouterr().out
+        output = capsys.readouterr().err
         assert "No checkpoints found" in output
 
     @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
@@ -916,7 +916,7 @@ class TestCmdSearchHttp:
         result = _cmd_search_http(args, f"http://gateway:{GATEWAY_PORT}")
 
         assert result == 0
-        output = capsys.readouterr().out
+        output = capsys.readouterr().err
         assert "No checkpoints found with transcript matching" in output
 
     @patch("egg_contracts.checkpoint_cli._http_get")
@@ -929,7 +929,7 @@ class TestCmdSearchHttp:
         result = _cmd_search_http(args, f"http://gateway:{GATEWAY_PORT}")
 
         assert result == 0
-        output = capsys.readouterr().out
+        output = capsys.readouterr().err
         assert "No checkpoints found matching filters" in output
 
     @patch("egg_contracts.checkpoint_cli._http_get")
@@ -1005,7 +1005,7 @@ class TestCmdSearchHttp:
         result = _cmd_search_http(args, f"http://gateway:{GATEWAY_PORT}")
 
         assert result == 0
-        output = capsys.readouterr().out
+        output = capsys.readouterr().err
         assert "No checkpoints found with transcript matching" in output
 
     @patch.dict("os.environ", {"EGG_CHECKPOINT_REPO": "bad format"})

@@ -285,24 +285,9 @@ shared/
 │   ├── command.py          # build_agent_command() for orchestrator-spawned containers
 │   ├── result.py           # AgentResult dataclass
 │   └── tool_interceptor.py # Pre-execution file write checks (Write/Edit/NotebookEdit) against role restrictions
-├── egg_babysit/            # Autonomous PR review/fix loop (babysit-pr command)
-│   ├── __init__.py         # Public API exports
-│   ├── config.py           # BabysitConfig dataclass
-│   ├── types.py            # PRState, CICheckResult, ReviewVerdict, LoopStep
-│   ├── pr_state.py         # PR state poller via gh CLI
-│   ├── ci_waiter.py        # CI check waiter with configurable poll interval
-│   ├── loop.py             # Main babysit loop with step transitions
-│   ├── prompts.py          # Python wrappers for bash prompt builders
-│   ├── fixer.py            # Fixer agent spawner (conflict, check fix, feedback)
-│   ├── reviewer.py         # Reviewer agent spawner (read-only mode)
-│   ├── escalation.py       # HITL escalation (decision queue, notifications)
-│   ├── cli.py              # CLI entry point (egg-babysit)
-│   ├── __main__.py         # python -m egg_babysit support
-│   └── steps/              # Individual loop step implementations
-│       ├── conflict.py     # Merge conflict detection and resolution
-│       ├── check_fix.py    # CI check fixer (non-LLM first, then LLM)
-│       ├── review.py       # Code review posting
-│       └── feedback.py     # Review feedback addressing
+# (No egg_babysit package — replaced by the /babysit-pr MCP skill in issue #1748.
+#  Babysit cycles now run through the orchestrator's implement-phase route with
+#  mode=babysit and has_contract=false. See docs/guides/babysit-pr.md.)
 ├── egg_anchor/             # Agent anchor mechanism for post-compaction state recovery
 │   ├── __init__.py         # Public API exports
 │   ├── models.py           # Pydantic models (AgentAnchor, AnchorMeta, ProgressItem, Decision, BRCState)
@@ -372,13 +357,13 @@ integration_tests/
 ├── test_policy_enforcement.py     # Policy enforcement tests
 ├── test_rate_limiting.py          # Rate limiting tests
 ├── test_stack_lifecycle.py        # Container lifecycle tests
-├── test_babysit_pr/               # Babysit-PR loop integration tests
+├── test_babysit_pr/               # Babysit-PR BRC cycle integration tests
 │   ├── __init__.py
 │   ├── conftest.py                # Fixtures for babysit-pr tests
-│   ├── test_cli.py                # CLI argument parsing and invocation tests
-│   ├── test_escalation.py         # HITL escalation flow tests
-│   ├── test_gateway.py            # Gateway interaction tests
-│   └── test_pipeline.py           # End-to-end babysit loop pipeline tests
+│   ├── test_skill.py              # /babysit-pr MCP skill tests (argument validation, POST, 409 duplicate)
+│   ├── test_pipeline.py           # End-to-end implement-phase BRC cycle against a fixture PR
+│   ├── test_gateway.py            # Staging-branch push validation via the gateway
+│   └── test_escalation.py         # Early-exit paths (fork, merged, empty diff) and final-push head-move escalation
 ├── local_pipeline/                # Orchestrator pipeline integration tests
 │   ├── conftest.py                # Pipeline test fixtures
 │   ├── docker-compose.yml         # Orchestrator test environment

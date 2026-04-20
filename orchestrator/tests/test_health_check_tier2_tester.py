@@ -58,7 +58,11 @@ def _pipeline(
     repo: str | None = "owner/repo",
     branch: str | None = "egg/issue-42",
     phase: PipelinePhase = PipelinePhase.IMPLEMENT,
+    base_branch: str | None = "main",
 ) -> Pipeline:
+    # Default ``base_branch`` to "main" so health-check helpers that resolve
+    # the base ref short-circuit on ``pipeline.base_branch`` instead of
+    # invoking an extra ``git symbolic-ref origin/HEAD`` probe (#1748).
     return Pipeline(
         id=pipeline_id,
         issue_number=issue_number,
@@ -67,6 +71,7 @@ def _pipeline(
         mode="issue",
         status=PipelineStatus.RUNNING,
         current_phase=phase,
+        base_branch=base_branch,
     )
 
 

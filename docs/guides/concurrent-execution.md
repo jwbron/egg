@@ -167,6 +167,98 @@ The message store is cleared when the phase transitions. Each new phase executio
 
 **Note:** BRC messages (consensus messages and orchestrator-adjacent types like `HANDOFF`, `AGENT_FAILED`, `STATUS`, etc.) are persisted to `.egg-state/brc-history/{identifier}-{phase}.md` and `.json` at phase completion. Messages are filtered by phase, so each history file contains only that phase's BRC activity. See [BRC History Persistence](#brc-history-persistence) below.
 
+## Directed Coordination
+
+The message bus supports **directed coordination** — structured peer-to-peer messages for coordination needs that fall outside the formal BRC consensus protocol. While consensus messages (`CONSENSUS_PROPOSE`, `CONSENSUS_ACK`, etc.) handle the review-and-converge lifecycle, directed messages handle the day-to-day coordination that keeps agents unblocked and informed.
+
+### Why Not Proposal Text?
+
+A common anti-pattern is embedding coordination requests in proposal summaries — for example, writing "tester agent should push those test files" in a `CONSENSUS_PROPOSE` body. This fails for several reasons:
+
+1. **Discovery is accidental.** The other agent only sees the request if it happens to read the proposal text.
+2. **No structured record.** Proposal text is free-form — there's no way to filter, query, or act on coordination requests programmatically.
+3. **Wrong audience.** Proposals are broadcast to reviewers, not to the specific agent that needs to act.
+
+Directed messages solve all three: they are delivered to the target agent's poll stream, have a structured type for filtering, and are persisted in BRC history for traceability.
+
+### CLI Syntax
+
+```bash
+egg-orch message send --to <role> --type <type> --subject "<subject>" --body "<body>"
+```
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `--to` | Yes | Target agent role (e.g., `tester`, `coder`) or `all` for broadcast |
+| `--type` | Yes | Message type: `HANDOFF`, `QUESTION`, `STATUS`, `PROGRESS` |
+| `--subject` | No | Short description of the message |
+| `--body` | No | Detailed message content |
+
+The pipeline ID is auto-resolved from `EGG_PIPELINE_ID` if set; otherwise pass it as a positional argument.
+
+### When to Use Each Type
+
+| Type | Use when | Example |
+|------|----------|---------|
+| `HANDOFF` | You've produced an artifact that another agent needs to act on, especially when role boundaries prevent you from completing the work yourself | Coder can't push test files → HANDOFF to tester with file paths |
+| `QUESTION` | You need clarification from a specific agent before you can proceed with your own work | Tester asks coder: "What's the expected return type for `process_batch()`?" |
+| `STATUS` | Your current state affects a peer's decisions or timing | Documenter tells reviewer: "Docs not ready yet, reviewing coder output first" |
+| `PROGRESS` | You've completed a milestone that peers may be waiting on | Coder tells tester: "API endpoints committed and pushed" |
+
+### Worked Example: Role-Boundary Handoff (Coder → Tester)
+
+This example is based on a real coordination gap observed in the issue-1707 pipeline. The coder implemented both source code and tests, but couldn't push the test files because role boundaries restrict the coder to source files only. Without directed messaging, the coder embedded "tester agent should push those" in its proposal text — the tester eventually wrote the tests independently after ~10 minutes of unnecessary delay.
+
+**With directed messaging**, the flow looks like this:
+
+```bash
+# 1. Coder finishes implementation and writes test scaffolding locally,
+#    but can't push test files (role boundary: coder → source files only).
+#    Coder sends a HANDOFF to tester with the test content:
+egg-orch message send --to tester --type HANDOFF \
+  --subject "Test files for new auth module" \
+  --body "I've written test scaffolding in tests/test_auth.py but can't push
+due to role boundaries. The tests cover: login flow, token refresh, and
+session expiry. Key test patterns:
+- test_login_success: POST /auth/login with valid creds → 200 + token
+- test_login_invalid: POST /auth/login with bad creds → 401
+- test_token_refresh: POST /auth/refresh with valid token → new token
+Please pull my latest commit (abc1234) and create the test file."
+
+# 2. Tester receives the HANDOFF on its next poll cycle:
+egg-orch message poll --wait 30
+
+# 3. Tester syncs the worktree to get the coder's latest source code:
+git fetch origin && git merge origin/egg/issue-1707 --no-edit
+
+# 4. Tester writes the tests based on the HANDOFF guidance,
+#    commits, and pushes (tester has write access to test files).
+```
+
+This eliminates the ~10 minute coordination delay — the tester receives an explicit, structured notification and knows exactly what to do.
+
+### Receiving and Acting on Directed Messages
+
+Agents should check for directed messages during their regular poll cycle:
+
+```bash
+# Poll for messages (includes both consensus and directed messages)
+egg-orch message poll --wait 30
+```
+
+When a directed message arrives:
+
+1. **HANDOFF**: Act on the handoff artifact. If it requires work, do the work and acknowledge via a `STATUS` or `PROGRESS` message back.
+2. **QUESTION**: Answer the question via `egg-orch message send --to <asker> --type STATUS`. (`STATUS` serves as the generic reply type since the directed coordination vocabulary does not include a dedicated `RESPONSE` type.)
+3. **STATUS/PROGRESS**: Use the information to inform your own work — no response required unless the status changes your plan.
+
+### Best Practices
+
+- **Be specific.** Include file paths, commit SHAs, and concrete details — not just "please handle this."
+- **Send early.** Don't wait until your proposal to communicate coordination needs. Send a HANDOFF as soon as you know another agent needs to act.
+- **One message per concern.** Don't bundle unrelated coordination requests in a single message.
+- **Use the right type.** `HANDOFF` signals "you need to do something"; `QUESTION` signals "I'm blocked until you answer"; `STATUS` and `PROGRESS` are informational.
+
 ## Readiness Signaling Protocol
 
 Agents signal their readiness for phase completion using the `readiness` signal type via the pipeline signal endpoint:
@@ -413,22 +505,37 @@ Use `egg-orch consensus` commands to participate in the BRC protocol:
 
 ```bash
 # Producer: commit and push work, then propose for review (--commit-sha defaults to HEAD if omitted)
+# --summary must be ≥50 chars describing what was built, tested, and which contract tasks it satisfies.
+# Boilerplate like "looks good" or "approved" is rejected with HTTP 400.
 git add src/feature.py && git commit -m "Implement feature X"
-egg-orch consensus propose --push --summary "Implemented feature X" --artifacts src/feature.py --risk "No retry on transient failures" --commit-sha $(git rev-parse HEAD)
+egg-orch consensus propose --push \
+  --summary "Implemented feature X with JWT validation and session management. All contract tasks satisfied." \
+  --artifacts src/feature.py --files-changed src/feature.py --tests-run tests/test_feature.py \
+  --tasks task-1-1 task-1-2 --risk "No retry on transient failures" --commit-sha $(git rev-parse HEAD)
 # --push runs git push before sending the proposal; because the push is bundled with the
 # explicit proposal, auto re-propose is suppressed for that push (no redundant re-review).
+# --files-changed, --tests-run, --tasks are optional but recommended for traceability.
 
 # Reviewer: sync worktree before reviewing (fetch producer's commits)
 git fetch origin && git merge origin/egg/feature-x --no-edit
 
 # Reviewer: ACK after reviewing
-egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py
+# --reason is required and must be ≥50 chars. Your --reason IS your review — include full analysis.
+# Boilerplate like "lgtm" or "no issues" is rejected with HTTP 400.
+egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
+  --reason "Reviewed src/feature.py lines 10-85 and tests/test_feature.py. Verified JWT expiry and invalid-signature handling. All branches covered by tests.
+### Non-blocking
+- **src/feature.py:72** — Consider extracting token_from_header() for readability."
 
-# Reviewer: NACK with a reason
-egg-orch consensus nack coder --reason "Missing error handling in edge case" --files-reviewed src/feature.py
+# Reviewer: NACK with structured blocking/non-blocking sections
+egg-orch consensus nack coder --files-reviewed src/feature.py --reason "
+### Blocking
+1. **src/feature.py:42** — Missing error handling for expired tokens; auth bypass possible. Fix: wrap in try/except and return 401.
+### Non-blocking
+- **src/feature.py:18** — Unused import \`datetime\`."
 
 # Producer: withdraw proposal to address NACK feedback
-egg-orch consensus withdraw --reason "Addressing NACK: adding error handling"
+egg-orch consensus withdraw --reason "Addressing NACK: adding retry logic for transient HTTP failures in src/feature.py"
 
 # Producer: confirm after all reviewers ACK
 # Exit 0 = confirmed. Exit 1 = error. Exit 2 = waiting for reviewer re-ACKs (retry after polling).

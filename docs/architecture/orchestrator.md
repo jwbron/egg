@@ -109,9 +109,9 @@ See [Pipeline Health Monitoring Guide](../guides/pipeline-health-monitoring.md) 
 The orchestrator supports two pipeline modes:
 
 - **`issue`** (default): Standard SDLC pipeline triggered by a GitHub issue. Progresses through refine → plan → implement phases with structured agent teams.
-- **`babysit`**: PR review/fix loop triggered by `egg-babysit <PR>`. Runs a continuous polling loop (conflict fix → CI wait → check fix → review → feedback → loop) instead of phase-based progression. Pipeline ID uses `pr-{N}` format. See [Babysit-PR Guide](../guides/babysit-pr.md).
+- **`babysit`**: One-off implement-phase BRC cycle against an existing PR, triggered via the `/babysit-pr` MCP skill with `mode=babysit` and `pr_number=N`. Runs the standard implement-phase machinery (role-typed coder + tester + documenter producers, `reviewer_code` reviewer, BRC consensus) on a staging branch rooted at the PR head; pushes a single final commit to the PR branch on consensus. Pipeline ID uses `pr-{N}` format. Skips refine and plan phases. See [Babysit-PR Guide](../guides/babysit-pr.md).
 
-The `babysit` mode registers with the same orchestrator infrastructure (state store, health monitoring, HITL decision queue) but replaces phase-based progression with the review/fix loop from `shared/egg_babysit/loop.py`.
+The `babysit` mode registers with the same orchestrator infrastructure (state store, health monitoring, HITL decision queue) as issue mode. Under the hood it is an implement-phase pipeline with `has_contract=false`, which filters `reviewer_contract` out of the role roster and carries no contract/plan artifacts. The cycle runs once per invocation — there is no polling loop; CI failures, if any, are observed and addressed by the producers as part of BRC orientation.
 
 ## Network Mode
 

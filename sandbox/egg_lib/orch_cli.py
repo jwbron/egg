@@ -1047,7 +1047,9 @@ def cmd_message_poll(args: argparse.Namespace) -> int:
         print(f"  [{ts}] {from_r} -> {to_r} ({mtype}): {subject}")
         body = msg.get("body", "")
         if body:
-            print(f"    {body[:200]}")
+            # Indent multi-line bodies for readability
+            indented = body.replace("\n", "\n    ")
+            print(f"    {indented}")
 
     print(f"\n{len(messages)} message(s)")
     return 0
@@ -1783,7 +1785,12 @@ def create_parser() -> argparse.ArgumentParser:
     msg_send.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     msg_send.add_argument("--role", help="Sender role (default: EGG_AGENT_ROLE)")
     msg_send.add_argument("--to", required=True, help="Target role or 'all'")
-    msg_send.add_argument("--type", required=True, help="Message type (PROGRESS, QUESTION, STATUS)")
+    msg_send.add_argument(
+        "--type",
+        required=True,
+        choices=["PROGRESS", "QUESTION", "STATUS", "HANDOFF"],
+        help="Message type (PROGRESS, QUESTION, STATUS, HANDOFF)",
+    )
     msg_send.add_argument("--subject", help="Message subject")
     msg_send.add_argument("--body", help="Message body")
     _add_json_flag(msg_send)

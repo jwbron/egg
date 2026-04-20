@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1.0",
+  "issue": null,
+  "pipeline_id": "pipeline-2d7b273f",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `shared/egg_contracts/checkpoint_cli.py:create_parser()`, build a shared `ArgumentParser(add_help=False)` that declares `--checkpoint-repo` and `--repo-path`, and pass it via `parents=[...]` to every `subparsers.add_parser(...)` call so both flags are accepted before or after the subcommand name. Ensure the top-level parser still accepts them too \u2014 argparse last-wins resolves conflicts.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`egg-checkpoint --checkpoint-repo X list --issue 42` and `egg-checkpoint list --checkpoint-repo X --issue 42` both succeed and resolve the same checkpoint_repo; a test exercises both positions and the both-supplied case.",
+          "files_affected": [
+            "shared/egg_contracts/checkpoint_cli.py",
+            "tests/shared/egg_contracts/test_checkpoint_cli.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add `_print_empty_result(checkpoint_repo, branch, json_mode, shape)` to `shared/egg_contracts/checkpoint_cli.py` and replace every `print('No checkpoints found...')` branch in `cmd_list`, `cmd_browse`, `cmd_search`, `cmd_context`, `cmd_cost`, and their `_cmd_*_http` siblings. The helper prints `Searched <repo> branch <branch>` to stderr, keeps the existing repo-hint behavior, and when `json_mode` is True prints the shape-appropriate empty JSON to stdout (`[]` for list-shaped commands; structured empty object for context/cost).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Every empty-result path prints the informational line to stderr; when `--json` is set, stdout is parseable via `json.loads` and matches the expected empty shape; exit code stays 0.",
+          "files_affected": [
+            "shared/egg_contracts/checkpoint_cli.py",
+            "tests/shared/egg_contracts/test_checkpoint_cli.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In `shared/egg_contracts/checkpoint_cli.py:create_parser()`, extend the `--agent-type` choices for the `list`, `context`, and `search` subparsers to include `reviewer_code`, `reviewer_contract`, `reviewer_agent_design`, `reviewer_refine`, `reviewer_plan`. In the `cmd_list`, `cmd_context`, and `cmd_search` functions, when `args.agent_type` is a composite reviewer name: (a) call `filter_checkpoints_v2(agent_type=AgentType.REVIEWER.value, ...)`, (b) for each resulting summary load the full `CheckpointV2` via the existing `load_checkpoint_from_ref` pathway and keep only entries where `session.agent_role == args.agent_type`. Non-composite values fall through unchanged. Update the `--agent-type` help to note the HTTP-path limitation.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`egg-checkpoint list --agent-type reviewer_code --issue 1707` returns only checkpoints whose session metadata records `agent_role == 'reviewer_code'`; unknown roles still produce an argparse error; help text mentions the gateway-path limitation.",
+          "files_affected": [
+            "shared/egg_contracts/checkpoint_cli.py",
+            "tests/shared/egg_contracts/test_checkpoint_cli.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Extend `tests/shared/egg_contracts/test_checkpoint_cli.py` (and `test_checkpoint_cli_http.py` as needed) to verify `--json` empty output for every command (list, browse, search, context, cost) is valid parseable JSON. Call `json.loads(stdout)` and assert the empty shape (`[]` or structured object) and exit code 0.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All `--json` empty-result tests pass; `json.loads` on stdout never raises for any command; the informational line appears on stderr.",
+          "files_affected": [
+            "tests/shared/egg_contracts/test_checkpoint_cli.py",
+            "tests/shared/egg_contracts/test_checkpoint_cli_http.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Update the top-level parser description in `create_parser()` and the `--agent-type` help strings in the list, context, and search subparsers to state: (a) reviewer agents may not produce checkpoints if session-end triggers don't fire, and (b) composite BRC role values are supported via the direct-git path but collapse to `reviewer` when queried via the gateway HTTP API. Adjust the module-level docstring at the top of `checkpoint_cli.py` if needed.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`egg-checkpoint --help` and `egg-checkpoint list --help` mention the reviewer-trigger caveat; `egg-checkpoint list --help` mentions the gateway composite-role caveat.",
+          "files_affected": [
+            "shared/egg_contracts/checkpoint_cli.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "egg-checkpoint: fix five CLI papercuts from #1715",
+    "description": "Addresses the five concrete `egg-checkpoint` usability issues from #1715:\nflag positioning, silent empty results, composite BRC role filtering,\ninvalid JSON on empty results, and missing docs about reviewer checkpoints.\nAll fixes land in `shared/egg_contracts/checkpoint_cli.py`.",
+    "test_plan": "- Automated: new unit tests in `tests/shared/egg_contracts/test_checkpoint_cli.py` covering each fix (both flag positions, empty-result stderr line, `--json` empty emits valid JSON, composite reviewer filter returns expected rows, help text mentions caveats).\n- Manual: run `egg-checkpoint --checkpoint-repo jwbron/egg-checkpoints list --issue 1707`, `egg-checkpoint list --checkpoint-repo jwbron/egg-checkpoints --issue 1707`, `egg-checkpoint list --agent-type reviewer_code --issue 1707`, and `egg-checkpoint list --agent-type reviewer --issue 9999 --json | jq .` to confirm each papercut is resolved.",
+    "manual_steps": "Pre-merge: none.\nPost-merge: none."
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}

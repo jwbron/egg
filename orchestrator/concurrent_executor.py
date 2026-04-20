@@ -106,7 +106,12 @@ class ConcurrentPhaseExecutor:
         from egg_contracts.agent_roles import get_roles_for_phase
 
         phase = self.pipeline.current_phase.value
-        contract_roles = get_roles_for_phase(phase, include_reviewers=True, repo=self.pipeline.repo)
+        contract_roles = get_roles_for_phase(
+            phase,
+            include_reviewers=True,
+            repo=self.pipeline.repo,
+            has_contract=getattr(self.pipeline, "has_contract", True),
+        )
         return [AgentRole(r.value) for r in contract_roles]
 
     def get_worktree_branch(self, role: AgentRole) -> str:
@@ -115,7 +120,40 @@ class ConcurrentPhaseExecutor:
         Returns the pipeline's shared branch when set, falling back to
         an issue-based branch name.  All agents share the same branch
         so their commits land on a single history.
+
+        Babysit-pr mode is the exception: to keep per-role proposals
+        isolated from each other and from the PR's head branch, each
+        producer is given a namespaced staging branch derived from the
+        PR number, the PR head short-SHA, and the role
+        (``egg/babysit-pr/{pr}/{short-sha}/{role}``).  This keeps commits
+        rebase-able onto the PR head and lets reviewers ACK/NACK each
+        role's staging branch independently before the final merge-and-push
+        to the PR head moves forward.  If the PR head SHA is not known at
+        call time, we fall back to the PR head branch so agents can still
+        operate against the live PR.
         """
+        # Babysit-pr: per-role staging branch namespaced by PR head SHA.
+        try:
+            from models import PipelineMode as _PipelineMode  # local import to avoid cycles
+        except Exception:
+            _PipelineMode = None  # type: ignore[assignment]
+        pipeline_mode = getattr(self.pipeline, "mode", None)
+        if (
+            _PipelineMode is not None
+            and pipeline_mode is not None
+            and pipeline_mode == _PipelineMode.BABYSIT
+        ):
+            pr_number = getattr(self.pipeline, "pr_number", None)
+            sha = getattr(self.pipeline, "pr_head_sha", None)
+            if pr_number and isinstance(sha, str) and len(sha) >= 7:
+                short_sha = sha[:7]
+                return f"egg/babysit-pr/{pr_number}/{short_sha}/{role.value}"
+            # Fall back to the PR head branch so the agent still has a
+            # starting point; the final-push head-move guard (Phase 5) will
+            # keep things safe if the remote head has since moved.
+            if self.pipeline.branch:
+                return self.pipeline.branch
+
         if self.pipeline.branch:
             return self.pipeline.branch
         issue = self.pipeline.issue_number or self.pipeline.id
