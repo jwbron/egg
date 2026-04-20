@@ -6,7 +6,7 @@ cleanly (COMPLETE) but produced no commits, so reviewers had nothing
 to review.
 
 For each phase type, verifies:
-- implement: new commits on the remote branch beyond origin/main
+- implement: new commits on the remote branch beyond the pipeline's base branch
 - plan: {identifier}-architect-output.json (or plan draft) exists
 - refine: refine output exists
 
@@ -118,11 +118,12 @@ class PhaseOutputPresenceCheck:
         # No agent reported a commit — check git for new commits on branch
         has_commits = self._branch_has_new_commits(context)
         if has_commits:
+            base_ref_display = self._resolve_base_ref(context)
             return HealthResult(
                 status=HealthStatus.HEALTHY,
                 check_name=self.name,
                 tier=self.tier,
-                reasoning="Branch has new commits beyond origin/main.",
+                reasoning=f"Branch has new commits beyond {base_ref_display}.",
             )
 
         # Agents completed but no commits anywhere
@@ -170,9 +171,9 @@ class PhaseOutputPresenceCheck:
             action=HealthAction.ALERT,
         )
 
-    @staticmethod
-    def _branch_has_new_commits(context: PipelineHealthContext) -> bool:
-        """Check if branch has commits beyond origin/main."""
+    @classmethod
+    def _branch_has_new_commits(cls, context: PipelineHealthContext) -> bool:
+        """Check if branch has commits beyond the pipeline's base branch."""
         git_dir = context.repo_path
         if context.pipeline.repo:
             repo_name = context.pipeline.repo.split("/")[-1]
@@ -180,9 +181,10 @@ class PhaseOutputPresenceCheck:
             if candidate.exists():
                 git_dir = candidate
 
+        base_ref = cls._resolve_base_ref(context, git_dir=git_dir)
         try:
             result = subprocess.run(
-                ["git", "rev-list", "--count", "origin/main..HEAD"],
+                ["git", "rev-list", "--count", f"{base_ref}..HEAD"],
                 cwd=str(git_dir),
                 capture_output=True,
                 text=True,
@@ -192,6 +194,41 @@ class PhaseOutputPresenceCheck:
             return count > 0
         except Exception:
             return False
+
+    @staticmethod
+    def _resolve_base_ref(
+        context: PipelineHealthContext,
+        *,
+        git_dir: Path | None = None,
+    ) -> str:
+        """Resolve the ``origin/<branch>`` ref for the pipeline's base branch.
+
+        Order:
+        1. ``pipeline.base_branch`` when set.
+        2. ``origin/HEAD`` symbolic ref from the working clone.
+        3. ``origin/main`` as a final fallback.
+        """
+        base = getattr(context.pipeline, "base_branch", None)
+        if isinstance(base, str) and base.strip():
+            return f"origin/{base.strip()}"
+
+        if git_dir is not None:
+            try:
+                result = subprocess.run(
+                    ["git", "symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
+                    cwd=str(git_dir),
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+                ref = result.stdout.strip() if result.returncode == 0 else ""
+                if ref:
+                    return ref  # already prefixed with "origin/"
+            except Exception:
+                pass
+
+        return "origin/main"
 
     @staticmethod
     def _get_state_dir(context: PipelineHealthContext) -> Path | None:

@@ -55,7 +55,7 @@ The pipeline pauses for human approval at phase transitions (refine and plan). T
 
 ## Pipeline Architecture
 
-> **Note**: The architecture below describes the standard **issue mode** pipeline. For the **babysit mode** (PR review/fix loop), see the [Babysit-PR Guide](babysit-pr.md).
+> **Note**: The architecture below describes the standard **issue mode** pipeline. For the **babysit mode** — a one-off implement-phase BRC cycle against an existing PR — see the [Babysit-PR Guide](babysit-pr.md). Babysit mode reuses the implement-phase machinery below (producers, reviewers, BRC consensus) but drops refine/plan and operates on the PR diff instead of a contract.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -1074,7 +1074,7 @@ egg-orch pipeline create --issue 123
 Pipeline ID formats:
 - `issue-{number}[-qualifier]` — GitHub issue-driven
 - `{TICKET}[-qualifier]` — JIRA ticket-driven (e.g. `KORE-1234`, `KORE-1234-backend`)
-- `pr-{number}` — babysit mode
+- `pr-{number}` — babysit mode (one-off implement-phase BRC cycle against a PR; triggered via the `/babysit-pr` MCP skill with `mode=babysit` and `pr_number=N`)
 - `local-{8hex}` / `pipeline-{8hex}` — prompt-driven
 
 **Short-flow pipelines** — skip refine/plan phases and start directly at implement by passing `start_phase: implement` in `config`, along with pre-generated `analysis` and `plan` content. The orchestrator writes these to draft files and parses the plan's `yaml-tasks` appendix to populate the contract:

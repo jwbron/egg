@@ -1,0 +1,317 @@
+{
+  "issue": 1748,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 1,
+  "title": "Replace egg-babysit loop with a one-off implement-phase BRC cycle against the PR diff",
+  "summary": "The existing `shared/egg_babysit/` workflow runs a bespoke polling loop that spawns role-less fixer/reviewer agents with no file-access restrictions and no BRC consensus. This analysis proposes deleting that workflow and replacing it with a single implement-phase invocation driven by the existing `ConcurrentPhaseExecutor` / `ReviewGraph` machinery. The pipeline runs on a staging branch derived from the PR head; producers (coder/tester/documenter) rebase the PR's configured base into their worktrees and resolve conflicts within their own file scope during orient; reviewers (reviewer_code only; reviewer_contract and reviewer_agent_design are pruned) orient on the `base...head` diff. BRC converges as usual; only on consensus does the final commit push to the PR head ref. The primary entry point is a new `babysit-pr` MCP skill modeled on the existing `/sdlc` skill.",
+  "revision_notes": "",
+  "problem_statement": {
+    "description": "`shared/egg_babysit/` drives a polling state machine (conflicts → CI wait → fix checks → review → address feedback) with ~2,800 lines of code. It spawns agents via `egg_agent.build_agent_command(prompt, model=\"sonnet\", max_turns=200)` (shared/egg_babysit/fixer.py:57, shared/egg_babysit/reviewer.py:63) with no `--agent-type`, no role-typed file-access restrictions, and no `egg-orch consensus` calls. The result: a PR might go green, but there is no structural guarantee the edits respect role boundaries, no second pair of eyes beyond a single non-role-typed reviewer, and no attestation trail. The issue mandates a full replacement, not a layered extension.",
+    "goals": [
+      "Reuse existing implement-phase machinery (`ConcurrentPhaseExecutor`, `ReviewGraph`, role-typed file scopes, attestation schemas, BRC history persistence) rather than fork it.",
+      "Conflict resolution happens inside each producer's worktree during orient, scoped to that role's files; no babysit-level pre-stage.",
+      "All BRC work happens on a staging branch; only the final consensus commit hits the PR head.",
+      "Base branch is `pr.base.ref` from the GitHub API — never hardcoded to `main`.",
+      "Reviewer roster is filtered to drop reviewers whose upstream artifact does not exist (notably `reviewer_contract`, since no plan contract is seeded in babysit mode).",
+      "Entry point is a new `babysit-pr` MCP skill modeled on `/sdlc`. The standalone `egg-babysit` CLI is retired as part of the same change."
+    ],
+    "non_goals": [
+      "Recurring babysit cycles (one-off per invocation).",
+      "Reacting to new human commits mid-cycle or re-triggering on CI status after consensus.",
+      "New BRC protocol extensions — the existing producer-first PROPOSE/ACK/NACK/CONFIRM flow is reused verbatim.",
+      "New attestation schemas — `orchestrator/attestation_schemas.py` is already generic and has no plan-contract coupling for implement-phase roles."
+    ],
+    "root_causes": [
+      {
+        "id": "RC-1",
+        "title": "Babysit bypasses role typing entirely",
+        "description": "Fixer/reviewer agents in `shared/egg_babysit/` have identity only in prompt text (shared/egg_babysit/prompts.py:167). They carry no `--agent-type`, no `FileAccessPattern`, and no BRC env vars (`EGG_BRC_ROLE_TYPE`, `EGG_BRC_REVIEWERS`, `EGG_BRC_PRODUCERS`) that implement-phase agents receive via `ConcurrentPhaseExecutor.get_agent_env` (orchestrator/concurrent_executor.py:120-138).",
+        "location": "shared/egg_babysit/fixer.py:57, shared/egg_babysit/reviewer.py:63"
+      },
+      {
+        "id": "RC-2",
+        "title": "No consensus, no attestations, no durable BRC trail on the PR",
+        "description": "Issue-mode pipelines write BRC history to `.egg-state/brc-history/<id>-<phase>.{md,json}` (orchestrator/routes/pipelines.py:4353-4507) and attach a BRC summary to the PR body. Babysit writes nothing durable — the only artifact is the PR comments from the read-only reviewer.",
+        "location": "shared/egg_babysit/loop.py (entire module)"
+      },
+      {
+        "id": "RC-3",
+        "title": "Conflict resolution is handled by a single generic fixer agent",
+        "description": "`shared/egg_babysit/steps/conflict.py` invokes one fixer to resolve all conflicts with no file scoping, so a conflict in `tests/test_foo.py` is edited by the same agent that edits `docs/README.md`. The implement phase already splits this across role-typed producers (`CODER_ROLE`, `TESTER_ROLE`, `DOCUMENTER_ROLE` at shared/egg_contracts/agent_roles.py:202-335) with disjoint `allowed_write` patterns, with `CONFLICT_RESOLVER_ROLE` (shared/egg_contracts/agent_roles.py:746-804) available as a fallback.",
+        "location": "shared/egg_babysit/steps/conflict.py"
+      },
+      {
+        "id": "RC-4",
+        "title": "Hardcoded `main` assumptions",
+        "description": "Several babysit code paths assume base branch is `main` (shared/egg_babysit/prompts.py:27, shared/egg_babysit/steps/check_fix.py:30). The PR state struct carries the real base via `baseRefName` (shared/egg_babysit/pr_state.py:166), but downstream consumers still default to `main`.",
+        "location": "shared/egg_babysit/prompts.py:27, shared/egg_babysit/steps/check_fix.py:30"
+      },
+      {
+        "id": "RC-5",
+        "title": "No early-exit guardrails for invalid PR states",
+        "description": "Existing loop handles merged/closed via an iteration check but does not short-circuit cleanly on empty-diff or fork-PR-with-no-push-access. Babysit spawns agents first, detects later.",
+        "location": "shared/egg_babysit/loop.py"
+      }
+    ]
+  },
+  "current_architecture": {
+    "implement_phase_executor": {
+      "description": "`ConcurrentPhaseExecutor` (orchestrator/concurrent_executor.py:55) spawns all phase agents concurrently on a shared pipeline branch. `get_agent_roles()` (line 93) pulls roles via `egg_contracts.agent_roles.get_roles_for_phase(phase, include_reviewers=True, repo=...)` (shared/egg_contracts/agent_roles.py:1002-1036), which returns `[CODER, TESTER, DOCUMENTER]` plus `[REVIEWER_CODE, REVIEWER_CONTRACT, REVIEWER_AGENT_DESIGN]` (the last filtered out for non-egg repos). `get_worktree_branch(role)` (line 109) uses the pipeline's shared branch. `get_agent_env(role)` (line 120) injects BRC env vars derived from the `ReviewGraph` and file-pattern vars from `FileAccessPattern`.",
+      "files": [
+        "orchestrator/concurrent_executor.py:55-200",
+        "shared/egg_contracts/agent_roles.py:1002-1036"
+      ]
+    },
+    "review_graph": {
+      "description": "`get_default_implement_graph()` (orchestrator/review_graph.py:216-239) defines the review topology: `reviewer_code` reviews coder/tester (critical) and documenter (advisory), `reviewer_contract` reviews coder (critical), `tester` reviews coder (critical). `get_review_graph_for_phase(phase, repo)` (orchestrator/review_graph.py:250-283) strips egg-only reviewers for non-egg repos but has no mechanism to prune based on mode or missing upstream artifacts.",
+      "files": ["orchestrator/review_graph.py:216-283"]
+    },
+    "role_file_scopes": {
+      "description": "Role definitions with `FileAccessPattern.allowed_write` (shared/egg_contracts/agent_roles.py:202-335). Coder writes code+config, tester writes tests+source, documenter writes docs+markdown. All three block `.egg-state/contracts/`, `.egg-state/drafts/`, and `.egg-state/reviews/`. `CONFLICT_RESOLVER_ROLE` (shared/egg_contracts/agent_roles.py:746-804) has broad cross-scope write access and is available on demand.",
+      "files": ["shared/egg_contracts/agent_roles.py:202-804"]
+    },
+    "orient_prompt_assembly": {
+      "description": "`build_egg_system_prompt(rules_dir, project_claude_md)` (shared/egg_harness_integration/egg_prompt.py:39-85) concatenates canonical rule files in fixed order with `\\n\\n---\\n\\n` separators. No per-role or per-mode orient sections exist today — every agent gets the same rules.md stack. This is the insertion point for the babysit-mode reviewer-orient section.",
+      "files": ["shared/egg_harness_integration/egg_prompt.py:39-85"]
+    },
+    "pipeline_mode_and_babysit_hooks": {
+      "description": "`PipelineMode.BABYSIT` already exists (orchestrator/models.py:28-33). Pipeline creation (orchestrator/routes/pipelines.py:620-800) accepts `mode=babysit` with `pr_number` and generates pipeline ID `pr-<N>`. The pipeline currently has no start-phase wiring for babysit mode — the creation path is stubbed for later use.",
+      "files": [
+        "orchestrator/models.py:28-33",
+        "orchestrator/models.py:470-475",
+        "orchestrator/routes/pipelines.py:620-800",
+        "orchestrator/state_store.py:776-850"
+      ]
+    },
+    "pr_state_fetcher": {
+      "description": "`shared/egg_babysit/pr_state.py` wraps `gh pr view --json` and exposes `baseRefName`, `headRefName`, `mergeable`, `isDraft`, `isCrossRepository`. Line 166 parses `baseRefName` — this is the authoritative base-branch source. Candidate for extraction to `shared/egg_git/pr_state.py` or similar so the orchestrator can consume it without a babysit import.",
+      "files": ["shared/egg_babysit/pr_state.py:1-299"]
+    },
+    "brc_history_persistence": {
+      "description": "`_write_brc_history` (orchestrator/routes/pipelines.py:4353-4507) flushes BRC messages for a phase to `.egg-state/brc-history/<identifier>-<phase>.md` plus a `.json` companion, gated by `message_type in BRC_HISTORY_TYPES`. Works unchanged for babysit — identifier becomes `pr-<N>`.",
+      "files": ["orchestrator/routes/pipelines.py:4353-4507"]
+    },
+    "gateway_push_policy": {
+      "description": "Gateway allows `git push` only to `egg/`-prefixed branches or to a branch with the bot's open PR. Fork PRs (`headRepository != baseRepository`) cannot be pushed to at all because the remote belongs to the forker.",
+      "files": ["gateway/policy.py:1067", "gateway/fork_policy.py:1-100"]
+    },
+    "sdlc_skill_reference": {
+      "description": "`/sdlc` MCP skill lives at `skills/sdlc/SKILL.md` — front-matter includes `name`, `description`, `disable-model-invocation`, `argument-hint`. Skill walks the user through Seed → Pre-Refine → Submit → Monitor → HITL → Complete, orchestrating via `submit_task`, `get_status`, and `provide_input` MCP tools. The babysit-pr skill borrows the structure but collapses to a much shorter flow.",
+      "files": ["skills/sdlc/SKILL.md", "skills/egg-setup/SKILL.md"]
+    }
+  },
+  "approaches_considered": [
+    {
+      "id": "A",
+      "name": "Extend `shared/egg_babysit/` with optional BRC hooks",
+      "description": "Keep the existing loop; add opt-in code paths that call `egg-orch consensus propose` when `EGG_BRC_ENABLED=true`. Reuse fixer/reviewer shells; slot them into a synthetic review graph.",
+      "pros": [
+        "Smallest diff.",
+        "Preserves the existing `egg-babysit` CLI and associated docs/tests without churn."
+      ],
+      "cons": [
+        "The issue explicitly forbids layering on top of the current loop — 'This issue proposes replacing the current babysit-pr workflow outright'.",
+        "Fixer/reviewer prompts are not role-typed; adding BRC env vars to unchanged agents is a lie — they still can write anywhere.",
+        "Keeps hardcoded `main` assumptions and CI-fix/feedback/review step logic; doesn't deliver the quality uplift the issue targets.",
+        "Two code paths to maintain."
+      ],
+      "verdict": "Rejected — violates the stated scope."
+    },
+    {
+      "id": "B",
+      "name": "Implement a new `babysit` pipeline mode that invokes `ConcurrentPhaseExecutor` directly at the implement phase",
+      "description": "Wire `PipelineMode.BABYSIT` into the pipeline lifecycle so that: (1) the pipeline creation endpoint, when `mode=babysit`, creates a staging branch from the PR head and skips refine/plan; (2) `start_phase` for a babysit pipeline launches the implement phase through the existing `ConcurrentPhaseExecutor` but with a trimmed review graph and babysit-mode orient prompts; (3) on consensus, the orchestrator pushes the final staging-branch commit to the PR head ref and marks the pipeline complete (no PR phase). A new `babysit-pr` MCP skill is the only user-facing entry point; `shared/egg_babysit/` is deleted along with the `egg-babysit` CLI and its tests.",
+      "pros": [
+        "Fully reuses role-typed producers/reviewers, file scopes, attestations, and BRC history machinery.",
+        "`PipelineMode.BABYSIT` and pipeline-ID scheme `pr-<N>` already exist — we're filling in the behavior, not adding a new concept.",
+        "Conflict resolution is naturally scoped: each producer rebases in their own worktree and resolves conflicts within their `allowed_write` pattern; `CONFLICT_RESOLVER_ROLE` covers the rare overlap.",
+        "Single durable BRC history artifact on the branch (`brc-history/pr-<N>-implement.{md,json}`); summary appended to PR body.",
+        "Cleanly deletes ~2,800 lines of parallel infrastructure."
+      ],
+      "cons": [
+        "Requires orchestrator changes to the pipeline state machine (babysit skips refine/plan; implement is terminal in babysit mode).",
+        "Requires new staging-branch push plumbing — not a pattern in the codebase today.",
+        "Gateway policy may need an explicit exception for pushing to a PR head branch that isn't `egg/`-prefixed (fork-PR case is excluded by early exit).",
+        "Orient-prompt assembly needs a mode-aware section — new code path in `shared/egg_harness_integration/egg_prompt.py`.",
+        "Reviewer roster needs pruning (`reviewer_contract` when no contract is populated)."
+      ],
+      "verdict": "Recommended."
+    },
+    {
+      "id": "C",
+      "name": "Add a third phase `babysit_implement` with its own review graph",
+      "description": "Introduce a parallel implement-flavored phase whose `ReviewGraph` and role list are tailored to PR-review work, so we don't pollute the issue-mode implement phase with mode switches.",
+      "pros": [
+        "Complete isolation of babysit-specific logic from issue-mode implement.",
+        "Easier to evolve independently (e.g., add CI-failure-aware producers later)."
+      ],
+      "cons": [
+        "Duplicates 80%+ of implement-phase wiring in `concurrent_executor.py`, `review_graph.py`, and `agent_roles.py` phase mapping.",
+        "Adds a new `PipelinePhase` enum value and breaks `PHASE_TRANSITIONS` invariants — ripple effect across many files.",
+        "Violates the issue's 'reuse existing implement-phase agent roles, role restrictions, and BRC infrastructure — don't fork them' guidance.",
+        "Two code paths to audit for role-boundary correctness."
+      ],
+      "verdict": "Rejected — duplicates infrastructure the issue explicitly says to reuse."
+    }
+  ],
+  "recommended_approach": {
+    "name": "Approach B — babysit pipeline mode wired into the existing implement-phase executor",
+    "justification": "Approach B is the only option that satisfies the issue's explicit constraints: (i) reuses implement-phase role typing and BRC, (ii) conflict resolution lives inside producer worktrees not in a babysit pre-step, (iii) base branch is the PR's configured base, (iv) the primary surface is an MCP skill, and (v) existing babysit code is removed. The remaining work is confined to small, well-scoped extensions: a babysit-mode branch in the pipeline lifecycle (skip refine/plan, exit after implement), a staging-branch push convention, a mode-aware orient prompt section, and a one-liner reviewer-roster filter. No new protocol, no new attestation schema, no new review-graph shape."
+  },
+  "technical_design": {
+    "entry_point": {
+      "description": "New `babysit-pr` MCP skill at `skills/babysit-pr/SKILL.md`, front-matter mirrors `skills/sdlc/SKILL.md` (`name`, `description`, `disable-model-invocation: true`, `argument-hint: \"[PR#|URL] [--repo owner/name]\"`). Flow: (1) parse PR # or URL, auto-detect repo if omitted; (2) run `gh pr view <N> --repo <R> --json number,state,isDraft,mergeable,mergeStateStatus,baseRefName,headRefName,isCrossRepository,url`; (3) client-side early-exits (closed/merged, empty diff via `gh pr diff --name-only`, cross-repo fork); (4) call `submit_task` MCP tool with `mode=babysit`, `pr_number=N`, `repo=<R>`, `base_branch=<pr.baseRefName>`, `branch=<staging-branch-name>`, `description=\"babysit-pr #<N>\"`; (5) poll `get_status` until `complete` or `awaiting_human`; (6) report outcome to user with a link to `.egg-state/brc-history/pr-<N>-implement.md` on the staging branch. The existing `egg-babysit` CLI and its docs are deleted."
+    },
+    "pipeline_mode_wiring": {
+      "description": "When `mode=babysit`, the pipeline creation endpoint in `orchestrator/routes/pipelines.py` (around line 620-800) must: (a) require `pr_number`, `repo`, and `base_branch`; (b) generate pipeline ID `pr-<N>` (already scoped at state_store.py:42); (c) create the staging branch from the PR head SHA — naming convention `egg/babysit-pr-<N>-<short-sha>` so it satisfies gateway `egg/` prefix policy; (d) seed `pipeline.current_phase = PipelinePhase.IMPLEMENT` (skipping REFINE/PLAN); (e) record `pipeline.pr_number`, `pipeline.base_branch`, `pipeline.branch` (= staging branch); (f) reject duplicate `pr-<N>` pipelines already in active state (reusing existing duplicate-check at pipelines.py:723).",
+      "files": [
+        "orchestrator/routes/pipelines.py (create_pipeline)",
+        "orchestrator/state_store.py:776-850",
+        "orchestrator/models.py (Pipeline — ensure base_branch/pr_number persisted)"
+      ]
+    },
+    "phase_lifecycle_for_babysit": {
+      "description": "`PHASE_TRANSITIONS` (orchestrator/routes/phases.py:50-56) maps `IMPLEMENT → [PR]`. For babysit mode, extend `complete_phase` to skip the PR phase: after implement completes and BRC history is written, push the staging branch's final consensus commit to the PR head ref (`git push origin egg/babysit-pr-<N>-<sha>:<pr.headRefName>`) via the gateway, then mark the pipeline `COMPLETE` without transitioning to PR. Use a mode check: `if pipeline.mode == PipelineMode.BABYSIT: mark_complete(); return`. Keep issue-mode path unchanged.",
+      "files": [
+        "orchestrator/routes/phases.py (PHASE_TRANSITIONS, complete_phase)",
+        "orchestrator/routes/pipelines.py (_reconcile_and_push_pr_branch — add babysit final-push variant)"
+      ]
+    },
+    "reviewer_roster_filter": {
+      "description": "Extend `get_review_graph_for_phase(phase, repo)` (orchestrator/review_graph.py:250-283) to accept an optional `mode: PipelineMode | None` parameter. When `mode == PipelineMode.BABYSIT` and `phase == 'implement'`, prune `reviewer_contract` edges (no contract exists in babysit mode — `REVIEWER_CONTRACT_ROLE.requires_inputs=['integration_report']` at shared/egg_contracts/agent_roles.py:547 is not satisfiable). `ConcurrentPhaseExecutor._get_review_graph()` (concurrent_executor.py:80) passes `pipeline.mode` through. This keeps the filter declarative and close to the graph definition. Equivalent change in `get_roles_for_phase` (shared/egg_contracts/agent_roles.py:1002) to drop the pruned reviewer from the spawn roster.",
+      "files": [
+        "orchestrator/review_graph.py:250-283",
+        "orchestrator/concurrent_executor.py:80-100",
+        "shared/egg_contracts/agent_roles.py:1002-1036"
+      ]
+    },
+    "orient_prompt_babysit_variant": {
+      "description": "Introduce a mode-aware addendum in `build_egg_system_prompt`. Option: add an optional `mode: str | None` and `role: str | None` parameter to `build_egg_system_prompt` (shared/egg_harness_integration/egg_prompt.py:39). When `mode == 'babysit'`, after the existing rule-file concatenation, append a mode-specific section with two sub-sections: (1) producer section — 'You are working on an existing PR (#<N>) against base `<base>`. Your orient step: check out the PR head, merge `origin/<base>` into your worktree, resolve any conflicts within YOUR role's file scope (see EGG_AGENT_FILE_PATTERNS); if conflicts span other roles' scopes, open an ESCALATION message and await `CONFLICT_RESOLVER`. Observe any failing CI checks via `gh pr checks <N>` and note root causes.' (2) reviewer section — 'Your orientation is to read the PR diff at `base...head` and form concerns before producers broadcast; do NOT wait for a proposal to start forming judgments.' Env vars `EGG_PR_NUMBER`, `EGG_PR_BASE_BRANCH`, `EGG_PIPELINE_MODE` are added by `ConcurrentPhaseExecutor.get_agent_env` so the orient prompt and the agent's runtime logic can both see them.",
+      "files": [
+        "shared/egg_harness_integration/egg_prompt.py:39-85",
+        "orchestrator/concurrent_executor.py:120-200"
+      ]
+    },
+    "staging_branch_flow": {
+      "description": "Staging-branch lifecycle: (i) pipeline creation fetches PR head SHA and runs the equivalent of `git push origin <head-sha>:refs/heads/egg/babysit-pr-<N>-<short-sha>` via the gateway worktree-creation path; (ii) `ConcurrentPhaseExecutor` spawns each agent worktree from this branch; (iii) BRC pushes during convergence land on the staging branch (force-pushes are allowed on staging because it is `egg/`-prefixed and the bot owns the consensus-proposal push path); (iv) on consensus, orchestrator fast-forwards/rewrites the PR head ref to the final staging commit using a single `git push origin <staging-sha>:<pr.headRefName>`. If the PR head branch is not `egg/`-prefixed, this push requires a gateway policy exception — gateway currently permits pushes to a branch where the bot has an open PR; babysit triggers on an existing human-owned PR so we need a narrower policy: 'allow push to the head ref of a PR the bot is actively babysitting'. Fork PRs are excluded by the MCP-skill early-exit in step (3) of entry point.",
+      "files": [
+        "orchestrator/routes/pipelines.py (_reconcile_and_push_pr_branch, staging-branch create)",
+        "gateway/policy.py (push-permission check — add babysit-pr head-ref exception)"
+      ]
+    },
+    "base_branch_propagation": {
+      "description": "`Pipeline.base_branch` is already accepted by the creation endpoint (pipelines.py:657). Persist it on the `Pipeline` model (orchestrator/models.py) so downstream code can read it. Add `EGG_PR_BASE_BRANCH` and `EGG_PR_NUMBER` to `ConcurrentPhaseExecutor.get_agent_env` when `pipeline.mode == babysit`. Extract the `gh pr view` parsing logic (currently `shared/egg_babysit/pr_state.py:120-200`) into a small neutral helper under `shared/egg_git/` (or keep it inline in a new `orchestrator/babysit_pipeline.py`) so the orchestrator can reuse it without importing the doomed babysit module. No hardcoded `main` anywhere.",
+      "files": [
+        "orchestrator/models.py (Pipeline model)",
+        "orchestrator/concurrent_executor.py:120-200 (env injection)",
+        "shared/egg_git/pr_state.py (new — extracted from shared/egg_babysit/pr_state.py)"
+      ]
+    },
+    "brc_history_and_pr_summary": {
+      "description": "`_write_brc_history` (orchestrator/routes/pipelines.py:4353-4507) writes to `.egg-state/brc-history/<identifier>-<phase>.md`. For babysit pipelines `identifier = pr-<N>`, so the artifact is `pr-<N>-implement.md`. No change to the function. The PR body summary update (`_build_brc_consensus_summary` around pipelines.py:4929) posts/updates a section on the PR via `gh pr edit --body`. This already handles issue-mode; extend to babysit mode by using `pr.number` directly instead of looking up via pipeline state. Acceptable to post a `gh pr comment` instead of editing the body to avoid overwriting human-authored PR description — a task-planner concern.",
+      "files": [
+        "orchestrator/routes/pipelines.py:4353-5063 (BRC history + PR update)"
+      ]
+    },
+    "cleanup_and_removals": {
+      "description": "Delete: `shared/egg_babysit/` (entire package, 11 modules); `shared/tests/test_egg_babysit/`; `bin/egg-babysit` (if present); `egg-babysit` console-script entry in `pyproject.toml`; `docs/guides/babysit-pr.md` (replaced by a new MCP-skill-centric guide). Preserve: `shared/check-fixers.yml` — the config file still informs the coder's fix strategy via orient prompt. Action/GHA workflows referencing `egg-babysit` are removed or re-pointed at the MCP skill (task-planner to enumerate).",
+      "files": [
+        "shared/egg_babysit/** (delete)",
+        "shared/tests/test_egg_babysit/** (delete)",
+        "docs/guides/babysit-pr.md (rewrite)",
+        "pyproject.toml (console-scripts)",
+        "bin/egg-babysit (if present)"
+      ]
+    },
+    "early_exit_matrix": {
+      "description": "All early-exit checks happen client-side in the MCP skill before `submit_task`. Pipeline endpoint does a belt-and-braces server-side re-check to guard against racy invocations.",
+      "cases": [
+        {"condition": "PR is merged or closed", "action": "Exit skill with summary message; no pipeline created."},
+        {"condition": "PR has empty diff against base (`gh pr diff --name-only` returns nothing)", "action": "Exit with 'nothing to babysit' message."},
+        {"condition": "PR is from a fork (`isCrossRepository: true`)", "action": "Exit with error: gateway cannot push to fork head; user must run babysit from a branch within the base repo."},
+        {"condition": "Active `pr-<N>` pipeline already exists", "action": "Server returns 409 — skill reports and offers to attach to existing pipeline."},
+        {"condition": "PR base branch no longer exists on remote", "action": "Skill reports misconfigured PR; no pipeline created."}
+      ]
+    }
+  },
+  "affected_files": {
+    "orchestrator": [
+      "orchestrator/routes/pipelines.py (create_pipeline babysit branch; _reconcile_and_push_pr_branch babysit variant; BRC history identifier pr-<N>)",
+      "orchestrator/routes/phases.py (PHASE_TRANSITIONS; complete_phase babysit short-circuit)",
+      "orchestrator/concurrent_executor.py (pass pipeline.mode into review graph lookup; inject EGG_PR_NUMBER/EGG_PR_BASE_BRANCH/EGG_PIPELINE_MODE env vars)",
+      "orchestrator/review_graph.py (mode-aware pruning of reviewer_contract)",
+      "orchestrator/models.py (Pipeline.base_branch persistence, already drafted)"
+    ],
+    "shared": [
+      "shared/egg_contracts/agent_roles.py (get_roles_for_phase — accept optional mode, prune reviewers)",
+      "shared/egg_harness_integration/egg_prompt.py (babysit-mode orient addendum)",
+      "shared/egg_git/pr_state.py (new — extracted PR-metadata helper) OR keep inline in orchestrator/babysit_pipeline.py",
+      "shared/egg_babysit/** (DELETE entire package)",
+      "shared/tests/test_egg_babysit/** (DELETE)"
+    ],
+    "gateway": [
+      "gateway/policy.py (allow push to PR head ref when pipeline is babysit-pr; narrow to bot-initiated push originating from pipeline `pr-<N>`)"
+    ],
+    "skills": [
+      "skills/babysit-pr/SKILL.md (new — mirrors skills/sdlc/SKILL.md structure)"
+    ],
+    "docs": [
+      "docs/guides/babysit-pr.md (rewrite to describe the BRC-cycle flow and new MCP skill)",
+      "docs/index.md (update guide entry)"
+    ],
+    "packaging_and_ci": [
+      "pyproject.toml (remove egg-babysit console-script entry)",
+      "bin/egg-babysit (delete if present)",
+      ".github/workflows/** (audit for egg-babysit usage)"
+    ]
+  },
+  "dependencies_and_constraints": {
+    "gateway_policy": "Gateway must permit pushing the final consensus commit to the PR head ref. Either (a) the PR head is already `egg/`-prefixed and the bot has an open PR (policy already permits), or (b) a new narrow exception keyed on `pipeline.mode=babysit AND pipeline.pr_number=N AND ref=pr.headRef`. Reviewer_plan should scrutinize the exception's blast radius.",
+    "fork_prs_unsupported": "Fork PRs cannot be pushed to from the bot. The MCP skill rejects them up-front with a clear message; no partial work. This matches the issue's 'Early-exit cases'.",
+    "no_contract_in_babysit": "Because refine/plan are skipped, `.egg-state/contracts/` is empty. Producers' orient prompts must not reference contract tasks; the babysit orient addendum has to override the default contract-bearing rule text (`contract.md` in the canonical order) with 'no contract in babysit mode — treat the PR diff and reviewer feedback as the plan'.",
+    "ci_failure_handling_moves_into_producers": "The issue specifies CI-failure handling becomes a concern of the producers during BRC. That means the coder's orient prompt must instruct: check `gh pr checks <N>`, consult `shared/check-fixers.yml`, and apply fixes within coder's file scope. `check-fixers.yml` parsing logic currently lives in `shared/egg_babysit/prompts.py:27` — task-planner must relocate this to a neutral module (e.g., `shared/egg_git/check_fixers.py`) before the babysit package is deleted.",
+    "concurrent_invocations": "Duplicate `pr-<N>` pipelines are blocked server-side by the existing pipeline-creation duplicate check. No additional file lock needed for the first cut.",
+    "attestation_schema_reuse": "`orchestrator/attestation_schemas.py:24` models are already generic — no task_id fields in `CoderAttestation`, `TesterAttestation`, etc. (spot-check `DocumenterAttestation` for stray plan references; flag any for deletion). `validate_attestation` at :179 does not cross-check a contract, so producing an attestation without a seeded contract is legal.",
+    "brc_re_review_triggered_by_final_push": "The final staging-to-PR-head push happens AFTER BRC consensus. No re-review cycle should be triggered by the final push (it is outside the BRC cycle). Ensure `_reconcile_and_push_pr_branch`'s babysit variant emits no propose/ACK events.",
+    "egg_only_reviewer_filter_interaction": "The `repo != EGG_REPO` branch in `get_review_graph_for_phase` already drops `reviewer_agent_design`. The new `mode == babysit` branch drops `reviewer_contract`. Both filters must compose correctly — reviewer_plan should double-check that a babysit-PR against a non-egg repo leaves only `reviewer_code` + `tester-as-reviewer`."
+  },
+  "open_questions": [
+    {
+      "id": "Q-1",
+      "question": "Where should the PR-metadata helper (gh pr view → base/head/fork/mergeable) live once `shared/egg_babysit/pr_state.py` is deleted?",
+      "options": ["New `shared/egg_git/pr_state.py` (neutral, reusable)", "Inline in `orchestrator/babysit_pipeline.py` (scoped)"],
+      "notes": "Task-planner decides. `shared/egg_git/` is the more durable home if future phases (e.g., a hypothetical babysit-issue mode) also need it."
+    },
+    {
+      "id": "Q-2",
+      "question": "Does the final consensus commit get pushed to the PR head via fast-forward only, or force-pushed?",
+      "options": ["Fast-forward only (safest — humans' mid-cycle commits abort babysit)", "Force-push (guarantees the consensus state lands but overwrites any human commits that arrived)"],
+      "notes": "Issue says 'only after BRC reaches consensus does the final commit get pushed to the PR branch. This avoids racing with human commits to the PR mid-cycle.' This implies fast-forward; force-pushing would race. Risk-analyst to weigh in."
+    },
+    {
+      "id": "Q-3",
+      "question": "Should the BRC summary be posted as a PR comment or appended to the PR body?",
+      "options": ["PR comment via `gh pr comment`", "Edit PR body via `gh pr edit --body` (append section)"],
+      "notes": "Issue mode edits the body because it creates the PR. Babysit is reviewing a human PR — overwriting the human's description is hostile. Comment is safer."
+    },
+    {
+      "id": "Q-4",
+      "question": "Is `CONFLICT_RESOLVER_ROLE` invoked automatically when producers signal overlap, or is overlap escalated to HITL?",
+      "options": ["Auto-spawn `CONFLICT_RESOLVER` when a producer sends an ESCALATION message with overlap details", "Always escalate overlap to HITL for the first cut"],
+      "notes": "Issue says 'Start strict; loosen if practice shows overlap is common.' Strict = HITL. Risk-analyst can refine based on expected overlap frequency."
+    },
+    {
+      "id": "Q-5",
+      "question": "Should the staging branch persist after pipeline completion, or be deleted?",
+      "options": ["Delete after successful push to PR head", "Retain with pipeline TTL for auditability"],
+      "notes": "BRC history files carry the audit trail; staging branch is redundant post-success. On failure, retention aids debugging — consider deleting only on success."
+    },
+    {
+      "id": "Q-6",
+      "question": "What happens to `docs/guides/babysit-pr.md` diagram and `check-fixers.yml` references during the rewrite?",
+      "options": ["Rewrite the guide from scratch focused on the BRC flow", "Keep check-fixers.yml section and prepend a BRC-flow explanation"],
+      "notes": "The diagram in the current guide is moot — no loop anymore. A focused rewrite is cleaner. Documenter will handle during implement."
+    }
+  ]
+}

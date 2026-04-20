@@ -51,7 +51,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Concurrent Execution](guides/concurrent-execution.md) | Concurrent agent execution: message bus, directed coordination, readiness signaling, consensus protocol |
 | [Checkpoint Access](guides/checkpoint-access.md) | Querying cross-agent checkpoints in multi-agent pipelines |
 | [Pipeline Health Monitoring](guides/pipeline-health-monitoring.md) | Two-tier health monitoring: orchestrator tripwires + overseer agent |
-| [Babysit-PR](guides/babysit-pr.md) | Autonomous PR review/fix loop: conflict resolution, CI fixing, code review, feedback addressing |
+| [Babysit-PR](guides/babysit-pr.md) | One-off implement-phase BRC cycle against an existing PR: role-typed producers (coder/tester/documenter) + `reviewer_code`, staging-branch isolation, single final consensus push |
 | [Anchor Recovery](guides/anchor-recovery.md) | Agent post-compaction state recovery via persistent anchors |
 | [Harness Configuration](guides/harness-configuration.md) | Selecting and configuring agent runtime harness (egg, claude-sdk, claude-code) |
 
@@ -91,7 +91,7 @@ Each major component has detailed documentation:
 | [Gateway Sidecar](../gateway/README.md) | `gateway/` | Policy enforcement, credential injection, API endpoints |
 | [Orchestrator](../orchestrator/README.md) | `orchestrator/` | Local SDLC pipeline execution, state management, container lifecycle |
 | [Sandbox Container](../sandbox/README.md) | `sandbox/` | Agent environment, tools, entrypoint |
-| [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, git utilities, SDLC contracts, babysit-pr loop, custom harness |
+| [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, git utilities, SDLC contracts, custom harness |
 | [Logging](../shared/egg_logging/README.md) | `shared/egg_logging/` | Structured JSON logging with grep-friendly inline console format |
 | [Custom Harness](../shared/egg_harness/README.md) | `shared/egg_harness/` | Provider-abstracted agent runtime with context management |
 | [Harness Integration](../shared/egg_harness_integration/README.md) | `shared/egg_harness_integration/` | Egg-specific harness wiring (tools, permissions, prompt, compaction) |
@@ -119,7 +119,7 @@ Each major component has detailed documentation:
 | **SDLC pipeline changes** | [SDLC Pipeline Guide](guides/sdlc-pipeline.md) | [The Agentic Feedback Loop](architecture/agentic-feedback-loop.md), [SDLC Pipeline Architecture](architecture/sdlc-pipeline.md), [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), `orchestrator/` package |
 | **Agent teams / Deliberative Consensus** | [Agent Teams Guide](guides/agent-teams.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md) |
 | **Agent anchor / recovery changes** | [Anchor Recovery Guide](guides/anchor-recovery.md) | [egg_anchor README](../shared/egg_anchor/README.md), [Orchestrator CLI](reference/orchestrator-cli.md), [Concurrent Execution](guides/concurrent-execution.md) |
-| **Babysit-PR / PR review loops** | [Babysit-PR Guide](guides/babysit-pr.md) | [GitHub Automation](guides/github-automation.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [`egg_babysit` README](../shared/egg_babysit/README.md) |
+| **Babysit-PR / PR BRC cycle** | [Babysit-PR Guide](guides/babysit-pr.md) | [`/babysit-pr` Skill](../skills/babysit-pr/SKILL.md), [GitHub Automation](guides/github-automation.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md) |
 | **Concurrent execution mode** | [Concurrent Execution Guide](guides/concurrent-execution.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Checkpoint Access](guides/checkpoint-access.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Directed agent coordination** | [Concurrent Execution: Directed Coordination](guides/concurrent-execution.md#directed-coordination) | [Orchestrator CLI](reference/orchestrator-cli.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md) |
 | **Agent roles and file permissions** | [Agent Roles Reference](reference/agent-roles.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Architecture Overview](architecture/README.md) |
