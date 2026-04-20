@@ -730,6 +730,7 @@ class TestOverseerRespawn:
     def mock_spawner(self, mock_docker_client):
         """Create a mock spawner with a mock docker client for respawn tests."""
         mock = MagicMock()
+        mock.backend = mock_docker_client
         mock.docker = mock_docker_client
         respawned_id = "overseer-respawned-001"
         mock.spawn_overseer_container.return_value = SpawnedContainer(

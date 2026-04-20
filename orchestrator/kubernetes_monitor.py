@@ -585,6 +585,7 @@ class KubernetesMonitor:
             )
             try:
                 from models import AgentExecutionStatus, PipelineStatus
+                from state_store import VersionConflictError
 
                 phase_key = details.get("phase")
                 if phase_key is None:
@@ -618,6 +619,31 @@ class KubernetesMonitor:
                     pipeline_id=pipeline_id,
                     phase=phase_key,
                 )
+            except VersionConflictError:
+                # Expected in concurrent environments — another writer updated
+                # the pipeline. Reload and check if the phase already transitioned.
+                logger.info(
+                    "Version conflict during consensus stall recovery — re-checking pipeline state",
+                    pipeline_id=pipeline_id,
+                    phase=phase_key,
+                )
+                try:
+                    reloaded = store.load_pipeline(pipeline_id)
+                    reloaded_phase = reloaded.phases.get(phase_key)
+                    if reloaded_phase and reloaded_phase.status == PipelineStatus.RUNNING:
+                        logger.warning(
+                            "Phase still RUNNING after version conflict — recovery may need retry",
+                            pipeline_id=pipeline_id,
+                            phase=phase_key,
+                        )
+                    else:
+                        logger.info(
+                            "Phase already transitioned (concurrent writer) — no recovery needed",
+                            pipeline_id=pipeline_id,
+                            phase=phase_key,
+                        )
+                except Exception:
+                    pass
             except Exception:
                 logger.warning(
                     "Aggressive consensus stall recovery failed",

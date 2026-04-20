@@ -165,7 +165,7 @@ def _check_and_respawn_overseer(
         return overseer_container_id, overseer_respawn_count
 
     try:
-        info = spawner.docker.get_container_info(overseer_container_id)
+        info = spawner.backend.get_container_info(overseer_container_id)
         needs_respawn = info.status in (
             ContainerStatus.EXITED,
             ContainerStatus.FAILED,
@@ -193,7 +193,7 @@ def _check_and_respawn_overseer(
         # Capture log tail from the old container before respawning (best-effort).
         log_tail = "unavailable"
         try:
-            log_tail = spawner.docker.get_container_logs(overseer_container_id, tail=20)
+            log_tail = spawner.backend.get_container_logs(overseer_container_id, tail=20)
         except Exception:
             # Container may already be purged — fall back to "unavailable".
             pass
@@ -7555,8 +7555,7 @@ def _run_concurrent_phase(
         for e in executions:
             if e.container_id and e.status.value != "failed":
                 try:
-                    backend_client = spawner.k8s if _RUNTIME == "kubernetes" else spawner.docker
-                    backend_client.stop_container(e.container_id, timeout=10)
+                    spawner.backend.stop_container(e.container_id, timeout=10)
                 except Exception:
                     pass
         logs = "\n".join(
@@ -7571,7 +7570,7 @@ def _run_concurrent_phase(
     # waiting for containers to exit.  If consensus is never reached (timeout
     # or all containers exit first), fall back to exit-code-based completion.
     active_executions = [e for e in executions if e.container_id]
-    docker_client = spawner.k8s if _RUNTIME == "kubernetes" else spawner.docker
+    docker_client = spawner.backend
     all_logs: list[str] = []
     has_failures = [False]  # Mutable container for closure access
     # Lock protects all_logs and has_failures mutations from the
@@ -8342,37 +8341,20 @@ def _spawn_and_wait(
     """
     from models import ContainerInfo, ContainerStatus, PipelinePhase
 
-    if _RUNTIME == "kubernetes":
-        spawned = spawner.spawn_agent_job(
-            pipeline_id=pipeline_id,
-            agent_role=agent_role,
-            issue_number=issue_number,
-            mode=gateway_mode,
-            wait_for_gateway=False,
-            repos=repos,
-            phase=phase,
-            extra_env=sandbox_env,
-            command=sandbox_command,
-            repo_volumes=repo_volumes,
-            branch=branch,
-            extra_mounts=extra_mounts,
-        )
-    else:
-        spawned = spawner.spawn_agent_container(
-            pipeline_id=pipeline_id,
-            agent_role=agent_role,
-            issue_number=issue_number,
-            mode=gateway_mode,
-            wait_for_gateway=False,
-            repos=repos,
-            phase=phase,
-            extra_env=sandbox_env,
-            command=sandbox_command,
-            repo_volumes=repo_volumes,
-            certs_volume=certs_volume,
-            branch=branch,
-            extra_mounts=extra_mounts,
-        )
+    spawned = spawner.spawn_agent_job(
+        pipeline_id=pipeline_id,
+        agent_role=agent_role,
+        issue_number=issue_number,
+        mode=gateway_mode,
+        wait_for_gateway=False,
+        repos=repos,
+        phase=phase,
+        extra_env=sandbox_env,
+        command=sandbox_command,
+        repo_volumes=repo_volumes,
+        branch=branch,
+        extra_mounts=extra_mounts,
+    )
 
     # Record container and agent in phase execution state
     if store is not None:
@@ -8410,7 +8392,7 @@ def _spawn_and_wait(
                 error=str(track_err),
             )
 
-    backend = spawner.k8s if _RUNTIME == "kubernetes" else spawner.docker
+    backend = spawner.backend
     try:
         final_info = backend.wait_for_container(
             spawned.container_info.container_id,
@@ -10792,17 +10774,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         if overseer_container_id:
             try:
                 _spawner = _get_spawner()
-                if _RUNTIME == "kubernetes":
-                    _spawner.stop_agent_job(
-                        overseer_container_id,
-                        cleanup_session=True,
-                    )
-                else:
-                    _spawner.stop_agent_container(
-                        overseer_container_id,
-                        cleanup_session=True,
-                        timeout=10,
-                    )
+                _spawner.stop_agent_job(
+                    overseer_container_id,
+                    cleanup_session=True,
+                    timeout=10,
+                )
                 logger.info(
                     "Overseer container stopped",
                     pipeline_id=pipeline_id,

@@ -168,6 +168,18 @@ class KubernetesSpawner:
         return self._k8s
 
     @property
+    def backend(self) -> KubernetesClient:
+        """Get the container backend client.
+
+        Provides a runtime-agnostic accessor so callers don't need to
+        branch on ``spawner.k8s`` vs ``spawner.docker``.
+        """
+        return self.k8s
+
+    # Backward-compat alias so code that references ``spawner.docker`` still works.
+    docker = backend
+
+    @property
     def gateway(self) -> GatewayClient:
         """Get Gateway client (lazy initialization)."""
         if self._gateway is None:
