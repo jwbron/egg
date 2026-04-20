@@ -1,102 +1,195 @@
-"""Integration tests for babysit escalation mechanisms."""
+"""Integration tests for babysit-pr early-exits and final-push head-move escalation.
 
+After #1748 the legacy ``egg_babysit.escalation`` module is gone. The
+equivalent surfaces now live in ``orchestrator.routes.pipelines``:
+
+* Fork / merged / closed / empty-diff PRs are rejected up-front by the
+  pipeline-creation route — no agents ever spawn, so there is nothing to
+  escalate.
+* The final-push head-move guard (``_verify_pr_head_unchanged``) aborts a
+  cycle when a human commit landed on the PR head mid-cycle; the caller
+  then raises a HITL decision rather than pushing.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from egg_babysit.config import BabysitConfig
-from egg_babysit.escalation import escalate, post_pr_comment
+from flask import Flask
+
+
+@pytest.fixture
+def app():
+    from routes.pipelines import pipelines_bp
+
+    app = Flask(__name__)
+    app.register_blueprint(pipelines_bp)
+    app.config["TESTING"] = True
+    return app
+
+
+@pytest.fixture
+def client(app):
+    return app.test_client()
+
+
+def _pr_state(**overrides):
+    base = {
+        "state": "OPEN",
+        "base_ref": "main",
+        "head_ref": "feature-branch",
+        "head_sha": "abc1234deadbeef",
+        "is_fork": False,
+        "changed_files": 3,
+        "head_repository_name_with_owner": "owner/repo",
+    }
+    base.update(overrides)
+    return base
 
 
 @pytest.mark.integration
-class TestPostPRComment:
-    """Test post_pr_comment with mocked gh CLI."""
+class TestForkPREarlyExit:
+    @patch("routes.pipelines._fetch_pr_state")
+    @patch("routes.pipelines.get_repo_path")
+    @patch("routes.pipelines.get_state_store")
+    def test_fork_message_mentions_gateway_constraint(
+        self, mock_get_store, mock_get_repo_path, mock_fetch, client
+    ):
+        mock_fetch.return_value = _pr_state(
+            is_fork=True,
+            head_repository_name_with_owner="forker/repo",
+        )
+        mock_get_repo_path.return_value = "/tmp/repo"
 
-    @patch("egg_babysit.escalation.subprocess.run")
-    def test_post_pr_comment_success(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-
-        result = post_pr_comment(42, "owner/repo", "Test comment")
-
-        assert result is True
-        mock_run.assert_called_once()
-        call_args = mock_run.call_args
-        cmd = call_args[0][0]
-        assert "gh" in cmd
-        assert "pr" in cmd
-        assert "comment" in cmd
-        assert "42" in cmd
-
-    @patch("egg_babysit.escalation.subprocess.run")
-    def test_post_pr_comment_failure(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Not found")
-
-        result = post_pr_comment(42, "owner/repo", "Test comment")
-
-        assert result is False
-
-    @patch("egg_babysit.escalation.subprocess.run")
-    def test_post_pr_comment_exception(self, mock_run):
-        mock_run.side_effect = OSError("Command not found")
-
-        result = post_pr_comment(42, "owner/repo", "Test comment")
-
-        assert result is False
-
-
-@pytest.mark.integration
-class TestEscalateWithOrchestrator:
-    """Test escalation via orchestrator (mocked)."""
-
-    @patch("egg_babysit.escalation._escalate_via_slack")
-    @patch("egg_babysit.escalation._escalate_via_orchestrator")
-    @patch("egg_babysit.escalation.post_pr_comment")
-    def test_escalate_calls_all_channels(self, mock_comment, mock_orch, mock_slack):
-        """escalate() attempts all notification channels."""
-        mock_comment.return_value = True
-
-        config = BabysitConfig(
-            pr_number=42,
-            repo="owner/repo",
-            orchestrator_url="http://localhost:9800",
-            pipeline_id="pr-42",
+        response = client.post(
+            "/api/v1/pipelines",
+            json={"mode": "babysit", "pr_number": 7, "repo": "owner/repo"},
         )
 
-        escalate(config, "Test reason", "Test context")
+        assert response.status_code == 400
+        body = response.get_json()
+        assert body["details"]["reason"] == "pr_from_fork"
+        # The message should hint at the gateway / push constraint so
+        # operators understand why we refuse.
+        assert "fork" in body["message"].lower()
+        mock_get_store.assert_not_called()
 
-        mock_comment.assert_called_once()
-        mock_orch.assert_called_once()
-        mock_slack.assert_called_once()
 
-    @patch("egg_babysit.escalation._escalate_via_slack")
-    @patch("egg_babysit.escalation._escalate_via_orchestrator")
-    @patch("egg_babysit.escalation.post_pr_comment")
-    def test_escalate_continues_on_failure(self, mock_comment, mock_orch, mock_slack):
-        """If one channel fails, others are still attempted."""
-        mock_comment.return_value = False  # PR comment fails
-        mock_orch.return_value = None
-        mock_slack.return_value = None
+@pytest.mark.integration
+class TestMergedPREarlyExit:
+    @patch("routes.pipelines._fetch_pr_state")
+    @patch("routes.pipelines.get_repo_path")
+    @patch("routes.pipelines.get_state_store")
+    def test_merged_message_is_informative(
+        self, mock_get_store, mock_get_repo_path, mock_fetch, client
+    ):
+        mock_fetch.return_value = _pr_state(state="MERGED")
+        mock_get_repo_path.return_value = "/tmp/repo"
 
-        config = BabysitConfig(pr_number=42, repo="owner/repo")
+        response = client.post(
+            "/api/v1/pipelines",
+            json={"mode": "babysit", "pr_number": 7, "repo": "owner/repo"},
+        )
 
-        # Should not raise even if PR comment fails
-        escalate(config, "Test reason", "Test context")
+        assert response.status_code == 409
+        body = response.get_json()
+        assert body["details"]["reason"] == "pr_merged"
+        assert "merged" in body["message"].lower()
 
-        # All channels should be attempted regardless
-        mock_comment.assert_called_once()
-        mock_orch.assert_called_once()
-        mock_slack.assert_called_once()
 
-    @patch("egg_babysit.escalation.subprocess.run")
-    @patch("egg_babysit.escalation.post_pr_comment")
-    def test_escalate_comment_body_format(self, mock_comment, mock_subprocess):
-        """Escalation comment includes reason and context."""
-        mock_comment.return_value = True
+@pytest.mark.integration
+class TestFinalPushHeadMoveGuard:
+    """``_verify_pr_head_unchanged`` detects mid-cycle human commits."""
 
-        config = BabysitConfig(pr_number=42, repo="owner/repo")
-        escalate(config, "CI keeps failing", "lint job failed 3 times")
+    def _make_pipeline(self, *, branch: str = "feature-x", sha: str = "abc1234deadbeef"):
+        from models import Pipeline, PipelineMode
 
-        call_args = mock_comment.call_args
-        body = call_args[0][2]  # Third positional arg is body
-        assert "CI keeps failing" in body
-        assert "lint job failed 3 times" in body
-        assert "Babysit Escalation" in body
+        return Pipeline(
+            id="pr-42",
+            repo="owner/repo",
+            mode=PipelineMode.BABYSIT,
+            pr_number=42,
+            pr_head_sha=sha,
+            branch=branch,
+            has_contract=False,
+        )
+
+    @patch("routes.pipelines.subprocess.run")
+    def test_head_unchanged_allows_push(self, mock_run):
+        from routes.pipelines import _verify_pr_head_unchanged
+
+        pipeline = self._make_pipeline(sha="abc1234deadbeef")
+
+        # First call: git fetch origin <branch>  (ignored)
+        # Second call: git rev-parse origin/<branch> (returns the same sha)
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="abc1234deadbeef\n", stderr=""),
+        ]
+
+        ok, actual = _verify_pr_head_unchanged(pipeline, Path("/tmp/repo"))
+        assert ok is True
+        assert actual == "abc1234deadbeef"
+
+    @patch("routes.pipelines.subprocess.run")
+    def test_head_moved_signals_abort(self, mock_run):
+        from routes.pipelines import _verify_pr_head_unchanged
+
+        pipeline = self._make_pipeline(sha="abc1234deadbeef")
+
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="def5678cafebabe\n", stderr=""),
+        ]
+
+        ok, actual = _verify_pr_head_unchanged(pipeline, Path("/tmp/repo"))
+        assert ok is False
+        assert actual == "def5678cafebabe"
+
+    @patch("routes.pipelines.subprocess.run")
+    def test_no_stored_sha_skips_check(self, mock_run):
+        """When pr_head_sha is None the helper cannot decide — it returns (True, None).
+
+        This means we do not block the push on a transient state rather
+        than escalating on every cycle where the SHA wasn't captured.
+        """
+        from models import Pipeline, PipelineMode
+        from routes.pipelines import _verify_pr_head_unchanged
+
+        pipeline = Pipeline(
+            id="pr-42",
+            repo="owner/repo",
+            mode=PipelineMode.BABYSIT,
+            pr_number=42,
+            branch="feature-x",
+            has_contract=False,
+            # pr_head_sha intentionally absent
+        )
+
+        ok, actual = _verify_pr_head_unchanged(pipeline, Path("/tmp/repo"))
+        assert ok is True
+        assert actual is None
+        mock_run.assert_not_called()
+
+    @patch("routes.pipelines.subprocess.run")
+    def test_rev_parse_failure_does_not_block(self, mock_run):
+        """A transient git failure returns (True, None) rather than blocking the push.
+
+        We cannot tell whether the head moved, so we do not falsely
+        escalate; the push proceeds and git itself will reject a
+        non-fast-forward attempt.
+        """
+        from routes.pipelines import _verify_pr_head_unchanged
+
+        pipeline = self._make_pipeline(sha="abc1234deadbeef")
+
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=128, stdout="", stderr="fatal: some transient"),
+        ]
+
+        ok, actual = _verify_pr_head_unchanged(pipeline, Path("/tmp/repo"))
+        assert ok is True
+        assert actual is None

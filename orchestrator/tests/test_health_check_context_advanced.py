@@ -27,7 +27,12 @@ def _make_pipeline(
     status: PipelineStatus = PipelineStatus.RUNNING,
     phase: PipelinePhase = PipelinePhase.IMPLEMENT,
     repo: str = "owner/repo",
+    base_branch: str | None = "main",
 ) -> Pipeline:
+    # Default ``base_branch`` to "main" so health-check helpers that resolve
+    # the base ref short-circuit on ``pipeline.base_branch`` instead of
+    # invoking an extra ``git symbolic-ref origin/HEAD`` probe (#1748). Tests
+    # that want to exercise the probe path can pass ``base_branch=None``.
     return Pipeline(
         id="issue-99",
         issue_number=99,
@@ -36,6 +41,7 @@ def _make_pipeline(
         mode="issue",
         status=status,
         current_phase=phase,
+        base_branch=base_branch,
     )
 
 
