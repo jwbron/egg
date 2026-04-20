@@ -53,7 +53,10 @@ class TestEnrichPendingDecisions:
         decisions = [{"decision_type": "choice", "phase": "refine", "question": "Pick option"}]
         status = _make_status(decisions)
 
-        with patch("orchestrator.routes.resolve_worktree_path", return_value=worktree):
+        with (
+            patch("orchestrator.routes.resolve_worktree_repo_path", return_value=worktree),
+            patch("orchestrator.routes.resolve_worktree_path", return_value=worktree),
+        ):
             handler._enrich_pending_decisions(status, "pipeline-1", _make_pipeline_data())
 
         assert status["pending_decisions"][0]["draft_content"] == "# Analysis\nOptions A-E"
@@ -62,7 +65,10 @@ class TestEnrichPendingDecisions:
         decisions = [{"decision_type": "feedback", "phase": "plan", "question": "Review plan"}]
         status = _make_status(decisions, current_phase="plan")
 
-        with patch("orchestrator.routes.resolve_worktree_path", return_value=worktree):
+        with (
+            patch("orchestrator.routes.resolve_worktree_repo_path", return_value=worktree),
+            patch("orchestrator.routes.resolve_worktree_path", return_value=worktree),
+        ):
             handler._enrich_pending_decisions(status, "pipeline-1", _make_pipeline_data())
 
         assert status["pending_decisions"][0]["draft_content"] == "# Plan\nTask breakdown"
@@ -71,7 +77,10 @@ class TestEnrichPendingDecisions:
         decisions = [{"decision_type": "choice", "phase": "implement", "question": "Pick"}]
         status = _make_status(decisions, current_phase="implement")
 
-        with patch("orchestrator.routes.resolve_worktree_path", return_value=worktree):
+        with (
+            patch("orchestrator.routes.resolve_worktree_repo_path", return_value=worktree),
+            patch("orchestrator.routes.resolve_worktree_path", return_value=worktree),
+        ):
             handler._enrich_pending_decisions(status, "pipeline-1", _make_pipeline_data())
 
         assert "draft_content" not in status["pending_decisions"][0]
@@ -88,7 +97,10 @@ class TestEnrichPendingDecisions:
         decisions = [{"decision_type": "phase_gate", "phase": "refine", "question": "Approve?"}]
         status = _make_status(decisions)
 
-        with patch("orchestrator.routes.resolve_worktree_path", return_value=worktree):
+        with (
+            patch("orchestrator.routes.resolve_worktree_repo_path", return_value=worktree),
+            patch("orchestrator.routes.resolve_worktree_path", return_value=worktree),
+        ):
             handler._enrich_pending_decisions(status, "pipeline-1", _make_pipeline_data())
 
         d = status["pending_decisions"][0]
@@ -100,7 +112,10 @@ class TestEnrichPendingDecisions:
         decisions = [{"decision_type": "choice", "phase": "refine", "question": "Pick"}]
         status = _make_status(decisions)
 
-        with patch("orchestrator.routes.resolve_worktree_path", return_value=worktree):
+        with (
+            patch("orchestrator.routes.resolve_worktree_repo_path", return_value=worktree),
+            patch("orchestrator.routes.resolve_worktree_path", return_value=worktree),
+        ):
             handler._enrich_pending_decisions(status, "pipeline-1", _make_pipeline_data())
 
         d = status["pending_decisions"][0]
@@ -123,7 +138,10 @@ class TestEnrichPendingDecisions:
         ]
         status = _make_status(decisions)
 
-        with patch("orchestrator.routes.resolve_worktree_path", return_value=worktree):
+        with (
+            patch("orchestrator.routes.resolve_worktree_repo_path", return_value=worktree),
+            patch("orchestrator.routes.resolve_worktree_path", return_value=worktree),
+        ):
             handler._enrich_pending_decisions(status, "pipeline-1", _make_pipeline_data())
 
         gate = status["pending_decisions"][0]
@@ -135,12 +153,12 @@ class TestEnrichPendingDecisions:
         assert "completed_agents_summary" not in choice
 
     def test_broken_worktree_still_processes_decisions(self, handler):
-        """When resolve_worktree_path raises, decisions are still processed without draft_content."""
+        """When resolve_worktree_repo_path raises, decisions are still processed without draft_content."""
         decisions = [{"decision_type": "choice", "phase": "refine", "question": "Pick"}]
         status = _make_status(decisions)
 
         with patch(
-            "orchestrator.routes.resolve_worktree_path",
+            "orchestrator.routes.resolve_worktree_repo_path",
             side_effect=RuntimeError("worktree not found"),
         ):
             handler._enrich_pending_decisions(status, "pipeline-1", _make_pipeline_data())
@@ -155,6 +173,7 @@ class TestEnrichPendingDecisions:
         status = _make_status(decisions)
 
         with (
+            patch("orchestrator.routes.resolve_worktree_repo_path", return_value=worktree),
             patch("orchestrator.routes.resolve_worktree_path", return_value=worktree),
             patch(
                 "orchestrator.routes.pipelines._read_phase_draft",
@@ -172,8 +191,12 @@ class TestEnrichPendingDecisions:
         decisions = [{"decision_type": "choice", "phase": "refine", "question": "Pick"}]
         status = _make_status(decisions)
 
-        with patch("orchestrator.routes.resolve_worktree_path") as mock_resolve:
+        with (
+            patch("orchestrator.routes.resolve_worktree_repo_path") as mock_repo_resolve,
+            patch("orchestrator.routes.resolve_worktree_path") as mock_resolve,
+        ):
             handler._enrich_pending_decisions(status, "pipeline-1", _make_pipeline_data(repo=""))
 
+        mock_repo_resolve.assert_not_called()
         mock_resolve.assert_not_called()
         assert "draft_content" not in status["pending_decisions"][0]
