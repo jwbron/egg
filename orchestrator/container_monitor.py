@@ -337,9 +337,10 @@ class ContainerMonitor:
     def _attempt_tracker_reconstruction(pipeline_id: str, pipeline: Pipeline) -> bool:
         """Try to reconstruct the consensus tracker from messages.
 
-        Returns True only when Track 1 actually has something useful to do:
-        the tracker was missing and we successfully rebuilt it from
-        messages, so the polling loop can pick it up on the next tick.
+        Returns True when the polling loop can handle things: either the
+        tracker was missing and we successfully rebuilt it from messages,
+        or it exists but reports incomplete (the polling loop will keep
+        watching it).
 
         Returns False (let Track 2 fire) when the tracker already exists
         and reports ``is_complete=True``.  ``ConsensusStallCheck`` only
@@ -347,6 +348,8 @@ class ContainerMonitor:
         tracker is not something the polling loop is going to pick up —
         it already had its chance.  Reconstructing nothing and reporting
         success here is what stalled pipeline ``issue-1748`` (see #1749).
+        Also returns False when ``tracker.evaluate()`` raises, treating
+        the tracker as broken.
         """
         try:
             from peer_consensus import (
