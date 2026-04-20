@@ -5,7 +5,7 @@
   "branch": "egg/issue-1748",
   "base_branch": null,
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -249,136 +249,17 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "failed",
-      "started_at": "2026-04-17T00:32:18.810918Z",
-      "work_started_at": "2026-04-17T00:33:10.768426Z",
-      "completed_at": "2026-04-17T01:24:48.688606Z",
-      "containers": [
-        {
-          "container_id": "c54a1a165e40068dd760ae12d05958afb68866e9e8597630b4d629fa3f0ff251",
-          "container_name": "issue-1748-reviewer_code",
-          "status": "exited",
-          "started_at": "2026-04-17T00:33:13.262803Z",
-          "exited_at": "2026-04-17T01:24:40.493639Z",
-          "exit_code": 1,
-          "agent_role": "reviewer_code",
-          "session_token": null
-        },
-        {
-          "container_id": "d92627b96135aec197baee83bda36bbb89b0b5d08f360a287ebe37df444268cf",
-          "container_name": "issue-1748-documenter",
-          "status": "exited",
-          "started_at": "2026-04-17T00:33:13.262822Z",
-          "exited_at": "2026-04-17T01:24:35.521896Z",
-          "exit_code": 1,
-          "agent_role": "documenter",
-          "session_token": null
-        },
-        {
-          "container_id": "3ef01d6aa5d94412c841b7bf02f0f5355fd6f4d26bded3634ccfb56528bc701d",
-          "container_name": "issue-1748-coder",
-          "status": "exited",
-          "started_at": "2026-04-17T00:33:13.262833Z",
-          "exited_at": "2026-04-17T01:24:33.187740Z",
-          "exit_code": 1,
-          "agent_role": "coder",
-          "session_token": null
-        },
-        {
-          "container_id": "d49f1a66743ffbefd9343f31418cf46e7be95bc08814f9e8739476f70a4e18f5",
-          "container_name": "issue-1748-tester",
-          "status": "exited",
-          "started_at": "2026-04-17T00:33:13.262844Z",
-          "exited_at": "2026-04-17T01:24:48.651292Z",
-          "exit_code": 1,
-          "agent_role": "tester",
-          "session_token": null
-        },
-        {
-          "container_id": "8dfe25e568759f8e13e4da90b3fe68644f7867b7f30e3fd28dfb32ea36f20059",
-          "container_name": "issue-1748-reviewer_contract",
-          "status": "exited",
-          "started_at": "2026-04-17T00:33:13.262853Z",
-          "exited_at": "2026-04-17T01:24:32.948019Z",
-          "exit_code": 1,
-          "agent_role": "reviewer_contract",
-          "session_token": null
-        }
-      ],
-      "agents": [
-        {
-          "role": "reviewer_code",
-          "status": "failed",
-          "container_id": "c54a1a165e40068dd760ae12d05958afb68866e9e8597630b4d629fa3f0ff251",
-          "started_at": "2026-04-17T00:33:13.262814Z",
-          "completed_at": "2026-04-17T01:24:40.517990Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "documenter",
-          "status": "failed",
-          "container_id": "d92627b96135aec197baee83bda36bbb89b0b5d08f360a287ebe37df444268cf",
-          "started_at": "2026-04-17T00:33:13.262827Z",
-          "completed_at": "2026-04-17T01:24:35.542614Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "coder",
-          "status": "failed",
-          "container_id": "3ef01d6aa5d94412c841b7bf02f0f5355fd6f4d26bded3634ccfb56528bc701d",
-          "started_at": "2026-04-17T00:33:13.262838Z",
-          "completed_at": "2026-04-17T01:24:33.215096Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "tester",
-          "status": "failed",
-          "container_id": "d49f1a66743ffbefd9343f31418cf46e7be95bc08814f9e8739476f70a4e18f5",
-          "started_at": "2026-04-17T00:33:13.262848Z",
-          "completed_at": "2026-04-17T01:24:48.667132Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_contract",
-          "status": "failed",
-          "container_id": "8dfe25e568759f8e13e4da90b3fe68644f7867b7f30e3fd28dfb32ea36f20059",
-          "started_at": "2026-04-17T00:33:13.262858Z",
-          "completed_at": "2026-04-17T01:24:32.956826Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        }
-      ],
+      "status": "pending",
+      "started_at": null,
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [
-        {
-          "cycle": 0,
-          "started_at": "2026-04-17T00:33:10.768426Z",
-          "completed_at": "2026-04-17T01:24:48.688504Z",
-          "commit_sha": "645bbca66321cb7e8fc3dabe2cf666ea11e23140"
-        }
-      ],
+      "cycle_timings": [],
       "artifacts": {},
-      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-17T01:24:47.092438976Z     Status: healthy\n2026-04-17T01:24:47.092441309Z     GitHub token valid: True\n2026-04-17T01:24:47.092443893Z     Auth configured: True\n2026-04-17T01:24:47.092446226Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-17T01:24:47.092448726Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-17T01:24:47.092451309Z   Credentials injected by gateway (not in container)\n2026-04-17T01:24:47.092453809Z Signaled error to orchestrator\n2026-04-17T01:24:47.092456184Z \n2026-04-17T01:24:47.092458351Z Cleaning up on container exit...\n2026-04-17T01:24:47.092460809Z ✓ Cleanup complete",
+      "error": null,
       "hitl_feedback": null,
       "phase_start_sha": null
     }
@@ -421,16 +302,16 @@
     }
   ],
   "created_at": "2026-04-16T18:09:13.590628Z",
-  "updated_at": "2026-04-17T01:24:48.689229Z",
+  "updated_at": "2026-04-20T20:05:32.440902Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
-  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-17T01:24:47.092438976Z     Status: healthy\n2026-04-17T01:24:47.092441309Z     GitHub token valid: True\n2026-04-17T01:24:47.092443893Z     Auth configured: True\n2026-04-17T01:24:47.092446226Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-17T01:24:47.092448726Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-17T01:24:47.092451309Z   Credentials injected by gateway (not in container)\n2026-04-17T01:24:47.092453809Z Signaled error to orchestrator\n2026-04-17T01:24:47.092456184Z \n2026-04-17T01:24:47.092458351Z Cleaning up on container exit...\n2026-04-17T01:24:47.092460809Z ✓ Cleanup complete",
+  "error": null,
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
-  "run_epoch": "2026-04-17T00:32:18.810919Z",
-  "version": 33
+  "run_epoch": "2026-04-20T20:05:32.439499Z",
+  "version": 34
 }
