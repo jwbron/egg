@@ -26,8 +26,10 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
-      - name: Build gateway container
-        run: docker build -t egg-gateway -f gateway/Dockerfile .
+      - name: Build containers
+        run: |
+          docker build -t egg-gateway -f gateway/Dockerfile .
+          docker build -t egg-sandbox -f sandbox/Dockerfile .
 
       - name: Set up k3s
         run: |
@@ -42,6 +44,7 @@ jobs:
       - name: Import images into k3s
         run: |
           docker save egg-gateway:latest | sudo k3s ctr images import -
+          docker save egg-sandbox:latest | sudo k3s ctr images import -
 
       - name: Deploy egg to k3s
         run: |

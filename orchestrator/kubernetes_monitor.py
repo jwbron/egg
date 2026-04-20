@@ -166,31 +166,23 @@ class KubernetesMonitor:
             pod_info: Pod information from k8s API
         """
         pod_id = pod_info.pod_name or pod_info.container_id
-        old_status = self._pod_states.get(pod_id)
-        new_status = pod_info.status
+        with self._lock:
+            old_status = self._pod_states.get(pod_id)
+            new_status = pod_info.status
 
-        if old_status != new_status:
+            if old_status == new_status:
+                return
             self._pod_states[pod_id] = new_status
 
-            # Emit appropriate event based on state transition
-            if new_status == ContainerStatus.RUNNING:
-                if old_status is None or old_status == ContainerStatus.PENDING:
-                    self._emit_event(ContainerEvent(ContainerEvent.STARTED, pod_info))
+        # Emit events outside the lock to avoid deadlock with _emit_event
+        if new_status == ContainerStatus.RUNNING:
+            if old_status is None or old_status == ContainerStatus.PENDING:
+                self._emit_event(ContainerEvent(ContainerEvent.STARTED, pod_info))
 
-            elif new_status == ContainerStatus.EXITED:
-                # Succeeded — clean exit
-                if pod_info.exit_code == 0 or pod_info.exit_code is None:
-                    self._emit_event(ContainerEvent(ContainerEvent.STOPPED, pod_info))
-                else:
-                    self._emit_event(
-                        ContainerEvent(
-                            ContainerEvent.FAILED,
-                            pod_info,
-                            data={"exit_code": pod_info.exit_code},
-                        )
-                    )
-
-            elif new_status == ContainerStatus.FAILED:
+        elif new_status == ContainerStatus.EXITED:
+            if pod_info.exit_code == 0:
+                self._emit_event(ContainerEvent(ContainerEvent.STOPPED, pod_info))
+            else:
                 self._emit_event(
                     ContainerEvent(
                         ContainerEvent.FAILED,
@@ -199,8 +191,17 @@ class KubernetesMonitor:
                     )
                 )
 
-            # Fire RUNTIME_TICK health checks on state transitions
-            self._run_runtime_tick_checks()
+        elif new_status == ContainerStatus.FAILED:
+            self._emit_event(
+                ContainerEvent(
+                    ContainerEvent.FAILED,
+                    pod_info,
+                    data={"exit_code": pod_info.exit_code},
+                )
+            )
+
+        # Fire RUNTIME_TICK health checks on state transitions
+        self._run_runtime_tick_checks()
 
     def _run_runtime_tick_checks(self) -> None:
         """Fire RUNTIME_TICK health checks on all running pipelines.
@@ -257,10 +258,14 @@ class KubernetesMonitor:
                 current_ids.add(pod_id)
                 self._check_pod(pod)
 
-            # Check for removed pods
-            removed_ids = set(self._pod_states.keys()) - current_ids
+            # Check for removed pods (hold lock for dict mutation)
+            with self._lock:
+                removed_ids = set(self._pod_states.keys()) - current_ids
+                for pod_id in removed_ids:
+                    del self._pod_states[pod_id]
+                    # Prune from _clean_exit_skipped to prevent unbounded growth
+                    self._clean_exit_skipped.discard(pod_id)
             for pod_id in removed_ids:
-                del self._pod_states[pod_id]
                 logger.info("Pod removed", pod_id=pod_id)
 
         except KubernetesClientError as e:
@@ -479,7 +484,8 @@ class KubernetesMonitor:
         Returns:
             Cached status or None if not tracked
         """
-        return self._pod_states.get(pod_id)
+        with self._lock:
+            return self._pod_states.get(pod_id)
 
     def _get_pod_exit_code(self, container_id: str) -> int | None:
         """Get the exit code of a pod that is no longer in the live list.

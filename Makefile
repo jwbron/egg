@@ -349,8 +349,9 @@ k3s-setup:  ## Install k3s with Calico CNI
 
 deploy:  ## Deploy egg to k3s
 	@echo "Deploying to k3s..."
-	kubectl apply -k k8s/overlays/local/
-	kubectl -n egg-system wait --for=condition=Available deployment/egg-orchestrator --timeout=120s
+	export KUBECONFIG=$${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml} && \
+	kubectl apply -k k8s/overlays/local/ && \
+	kubectl -n egg-system wait --for=condition=Available deployment/egg-orchestrator --timeout=120s && \
 	kubectl -n egg-system wait --for=condition=Available deployment/egg-gateway --timeout=120s
 	@echo "Deployment complete"
 
