@@ -329,8 +329,12 @@ lint-yaml-fix:
 # ============================================================================
 
 build:
+	@echo "==> Preparing sandbox build context (repo-deps marker)..."
+	@mkdir -p repo-deps && touch repo-deps/.empty
 	@echo "==> Building gateway container..."
 	docker build -t egg-gateway -f gateway/Dockerfile .
+	@echo "==> Building orchestrator container..."
+	docker build -t egg-orchestrator -f orchestrator/Dockerfile .
 	@echo "==> Building sandbox container..."
 	docker build -t egg-sandbox -f sandbox/Dockerfile .
 
@@ -357,6 +361,7 @@ deploy:  ## Deploy egg to k3s
 
 k3s-import:  ## Import built images into k3s
 	docker save egg-gateway:latest | sudo k3s ctr images import -
+	docker save egg-orchestrator:latest | sudo k3s ctr images import -
 	docker save egg-sandbox:latest | sudo k3s ctr images import -
 
 k3s-teardown:  ## Remove k3s

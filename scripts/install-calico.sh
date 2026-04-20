@@ -7,13 +7,13 @@
 #
 set -euo pipefail
 
-CALICO_VERSION="${CALICO_VERSION:-v3.27.2}"
+CALICO_VERSION="${CALICO_VERSION:-v3.31.5}"
 CALICO_MANIFEST_URL="https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/calico.yaml"
 
-# SHA256 checksum for the known-good v3.27.2 manifest.
+# SHA256 checksum for the known-good v3.31.5 manifest.
 # Update this hash when bumping CALICO_VERSION.
 CALICO_MANIFEST_SHA256="${CALICO_MANIFEST_SHA256:-}"
-CALICO_V3_27_2_SHA256="0c4e487843662adf76e9e0e0e57e2bb73d92c2f4c42f7e1d7df48f8f4fcb2bb4"
+CALICO_V3_31_5_SHA256="d45842abe9f95afb4d346278eafb2e454dacdfb502d48cf1d5cede71a9046997"
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -62,8 +62,8 @@ if ! curl -fsSL "$CALICO_MANIFEST_URL" -o "$TMPFILE"; then
 fi
 
 # Verify checksum when using the default version and no override is set
-if [ -z "$CALICO_MANIFEST_SHA256" ] && [ "$CALICO_VERSION" = "v3.27.2" ]; then
-    CALICO_MANIFEST_SHA256="$CALICO_V3_27_2_SHA256"
+if [ -z "$CALICO_MANIFEST_SHA256" ] && [ "$CALICO_VERSION" = "v3.31.5" ]; then
+    CALICO_MANIFEST_SHA256="$CALICO_V3_31_5_SHA256"
 fi
 
 if [ -n "$CALICO_MANIFEST_SHA256" ]; then
