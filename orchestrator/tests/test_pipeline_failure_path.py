@@ -698,7 +698,7 @@ class TestContractPushHardGate:
     @patch(_COMMON_PATCHES[2])
     @patch(_COMMON_PATCHES[1])
     @patch(_COMMON_PATCHES[0])
-    def test_pipeline_fails_when_contract_push_fails_after_retry(
+    def test_pipeline_fails_when_contract_push_fails(
         self,
         mock_emit,
         mock_get_spawner,
@@ -711,7 +711,7 @@ class TestContractPushHardGate:
         mock_commit_statefiles,
         mock_auto_create_pr,
     ):
-        """When push_worktree_branch fails twice (initial + retry), the pipeline
+        """When push_worktree_branch fails (reconcile is internal), the pipeline
         should be marked FAILED and no agents should be spawned."""
         from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
 
@@ -770,11 +770,12 @@ class TestContractPushHardGate:
             "Pipeline should be marked FAILED when contract push fails after retry"
         )
 
-        # push_worktree_branch should be called twice (initial + retry).
+        # push_worktree_branch is called once — reconcile (fetch+rebase+retry)
+        # is now internal to the client, so no outer retry loop.
         # Stale draft cleanup does not push (no drafts dir in test worktree).
         push_calls = mock_gateway.push_worktree_branch.call_args_list
-        assert len(push_calls) == 2, (
-            f"Expected 2 push attempts (initial + retry), got {len(push_calls)}"
+        assert len(push_calls) == 1, (
+            f"Expected 1 push attempt (reconcile is internal), got {len(push_calls)}"
         )
 
         # No agents should be spawned after push failure
@@ -790,7 +791,7 @@ class TestContractPushHardGate:
     @patch(_COMMON_PATCHES[2])
     @patch(_COMMON_PATCHES[1])
     @patch(_COMMON_PATCHES[0])
-    def test_pipeline_continues_when_contract_push_succeeds_on_retry(
+    def test_pipeline_continues_when_contract_push_succeeds(
         self,
         mock_emit,
         mock_get_spawner,
@@ -803,7 +804,7 @@ class TestContractPushHardGate:
         mock_commit_statefiles,
         mock_auto_create_pr,
     ):
-        """When push fails first but succeeds on retry, the pipeline should continue."""
+        """When push succeeds (possibly via internal reconcile), the pipeline continues."""
         from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
 
         pipeline = Pipeline(
@@ -833,8 +834,8 @@ class TestContractPushHardGate:
             pipeline,
         )
 
-        # Fail first, succeed on retry
-        mock_gateway.push_worktree_branch.side_effect = [False, True]
+        # Succeed (reconcile is internal to push_worktree_branch)
+        mock_gateway.push_worktree_branch.return_value = True
         mock_spawn_wait.return_value = (0, "success")
 
         worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"

@@ -9126,27 +9126,21 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             )
                 if worktree_repo_path != repo_path:
                     push_err_msg = ""
-                    for attempt in range(2):
-                        try:
-                            push_succeeded = spawner.gateway.push_worktree_branch(
-                                pipeline_id=pipeline_id,
-                                repo_path=str(worktree_repo_path),
-                                branch=push_branch,
-                                mode=gateway_mode,
-                            )
-                            if push_succeeded:
-                                break
+                    # push_worktree_branch reconciles non-fast-forward
+                    # rejections internally (fetch+rebase+retry), so a
+                    # single call is sufficient — no outer retry needed.
+                    try:
+                        push_succeeded = spawner.gateway.push_worktree_branch(
+                            pipeline_id=pipeline_id,
+                            repo_path=str(worktree_repo_path),
+                            branch=push_branch,
+                            mode=gateway_mode,
+                        )
+                        if not push_succeeded:
                             push_err_msg = "push_worktree_branch returned False"
-                        except Exception as push_err:
-                            push_succeeded = False
-                            push_err_msg = str(push_err)
-                        if attempt == 0 and not push_succeeded:
-                            logger.warning(
-                                "Contract init push failed, retrying",
-                                pipeline_id=pipeline_id,
-                                error=push_err_msg,
-                            )
-                            time.sleep(2)
+                    except Exception as push_err:
+                        push_succeeded = False
+                        push_err_msg = str(push_err)
 
                     if not push_succeeded:
                         logger.error(

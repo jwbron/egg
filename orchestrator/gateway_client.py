@@ -655,6 +655,12 @@ class GatewayClient:
         # mutates the checkout at repo_path, which we only want to do when
         # that checkout is a dedicated pipeline worktree.
         if ref is not None:
+            logger.warning(
+                "Push failed for ref-based push (no reconcile available)",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                ref=ref,
+            )
             return False
 
         return self._reconcile_and_retry_push(
