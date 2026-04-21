@@ -1,7 +1,7 @@
 """Tests for container_monitor runtime reconciliation handler."""
 
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -53,7 +53,14 @@ from models import (
 
 
 def _make_pipeline_with_running_agent(container_id: str = "abc123") -> Pipeline:
-    """Return a RUNNING pipeline with one RUNNING coder agent."""
+    """Return a RUNNING pipeline with one RUNNING coder agent.
+
+    The agent's ``started_at`` is deliberately set 10 minutes in the
+    past so that reconciliation tests bypass the 60-second
+    ``POD_STARTUP_GRACE_SECONDS`` window (see #1760). Tests that
+    specifically exercise grace-period behavior set ``started_at``
+    explicitly.
+    """
     pipeline = Pipeline(
         id="issue-99",
         issue_number=99,
@@ -67,12 +74,13 @@ def _make_pipeline_with_running_agent(container_id: str = "abc123") -> Pipeline:
     phase.status = PipelineStatus.RUNNING
     phase.started_at = datetime.now(UTC)
 
+    past = datetime.now(UTC) - timedelta(minutes=10)
     phase.containers.append(
         ContainerInfo(
             container_id=container_id,
             container_name="egg-coder-issue-99",
             status=ContainerStatus.RUNNING,
-            started_at=datetime.now(UTC),
+            started_at=past,
         )
     )
     phase.agents.append(
@@ -80,7 +88,7 @@ def _make_pipeline_with_running_agent(container_id: str = "abc123") -> Pipeline:
             role=AgentRole.CODER,
             status=AgentExecutionStatus.RUNNING,
             container_id=container_id,
-            started_at=datetime.now(UTC),
+            started_at=past,
         )
     )
     return pipeline
@@ -655,6 +663,8 @@ class TestPeriodicReconciliation:
 
     def test_logs_missing_container_info(self):
         """Loop logs debug message when agent has no matching ContainerInfo."""
+        from kubernetes_client import PodNotFoundError
+
         container_id = "orphan_agent_abc"
         pipeline = Pipeline(
             id="issue-300",
@@ -668,19 +678,22 @@ class TestPeriodicReconciliation:
         phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         phase.status = PipelineStatus.RUNNING
         phase.started_at = datetime.now(UTC)
+        past = datetime.now(UTC) - timedelta(minutes=10)
         # Agent has a container_id but no matching ContainerInfo in phase.containers
         phase.agents.append(
             AgentExecution(
                 role=AgentRole.CODER,
                 status=AgentExecutionStatus.RUNNING,
                 container_id=container_id,
-                started_at=datetime.now(UTC),
+                started_at=past,
             )
         )
         store = _make_store(pipeline)
 
         mock_docker = MagicMock()
         mock_docker.list_containers.return_value = []
+        # Pod is gone — required to progress past the termination check.
+        mock_docker.get_container_info.side_effect = PodNotFoundError("gone")
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
@@ -767,19 +780,25 @@ class TestPeriodicReconciliation:
             # SHOULD have called _reconcile — non-zero exit
             mock_reconcile.assert_called()
 
-    def test_reconciles_when_exit_code_unknown(self):
-        """Loop reconciles when container exit code cannot be determined.
+    def test_reconciles_when_pod_gone(self):
+        """PodNotFoundError from get_container_info reconciles as FAILED.
 
-        If get_container_info raises, we err on the side of reconciling.
+        After the issue #1760 fix, reconciliation requires either a
+        confirmed-terminated status or a ``PodNotFoundError`` — a
+        generic API error (which may be transient) leaves the sweep
+        to try again, rather than falsely marking a still-alive pod
+        as FAILED. This test covers the "pod is truly gone" branch.
         """
-        container_id = "unknown_exit_abc"
+        from kubernetes_client import PodNotFoundError
+
+        container_id = "gone_abc"
         pipeline = _make_pipeline_with_running_agent(container_id)
         store = _make_store(pipeline)
 
         mock_docker = MagicMock()
         mock_docker.list_containers.return_value = []
-        # Docker can't inspect the container (already removed)
-        mock_docker.get_container_info.side_effect = DockerClientError("container removed")
+        # Pod has been deleted — PodNotFoundError surfaces from the API
+        mock_docker.get_container_info.side_effect = PodNotFoundError("pod gone")
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
@@ -790,9 +809,33 @@ class TestPeriodicReconciliation:
 
             _run_one_reconciliation_sweep(monitor)
 
-            # SHOULD have called _reconcile — unknown exit code errs on caution
             mock_reconcile.assert_called()
-            # Verify the correct store and container were reconciled
             call_args = mock_reconcile.call_args
-            assert call_args[0][0] is store  # first positional arg is the store
+            assert call_args[0][0] is store
             assert call_args[0][1].container_id == container_id
+
+    def test_skips_on_transient_api_error(self):
+        """A transient API error skips reconciliation for this sweep.
+
+        Regression guard for #1760: the old code reconciled when the
+        exit-code lookup raised *any* error, which produced false
+        positives when a running pod's status was briefly unavailable.
+        """
+        container_id = "flaky_abc"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        store = _make_store(pipeline)
+
+        mock_docker = MagicMock()
+        mock_docker.list_containers.return_value = []
+        mock_docker.get_container_info.side_effect = DockerClientError("transient API error")
+
+        monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
+
+        with patch("kubernetes_monitor._reconcile_pod_state") as mock_reconcile:
+            monitor._reconciliation_stores = [store]
+            monitor._reconciliation_running = True
+            monitor._reconciliation_interval = 0.01
+
+            _run_one_reconciliation_sweep(monitor)
+
+            mock_reconcile.assert_not_called()

@@ -33,6 +33,8 @@ except ImportError:
 
 
 from kubernetes_client import (
+    DEFAULT_NAMESPACE,
+    LABEL_ORCHESTRATOR,
     KubernetesClient,
     KubernetesClientError,
     PodNotFoundError,
@@ -41,6 +43,13 @@ from kubernetes_client import (
 from models import ContainerInfo, ContainerStatus
 
 logger = get_logger("orchestrator.kubernetes_monitor")
+
+# Newly-spawned agent pods may briefly appear "missing" to the
+# periodic reconciler while the pod transitions through Pending /
+# ContainerCreating (image resolution, volume mounts, Agent SDK
+# handshake). Skip reconciliation for agents younger than this so
+# those benign race windows do not trip a FAILED verdict. See #1760.
+POD_STARTUP_GRACE_SECONDS = 60
 
 
 class ContainerEvent:
@@ -345,98 +354,12 @@ class KubernetesMonitor:
 
     def _reconciliation_loop(self) -> None:
         """Background loop for periodic pod reconciliation."""
-        from models import AgentExecutionStatus, PipelineStatus
-
         # Sleep before the first sweep
         time.sleep(self._reconciliation_interval)
 
         while self._reconciliation_running:
             try:
-                live_pods = self.k8s_client.list_containers(all=False)
-                live_ids: set[str] = set()
-                for pod in live_pods:
-                    live_ids.add(pod.container_id)
-                    if pod.pod_name:
-                        live_ids.add(pod.pod_name)
-                    if pod.job_name:
-                        live_ids.add(pod.job_name)
-
-                for store in self._reconciliation_stores:
-                    try:
-                        pipeline_ids: list[str] = store.list_pipelines()
-                    except Exception as e:
-                        logger.warning(
-                            "Periodic reconciliation: could not list pipelines",
-                            error=str(e),
-                        )
-                        continue
-
-                    for pipeline_id in pipeline_ids:
-                        try:
-                            pipeline = store.load_pipeline(pipeline_id)
-                        except Exception:
-                            continue
-
-                        if pipeline.status != PipelineStatus.RUNNING:
-                            continue
-
-                        current_phase_key = pipeline.current_phase.value
-                        phase_execution = pipeline.phases.get(current_phase_key)
-                        if phase_execution is None:
-                            continue
-
-                        for agent in phase_execution.agents:
-                            if (
-                                agent.status == AgentExecutionStatus.RUNNING
-                                and agent.container_id
-                                and agent.container_id not in live_ids
-                            ):
-                                # Check actual exit code
-                                actual_exit_code = self._get_pod_exit_code(agent.container_id)
-                                if actual_exit_code == 0:
-                                    if agent.container_id not in self._clean_exit_skipped:
-                                        logger.info(
-                                            "Pod exited cleanly (code 0), "
-                                            "skipping FAILED reconciliation",
-                                            pipeline_id=pipeline_id,
-                                            container_id=agent.container_id,
-                                            agent_role=str(agent.role),
-                                        )
-                                        self._clean_exit_skipped.add(agent.container_id)
-                                    continue
-
-                                if actual_exit_code == 143 and (
-                                    phase_execution.status != PipelineStatus.RUNNING
-                                ):
-                                    if agent.container_id not in self._clean_exit_skipped:
-                                        logger.info(
-                                            "Pod received SIGTERM during phase "
-                                            "transition (exit 143), skipping FAILED "
-                                            "reconciliation",
-                                            pipeline_id=pipeline_id,
-                                            container_id=agent.container_id,
-                                            agent_role=str(agent.role),
-                                        )
-                                        self._clean_exit_skipped.add(agent.container_id)
-                                    continue
-
-                                # Find matching ContainerInfo
-                                matching_ci = None
-                                for ci in phase_execution.containers:
-                                    if ci.container_id == agent.container_id:
-                                        matching_ci = ci
-                                        break
-
-                                if matching_ci is not None:
-                                    _reconcile_pod_state(store, matching_ci)
-                                else:
-                                    logger.debug(
-                                        "Stale agent has no matching ContainerInfo",
-                                        pipeline_id=pipeline_id,
-                                        container_id=agent.container_id,
-                                        agent_role=str(agent.role),
-                                    )
-
+                self._reconciliation_sweep()
             except Exception as e:
                 logger.warning(
                     "Periodic reconciliation sweep failed",
@@ -444,6 +367,187 @@ class KubernetesMonitor:
                 )
 
             time.sleep(self._reconciliation_interval)
+
+    def _reconciliation_sweep(self) -> None:
+        """Run one pass of periodic reconciliation across all stores.
+
+        Extracted from ``_reconciliation_loop`` so that individual sweeps
+        can be exercised deterministically in unit tests.
+        """
+        from models import AgentExecutionStatus, PipelineStatus
+
+        live_pods = self.k8s_client.list_containers(all=False)
+        live_ids: set[str] = set()
+        for pod in live_pods:
+            live_ids.add(pod.container_id)
+            if pod.pod_name:
+                live_ids.add(pod.pod_name)
+            if pod.job_name:
+                live_ids.add(pod.job_name)
+
+        # Agents register ``container_id`` as the Job UID
+        # (``create_container`` returns ``job.metadata.uid``),
+        # but ``list_containers`` returns *pod* UIDs. Without
+        # also indexing Job UIDs, every running agent is
+        # perpetually identified as "missing" and the next
+        # block's detection path runs on every sweep.
+        namespace = getattr(self.k8s_client, "namespace", DEFAULT_NAMESPACE)
+        try:
+            live_jobs = self.k8s_client.list_jobs(
+                namespace,
+                label_selector=f"{LABEL_ORCHESTRATOR}=true",
+            )
+            for job in live_jobs:
+                live_ids.add(job.container_id)
+                if job.job_name:
+                    live_ids.add(job.job_name)
+        except Exception as e:
+            logger.debug(
+                "Periodic reconciliation: list_jobs failed; live_ids will miss Job UIDs this sweep",
+                error=str(e),
+            )
+
+        now = datetime.now(UTC)
+
+        for store in self._reconciliation_stores:
+            try:
+                pipeline_ids: list[str] = store.list_pipelines()
+            except Exception as e:
+                logger.warning(
+                    "Periodic reconciliation: could not list pipelines",
+                    error=str(e),
+                )
+                continue
+
+            for pipeline_id in pipeline_ids:
+                try:
+                    pipeline = store.load_pipeline(pipeline_id)
+                except Exception:
+                    continue
+
+                if pipeline.status != PipelineStatus.RUNNING:
+                    continue
+
+                current_phase_key = pipeline.current_phase.value
+                phase_execution = pipeline.phases.get(current_phase_key)
+                if phase_execution is None:
+                    continue
+
+                for agent in phase_execution.agents:
+                    if not (
+                        agent.status == AgentExecutionStatus.RUNNING
+                        and agent.container_id
+                        and agent.container_id not in live_ids
+                    ):
+                        continue
+
+                    # Grace period for newly-spawned agents.
+                    # Pods transition Pending → ContainerCreating
+                    # → Running over ~5–30s; reconciling during
+                    # that window produces false positives.
+                    if agent.started_at is not None:
+                        age = (now - agent.started_at).total_seconds()
+                        if age < POD_STARTUP_GRACE_SECONDS:
+                            continue
+
+                    # Defense-in-depth: before marking FAILED,
+                    # confirm the pod is actually terminated.
+                    # A pod is genuinely exited only when its
+                    # container has ``state.terminated`` set —
+                    # Pending / Running / CreateContainerConfigError
+                    # (waiting) are not exits. See #1760.
+                    pod_gone = False
+                    info: ContainerInfo | None = None
+                    try:
+                        info = self.k8s_client.get_container_info(agent.container_id)
+                    except PodNotFoundError:
+                        pod_gone = True
+                    except KubernetesClientError as e:
+                        logger.debug(
+                            "Reconciliation: could not fetch pod info, skipping this sweep",
+                            container_id=agent.container_id,
+                            error=str(e),
+                        )
+                        continue
+
+                    actual_exit_code: int | None = None
+                    if info is not None:
+                        if info.status in (
+                            ContainerStatus.PENDING,
+                            ContainerStatus.CREATING,
+                            ContainerStatus.RUNNING,
+                        ):
+                            logger.debug(
+                                "Reconciliation: pod still alive, skipping FAILED reconciliation",
+                                pipeline_id=pipeline_id,
+                                container_id=agent.container_id[:12],
+                                pod_status=info.status.value,
+                            )
+                            continue
+                        # EXITED / FAILED / REMOVED — the pod has
+                        # reached a terminal state. Require exited_at
+                        # to guard against partial status where only
+                        # phase was mapped.
+                        if info.exited_at is None:
+                            logger.debug(
+                                "Reconciliation: terminal status "
+                                "without exited_at, skipping this sweep",
+                                pipeline_id=pipeline_id,
+                                container_id=agent.container_id[:12],
+                                pod_status=info.status.value,
+                            )
+                            continue
+                        actual_exit_code = info.exit_code
+
+                    if actual_exit_code == 0:
+                        if agent.container_id not in self._clean_exit_skipped:
+                            logger.info(
+                                "Pod exited cleanly (code 0), skipping FAILED reconciliation",
+                                pipeline_id=pipeline_id,
+                                container_id=agent.container_id,
+                                agent_role=str(agent.role),
+                            )
+                            self._clean_exit_skipped.add(agent.container_id)
+                        continue
+
+                    if actual_exit_code == 143 and (
+                        phase_execution.status != PipelineStatus.RUNNING
+                    ):
+                        if agent.container_id not in self._clean_exit_skipped:
+                            logger.info(
+                                "Pod received SIGTERM during phase "
+                                "transition (exit 143), skipping FAILED "
+                                "reconciliation",
+                                pipeline_id=pipeline_id,
+                                container_id=agent.container_id,
+                                agent_role=str(agent.role),
+                            )
+                            self._clean_exit_skipped.add(agent.container_id)
+                        continue
+
+                    matching_ci = None
+                    for ci in phase_execution.containers:
+                        if ci.container_id == agent.container_id:
+                            matching_ci = ci
+                            break
+
+                    if matching_ci is not None:
+                        logger.warning(
+                            "Reconciliation: pod terminated, marking agent FAILED",
+                            pipeline_id=pipeline_id,
+                            container_id=agent.container_id[:12],
+                            agent_role=str(agent.role),
+                            exit_code=actual_exit_code,
+                            pod_gone=pod_gone,
+                        )
+                        _reconcile_pod_state(store, matching_ci)
+                    else:
+                        logger.debug(
+                            "Stale agent has no matching ContainerInfo",
+                            pipeline_id=pipeline_id,
+                            container_id=agent.container_id,
+                            agent_role=str(agent.role),
+                        )
 
     def stop(self) -> None:
         """Stop the monitor and periodic reconciliation."""
