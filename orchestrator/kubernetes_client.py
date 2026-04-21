@@ -868,8 +868,14 @@ class KubernetesClient:
         """Resolve a container_id to a Job name.
 
         If *container_id* already starts with the job prefix it is used
-        as-is; otherwise we try to find a job whose UID matches.  As a
-        last resort the raw value is returned.
+        as-is; otherwise we try to find a Job whose UID matches, then
+        fall back to treating the value as a Pod UID and resolving its
+        owning Job. As a last resort the raw value is returned.
+
+        The Pod-UID path exists because ``list_containers`` (which backs
+        ``mcp__egg__list_containers``) reports ``pod.metadata.uid`` as
+        the ``container_id``, so round-tripping that ID through any
+        container-id-keyed endpoint lands here with a Pod UID.
 
         Raises:
             InvalidNameError: If container_id is empty or contains
@@ -887,7 +893,7 @@ class KubernetesClient:
         if container_id.startswith(self.JOB_PREFIX):
             return container_id
 
-        # Attempt UID lookup
+        # Attempt Job UID lookup
         try:
             jobs = self.batch_api.list_namespaced_job(
                 namespace=self.namespace,
@@ -896,6 +902,29 @@ class KubernetesClient:
             for job in jobs.items:
                 if job.metadata.uid == container_id:
                     return job.metadata.name
+        except Exception:
+            pass
+
+        # Attempt Pod UID lookup — list_containers hands out Pod UIDs,
+        # so callers routinely pass them back in. Prefer the Job's
+        # owner_reference since it survives label-scheme changes across
+        # k8s versions (batch.kubernetes.io/job-name vs job-name).
+        try:
+            pods = self.core_api.list_namespaced_pod(
+                namespace=self.namespace,
+                label_selector=f"{LABEL_ORCHESTRATOR}=true",
+            )
+            for pod in pods.items:
+                if pod.metadata.uid != container_id:
+                    continue
+                for owner in pod.metadata.owner_references or []:
+                    if owner.kind == "Job" and owner.name:
+                        return owner.name
+                labels = pod.metadata.labels or {}
+                for key in ("job-name", "batch.kubernetes.io/job-name"):
+                    if labels.get(key):
+                        return labels[key]
+                break
         except Exception:
             pass
 

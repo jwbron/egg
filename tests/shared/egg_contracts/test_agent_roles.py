@@ -806,3 +806,61 @@ class TestUtilityRoleFileAccess:
         """INSPECTOR role exists with INTERFACE category."""
         defn = get_role_definition(AgentRole.INSPECTOR)
         assert defn.category == AgentCategory.INTERFACE
+
+
+# ---------------------------------------------------------------------------
+# get_contract_role() — fine → coarse role mapping (#1766)
+# ---------------------------------------------------------------------------
+
+
+class TestGetContractRole:
+    """Verify fine-grained AgentRole → coarse contract Role translation."""
+
+    def test_every_fine_role_maps(self):
+        """Every AgentRole has a coarse contract Role — prevents regression
+        where a new fine role silently 403s on the contract API."""
+        from egg_contracts.agent_roles import (
+            AGENT_ROLE_TO_CONTRACT_ROLE,
+            get_contract_role,
+        )
+
+        for fine_role in AgentRole:
+            assert fine_role in AGENT_ROLE_TO_CONTRACT_ROLE, (
+                f"AgentRole.{fine_role.name} has no contract-role mapping"
+            )
+            assert get_contract_role(fine_role) is not None
+
+    @pytest.mark.parametrize(
+        ("fine", "coarse"),
+        [
+            (AgentRole.CODER, "implementer"),
+            (AgentRole.REFINER, "implementer"),
+            (AgentRole.TASK_PLANNER, "implementer"),
+            (AgentRole.AUTOFIXER, "implementer"),
+            (AgentRole.REVIEWER_CODE, "reviewer"),
+            (AgentRole.REVIEWER_PLAN, "reviewer"),
+            (AgentRole.OVERSEER, "system"),
+            (AgentRole.INSPECTOR, "system"),
+        ],
+    )
+    def test_mapping_values(self, fine, coarse):
+        """Spot-check a few representative mappings."""
+        from egg_contracts.agent_roles import get_contract_role
+
+        result = get_contract_role(fine)
+        assert result is not None
+        assert result.value == coarse
+
+    def test_accepts_string_input(self):
+        """String input (as shipped from session metadata) resolves."""
+        from egg_contracts.agent_roles import get_contract_role
+
+        result = get_contract_role("refiner")
+        assert result is not None
+        assert result.value == "implementer"
+
+    def test_unknown_string_returns_none(self):
+        """Unknown role strings return None rather than raising."""
+        from egg_contracts.agent_roles import get_contract_role
+
+        assert get_contract_role("not_a_role") is None

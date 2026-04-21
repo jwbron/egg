@@ -513,8 +513,11 @@ class SessionManager:
                 error=str(e),
             )
             # Clean up temp file if it exists
-            if temp_file.exists():
-                temp_file.unlink(missing_ok=True)
+            try:
+                if temp_file.exists():
+                    temp_file.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def register_session(
         self,
