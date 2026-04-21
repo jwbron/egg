@@ -376,6 +376,7 @@ class TestPollingLoopWithNacks:
 class TestTimeoutWithNacks:
     """Timeout path must return failure when NACKs are unresolved."""
 
+    @pytest.mark.timeout(60)
     @patch("routes.pipelines.time.sleep")
     @patch("routes.pipelines.time.monotonic")
     @patch("routes.pipelines._emit_event")
