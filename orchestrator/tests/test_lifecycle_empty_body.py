@@ -97,6 +97,25 @@ class TestEmptyBodyDoesNotCrashLifecycleRoutes:
         mock_get_store.assert_not_called()
 
     @patch("routes.phases.get_state_store_for_pipeline")
+    def test_fail_phase_empty_body_returns_clear_error(self, mock_get_store, client):
+        """fail_phase requires error — empty body must return the
+        'Missing error message' domain error, not a JSON parse 400.
+        """
+        pipeline = _make_pipeline(
+            phase=PipelinePhase.IMPLEMENT, phase_status=PipelineStatus.RUNNING
+        )
+        mock_get_store.return_value = (MagicMock(), pipeline)
+
+        resp = client.post(
+            "/api/v1/pipelines/issue-42/phase/fail",
+            data=b"",
+            content_type="application/json",
+        )
+
+        assert resp.status_code == 400
+        assert b"error" in resp.data.lower()
+
+    @patch("routes.phases.get_state_store_for_pipeline")
     def test_start_phase_empty_body(self, mock_get_store, client):
         """start_phase takes no body — empty body must not 400."""
         pipeline = _make_pipeline(
@@ -119,7 +138,12 @@ class TestEmptyBodyDoesNotCrashLifecycleRoutes:
     def test_populate_contract_empty_body(
         self, mock_get_store, mock_resolve_wt, _mock_populate, client
     ):
-        """populate_contract takes no body — empty body must not 400."""
+        """populate_contract takes no body — empty body must not 400.
+
+        Note: this route never calls get_json(), so it is not vulnerable to
+        the #1787 bug directly. This is a structural smoke test confirming
+        that sending an empty body doesn't cause unexpected failures.
+        """
         pipeline = _make_pipeline()
         mock_store = MagicMock()
         mock_store.repo_path = Path("/tmp/repo")

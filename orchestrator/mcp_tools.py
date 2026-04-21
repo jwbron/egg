@@ -1455,7 +1455,11 @@ class PipelineToolHandler:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {token}",
             }
-            body = json.dumps(data).encode() if data else None
+            # Same GET/non-GET split as _make_request — see #1787.
+            if method == "GET":
+                body = json.dumps(data).encode() if data else None
+            else:
+                body = json.dumps(data if data is not None else {}).encode()
             opener = build_opener(ProxyHandler({}))
             req = Request(url, data=body, headers=headers, method=method)
             with opener.open(req, timeout=timeout) as response:

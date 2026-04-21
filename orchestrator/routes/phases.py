@@ -687,7 +687,9 @@ def fail_phase(pipeline_id: str) -> tuple[Response, int]:
             "message": "Phase marked as failed"
         }
     """
-    data = request.get_json() or {}
+    # silent=True: tolerate empty body with Content-Type: application/json.
+    # Same defense-in-depth as advance_phase — see #1787.
+    data = request.get_json(silent=True) or {}
 
     error_message = data.get("error")
     if not error_message:
