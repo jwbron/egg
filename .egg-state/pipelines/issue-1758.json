@@ -5,7 +5,7 @@
   "branch": "egg/issue-1758",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -53,10 +53,10 @@
         {
           "container_id": "d1dd2bf5-6189-46ff-8c62-f17a4fb40289",
           "container_name": "issue-1758-refiner",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-21T03:30:52.967517Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-21T03:31:14.972671Z",
+          "exit_code": -1,
           "agent_role": "refiner",
           "session_token": null,
           "pod_name": null,
@@ -93,13 +93,13 @@
       "agents": [
         {
           "role": "refiner",
-          "status": "running",
+          "status": "failed",
           "container_id": "d1dd2bf5-6189-46ff-8c62-f17a4fb40289",
           "started_at": "2026-04-21T03:30:52.967524Z",
-          "completed_at": null,
+          "completed_at": "2026-04-21T03:31:14.972710Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pod exited unexpectedly during execution — detected by Kubernetes runtime monitor",
           "retry_count": 0,
           "conflicts": []
         },
@@ -146,18 +146,18 @@
   },
   "decisions": [],
   "created_at": "2026-04-21T03:30:18.551629Z",
-  "updated_at": "2026-04-21T03:30:52.967608Z",
+  "updated_at": "2026-04-21T03:31:14.972884Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "pr_head_sha": null,
   "has_contract": true,
-  "error": null,
+  "error": "Pipeline marked FAILED: agent pod exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 7
+  "version": 8
 }
