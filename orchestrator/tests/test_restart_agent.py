@@ -942,10 +942,16 @@ class TestRestartConcurrencyGuard:
 
 
 class TestRestartLockCleanup:
-    """Tests that reset_restart_counts also cleans up per-key locks."""
+    """Tests lock behavior in reset_restart_counts."""
 
-    def test_reset_cleans_up_locks(self, spawner):
-        """reset_restart_counts should remove locks for the given pipeline."""
+    def test_reset_clears_counts_retains_locks(self, spawner):
+        """reset_restart_counts should clear counts but retain locks.
+
+        Locks are intentionally kept to prevent a race where
+        restart_agent_job holds a per-key lock, reset_restart_counts
+        deletes it from the dict, and _get_restart_lock creates a new
+        lock for the same key — breaking mutual exclusion.
+        """
         # Create some locks by accessing them
         spawner._get_restart_lock(("issue-100", "coder"))
         spawner._get_restart_lock(("issue-100", "tester"))
@@ -958,14 +964,13 @@ class TestRestartLockCleanup:
 
         spawner.reset_restart_counts("issue-100")
 
-        # Locks for issue-100 should be removed (check BEFORE get_restart_count
-        # which would re-create the lock as a side effect)
-        assert ("issue-100", "coder") not in spawner._restart_locks
-        assert ("issue-100", "tester") not in spawner._restart_locks
-
         # Counts for issue-100 should be cleared
         assert spawner._restart_counts.get(("issue-100", "coder"), 0) == 0
         assert spawner._restart_counts.get(("issue-100", "tester"), 0) == 0
+
+        # Locks for issue-100 should be retained (not deleted)
+        assert ("issue-100", "coder") in spawner._restart_locks
+        assert ("issue-100", "tester") in spawner._restart_locks
 
         # issue-200 should be untouched
         assert spawner._restart_counts.get(("issue-200", "coder"), 0) == 3

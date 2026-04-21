@@ -760,19 +760,22 @@ class KubernetesSpawner:
             return self._restart_counts.get(key, 0)
 
     def reset_restart_counts(self, pipeline_id: str) -> None:
-        """Reset all restart counts and locks for a pipeline (e.g., on phase transition).
+        """Reset all restart counts for a pipeline (e.g., on phase transition).
 
         Args:
             pipeline_id: Pipeline ID.
         """
-        # Acquire the global lock to iterate safely, then clear matching keys.
+        # Acquire the global lock to iterate safely, then clear matching count
+        # entries.  We intentionally do NOT delete per-key locks from
+        # _restart_locks: a concurrent restart_agent_job may still hold one of
+        # those locks, and deleting it would allow _get_restart_lock to create a
+        # new lock for the same key — breaking mutual exclusion.  The per-key
+        # locks are lightweight and bounded by the number of (pipeline, role)
+        # pairs, so the growth is negligible.
         with self._restart_locks_lock:
             keys_to_remove = [k for k in self._restart_counts if k[0] == pipeline_id]
             for k in keys_to_remove:
                 del self._restart_counts[k]
-            # Also clean up per-key locks for this pipeline to prevent unbounded growth.
-            for k in keys_to_remove:
-                self._restart_locks.pop(k, None)
 
     def detect_uncommitted_changes(
         self,
