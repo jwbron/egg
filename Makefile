@@ -20,6 +20,11 @@ PYTHON := $(if $(wildcard $(VENV_BIN)/python),$(VENV_BIN)/python,python3)
 
 # PYTHONPATH — set per-target to avoid leaking into unrelated recipes
 
+# Image tag derived from git state — distinct per build so Deployment
+# podTemplate changes and k8s actually rolls out a new pod (issue #1763).
+# Falls back to "latest" outside a git checkout.
+EGG_IMAGE_TAG := $(shell git describe --always --dirty 2>/dev/null || echo latest)
+
 .PHONY: help \
         setup deps venv install-linters check-linters \
         lint lint-python lint-shell lint-yaml lint-docker lint-actions lint-custom \
@@ -27,7 +32,7 @@ PYTHON := $(if $(wildcard $(VENV_BIN)/python),$(VENV_BIN)/python,python3)
         test-integration test-e2e test-security \
         lint-fix lint-python-fix lint-shell-fix lint-yaml-fix \
         build \
-        k3s-setup k3s-secrets deploy k3s-teardown k3s-import
+        k3s-setup k3s-secrets deploy redeploy k3s-teardown k3s-import
 
 # Default target
 help:
@@ -68,6 +73,7 @@ help:
 	@echo "Kubernetes (k3s):"
 	@echo "  make k3s-setup          - Install k3s with Calico CNI"
 	@echo "  make deploy             - Deploy egg to k3s"
+	@echo "  make redeploy           - Rebuild, re-import, and redeploy in one step"
 	@echo "  make k3s-import         - Import built images into k3s"
 	@echo "  make k3s-teardown       - Remove k3s"
 
@@ -331,12 +337,13 @@ lint-yaml-fix:
 build:
 	@echo "==> Preparing sandbox build context (repo-deps marker)..."
 	@mkdir -p repo-deps && touch repo-deps/.empty
+	@echo "==> Building images with tag $(EGG_IMAGE_TAG)..."
 	@echo "==> Building gateway container..."
-	docker build -t egg-gateway -f gateway/Dockerfile .
+	docker build -t egg-gateway:latest -t egg-gateway:$(EGG_IMAGE_TAG) -f gateway/Dockerfile .
 	@echo "==> Building orchestrator container..."
-	docker build -t egg-orchestrator -f orchestrator/Dockerfile .
+	docker build -t egg-orchestrator:latest -t egg-orchestrator:$(EGG_IMAGE_TAG) -f orchestrator/Dockerfile .
 	@echo "==> Building sandbox container..."
-	docker build -t egg-sandbox -f sandbox/Dockerfile .
+	docker build -t egg-sandbox:latest -t egg-sandbox:$(EGG_IMAGE_TAG) -f sandbox/Dockerfile .
 
 # ============================================================================
 # Kubernetes (k3s) targets
@@ -365,17 +372,26 @@ k3s-secrets:  ## Create gateway secrets from ~/.config/egg/
 		--dry-run=client -o yaml | kubectl apply -f -
 
 deploy: k3s-secrets  ## Deploy egg to k3s
-	@echo "Deploying to k3s..."
+	@echo "Deploying to k3s with tag $(EGG_IMAGE_TAG)..."
 	export KUBECONFIG=$${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml} && \
-	kubectl apply -k k8s/overlays/local/ && \
+	kubectl kustomize k8s/overlays/local/ | \
+		sed -e "s|egg-orchestrator:latest|egg-orchestrator:$(EGG_IMAGE_TAG)|g" \
+		    -e "s|egg-gateway:latest|egg-gateway:$(EGG_IMAGE_TAG)|g" \
+		    -e "s|egg-sandbox:latest|egg-sandbox:$(EGG_IMAGE_TAG)|g" | \
+		kubectl apply -f - && \
 	kubectl -n egg-system wait --for=condition=Available deployment/orchestrator --timeout=120s && \
 	kubectl -n egg-system wait --for=condition=Available deployment/gateway --timeout=120s
 	@echo "Deployment complete"
 
+redeploy: build k3s-import deploy  ## Rebuild, re-import, and redeploy in one step
+
 k3s-import:  ## Import built images into k3s
 	docker save egg-gateway:latest | sudo k3s ctr images import -
+	docker save egg-gateway:$(EGG_IMAGE_TAG) | sudo k3s ctr images import -
 	docker save egg-orchestrator:latest | sudo k3s ctr images import -
+	docker save egg-orchestrator:$(EGG_IMAGE_TAG) | sudo k3s ctr images import -
 	docker save egg-sandbox:latest | sudo k3s ctr images import -
+	docker save egg-sandbox:$(EGG_IMAGE_TAG) | sudo k3s ctr images import -
 
 k3s-teardown:  ## Remove k3s
 	/usr/local/bin/k3s-uninstall.sh || true
