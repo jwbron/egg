@@ -71,6 +71,11 @@ spec:
                 secretKeyRef:
                   name: gateway-secrets
                   key: launcher-secret
+            # Sandbox image name used by kubernetes_spawner. The code's
+            # default "egg:latest" doesn't match what `make build` produces
+            # (`egg-sandbox:latest`), and nothing exists at docker.io/egg.
+            - name: EGG_SANDBOX_IMAGE
+              value: "egg-sandbox:latest"
           livenessProbe:
             httpGet:
               path: /api/v1/health

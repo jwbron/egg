@@ -22,6 +22,18 @@ spec:
           env:
             - name: EGG_REPO_PATH
               value: "/home/egg/repos"
+            # Map owner/repo → host path for spawned agent pods. The
+            # orchestrator uses these paths to construct hostPath volume
+            # mounts when spawning sandbox Jobs. Local-dev only; production
+            # k8s would use a PV-backed repo store instead.
+            - name: EGG_HOST_REPO_MAP
+              value: '{"jwbron/testing":"/home/jwies/khan/testing","jwbron/egg":"/home/jwies/khan/egg","Khan/webapp":"/home/jwies/khan/webapp","Khan/internal-services":"/home/jwies/khan/internal-services","Khan/jenkins-jobs":"/home/jwies/khan/jenkins-jobs","Khan/buildmaster2":"/home/jwies/khan/buildmaster2"}'
+            # Host path for the shared worktrees directory. Agent Jobs
+            # mount this at /home/egg/.egg-worktrees so per-agent
+            # worktrees created by the orchestrator are visible to the
+            # spawned sandboxes.
+            - name: EGG_HOST_WORKTREES_PATH
+              value: "/home/jwies/.egg-worktrees"
           volumeMounts:
             # repos mount is read-write because the orchestrator creates
             # per-pipeline worktrees inside each repo's .git/worktrees/.

@@ -210,14 +210,21 @@ class KubernetesClient:
         network: str | None = None,
         command: list[str] | None = None,
         labels: dict[str, str] | None = None,
+        host_path_mounts: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> ContainerInfo:
         """Create a Kubernetes Job that runs a single pod.
 
-        The ``volumes`` and ``network`` parameters are accepted for
-        protocol compatibility but are currently not translated to k8s
-        volume mounts or network policies — those are expected to be
-        configured via the pod template in future phases.
+        ``host_path_mounts`` is a list of dicts each shaped::
+
+            {"name": str, "host_path": str, "container_path": str, "read_only": bool}
+
+        Each entry becomes a matching pod-level ``V1Volume`` (hostPath,
+        DirectoryOrCreate) and container-level ``V1VolumeMount``. Used by
+        the Kubernetes spawner to give agent pods access to repo bind
+        mounts and shared worktree directories. The legacy ``volumes``
+        and ``network`` parameters are still accepted for protocol
+        compatibility but not translated.
         """
         from kubernetes import client as k8s_client
 
@@ -228,6 +235,19 @@ class KubernetesClient:
             job_name = name
         else:
             job_name = f"{self.JOB_PREFIX}{name}"
+        # k8s names are capped at 63 chars (RFC 1123). Long pipeline IDs
+        # (e.g. with qualifiers) combined with long role names like
+        # reviewer_agent_design can exceed this. Truncate and append a
+        # short hash of the original to preserve uniqueness.
+        if len(job_name) > 63:
+            import hashlib
+
+            digest = hashlib.sha1(job_name.encode()).hexdigest()[:8]
+            # Reserve 9 chars for "-<digest>" + the trailing hyphen; trim
+            # the readable part and strip any trailing hyphen so we don't
+            # end up with two in a row.
+            readable = job_name[:54].rstrip("-")
+            job_name = f"{readable}-{digest}"
         self._validate_name(job_name)
 
         # Build labels
@@ -250,17 +270,54 @@ class KubernetesClient:
             limits={"cpu": "2", "memory": "2Gi"},
         )
 
+        # Translate host_path_mounts → matched k8s Volumes + VolumeMounts.
+        pod_volumes: list[Any] = []
+        container_volume_mounts: list[Any] = []
+        for vm in host_path_mounts or []:
+            pod_volumes.append(
+                k8s_client.V1Volume(
+                    name=vm["name"],
+                    host_path=k8s_client.V1HostPathVolumeSource(
+                        path=vm["host_path"],
+                        type="DirectoryOrCreate",
+                    ),
+                )
+            )
+            container_volume_mounts.append(
+                k8s_client.V1VolumeMount(
+                    name=vm["name"],
+                    mount_path=vm["container_path"],
+                    read_only=bool(vm.get("read_only", False)),
+                )
+            )
+
         container = k8s_client.V1Container(
             name="agent",
             image=image,
+            # IfNotPresent lets us use locally-imported images (k3s ctr
+            # import) without k8s trying to pull from a public registry.
+            # Default for :latest tag would be Always, which fails for
+            # images that only exist in containerd's local cache.
+            image_pull_policy="IfNotPresent",
             env=env_vars or None,
             command=command or None,
             resources=resources,
+            volume_mounts=container_volume_mounts or None,
         )
 
         pod_spec = k8s_client.V1PodSpec(
             containers=[container],
             restart_policy="Never",
+            volumes=pod_volumes or None,
+            # Run agent as UID 1000 (the 'egg' user created in the sandbox
+            # Dockerfile). Claude CLI's --dangerously-skip-permissions
+            # refuses to run as root, and k8s containers default to root
+            # unless USER is set in the image or securityContext forces it.
+            security_context=k8s_client.V1PodSecurityContext(
+                run_as_user=1000,
+                run_as_group=1000,
+                fs_group=1000,
+            ),
         )
 
         template = k8s_client.V1PodTemplateSpec(

@@ -216,6 +216,7 @@ class KubernetesSpawner:
         base_branch: str | None = None,
         extra_mounts: list["MountSpec"] | None = None,
         preserve_worktree_on_failure: bool = False,
+        certs_volume: str | None = None,  # noqa: ARG002 — Docker-era compat
     ) -> SpawnedContainer:
         """Spawn a Kubernetes Job for an agent.
 
@@ -244,7 +245,9 @@ class KubernetesSpawner:
         """
         job_name = self.JOB_NAME_FORMAT.format(
             pipeline_id=pipeline_id,
-            role=agent_role.value,
+            # k8s names are RFC-1123 labels: no underscores allowed.
+            # Role enum values like "reviewer_refine" need hyphenation.
+            role=agent_role.value.replace("_", "-"),
         )
 
         # Clean up any existing Job with the same name.
@@ -390,6 +393,18 @@ class KubernetesSpawner:
                 "HTTPS_PROXY": PROXY_URL,
                 "NO_PROXY": "gateway.egg-system.svc.cluster.local,orchestrator.egg-system.svc.cluster.local",
                 "AGENT_ANCHOR_ID": agent_anchor_id,
+                # Route Anthropic API calls through the gateway for
+                # credential injection. Matches what sandbox/entrypoint.py
+                # sets in the Compose flow — the placeholder token is a
+                # deliberately-invalid string that satisfies Claude CLI's
+                # local "am I logged in" check; the gateway strips it and
+                # injects the real credential server-side. Real credentials
+                # never enter the sandbox environment.
+                "ANTHROPIC_BASE_URL": GATEWAY_K8S_URL,
+                "CLAUDE_CODE_OAUTH_TOKEN": (
+                    "sk-ant-oat01-PROXY-INJECTED-gateway-handles-real-credential-"
+                    "00000000000000000000000000000000000000000000000000000000000000-000000AAAA"
+                ),
             }
             if session_token:
                 environment["EGG_SESSION_TOKEN"] = session_token
@@ -413,6 +428,33 @@ class KubernetesSpawner:
                         continue
                     environment[key] = value
 
+            # Build hostPath mounts so the agent pod sees the same repos
+            # and worktrees that the orchestrator does. repo_volumes maps
+            # owner/repo → host_path (from EGG_HOST_REPO_MAP).
+            # EGG_HOST_WORKTREES_PATH is the host directory that the
+            # orchestrator's /home/egg/.egg-worktrees points at.
+            host_path_mounts: list[dict[str, Any]] = []
+            for owner_repo, host_path in (repo_volumes or {}).items():
+                short = owner_repo.split("/")[-1].lower().replace("_", "-")
+                host_path_mounts.append(
+                    {
+                        "name": f"repo-{short}",
+                        "host_path": host_path,
+                        "container_path": f"/home/egg/repos/{owner_repo.split('/')[-1]}",
+                        "read_only": False,
+                    }
+                )
+            worktrees_host = os.environ.get("EGG_HOST_WORKTREES_PATH")
+            if worktrees_host:
+                host_path_mounts.append(
+                    {
+                        "name": "worktrees",
+                        "host_path": worktrees_host,
+                        "container_path": "/home/egg/.egg-worktrees",
+                        "read_only": False,
+                    }
+                )
+
             # Create the Kubernetes Job
             container_info = self.k8s.create_container(
                 name=job_name,
@@ -420,6 +462,7 @@ class KubernetesSpawner:
                 environment=environment,
                 labels=labels,
                 command=command,
+                host_path_mounts=host_path_mounts or None,
             )
 
             logger.info(
@@ -869,6 +912,7 @@ class KubernetesSpawner:
         image: str | None = None,
         wait_for_gateway: bool = True,
         repos: list[str] | None = None,
+        certs_volume: str | None = None,  # noqa: ARG002 — Docker-era compat
     ) -> SpawnedContainer:
         """Spawn an overseer Job for phase-scoped health monitoring.
 
@@ -940,6 +984,7 @@ class KubernetesSpawner:
         sandbox_env: dict[str, str] | None = None,
         image: str | None = None,
         base_branch: str | None = None,
+        certs_volume: str | None = None,  # noqa: ARG002 — Docker-era compat
     ):
         """Create a spawn callable compatible with ConcurrentPhaseExecutor.
 

@@ -553,6 +553,10 @@ def to_k8s_job_kwargs(
     container_spec: dict[str, Any] = {
         "name": "agent",
         "image": config.image,
+        # IfNotPresent lets us use locally-imported images (k3s ctr
+        # import) without k8s trying to pull from a public registry.
+        # Agent images are always local for egg deployments.
+        "imagePullPolicy": "IfNotPresent",
         "env": env_vars,
     }
     if volume_mounts:
