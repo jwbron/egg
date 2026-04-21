@@ -162,10 +162,29 @@
       "resolution": "test",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "How should we slice the issue into shippable units?",
+      "context": "",
+      "options": [
+        "Option A: One feature set — all four tools + both skills + submit_task fix in a single plan→implement cycle (matches issue framing; large scope)",
+        "Option B: Sequenced — tools land first, then skills; rebuild_and_rollout deferred per issue (Recommended)",
+        "Option C: Skills-first, shelling out to kubectl/existing tools, adding MCP tools only where kubectl won't work",
+        "Option D: Minimal subset — only prune_stale_worktrees and validate_deployment_manifests plus submit_task doc fix; everything else becomes follow-ups"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-21T06:36:52.583434Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-21T06:19:56.988139Z",
-  "updated_at": "2026-04-21T06:36:08.151275Z",
+  "updated_at": "2026-04-21T06:36:52.595355Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -178,5 +197,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 9
+  "version": 10
 }
