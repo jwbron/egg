@@ -1141,15 +1141,13 @@ class PipelineToolHandler:
         _read_phase_draft = None
         if repo:
             try:
-                from orchestrator.routes import resolve_worktree_path
+                from orchestrator.routes import resolve_worktree_path, resolve_worktree_repo_path
                 from orchestrator.routes.pipelines import _read_phase_draft
 
                 env_path = os.environ.get("EGG_REPO_PATH", "/home/egg/repos")
                 base_path = Path(env_path)
                 repo_name = repo.split("/")[-1]
-                repo_path = (
-                    base_path / repo_name if not (base_path / ".git").exists() else base_path
-                )
+                repo_path = resolve_worktree_repo_path(base_path, repo_name)
                 worktree_path = resolve_worktree_path(pipeline_id, repo_path)
             except Exception:
                 logger.debug(

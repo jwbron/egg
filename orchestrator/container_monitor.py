@@ -247,8 +247,9 @@ class ContainerMonitor:
             # Track 1: attempt tracker reconstruction (moved from health check
             # to keep the check purely diagnostic).
             if self._attempt_tracker_reconstruction(pipeline_id, pipeline):
-                logger.info(
-                    "Consensus stall detected — tracker reconstructed, polling loop should recover",
+                logger.warning(
+                    "Consensus stall detected — Track 1 (tracker reconstruction) "
+                    "succeeded, polling loop should recover",
                     pipeline_id=pipeline_id,
                 )
                 return
@@ -336,8 +337,19 @@ class ContainerMonitor:
     def _attempt_tracker_reconstruction(pipeline_id: str, pipeline: Pipeline) -> bool:
         """Try to reconstruct the consensus tracker from messages.
 
-        Returns True if the tracker was successfully reconstructed (or already
-        existed), False otherwise.
+        Returns True when the polling loop can handle things: either the
+        tracker was missing and we successfully rebuilt it from messages,
+        or it exists but reports incomplete (the polling loop will keep
+        watching it).
+
+        Returns False (let Track 2 fire) when the tracker already exists
+        and reports ``is_complete=True``.  ``ConsensusStallCheck`` only
+        fires DEGRADED in that exact state, so an existing complete
+        tracker is not something the polling loop is going to pick up —
+        it already had its chance.  Reconstructing nothing and reporting
+        success here is what stalled pipeline ``issue-1748`` (see #1749).
+        Also returns False when ``tracker.evaluate()`` raises, treating
+        the tracker as broken.
         """
         try:
             from peer_consensus import (
@@ -346,14 +358,27 @@ class ContainerMonitor:
             )
             from review_graph import get_review_graph_for_phase
 
-            if get_peer_consensus_tracker(pipeline_id) is not None:
+            tracker = get_peer_consensus_tracker(pipeline_id)
+            if tracker is not None:
+                try:
+                    evaluation = tracker.evaluate()
+                except Exception:
+                    # Tracker is broken — let Track 2 take over.
+                    return False
+                if evaluation.get("is_complete", False):
+                    # Tracker agrees with the health check — Track 1 would
+                    # be a no-op.  Fall through so Track 2 actually drives
+                    # the transition.
+                    return False
+                # Tracker exists but reports incomplete — the polling loop
+                # will keep watching it; nothing for Track 2 to do.
                 return True
 
             current_phase = pipeline.current_phase
             phase_value = current_phase.value
             graph = get_review_graph_for_phase(phase_value, repo=pipeline.repo)
-            tracker = reconstruct_tracker_from_messages(pipeline_id, graph)
-            return tracker is not None
+            reconstructed = reconstruct_tracker_from_messages(pipeline_id, graph)
+            return reconstructed is not None
         except Exception:
             logger.debug(
                 "Tracker reconstruction failed",
