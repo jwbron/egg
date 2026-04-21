@@ -219,6 +219,38 @@ def _validate_checkpoint_repo(checkpoint_repo: str) -> str:
     return checkpoint_repo
 
 
+def _resolve_checkpoint_target(
+    checkpoint_repo: str | None,
+    remote: str,
+    repo_path: str,
+) -> str:
+    """Resolve the git target for checkpoint fetch/push operations.
+
+    If *checkpoint_repo* is given, validates it and returns an HTTPS URL.
+    Otherwise resolves the remote URL and rewrites SSH to HTTPS so the
+    gateway credential helper can authenticate.  See #1767.
+    """
+    if checkpoint_repo:
+        _validate_checkpoint_repo(checkpoint_repo)
+        target = f"https://github.com/{checkpoint_repo}.git"
+        logger.info(
+            "Using external checkpoint repo",
+            checkpoint_repo=checkpoint_repo,
+            target=target,
+        )
+        return target
+
+    remote_url, err = resolve_remote_url(remote, repo_path)
+    if err:
+        logger.warning(
+            "Failed to resolve remote URL, falling back to remote name",
+            remote=remote,
+            error=err,
+        )
+        return remote
+    return get_authenticated_remote_target(remote, remote_url)
+
+
 # Mapping from agent_role strings to AgentType enum values
 _ROLE_TO_AGENT_TYPE = {
     "coder": AgentType.CODER,
@@ -846,26 +878,7 @@ class CheckpointHandler:
         if not CHECKPOINT_ENABLED:
             return False
 
-        # Determine the push/fetch target: either a separate repo URL or the
-        # existing remote name.
-        if checkpoint_repo:
-            _validate_checkpoint_repo(checkpoint_repo)
-            target = f"https://github.com/{checkpoint_repo}.git"
-            logger.info(
-                "Using external checkpoint repo",
-                checkpoint_repo=checkpoint_repo,
-                target=target,
-            )
-        else:
-            # Resolve the remote to a URL and force HTTPS if the origin is SSH.
-            # The gateway authenticates via GitHub App tokens over HTTPS and
-            # ships no SSH config, so any SSH-form origin inherited from the
-            # host clone would fail at host-key verification. See #1767.
-            remote_url, err = resolve_remote_url(remote, repo_path)
-            if err:
-                target = remote
-            else:
-                target = get_authenticated_remote_target(remote, remote_url)
+        target = _resolve_checkpoint_target(checkpoint_repo, remote, repo_path)
 
         try:
             with tempfile.TemporaryDirectory(prefix="checkpoint_") as temp_dir:
@@ -1089,7 +1102,7 @@ class CheckpointHandler:
         if github_token is None:
             github_token = _resolve_github_token(repo_path)
 
-        target = f"https://github.com/{checkpoint_repo}.git" if checkpoint_repo else "origin"
+        target = _resolve_checkpoint_target(checkpoint_repo, "origin", repo_path)
 
         if not self._branch_exists(repo_path, target, CHECKPOINT_BRANCH, github_token=github_token):
             return None
@@ -1171,7 +1184,7 @@ class CheckpointHandler:
         if github_token is None:
             github_token = _resolve_github_token(repo_path)
 
-        target = f"https://github.com/{checkpoint_repo}.git" if checkpoint_repo else "origin"
+        target = _resolve_checkpoint_target(checkpoint_repo, "origin", repo_path)
 
         if not self._branch_exists(repo_path, target, CHECKPOINT_BRANCH, github_token=github_token):
             return None
