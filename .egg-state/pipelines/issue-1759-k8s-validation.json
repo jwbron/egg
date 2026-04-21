@@ -144,9 +144,28 @@
       "phase_start_sha": "15608a550372eb8cc402fcf465a01df9efd74546"
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Test decision",
+      "context": "",
+      "options": [
+        "A",
+        "B",
+        "C"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-21T06:35:43.565092Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-04-21T06:19:56.988139Z",
-  "updated_at": "2026-04-21T06:20:36.190485Z",
+  "updated_at": "2026-04-21T06:35:43.569239Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -159,5 +178,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 7
+  "version": 8
 }
