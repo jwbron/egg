@@ -623,13 +623,12 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
             issue_number=pipeline.issue_number,
         )
 
-        # Read back the contract to report counts
+        # Read back the contract to report counts. Contracts are keyed by
+        # pipeline_id; the loader's compat shim covers legacy paths.
         try:
             from egg_contracts.loader import load_contract
-            from routes.pipelines import _pipeline_identifier
 
-            contract_id = _pipeline_identifier(pipeline.issue_number, pipeline_id)
-            contract = load_contract(contract_id, worktree_path)
+            contract = load_contract(pipeline_id, worktree_path)
             task_count = sum(len(p.tasks) for p in contract.phases)
             return make_success_response(
                 "Contract populated from plan",

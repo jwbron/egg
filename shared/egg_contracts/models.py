@@ -410,7 +410,14 @@ class Contract(BaseModel):
     )
     issue: IssueInfo | None = Field(default=None, description="Issue metadata")
     pipeline_id: str | None = Field(
-        default=None, description="Pipeline ID for local-mode pipelines"
+        default=None,
+        description=(
+            "Canonical pipeline identifier — the on-disk contract key. "
+            "For issue-driven pipelines this is ``issue-<N>`` (optionally "
+            "``issue-<N>-<qualifier>``); for JIRA-ticket pipelines this is "
+            "the ticket ID (e.g., ``KORE-1234``). Optional only for legacy "
+            "contracts that predate the key unification."
+        ),
     )
     current_phase: PipelinePhase = Field(
         default=PipelinePhase.REFINE, description="Current pipeline phase"
@@ -457,16 +464,18 @@ class Contract(BaseModel):
         return self
 
     @property
-    def contract_key(self) -> int | str:
-        """Return the canonical key used for file naming.
+    def contract_key(self) -> str:
+        """Return the canonical pipeline-id string used for file naming.
 
-        Returns issue.number for issue-mode contracts, pipeline_id for
-        local-mode contracts.
+        Every contract is keyed by its pipeline_id (e.g., ``issue-1759``,
+        ``issue-1759-v2``, or a JIRA-style identifier). For legacy contracts
+        that predate the unification and only have ``issue`` populated, a
+        canonical pipeline-id is synthesized from the issue number.
         """
-        if self.issue is not None:
-            return self.issue.number
-        assert self.pipeline_id is not None
-        return self.pipeline_id
+        if self.pipeline_id is not None:
+            return self.pipeline_id
+        assert self.issue is not None
+        return f"issue-{self.issue.number}"
 
     def get_task(self, phase_id: str, task_id: str) -> Task | None:
         """Get a specific task by phase and task ID."""

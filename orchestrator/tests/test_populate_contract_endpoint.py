@@ -72,12 +72,11 @@ class TestPopulateContractEndpoint:
         data = json.loads(resp.data)
         assert data["success"] is False
 
-    @patch("routes.pipelines._pipeline_identifier", return_value="42")
     @patch("routes.pipelines._populate_contract_from_plan")
     @patch("routes.resolve_worktree_path")
     @patch("routes.phases.get_state_store_for_pipeline")
     def test_pipeline_mode_from_pipeline_not_config(
-        self, mock_get_store, mock_resolve_wt, mock_populate, mock_identifier, client
+        self, mock_get_store, mock_resolve_wt, mock_populate, client
     ):
         """pipeline.mode (not pipeline.config.mode) is used for pipeline_mode.
 
@@ -122,12 +121,11 @@ class TestPopulateContractEndpoint:
         assert data["success"] is False
         assert "plan draft not found" in data["message"]
 
-    @patch("routes.pipelines._pipeline_identifier", return_value="42")
     @patch("routes.pipelines._populate_contract_from_plan")
     @patch("routes.resolve_worktree_path")
     @patch("routes.phases.get_state_store_for_pipeline")
     def test_success_with_counts_and_issue_number(
-        self, mock_get_store, mock_resolve_wt, mock_populate, mock_identifier, client
+        self, mock_get_store, mock_resolve_wt, mock_populate, client
     ):
         """Successful populate returns phase/task counts and forwards issue_number."""
         pipeline = _make_pipeline()
@@ -180,12 +178,11 @@ class TestPopulateContractEndpoint:
         assert data["success"] is True
         assert "data" not in data  # No counts on fallback
 
-    @patch("routes.pipelines._pipeline_identifier", return_value="42")
     @patch("routes.pipelines._populate_contract_from_plan")
     @patch("routes.resolve_worktree_path")
     @patch("routes.phases.get_state_store_for_pipeline")
     def test_worktree_path_passed_to_populate(
-        self, mock_get_store, mock_resolve_wt, mock_populate, mock_identifier, client
+        self, mock_get_store, mock_resolve_wt, mock_populate, client
     ):
         """Verify worktree path (not raw repo path) is passed to populate."""
         pipeline = _make_pipeline()

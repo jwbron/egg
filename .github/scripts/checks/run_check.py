@@ -91,10 +91,14 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(error_result.model_dump(mode="json")))
             return 1
 
-        # Parse issue number from contract path
-        # Contract paths are typically: .egg-state/contracts/<issue_number>.json
-        issue_number = int(contract_path.stem)
-        contract = load_contract(issue_number, repo_root=Path(args.repo_root))
+        # Derive identifier from contract path stem. Contract files live at
+        # ``.egg-state/contracts/<identifier>.json`` where ``<identifier>`` is
+        # the canonical pipeline_id (e.g. ``issue-1759`` or ``issue-1759-v2``).
+        # Legacy pre-unification paths use a bare integer (``1759.json``);
+        # pass those through as int so the loader's compat shim resolves them.
+        stem = contract_path.stem
+        identifier: int | str = int(stem) if stem.isdigit() else stem
+        contract = load_contract(identifier, repo_root=Path(args.repo_root))
 
         # Load and run the check
         repo_root = Path(args.repo_root).resolve()

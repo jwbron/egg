@@ -756,11 +756,12 @@ class TestSourceBranchArtifactWriteToDisk:
             issue_number=issue_number,
             title=f"Issue #{issue_number}",
             url=f"https://github.com/owner/repo/issues/{issue_number}",
+            pipeline_id=pipeline_id,
             repo_root=tmp_path,
         )
         _populate_contract_from_plan(tmp_path, pipeline_id, "issue", issue_number)
 
-        contract = load_contract(issue_number, tmp_path)
+        contract = load_contract(pipeline_id, tmp_path)
         assert len(contract.phases) == 1
         assert len(contract.phases[0].tasks) == 2
         assert contract.pr is not None

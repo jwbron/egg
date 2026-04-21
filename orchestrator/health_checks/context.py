@@ -216,21 +216,29 @@ class PipelineHealthContext:
         return outputs
 
     def _read_contract(self) -> dict[str, object]:
-        """Read and parse the SDLC contract JSON for this pipeline's issue."""
+        """Read and parse the SDLC contract JSON for this pipeline."""
         state_dir = self._resolve_state_dir()
+        pipeline_id = self.pipeline.id
         issue_number = self.pipeline.issue_number
-        if issue_number is None:
-            return {}
 
-        contract_path = state_dir / "contracts" / f"{issue_number}.json"
-        if not contract_path.is_file():
-            return {}
+        # Prefer the canonical pipeline-id-keyed path (e.g.,
+        # ``issue-1759.json`` or ``issue-1759-v2.json``) and fall back to
+        # the pre-unification ``{issue_number}.json`` for legacy contracts.
+        candidates: list[Path] = []
+        if pipeline_id:
+            candidates.append(state_dir / "contracts" / f"{pipeline_id}.json")
+        if issue_number is not None:
+            candidates.append(state_dir / "contracts" / f"{issue_number}.json")
 
-        try:
-            raw = contract_path.read_text(errors="replace")
-            return json.loads(raw)  # type: ignore[no-any-return]
-        except (json.JSONDecodeError, OSError):
-            return {}
+        for contract_path in candidates:
+            if not contract_path.is_file():
+                continue
+            try:
+                raw = contract_path.read_text(errors="replace")
+                return json.loads(raw)  # type: ignore[no-any-return]
+            except (json.JSONDecodeError, OSError):
+                continue
+        return {}
 
     def _fetch_live_container_ids(self) -> set[str]:
         """Query Docker for live container IDs."""
