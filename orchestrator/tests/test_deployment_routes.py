@@ -120,6 +120,13 @@ class TestGetDeploymentContext:
         monkeypatch.setenv("EGG_K8S_NAMESPACE", "egg-test")
 
         fake_k8s = MagicMock()
+        # Configure core_api.list_node() to return an object with a plain list
+        # so len() yields an int, not a MagicMock.
+        fake_k8s.core_api.list_node.return_value.items = []
+
+        fake_version_info = MagicMock()
+        fake_version_info.git_version = "v1.29.0"
+
         with (
             patch(
                 "routes.deployment._detect_k3s",
@@ -133,7 +140,11 @@ class TestGetDeploymentContext:
                 "routes.deployment._collect_egg_image_tags",
                 return_value={"orchestrator": "egg-orchestrator:dev"},
             ),
+            patch(
+                "kubernetes.client.VersionApi",
+            ) as mock_version_api_cls,
         ):
+            mock_version_api_cls.return_value.get_code.return_value = fake_version_info
             with patch.dict(
                 "sys.modules",
                 {
