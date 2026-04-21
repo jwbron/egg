@@ -60,8 +60,7 @@ Both non-auth items from the issue (`validate_deployment_manifests`,
 are assumed to belong to a sibling slice (likely
 `egg/issue-1759-k8s-validation` / `egg/issue-1759-v2`). **Whether this
 scoping is correct is the first and most important open question**
-(decision-2 below; decision-1 is a CLI-smoke-test artifact — see the
-note in the Open Questions section).
+(decision-2 below).
 
 The desired outcome is that the next auth-boundary bug — on any surface —
 is flagged by a probe before it reaches production, and when one does reach
@@ -434,21 +433,14 @@ What the plan phase must still decide:
 
 ## Open Questions
 
-**Every question below IS registered as a contract decision via
-`egg-contract add-decision`.** Due to #1768 (refiner role cannot write
-the top-level `feedback` field), every open-ended question has been
-reformulated as a multi-choice decision with a trailing
-"Other (explain in reply)" so the human can provide free-form answers
-where needed.
+**Every question below is registered as a contract decision via
+`egg-contract add-decision`** (verify with `egg-contract show`). Due to
+#1768 (refiner role cannot write the top-level `feedback` field), every
+open-ended question has been reformulated as a multi-choice decision
+with a trailing "Other (explain in reply)" option so the human can
+provide free-form answers where needed.
 
-> **Note on decision-1**: `decision-1` in the contract is a
-> neutralized test artifact generated while smoke-testing the CLI
-> workflow (the `egg-contract add-decision` tool was exercised before
-> the questions below were finalised). Real open questions are
-> **decisions 2-21**. The same pattern appears on the
-> `egg/issue-1759-v2` branch's analysis for the same reason.
-
-### Decision index (real questions are decisions 2-21)
+### Decision index (decisions 2-17, 19-21 in the contract)
 
 - **decision-2** — Is `auth-gated` the right scope for this slice?
 - **decision-3** — What PR #1772 merge state does this slice assume?
@@ -472,8 +464,6 @@ where needed.
 - **decision-16** — `feedback` field ownership fix (#1768): in/out of
   scope.
 - **decision-17** — Probe's session lifecycle.
-- **decision-18** — How should the refiner/reviewer handle the
-  `add-feedback` 403 in the immediate term?
 - **decision-19** — Test coverage bar for this slice.
 - **decision-20** — Documentation surface.
 - **decision-21** — Dogfooding: do we run the probe against the current
@@ -643,16 +633,6 @@ contract view.
 - [ ] Reuse the orchestrator's own long-lived service credentials — no gateway session; the probe talks to orchestrator routes only. Means the probe cannot test gateway-reachability end-to-end.
 - [ ] Create a sessions bound to a realistic AgentRole (e.g., refiner) so the probe exercises the post-#1766 fine→coarse resolution path as well as the #1769 auth-gate — maximum realism
 - [ ] Create TWO sessions: one role=coder session for positive-case claims (should be allowed), one role=refiner session for reviewer-like claims — matrix testing across roles
-- [ ] Other (explain in reply)
-
-<!-- egg-hitl-decision id=decision-18 -->
-
-**In the immediate term (before #1768 is fixed), how should refiners/reviewers surface open-ended questions?**
-
-- [ ] Continue the reformulate-as-decisions workaround: every open-ended question becomes a multi-choice decision with leading 'Other (explain in reply)'. Used by v2; used by this analysis; keeps the question surface addressable via egg-contract show
-- [ ] Write open-ended questions inline in the analysis markdown and call them out in the PR description; no contract registration. Risks being missed by the reviewer flow
-- [ ] Use add-decision without --options (a yes/no with no options) as a proxy for open-ended — loses the shape of the question
-- [ ] Prioritize #1768 and land it first in this slice (see decision-16) so subsequent refinements can use add-feedback as intended
 - [ ] Other (explain in reply)
 
 <!-- egg-hitl-decision id=decision-19 -->
