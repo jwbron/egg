@@ -129,22 +129,24 @@ except ImportError:
 
 
 # Auto-attach the lifecycle bearer token to every FlaskClient request so
-# existing tests that don't know about auth continue to exercise the
-# happy path. Auth-specific tests pass ``Authorization`` or
+# existing orchestrator tests that don't know about auth continue to
+# exercise the happy path. Auth-specific tests pass ``Authorization`` or
 # ``_lifecycle_auth=False`` explicitly to override.
-try:
-    from flask.testing import FlaskClient  # type: ignore[import-not-found]
+#
+# This is applied via an autouse fixture (below) rather than a module-level
+# monkey-patch so that it does NOT leak into gateway or other test suites
+# that share the same pytest session.
+def _flask_open_with_auth(original_open, secret):  # type: ignore[no-untyped-def]
+    """Build a wrapper around FlaskClient.open that injects lifecycle auth."""
 
-    _original_flask_open = FlaskClient.open
-
-    def _flask_open_with_auth(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+    def wrapper(self, *args, **kwargs):  # type: ignore[no-untyped-def]
         if kwargs.pop("_lifecycle_auth", True):
             headers = kwargs.get("headers")
             # Werkzeug accepts dict, list[tuple], or Headers — normalize to dict
             # for a simple "is Authorization already set?" check.
             if headers is None:
                 kwargs["headers"] = {
-                    "Authorization": f"Bearer {TEST_LIFECYCLE_SECRET}",
+                    "Authorization": f"Bearer {secret}",
                 }
             else:
                 existing = {}
@@ -154,17 +156,27 @@ try:
                     existing = dict(headers)
                 if "Authorization" not in existing and "authorization" not in existing:
                     if isinstance(headers, dict):
-                        headers = {**headers, "Authorization": f"Bearer {TEST_LIFECYCLE_SECRET}"}
+                        headers = {**headers, "Authorization": f"Bearer {secret}"}
                     else:
-                        headers = list(headers) + [
-                            ("Authorization", f"Bearer {TEST_LIFECYCLE_SECRET}")
-                        ]
+                        headers = list(headers) + [("Authorization", f"Bearer {secret}")]
                     kwargs["headers"] = headers
-        return _original_flask_open(self, *args, **kwargs)
+        return original_open(self, *args, **kwargs)
 
-    FlaskClient.open = _flask_open_with_auth  # type: ignore[method-assign]
-except ImportError:
-    pass
+    return wrapper
+
+
+@pytest.fixture(autouse=True)
+def _inject_lifecycle_auth(monkeypatch):
+    """Patch FlaskClient.open for the duration of each orchestrator test."""
+    try:
+        from flask.testing import FlaskClient  # type: ignore[import-not-found]
+    except ImportError:
+        yield
+        return
+
+    wrapper = _flask_open_with_auth(FlaskClient.open, TEST_LIFECYCLE_SECRET)
+    monkeypatch.setattr(FlaskClient, "open", wrapper)
+    yield
 
 
 @pytest.fixture
