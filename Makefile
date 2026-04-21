@@ -27,7 +27,7 @@ PYTHON := $(if $(wildcard $(VENV_BIN)/python),$(VENV_BIN)/python,python3)
         test-integration test-e2e test-security \
         lint-fix lint-python-fix lint-shell-fix lint-yaml-fix \
         build \
-        k3s-setup deploy k3s-teardown k3s-import
+        k3s-setup k3s-secrets deploy k3s-teardown k3s-import
 
 # Default target
 help:
@@ -351,12 +351,25 @@ k3s-setup:  ## Install k3s with Calico CNI
 	kubectl wait --for=condition=Ready node --all --timeout=120s
 	@echo "k3s cluster ready"
 
-deploy:  ## Deploy egg to k3s
+k3s-secrets:  ## Create gateway secrets from ~/.config/egg/
+	@if [ ! -f "$$HOME/.config/egg/launcher-secret" ]; then \
+		echo "ERROR: $$HOME/.config/egg/launcher-secret not found."; \
+		echo "Run 'bin/egg-deploy init' or 'egg --setup' to generate it."; \
+		exit 1; \
+	fi
+	@echo "==> Creating gateway-secrets in egg-system namespace..."
+	@echo "   (all files under ~/.config/egg/ become keys in the secret)"
+	export KUBECONFIG=$${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml} && \
+	kubectl -n egg-system create secret generic gateway-secrets \
+		--from-file=$$HOME/.config/egg/ \
+		--dry-run=client -o yaml | kubectl apply -f -
+
+deploy: k3s-secrets  ## Deploy egg to k3s
 	@echo "Deploying to k3s..."
 	export KUBECONFIG=$${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml} && \
 	kubectl apply -k k8s/overlays/local/ && \
-	kubectl -n egg-system wait --for=condition=Available deployment/egg-orchestrator --timeout=120s && \
-	kubectl -n egg-system wait --for=condition=Available deployment/egg-gateway --timeout=120s
+	kubectl -n egg-system wait --for=condition=Available deployment/orchestrator --timeout=120s && \
+	kubectl -n egg-system wait --for=condition=Available deployment/gateway --timeout=120s
 	@echo "Deployment complete"
 
 k3s-import:  ## Import built images into k3s

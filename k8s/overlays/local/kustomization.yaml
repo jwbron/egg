@@ -4,15 +4,10 @@ kind: Kustomization
 resources:
   - ../../base
 
+# Strategic merge patches — append host-mounted repos/worktrees for local dev.
 patches:
   - path: patches/gateway-volumes.yaml
-    target:
-      kind: Deployment
-      name: gateway
-      namespace: egg-system
-
-# Local development overrides
-patchesStrategicMerge: []
+  - path: patches/orchestrator-volumes.yaml
 
 # Use local images without a registry prefix
 images:

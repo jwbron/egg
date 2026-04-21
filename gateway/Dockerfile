@@ -53,7 +53,13 @@ RUN /usr/sbin/squid -z -N 2>/dev/null || true
 # creates a passwd entry for the actual HOST_UID at runtime so gosu
 # resolves HOME=/home/egg correctly instead of defaulting to HOME=/.
 RUN groupadd -g 1000 egg && \
-    useradd -m -u 1000 -g 1000 -s /bin/bash egg
+    useradd -m -u 1000 -g 1000 -s /bin/bash egg && \
+    chown -R egg:egg \
+        /etc/squid/certs \
+        /etc/squid/ssl \
+        /var/log/squid \
+        /var/spool/squid \
+        /var/lib/squid
 
 WORKDIR /app
 
