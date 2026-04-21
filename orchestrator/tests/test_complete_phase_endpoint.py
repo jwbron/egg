@@ -585,3 +585,36 @@ class TestCompletePhasePendingDecisions:
             resp = client.post("/api/v1/pipelines/issue-42/phase/complete")
 
         assert resp.status_code == 200
+
+    @patch("routes.phases._clear_concurrent_state")
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_egg_contracts_import_error_does_not_block(self, mock_get_store, _mock_clear, client):
+        """When egg_contracts is not installed, the ImportError must be caught
+        cleanly and contract-side decisions are simply skipped.
+
+        Regression: the previous narrowed except tuple referenced
+        ContractValidationError, which was unbound when the import failed,
+        causing a NameError that propagated as a 500."""
+        import builtins
+
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+        )
+        pipeline.current_phase = PipelinePhase.REFINE
+        mock_store = MagicMock()
+        mock_get_store.return_value = (mock_store, pipeline)
+
+        real_import = builtins.__import__
+
+        def _fake_import(name, *args, **kwargs):
+            if name == "egg_contracts.loader":
+                raise ImportError("No module named 'egg_contracts'")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=_fake_import):
+            resp = client.post("/api/v1/pipelines/issue-42/phase/complete")
+
+        assert resp.status_code == 200

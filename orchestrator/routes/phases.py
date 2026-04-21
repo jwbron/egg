@@ -523,6 +523,16 @@ def _collect_unresolved_phase_decisions(
                 ContractValidationError,
                 load_contract,
             )
+        except ImportError:
+            # egg_contracts not installed — cannot scan contract decisions.
+            logger.warning(
+                "Failed to scan contract decisions for unresolved entries",
+                pipeline_id=pipeline.id,
+                exc_info=True,
+            )
+            return unresolved
+
+        try:
             from routes import resolve_worktree_path
             from routes.pipelines import _pipeline_identifier
 
@@ -536,11 +546,10 @@ def _collect_unresolved_phase_decisions(
                 unresolved.extend(
                     d.id for d in contract.decisions if not d.resolved and d.phase == current_phase
                 )
-        except (ImportError, OSError, ValueError, ContractValidationError):
-            # Narrow catch: ImportError covers missing egg_contracts at
-            # runtime, OSError covers filesystem failures loading the
-            # contract, ValueError covers serialization/validation issues
-            # (pydantic V2 raises ValueError for invalid data), and
+        except (OSError, ValueError, ContractValidationError):
+            # OSError covers filesystem failures loading the contract,
+            # ValueError covers serialization/validation issues (pydantic V2
+            # raises ValueError for invalid data), and
             # ContractValidationError covers corrupt/invalid contract JSON.
             # Programming errors (AttributeError, TypeError, NameError)
             # are left to propagate so they surface during development.
