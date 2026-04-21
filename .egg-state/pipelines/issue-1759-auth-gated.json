@@ -79,10 +79,10 @@
         {
           "container_id": "a626ddeb-9fb6-4d3f-a4eb-c2d8657fb8b1",
           "container_name": "issue-1759-auth-gated-reviewer_refine",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-21T17:07:24.835351Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-21T18:10:15Z",
+          "exit_code": 1,
           "agent_role": "reviewer_refine",
           "session_token": null,
           "pod_name": null,
@@ -117,13 +117,13 @@
         },
         {
           "role": "reviewer_refine",
-          "status": "running",
+          "status": "failed",
           "container_id": "a626ddeb-9fb6-4d3f-a4eb-c2d8657fb8b1",
           "started_at": "2026-04-21T17:07:24.835356Z",
-          "completed_at": null,
+          "completed_at": "2026-04-21T18:10:20.350082Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         }
@@ -146,7 +146,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-21T17:06:43.067425Z",
-  "updated_at": "2026-04-21T18:09:07.914071Z",
+  "updated_at": "2026-04-21T18:10:20.350234Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -159,5 +159,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 9
+  "version": 10
 }
