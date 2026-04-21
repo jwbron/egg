@@ -69,13 +69,14 @@ Setting `auth_mode: user` tells the gateway to use `GITHUB_USER_TOKEN` for git/g
 
 ```bash
 make build              # build gateway, orchestrator, and sandbox images
+make k3s-import         # import images into k3s containerd store
 make k3s-secrets        # create k8s Secrets from ~/.config/egg/
 make deploy             # deploy gateway + orchestrator to k3s (idempotent)
 kubectl get pods -n egg-system  # verify pods are running
 egg --public            # start sandbox session
 ```
 
-`make build` builds the Docker images and imports them into k3s. `make deploy` applies the Kustomize manifests — it is idempotent and can be re-run after code changes to update the running deployment.
+`make build` builds the Docker images. `make k3s-import` imports them into k3s's containerd image store (without this, pods will get `ImagePullBackOff`). `make deploy` applies the Kustomize manifests — it is idempotent and can be re-run after code changes to update the running deployment.
 
 ## 4. Using the SDLC pipeline
 
@@ -170,7 +171,7 @@ The pipeline stores its internal state in `.egg-state/` on the feature branch (n
 egg --public               # start interactive session (public mode — default)
 egg --private              # run in private mode (Anthropic API only, private repos)
 egg --exec "make test"     # run a command in an ephemeral sandbox
-make build && make deploy  # rebuild images and redeploy after code changes
+make build && make k3s-import && make deploy  # rebuild images and redeploy after code changes
 make k3s-teardown          # remove k3s and all deployed resources
 ```
 
