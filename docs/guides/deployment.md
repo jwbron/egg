@@ -102,6 +102,8 @@ make build
    ```
    This creates `~/.config/egg/config.yaml` with system defaults and generates a launcher secret.
 
+   > **Note:** `bin/egg-deploy init` generates the `launcher-secret` but not the `lifecycle-secret` required by `make k3s-secrets`. Run `egg --setup` instead (or in addition) to generate both secrets automatically.
+
 2. **Set your GitHub token:**
    ```bash
    echo 'ghp_xxxxx' > ~/.config/egg/github-token
@@ -279,6 +281,7 @@ For reproducible builds, pin to an exact version tag.
 |------|---------|
 | `secrets.env` | Additional secrets (GitHub App credentials) |
 | `launcher-secret` | Gateway authentication token |
+| `lifecycle-secret` | Orchestrator lifecycle-control auth token (required for k8s deployments) |
 
 ## Health Checks
 
@@ -385,7 +388,7 @@ sudo chown -R $(id -u):$(id -g) ~/repos/*/.git
 
 - Never commit `.env` or `secrets.env` to version control
 - Use GitHub App authentication for production
-- Rotate launcher secret periodically
+- Rotate `launcher-secret` and `lifecycle-secret` periodically
 
 ### Network
 
@@ -397,6 +400,6 @@ sudo chown -R $(id -u):$(id -g) ~/repos/*/.git
 
 - Agent pods run as non-root user matching host UID
 - Git metadata is shadowed (emptyDir with `medium: Memory` on .git/)
-- No credentials are passed to agent pod environment
+- No credentials are passed to agent pod environment; `EGG_LIFECYCLE_SECRET` is explicitly blocked from agent pods
 - NetworkPolicies enforce egress-only-to-gateway isolation
 - RBAC restricts orchestrator to Job/Pod management in `egg-agents` namespace only
