@@ -193,3 +193,100 @@ class TestCommitStatefilesScoping:
             _commit_statefiles_to_worktree(tmp_path, "no dir", pipeline_identifier=42)
 
         mock_run.assert_not_called()
+
+
+class TestCommitStatefilesPipelineIdUnion:
+    """Union staging: issue_number-prefixed files AND pipeline_id-keyed files (#1829)."""
+
+    def test_canonical_contract_file_staged_with_pipeline_id(self, tmp_path: Path):
+        """Contract file keyed by pipeline_id is staged even when pipeline_identifier=issue_number.
+
+        Regression for #1829: contract files are named ``{pipeline.id}.json``
+        (e.g. ``issue-1759-v3.json``) while drafts are prefixed with the
+        issue number (e.g. ``1759-plan.md``).  Passing both identifiers
+        ensures both prefixes match.
+        """
+        for subdir in ("contracts", "drafts"):
+            (tmp_path / ".egg-state" / subdir).mkdir(parents=True, exist_ok=True)
+
+        (tmp_path / ".egg-state" / "contracts" / "issue-1759-v3.json").write_text("{}")
+        (tmp_path / ".egg-state" / "drafts" / "1759-plan.md").write_text("plan")
+
+        with patch("subprocess.run", side_effect=_make_run_side_effect()) as mock_run:
+            _commit_statefiles_to_worktree(
+                tmp_path,
+                "plan-phase commit",
+                pipeline_identifier=1759,
+                pipeline_id="issue-1759-v3",
+            )
+
+        add_call = None
+        for c in mock_run.call_args_list:
+            cmd = c[0][0]
+            if "add" in cmd and "--" in cmd:
+                add_call = cmd
+                break
+
+        assert add_call is not None, "Expected a git add call"
+        add_paths = add_call[add_call.index("--") + 1 :]
+        add_filenames = [Path(p).name for p in add_paths]
+
+        assert "issue-1759-v3.json" in add_filenames, (
+            "Contract file keyed by pipeline_id must be staged"
+        )
+        assert "1759-plan.md" in add_filenames, (
+            "Draft file keyed by issue_number must still be staged"
+        )
+
+    def test_pipeline_id_only_stages_matching_contract(self, tmp_path: Path):
+        """When only pipeline_id is provided (no issue_number), its prefix is used."""
+        d = tmp_path / ".egg-state" / "contracts"
+        d.mkdir(parents=True)
+        (d / "pipeline-2d7b273f.json").write_text("{}")
+        (d / "pipeline-abcd1234.json").write_text("{}")
+
+        with patch("subprocess.run", side_effect=_make_run_side_effect()) as mock_run:
+            _commit_statefiles_to_worktree(
+                tmp_path,
+                "pipeline-id-only",
+                pipeline_id="pipeline-2d7b273f",
+            )
+
+        add_call = None
+        for c in mock_run.call_args_list:
+            cmd = c[0][0]
+            if "add" in cmd and "--" in cmd:
+                add_call = cmd
+                break
+
+        assert add_call is not None
+        add_paths = add_call[add_call.index("--") + 1 :]
+        add_filenames = [Path(p).name for p in add_paths]
+        assert "pipeline-2d7b273f.json" in add_filenames
+        assert "pipeline-abcd1234.json" not in add_filenames
+
+    def test_duplicate_prefixes_deduplicated(self, tmp_path: Path):
+        """Passing the same string as both identifiers doesn't double-stage."""
+        d = tmp_path / ".egg-state" / "contracts"
+        d.mkdir(parents=True)
+        (d / "pipe-abc.json").write_text("{}")
+
+        with patch("subprocess.run", side_effect=_make_run_side_effect()) as mock_run:
+            _commit_statefiles_to_worktree(
+                tmp_path,
+                "dedupe",
+                pipeline_identifier="pipe-abc",
+                pipeline_id="pipe-abc",
+            )
+
+        add_call = None
+        for c in mock_run.call_args_list:
+            cmd = c[0][0]
+            if "add" in cmd and "--" in cmd:
+                add_call = cmd
+                break
+
+        assert add_call is not None
+        add_paths = add_call[add_call.index("--") + 1 :]
+        # File should appear exactly once
+        assert add_paths.count(str(Path(".egg-state/contracts/pipe-abc.json"))) == 1
