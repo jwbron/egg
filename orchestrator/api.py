@@ -39,6 +39,7 @@ app = Flask(__name__)
 try:
     from routes.anchors import anchors_bp
     from routes.containers import containers_bp
+    from routes.contracts import contract_mutations_bp, contracts_bp
     from routes.decisions import decisions_bp
     from routes.health import health_bp
     from routes.messages import messages_bp
@@ -53,6 +54,8 @@ try:
     app.register_blueprint(health_bp)
     app.register_blueprint(pipelines_bp)
     app.register_blueprint(containers_bp)
+    app.register_blueprint(contracts_bp)
+    app.register_blueprint(contract_mutations_bp)
     app.register_blueprint(phases_bp)
     app.register_blueprint(signals_bp)
     app.register_blueprint(decisions_bp)
@@ -63,6 +66,10 @@ try:
 except ImportError:
     from .routes.anchors import anchors_bp  # type: ignore[no-redef]
     from .routes.containers import containers_bp  # type: ignore[no-redef]
+    from .routes.contracts import (  # type: ignore[no-redef]
+        contract_mutations_bp,
+        contracts_bp,
+    )
     from .routes.decisions import decisions_bp  # type: ignore[no-redef]
     from .routes.health import health_bp  # type: ignore[no-redef]
     from .routes.messages import messages_bp  # type: ignore[no-redef]
@@ -77,6 +84,8 @@ except ImportError:
     app.register_blueprint(health_bp)
     app.register_blueprint(pipelines_bp)
     app.register_blueprint(containers_bp)
+    app.register_blueprint(contracts_bp)
+    app.register_blueprint(contract_mutations_bp)
     app.register_blueprint(phases_bp)
     app.register_blueprint(signals_bp)
     app.register_blueprint(decisions_bp)

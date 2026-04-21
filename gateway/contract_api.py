@@ -1,47 +1,44 @@
-"""
-Contract API endpoints for the gateway.
+"""Contract API endpoints on the gateway.
 
-Provides REST endpoints for contract mutations with role-based enforcement.
-Role is determined from GitHub Actions workflow context, not agent environment.
+These endpoints are the sandbox's entry point for contract reads and
+writes.  The gateway does not own contract state: it forwards each
+request to the orchestrator (``EGG_ORCHESTRATOR_URL``), which is the
+single source of truth during pipeline execution (see #1781).  This
+preserves the sandbox's "only talk to the gateway" policy while
+eliminating the per-agent worktree divergence that caused spurious
+BRC NACKs.
+
+The gateway still owns:
+  - session authentication (``require_session_auth``)
+  - role resolution from session metadata (prevents header-based
+    privilege escalation)
+
+It sends the verified role to the orchestrator via ``X-Egg-Role``.
 """
 
+import json
 import os
 import re
 import sys
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from flask import Blueprint, Response, g, jsonify, request
 
-# Import gateway authentication - try relative import first (module mode),
-# fall back to absolute import (standalone script mode in container)
 try:
     from .auth import require_session_auth
-    from .git_client import validate_repo_path
 except ImportError:
     from auth import require_session_auth  # type: ignore[no-redef, import-untyped]
-    from git_client import validate_repo_path  # type: ignore[no-redef, import-untyped]
 
 # Add shared directory to path for egg_contracts
 _shared_path = Path(__file__).parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
-from egg_contracts import (
-    ContractNotFoundError,
-    ContractValidationError,
-    Role,
-    apply_mutation,
-    contract_exists,
-    export_contract,
-    get_contract_role,
-    load_contract,
-    save_contract,
-    validate_mutation,
-)
+from egg_contracts import Role, get_contract_role
 
-# Import gateway logging
 try:
     from egg_logging import get_logger
 except ImportError:
@@ -57,100 +54,27 @@ except ImportError:
 
 logger = get_logger("gateway.contract")
 
-# Blueprint for contract endpoints
 contract_bp = Blueprint("contract", __name__, url_prefix="/api/v1/contract")
 
-# Must match orchestrator/routes/__init__.py _WORKTREE_BASE_DIR and
-# docker-compose volume mounts.
-_WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
+# Upstream orchestrator that owns contract state. The default matches the
+# docker-compose service name used elsewhere in the gateway
+# (``checkpoint_handler.py``).
+_DEFAULT_ORCHESTRATOR_URL = "http://egg-orchestrator:9849"
 
-# Matches the pipeline_id format used in worktree directory names.
-_VALID_PIPELINE_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+# Default timeout for orchestrator calls. Kept tight (mutations are
+# quick) so a stuck orchestrator surfaces as an error instead of a
+# silent stall.
+_ORCHESTRATOR_TIMEOUT_SECONDS = 30
 
-
-def _resolve_pipeline_worktree(pipeline_id: str, repo_path: Path) -> Path | None:
-    """Try to find the contract in a pipeline's worktree.
-
-    Pipeline worktrees live at ``/home/egg/.egg-worktrees/<pipeline_id>/<repo>/``.
-    This mirrors :func:`orchestrator.routes.resolve_worktree_path` but lives in
-    the gateway to avoid cross-package imports.
-
-    # TODO: consolidate with orchestrator.routes.resolve_worktree_path into shared/
-
-    Returns the worktree repo path if found, otherwise ``None``.
-    """
-    if not _VALID_PIPELINE_ID_RE.match(pipeline_id):
-        return None
-
-    wt_pipeline_dir = _WORKTREE_BASE_DIR / pipeline_id
-    if not wt_pipeline_dir.is_dir():
-        return None
-
-    # Match by repo directory name (last component of the original repo_path)
-    repo_name = repo_path.name
-    candidate = wt_pipeline_dir / repo_name
-    if candidate.is_dir():
-        return candidate
-
-    # Fallback: take the first existing subdirectory (matches orchestrator logic).
-    # This heuristic can mask misconfigurations — log so operators can detect them.
-    try:
-        for entry in wt_pipeline_dir.iterdir():
-            if entry.is_dir():
-                logger.warning(
-                    "Worktree repo name mismatch, using first subdirectory",
-                    expected_repo=repo_name,
-                    actual_subdir=entry.name,
-                    pipeline_id=pipeline_id,
-                )
-                return entry
-    except OSError:
-        pass
-
-    return None
+_VALID_IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
-_cached_worktree_helpers: (
-    tuple[
-        Callable[[str, str | None, str], str | None],
-        Callable[[str], tuple[Response, int]],
-    ]
-    | None
-) = None
-
-
-def _get_worktree_helpers() -> tuple[
-    Callable[[str, str | None, str], str | None],
-    Callable[[str], tuple[Response, int]],
-]:
-    """Lazy import of worktree helpers to avoid circular import issues.
-
-    The gateway module is large and loaded after contract_api in the test
-    harness, so we import on first use instead of at module load time.
-    Results are cached at module level to avoid per-request import overhead.
-    """
-    global _cached_worktree_helpers  # noqa: PLW0603
-    if _cached_worktree_helpers is not None:
-        return _cached_worktree_helpers
-    try:
-        from .gateway import make_worktree_not_found_error, map_container_path_to_worktree
-    except ImportError:
-        from gateway import (  # type: ignore[no-redef, attr-defined]
-            make_worktree_not_found_error,
-            map_container_path_to_worktree,
-        )
-    _cached_worktree_helpers = (map_container_path_to_worktree, make_worktree_not_found_error)
-    return _cached_worktree_helpers
+def _orchestrator_url() -> str:
+    return os.environ.get("EGG_ORCHESTRATOR_URL", _DEFAULT_ORCHESTRATOR_URL).rstrip("/")
 
 
 def _resolve_role(value: str) -> Role | None:
-    """Resolve a role string to the coarse contract ``Role``.
-
-    Accepts either a coarse ``Role`` value (``implementer``, ``reviewer``,
-    ``human``, ``system``) or a fine-grained ``AgentRole`` value
-    (``coder``, ``refiner``, ``reviewer_code`` …) that the launcher ships
-    in session metadata. Returns ``None`` for unknown values.
-    """
+    """Resolve a role string to the coarse contract :class:`Role`."""
     normalized = value.lower()
     try:
         return Role(normalized)
@@ -159,38 +83,24 @@ def _resolve_role(value: str) -> Role | None:
 
 
 def get_role_from_context() -> Role | None:
+    """Resolve the caller's contract role from the request context.
+
+    Priority (highest to lowest):
+      1. Session metadata — production path, set by the launcher.
+      2. ``X-Egg-Role`` header — only honored when
+         ``EGG_ENABLE_TEST_ROLE_HEADER=1``.
+      3. ``EGG_AGENT_ROLE`` environment variable — development only.
     """
-    Get the agent role from workflow context.
-
-    Role source priority (highest to lowest):
-    1. Session metadata (production path - set by launcher, most secure)
-    2. X-Egg-Role header (for gateway testing only)
-    3. EGG_AGENT_ROLE environment variable (development fallback)
-
-    In GitHub Actions, the role is passed via workflow inputs and set
-    in the session metadata by the launcher, NOT by the agent.
-    This prevents privilege escalation.
-
-    Returns:
-        The Role if valid, None otherwise
-    """
-    # Production path: role comes from workflow context via session metadata
-    # The session is set by the launcher when starting the container
-    # This takes precedence to prevent header-based privilege escalation
     if hasattr(g, "session") and g.session:
         session_role = getattr(g.session, "agent_role", None)
         if session_role:
             return _resolve_role(session_role)
 
-    # Testing path: role can be passed in request header for gateway testing
-    # SECURITY: Only enabled when EGG_ENABLE_TEST_ROLE_HEADER=1 to prevent
-    # privilege escalation in production when sessions don't have agent_role set
     if os.environ.get("EGG_ENABLE_TEST_ROLE_HEADER") == "1":
         header_role = request.headers.get("X-Egg-Role")
         if header_role:
             return _resolve_role(header_role)
 
-    # Fallback: check environment (least secure, used in development only)
     env_role = os.environ.get("EGG_AGENT_ROLE")
     if env_role:
         return _resolve_role(env_role)
@@ -198,443 +108,254 @@ def get_role_from_context() -> Role | None:
     return None
 
 
-def get_repo_path_from_request(
-    from_query: bool = False,
-) -> tuple[Path | None, str | None, str | None]:
-    """Get the repository path from the request with validation.
-
-    Args:
-        from_query: If True, look for repo_path in query parameters (for GET requests).
-                   If False, look in JSON body (for POST requests).
-
-    Returns:
-        Tuple of (path, error_message, container_id). If error_message is set, path validation failed.
-    """
-    if from_query:
-        # For GET requests, use query parameters
-        repo_path = request.args.get("repo_path")
-        container_id = request.args.get("container_id")
-    else:
-        # For POST requests, use JSON body
-        data = request.get_json() or {}
-        repo_path = data.get("repo_path")
-        container_id = data.get("container_id")
-
-    # Fall back to session container_id if not provided
-    if not container_id and hasattr(g, "session") and g.session:
-        container_id = getattr(g.session, "container_id", None)
-
-    if repo_path:
-        # Validate path to prevent path traversal attacks
-        is_valid, error = validate_repo_path(repo_path)
-        if not is_valid:
-            return None, error, container_id
-        return Path(repo_path), None, container_id
-
-    # Try to get from session
+def _session_pipeline_id() -> str | None:
     if hasattr(g, "session") and g.session:
-        session_repo = getattr(g.session, "repo_path", None)
-        if session_repo:
-            # Session paths are trusted (set by launcher), but validate anyway
-            is_valid, error = validate_repo_path(session_repo)
-            if not is_valid:
-                return None, error, container_id
-            return Path(session_repo), None, container_id
-
-    return None, None, container_id
+        return getattr(g.session, "pipeline_id", None)
+    return None
 
 
-def make_contract_error(
-    message: str,
-    status_code: int = 400,
-    details: dict[str, Any] | None = None,
-) -> tuple[Response, int]:
-    """Create a contract error response."""
-    response: dict[str, Any] = {"success": False, "message": message}
-    if details:
-        response["details"] = details
-    return jsonify(response), status_code
-
-
-def make_contract_success(
-    message: str,
-    data: dict[str, Any] | None = None,
-) -> tuple[Response, int]:
-    """Create a contract success response."""
-    response: dict[str, Any] = {"success": True, "message": message}
-    if data:
-        response["data"] = data
-    return jsonify(response), 200
-
-
-_VALID_IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
-
-
-def _validate_identifier(identifier: int | str) -> tuple[Response, int] | None:
-    """Validate a contract identifier against path traversal.
-
-    Returns an error response tuple if invalid, None if valid.
-    """
+def _validate_identifier_value(identifier: int | str) -> tuple[Response, int] | None:
     if isinstance(identifier, int):
         return None
     if not _VALID_IDENTIFIER_RE.match(identifier):
-        return make_contract_error(
+        return _error(
             "Invalid identifier: must contain only alphanumeric characters, hyphens, and underscores",
             status_code=400,
         )
     return None
 
 
-def _get_contract_impl(identifier: int | str) -> tuple[Response, int]:
-    """Shared implementation for get_contract routes.
+def _error(
+    message: str,
+    status_code: int = 400,
+    details: dict[str, Any] | None = None,
+) -> tuple[Response, int]:
+    payload: dict[str, Any] = {"success": False, "message": message}
+    if details:
+        payload["details"] = details
+    return jsonify(payload), status_code
 
-    Supports both integer issue numbers and string pipeline IDs.
+
+def _forward_response(payload: dict[str, Any], status_code: int) -> tuple[Response, int]:
+    """Return the orchestrator's JSON payload unchanged."""
+    return jsonify(payload), status_code
+
+
+def _proxy(
+    method: str,
+    path: str,
+    *,
+    role: Role | None = None,
+    params: dict[str, str] | None = None,
+    json_body: dict[str, Any] | None = None,
+) -> tuple[Response, int]:
+    """Forward a request to the orchestrator and relay its response.
+
+    The orchestrator response is relayed verbatim.  Connection errors
+    surface as 502 so callers can distinguish "orchestrator unreachable"
+    from "contract not found".
     """
-    validation_error = _validate_identifier(identifier)
-    if validation_error:
-        return validation_error
-    repo_path, path_error, container_id = get_repo_path_from_request(from_query=True)
-    if path_error:
-        return make_contract_error(path_error, status_code=400)
-    if not repo_path:
-        repo_path = Path.cwd()
+    url = f"{_orchestrator_url()}{path}"
+    if params:
+        from urllib.parse import urlencode
 
-    # Map container path to worktree path if container_id is provided
-    _map_path, _worktree_err = _get_worktree_helpers()
-    mapped_path = _map_path(str(repo_path), container_id, "contract")
-    if mapped_path is None:
-        return _worktree_err(container_id or "")
-    repo_path = Path(mapped_path)
+        url = f"{url}?{urlencode(params)}"
 
-    include_audit = request.args.get("include_audit_log", "false").lower() == "true"
-    pipeline_id = request.args.get("pipeline_id")
+    headers = {"Accept": "application/json"}
+    if role is not None:
+        headers["X-Egg-Role"] = role.value
+
+    data: bytes | None = None
+    if json_body is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(json_body).encode("utf-8")
 
     try:
-        contract = load_contract(identifier, repo_path)
-        data = export_contract(contract, include_audit_log=include_audit)
-        return make_contract_success("Contract retrieved", data=data)
-    except ContractNotFoundError:
-        # Fallback: try the pipeline's worktree if pipeline_id is provided.
-        # Contracts are written into per-pipeline worktrees, which differ
-        # from the gateway's CWD or the calling agent's worktree.
-        if pipeline_id:
-            wt_path = _resolve_pipeline_worktree(pipeline_id, repo_path)
-            if wt_path:
-                try:
-                    contract = load_contract(identifier, wt_path)
-                    data = export_contract(contract, include_audit_log=include_audit)
-                    logger.info(
-                        "Contract found via pipeline worktree fallback",
-                        identifier=str(identifier),
-                        pipeline_id=pipeline_id,
-                        worktree_path=str(wt_path),
-                    )
-                    return make_contract_success("Contract retrieved", data=data)
-                except ContractNotFoundError:
-                    pass  # genuinely not found, fall through to 404
-                except ContractValidationError:
-                    logger.warning(
-                        "Contract found in pipeline worktree but validation failed",
-                        identifier=str(identifier),
-                        pipeline_id=pipeline_id,
-                        worktree_path=str(wt_path),
-                    )
-                    return make_contract_error(
-                        f"Contract validation failed in pipeline worktree for {identifier}",
-                        status_code=500,
-                    )
+        req = Request(url, data=data, headers=headers, method=method)
+        with urlopen(req, timeout=_ORCHESTRATOR_TIMEOUT_SECONDS) as response:
+            body = response.read().decode("utf-8")
+            try:
+                payload = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                logger.error(
+                    "Non-JSON response from orchestrator contract API",
+                    path=path,
+                    status=response.status,
+                )
+                return _error("Malformed response from orchestrator", status_code=502)
+            return _forward_response(payload, response.status)
+    except HTTPError as exc:
+        raw = exc.read().decode("utf-8") if hasattr(exc, "read") else ""
+        try:
+            payload = json.loads(raw) if raw else {"success": False, "message": str(exc)}
+        except json.JSONDecodeError:
+            payload = {"success": False, "message": raw or str(exc)}
+        return _forward_response(payload, exc.code)
+    except (URLError, TimeoutError) as exc:
+        logger.error(
+            "Orchestrator unreachable for contract request",
+            path=path,
+            error=str(exc),
+        )
+        return _error(
+            "Orchestrator unreachable — try again",
+            status_code=502,
+        )
 
-        return make_contract_error(
-            f"Contract for {'#' + str(identifier) if isinstance(identifier, int) else identifier} not found",
-            status_code=404,
-        )
-    except ContractValidationError as e:
-        return make_contract_error(
-            f"Contract validation failed: {e}",
-            status_code=500,
-        )
+
+def _context_params(body: dict[str, Any] | None = None) -> dict[str, str]:
+    """Collect bootstrap hints (pipeline_id, repo) to forward upstream."""
+    params: dict[str, str] = {}
+    pipeline_id = None
+    if body:
+        pipeline_id = body.get("pipeline_id")
+    if not pipeline_id:
+        pipeline_id = request.args.get("pipeline_id") or _session_pipeline_id()
+    if pipeline_id:
+        params["pipeline_id"] = pipeline_id
+
+    repo = (body or {}).get("repo") or request.args.get("repo")
+    if repo:
+        params["repo"] = repo
+    return params
 
 
 @contract_bp.route("/<int:issue_number>", methods=["GET"])
 @require_session_auth
 def get_contract(issue_number: int) -> tuple[Response, int]:
-    """
-    Get contract state for an issue by issue number.
-
-    URL params:
-        issue_number: GitHub issue number
-
-    Query params:
-        repo_path: Path to the repository (optional)
-        include_audit_log: Whether to include audit log (default: false)
-    """
+    """Fetch the contract for ``issue_number`` (integer form)."""
     return _get_contract_impl(issue_number)
 
 
 @contract_bp.route("/<identifier>", methods=["GET"])
 @require_session_auth
 def get_contract_by_pipeline_id(identifier: str) -> tuple[Response, int]:
-    """
-    Get contract state by pipeline ID (string identifier).
-
-    Supports JIRA-ticket-driven pipelines where EGG_ISSUE_NUMBER is not set.
-
-    URL params:
-        identifier: Pipeline ID (e.g., "KORE-1191-full")
-
-    Query params:
-        repo_path: Path to the repository (optional)
-        include_audit_log: Whether to include audit log (default: false)
-    """
+    """Fetch the contract by string identifier (pipeline ID)."""
     return _get_contract_impl(identifier)
 
 
-@contract_bp.route("/mutate", methods=["POST"])
-@require_session_auth
-def mutate_contract() -> tuple[Response, int]:
-    """
-    Apply a mutation to a contract.
-
-    Request body:
-        {
-            "identifier": 123 or "KORE-1191-full",  // issue number or pipeline ID
-            "repo_path": "/path/to/repo",  // optional
-            "field_path": "phases.0.tasks.0.commit",
-            "new_value": "abc1234",
-            "actor": "egg",  // optional, defaults to "agent"
-            "reason": "Implementation complete"  // optional
-        }
-
-    The "identifier" field accepts both integer issue numbers and string
-    pipeline IDs. The legacy "issue_number" field is still accepted for
-    backward compatibility.
-
-    The role is determined from workflow context, not the request body.
-    This prevents agents from escalating their privileges.
-
-    Returns:
-        Success: {"success": true, "message": "...", "data": {"contract": {...}}}
-        Error: {"success": false, "message": "...", "details": {...}}
-    """
-    data = request.get_json()
-    if not data:
-        return make_contract_error("Missing request body")
-
-    # Required fields — accept "identifier" with "issue_number" fallback.
-    # Identifier may be int or str, so use explicit None checks to avoid
-    # falsy values (e.g. 0 or "") falling through incorrectly.
-    identifier = data.get("identifier")
-    if identifier is None:
-        identifier = data.get("issue_number")
-    field_path = data.get("field_path")
-    new_value = data.get("new_value")
-
-    if identifier is None:
-        return make_contract_error("Missing identifier or issue_number")
-
-    validation_error = _validate_identifier(identifier)
+def _get_contract_impl(identifier: int | str) -> tuple[Response, int]:
+    validation_error = _validate_identifier_value(identifier)
     if validation_error:
         return validation_error
-    if not field_path:
-        return make_contract_error("Missing field_path")
-    if new_value is None:
-        return make_contract_error("Missing new_value")
 
-    # Optional fields
-    if data.get("repo_path"):
-        is_valid, error = validate_repo_path(data["repo_path"])
-        if not is_valid:
-            return make_contract_error(error, status_code=400)
-        repo_path = Path(data["repo_path"])
-    else:
-        repo_path = Path.cwd()
-    # NOTE: This duplicates the container_id extraction + session fallback
-    # from get_repo_path_from_request(). mutate_contract doesn't use that
-    # helper (pre-existing design), so keep these in sync if the logic changes.
-    container_id = data.get("container_id")
-    if not container_id and hasattr(g, "session") and g.session:
-        container_id = getattr(g.session, "container_id", None)
+    params = _context_params()
+    include_audit = request.args.get("include_audit_log", "false").lower() == "true"
+    if include_audit:
+        params["include_audit_log"] = "true"
 
-    # Map container path to worktree path if container_id is provided
-    _map_path, _worktree_err = _get_worktree_helpers()
-    mapped_path = _map_path(str(repo_path), container_id, "contract")
-    if mapped_path is None:
-        return _worktree_err(container_id or "")
-    repo_path = Path(mapped_path)
-
-    actor = data.get("actor", "agent")
-    reason = data.get("reason")
-
-    # Get role from context (NOT from request body)
-    role = get_role_from_context()
-    if not role:
-        return make_contract_error(
-            "Cannot determine agent role. Role must be set via workflow context.",
-            status_code=403,
-            details={"hint": "Set EGG_AGENT_ROLE via workflow inputs, not agent env vars"},
-        )
-
-    # Load the contract
-    try:
-        contract = load_contract(identifier, repo_path)
-    except ContractNotFoundError:
-        return make_contract_error(
-            f"Contract for {'#' + str(identifier) if isinstance(identifier, int) else identifier} not found",
-            status_code=404,
-        )
-    except ContractValidationError as e:
-        return make_contract_error(
-            f"Contract validation failed: {e}",
-            status_code=500,
-        )
-
-    # Apply the mutation
-    result = apply_mutation(
-        contract=contract,
-        role=role,
-        actor=actor,
-        field_path=field_path,
-        new_value=new_value,
-        reason=reason,
-    )
-
-    if not result.success:
-        logger.warning(
-            "Contract mutation rejected",
-            identifier=identifier,
-            role=role.value,
-            field_path=field_path,
-            error=result.message,
-        )
-        return make_contract_error(
-            result.message,
-            status_code=403,
-            details={
-                "role": role.value,
-                "field_path": field_path,
-            },
-        )
-
-    # Save the updated contract
-    # Type assertion: contract is always set when success is True
-    assert result.contract is not None
-    try:
-        save_contract(result.contract, repo_path)
-    except Exception as e:
-        logger.error(
-            "Failed to save contract",
-            identifier=identifier,
-            error=str(e),
-        )
-        return make_contract_error(
-            f"Failed to save contract: {e}",
-            status_code=500,
-        )
-
-    logger.info(
-        "Contract mutation applied",
-        identifier=identifier,
-        role=role.value,
-        actor=actor,
-        field_path=field_path,
-    )
-
-    return make_contract_success(
-        "Mutation applied successfully",
-        data={"contract": export_contract(result.contract, include_audit_log=False)},
-    )
-
-
-@contract_bp.route("/validate", methods=["POST"])
-@require_session_auth
-def validate_contract_mutation() -> tuple[Response, int]:
-    """
-    Validate a mutation without applying it.
-
-    Request body:
-        {
-            "field_path": "phases.0.tasks.0.status",
-            "new_value": "complete"
-        }
-
-    The role is determined from workflow context.
-
-    Returns:
-        {"success": true, "message": "Mutation allowed"}
-        or
-        {"success": false, "message": "...", "details": {...}}
-    """
-    data = request.get_json()
-    if not data:
-        return make_contract_error("Missing request body")
-
-    field_path = data.get("field_path")
-    new_value = data.get("new_value")
-
-    if not field_path:
-        return make_contract_error("Missing field_path")
-    if new_value is None:
-        return make_contract_error("Missing new_value")
-
-    # Get role from context
-    role = get_role_from_context()
-    if not role:
-        return make_contract_error(
-            "Cannot determine agent role",
-            status_code=403,
-        )
-
-    # Validate the mutation
-    result = validate_mutation(role, field_path, new_value)
-
-    if result.valid:
-        return make_contract_success("Mutation allowed")
-    else:
-        return make_contract_error(
-            result.message,
-            status_code=403,
-            details={
-                "role": role.value,
-                "field_path": result.field_path,
-                "required_role": result.required_role,
-            },
-        )
-
-
-def _check_contract_exists_impl(identifier: int | str) -> tuple[Response, int]:
-    """Shared implementation for contract exists routes."""
-    validation_error = _validate_identifier(identifier)
-    if validation_error:
-        return validation_error
-    repo_path, path_error, container_id = get_repo_path_from_request(from_query=True)
-    if path_error:
-        return make_contract_error(path_error, status_code=400)
-    if not repo_path:
-        repo_path = Path.cwd()
-
-    # Map container path to worktree path if container_id is provided
-    _map_path, _worktree_err = _get_worktree_helpers()
-    mapped_path = _map_path(str(repo_path), container_id, "contract")
-    if mapped_path is None:
-        return _worktree_err(container_id or "")
-    repo_path = Path(mapped_path)
-
-    exists = contract_exists(identifier, repo_path)
-    return make_contract_success(
-        "Contract exists" if exists else "Contract does not exist",
-        data={"exists": exists},
+    return _proxy(
+        "GET",
+        f"/api/v1/contracts/{identifier}",
+        params=params,
     )
 
 
 @contract_bp.route("/exists/<int:issue_number>", methods=["GET"])
 @require_session_auth
 def check_contract_exists(issue_number: int) -> tuple[Response, int]:
-    """Check if a contract exists for an issue by issue number."""
     return _check_contract_exists_impl(issue_number)
 
 
 @contract_bp.route("/exists/<identifier>", methods=["GET"])
 @require_session_auth
 def check_contract_exists_by_pipeline_id(identifier: str) -> tuple[Response, int]:
-    """Check if a contract exists by pipeline ID (string identifier)."""
     return _check_contract_exists_impl(identifier)
+
+
+def _check_contract_exists_impl(identifier: int | str) -> tuple[Response, int]:
+    validation_error = _validate_identifier_value(identifier)
+    if validation_error:
+        return validation_error
+    return _proxy(
+        "GET",
+        f"/api/v1/contracts/{identifier}/exists",
+        params=_context_params(),
+    )
+
+
+@contract_bp.route("/mutate", methods=["POST"])
+@require_session_auth
+def mutate_contract() -> tuple[Response, int]:
+    """Apply a role-validated mutation to the contract.
+
+    Identifier is accepted in the request body for backwards
+    compatibility with the CLI (``egg-contract``) and older callers.
+    """
+    body = request.get_json()
+    if not body:
+        return _error("Missing request body")
+
+    identifier = body.get("identifier")
+    if identifier is None:
+        identifier = body.get("issue_number")
+    if identifier is None:
+        return _error("Missing identifier or issue_number")
+
+    validation_error = _validate_identifier_value(identifier)
+    if validation_error:
+        return validation_error
+
+    field_path = body.get("field_path")
+    new_value = body.get("new_value", ...)
+    if not field_path:
+        return _error("Missing field_path")
+    if new_value is ...:
+        return _error("Missing new_value")
+
+    role = get_role_from_context()
+    if role is None:
+        return _error(
+            "Cannot determine agent role. Role must be set via workflow context.",
+            status_code=403,
+            details={"hint": "Set EGG_AGENT_ROLE via workflow inputs, not agent env vars"},
+        )
+
+    forwarded = {
+        "field_path": field_path,
+        "new_value": new_value,
+        "actor": body.get("actor", "agent"),
+    }
+    if "reason" in body:
+        forwarded["reason"] = body["reason"]
+    # Forward pipeline_id in the body so the orchestrator can bootstrap
+    # from the shared worktree on first access.
+    params = _context_params(body)
+    if "pipeline_id" in params:
+        forwarded["pipeline_id"] = params["pipeline_id"]
+    if "repo" in params:
+        forwarded["repo"] = params["repo"]
+
+    return _proxy(
+        "POST",
+        f"/api/v1/contracts/{identifier}/mutate",
+        role=role,
+        json_body=forwarded,
+    )
+
+
+@contract_bp.route("/validate", methods=["POST"])
+@require_session_auth
+def validate_contract_mutation() -> tuple[Response, int]:
+    """Dry-run a mutation without applying it."""
+    body = request.get_json()
+    if not body:
+        return _error("Missing request body")
+
+    field_path = body.get("field_path")
+    new_value = body.get("new_value", ...)
+    if not field_path:
+        return _error("Missing field_path")
+    if new_value is ...:
+        return _error("Missing new_value")
+
+    role = get_role_from_context()
+    if role is None:
+        return _error("Cannot determine agent role", status_code=403)
+
+    return _proxy(
+        "POST",
+        "/api/v1/contract-mutations/validate",
+        role=role,
+        json_body={"field_path": field_path, "new_value": new_value},
+    )
