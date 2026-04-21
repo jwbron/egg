@@ -7376,6 +7376,88 @@ def _format_nack_summary(nack_details: list[dict]) -> str:
     )
 
 
+def _handle_brc_consensus_timeout(
+    pipeline: Pipeline,
+    pipeline_id: str,
+    consensus_timeout: float,
+    blocking_agents: list[str],
+) -> None:
+    # Extracted from _run_concurrent_phase so k3s-style top-level-module
+    # layouts (and tests) can exercise this path in isolation — issue #1783.
+    _brc_handled = False
+    _brc_timeout_result: dict | None = None
+    try:
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+        except ImportError:
+            from ..peer_consensus import (
+                get_peer_consensus_tracker,  # type: ignore[no-redef]
+            )
+
+        _brc_tracker = get_peer_consensus_tracker(pipeline_id)
+        if _brc_tracker is not None:
+            _brc_timeout_result = _brc_tracker.handle_timeout()
+            _brc_handled = _brc_tracker.is_timeout_handled()
+            logger.info(
+                "BRC timeout handler result",
+                pipeline_id=pipeline_id,
+                action=(_brc_timeout_result.get("action") if _brc_timeout_result else None),
+                brc_handled=_brc_handled,
+            )
+    except Exception as e:
+        logger.warning(
+            "BRC timeout check failed, falling back to HITL",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+
+    if (
+        _brc_handled
+        and _brc_timeout_result is not None
+        and _brc_timeout_result.get("action") == "escalate"
+    ):
+        try:
+            pipeline.add_decision(
+                question=(
+                    f"BRC consensus failure: critical reviewers unconfirmed after "
+                    f"{int(consensus_timeout / 60)} minutes. How to proceed?"
+                ),
+                options=["Continue waiting", "Accept current state", "Abort phase"],
+                phase=pipeline.current_phase,
+            )
+        except Exception as decision_err:
+            logger.error(
+                "Failed to queue HITL decision after BRC escalation — pipeline will stall",
+                pipeline_id=pipeline_id,
+                error=str(decision_err),
+            )
+    elif not _brc_handled:
+        if _emit_event is not None:
+            _emit_event(
+                EventType.CONSENSUS_TIMEOUT,
+                pipeline_id,
+                data={
+                    "timeout_minutes": consensus_timeout / 60,
+                    "blocking_agents": blocking_agents,
+                },
+            )
+        try:
+            pipeline.add_decision(
+                question=(
+                    f"Consensus not reached after {int(consensus_timeout / 60)} minutes. "
+                    f"How to proceed?"
+                ),
+                options=["Continue waiting", "Accept current state", "Abort phase"],
+                phase=pipeline.current_phase,
+            )
+        except Exception as decision_err:
+            logger.error(
+                "Failed to queue HITL decision after consensus timeout — pipeline will stall",
+                pipeline_id=pipeline_id,
+                error=str(decision_err),
+            )
+
+
 def _run_concurrent_phase(
     pipeline_id: str,
     pipeline: Pipeline,
@@ -7821,7 +7903,12 @@ def _run_concurrent_phase(
 
             _hm = get_health_monitor()
             if _hm is not None:
-                from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]  # noqa: I001
+                try:
+                    from peer_consensus import get_peer_consensus_tracker
+                except ImportError:
+                    from ..peer_consensus import (
+                        get_peer_consensus_tracker,  # type: ignore[no-redef]
+                    )
 
                 _brc_tracker = get_peer_consensus_tracker(pipeline_id)
                 if _brc_tracker is not None:
@@ -8075,70 +8162,12 @@ def _run_concurrent_phase(
                 pipeline_id=pipeline_id,
                 timeout_minutes=consensus_timeout / 60,
             )
-            # Let the BRC tracker handle the timeout first — it emits
-            # role-aware events (CONSENSUS_FAILURE or CONSENSUS_TIMEOUT)
-            # and returns whether it handled the situation.  Only fall
-            # back to the generic CONSENSUS_TIMEOUT event and HITL
-            # decision if BRC did not handle it.
-            _brc_handled = False
-            _brc_timeout_result = None
-            try:
-                from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]  # noqa: I001
-
-                _brc_tracker = get_peer_consensus_tracker(pipeline_id)
-                if _brc_tracker is not None:
-                    _brc_timeout_result = _brc_tracker.handle_timeout()
-                    _brc_handled = _brc_tracker.is_timeout_handled()
-                    logger.info(
-                        "BRC timeout handler result",
-                        pipeline_id=pipeline_id,
-                        action=_brc_timeout_result.get("action"),
-                        brc_handled=_brc_handled,
-                    )
-            except Exception as e:
-                logger.warning(
-                    "BRC timeout check failed, falling back to HITL",
-                    pipeline_id=pipeline_id,
-                    error=str(e),
-                )
-
-            if (
-                _brc_handled
-                and _brc_timeout_result is not None
-                and _brc_timeout_result.get("action") == "escalate"
-            ):
-                # BRC handled the timeout but requests escalation —
-                # critical reviewers are unconfirmed.  Still need a HITL
-                # decision so a human can intervene.
-                try:
-                    pipeline.add_decision(
-                        question=(
-                            f"BRC consensus failure: critical reviewers unconfirmed after "
-                            f"{int(consensus_timeout / 60)} minutes. How to proceed?"
-                        ),
-                        options=["Continue waiting", "Accept current state", "Abort phase"],
-                        phase=pipeline.current_phase,
-                    )
-                except Exception:
-                    pass
-            elif not _brc_handled:
-                if _emit_event is not None:
-                    _emit_event(
-                        EventType.CONSENSUS_TIMEOUT,
-                        pipeline_id,
-                        data={
-                            "timeout_minutes": consensus_timeout / 60,
-                            "blocking_agents": consensus.get("blocking_agents", []),
-                        },
-                    )
-                try:
-                    pipeline.add_decision(
-                        question=f"Consensus not reached after {int(consensus_timeout / 60)} minutes. How to proceed?",
-                        options=["Continue waiting", "Accept current state", "Abort phase"],
-                        phase=pipeline.current_phase,
-                    )
-                except Exception:
-                    pass
+            _handle_brc_consensus_timeout(
+                pipeline,
+                pipeline_id,
+                consensus_timeout,
+                consensus.get("blocking_agents", []),
+            )
 
             # Fall back: wait for remaining containers with ThreadPoolExecutor
             remaining = [e for e in active_executions if e.container_id not in exited_containers]
