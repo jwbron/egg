@@ -356,6 +356,8 @@ The gateway enforces which roles can modify which fields of the contract JSON vi
 | `human` | `decisions[].resolved`, `decisions[].resolution`, `decisions[].resolved_by`, `decisions[].resolved_at`, all other fields |
 | `system` | Structural fields (`issue`, `schemaVersion`) |
 
+The gateway accepts both coarse roles (`implementer`, `reviewer`) and the fine-grained `AgentRole` values stored in agent session metadata (`coder`, `refiner`, `reviewer_code`, etc.). Fine-grained roles are mapped to their coarse equivalent via `AGENT_ROLE_TO_CONTRACT_ROLE` before field-ownership checks are applied.
+
 ## Role Registry (Source of Truth)
 
 All agent roles are defined in a single canonical location: `shared/egg_contracts/agent_roles.py`. This module provides:
@@ -364,7 +366,9 @@ All agent roles are defined in a single canonical location: `shared/egg_contract
 - **`AgentCategory`** — `StrEnum` categorizing roles (EXECUTION, ANALYSIS, REVIEW, UTILITY, INTERFACE)
 - **`AgentRoleDefinition`** — Dataclass combining role, description, responsibilities, dependencies, file access, and category
 - **`AGENT_ROLES`** — Registry mapping each `AgentRole` to its definition
+- **`AGENT_ROLE_TO_CONTRACT_ROLE`** — Mapping from each fine-grained `AgentRole` to its coarse `Role` (e.g., `coder` → `implementer`, `reviewer_code` → `reviewer`); used by the gateway to authorize contract mutations
 - **`get_role_definition(role)`** — Look up a role's full definition
+- **`get_contract_role(role)`** — Translate a fine-grained `AgentRole` to its coarse contract `Role`; returns `None` for unknown roles
 - **`get_roles_by_category(category)`** — Query all roles in a given category
 - **`get_roles_for_phase(phase)`** — Get roles assigned to a pipeline phase
 - **`detect_write_overlaps(roles)`** — Find file access conflicts between parallel roles
