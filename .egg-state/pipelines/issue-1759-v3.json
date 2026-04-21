@@ -344,11 +344,11 @@
       "agents": [
         {
           "role": "coder",
-          "status": "failed",
+          "status": "complete",
           "container_id": "211dd327-b860-4b0a-be25-a261c6fc58a2",
           "started_at": "2026-04-21T21:51:27.669972Z",
-          "completed_at": "2026-04-21T23:21:33.152357Z",
-          "commit": null,
+          "completed_at": "2026-04-21T23:21:33.297848Z",
+          "commit": "ac5c4900ffddb83828da4cac3cb801dfd672aef7",
           "outputs": {},
           "error": "Container exited with code -1",
           "retry_count": 0,
@@ -356,11 +356,11 @@
         },
         {
           "role": "documenter",
-          "status": "failed",
+          "status": "complete",
           "container_id": "51dc7cc8-644c-4755-ad82-9e0fbccb9ba4",
           "started_at": "2026-04-21T21:51:27.669978Z",
-          "completed_at": "2026-04-21T23:21:33.185017Z",
-          "commit": null,
+          "completed_at": "2026-04-21T23:21:33.297856Z",
+          "commit": "ccb7ab42530852ad0f585af9d045a03dd7a0a320",
           "outputs": {},
           "error": "Container exited with code -1",
           "retry_count": 0,
@@ -368,11 +368,11 @@
         },
         {
           "role": "tester",
-          "status": "failed",
+          "status": "complete",
           "container_id": "080bd87e-5096-4385-a217-738ff6a8acad",
           "started_at": "2026-04-21T21:51:27.669982Z",
-          "completed_at": "2026-04-21T23:21:33.170674Z",
-          "commit": null,
+          "completed_at": "2026-04-21T23:21:33.297861Z",
+          "commit": "5dfe84fcdcec93651304486a0cc0e65848fae97b",
           "outputs": {},
           "error": "Container exited with code -1",
           "retry_count": 0,
@@ -380,10 +380,10 @@
         },
         {
           "role": "reviewer_code",
-          "status": "failed",
+          "status": "complete",
           "container_id": "89d76cd8-ddd4-4889-a202-8b0ac9b59d81",
           "started_at": "2026-04-21T21:51:27.669985Z",
-          "completed_at": "2026-04-21T23:21:33.276343Z",
+          "completed_at": "2026-04-21T23:21:33.297865Z",
           "commit": null,
           "outputs": {},
           "error": "Container exited with code -1",
@@ -392,10 +392,10 @@
         },
         {
           "role": "reviewer_contract",
-          "status": "failed",
+          "status": "complete",
           "container_id": "00edca67-5196-411b-a6f8-cbeb3470e8b1",
           "started_at": "2026-04-21T21:51:27.669989Z",
-          "completed_at": "2026-04-21T23:21:33.109519Z",
+          "completed_at": "2026-04-21T23:21:33.297868Z",
           "commit": null,
           "outputs": {},
           "error": "Container exited with code -1",
@@ -439,7 +439,7 @@
     }
   ],
   "created_at": "2026-04-21T20:06:57.322289Z",
-  "updated_at": "2026-04-21T23:21:33.276501Z",
+  "updated_at": "2026-04-21T23:21:33.298024Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -452,5 +452,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-21T21:51:23.359709Z",
-  "version": 30
+  "version": 31
 }
