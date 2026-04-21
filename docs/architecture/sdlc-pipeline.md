@@ -131,6 +131,7 @@ Contract state is owned by the **orchestrator**. The gateway proxies agent reque
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/v1/contract/<identifier>` | GET | Proxied read (forwards to orchestrator) |
+| `/api/v1/contract/exists/<identifier>` | GET | Proxied existence check |
 | `/api/v1/contract/mutate` | POST | Proxied mutation (role verified, then forwarded) |
 | `/api/v1/contract/validate` | POST | Proxied validation |
 | `/api/v1/phase/advance` | POST | Advance to next phase |

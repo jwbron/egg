@@ -70,6 +70,7 @@ No additional configuration is needed — `EGG_PIPELINE_ID` is set automatically
 - `EGG_ISSUE_NUMBER` — current GitHub issue number (auto-set in issue-driven pipelines)
 - `EGG_PIPELINE_ID` — pipeline ID string for JIRA-ticket pipelines (auto-set)
 - `EGG_REPO_PATH` — repository path (auto-set)
+- `CONTAINER_ID` — container identifier, passed to gateway for request context (auto-set in pipeline containers)
 
 When neither `EGG_ISSUE_NUMBER` nor `EGG_PIPELINE_ID` is set, all commands require `--issue` or `--pipeline-id`.
 
