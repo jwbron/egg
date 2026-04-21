@@ -752,7 +752,13 @@ class PipelineToolHandler:
         if lifecycle_secret:
             headers["Authorization"] = f"Bearer {lifecycle_secret}"
             headers["X-Egg-Source"] = "mcp"
-        body = json.dumps(data).encode() if data else None
+        # Always send a JSON body for non-GET requests: Content-Type:
+        # application/json with an empty body makes Flask's get_json() raise
+        # BadRequest(400). See #1787.
+        if method == "GET":
+            body = json.dumps(data).encode() if data else None
+        else:
+            body = json.dumps(data if data is not None else {}).encode()
 
         opener = build_opener(ProxyHandler({}))
         req = Request(url, data=body, headers=headers, method=method)
@@ -1449,7 +1455,11 @@ class PipelineToolHandler:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {token}",
             }
-            body = json.dumps(data).encode() if data else None
+            # Same GET/non-GET split as _make_request — see #1787.
+            if method == "GET":
+                body = json.dumps(data).encode() if data else None
+            else:
+                body = json.dumps(data if data is not None else {}).encode()
             opener = build_opener(ProxyHandler({}))
             req = Request(url, data=body, headers=headers, method=method)
             with opener.open(req, timeout=timeout) as response:

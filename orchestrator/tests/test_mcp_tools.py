@@ -2040,3 +2040,74 @@ class TestBabysitPr:
         assert schema["required"] == ["pr_number", "repo"]
         assert schema["properties"]["pr_number"]["type"] == "integer"
         assert schema["properties"]["repo"]["type"] == "string"
+
+
+class TestMakeRequestBody:
+    """Regression tests for #1787: empty-body POST breaks Flask get_json().
+
+    The MCP lifecycle tools (complete_phase, populate_contract, start_phase)
+    previously sent no body at all when their optional fields were omitted.
+    Flask's default get_json() raises BadRequest(400) for an empty body with
+    Content-Type: application/json, so these tools returned an opaque 400.
+    """
+
+    def _capture_opener(self):
+        """Build a mock urllib opener that records the Request and returns {}.
+
+        Returns (mock_opener, captured) where captured["req"] is the Request
+        object passed to opener.open().
+        """
+        import json as _json
+
+        captured = {}
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = _json.dumps({}).encode()
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+
+        def _open(req, timeout=None):
+            captured["req"] = req
+            return mock_response
+
+        mock_opener = MagicMock()
+        mock_opener.open.side_effect = _open
+        return mock_opener, captured
+
+    def test_post_with_no_data_sends_empty_json_object(self, handler):
+        """POST with data=None must send b'{}', not no body."""
+        mock_opener, captured = self._capture_opener()
+        with patch("urllib.request.build_opener", return_value=mock_opener):
+            handler._make_request("/api/v1/pipelines/foo/phase/complete", method="POST")
+
+        req = captured["req"]
+        assert req.data == b"{}"
+        assert req.get_header("Content-type") == "application/json"
+
+    def test_post_with_empty_dict_sends_empty_json_object(self, handler):
+        """POST with data={} must send b'{}', not no body."""
+        mock_opener, captured = self._capture_opener()
+        with patch("urllib.request.build_opener", return_value=mock_opener):
+            handler._make_request("/api/v1/pipelines/foo/phase/complete", method="POST", data={})
+
+        assert captured["req"].data == b"{}"
+
+    def test_post_with_data_sends_data(self, handler):
+        """POST with data preserves existing behavior."""
+        mock_opener, captured = self._capture_opener()
+        with patch("urllib.request.build_opener", return_value=mock_opener):
+            handler._make_request(
+                "/api/v1/pipelines/foo/phase/complete",
+                method="POST",
+                data={"artifacts": {"k": "v"}},
+            )
+
+        assert json.loads(captured["req"].data) == {"artifacts": {"k": "v"}}
+
+    def test_get_with_no_data_sends_no_body(self, handler):
+        """GET must not send a body just because POST now does."""
+        mock_opener, captured = self._capture_opener()
+        with patch("urllib.request.build_opener", return_value=mock_opener):
+            handler._make_request("/api/v1/pipelines/foo", method="GET")
+
+        assert captured["req"].data is None
