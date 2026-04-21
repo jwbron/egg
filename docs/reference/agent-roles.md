@@ -351,10 +351,14 @@ The gateway enforces which roles can modify which fields of the contract JSON vi
 
 | Role | Mutable contract fields |
 |------|------------------------|
-| `implementer` | `tasks[].commit`, `tasks[].notes`, `tasks[].files_affected`, `feedback`, `feedback.*` |
-| `reviewer` | `tasks[].status`, `phases[].status`, `phases[].review_feedback`, `acceptance_criteria[].verified`, `current_phase`, `feedback`, `feedback.*` |
-| `human` | `decisions[].resolved`, `decisions[].resolution`, `decisions[].resolved_by`, `decisions[].resolved_at`, `feedback.submitted`, `feedback.submitted_by`, `feedback.submitted_at`, all other fields |
+| `implementer` | `tasks[].commit`, `tasks[].notes`, `tasks[].files_affected`, `tasks[].files_affected.*`, `tasks[].status`^1^, `phases[].commit`, `phases[].status`^1^, `decisions.*`, `feedback`, `feedback.*` |
+| `reviewer` | `tasks[].status`^1^, `phases[].status`^1^, `phases[].review_feedback`, `phases[].review_feedback.*`, `acceptance_criteria[].verified`, `current_phase`, `feedback`, `feedback.*` |
+| `human` | `decisions[].resolved`, `decisions[].resolution`, `decisions[].resolved_by`, `decisions[].resolved_at`, `feedback.submitted`^2^, `feedback.submitted_by`^2^, `feedback.submitted_at`^2^, all other fields |
 | `system` | Structural fields (`issue`, `schemaVersion`) |
+
+^1^ **Shared ownership**: `tasks[].status` and `phases[].status` are writable by both `implementer` and `reviewer`. Implementer agents mark tasks/phases done during implementation; reviewers can validate or override during review.
+
+^2^ **Precedence**: Although `feedback.*` grants implementer/reviewer access to nested feedback fields, these specific subfields (`feedback.submitted`, `feedback.submitted_by`, `feedback.submitted_at`) are human-only. `get_field_owner()` in `roles.py` resolves this via exact-match-first precedence — exact paths always win over wildcard patterns.
 
 The gateway accepts both coarse roles (`implementer`, `reviewer`) and the fine-grained `AgentRole` values stored in agent session metadata (`coder`, `refiner`, `reviewer_code`, etc.). Fine-grained roles are mapped to their coarse equivalent via `AGENT_ROLE_TO_CONTRACT_ROLE` before field-ownership checks are applied.
 
