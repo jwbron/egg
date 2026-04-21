@@ -11,7 +11,7 @@ When working in the SDLC pipeline, use the `egg-contract` CLI to track progress.
 | `egg-contract complete-phase --phase <id> [--commit <sha>]` | Mark phase done (optionally link commit) |
 | `egg-contract add-commit --task <id> --commit <sha>` | Link commit to task without marking done |
 | `egg-contract update-notes --task <id> --notes <text>` | Add implementation notes |
-| `egg-contract add-decision --question <text>` | Create HITL decision (multiple choice) |
+| `egg-contract add-decision --question <text> [--phase <phase>]` | Create HITL decision (multiple choice); scoped to current phase by default |
 | `egg-contract add-feedback --question <text>...` | Create feedback comment (open-ended) |
 
 ## Workflow
@@ -37,6 +37,8 @@ egg-contract add-decision \
   --question "Which database should we use?" \
   --options "PostgreSQL" "MongoDB" "SQLite"
 ```
+
+The `--phase` flag (optional) scopes the decision to a specific pipeline phase (`refine`, `plan`, `implement`, `pr`). Defaults to the contract's `current_phase`. Phase-scoped decisions block `complete_phase` until resolved — the endpoint returns 409 if any decisions for the current phase remain open.
 
 Use for: architecture choices, go/no-go decisions, implementation strategy.
 
