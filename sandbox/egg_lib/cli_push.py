@@ -127,16 +127,60 @@ def _get_merge_base(branch: str) -> str:
     if mb_result.returncode == 0:
         return mb_result.stdout.strip()
 
+    # Fallback: on work branches, try origin/$EGG_BRANCH (the assigned
+    # pipeline branch) — the work branch won't exist on the remote but
+    # the assigned branch will.
+    assigned = os.environ.get("EGG_BRANCH", "").strip()
+    if assigned and assigned != branch:
+        mb_result = subprocess.run(
+            ["git", "merge-base", f"origin/{assigned}", "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        if mb_result.returncode == 0:
+            return mb_result.stdout.strip()
+
     # Last resort: single commit
     return "HEAD~1"
+
+
+def _retarget_refspec(current_branch: str) -> str | None:
+    """Return ``HEAD:<assigned>`` when the push must target the pipeline's assigned branch.
+
+    Pipeline agents run on per-agent work branches (``egg/<pid>-<role>/work``)
+    but the gateway locks the session to the pipeline's assigned branch
+    (``egg/<pid>``).  When ``EGG_BRANCH`` is set and differs from
+    *current_branch*, the push must use ``HEAD:<assigned>`` so the refspec
+    target matches the gateway's push-target check.
+
+    Returns ``None`` when no retargeting is needed.
+    """
+    assigned = os.environ.get("EGG_BRANCH", "").strip()
+    if assigned and assigned != current_branch:
+        return f"HEAD:{assigned}"
+    return None
+
+
+def _resolve_push_args(current_branch: str) -> list[str]:
+    """Build ``git push`` args, retargeting to the assigned pipeline branch."""
+    refspec = _retarget_refspec(current_branch)
+    if refspec:
+        return ["git", "push", "origin", refspec]
+    return ["git", "push", "origin", current_branch]
 
 
 def cmd_push(args: argparse.Namespace) -> None:
     """Handle the push subcommand."""
 
-    # Without --scope-filter, just passthrough to git push.
+    # Without --scope-filter, just passthrough to git push, but retarget the
+    # refspec to the assigned pipeline branch when running on a per-agent
+    # work branch.
     if not args.scope_filter:
-        result = subprocess.run(["git", "push"], text=True)
+        refspec = _retarget_refspec(_get_current_branch())
+        if refspec:
+            result = subprocess.run(["git", "push", "origin", refspec], text=True)
+        else:
+            result = subprocess.run(["git", "push"], text=True)
         sys.exit(result.returncode)
 
     # --scope-filter requires EGG_AGENT_FILE_PATTERNS
@@ -192,7 +236,7 @@ def cmd_push(args: argparse.Namespace) -> None:
 
     # If nothing was removed, push as-is — no rewriting needed.
     if not removed:
-        result = subprocess.run(["git", "push", "origin", branch], text=True)
+        result = subprocess.run(_resolve_push_args(branch), text=True)
         sys.exit(result.returncode)
 
     # Some files removed — inform the user and rewrite the commits.
@@ -239,7 +283,7 @@ def cmd_push(args: argparse.Namespace) -> None:
 
     # Step 5: push.
     push_result = subprocess.run(
-        ["git", "push", "origin", branch],
+        _resolve_push_args(branch),
         text=True,
     )
     if push_result.returncode != 0 and orig_head:

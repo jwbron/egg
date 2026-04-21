@@ -63,6 +63,8 @@ except ImportError:
     ORCHESTRATOR_PORT = 9849  # noqa: EGG002
     GATEWAY_PORT = 9848  # noqa: EGG002
 
+from egg_lib.cli_push import _retarget_refspec
+
 # Validation pattern for IDs used in URL path segments
 _SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_\-\.]+$")
 
@@ -1225,19 +1227,25 @@ def _consensus_push() -> int:
         print("Error: could not determine current branch for push", file=sys.stderr)
         return 1
 
-    # Resolve the remote tracking refspec (e.g. local:remote)
-    try:
-        tracking = subprocess.check_output(
-            ["git", "config", f"branch.{branch}.merge"],
-            text=True,
-            cwd=repo_path or None,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-        # tracking is like "refs/heads/egg/issue-123"
-        remote_branch = tracking.removeprefix("refs/heads/")
-        refspec = f"{branch}:{remote_branch}" if remote_branch != branch else branch
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        refspec = branch
+    # Retarget to the assigned pipeline branch when on a per-agent work
+    # branch (shared logic with cli_push).
+    retarget = _retarget_refspec(branch)
+    if retarget:
+        refspec = retarget
+    else:
+        # Resolve the remote tracking refspec (e.g. local:remote)
+        try:
+            tracking = subprocess.check_output(
+                ["git", "config", f"branch.{branch}.merge"],
+                text=True,
+                cwd=repo_path or None,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+            # tracking is like "refs/heads/egg/issue-123"
+            remote_branch = tracking.removeprefix("refs/heads/")
+            refspec = f"{branch}:{remote_branch}" if remote_branch != branch else branch
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            refspec = branch
 
     payload = json.dumps(
         {
