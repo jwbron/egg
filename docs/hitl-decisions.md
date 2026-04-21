@@ -55,7 +55,7 @@ Output:
 > and contract-side decisions scoped to that phase). Resolve all pending decisions before
 > completing a phase, or pass `force=true` to abandon them (abandoned IDs are recorded
 > in the phase's artifacts for audit). See
-> [Orchestrator CLI § complete_phase](../reference/orchestrator-cli.md) for details.
+> [Orchestrator CLI § complete_phase](reference/orchestrator-cli.md) for details.
 
 ### Auto-appended "Other" Option
 
