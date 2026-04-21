@@ -52,6 +52,9 @@ from egg_contracts import (  # noqa: E402
     save_contract,
     validate_mutation,
 )
+from egg_contracts import (
+    contract_exists as _contract_exists,
+)
 
 logger = logging.getLogger("orchestrator.contracts")
 
@@ -95,7 +98,7 @@ def _success(
     data: dict[str, Any] | None = None,
 ) -> tuple[Response, int]:
     payload: dict[str, Any] = {"success": True, "message": message}
-    if data:
+    if data is not None:
         payload["data"] = data
     return jsonify(payload), 200
 
@@ -118,6 +121,9 @@ def _role_from_request() -> Role | None:
     if header_role:
         return _resolve_role(header_role)
 
+    # Body fallback exists for internal/dev callers that bypass the
+    # gateway.  The gateway itself strips these fields from forwarded
+    # bodies (it sends the verified role via X-Egg-Role instead).
     body = request.get_json(silent=True) or {}
     body_role = body.get("role") or body.get("actor_role")
     if body_role:
@@ -200,7 +206,7 @@ def contract_exists(identifier: str) -> tuple[Response, int]:
         return error
     assert worktree is not None
 
-    exists = (worktree / ".egg-state" / "contracts" / f"{ident}.json").exists()
+    exists = _contract_exists(ident, worktree)
     return _success(
         "Contract exists" if exists else "Contract does not exist",
         data={"exists": exists},

@@ -27,6 +27,7 @@ protect concurrent mutations arriving from multiple Flask threads.
 from __future__ import annotations
 
 import logging
+import re
 import sys
 import threading
 from pathlib import Path
@@ -44,6 +45,9 @@ logger = logging.getLogger("orchestrator.contract_store")
 # ``<base>/<pipeline_id>/<repo>/``.
 _WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
 
+# Path components must be simple names — no slashes, dots-only, or other
+# characters that could escape the worktree base directory.
+_SAFE_COMPONENT_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 _locks: dict[str, threading.RLock] = {}
 _locks_guard = threading.Lock()
@@ -79,7 +83,9 @@ def resolve_pipeline_worktree(
         repo_hint: Optional repo name (last component of ``owner/repo``)
             to disambiguate when the host runs multiple repos.
     """
-    if not pipeline_id:
+    if not pipeline_id or not _SAFE_COMPONENT_RE.match(pipeline_id):
+        return None
+    if repo_hint and not _SAFE_COMPONENT_RE.match(repo_hint):
         return None
 
     base = _WORKTREE_BASE_DIR / pipeline_id

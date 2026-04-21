@@ -213,3 +213,19 @@ class TestResolvePipelineWorktree:
 
     def test_empty_id_returns_none(self):
         assert contract_store.resolve_pipeline_worktree("") is None
+
+    @pytest.mark.parametrize(
+        "pipeline_id",
+        ["../../etc", "../other", "has/slash", "has..", "a b"],
+    )
+    def test_path_traversal_pipeline_id_rejected(self, pipeline_id):
+        assert contract_store.resolve_pipeline_worktree(pipeline_id) is None
+
+    def test_path_traversal_repo_hint_rejected(self, tmp_path, monkeypatch):
+        base = tmp_path / "worktrees"
+        wt = base / "issue-42" / "egg"
+        wt.mkdir(parents=True)
+        (wt / ".git").mkdir()
+        monkeypatch.setattr(contract_store, "_WORKTREE_BASE_DIR", base)
+
+        assert contract_store.resolve_pipeline_worktree("issue-42", "../../etc") is None
