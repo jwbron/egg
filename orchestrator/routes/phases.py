@@ -4,6 +4,7 @@ Phase transition endpoints for egg-orchestrator.
 Provides REST endpoints for advancing pipeline phases with validation.
 """
 
+import json
 import sys
 import threading
 from datetime import UTC, datetime
@@ -517,7 +518,11 @@ def _collect_unresolved_phase_decisions(
     # a contract has been populated.
     if pipeline.has_contract:
         try:
-            from egg_contracts.loader import ContractNotFoundError, load_contract
+            from egg_contracts.loader import (
+                ContractNotFoundError,
+                ContractValidationError,
+                load_contract,
+            )
             from routes import resolve_worktree_path
             from routes.pipelines import _pipeline_identifier
 
@@ -531,12 +536,14 @@ def _collect_unresolved_phase_decisions(
                 unresolved.extend(
                     d.id for d in contract.decisions if not d.resolved and d.phase == current_phase
                 )
-        except Exception:
-            # The guard is advisory in the contract's absence; never let a
-            # contract-load failure block a legitimate phase-complete. If the
-            # contract genuinely holds unresolved decisions, an operator can
-            # still retry after the transient condition clears — or use
-            # force=true.
+        except (ImportError, OSError, ValueError, ContractValidationError):
+            # Narrow catch: ImportError covers missing egg_contracts at
+            # runtime, OSError covers filesystem failures loading the
+            # contract, ValueError covers serialization/validation issues
+            # (pydantic V2 raises ValueError for invalid data), and
+            # ContractValidationError covers corrupt/invalid contract JSON.
+            # Programming errors (AttributeError, TypeError, NameError)
+            # are left to propagate so they surface during development.
             logger.warning(
                 "Failed to scan contract decisions for unresolved entries",
                 pipeline_id=pipeline.id,
@@ -602,6 +609,11 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
             "force_reason must be a string",
             status_code=400,
         )
+    if isinstance(force_reason, str) and not force_reason.strip():
+        # Treat empty/whitespace-only strings the same as absent — an empty
+        # reason has no audit value, and this keeps validation symmetric with
+        # the artifact-recording path (which uses `if force_reason:`).
+        force_reason = None
 
     try:
         store, pipeline = get_state_store_for_pipeline(pipeline_id)
@@ -642,7 +654,7 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
         # strings (PhaseExecution.artifacts is dict[str, str]).
         if force and unresolved_ids:
             merged = dict(phase_execution.artifacts)
-            merged["force_completed_decisions"] = ",".join(unresolved_ids)
+            merged["force_completed_decisions"] = json.dumps(unresolved_ids)
             if force_reason:
                 merged["force_reason"] = force_reason
             phase_execution.artifacts = merged

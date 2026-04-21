@@ -327,7 +327,9 @@ class TestCompletePhasePendingDecisions:
         assert resp.status_code == 200
         phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
         assert phase_exec.status == PipelineStatus.COMPLETE
-        assert phase_exec.artifacts["force_completed_decisions"] == "decision-1,decision-3"
+        assert phase_exec.artifacts["force_completed_decisions"] == json.dumps(
+            ["decision-1", "decision-3"]
+        )
         assert phase_exec.artifacts["force_reason"] == "abandoning refine after rebuild"
         mock_store.save_pipeline.assert_called_once()
         mock_clear.assert_called_once()
@@ -376,7 +378,7 @@ class TestCompletePhasePendingDecisions:
         assert resp.status_code == 200
         phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
         assert phase_exec.artifacts["commit_sha"] == "abc123"
-        assert phase_exec.artifacts["force_completed_decisions"] == "decision-1"
+        assert phase_exec.artifacts["force_completed_decisions"] == json.dumps(["decision-1"])
 
     @patch("routes.phases._clear_concurrent_state")
     @patch("routes.phases.get_state_store_for_pipeline")
@@ -429,6 +431,84 @@ class TestCompletePhasePendingDecisions:
         body = json.loads(resp.data)
         assert body["details"]["unresolved_decision_ids"] == ["decision-5"]
         mock_store.save_pipeline.assert_not_called()
+
+    @patch("routes.phases._clear_concurrent_state")
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_combined_pipeline_and_contract_decisions_block(
+        self, mock_get_store, _mock_clear, client
+    ):
+        """Both pipeline-side and contract-side pending decisions contribute
+        to the same unresolved_ids list and appear together in the 409
+        response and force_completed_decisions artifact."""
+        from egg_contracts.models import Contract, Decision, DecisionType, IssueInfo
+        from egg_contracts.models import PipelinePhase as ContractPipelinePhase
+
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+        )
+        pipeline.current_phase = PipelinePhase.REFINE
+        pipeline.decisions.append(
+            HITLDecision(
+                id="decision-1",
+                question="pipeline-q",
+                phase=PipelinePhase.REFINE,
+                status=DecisionStatus.PENDING,
+            )
+        )
+        mock_store = MagicMock()
+        mock_get_store.return_value = (mock_store, pipeline)
+
+        fake_contract = Contract(
+            issue=IssueInfo(
+                number=42,
+                title="t",
+                description="d",
+                url="https://example.com/issues/42",
+            ),
+            decisions=[
+                Decision(
+                    id="decision-5",
+                    question="contract-q",
+                    type=DecisionType.HITL,
+                    phase=ContractPipelinePhase.REFINE,
+                    resolved=False,
+                ),
+            ],
+        )
+
+        with (
+            patch("routes.pipelines._pipeline_identifier", return_value=42),
+            patch("routes.resolve_worktree_path", side_effect=lambda _pid, rp: rp),
+            patch("egg_contracts.loader.load_contract", return_value=fake_contract),
+        ):
+            # Without force — 409 with combined ids
+            resp = client.post("/api/v1/pipelines/issue-42/phase/complete")
+
+        assert resp.status_code == 409
+        body = json.loads(resp.data)
+        assert body["details"]["unresolved_decision_ids"] == ["decision-1", "decision-5"]
+        mock_store.save_pipeline.assert_not_called()
+
+        # With force — advances and records both ids in artifact
+        with (
+            patch("routes.pipelines._pipeline_identifier", return_value=42),
+            patch("routes.resolve_worktree_path", side_effect=lambda _pid, rp: rp),
+            patch("egg_contracts.loader.load_contract", return_value=fake_contract),
+        ):
+            resp = client.post(
+                "/api/v1/pipelines/issue-42/phase/complete",
+                json={"force": True, "force_reason": "combined test"},
+            )
+
+        assert resp.status_code == 200
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        assert phase_exec.artifacts["force_completed_decisions"] == json.dumps(
+            ["decision-1", "decision-5"]
+        )
+        assert phase_exec.artifacts["force_reason"] == "combined test"
 
     @patch("routes.phases._clear_concurrent_state")
     @patch("routes.phases.get_state_store_for_pipeline")
