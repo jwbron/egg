@@ -123,6 +123,43 @@ class TestGetRoleFromContext:
         assert role is not None
         assert role.value == "implementer"
 
+    @pytest.mark.parametrize(
+        ("fine_role", "expected_coarse"),
+        [
+            ("coder", "implementer"),
+            ("tester", "implementer"),
+            ("documenter", "implementer"),
+            ("refiner", "implementer"),
+            ("architect", "implementer"),
+            ("task_planner", "implementer"),
+            ("risk_analyst", "implementer"),
+            ("autofixer", "implementer"),
+            ("conflict_resolver", "implementer"),
+            ("reviewer_code", "reviewer"),
+            ("reviewer_contract", "reviewer"),
+            ("reviewer_agent_design", "reviewer"),
+            ("reviewer_refine", "reviewer"),
+            ("reviewer_plan", "reviewer"),
+            ("overseer", "system"),
+            ("inspector", "system"),
+        ],
+    )
+    def test_role_from_session_fine_grained_agent_role(
+        self, client, auth_headers, fine_role, expected_coarse
+    ):
+        """Fine-grained AgentRole values map to coarse contract Role (#1766)."""
+        mock_session = MagicMock()
+        mock_session.agent_role = fine_role
+
+        with client.application.test_request_context():
+            from flask import g
+
+            g.session = mock_session
+            role = contract_api.get_role_from_context()
+
+        assert role is not None, f"fine role {fine_role!r} should resolve"
+        assert role.value == expected_coarse
+
     def test_role_from_x_egg_role_header_when_enabled(self, client, auth_headers):
         """Role is resolved from X-Egg-Role header when EGG_ENABLE_TEST_ROLE_HEADER=1."""
         with (

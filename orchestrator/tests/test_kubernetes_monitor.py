@@ -469,24 +469,6 @@ class TestCheckContainerHealth:
 # ---------------------------------------------------------------------------
 
 
-class TestGetPodExitCode:
-    """Test _get_pod_exit_code method."""
-
-    def test_returns_exit_code(self, monitor, mock_k8s_client):
-        """Returns exit code from k8s API."""
-        mock_k8s_client.get_container_info.return_value = ContainerInfo(
-            container_id="u",
-            container_name="n",
-            exit_code=42,
-        )
-        assert monitor._get_pod_exit_code("job-1") == 42
-
-    def test_returns_none_on_error(self, monitor, mock_k8s_client):
-        """Returns None when k8s call fails."""
-        mock_k8s_client.get_container_info.side_effect = KubernetesClientError("fail")
-        assert monitor._get_pod_exit_code("job-1") is None
-
-
 # ---------------------------------------------------------------------------
 # TestGetKubernetesMonitor
 # ---------------------------------------------------------------------------
@@ -775,3 +757,286 @@ class TestPeriodicReconciliation:
         monitor.start_periodic_reconciliation(mock_store, interval=1)
         monitor.stop()
         assert monitor._reconciliation_running is False
+
+
+# ---------------------------------------------------------------------------
+# TestReconciliationSweep
+#
+# Covers the false-positive fixes from issue #1760: agents register their
+# ``container_id`` as the Job UID, but ``list_containers`` returns Pod
+# UIDs — so without the Job-UID index and the termination guard, every
+# Pending/Running pod was being marked FAILED within ~15s of spawn.
+# ---------------------------------------------------------------------------
+
+
+class TestReconciliationSweep:
+    """Test _reconciliation_sweep termination and grace-period logic."""
+
+    def _make_pipeline(
+        self,
+        *,
+        container_id: str,
+        ci_status: ContainerStatus = ContainerStatus.RUNNING,
+        agent_started_at: datetime | None = None,
+    ):
+        from models import (
+            AgentExecution,
+            AgentExecutionStatus,
+            PhaseExecution,
+            Pipeline,
+            PipelinePhase,
+            PipelineStatus,
+        )
+
+        agent = AgentExecution(
+            role="coder",
+            status=AgentExecutionStatus.RUNNING,
+            container_id=container_id,
+            started_at=agent_started_at,
+        )
+        ci = ContainerInfo(
+            container_id=container_id,
+            container_name="job-1",
+            status=ci_status,
+        )
+        phase_exec = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            status=PipelineStatus.RUNNING,
+            agents=[agent],
+            containers=[ci],
+        )
+        pipeline = Pipeline(
+            id="pipe-1",
+            issue_number=1,
+            repo="owner/repo",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            phases={"implement": phase_exec},
+        )
+        store = MagicMock()
+        store.list_pipelines.return_value = [pipeline.id]
+        store.load_pipeline.return_value = pipeline
+        return pipeline, store
+
+    def test_running_pod_not_reconciled(self, monitor, mock_k8s_client):
+        """A pod whose state is still Running must not be marked FAILED.
+
+        Regression test for #1760: the reconciler previously flagged
+        newly-spawned pods as exited because get_container_info returned
+        no exit_code for Running pods and the code fell through to the
+        FAILED path.
+        """
+        # live_ids is empty — simulating the old bug where Job UIDs
+        # were not indexed.
+        mock_k8s_client.list_containers.return_value = []
+        mock_k8s_client.list_jobs.return_value = []
+        mock_k8s_client.get_container_info.return_value = ContainerInfo(
+            container_id="job-uid-1",
+            container_name="job-1",
+            status=ContainerStatus.RUNNING,
+            started_at=datetime.now(UTC),
+        )
+        spawned_long_ago = datetime.now(UTC).replace(year=2024)
+        _, store = self._make_pipeline(
+            container_id="job-uid-1",
+            agent_started_at=spawned_long_ago,
+        )
+        monitor._reconciliation_stores = [store]
+
+        with patch("state_store.get_pipeline_state_lock") as mock_lock:
+            mock_lock.return_value.__enter__ = MagicMock()
+            mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+            monitor._reconciliation_sweep()
+
+        store.save_pipeline.assert_not_called()
+
+    def test_pending_pod_not_reconciled(self, monitor, mock_k8s_client):
+        """A Pending / ContainerCreating pod must not be marked FAILED."""
+        mock_k8s_client.list_containers.return_value = []
+        mock_k8s_client.list_jobs.return_value = []
+        mock_k8s_client.get_container_info.return_value = ContainerInfo(
+            container_id="job-uid-1",
+            container_name="job-1",
+            status=ContainerStatus.PENDING,
+        )
+        spawned_long_ago = datetime.now(UTC).replace(year=2024)
+        _, store = self._make_pipeline(
+            container_id="job-uid-1",
+            agent_started_at=spawned_long_ago,
+        )
+        monitor._reconciliation_stores = [store]
+
+        with patch("state_store.get_pipeline_state_lock") as mock_lock:
+            mock_lock.return_value.__enter__ = MagicMock()
+            mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+            monitor._reconciliation_sweep()
+
+        store.save_pipeline.assert_not_called()
+
+    def test_grace_period_skips_recent_agents(self, monitor, mock_k8s_client):
+        """Agents spawned within POD_STARTUP_GRACE_SECONDS are skipped.
+
+        The termination check should never be reached during the grace
+        period — so we set get_container_info to raise to prove it.
+        """
+        mock_k8s_client.list_containers.return_value = []
+        mock_k8s_client.list_jobs.return_value = []
+        mock_k8s_client.get_container_info.side_effect = AssertionError(
+            "should not be called inside grace period"
+        )
+        _, store = self._make_pipeline(
+            container_id="job-uid-1",
+            agent_started_at=datetime.now(UTC),
+        )
+        monitor._reconciliation_stores = [store]
+
+        with patch("state_store.get_pipeline_state_lock") as mock_lock:
+            mock_lock.return_value.__enter__ = MagicMock()
+            mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+            monitor._reconciliation_sweep()
+
+        store.save_pipeline.assert_not_called()
+
+    def test_grace_period_skipped_when_started_at_none(self, monitor, mock_k8s_client):
+        """When started_at is None the grace period is bypassed.
+
+        An agent with ``started_at=None`` (e.g. incomplete timestamp
+        initialisation) should be treated as "old" — the sweep should
+        fall through to the termination check rather than skipping
+        indefinitely.
+        """
+        mock_k8s_client.list_containers.return_value = []
+        mock_k8s_client.list_jobs.return_value = []
+        # Pod is truly gone — should proceed to FAILED reconciliation.
+        mock_k8s_client.get_container_info.side_effect = PodNotFoundError("gone")
+        _, store = self._make_pipeline(
+            container_id="job-uid-1",
+            agent_started_at=None,
+        )
+        monitor._reconciliation_stores = [store]
+
+        with patch("state_store.get_pipeline_state_lock") as mock_lock:
+            mock_lock.return_value.__enter__ = MagicMock()
+            mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+            monitor._reconciliation_sweep()
+
+        # started_at=None means the grace period is not applied, so the
+        # sweep should reach the termination check.  With PodNotFoundError
+        # the pod is confirmed gone and reconciliation should fire.
+        store.save_pipeline.assert_called()
+
+    def test_job_uid_in_live_ids_skips_reconciliation(self, monitor, mock_k8s_client):
+        """list_jobs results are indexed, so Job UID matches live_ids."""
+        from kubernetes_monitor import LABEL_ORCHESTRATOR
+
+        mock_k8s_client.namespace = "egg-agents"
+        mock_k8s_client.list_containers.return_value = []
+        mock_k8s_client.list_jobs.return_value = [
+            ContainerInfo(
+                container_id="job-uid-1",
+                container_name="egg-sandbox-1",
+                status=ContainerStatus.RUNNING,
+                job_name="egg-sandbox-1",
+            )
+        ]
+        mock_k8s_client.get_container_info.side_effect = AssertionError(
+            "should not be called when Job UID is in live_ids"
+        )
+        spawned_long_ago = datetime.now(UTC).replace(year=2024)
+        _, store = self._make_pipeline(
+            container_id="job-uid-1",
+            agent_started_at=spawned_long_ago,
+        )
+        monitor._reconciliation_stores = [store]
+
+        with patch("state_store.get_pipeline_state_lock") as mock_lock:
+            mock_lock.return_value.__enter__ = MagicMock()
+            mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+            monitor._reconciliation_sweep()
+
+        store.save_pipeline.assert_not_called()
+        # Verify list_jobs was queried with the orchestrator label
+        call_kwargs = mock_k8s_client.list_jobs.call_args
+        assert call_kwargs.kwargs["label_selector"] == f"{LABEL_ORCHESTRATOR}=true"
+
+    def test_terminated_pod_marks_failed(self, monitor, mock_k8s_client):
+        """A pod with exited_at set and non-zero exit is reconciled."""
+        from models import PipelineStatus
+
+        mock_k8s_client.list_containers.return_value = []
+        mock_k8s_client.list_jobs.return_value = []
+        mock_k8s_client.get_container_info.return_value = ContainerInfo(
+            container_id="job-uid-1",
+            container_name="job-1",
+            status=ContainerStatus.FAILED,
+            exit_code=1,
+            exited_at=datetime.now(UTC),
+        )
+        spawned_long_ago = datetime.now(UTC).replace(year=2024)
+        _, store = self._make_pipeline(
+            container_id="job-uid-1",
+            agent_started_at=spawned_long_ago,
+        )
+        monitor._reconciliation_stores = [store]
+
+        with patch("state_store.get_pipeline_state_lock") as mock_lock:
+            mock_lock.return_value.__enter__ = MagicMock()
+            mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+            monitor._reconciliation_sweep()
+
+        store.save_pipeline.assert_called_once()
+        saved = store.save_pipeline.call_args[0][0]
+        assert saved.status == PipelineStatus.FAILED
+
+    def test_missing_pod_marks_failed(self, monitor, mock_k8s_client):
+        """A pod that has been deleted (PodNotFoundError) is reconciled."""
+        from models import PipelineStatus
+
+        mock_k8s_client.list_containers.return_value = []
+        mock_k8s_client.list_jobs.return_value = []
+        mock_k8s_client.get_container_info.side_effect = PodNotFoundError("gone")
+        spawned_long_ago = datetime.now(UTC).replace(year=2024)
+        _, store = self._make_pipeline(
+            container_id="job-uid-1",
+            agent_started_at=spawned_long_ago,
+        )
+        monitor._reconciliation_stores = [store]
+
+        with patch("state_store.get_pipeline_state_lock") as mock_lock:
+            mock_lock.return_value.__enter__ = MagicMock()
+            mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+            monitor._reconciliation_sweep()
+
+        store.save_pipeline.assert_called_once()
+        saved = store.save_pipeline.call_args[0][0]
+        assert saved.status == PipelineStatus.FAILED
+
+    def test_terminal_status_without_exited_at_not_reconciled(self, monitor, mock_k8s_client):
+        """A half-populated terminal status (no exited_at) is skipped.
+
+        Guards against edge cases where the pod phase mapping produced
+        ``EXITED`` from ``Succeeded`` without the API having populated
+        ``containerStatuses[0].state.terminated.finished_at`` yet.
+        """
+        mock_k8s_client.list_containers.return_value = []
+        mock_k8s_client.list_jobs.return_value = []
+        mock_k8s_client.get_container_info.return_value = ContainerInfo(
+            container_id="job-uid-1",
+            container_name="job-1",
+            status=ContainerStatus.EXITED,
+            exit_code=None,
+            exited_at=None,
+        )
+        spawned_long_ago = datetime.now(UTC).replace(year=2024)
+        _, store = self._make_pipeline(
+            container_id="job-uid-1",
+            agent_started_at=spawned_long_ago,
+        )
+        monitor._reconciliation_stores = [store]
+
+        with patch("state_store.get_pipeline_state_lock") as mock_lock:
+            mock_lock.return_value.__enter__ = MagicMock()
+            mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+            monitor._reconciliation_sweep()
+
+        store.save_pipeline.assert_not_called()

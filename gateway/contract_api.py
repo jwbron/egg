@@ -35,6 +35,7 @@ from egg_contracts import (
     apply_mutation,
     contract_exists,
     export_contract,
+    get_contract_role,
     load_contract,
     save_contract,
     validate_mutation,
@@ -142,6 +143,21 @@ def _get_worktree_helpers() -> tuple[
     return _cached_worktree_helpers
 
 
+def _resolve_role(value: str) -> Role | None:
+    """Resolve a role string to the coarse contract ``Role``.
+
+    Accepts either a coarse ``Role`` value (``implementer``, ``reviewer``,
+    ``human``, ``system``) or a fine-grained ``AgentRole`` value
+    (``coder``, ``refiner``, ``reviewer_code`` …) that the launcher ships
+    in session metadata. Returns ``None`` for unknown values.
+    """
+    normalized = value.lower()
+    try:
+        return Role(normalized)
+    except ValueError:
+        return get_contract_role(normalized)
+
+
 def get_role_from_context() -> Role | None:
     """
     Get the agent role from workflow context.
@@ -164,10 +180,7 @@ def get_role_from_context() -> Role | None:
     if hasattr(g, "session") and g.session:
         session_role = getattr(g.session, "agent_role", None)
         if session_role:
-            try:
-                return Role(session_role.lower())
-            except ValueError:
-                return None
+            return _resolve_role(session_role)
 
     # Testing path: role can be passed in request header for gateway testing
     # SECURITY: Only enabled when EGG_ENABLE_TEST_ROLE_HEADER=1 to prevent
@@ -175,18 +188,12 @@ def get_role_from_context() -> Role | None:
     if os.environ.get("EGG_ENABLE_TEST_ROLE_HEADER") == "1":
         header_role = request.headers.get("X-Egg-Role")
         if header_role:
-            try:
-                return Role(header_role.lower())
-            except ValueError:
-                return None
+            return _resolve_role(header_role)
 
     # Fallback: check environment (least secure, used in development only)
     env_role = os.environ.get("EGG_AGENT_ROLE")
     if env_role:
-        try:
-            return Role(env_role.lower())
-        except ValueError:
-            return None
+        return _resolve_role(env_role)
 
     return None
 
