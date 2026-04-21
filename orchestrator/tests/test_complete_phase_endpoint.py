@@ -107,9 +107,8 @@ class TestCompletePhaseEndpoint:
         assert data["success"] is False
         assert "artifacts" in data["message"]
 
-        # Phase must not have been mutated or saved.
-        phase_exec = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
-        assert phase_exec.status != PipelineStatus.COMPLETE
+        # The early return must prevent pipeline state from being loaded.
+        mock_get_store.assert_not_called()
         mock_store.save_pipeline.assert_not_called()
 
     @patch("routes.phases._clear_concurrent_state")
@@ -126,6 +125,32 @@ class TestCompletePhaseEndpoint:
         )
 
         assert resp.status_code == 400
+        mock_get_store.assert_not_called()
+        mock_store.save_pipeline.assert_not_called()
+
+    @patch("routes.phases._clear_concurrent_state")
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_non_string_values_artifacts_returns_400(self, mock_get_store, _mock_clear, client):
+        """A dict with non-string values is rejected at the boundary.
+
+        PhaseExecution.artifacts is typed dict[str, str], so values like
+        lists or nested dicts would persist without pydantic catching them
+        and then break on the next read.
+        """
+        pipeline = _make_pipeline()
+        mock_store = MagicMock()
+        mock_get_store.return_value = (mock_store, pipeline)
+
+        resp = client.post(
+            "/api/v1/pipelines/issue-42/phase/complete",
+            json={"artifacts": {"key": ["not", "a", "string"]}},
+        )
+
+        assert resp.status_code == 400
+        data = json.loads(resp.data)
+        assert data["success"] is False
+        assert "string values" in data["message"]
+        mock_get_store.assert_not_called()
         mock_store.save_pipeline.assert_not_called()
 
     @patch("routes.phases._clear_concurrent_state")
