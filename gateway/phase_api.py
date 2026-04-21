@@ -50,6 +50,7 @@ from egg_contracts import (
     ContractValidationError,
     Role,
     apply_mutation,
+    get_contract_role,
     load_contract,
     save_contract,
 )
@@ -112,6 +113,30 @@ def validate_repo_path(repo_path: Path) -> tuple[bool, str]:
     return False, f"Path '{repo_path}' is not within allowed directories"
 
 
+def _resolve_transition_role(value: str) -> TransitionRole | None:
+    """Resolve a role string to a ``TransitionRole``.
+
+    Accepts either a direct ``TransitionRole`` value (``implementer``,
+    ``reviewer``, ``human``) or a fine-grained ``AgentRole`` the launcher
+    stores in session metadata (``coder``, ``refiner``, ``reviewer_*`` …).
+    Returns ``None`` for unknown values or for roles whose coarse mapping
+    is ``system`` — overseer and inspector are observers and do not
+    advance phases.
+    """
+    normalized = value.lower()
+    try:
+        return TransitionRole(normalized)
+    except ValueError:
+        pass
+    contract_role = get_contract_role(normalized)
+    if contract_role is None:
+        return None
+    try:
+        return TransitionRole(contract_role.value)
+    except ValueError:
+        return None
+
+
 def get_role_from_context() -> TransitionRole | None:
     """Get the agent role from workflow context.
 
@@ -127,27 +152,18 @@ def get_role_from_context() -> TransitionRole | None:
     if hasattr(g, "session") and g.session:
         session_role = getattr(g.session, "agent_role", None)
         if session_role:
-            try:
-                return TransitionRole(session_role.lower())
-            except ValueError:
-                return None
+            return _resolve_transition_role(session_role)
 
     # Testing path: role from header (only when enabled)
     if os.environ.get("EGG_ENABLE_TEST_ROLE_HEADER") == "1":
         header_role = request.headers.get("X-Egg-Role")
         if header_role:
-            try:
-                return TransitionRole(header_role.lower())
-            except ValueError:
-                return None
+            return _resolve_transition_role(header_role)
 
     # Fallback: environment variable
     env_role = os.environ.get("EGG_AGENT_ROLE")
     if env_role:
-        try:
-            return TransitionRole(env_role.lower())
-        except ValueError:
-            return None
+        return _resolve_transition_role(env_role)
 
     return None
 

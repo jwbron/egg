@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from .roles import Role
+
 
 class AgentCategory(StrEnum):
     """Category classification for agent roles.
@@ -836,6 +838,52 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
 # Canonical set of execution role string values — used by the schema,
 # plan parser, and orchestrator for role validation and filtering.
 EXECUTION_ROLE_VALUES = frozenset({AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER})
+
+
+# Maps the fine-grained ``AgentRole`` shipped in agent sessions to the
+# coarse-grained ``Role`` enum used for contract field-ownership checks.
+# The gateway's contract and phase APIs consult this to authorize an
+# agent's request — without it, a session with ``agent_role="refiner"``
+# fails ``Role("refiner")`` and the API responds 403 (#1766).
+AGENT_ROLE_TO_CONTRACT_ROLE: dict[AgentRole, Role] = {
+    # Execution: produce code, own implementer-owned contract fields
+    AgentRole.CODER: Role.IMPLEMENTER,
+    AgentRole.TESTER: Role.IMPLEMENTER,
+    AgentRole.DOCUMENTER: Role.IMPLEMENTER,
+    # Analysis: draft plans and analyses; write the same contract fields
+    # an implementer does (commits, notes, decisions).
+    AgentRole.ARCHITECT: Role.IMPLEMENTER,
+    AgentRole.TASK_PLANNER: Role.IMPLEMENTER,
+    AgentRole.RISK_ANALYST: Role.IMPLEMENTER,
+    AgentRole.REFINER: Role.IMPLEMENTER,
+    # Review: verdicts and phase-status/current_phase mutations
+    AgentRole.REVIEWER_CODE: Role.REVIEWER,
+    AgentRole.REVIEWER_CONTRACT: Role.REVIEWER,
+    AgentRole.REVIEWER_AGENT_DESIGN: Role.REVIEWER,
+    AgentRole.REVIEWER_REFINE: Role.REVIEWER,
+    AgentRole.REVIEWER_PLAN: Role.REVIEWER,
+    # Utility: apply code fixes, share implementer privileges
+    AgentRole.AUTOFIXER: Role.IMPLEMENTER,
+    AgentRole.CONFLICT_RESOLVER: Role.IMPLEMENTER,
+    # Interface: observers, not contract authors
+    AgentRole.OVERSEER: Role.SYSTEM,
+    AgentRole.INSPECTOR: Role.SYSTEM,
+}
+
+
+def get_contract_role(role: AgentRole | str) -> Role | None:
+    """Translate a fine-grained ``AgentRole`` to the coarse contract ``Role``.
+
+    The gateway stores the fine role in session metadata but the contract
+    API enforces field ownership against the coarse ``Role`` enum. Returns
+    ``None`` when the input does not name a known fine role.
+    """
+    if isinstance(role, str):
+        try:
+            role = AgentRole(role)
+        except ValueError:
+            return None
+    return AGENT_ROLE_TO_CONTRACT_ROLE.get(role)
 
 
 def get_role_definition(

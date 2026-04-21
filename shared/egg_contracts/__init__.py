@@ -48,6 +48,7 @@ from .agent_recovery import (
     create_retry_manager,
 )
 from .agent_roles import (
+    AGENT_ROLE_TO_CONTRACT_ROLE,
     AGENT_ROLES,
     ARCHITECT_ROLE,
     AUTOFIXER_ROLE,
@@ -71,6 +72,7 @@ from .agent_roles import (
     create_execution_for_role,
     detect_write_overlaps,
     get_all_roles,
+    get_contract_role,
     get_file_patterns,
     get_role_definition,
     get_role_dependencies,
@@ -330,6 +332,7 @@ __all__ = [
     "retry_with_backoff",
     "should_checkpoint_now",
     # Agent Roles
+    "AGENT_ROLE_TO_CONTRACT_ROLE",
     "AGENT_ROLES",
     "ARCHITECT_ROLE",
     "AUTOFIXER_ROLE",
@@ -353,6 +356,7 @@ __all__ = [
     "create_execution_for_role",
     "detect_write_overlaps",
     "get_all_roles",
+    "get_contract_role",
     "get_file_patterns",
     "get_role_definition",
     "get_role_dependencies",
