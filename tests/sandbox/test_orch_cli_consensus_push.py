@@ -153,6 +153,7 @@ class TestConsensusPushDirectGatewayAPI:
             return ""
 
         with (
+            patch.dict(os.environ, {"EGG_BRANCH": ""}),
             patch("egg_lib.orch_cli.subprocess.check_output", side_effect=mock_check_output),
             patch("urllib.request.urlopen", side_effect=mock_urlopen),
         ):
@@ -180,12 +181,68 @@ class TestConsensusPushDirectGatewayAPI:
             return ""
 
         with (
+            patch.dict(os.environ, {"EGG_BRANCH": ""}),
             patch("egg_lib.orch_cli.subprocess.check_output", side_effect=mock_check_output),
             patch("urllib.request.urlopen", side_effect=mock_urlopen),
         ):
             result = _consensus_push()
             assert result == 0
             assert captured_request["data"]["refspec"] == "egg/my-feature"
+
+    def test_retargets_to_egg_branch_when_on_work_branch(self, gateway_env):
+        """When EGG_BRANCH differs from current work branch, refspec is HEAD:$EGG_BRANCH."""
+        captured_request = {}
+
+        def mock_urlopen(req, **kwargs):
+            captured_request["data"] = json.loads(req.data)
+            resp = MagicMock()
+            resp.read.return_value = json.dumps({"success": True, "data": {}}).encode()
+            resp.__enter__ = lambda s: resp
+            resp.__exit__ = lambda s, *a: None
+            return resp
+
+        def mock_check_output(cmd, **kwargs):
+            if cmd == ["git", "branch", "--show-current"]:
+                return "egg/issue-1669-tester/work\n"
+            # config should not be consulted when retargeting
+            raise AssertionError(f"Unexpected command: {cmd}")
+
+        with (
+            patch.dict(os.environ, {"EGG_BRANCH": "egg/issue-1669"}),
+            patch("egg_lib.orch_cli.subprocess.check_output", side_effect=mock_check_output),
+            patch("urllib.request.urlopen", side_effect=mock_urlopen),
+        ):
+            result = _consensus_push()
+            assert result == 0
+            assert captured_request["data"]["refspec"] == "HEAD:egg/issue-1669"
+
+    def test_no_retarget_when_egg_branch_matches_current(self, gateway_env):
+        """When EGG_BRANCH equals current branch, refspec falls back to tracking logic."""
+        captured_request = {}
+
+        def mock_urlopen(req, **kwargs):
+            captured_request["data"] = json.loads(req.data)
+            resp = MagicMock()
+            resp.read.return_value = json.dumps({"success": True, "data": {}}).encode()
+            resp.__enter__ = lambda s: resp
+            resp.__exit__ = lambda s, *a: None
+            return resp
+
+        def mock_check_output(cmd, **kwargs):
+            if cmd == ["git", "branch", "--show-current"]:
+                return "egg/issue-1669\n"
+            if "config" in cmd:
+                raise subprocess.CalledProcessError(1, cmd)
+            return ""
+
+        with (
+            patch.dict(os.environ, {"EGG_BRANCH": "egg/issue-1669"}),
+            patch("egg_lib.orch_cli.subprocess.check_output", side_effect=mock_check_output),
+            patch("urllib.request.urlopen", side_effect=mock_urlopen),
+        ):
+            result = _consensus_push()
+            assert result == 0
+            assert captured_request["data"]["refspec"] == "egg/issue-1669"
 
     def test_includes_auth_header(self, gateway_env):
         """The request should include Authorization: Bearer header."""
