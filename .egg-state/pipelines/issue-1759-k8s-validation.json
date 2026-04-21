@@ -255,10 +255,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-7",
+      "question": "What should the default be for prune_stale_worktrees?",
+      "context": "",
+      "options": [
+        "dry_run=true by default; caller must pass dry_run=false to actually remove (Recommended, matches issue text)",
+        "dry_run=false by default with a preview section in the response; matches cancel_task(cleanup=true) ergonomics",
+        "Two separate tools — list_stale_worktrees (read-only) and prune_stale_worktrees (write)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-21T06:37:36.542320Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-21T06:19:56.988139Z",
-  "updated_at": "2026-04-21T06:37:31.199392Z",
+  "updated_at": "2026-04-21T06:37:36.549907Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -271,5 +289,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14
+  "version": 15
 }
