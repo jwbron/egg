@@ -117,7 +117,7 @@ Pipeline sessions must push only to their assigned branch. This prevents agents 
 - Refspec formats like `local:remote` are supported — the remote portion is checked
 - If the push target does not match the assigned branch, the push is rejected with HTTP 403
 
-**Proactive upstream configuration:** When a pipeline worktree is created, the gateway also sets `branch.<local>.remote=origin` and `branch.<local>.merge=refs/heads/<assigned_branch>` in the git config. This allows the sandbox's push client (`sandbox/egg_lib/orch_cli.py`) to build the correct `<local>:<assigned>` refspec automatically, so a naive `git push` produces a refspec that passes the push-target check without requiring the agent to construct the refspec by hand. (Fixes #1809, where missing upstream config caused agents to push to the per-container local branch name, which the gateway rejected.)
+**Proactive upstream configuration:** When a pipeline worktree is created, the gateway sets `branch.<local>.remote=origin` and `branch.<local>.merge=refs/heads/<assigned_branch>` in the worktree's git config. This allows the sandbox's push client (`sandbox/egg_lib/orch_cli.py`) to build the correct `<local>:<assigned>` refspec automatically, so a naive `git push` produces a refspec that passes the push-target check without the agent constructing it by hand. Before this was added (#1809), missing upstream config caused agents to push to the per-container local branch name, which the gateway rejected.
 
 **Killswitch:** Set `PUSH_TARGET_ENFORCEMENT=false` to disable (for emergency bypass).
 
@@ -328,9 +328,9 @@ Role is determined from workflow context (session metadata), not request body, p
 
 ```
 POST /api/v1/worktree/create
-  Request: {repo_path, branch, base_branch?, assigned_branch?}
-  Policy: session_auth
-  Description: Create a new git worktree for isolated development
+  Request: {container_id, repos, base_branch?, assigned_branch?, uid?, gid?}
+  Policy: launcher_auth
+  Description: Create git worktrees for isolated development.
                assigned_branch: when set, configures branch.<local>.merge so
                that naive `git push` targets this branch instead of the per-
                worktree local branch name (see Push-Target Enforcement)
