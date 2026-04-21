@@ -5482,11 +5482,12 @@ def _build_pr_body(
     pr_test_plan: str = ""
     pr_manual_steps: str = ""
 
-    # Try to load PR metadata from the contract (populated by the plan agent)
+    # Try to load PR metadata from the contract (populated by the plan agent).
+    # Contracts are keyed by pipeline_id after key unification (#1773).
     try:
         from egg_contracts.loader import load_contract
 
-        contract = load_contract(identifier, worktree_repo_path)
+        contract = load_contract(pipeline.id, worktree_repo_path)
         if contract.pr:
             pr_title = contract.pr.title
             pr_description = contract.pr.description

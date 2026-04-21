@@ -120,6 +120,7 @@ class TestEnsureStatefilesOnBranch:
             issue_number=42,
             title="Issue #42",
             url="https://github.com/owner/repo/issues/42",
+            pipeline_id="pipe-1",
             repo_root=tmp_path,
         )
         mock_populate.assert_called_once_with(
