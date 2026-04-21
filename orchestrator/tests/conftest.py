@@ -158,9 +158,7 @@ def _flask_open_with_auth(original_open, secret):  # type: ignore[no-untyped-def
                     if isinstance(headers, dict):
                         headers = {**headers, "Authorization": f"Bearer {secret}"}
                     else:
-                        headers = list(headers) + [
-                            ("Authorization", f"Bearer {secret}")
-                        ]
+                        headers = list(headers) + [("Authorization", f"Bearer {secret}")]
                     kwargs["headers"] = headers
         return original_open(self, *args, **kwargs)
 
