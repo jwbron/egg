@@ -65,11 +65,18 @@ def _reset_rebuild_globals():
     dep_mod._REBUILD_ACTIVE_STREAM_ID = None
     dep_mod._STREAM_BUFFERS.clear()
     dep_mod._STREAM_TERMINATED.clear()
+    # _STREAM_TERMINATION_TS is the retention-reap bookkeeping dict
+    # introduced by the MEDIUM-3 NACK fix. Clear between tests so
+    # retention counts start fresh.
+    if hasattr(dep_mod, "_STREAM_TERMINATION_TS"):
+        dep_mod._STREAM_TERMINATION_TS.clear()
     yield
     dep_mod._REBUILD_IN_PROGRESS = False
     dep_mod._REBUILD_ACTIVE_STREAM_ID = None
     dep_mod._STREAM_BUFFERS.clear()
     dep_mod._STREAM_TERMINATED.clear()
+    if hasattr(dep_mod, "_STREAM_TERMINATION_TS"):
+        dep_mod._STREAM_TERMINATION_TS.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -1176,3 +1183,288 @@ def test_time_helpers_dont_deadlock_under_load():
     for _ in range(50):
         _stream_snapshot("race")
     assert time.time() - start < 1.0
+
+
+# ---------------------------------------------------------------------------
+# NACK-fix coverage for coder commit ac5c4900f
+# ---------------------------------------------------------------------------
+
+
+class TestStreamRetentionReaper:
+    """MEDIUM-3 NACK fix: ``_STREAM_BUFFERS`` must not grow unbounded.
+
+    Finished streams beyond ``_STREAM_RETENTION`` are evicted FIFO when
+    ``_stream_mark_done`` runs. The live in-flight stream is never
+    touched because only terminated streams are in the eviction pool.
+    """
+
+    def test_retention_cap_evicts_oldest_terminated_streams(self):
+        from routes import deployment as dep_mod
+
+        # Reduce the cap to a tiny number so we don't have to create
+        # hundreds of streams. Restore at the end.
+        original_cap = dep_mod._STREAM_RETENTION
+        dep_mod._STREAM_RETENTION = 3
+        try:
+            for i in range(6):
+                dep_mod._stream_append(f"s{i}", {"phase": "line", "line": str(i)})
+                dep_mod._stream_mark_done(f"s{i}")
+
+            # Only the last 3 must survive (FIFO eviction by termination ts).
+            surviving = [sid for sid in dep_mod._STREAM_BUFFERS.keys() if sid.startswith("s")]
+            assert len(surviving) <= 3
+            # s0, s1, s2 were the oldest, so they should be gone.
+            assert "s0" not in dep_mod._STREAM_BUFFERS
+            assert "s0" not in dep_mod._STREAM_TERMINATED
+            assert "s0" not in dep_mod._STREAM_TERMINATION_TS
+            # The most recent ones must remain.
+            assert "s5" in dep_mod._STREAM_BUFFERS
+            assert "s5" in dep_mod._STREAM_TERMINATED
+        finally:
+            dep_mod._STREAM_RETENTION = original_cap
+
+    def test_retention_does_not_evict_live_streams(self):
+        """Streams that haven't been marked done must never be reaped."""
+        from routes import deployment as dep_mod
+
+        original_cap = dep_mod._STREAM_RETENTION
+        dep_mod._STREAM_RETENTION = 2
+        try:
+            dep_mod._stream_append("live", {"phase": "line", "line": "still running"})
+            # ... and a bunch of terminated streams.
+            for i in range(5):
+                dep_mod._stream_append(f"done-{i}", {"phase": "line"})
+                dep_mod._stream_mark_done(f"done-{i}")
+
+            assert "live" in dep_mod._STREAM_BUFFERS, (
+                "live stream must never be reaped -- only terminated streams are eligible"
+            )
+            assert "live" not in dep_mod._STREAM_TERMINATED
+        finally:
+            dep_mod._STREAM_RETENTION = original_cap
+
+
+class TestRedeployWatchdog:
+    """MEDIUM-1 NACK fix: a hung ``make redeploy`` must not pin
+    ``_REBUILD_IN_PROGRESS`` forever. The watchdog kills the subprocess
+    after ``_REDEPLOY_SUBPROCESS_TIMEOUT_SEC`` and emits a
+    ``phase: "timeout"`` event.
+    """
+
+    def test_watchdog_kills_long_running_subprocess(self):
+        from routes import deployment as dep_mod
+
+        killed = threading.Event()
+
+        class SlowProc:
+            def __init__(self):
+                # Never-ending stdout generator.
+                self.stdout = iter(())
+                self._killed = False
+
+            def wait(self):
+                # Simulate the real Popen.wait blocking until proc is killed.
+                killed.wait(timeout=5.0)
+                return -9  # SIGKILL exit code
+
+            def poll(self):
+                return -9 if self._killed else None
+
+            def kill(self):
+                self._killed = True
+                killed.set()
+
+        proc_instance = SlowProc()
+
+        def fake_popen(*_args, **_kwargs):
+            return proc_instance
+
+        dep_mod._REBUILD_IN_PROGRESS = True
+
+        # Run with a 0.1s timeout so the watchdog fires almost instantly.
+        dep_mod._run_redeploy_subprocess(
+            "watchdog-test",
+            cwd="/tmp",
+            runner=fake_popen,
+            timeout_sec=0,  # expire immediately
+        )
+
+        # After the run returns, the rebuild flag must be cleared so the
+        # next caller isn't pinned at 409.
+        assert dep_mod._REBUILD_IN_PROGRESS is False
+
+        # The stream must contain the timeout event + terminal done.
+        events, done = dep_mod._stream_snapshot("watchdog-test")
+        assert done is True
+        phases = [e["phase"] for e in events]
+        assert "timeout" in phases, f"expected timeout event, got phases: {phases}"
+        assert phases[-1] == "done"
+        # The done event marks timed_out=True so callers see the cause.
+        done_event = next(e for e in events if e["phase"] == "done")
+        assert done_event.get("timed_out") is True
+
+
+class TestValidateDeploymentManifestsOverlayGuard:
+    """Defense-in-depth NACK fix: ``overlay_path`` must not escape the
+    known repo roots. An authenticated caller otherwise could probe
+    arbitrary filesystem paths via 200/404 differentiation.
+    """
+
+    def test_absolute_path_outside_repo_root_is_rejected(
+        self, client, lifecycle_auth_headers, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "routes.deployment._current_runtime", lambda: "kubernetes", raising=False
+        )
+        # A path outside any repo root must come back as a 400 (not a
+        # 404 that would leak filesystem shape).
+        resp = client.post(
+            "/api/v1/deployment/validate-manifests",
+            json={"overlay_path": "/etc/shadow"},
+            headers=lifecycle_auth_headers,
+        )
+        assert resp.status_code == 400, (
+            f"path traversal must be rejected with 400 (got {resp.status_code})"
+        )
+        body = resp.get_json()
+        assert body["success"] is False
+        assert "repo root" in (body.get("message") or "").lower()
+
+    def test_relative_path_inside_repo_root_resolves(
+        self, client, lifecycle_auth_headers, monkeypatch
+    ):
+        """Relative paths that resolve inside the repo root are allowed —
+        the guard is narrow and doesn't break happy-path callers."""
+        monkeypatch.setattr(
+            "routes.deployment._current_runtime", lambda: "kubernetes", raising=False
+        )
+
+        # Stub _run_kustomize so we exercise just the guard (not kustomize).
+        with (
+            patch("routes.deployment._run_kustomize", return_value=[]),
+            patch("routes.deployment._detect_k3s", return_value=(False, "unknown")),
+        ):
+            # Use the default overlay which must exist under one of the
+            # known repo roots in the test environment.
+            resp = client.post(
+                "/api/v1/deployment/validate-manifests",
+                json={},  # no overlay_path → default k8s/overlays/local
+                headers=lifecycle_auth_headers,
+            )
+        # Either 200 (overlay exists) or 404 (overlay not present in this
+        # checkout) — what we want to verify is: NOT 400, i.e. the guard
+        # let it through.
+        assert resp.status_code != 400, (
+            f"default overlay_path was mistakenly flagged as out-of-scope: {resp.json}"
+        )
+
+
+class TestKustomizeUnavailable:
+    """Defense-in-depth NACK fix: when neither ``kustomize`` nor ``kubectl``
+    is on PATH, ``_run_kustomize`` surfaces a structured
+    ``kustomize_unavailable`` error instead of bubbling FileNotFoundError.
+    """
+
+    def test_kustomize_unavailable_raises_structured_error(self, tmp_path, monkeypatch):
+        from routes.deployment import _run_kustomize
+
+        # Ensure the env binary doesn't exist.
+        monkeypatch.setenv("EGG_KUSTOMIZE_BIN", "/tmp/definitely-does-not-exist-kustomize-xyz")
+
+        def fake_run(cmd, *_a, **_kw):
+            raise FileNotFoundError(f"no such binary: {cmd[0]}")
+
+        monkeypatch.setattr("routes.deployment.subprocess.run", fake_run)
+
+        overlay = tmp_path / "overlay"
+        overlay.mkdir()
+
+        with pytest.raises(RuntimeError, match="kustomize_unavailable"):
+            _run_kustomize(overlay)
+
+
+class TestValidateNetworkIsolationLabelValueGuard:
+    """Defense-in-depth NACK fix: invalid K8s label values are rejected
+    with a structured 400 instead of an opaque apiserver 422.
+    """
+
+    def test_invalid_pipeline_id_label_returns_400(
+        self, client, lifecycle_auth_headers, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "routes.deployment._current_runtime", lambda: "kubernetes", raising=False
+        )
+        resp = client.post(
+            "/api/v1/deployment/validate-network-isolation",
+            # Slashes aren't valid in label values.
+            json={"pipeline_id": "invalid/pipeline-id", "role": "coder"},
+            headers=lifecycle_auth_headers,
+        )
+        assert resp.status_code == 400
+        body = resp.get_json()
+        assert body["success"] is False
+        assert "pipeline_id" in body["message"].lower()
+
+    def test_invalid_role_label_returns_400(self, client, lifecycle_auth_headers, monkeypatch):
+        monkeypatch.setattr(
+            "routes.deployment._current_runtime", lambda: "kubernetes", raising=False
+        )
+        resp = client.post(
+            "/api/v1/deployment/validate-network-isolation",
+            # Leading dash isn't valid.
+            json={"pipeline_id": "ok", "role": "-bad-role"},
+            headers=lifecycle_auth_headers,
+        )
+        assert resp.status_code == 400
+        body = resp.get_json()
+        assert body["success"] is False
+        assert "role" in body["message"].lower()
+
+    def test_valid_label_passes_guard(self, client, lifecycle_auth_headers, monkeypatch):
+        """Label values that match the K8s regex must pass the guard.
+
+        We stub the CNI probe so the route short-circuits before making
+        actual k8s API calls — the only thing under test here is that
+        the label validation doesn't misclassify a valid value.
+        """
+        monkeypatch.setattr(
+            "routes.deployment._current_runtime", lambda: "kubernetes", raising=False
+        )
+        # CNI-without-enforcement short-circuit returns 200 early.
+        fake_k8s = MagicMock()
+        with (
+            patch("kubernetes_client.get_kubernetes_client", return_value=fake_k8s),
+            patch("routes.deployment._detect_cni", return_value=("flannel", False)),
+        ):
+            resp = client.post(
+                "/api/v1/deployment/validate-network-isolation",
+                json={"pipeline_id": "issue-1759-v3", "role": "coder"},
+                headers=lifecycle_auth_headers,
+            )
+        # Valid labels must not trip the 400.
+        assert resp.status_code != 400, f"valid labels were rejected as invalid: {resp.json}"
+
+
+class TestK8sLabelValueRegex:
+    """Unit coverage for the shared label-value regex. The 63-char cap
+    matters: going over it elsewhere in the code path would 422 at the
+    apiserver, which the guard is meant to prevent.
+    """
+
+    def test_regex_accepts_normal_values(self):
+        from routes.deployment import _K8S_LABEL_VALUE_RE
+
+        for value in ("coder", "issue-1759-v3", "v1.2.3", "a", "test_underscore"):
+            assert _K8S_LABEL_VALUE_RE.match(value), f"must accept: {value!r}"
+
+    def test_regex_rejects_obvious_bad_values(self):
+        from routes.deployment import _K8S_LABEL_VALUE_RE
+
+        for value in ("with/slash", "-leading-dash", "trailing-dash-", " space", ""):
+            assert not _K8S_LABEL_VALUE_RE.match(value), f"must reject: {value!r}"
+
+    def test_regex_caps_length_at_63(self):
+        from routes.deployment import _K8S_LABEL_VALUE_RE
+
+        assert _K8S_LABEL_VALUE_RE.match("a" * 63), "63-char value must be accepted"
+        assert not _K8S_LABEL_VALUE_RE.match("a" * 64), "64-char value must be rejected"
