@@ -53,9 +53,9 @@
         {
           "container_id": "5a4eaec8-41d5-4f34-bcd7-20bcee6ba159",
           "container_name": "issue-1758-k3s-retry-reviewer_refine",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-04-21T03:37:23.891059Z",
-          "exited_at": null,
+          "exited_at": "2026-04-21T03:41:24.187572Z",
           "exit_code": null,
           "agent_role": "reviewer_refine",
           "session_token": null,
@@ -66,9 +66,9 @@
         {
           "container_id": "4c00d928-4f96-4309-a798-37515848cf07",
           "container_name": "issue-1758-k3s-retry-refiner",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-04-21T03:37:23.891112Z",
-          "exited_at": null,
+          "exited_at": "2026-04-21T03:41:24.187572Z",
           "exit_code": null,
           "agent_role": "refiner",
           "session_token": null,
@@ -80,25 +80,25 @@
       "agents": [
         {
           "role": "reviewer_refine",
-          "status": "running",
+          "status": "failed",
           "container_id": "5a4eaec8-41d5-4f34-bcd7-20bcee6ba159",
           "started_at": "2026-04-21T03:37:23.891099Z",
-          "completed_at": null,
+          "completed_at": "2026-04-21T03:41:24.187572Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pipeline cancelled",
           "retry_count": 0,
           "conflicts": []
         },
         {
           "role": "refiner",
-          "status": "running",
+          "status": "failed",
           "container_id": "4c00d928-4f96-4309-a798-37515848cf07",
           "started_at": "2026-04-21T03:37:23.891118Z",
-          "completed_at": null,
+          "completed_at": "2026-04-21T03:41:24.187572Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pipeline cancelled",
           "retry_count": 0,
           "conflicts": []
         },
@@ -133,7 +133,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-21T03:36:12.108259Z",
-  "updated_at": "2026-04-21T03:41:24.167674Z",
+  "updated_at": "2026-04-21T03:41:24.187762Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -146,5 +146,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 9
+  "version": 10
 }
