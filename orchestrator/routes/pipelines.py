@@ -131,8 +131,8 @@ except ImportError:
         get_state_store,
     )
 
-from lifecycle_auth import require_lifecycle_secret
 from egg_git.default_branch import get_default_branch
+from lifecycle_auth import require_lifecycle_secret
 
 if TYPE_CHECKING:
     from egg_container import MountSpec

@@ -31,7 +31,6 @@ except ImportError:
 
 import os
 
-from lifecycle_auth import require_lifecycle_secret
 from container_monitor import get_container_monitor
 from docker_client import (
     ContainerNotFoundError,
@@ -48,6 +47,7 @@ from kubernetes_client import (
     get_kubernetes_client,
 )
 from kubernetes_monitor import get_kubernetes_monitor
+from lifecycle_auth import require_lifecycle_secret
 from models import AgentRole
 from sandbox_template import SandboxTemplate, create_sandbox_config
 

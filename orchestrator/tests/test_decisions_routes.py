@@ -1075,8 +1075,8 @@ class TestLifecycleSecretAuth:
         its audit log line. We verify the attach directly because egg's
         structlog output bypasses pytest's caplog fixture.
         """
-        from lifecycle_auth import require_lifecycle_secret
         from flask import Flask, request
+        from lifecycle_auth import require_lifecycle_secret
 
         seen: dict[str, str] = {}
         app = Flask(__name__)

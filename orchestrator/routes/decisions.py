@@ -32,13 +32,13 @@ except ImportError:
         return logging.getLogger(name)
 
 
-from lifecycle_auth import require_lifecycle_secret
 from decision_queue import (
     DecisionAlreadyResolvedError,
     DecisionNotFoundError,
     get_decision_queue,
 )
 from events import EventType, emit_event
+from lifecycle_auth import require_lifecycle_secret
 from models import PipelinePhase
 from peer_consensus import get_peer_consensus_tracker
 from state_store import InvalidPipelineIdError, PipelineNotFoundError
