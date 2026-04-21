@@ -245,7 +245,7 @@ See [Local Quickstart](docs/guides/local-quickstart.md) for detailed setup and [
 make setup             # Install dev dependencies
 make lint              # Run all linters
 make test              # Run all tests
-make test-integration  # Run integration tests (Docker required)
+make test-integration  # Run integration tests (k3s required)
 make lint-fix          # Auto-fix lint issues
 make security          # Run security scans
 make build             # Build Docker images
