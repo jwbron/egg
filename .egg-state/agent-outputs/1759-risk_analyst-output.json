@@ -1,0 +1,347 @@
+{
+  "issue_number": 1759,
+  "pipeline_id": "issue-1759-v3",
+  "phase": "plan",
+  "agent_role": "risk_analyst",
+  "generated_at": "2026-04-21T20:58:00Z",
+  "overall_risk_level": "MEDIUM",
+  "executive_summary": "Issue #1759 adds four new MCP tools (validate_deployment_manifests, validate_network_isolation, prune_stale_worktrees, get_deployment_context, plus rebuild_and_rollout), one rebuild wrapper, and two operator-side skills (deployment-diagnose, agent-diagnose) to the orchestrator's in-process MCP server. All decisions are resolved: single-umbrella delivery (D1), skills live under `skills/` (D2), orchestrator-owned routes (D7), probe Job reuses sandbox image and self-deletes (D6), submit_task papercut and log-persistence gap are deferred to #1804/#1805. Overall risk is MEDIUM — no protocol or storage changes, most tools are read-mostly, and the orchestrator route + MCP handler pattern is well-established. The non-trivial risks cluster on (1) `validate_network_isolation` spawning a live probe in `egg-agents` that must NOT become an accidental NetworkPolicy bypass, (2) `prune_stale_worktrees` mutating the gateway's hostPath worktree directory under hostPath mount, (3) secret leakage in `agent-diagnose` resolved-env output and `deployment-diagnose` silent-failure log scans, and (4) k3s-specific assumptions baking into tools that will eventually run on other k8s flavors. CNI-dependence of NetworkPolicy enforcement is the single highest-likelihood correctness trap. Mitigations are primarily scope controls (self-deleting Job, dry_run=true default, secret denylist reuse from kubernetes_spawner._PROTECTED_ENV_KEYS) and explicit runtime detection with k3s-only warnings gated on `get_deployment_context` output.",
+  "scope_snapshot": {
+    "resolved_decisions": {
+      "D1_scope": "single umbrella — 4 tools + rebuild_and_rollout + 2 skills in one PR",
+      "D2_skill_location": "skills/ alongside sdlc/babysit-pr/egg-setup",
+      "D3_submit_task_reuse": "deferred to #1804",
+      "D4_rebuild_and_rollout": "included; #1763 (SHA-tagged images) has merged",
+      "D5_log_persistence": "deferred to #1805; agent-diagnose ships against currently-available data",
+      "D6_probe_image": "reuse sandbox image, short-lived Job, delete after results",
+      "D7_tool_ownership": "orchestrator-owned — new routes under orchestrator/routes/"
+    },
+    "resolved_feedback_highlights": {
+      "persona": "egg developer running `make redeploy` on local k3s; single-cluster/single-namespace assumptions OK",
+      "identifier_asymmetries_catalogue": "Pod UID ↔ Job UID, session token ↔ container_id, issue number ↔ pipeline_id ↔ branch name, task_id ↔ agent role ↔ container name, contract field path `decisions.N` vs `decisions`",
+      "integration_tests": "keep alongside; do not migrate; Docker still supported for local dev",
+      "silent_failure_scan": "scan gateway+orchestrator, structured-fields-first with hash-of-stripped-line fallback, burst threshold 3+ in 60s window, last ~2000 lines, human-invoked only",
+      "target_environments": "k3s only for day 1",
+      "prune_confirmation": "dry_run is sufficient gate",
+      "runbook_source": "none exists; skills bootstrap from #1759 validation session commentary",
+      "overseer_overlap": "#1806 filed non-blocking; skills should reference the overseer agent to prevent silo'd detection logic"
+    }
+  },
+  "dependency_risk_assessment": {
+    "summary": "All hard dependencies are resolved. #1763 (SHA-tagged images) merged, unblocking rebuild_and_rollout and get_deployment_context image-provenance reporting. #1769 (HITL resolve endpoint auth) merged. Deferred scope (#1804 submit_task reuse, #1805 log persistence) is explicitly out-of-umbrella and non-blocking. One soft dependency — CNI NetworkPolicy enforcement — is environmental rather than code-level.",
+    "dependencies": [
+      {
+        "id": "DEP-1",
+        "dependency": "#1763 — SHA-tagged local images for `make deploy`",
+        "status": "MERGED",
+        "risk_level": "LOW",
+        "assessment": "Merged and operational. Enables `rebuild_and_rollout` to be a thin wrapper over `make redeploy` and lets `get_deployment_context` report image provenance from the running pod's tag.",
+        "risks": [
+          "If the SHA-tag contract changes (tag format), get_deployment_context parsing may need an update."
+        ],
+        "mitigation": "Parse the tag defensively; fall back to 'unknown provenance' with a warning rather than erroring."
+      },
+      {
+        "id": "DEP-2",
+        "dependency": "#1769 — HITL decision-resolve endpoint auth",
+        "status": "MERGED",
+        "risk_level": "LOW",
+        "assessment": "`require_lifecycle_secret` enforced on lifecycle endpoints (orchestrator/routes/decisions.py:41). `EGG_LIFECYCLE_SECRET` already in kubernetes_spawner._PROTECTED_ENV_KEYS (kubernetes_spawner.py:89-96) so agents cannot set it via extra_env.",
+        "risks": [
+          "Any new orchestrator route introduced by #1759 that accepts mutating input MUST also gate on `require_lifecycle_secret` or be unambiguously read-only. `prune_stale_worktrees` with `dry_run=false` is the obvious candidate."
+        ],
+        "mitigation": "Default every new mutating route to lifecycle-secret-required. Read-only tools can stay on session auth. See RISK-4."
+      },
+      {
+        "id": "DEP-3",
+        "dependency": "CNI NetworkPolicy enforcement",
+        "status": "ENVIRONMENTAL",
+        "risk_level": "MEDIUM",
+        "assessment": "NetworkPolicies in k8s are advisory unless the cluster CNI enforces them. Default k3s uses flannel, which does NOT enforce NetworkPolicies; k3s with Calico/Cilium does. `validate_network_isolation` will return WRONG results on a flannel cluster: egress will appear 'blocked' in the manifest but actually succeed in-cluster.",
+        "risks": [
+          "Incorrect isolation reports lull operators into a false sense of security.",
+          "A negative `validate_network_isolation` result on a flannel cluster looks identical to a real misconfiguration, making debugging harder, not easier."
+        ],
+        "mitigation": "`validate_network_isolation` MUST first call `get_deployment_context` (or inline the same check) to report CNI enforcement status. If NetworkPolicy enforcement is not detected, the tool returns a single CNI_NOT_ENFORCING diagnostic and refuses to run the probe. Document this behavior in the skill."
+      },
+      {
+        "id": "DEP-4",
+        "dependency": "#1804 (submit_task task_id reuse) and #1805 (log persistence)",
+        "status": "DEFERRED — NON-BLOCKING",
+        "risk_level": "LOW",
+        "assessment": "Deferred by D3/D5 decisions. agent-diagnose ships without log persistence — meaning it cannot recover logs from short-lived pods already deleted by the kubelet. This is a known limitation, not a bug.",
+        "risks": [
+          "agent-diagnose usefulness drops sharply on <10s agent failures.",
+          "Operators may interpret 'no logs returned' as skill malfunction rather than pod already gone."
+        ],
+        "mitigation": "agent-diagnose output must explicitly distinguish 'pod deleted before logs captured' from 'no relevant log lines' and link to #1805 in the message."
+      },
+      {
+        "id": "DEP-5",
+        "dependency": "#1806 — overseer/diagnostic-skill overlap investigation",
+        "status": "NON-BLOCKING INVESTIGATION",
+        "risk_level": "LOW",
+        "assessment": "Overseer agent and the two new skills share pattern: watch, classify, report. Risk is long-term architectural drift, not implementation correctness.",
+        "risks": [
+          "Duplicated failure-mode catalogues (overseer vs agent-diagnose) diverge and fall out of sync."
+        ],
+        "mitigation": "Both skills include a comment referencing #1806 and, where possible, import error-classification constants from a shared module the overseer can also consume. Flag in code review."
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "RISK-1",
+      "title": "`validate_network_isolation` probe Job bypasses NetworkPolicy or leaks secrets",
+      "category": "security",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "The probe Job is spawned in the `egg-agents` namespace and reuses the sandbox image (D6). If the probe pod is NOT labeled `app.kubernetes.io/component: agent`, it will fall under the default-deny-ingress/egress NetworkPolicies but NOT inherit the agent-specific allow rules — producing either a false negative (probe can reach nothing) or, worse, a false positive if the probe is accidentally given different labels that match a more permissive policy. Additionally, if the probe Job's pod spec inherits env from the orchestrator (e.g., EGG_LIFECYCLE_SECRET) rather than being built fresh from kubernetes_spawner's protected set, it could leak bearer tokens to an unauthenticated egress target during a `curl https://google.com` test.",
+      "affected_components": [
+        "orchestrator/routes/<new>.py — validate_network_isolation route",
+        "orchestrator/kubernetes_spawner.py:78-96 — _PROTECTED_ENV_KEYS (must be reused)",
+        "k8s/base/network-policies.yaml — podSelector matchLabels must match probe Job"
+      ],
+      "mitigation": "(1) Probe Job's pod template MUST set `app.kubernetes.io/component: agent` plus `egg.probe: true` labels. (2) Reuse the kubernetes_spawner's _PROTECTED_ENV_KEYS denylist when constructing the probe pod env — never pass orchestrator lifecycle env vars through. (3) Probe Job spec must set `activeDeadlineSeconds` (e.g., 30s) and `ttlSecondsAfterFinished: 0` to guarantee cleanup. (4) The route MUST require lifecycle-secret auth; this is not an agent-callable tool. (5) Add a Cypress-style integration test that asserts the probe Job inherits the same NetworkPolicy restrictions as a real agent.",
+      "rollback_plan": "Delete the new route's registration in orchestrator/routes/__init__.py and revert the MCP tool definition in mcp_tools.py. The probe Job manifest is ephemeral — no cleanup needed beyond the TTL controller.",
+      "needs_human_review": true,
+      "human_review_reason": "Security boundary — a misconfigured probe in egg-agents is the exact failure mode #1769 addressed at the HTTP layer. Reviewer should verify label selectors and env denylist by diff."
+    },
+    {
+      "id": "RISK-2",
+      "title": "`prune_stale_worktrees` mutates hostPath state; traversal or collision could delete the live worktree",
+      "category": "security",
+      "severity": "HIGH",
+      "likelihood": "LOW",
+      "impact": "HIGH",
+      "description": "`~/.egg-worktrees/` is mounted as hostPath onto the gateway pod (`k8s/base/gateway-deployment.yaml:~102` and `k8s/overlays/local/patches/gateway-volumes.yaml`). The gateway is the SOURCE OF TRUTH for worktree lifecycle (gateway/worktree_manager.py). If `prune_stale_worktrees` runs inside the orchestrator, it must either (a) proxy to the gateway's worktree manager (D7 picked orchestrator-owned, but this capability specifically touches gateway state), or (b) hold a lock against in-flight gateway mutations. A race between prune and a live `create_worktrees()` call could delete an actively-mounted worktree. Additionally, the `repo` argument is caller-supplied — must use `validate_identifier()` (gateway/worktree_manager.py:86) to prevent path traversal.",
+      "affected_components": [
+        "orchestrator/routes/<new>.py — prune_stale_worktrees route",
+        "gateway/worktree_manager.py — existing worktree lifecycle (needs proxy or lock integration)",
+        "k8s/overlays/local/patches/gateway-volumes.yaml — hostPath surface"
+      ],
+      "mitigation": "(1) `dry_run=true` is the default per D6 — keep it that way. (2) For `dry_run=false`, the orchestrator tool MUST proxy to a new gateway endpoint (e.g., POST /api/v1/worktrees/prune) rather than shelling out directly — the gateway holds the in-process lock over worktree state. (3) Path traversal: any `repo` parameter must be validated against `REPOS_BASE_DIR` (worktree_manager.py:48) and pass `validate_identifier()`. (4) Require lifecycle-secret auth on the mutating path. (5) The gateway proxy must hold the worktree mutex for the full scan+prune, not just per-entry, to eliminate TOCTOU. (6) Tool output must list exactly which paths were pruned for audit.",
+      "rollback_plan": "If the tool proves unsafe, remove the route and revert; worktrees can still be pruned by operator-side `kubectl exec … -- rm -rf` as today. No persistent state to unwind.",
+      "needs_human_review": true,
+      "human_review_reason": "Destructive filesystem operation crossing the orchestrator↔gateway boundary. Reviewer should sanity-check the proxy design and lock semantics."
+    },
+    {
+      "id": "RISK-3",
+      "title": "`agent-diagnose` resolved-env output leaks secrets (EGG_SESSION_TOKEN, tokens, proxy URLs)",
+      "category": "security",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "The issue explicitly asks for 'Resolved env (secrets masked)'. Masking is easy to get subtly wrong: env var names vary by case (http_proxy vs HTTP_PROXY), tokens can appear inside non-credential variables (e.g. GATEWAY_URL if someone embeds a token), and bearer tokens can land in log lines that the skill surfaces through `get_container_logs`. Misses on the denylist will expose EGG_SESSION_TOKEN, GITHUB_TOKEN, EGG_LIFECYCLE_SECRET, or claude-api keys to whoever invokes the skill.",
+      "affected_components": [
+        "skills/agent-diagnose/SKILL.md",
+        "orchestrator/kubernetes_spawner.py:78-96 — _PROTECTED_ENV_KEYS (reuse + expand)"
+      ],
+      "mitigation": "(1) Reuse the kubernetes_spawner._PROTECTED_ENV_KEYS frozenset as the base denylist and extend it with: GITHUB_TOKEN, GH_TOKEN, ANTHROPIC_API_KEY, CLAUDE_API_KEY, *_TOKEN, *_SECRET, *_KEY patterns. (2) Apply a case-insensitive match. (3) For log tail output, pipe through a secret-scrubber that matches the same patterns plus JWT-shaped and Bearer-prefixed strings. (4) Write a unit test with a seed env containing each protected key and assert the output masks all of them.",
+      "rollback_plan": "The skill is Markdown + docs; disabling it is a one-line removal of the SKILL.md file from the skills dir. No state cleanup.",
+      "needs_human_review": true,
+      "human_review_reason": "Secret-redaction logic is notoriously easy to get subtly wrong. Reviewer should spot-check the masking rules against a production-like env."
+    },
+    {
+      "id": "RISK-4",
+      "title": "New mutating routes skip `require_lifecycle_secret` auth, replaying #1769",
+      "category": "security",
+      "severity": "HIGH",
+      "likelihood": "LOW",
+      "impact": "HIGH",
+      "description": "#1769 was exactly this failure mode on the HITL resolve endpoint. The fix is now in place (orchestrator/routes/decisions.py + gateway/contract_api.py require_session_auth), but adding 5 new routes is 5 new chances to get it wrong. Any route that mutates state or consumes bearer-protected context (prune_stale_worktrees with dry_run=false, rebuild_and_rollout, validate_network_isolation that spawns pods) must be explicitly auth'd at registration time.",
+      "affected_components": [
+        "orchestrator/routes/<new>.py",
+        "orchestrator/routes/__init__.py — blueprint registration",
+        "orchestrator/lifecycle_auth.py — require_lifecycle_secret decorator"
+      ],
+      "mitigation": "(1) Implementation plan MUST include an explicit per-tool auth table (session-only vs lifecycle-secret). (2) Code-review checklist item: verify every new route has a decorator asserting auth level. (3) Add an integration test that sends unauthenticated requests to each new route and asserts 401/403. (4) For operator-side skills that drive these tools, document that the skill is expected to be invoked by the operator (holds the lifecycle secret), not by an agent.",
+      "rollback_plan": "Remove the offending route's blueprint registration. No data rollback needed — these are read-mostly tools.",
+      "needs_human_review": true,
+      "human_review_reason": "Auth boundaries — reviewer should cross-check the route map against the proposed auth table. This is the class of bug #1769 was."
+    },
+    {
+      "id": "RISK-5",
+      "title": "k3s-specific warnings silently misfire on other k8s distributions",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "Resolved feedback Q6 scopes day-1 support to k3s only, but tools like `validate_deployment_manifests` include k3s-specific rules (e.g. 'imagePullPolicy: IfNotPresent with tag not present in k3s containerd'). If these warnings fire unconditionally on a non-k3s cluster (e.g. an operator points their kubectl context at EKS), they'll produce confusing false positives. The reverse — a k3s-specific rule that silently skips because the runtime check fails — produces a false sense of coverage.",
+      "affected_components": [
+        "orchestrator/routes/<new>.py — validate_deployment_manifests",
+        "new: runtime detection in get_deployment_context"
+      ],
+      "mitigation": "(1) Every k3s-specific check must be gated on a runtime detection call (via get_deployment_context). (2) Output must be explicit: 'skipped k3s-containerd-image check: cluster is not k3s' vs 'no warnings found'. (3) Add a test fixture for both k3s and vanilla k8s and assert the skipped warnings list is correctly populated. (4) Skill documentation must state 'k3s only for day 1' and link to the follow-up issue if one is created.",
+      "rollback_plan": "Gate the k3s-specific rules behind a feature flag; disable the flag if false-positive reports appear on other distributions.",
+      "needs_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-6",
+      "title": "Silent-failure scan pattern matcher produces bursts of false positives or misses the 272-repeats class entirely",
+      "category": "performance",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "Resolved Q4 specifies: 'burst threshold 3+ in any 60s window; last ~2000 lines; structured-fields first with hash-of-stripped-line fallback'. The structured-field heuristic requires the gateway/orchestrator logger to emit a stable schema; the hash-of-stripped-line fallback depends on log lines containing no variance (no timestamps, no IDs). Either heuristic can miss #1767's '272 repeated SSH host-key verification errors' if the line content varies between repeats (e.g. includes a timestamp not stripped by the regex). Conversely, stripping too aggressively collapses DISTINCT errors into one 'repeated failure' cluster, hiding real signal.",
+      "affected_components": [
+        "skills/deployment-diagnose/SKILL.md — scan logic documentation",
+        "log format of gateway and orchestrator (implicit contract)"
+      ],
+      "mitigation": "(1) Ship the skill with a curated list of known silent-failure patterns (#1767 SSH host-key errors, ERR_ENOTFOUND patterns from the resolved-feedback catalogue) rather than purely pattern-free clustering. (2) Output the exact regex / stripping rules used, so an operator can inspect and adjust. (3) Cap scan to 2000 lines per pod per invocation (matches Q4). (4) Emit both 'suspected silent failures' and 'raw cluster count' so an operator can eyeball whether the threshold is sane.",
+      "rollback_plan": "Skill is markdown-driven; revert the SKILL.md to remove the scan step.",
+      "needs_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-7",
+      "title": "Pattern-matched error classifier in agent-diagnose has low precision for novel failures",
+      "category": "correctness",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "LOW",
+      "description": "agent-diagnose proposes classifying agent pod failures by known patterns (Pod UID vs Job UID, fine↔coarse role mapping, 401 from gateway, OOMKill vs ImagePull). The resolved-feedback catalogue (Q2) enumerates 5 known asymmetries. Any failure outside the catalogue either (a) gets misclassified into the nearest known class, or (b) falls through to a generic 'unknown failure' message. Both outcomes are acceptable but the first silently misleads the operator.",
+      "affected_components": [
+        "skills/agent-diagnose/SKILL.md"
+      ],
+      "mitigation": "(1) Classifier must prefer 'unknown' over speculative matches — require high-confidence signal strings for each classification (e.g. exact HTTP status + endpoint match). (2) Output the confidence + the specific evidence that triggered the classification so the operator can sanity-check. (3) When classification is 'unknown', surface raw evidence (last 100 log lines, events, env snapshot) rather than hiding them behind the classifier's verdict.",
+      "rollback_plan": "Drop the classifier section from SKILL.md; keep the evidence-dump skeleton.",
+      "needs_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-8",
+      "title": "Probe Job / rebuild_and_rollout exceed MCP request timeouts",
+      "category": "performance",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "FastMCP Streamable HTTP has per-request timeouts (default ~60s in mcp_server.py). `validate_network_isolation` must spawn a Job, wait for it to schedule + run + report + be deleted — easily 20-60s on k3s. `rebuild_and_rollout` calling `make redeploy` can take longer (image build + push + rollout). If the MCP call times out, the orchestrator side keeps running and the caller sees an error with no result, creating orphan probe Jobs or dangling builds.",
+      "affected_components": [
+        "orchestrator/mcp_server.py — rate_limiter (65-85), request timeout",
+        "orchestrator/routes/<new>.py — probe and rollout handlers"
+      ],
+      "mitigation": "(1) Long-running tools must be two-call: kick off + poll for result, with the initial call returning a handle. (2) Alternatively, implement the tools as blocking but with a hard server-side timeout < MCP client timeout; return a structured 'timed out, job still running, here is the handle' error. (3) Probe Job ttlSecondsAfterFinished=0 + activeDeadlineSeconds guarantees no orphans even on timeout. (4) `rebuild_and_rollout` should stream logs via progress events (the orchestrator has a progress API: routes/progress.py) rather than a single blocking call.",
+      "rollback_plan": "Fall back to synchronous-only behavior with a clearly documented 5-minute execution cap; operators use `make redeploy` directly for slower environments.",
+      "needs_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-9",
+      "title": "Existing integration tests (test_network_isolation.py, test_network_security.py) drift from the new tool",
+      "category": "compatibility",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "description": "Q3 resolved: keep existing tests alongside; don't migrate. These tests probe the Docker-era network isolation. `validate_network_isolation` probes the k3s-era version. Over time the two checks can drift — Docker tests pass while the k8s tool flags issues, or vice-versa. Operators reading a test-pass signal may believe isolation is verified when only the Docker path was exercised.",
+      "affected_components": [
+        "integration_tests/test_network_isolation.py",
+        "integration_tests/test_network_security.py",
+        "skills/deployment-diagnose/SKILL.md (reference to both)"
+      ],
+      "mitigation": "(1) Add a comment to the top of each existing integration test clarifying 'Docker-era path; k8s path is covered by validate_network_isolation MCP tool + its tests'. (2) Skill documentation names both verification paths. (3) When the Docker runtime is fully retired (separate issue), the tests migrate or are deleted in one pass.",
+      "rollback_plan": "N/A — this risk is documentation-only.",
+      "needs_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-10",
+      "title": "get_deployment_context leaks cluster topology or hostnames",
+      "category": "security",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "description": "The tool reports 'kubeconfig context + cluster info' (issue body). Raw kubeconfig contexts can include cluster server URLs, user CAs, and in some cases tokens. Even if tokens are stripped, exposing the API server URL to an attacker who has compromised an agent gives them a direct target.",
+      "affected_components": [
+        "orchestrator/routes/<new>.py — get_deployment_context"
+      ],
+      "mitigation": "(1) Tool returns only: runtime (docker|kubernetes), context NAME (not server URL), namespace, CNI name + enforcement status (true/false), image tags per control-plane component. (2) NEVER return server URLs, user auth data, or CA fields. (3) Require session auth on the route (this is safe for agents to call — it reveals nothing not already discoverable from inside the cluster).",
+      "rollback_plan": "Remove the route; callers fall back to `kubectl config view` (which requires operator-side access).",
+      "needs_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-11",
+      "title": "Overseer ↔ diagnostic-skill catalogue divergence (tracked by #1806)",
+      "category": "maintainability",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "description": "The overseer agent (shared/egg_agent/overseer or similar) and the two new skills share failure-mode detection logic. Without a shared source of truth, they will drift — overseer classifies OOMKill one way, agent-diagnose another. #1806 is filed to investigate, non-blocking for #1759.",
+      "affected_components": [
+        "skills/agent-diagnose/SKILL.md",
+        "skills/deployment-diagnose/SKILL.md",
+        "shared/egg_agent/overseer/* (or wherever the overseer lives)"
+      ],
+      "mitigation": "(1) Both new SKILL.md files include a comment referencing #1806 and naming the overseer as a sibling classifier. (2) If feasible, extract the known-failure-mode catalogue to a shared JSON/YAML file in shared/ that both the skills and the overseer can read. (3) Defer the full unification to #1806.",
+      "rollback_plan": "N/A — this is a forward-looking risk.",
+      "needs_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-12",
+      "title": "Scope creep — four tools + two skills in one PR is a large review surface",
+      "category": "process",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "D1 resolved to single-umbrella delivery. Four new MCP tools + two skills + probe Job manifest + new orchestrator routes is a significant code surface — easy for a reviewer to miss a detail (e.g. the auth decorator on one of the five new routes, which is exactly RISK-4's failure mode).",
+      "affected_components": [
+        "task-planner outputs (plan-phase) — must produce reviewable chunks",
+        "PR description (integrate phase) — must organize by tool/skill"
+      ],
+      "mitigation": "(1) Task planner should decompose into per-tool tasks with independent acceptance criteria, so reviewers can check each in isolation. (2) Require a written per-route auth table in the plan output (satisfies RISK-4 and RISK-1). (3) Coder should land all four tools before either skill, so skills compose against stable interfaces. (4) Integration test coverage MUST exist per-tool before any skill is marked complete.",
+      "rollback_plan": "If review proves intractable, the implement phase can split into two phases — tools first, skills second — without changing the umbrella issue's scope.",
+      "needs_human_review": false,
+      "human_review_reason": null
+    }
+  ],
+  "security_review_checklist": [
+    "Every new orchestrator route has an explicit auth decorator (session vs lifecycle-secret) and the plan documents which.",
+    "validate_network_isolation probe Job labels match `app.kubernetes.io/component: agent` so it is subject to the same NetworkPolicies it tests.",
+    "Probe Job pod spec does NOT inherit EGG_LIFECYCLE_SECRET, EGG_SESSION_TOKEN, or any key in _PROTECTED_ENV_KEYS.",
+    "Probe Job sets activeDeadlineSeconds and ttlSecondsAfterFinished=0.",
+    "prune_stale_worktrees dry_run=true is the default in the MCP schema.",
+    "prune_stale_worktrees(dry_run=false) proxies to a gateway endpoint that holds the worktree mutex, not a direct orchestrator filesystem call.",
+    "prune_stale_worktrees validates repo parameter via validate_identifier() and scopes paths under REPOS_BASE_DIR/WORKTREE_BASE_DIR.",
+    "agent-diagnose env output uses a denylist covering: EGG_SESSION_TOKEN, EGG_LIFECYCLE_SECRET, HTTP_PROXY/lowercase, GATEWAY_URL, GITHUB_TOKEN, GH_TOKEN, ANTHROPIC_API_KEY, and *_TOKEN/*_SECRET/*_KEY patterns (case-insensitive).",
+    "agent-diagnose log tail output is piped through the same scrubber + a JWT/Bearer-token regex.",
+    "get_deployment_context returns context NAME only, never server URL or CA data.",
+    "Unauthenticated integration test exists for every new route and asserts 401/403."
+  ],
+  "rollback_strategy": {
+    "feature_flag": "Not strictly required — the new tools are additive and opt-in. A single env var `EGG_DIAGNOSTIC_TOOLS_DISABLED=1` on the orchestrator could short-circuit route registration for emergency disable, and is a cheap belt-and-suspenders add.",
+    "per_tool_rollback": "Each tool is registered independently in orchestrator/routes/__init__.py. Remove the offending blueprint's import/registration and restart the orchestrator pod. No state migration needed — all tools are read-mostly or mutate state that already has cleanup (TTL controller, worktree manager).",
+    "skill_rollback": "Skills are SKILL.md files under skills/. Delete the file and rebuild the sandbox image (or the Claude skills directory); no runtime state to unwind.",
+    "data_loss_scenarios": "Only prune_stale_worktrees(dry_run=false) can lose data (worktree contents). Mitigation: (a) default is dry_run=true, (b) mutating path proxies to gateway under mutex, (c) agent-callable surface is limited to session-auth'd read paths."
+  },
+  "human_review_flags": [
+    "NetworkPolicy probe Job design (RISK-1) — security-sensitive. Reviewer should diff the probe pod spec against a real agent pod spec and verify identical labels + env denylist.",
+    "prune_stale_worktrees proxy design (RISK-2) — verify the gateway endpoint exists and holds the correct mutex. Dry-run-only delivery is acceptable as a fallback.",
+    "Secret-redaction denylist (RISK-3) — reviewer should spot-check against a production-like env. Unit test with seeded secrets is non-negotiable.",
+    "Per-route auth table (RISK-4) — cross-check the plan's auth column against the registered decorators in code review."
+  ],
+  "testing_recommendations": [
+    "Per-tool unit tests: schema validation, happy-path, error path.",
+    "Integration test per route asserting auth decorator (unauthenticated → 401/403).",
+    "NetworkPolicy probe test: assert probe Job inherits default-deny-ingress/egress + agent allow rules by running it against a kind/minikube with Calico.",
+    "agent-diagnose secret-redaction test: seed env with EGG_SESSION_TOKEN, GITHUB_TOKEN, bearer tokens in log lines; assert all are masked.",
+    "prune_stale_worktrees dry-run test against a seeded worktree tree with orphan dirs; assert report is accurate and no files are removed.",
+    "get_deployment_context output schema test asserts no server URLs, CAs, or tokens in the response.",
+    "k3s-vs-other-k8s warning-gating test: run validate_deployment_manifests against a non-k3s kubeconfig (e.g. kind) and assert k3s-specific rules are skipped with explicit 'skipped' messages."
+  ],
+  "open_questions_for_task_planner": [
+    "Should `prune_stale_worktrees(dry_run=false)` land in #1759 at all, or should the umbrella ship dry_run-only and the mutating path wait for a gateway endpoint? Defaulting to dry-run-only-in-#1759 would simplify the auth+mutex discussion.",
+    "Is `rebuild_and_rollout` expected to be agent-callable? If yes, there are more auth/timeout considerations. If no (operator-only), it can stay synchronous for day 1.",
+    "Should the known-failure-mode catalogue (RISK-11) be a shared YAML file now, or inlined in each skill for the first ship and extracted later once #1806 resolves?"
+  ],
+  "summary_by_category": {
+    "security": "HIGH — 4 HIGH-severity risks (RISK-1, RISK-2, RISK-3, RISK-4) all centered on new attack surface added by the tools. All mitigable with existing patterns (_PROTECTED_ENV_KEYS, require_lifecycle_secret, validate_identifier). Requires explicit per-route auth table in the plan.",
+    "performance": "LOW — probe Jobs and log scans are bounded (activeDeadlineSeconds, 2000-line cap, 60s burst window). MCP request timeout is the main concern; addressed by two-call pattern where needed.",
+    "compatibility": "MEDIUM — k3s-only day-1 scope is correct for the target persona, but k3s-specific rules must be gated on runtime detection (RISK-5) and the CNI enforcement dependency (DEP-3) needs explicit detection to avoid misleading probe results.",
+    "correctness": "LOW — classifier precision (RISK-7) and silent-failure scan signal quality (RISK-6) are acceptable starting points given the 'human-invoked only' scope; both degrade gracefully.",
+    "maintainability": "LOW — #1806 non-blocking, scope creep (RISK-12) addressable by task-planner decomposition, integration test drift (RISK-9) is documentation-only."
+  }
+}
