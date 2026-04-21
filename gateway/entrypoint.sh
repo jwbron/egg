@@ -28,6 +28,17 @@ echo "  Private containers: Use proxy on isolated network"
 echo "  Public containers: Bypass proxy on external network"
 echo ""
 
+# Load env-var-style secrets (GITHUB_USER_TOKEN, etc.) from the mounted
+# secrets.env. Compose relied on shell-env passthrough; in k8s the Secret
+# volume exposes the file so we source it here.
+if [ -f /secrets/secrets.env ]; then
+    echo "Sourcing /secrets/secrets.env"
+    set -a
+    # shellcheck disable=SC1091
+    . /secrets/secrets.env
+    set +a
+fi
+
 # Always use locked-down Squid (only private containers route through it)
 # Note: PRIVATE_MODE env var is no longer used - mode is per-container via sessions
 SQUID_CONF="/etc/squid/squid.conf"
@@ -233,7 +244,7 @@ if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; the
     # write access after gosu drops privileges.
     for vol_dir in /home/egg/.egg-state /home/egg/.egg-worktrees; do
         if [ -d "$vol_dir" ]; then
-            chown -R "$HOST_UID:$HOST_GID" "$vol_dir"
+            chown -R "$HOST_UID:$HOST_GID" "$vol_dir" 2>/dev/null || true
         fi
     done
     # Chown repo bind-mount points — Docker bind mounts preserve host
@@ -245,12 +256,15 @@ if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; the
     # them root-owned (e.g., sessions before HOST_UID privilege drop was
     # introduced).
     if [ -d /home/egg/repos ]; then
-        chown "$HOST_UID:$HOST_GID" /home/egg/repos
+        # chown is best-effort: read-only mounts (k8s hostPath with
+        # readOnly: true) return EROFS but ownership is already correct
+        # on the host side, so nothing needs to change.
+        chown "$HOST_UID:$HOST_GID" /home/egg/repos 2>/dev/null || true
         for repo_dir in /home/egg/repos/*/; do
             if [ -d "$repo_dir" ]; then
-                chown "$HOST_UID:$HOST_GID" "$repo_dir"
+                chown "$HOST_UID:$HOST_GID" "$repo_dir" 2>/dev/null || true
                 if [ -d "$repo_dir/.git/worktrees" ]; then
-                    chown -R "$HOST_UID:$HOST_GID" "$repo_dir/.git/worktrees"
+                    chown -R "$HOST_UID:$HOST_GID" "$repo_dir/.git/worktrees" 2>/dev/null || true
                 fi
             fi
         done

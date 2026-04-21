@@ -1,26 +1,27 @@
-# Strategic merge patch: add local-dev-only host mounts for repos and
-# worktrees. These append to the base's volumes/volumeMounts by name
-# (no conflicts, so strategic merge does the right thing here).
-#
-# Paths are hardcoded to /home/jwies/ because kustomize has no native
-# env var substitution. For a different host user, edit these paths or
-# use envsubst before `kubectl apply`.
+# Strategic merge patch: add local-dev-only host mounts for the orchestrator.
+# Appends to base volumes/volumeMounts by name.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gateway
+  name: orchestrator
   namespace: egg-system
 spec:
   template:
     spec:
       containers:
-        - name: gateway
+        - name: orchestrator
+          env:
+            - name: EGG_REPO_PATH
+              value: "/home/egg/repos"
           volumeMounts:
             - name: repos
               mountPath: /home/egg/repos
               readOnly: true
             - name: worktrees
               mountPath: /home/egg/.egg-worktrees
+            - name: secrets
+              mountPath: /secrets
+              readOnly: true
       volumes:
         - name: repos
           hostPath:
@@ -30,3 +31,6 @@ spec:
           hostPath:
             path: /home/jwies/.egg-worktrees
             type: DirectoryOrCreate
+        - name: secrets
+          secret:
+            secretName: gateway-secrets

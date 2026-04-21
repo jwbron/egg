@@ -21,6 +21,9 @@ spec:
         app.kubernetes.io/part-of: egg
     spec:
       serviceAccountName: egg-orchestrator
+      # Disable legacy service-link env vars (ORCHESTRATOR_PORT, etc.) —
+      # they collide with the entrypoint's own config env var names.
+      enableServiceLinks: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -65,6 +68,11 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 3
           volumeMounts:
+            # emptyDir at /home/egg makes $HOME writable (needed for
+            # .gitconfig, .egg-worktrees, sharing/notifications, etc.)
+            # while keeping the rest of the rootfs read-only.
+            - name: home
+              mountPath: /home/egg
             - name: egg-state
               mountPath: /home/egg/.egg-state
             - name: tmp
@@ -77,6 +85,8 @@ spec:
               cpu: "1"
               memory: 512Mi
       volumes:
+        - name: home
+          emptyDir: {}
         - name: egg-state
           emptyDir: {}
         - name: tmp

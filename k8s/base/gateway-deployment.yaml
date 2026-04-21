@@ -20,21 +20,20 @@ spec:
         app.kubernetes.io/component: gateway
         app.kubernetes.io/part-of: egg
     spec:
+      # Disable legacy service-link env vars (GATEWAY_PORT, PROXY_PORT, etc.) —
+      # they collide with the entrypoint's own config env var names.
+      enableServiceLinks: false
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
+        # Container starts as root so the entrypoint can chown squid dirs,
+        # /home/egg, worktrees, etc. before gosu-dropping to HOST_UID:HOST_GID
+        # for the gateway Python process. This matches the Compose flow.
         fsGroup: 1000
       containers:
         - name: gateway
           image: egg-gateway:latest
           imagePullPolicy: IfNotPresent
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-            readOnlyRootFilesystem: true
+          # Container starts as root; entrypoint.sh chowns paths then
+          # gosu-drops to HOST_UID:HOST_GID before exec'ing Python.
           ports:
             - name: api
               containerPort: 9848 # noqa: EGG002
@@ -46,33 +45,46 @@ spec:
               containerPort: 9851
               protocol: TCP
           env:
-            - name: LAUNCHER_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: gateway-secrets
-                  key: launcher-secret
+            # Gateway reads launcher-secret from /secrets/launcher-secret (file),
+            # secrets.env from /secrets/secrets.env, and github-app.pem from
+            # /secrets/github-app.pem. See gateway/entrypoint.sh and
+            # gateway/anthropic_credentials.py.
+            - name: EGG_CONFIG_DIR
+              value: "/secrets"
+            - name: EGG_SECRETS_PATH
+              value: "/secrets/secrets.env"
+            - name: EGG_REPO_CONFIG
+              value: "/secrets/repositories.yaml"
             - name: GATEWAY_PORT
               value: "9848" # noqa: EGG002
             - name: PROXY_PORT
               value: "3129" # noqa: EGG002
             - name: HEALTH_PORT
               value: "9851"
+            # HOST_UID/HOST_GID tell the entrypoint to chown paths then
+            # gosu-drop to this UID before running the Python gateway.
+            - name: HOST_UID
+              value: "1000"
+            - name: HOST_GID
+              value: "1000"
+            - name: HOST_HOME
+              value: "/home/egg"
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /api/v1/health
               port: health
-            initialDelaySeconds: 5
+            initialDelaySeconds: 30
             periodSeconds: 10
-            timeoutSeconds: 3
-            failureThreshold: 3
+            timeoutSeconds: 5
+            failureThreshold: 6
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /api/v1/health
               port: health
-            initialDelaySeconds: 3
+            initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3
-            failureThreshold: 3
+            failureThreshold: 6
           resources:
             requests:
               cpu: 100m
@@ -81,15 +93,22 @@ spec:
               cpu: 500m
               memory: 256Mi
           volumeMounts:
-            - name: gateway-state
-              mountPath: /var/lib/egg-gateway
-            - name: gateway-certs
-              mountPath: /etc/egg-gateway/certs
+            - name: secrets
+              mountPath: /secrets
               readOnly: true
+            - name: shared-certs
+              mountPath: /shared/certs
+            - name: home
+              mountPath: /home/egg
+            - name: egg-state
+              mountPath: /home/egg/.egg-state
       volumes:
-        - name: gateway-state
-          emptyDir: {}
-        - name: gateway-certs
+        - name: secrets
           secret:
-            secretName: gateway-tls
-            optional: true
+            secretName: gateway-secrets
+        - name: shared-certs
+          emptyDir: {}
+        - name: home
+          emptyDir: {}
+        - name: egg-state
+          emptyDir: {}
