@@ -322,14 +322,13 @@ def list_contracts(repo_root: Path | None = None) -> list[int | str]:
         # Recognize both the legacy bare-integer shape ("1759.json") and the
         # canonical ``issue-<N>.json`` shape as issue-driven pipelines so
         # callers that filter on ``isinstance(_, int)`` keep working.
-        # Skip legacy files when the canonical version already exists to
-        # avoid duplicates during the migration window.
         if stem.isdigit():
-            key = int(stem)
+            # Skip legacy file when the canonical version exists — avoids
+            # duplicate entries during the migration window.
             canonical = contracts_dir / f"issue-{stem}.json"
             if canonical.exists():
-                continue  # canonical version exists; skip legacy
-            seen[key] = None
+                continue
+            seen[int(stem)] = None
         elif stem.startswith("issue-") and stem[len("issue-") :].isdigit():
             seen[int(stem[len("issue-") :])] = None
         else:

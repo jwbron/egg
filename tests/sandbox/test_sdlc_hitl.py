@@ -2220,6 +2220,10 @@ class TestContractDecisionBridge:
         """Returns None when pipeline_id is empty."""
         assert _get_contract_key(pipeline_id="") is None
 
+    def test_get_contract_key_prefers_pipeline_id_over_issue_number(self):
+        """pipeline_id takes priority when both are provided."""
+        assert _get_contract_key(issue_number=42, pipeline_id="issue-42-v2") == "issue-42-v2"
+
     # -- _load_pending_contract_decisions --
 
     def test_no_contract_file(self, tmp_path):
