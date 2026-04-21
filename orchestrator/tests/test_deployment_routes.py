@@ -33,6 +33,8 @@ _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
+from egg_config.constants import TEST_GATEWAY_PORT  # noqa: E402
+
 
 @pytest.fixture
 def app():
@@ -768,13 +770,13 @@ class TestProbeManifestAndEnv:
 
         monkeypatch.setenv("EGG_LIFECYCLE_SECRET", "do-not-leak")
         monkeypatch.setenv("EGG_SESSION_TOKEN", "also-do-not-leak")
-        monkeypatch.setenv("GATEWAY_URL", "http://gw:9848")
+        monkeypatch.setenv("GATEWAY_URL", f"http://gw:{TEST_GATEWAY_PORT}")
         monkeypatch.setenv("EGG_ORCHESTRATOR_URL", "http://orch:9849")
 
         env = _build_probe_env()
         assert "EGG_LIFECYCLE_SECRET" not in env
         assert "EGG_SESSION_TOKEN" not in env
-        assert env["GATEWAY_URL"] == "http://gw:9848"
+        assert env["GATEWAY_URL"] == f"http://gw:{TEST_GATEWAY_PORT}"
         assert env["EGG_ORCHESTRATOR_URL"] == "http://orch:9849"
 
     def test_probe_env_missing_urls_default_to_empty(self, monkeypatch):

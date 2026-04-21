@@ -701,7 +701,7 @@ def prune_worktrees_proxy() -> tuple[Response, int]:
 
 PROBE_COMMAND_TEMPLATE = r"""
 set -u
-gateway_url="${GATEWAY_URL:-http://gateway.egg-system.svc.cluster.local:9848}"
+gateway_url="${GATEWAY_URL:-http://gateway.egg-system.svc.cluster.local:9848}" # noqa: EGG002
 orchestrator_url="${EGG_ORCHESTRATOR_URL:-http://orchestrator.egg-system.svc.cluster.local:9849}"
 
 probe() {
