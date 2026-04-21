@@ -101,14 +101,18 @@ try:
     from .git_client import (
         cleanup_credential_helper,
         create_credential_helper,
+        get_authenticated_remote_target,
         get_token_for_repo,
+        resolve_remote_url,
     )
     from .session_manager import Session
 except ImportError:
     from git_client import (  # type: ignore[no-redef, import-untyped]
         cleanup_credential_helper,
         create_credential_helper,
+        get_authenticated_remote_target,
         get_token_for_repo,
+        resolve_remote_url,
     )
     from session_manager import Session  # type: ignore[no-redef, import-untyped]
 
@@ -853,7 +857,15 @@ class CheckpointHandler:
                 target=target,
             )
         else:
-            target = remote
+            # Resolve the remote to a URL and force HTTPS if the origin is SSH.
+            # The gateway authenticates via GitHub App tokens over HTTPS and
+            # ships no SSH config, so any SSH-form origin inherited from the
+            # host clone would fail at host-key verification. See #1767.
+            remote_url, err = resolve_remote_url(remote, repo_path)
+            if err:
+                target = remote
+            else:
+                target = get_authenticated_remote_target(remote, remote_url)
 
         try:
             with tempfile.TemporaryDirectory(prefix="checkpoint_") as temp_dir:
