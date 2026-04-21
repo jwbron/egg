@@ -330,10 +330,10 @@
         {
           "container_id": "00edca67-5196-411b-a6f8-cbeb3470e8b1",
           "container_name": "issue-1759-v3-reviewer_contract",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-21T21:51:27.669987Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-21T23:21:32.961587Z",
+          "exit_code": -1,
           "agent_role": "reviewer_contract",
           "session_token": null,
           "pod_name": null,
@@ -392,13 +392,13 @@
         },
         {
           "role": "reviewer_contract",
-          "status": "running",
+          "status": "failed",
           "container_id": "00edca67-5196-411b-a6f8-cbeb3470e8b1",
           "started_at": "2026-04-21T21:51:27.669989Z",
-          "completed_at": null,
+          "completed_at": "2026-04-21T23:21:33.109519Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         }
@@ -439,7 +439,7 @@
     }
   ],
   "created_at": "2026-04-21T20:06:57.322289Z",
-  "updated_at": "2026-04-21T22:24:39.919684Z",
+  "updated_at": "2026-04-21T23:21:33.109669Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -452,5 +452,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-21T21:51:23.359709Z",
-  "version": 25
+  "version": 26
 }
