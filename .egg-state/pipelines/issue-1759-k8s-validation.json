@@ -200,10 +200,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "How should validate_network_isolation run its probes?",
+      "context": "",
+      "options": [
+        "Spawn a throwaway probe Job in egg-agents and read its logs — isolated, costs a Job lifecycle per call (Recommended)",
+        "pods/exec into an existing agent pod if one is present, else spawn a Job — cheaper when pipelines are live, wider RBAC",
+        "Always use pods/exec into a long-lived probe Deployment we add to the overlay — persistent overhead, fastest per call"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-21T06:37:17.167057Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-21T06:19:56.988139Z",
-  "updated_at": "2026-04-21T06:37:06.843213Z",
+  "updated_at": "2026-04-21T06:37:17.173210Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -216,5 +234,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 11
+  "version": 12
 }
