@@ -58,6 +58,10 @@ FIELD_OWNERSHIP: dict[str, FieldOwner] = {
     "decisions.*.resolution": Role.HUMAN,
     "decisions.*.resolved_by": Role.HUMAN,
     "decisions.*.resolved_at": Role.HUMAN,
+    # Feedback: open-ended HITL questions, authored by either role during
+    # refine/review phases. feedback.* covers nested mutations (e.g. answers).
+    "feedback": frozenset({Role.IMPLEMENTER, Role.REVIEWER}),
+    "feedback.*": frozenset({Role.IMPLEMENTER, Role.REVIEWER}),
 }
 
 # Fields that any role can read but only the owner can write
