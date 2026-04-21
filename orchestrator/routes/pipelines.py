@@ -400,7 +400,7 @@ def _get_spawner():
     return get_container_spawner()
 
 
-from routes import get_repo_path  # noqa: E402 — shared helper
+from routes import get_repo_path, resolve_worktree_repo_path  # noqa: E402 — shared helpers
 
 try:
     from gateway_client import get_gateway_client
@@ -1427,9 +1427,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 env_path = os.environ.get("EGG_REPO_PATH", "/home/egg/repos")
                 base_path = Path(env_path)
                 repo_name = (pipeline.repo or "").split("/")[-1]
-                worktree_repo_path = (
-                    base_path / repo_name if not (base_path / ".git").exists() else base_path
-                )
+                worktree_repo_path = resolve_worktree_repo_path(base_path, repo_name)
                 _resolved_base = None
                 try:
                     _resolved_base = get_default_branch(worktree_repo_path)

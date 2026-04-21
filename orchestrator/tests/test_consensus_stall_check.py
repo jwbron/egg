@@ -507,3 +507,102 @@ class TestHandleConsensusStallRecovery:
 
         # save_pipeline should NOT be called since phase already transitioned
         mock_store.save_pipeline.assert_not_called()
+
+    def test_existing_complete_tracker_falls_through_to_aggressive(self):
+        """Regression for #1749: existing tracker with is_complete=True must
+        not short-circuit Track 1 — the polling loop already had its chance
+        and didn't act, so Track 2 (aggressive recovery) must fire."""
+        monitor = _make_monitor()
+        pipeline = _make_concurrent_pipeline()
+        result = _make_degraded_result()
+
+        fresh_pipeline = _make_concurrent_pipeline()
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = fresh_pipeline
+
+        existing_tracker = MagicMock()
+        existing_tracker.evaluate.return_value = {"is_complete": True}
+
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = existing_tracker
+        mock_graph_mod = MagicMock()
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "peer_consensus": mock_pc,
+                "review_graph": mock_graph_mod,
+            },
+        ):
+            monitor._handle_consensus_stall_recovery([result], pipeline, mock_store)
+
+        # Track 2 ran: phase marked COMPLETE, agents marked COMPLETE
+        mock_store.save_pipeline.assert_called_once()
+        # Reconstruction should NOT have been attempted — tracker was already there.
+        mock_pc.reconstruct_tracker_from_messages.assert_not_called()
+        phase_exec = fresh_pipeline.phases.get("implement")
+        assert phase_exec is not None
+        assert phase_exec.status == PipelineStatus.COMPLETE
+        for agent in phase_exec.agents:
+            assert agent.status == AgentExecutionStatus.COMPLETE
+
+    def test_existing_incomplete_tracker_skips_aggressive(self):
+        """When tracker exists and reports is_complete=False, the polling loop
+        is still actively watching it — Track 2 should not fire."""
+        monitor = _make_monitor()
+        pipeline = _make_concurrent_pipeline()
+        result = _make_degraded_result()
+
+        mock_store = MagicMock()
+
+        existing_tracker = MagicMock()
+        existing_tracker.evaluate.return_value = {"is_complete": False}
+
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = existing_tracker
+        mock_graph_mod = MagicMock()
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "peer_consensus": mock_pc,
+                "review_graph": mock_graph_mod,
+            },
+        ):
+            monitor._handle_consensus_stall_recovery([result], pipeline, mock_store)
+
+        mock_store.save_pipeline.assert_not_called()
+        mock_pc.reconstruct_tracker_from_messages.assert_not_called()
+
+    def test_existing_tracker_evaluate_raises_falls_through(self):
+        """If tracker.evaluate() raises, treat the tracker as broken and let
+        Track 2 (aggressive recovery) take over."""
+        monitor = _make_monitor()
+        pipeline = _make_concurrent_pipeline()
+        result = _make_degraded_result()
+
+        fresh_pipeline = _make_concurrent_pipeline()
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = fresh_pipeline
+
+        broken_tracker = MagicMock()
+        broken_tracker.evaluate.side_effect = RuntimeError("tracker corrupted")
+
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = broken_tracker
+        mock_graph_mod = MagicMock()
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "peer_consensus": mock_pc,
+                "review_graph": mock_graph_mod,
+            },
+        ):
+            monitor._handle_consensus_stall_recovery([result], pipeline, mock_store)
+
+        # Track 2 ran despite the broken tracker.
+        mock_store.save_pipeline.assert_called_once()
+        phase_exec = fresh_pipeline.phases.get("implement")
+        assert phase_exec is not None
+        assert phase_exec.status == PipelineStatus.COMPLETE

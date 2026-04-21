@@ -82,6 +82,35 @@ def get_repo_path() -> Path:
     return Path.cwd()
 
 
+def resolve_worktree_repo_path(base_path: Path, repo_name: str) -> Path:
+    """Resolve a worktree repo path from an env-style base + a repo name.
+
+    Used by code paths that already know the repo name (from
+    ``pipeline.repo``) but only have ``EGG_REPO_PATH`` as a starting
+    point.  Prefers the named subdirectory; falls back to ``base_path``
+    only when ``base_path`` itself is the git repo.
+
+    Replaces the historical ``base_path / repo_name if not (base_path /
+    ".git").exists() else base_path`` toggle, which silently flipped
+    meaning when a stray ``.git`` appeared at ``base_path`` (see #1749).
+
+    Raises:
+        RuntimeError: if neither ``base_path / repo_name`` nor
+            ``base_path`` contains a ``.git`` directory.  Failing fast
+            with a specific error beats silently resolving to the
+            wrong path.
+    """
+    candidate = base_path / repo_name if repo_name else None
+    if candidate is not None and (candidate / ".git").exists():
+        return candidate
+    if (base_path / ".git").exists():
+        return base_path
+    raise RuntimeError(
+        f"EGG_REPO_PATH={base_path} contains neither a git repo nor a "
+        f"'{repo_name}' subdirectory with one"
+    )
+
+
 def resolve_repo_path_for_pipeline(pipeline_id: str, base_path: Path) -> Path:
     """Resolve the correct repo subdirectory for a pipeline.
 
