@@ -71,7 +71,10 @@ PROXY_URL = os.environ.get(
     "EGG_PROXY_URL", f"http://gateway.egg-system.svc.cluster.local:{GATEWAY_PROXY_PORT}"
 )
 
-# Environment variables that extra_env must never override.
+# Environment variables that extra_env must never override. Both upper and
+# lowercase proxy variants are covered because many HTTP clients (curl,
+# requests, libcurl) honor either case, so omitting the lowercase forms
+# would leave a defense-in-depth hole.
 _PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
     {
         "EGG_SESSION_TOKEN",
@@ -79,6 +82,9 @@ _PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
         "HTTP_PROXY",
         "HTTPS_PROXY",
         "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
         "EGG_ORCHESTRATOR_URL",
     }
 )

@@ -10,13 +10,23 @@ spec:
     spec:
       containers:
         - name: orchestrator
+          # Bind the MCP port directly to localhost on the k3s node so
+          # Claude Code's MCP config (http://localhost:9850/mcp) works
+          # without kubectl port-forward. Local-dev only; production
+          # k8s should use a Service/Ingress.
+          ports:
+            - name: mcp
+              containerPort: 9850
+              hostPort: 9850
+              protocol: TCP
           env:
             - name: EGG_REPO_PATH
               value: "/home/egg/repos"
           volumeMounts:
+            # repos mount is read-write because the orchestrator creates
+            # per-pipeline worktrees inside each repo's .git/worktrees/.
             - name: repos
               mountPath: /home/egg/repos
-              readOnly: true
             - name: worktrees
               mountPath: /home/egg/.egg-worktrees
             - name: secrets

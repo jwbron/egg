@@ -16,9 +16,10 @@ spec:
       containers:
         - name: gateway
           volumeMounts:
+            # repos mount is read-write because the gateway runs
+            # `git worktree prune` and other worktree admin on startup.
             - name: repos
               mountPath: /home/egg/repos
-              readOnly: true
             - name: worktrees
               mountPath: /home/egg/.egg-worktrees
       volumes:

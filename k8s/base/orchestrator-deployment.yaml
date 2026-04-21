@@ -9,6 +9,11 @@ metadata:
     app.kubernetes.io/part-of: egg
 spec:
   replicas: 1
+  # Recreate (not RollingUpdate) because the overlay can bind a hostPort
+  # (for MCP access from the host); hostPort is singleton per node, so a
+  # rolling update gets stuck Pending waiting for the port to free up.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: orchestrator
