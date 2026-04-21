@@ -1,0 +1,408 @@
+{
+  "issue": 1759,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 1,
+  "title": "MCP tooling gaps for the new Kubernetes deployment",
+  "summary": "The existing MCP surface (23 tools in orchestrator/mcp_tools.py) is pipeline-centric — it assumes the orchestrator and gateway are already up and talking to each other. That assumption is exactly what breaks first on a fresh k3s-native deployment, which is why the #1692 validation session fell back to raw kubectl for every debug iteration. This analysis recommends the refiner's Option A (ship the umbrella in #1759): four new MCP tools (validate_deployment_manifests, validate_network_isolation, prune_stale_worktrees, get_deployment_context) plus two new skills (deployment-diagnose, agent-diagnose). rebuild_and_rollout is dropped (Decision 4), the submit_task task-id-reuse papercut is deferred to a separate issue (Decision 3), skills ship against currently reachable evidence without waiting on log persistence (Decision 5), and the in-situ gateway EGG_ORCHESTRATOR_URL misconfig is filed as a separate issue. All four tools land as new entries in orchestrator/mcp_tools.py PIPELINE_TOOLS + _handle_* methods on PipelineToolHandler (schema at line 64+, class at line 690) that proxy to new orchestrator HTTP routes; the two skills land as SKILL.md files under skills/ alongside the existing sdlc/babysit-pr/egg-setup skills. k8s-cluster work reuses the existing get_kubernetes_client() singleton (kubernetes_client.py:943) and _resolve_job_name helper (line 867) — no new auth surface, no new architecture.",
+  "revision_notes": "",
+  "problem_statement": {
+    "description": "Validating #1692 (Docker → k3s migration) on a fresh machine surfaced a long list of deployment bugs that the current MCP tooling gave no help diagnosing. Every iteration fell back to raw `kubectl get pods`, `kubectl describe pod`, `kubectl logs deploy/…`, and `docker build … && sudo k3s ctr images import -`. The same failure classes recurred six times during the validation pass (#1760, #1764, #1765, #1766, #1767, #1768, #1769) and cluster into two shapes: identifier-translation asymmetries (Pod UID vs Job UID) and role/auth boundary errors. The issue proposes closing these blind spots by adding deterministic MCP tools for deployment-level actions/fetches and skills that compose them with judgment to narrate findings.",
+    "goals": [
+      "Add four k8s-facing MCP tools: validate_deployment_manifests, validate_network_isolation, prune_stale_worktrees, get_deployment_context. All live in the orchestrator's in-process MCP server and proxy to new orchestrator HTTP routes following the established 23-tool pattern.",
+      "Add two operator-side skills: deployment-diagnose (walks pod describe → Events → image-vs-manifest diff → resolved mounts → health body → applied-vs-running spec diff → gateway silent-failure scan) and agent-diagnose (Job spec → pod statuses → last 100 log lines → Events → resolved env → synthetic egress probe → pattern-matched error classification).",
+      "Reuse existing primitives everywhere: get_kubernetes_client() singleton for cluster access, _resolve_job_name() for Pod-UID↔Job-name translation, list_containers + get_container_logs MCP tools composed by skills, WORKTREE_BASE_DIR + cleanup_orphaned_worktrees for prune_stale_worktrees, egg_prompt / SKILL.md frontmatter pattern for new skills.",
+      "Preserve dual-runtime compatibility: get_deployment_context is multi-runtime by design; the other three new tools are k8s-specific and must return a structured 'not applicable on EGG_RUNTIME=docker' error rather than crashing.",
+      "Acceptance criterion is end-to-end: a re-run of the #1692 validation session using only the new tools/skills should not need to fall back to raw kubectl for any of the failure modes documented in the issue (#1760, #1764, #1766, #1767, #1768, #1769)."
+    ],
+    "non_goals": [
+      "rebuild_and_rollout MCP tool (deferred pending #1763 — Decision 4 defaults to 'remove from scope'; re-evaluate once SHA-tagged images land).",
+      "submit_task 'silently reuses an existing task_id' papercut fix (Decision 3 defaults to 'defer to a separate issue').",
+      "Log-persistence infrastructure for short-lived crashed pods (Decision 5 defaults to 'defer'; agent-diagnose ships against currently reachable evidence).",
+      "Fixing the in-situ gateway EGG_ORCHESTRATOR_URL deployment misconfig (evidence-for-the-approach but out of scope; refiner recommends filing as a separate issue).",
+      "Replacing kubectl entirely. The 80% of debug flows that repeat every session are in scope; the long tail stays kubectl-shaped.",
+      "Sandbox-agent-facing tooling (#1765 is the flip-side concern for sandbox agents; not in #1759's scope).",
+      "Introducing a skills/operator/ vs skills/agent/ split (Decision 2 defaults to 'flat skills/ directory'; re-evaluate when #1765 lands)."
+    ],
+    "root_causes": [
+      {
+        "id": "RC-1",
+        "title": "MCP surface is pipeline-centric, not deployment-centric",
+        "description": "All 23 existing MCP tools (orchestrator/mcp_tools.py:64+) assume the orchestrator+gateway are already running and registered. The closest deployment-facing tool is check_health (schema at mcp_tools.py:276, handler at mcp_tools.py:1499) which only returns ok/not-ok. There is no tool that can answer 'what's actually running right now?', 'does my Kustomize manifest reference things that exist?', 'is Calico actually enforcing my NetworkPolicies?', or 'clean up stale worktrees from the previous deployment'.",
+        "location": "orchestrator/mcp_tools.py:64-669 (schemas), :690-720 (PipelineToolHandler class + handle_tool_call dispatch), :276 + :1499 (check_health schema/handler)"
+      },
+      {
+        "id": "RC-2",
+        "title": "No runtime verification of the NetworkPolicy posture the k8s migration claims to enforce",
+        "description": "k8s/base/network-policies.yaml defines default-deny-ingress, default-deny-egress, allow-agent-to-gateway, allow-agent-to-orchestrator, allow-agent-dns. integration_tests/test_network_isolation.py (472 lines) and test_network_security.py (187 lines) probe egress but against the Docker-era network model. Nothing in the current test plan probes the actual Calico enforcement post-deploy, which is how #1769 (HITL resolve endpoint reachable from egg-agents) slipped through.",
+        "location": "k8s/base/network-policies.yaml, integration_tests/test_network_isolation.py, integration_tests/test_network_security.py"
+      },
+      {
+        "id": "RC-3",
+        "title": "Identifier-translation asymmetries are not surfaced as a first-class debugging concern",
+        "description": "The Pod-UID-vs-Job-UID translation lives at orchestrator/kubernetes_client.py:867-931 in _resolve_job_name. #1760 and #1764 were the same bug on two different surfaces (runtime reconciliation vs get_container_logs). A tool/skill that walks one container through every API surface on spawn would have surfaced both in one pass. The skill-layer pattern catalogue in agent-diagnose is the piece that makes this a solved class of bug instead of a recurring one.",
+        "location": "orchestrator/kubernetes_client.py:867-931"
+      },
+      {
+        "id": "RC-4",
+        "title": "Worktree lifecycle spans two locations only one of which git tracks",
+        "description": "`git worktree prune` walks `.git/worktrees/` inside each repo but does NOT clean orphan directories under `~/.egg-worktrees/`, the shared worktree base managed by the gateway (gateway/worktree_manager.py:47 WORKTREE_BASE_DIR = /home/egg/.egg-worktrees). A stale worktree from a previous (Compose-era) run of egg broke the first pipeline submission on the new k3s deployment during the validation session. Cancelled pipelines later left orphan dirs that required manual `rm -rf`. The gateway already owns create_worktree (line 237), list_worktrees (line 1062), cleanup_orphaned_worktrees (line 1182) — a new prune_stale_worktrees MCP tool composes these and adds `git worktree prune` per-repo.",
+        "location": "gateway/worktree_manager.py:47 (WORKTREE_BASE_DIR), :237 (create_worktree), :1062 (list_worktrees), :1182 (cleanup_orphaned_worktrees)"
+      },
+      {
+        "id": "RC-5",
+        "title": "Static validation of the Kustomize overlay against cluster state has no home",
+        "description": "Every deployment bug the validation session surfaced (invented /etc/egg-gateway/certs path, missing gateway-secrets Secret, /healthz vs /api/v1/health mismatch, auto-injected ORCHESTRATOR_PORT=tcp://…) was statically catchable against the applied manifest + cluster state. No tool today does that walk. The k8s/base/ Kustomize tree (namespaces.yaml, rbac.yaml, orchestrator-deployment.yaml, orchestrator-service.yaml, gateway-deployment.yaml, gateway-service.yaml, network-policies.yaml) is the canonical input; cluster state (Secrets, ConfigMaps, containerd image list, existing hostPaths) is the canonical comparand. validate_deployment_manifests is the tool that does this walk and warns on every mismatch.",
+        "location": "k8s/base/*.yaml, k8s/overlays/local/, orchestrator/kubernetes_client.py (cluster-state probes)"
+      },
+      {
+        "id": "RC-6",
+        "title": "Recurring failure classes aren't codified as a pattern catalogue",
+        "description": "The validation session ran into the same failure shape three times in a row (#1760, #1764, #1766) before the human spotted the pattern. '403 from gateway: probably fine/coarse role mismatch', '404 on container ID: probably Pod UID vs Job UID mismatch', 'short-lived pod deleted before logs readable: persist out-of-band' — these are the judgment layer that makes agent-diagnose skill-shaped rather than tool-shaped. There is no place in the codebase today where such a catalogue lives."
+      }
+    ]
+  },
+  "current_architecture": {
+    "mcp_surface_pattern": {
+      "description": "23 MCP tools live as dicts in PIPELINE_TOOLS (orchestrator/mcp_tools.py:64-669) and as _handle_<tool> methods on class PipelineToolHandler (line 690+). Dispatch is via handle_tool_call (line 704) which maps tool name → handler. Each handler calls _make_request to proxy to an orchestrator HTTP route. The MCP server itself is an in-process FastMCP sidecar inside the orchestrator Deployment (orchestrator/mcp_server.py:1-60), rate-limited at 30 req/min (DEFAULT_RATE_LIMIT at mcp_server.py:36), using streamable-HTTP transport. Adding a new tool is: (1) add schema to PIPELINE_TOOLS; (2) add _handle_<name> method on PipelineToolHandler; (3) wire into handle_tool_call's dispatch dict; (4) add orchestrator route under orchestrator/routes/ if new logic is needed; (5) add unit test that mocks _make_request(). Every one of the four new MCP tools follows this exact pattern.",
+      "files": [
+        "orchestrator/mcp_tools.py:64 (PIPELINE_TOOLS start)",
+        "orchestrator/mcp_tools.py:690 (class PipelineToolHandler)",
+        "orchestrator/mcp_tools.py:704 (handle_tool_call dispatch)",
+        "orchestrator/mcp_tools.py:276 (check_health schema)",
+        "orchestrator/mcp_tools.py:1499 (check_health handler — illustrative of the proxy pattern)",
+        "orchestrator/mcp_server.py:36 (DEFAULT_RATE_LIMIT = 30 rpm)"
+      ]
+    },
+    "skill_surface_pattern": {
+      "description": "Three skills today under skills/: sdlc/SKILL.md, babysit-pr/SKILL.md, egg-setup/SKILL.md. Each is a YAML-frontmatter markdown file with keys: name, description, disable-model-invocation (true), argument-hint. Filesystem-discovered — no registry file. No operator-vs-agent split (that's #1765's concern). New skills land as skills/deployment-diagnose/SKILL.md and skills/agent-diagnose/SKILL.md. Skill authoring guidance: the reviewer_agent_design review flagged that skills should be short orienting briefs — domain knowledge, evidence-chain hints, known-failure catalogue — NOT step-by-step procedures. agent-mode-design.md:295-303 names 'overloading with prescriptive checklists' as the anti-pattern to avoid. This is a plan-phase guardrail on the skill content, not on the scaffold.",
+      "files": [
+        "skills/sdlc/SKILL.md",
+        "skills/babysit-pr/SKILL.md",
+        "skills/egg-setup/SKILL.md",
+        "docs/guides/agent-mode-design.md:295-303 (skill anti-patterns to avoid)"
+      ]
+    },
+    "kubernetes_client_layer": {
+      "description": "Official `kubernetes` python client, in-cluster auth via service account, singleton accessor get_kubernetes_client() (orchestrator/kubernetes_client.py:943). Shared by kubernetes_spawner.py (Job spawn + gateway session registration) and kubernetes_monitor.py (pod health, orphan cleanup). The Pod-UID-vs-Job-UID translation lives in _resolve_job_name() (line 867-931); this is exactly the surface #1760/#1764 reference. create_container creates a Job; create_job is at line 645. list_containers maps to pod.metadata.uid values and is the reason _resolve_job_name must handle Pod UIDs. New k8s-facing MCP tools reuse this singleton rather than re-establishing auth.",
+      "files": [
+        "orchestrator/kubernetes_client.py:204 (create_container — backend protocol surface)",
+        "orchestrator/kubernetes_client.py:645 (create_job — raw Job API)",
+        "orchestrator/kubernetes_client.py:867-931 (_resolve_job_name — Pod-UID↔Job-name bridge)",
+        "orchestrator/kubernetes_client.py:943-974 (get_kubernetes_client singleton)"
+      ]
+    },
+    "runtime_dispatch": {
+      "description": "orchestrator/routes/pipelines.py:390 reads EGG_RUNTIME env (default `docker`) and returns KubernetesSpawner or ContainerSpawner via _get_spawner(). Namespace defaults: orchestrator/gateway in egg-system, agent Jobs in egg-agents. The new k8s-specific tools (validate_deployment_manifests, validate_network_isolation, prune_stale_worktrees) must check EGG_RUNTIME and return a structured 'not available on this runtime' error when EGG_RUNTIME != 'kubernetes'. get_deployment_context is already designed to be multi-runtime — it reports whichever backend it finds.",
+      "files": [
+        "orchestrator/routes/pipelines.py:389-402 (_RUNTIME + _get_spawner)"
+      ]
+    },
+    "kustomize_layout": {
+      "description": "k8s/base/ contains kustomization.yaml, namespaces.yaml (egg-system, egg-agents), rbac.yaml (egg-orchestrator ServiceAccount + ClusterRole + egg-agent-manager Role), orchestrator-deployment.yaml + orchestrator-service.yaml, gateway-deployment.yaml + gateway-service.yaml, network-policies.yaml (Calico). One local overlay at k8s/overlays/local/ with kustomization.yaml + patches/ for hostPath storage + local-path provisioner. This is the canonical input surface validate_deployment_manifests walks. Cross-reference: orchestrator-deployment.yaml:55 sets EGG_ORCHESTRATOR_URL; gateway-deployment.yaml does NOT — this is the in-situ bug the refiner surfaced and scoped out of #1759.",
+      "files": [
+        "k8s/base/kustomization.yaml",
+        "k8s/base/namespaces.yaml",
+        "k8s/base/rbac.yaml",
+        "k8s/base/orchestrator-deployment.yaml:55 (sets EGG_ORCHESTRATOR_URL)",
+        "k8s/base/orchestrator-service.yaml",
+        "k8s/base/gateway-deployment.yaml (missing EGG_ORCHESTRATOR_URL — separate issue)",
+        "k8s/base/gateway-service.yaml",
+        "k8s/base/network-policies.yaml (default-deny + 5 allow-specific)",
+        "k8s/overlays/local/kustomization.yaml",
+        "k8s/overlays/local/patches/"
+      ]
+    },
+    "worktree_lifecycle": {
+      "description": "gateway/worktree_manager.py hardcodes WORKTREE_BASE_DIR = /home/egg/.egg-worktrees (line 47). Owns create_worktree (line 237), list_worktrees (line 1062), list_worktrees_for_pipeline (line 1120), cleanup_orphaned_worktrees (line 1182). The gateway pod mounts this path via hostPath. Both the gateway and the orchestrator know the path. prune_stale_worktrees composes cleanup_orphaned_worktrees with a per-repo `git worktree prune` sweep (which cleanup_orphaned_worktrees does NOT do).",
+      "files": [
+        "gateway/worktree_manager.py:47 (WORKTREE_BASE_DIR)",
+        "gateway/worktree_manager.py:237 (create_worktree)",
+        "gateway/worktree_manager.py:1062 (list_worktrees)",
+        "gateway/worktree_manager.py:1120 (list_worktrees_for_pipeline)",
+        "gateway/worktree_manager.py:1182 (cleanup_orphaned_worktrees)"
+      ]
+    },
+    "existing_container_diagnosis_tools": {
+      "description": "list_containers (mcp_tools.py:284 schema) and get_container_logs (line 303 schema) already work against both Docker and k8s via the _get_monitor() dispatch in the orchestrator routes. agent-diagnose skill composes these rather than re-implementing them. The Pod-UID↔Job-name translation in _resolve_job_name() is what lets a caller pass back the container_id from list_containers to get_container_logs without knowing whether the runtime is Docker or k8s. send_message and get_consensus_status (mcp_tools.py:334, :365) are the other tools agent-diagnose composes to walk BRC state for a failed agent.",
+      "files": [
+        "orchestrator/mcp_tools.py:284 (list_containers)",
+        "orchestrator/mcp_tools.py:303 (get_container_logs)",
+        "orchestrator/mcp_tools.py:334 (send_message)",
+        "orchestrator/mcp_tools.py:365 (get_consensus_status)"
+      ]
+    },
+    "network_isolation_tests_today": {
+      "description": "integration_tests/test_network_isolation.py (472 lines) and integration_tests/test_network_security.py (187 lines) probe egress but against the Docker-era network model (egg-isolated 172.32.0.0/24, egg-external 172.33.0.0/24, fixed gateway IPs). Neither drives the k8s Calico NetworkPolicy enforcement path. validate_network_isolation is a runtime probe in egg-agents that verifies the claims in k8s/base/network-policies.yaml are actually being enforced by Calico. Decision 3 (feedback Q3) asks whether these tests should be migrated to drive validate_network_isolation or kept alongside — defer to reviewer_plan / human gate.",
+      "files": [
+        "integration_tests/test_network_isolation.py",
+        "integration_tests/test_network_security.py",
+        "k8s/base/network-policies.yaml (the claim being probed)"
+      ]
+    },
+    "gateway_contract_api_env_misconfig": {
+      "description": "gateway/contract_api.py:72-73 reads EGG_ORCHESTRATOR_URL (default `http://egg-orchestrator:9849`, the Compose-era service name). The deployed k3s gateway Deployment does not set EGG_ORCHESTRATOR_URL, so the default resolves to a DNS name that does not exist in k8s (orchestrator-in-k8s is at orchestrator.egg-system.svc.cluster.local:9849). Every contract read/write from the sandbox fails with 'Orchestrator unreachable — try again'. This pipeline itself hit this bug during the refine phase; the architect-pipeline's egg-contract CLI is currently broken from the sandbox. The refiner correctly flagged this, correctly scoped the fix out of #1759, and correctly identified it as evidence-for-the-approach (validate_deployment_manifests is exactly the tool that catches this class). The plan phase should open a separate tracking issue for the env fix rather than smuggle it into #1759 — that will make the new tool's first acceptance test a real-world bug it catches.",
+      "files": [
+        "gateway/contract_api.py:72-73 (_orchestrator_url fallback)",
+        "k8s/base/orchestrator-deployment.yaml:55 (sets EGG_ORCHESTRATOR_URL — proof the pattern exists)",
+        "k8s/base/gateway-deployment.yaml (missing EGG_ORCHESTRATOR_URL — the bug)"
+      ]
+    }
+  },
+  "approaches_considered": [
+    {
+      "id": "A",
+      "name": "Umbrella — ship 4 MCP tools + 2 skills in #1759 (refiner's recommended)",
+      "description": "One plan, one implement phase, all four MCP tools plus both skills land in a single PR. Existing patterns are reused throughout: new tool schemas added to PIPELINE_TOOLS, new handlers on PipelineToolHandler, new orchestrator routes under orchestrator/routes/, k8s work via get_kubernetes_client() singleton, skills added as new directories under skills/. Carve-outs: drop rebuild_and_rollout (Decision 4 default), defer submit_task papercut (Decision 3 default), skills ship against currently reachable evidence (Decision 5 default), file gateway EGG_ORCHESTRATOR_URL fix as a separate issue.",
+      "pros": [
+        "The issue is explicitly framed as a unified story — 'tools alone didn't help; skills close the validation loop'. Umbrella preserves that narrative in the PR description and commit log.",
+        "Acceptance criterion is testable end-to-end: re-run the #1692 validation pass using only the new tools/skills; does any step still require raw kubectl? This is the real success metric; splitting forfeits it.",
+        "Skills compose tools. Shipping the skills against unstable/nonexistent tools forces speculative writing or no-ops; shipping together means the skill reviewer can verify evidence chains against the actual tool outputs.",
+        "All four tools are small and independently testable (each has a bounded schema + a single route + a single handler). The skill work is also bounded — two SKILL.md files plus two docs pages.",
+        "The gateway EGG_ORCHESTRATOR_URL bug encountered in this very pipeline is ready-made proof that validate_deployment_manifests is well-scoped. Landing the tool in the same PR that files the env-fix issue gives reviewers a concrete 'here's the bug it catches' data point."
+      ],
+      "cons": [
+        "Larger diff than a split. Historical pattern at egg: large umbrella PRs occasionally stall in review. Mitigated because each of the six items has a small blast radius and the review graph (reviewer_code, reviewer_contract, tester-as-reviewer) already fans out across them.",
+        "One failed acceptance criterion can block the whole PR. Mitigated because no item is coupled to another at the commit level — any one can be reverted independently.",
+        "Requires the plan phase to enumerate acceptance criteria per item even though the PR is one unit. Not actually a cost — the task-planner is specifically for this."
+      ],
+      "verdict": "Recommended. This is the refiner's Option A with the refiner's four carve-outs. Nothing in the plan phase has surfaced a reason to diverge."
+    },
+    {
+      "id": "B",
+      "name": "Split by shape — tools first, skills in a follow-up issue",
+      "description": "Ship the four MCP tools in #1759's PR; open a follow-up issue for the two skills once the tools land. The skills then compose stable primitives instead of moving targets.",
+      "pros": [
+        "Smaller reviews, less coupling between reviewers.",
+        "Skills can be authored after real-world tool use has validated their shape — reduces the risk a skill prescribes an evidence chain the tools can't supply."
+      ],
+      "cons": [
+        "Forfeits the end-to-end acceptance criterion ('re-run #1692 validation using only the new surface'). The whole point of the issue is that tools alone didn't help; skills are the judgment layer. Splitting defers the thing the issue actually argues for.",
+        "Two issues to track → two refine/plan cycles → higher coordination cost.",
+        "Skills-follow-up sits exposed as 'future work' with no owner; historical pattern is that such follow-ups slip."
+      ],
+      "verdict": "Rejected — forfeits the acceptance criterion the issue was written around."
+    },
+    {
+      "id": "C",
+      "name": "Split per-item — open child issues for each tool and each skill",
+      "description": "Close #1759 as a tracker; open one issue per MCP tool and per skill (6 issues total). Each child goes through its own full SDLC pipeline.",
+      "pros": [
+        "Maximum review granularity.",
+        "Possible parallelism across independent items."
+      ],
+      "cons": [
+        "Enormous coordination overhead — 6 pipelines for 6 small deliverables, each with its own refine/plan/implement BRC cycle.",
+        "Both skills overlap heavily in evidence-gathering primitives (pod describe, Events, logs, env). Splitting them duplicates design work and yields inconsistent output formats.",
+        "Loses the unified validation-retrospective framing that makes the issue a story rather than a shopping list."
+      ],
+      "verdict": "Rejected — coordination overhead is disproportionate to item size."
+    },
+    {
+      "id": "D",
+      "name": "Tools now, skills blocked on log persistence",
+      "description": "Ship the four MCP tools in #1759. Defer both skills until log-persistence (preserve failed pods / stream agent logs out-of-band) lands, on the grounds that agent-diagnose is significantly less useful without reachable logs for <10s-lived pods.",
+      "pros": [
+        "Avoids shipping agent-diagnose as a half-measure against its own motivating failure mode.",
+        "Forces log persistence to be resolved explicitly."
+      ],
+      "cons": [
+        "deployment-diagnose does NOT depend on log persistence — holding it back is conservative in the wrong direction.",
+        "agent-diagnose is still useful for the majority of failures (pods that don't die in <10s). Waiting delays shipping value that already exists.",
+        "Log persistence is an orthogonal infrastructure change that doesn't belong inside #1759's tooling-gap story."
+      ],
+      "verdict": "Rejected — log persistence is a separately-tracked concern; see Decision 5."
+    }
+  ],
+  "recommended_approach": {
+    "name": "Approach A — umbrella ship of 4 MCP tools + 2 skills, with refiner's four carve-outs",
+    "justification": "Approach A is the only option that preserves the issue's core acceptance criterion (re-run the #1692 validation session using only new tools/skills without falling back to raw kubectl). Every other option forfeits that criterion or sequences the skills work behind tool shape validation that doesn't actually need to happen. The refiner's carve-outs are all conservative and correct: rebuild_and_rollout depends on #1763; submit_task papercut is adjacent but not core; log persistence is orthogonal; the gateway EGG_ORCHESTRATOR_URL bug is separately filable evidence. The patterns to reuse are explicit: schemas in PIPELINE_TOOLS, handlers on PipelineToolHandler, orchestrator routes under orchestrator/routes/ for new HTTP surfaces, k8s work via get_kubernetes_client(), skills as SKILL.md files under skills/ following the existing sdlc/babysit-pr/egg-setup frontmatter pattern. No new architecture. No new auth surface. No new review-graph shape."
+  },
+  "technical_design": {
+    "tool_1_validate_deployment_manifests": {
+      "description": "Dry-run validation against the current Kustomize overlay + cluster state. Input: optional overlay path (default k8s/overlays/local/). Output: a list of findings with severity (warn/error) and location. Warning rules from the issue: (1) Secret/ConfigMap references missing in cluster; (2) hostPath mounts whose host path doesn't exist on the gateway node; (3) imagePullPolicy: IfNotPresent with a tag not present in k3s containerd; (4) Deployment whose Service selector labels don't match its pod template; (5) service-env-var collisions with user-set env vars (GATEWAY_PORT, ORCHESTRATOR_PORT); (6) env-var presence check — e.g. gateway Deployment missing EGG_ORCHESTRATOR_URL. Implementation: new route POST /api/v1/cluster/validate-manifests under a new orchestrator/routes/cluster.py module. Handler runs `kubectl kustomize <overlay> | yaml.safe_load_all` and cross-references with the kubernetes client (list Secrets, ConfigMaps, check containerd image list via `k3s ctr images ls` or the kubelet images API). Returns structured findings. MCP schema mirrors the existing validate_config (mcp_tools.py:526) shape — a thin input dict and a findings array output.",
+      "files": [
+        "orchestrator/mcp_tools.py (PIPELINE_TOOLS: new schema entry; _handle_validate_deployment_manifests; dispatch wiring)",
+        "orchestrator/routes/cluster.py (new — POST /api/v1/cluster/validate-manifests)",
+        "orchestrator/routes/__init__.py (register cluster blueprint)",
+        "orchestrator/kubernetes_client.py (may extend with list_secrets/list_configmaps if not already present)",
+        "tests/orchestrator/test_validate_deployment_manifests.py (new unit tests)",
+        "docs/reference/mcp-tools.md (or equivalent — document new tool)"
+      ]
+    },
+    "tool_2_validate_network_isolation": {
+      "description": "Spawn a throwaway probe Job in egg-agents and verify the four claims from the issue: (1) can reach gateway Service; (2) cannot reach internet directly (curl https://google.com + DNS lookup for random domains); (3) cannot reach other agent pods; (4) cannot reach orchestrator directly (only via gateway session). Input: optional pipeline_id + role (to tag the probe Job accordingly). Output: a pass/fail result per claim plus raw probe output. Implementation: new route POST /api/v1/cluster/validate-network-isolation under orchestrator/routes/cluster.py. Handler uses kubernetes_client to create a short-lived Job with image per Decision 6 (default: reuse sandbox image and run curl+DNS probes; alternatives: busybox or nicolaka/netshoot). Job has backoffLimit=0, activeDeadlineSeconds=60, a TTL via ttlSecondsAfterFinished=60 so it GCs itself. Handler watches the Job, reads logs, deletes it, returns findings. This probe runs in egg-agents under the same NetworkPolicy posture as real agents, so the results are the real policy evaluation. Must not collide with active pipelines — Job name uses a unique probe-<timestamp>-<short-uuid> suffix and the probe's labels don't match any selector a real pipeline uses.",
+      "files": [
+        "orchestrator/mcp_tools.py (schema + handler + dispatch)",
+        "orchestrator/routes/cluster.py (POST /api/v1/cluster/validate-network-isolation)",
+        "orchestrator/kubernetes_client.py (may add a spawn_probe_job helper if the existing create_job isn't reusable enough)",
+        "tests/orchestrator/test_validate_network_isolation.py (unit tests — mock k8s API)",
+        "integration_tests/test_k8s_network_isolation.py (new — drives the MCP tool against a real Calico cluster; replaces or complements existing Docker-era tests)",
+        "docs/reference/mcp-tools.md"
+      ]
+    },
+    "tool_3_prune_stale_worktrees": {
+      "description": "Clean up across both worktree locations and report what got removed: (1) `git worktree prune` inside each configured repo's .git/worktrees/; (2) orphan directories under WORKTREE_BASE_DIR (/home/egg/.egg-worktrees) that do not correspond to an active pipeline — cleanup_orphaned_worktrees at gateway/worktree_manager.py:1182 already covers most of this but does not do the per-repo git prune. Input: optional repo filter, dry_run (default True). Output: structured list of what was removed + per-location stats. Implementation: Decision 7 asks whether this lives in orchestrator or gateway. Recommended placement (Decision 7 default) is orchestrator-owned: new route POST /api/v1/cluster/prune-worktrees under orchestrator/routes/cluster.py that proxies to the gateway's worktree_manager over the gateway's existing HTTP surface. Per-repo `git worktree prune` requires filesystem access on the gateway node; the gateway handler runs it. dry_run=True is the safe default; dry_run=False is explicit and logs a loud audit record via the orchestrator's existing logging stack. See Q7 (feedback) and risk-analyst review for whether dry_run alone is sufficient or a second confirmation flag is needed. Destructive by design.",
+      "files": [
+        "orchestrator/mcp_tools.py (schema + handler + dispatch)",
+        "orchestrator/routes/cluster.py (POST /api/v1/cluster/prune-worktrees — proxies to gateway)",
+        "gateway/routes/worktrees.py or gateway/worktree_api.py (new — exposes prune endpoint to orchestrator)",
+        "gateway/worktree_manager.py (extend cleanup_orphaned_worktrees with a per-repo git-prune sweep; make dry_run first-class)",
+        "tests/gateway/test_worktree_prune.py (new)",
+        "tests/orchestrator/test_prune_stale_worktrees.py (new)",
+        "docs/reference/mcp-tools.md"
+      ]
+    },
+    "tool_4_get_deployment_context": {
+      "description": "Return where egg is actually running right now. Multi-runtime by design. Output fields: runtime (docker|kubernetes), kubeconfig_context + cluster_info (k8s only), namespace (egg-system), cni + network_policy_enforcement_status (probes for Calico presence via `kubectl get daemonset calico-node -n kube-system`), and image_tag per control-plane component (orchestrator, gateway) with source (manifest vs running pod). With #1763 the image bullet becomes provenance-by-tag; until then this tool catches kubectl-apply silently-skipping-rollout-because-:latest-unchanged. Implementation: new route GET /api/v1/cluster/deployment-context under orchestrator/routes/cluster.py. Handler reads EGG_RUNTIME, dispatches to a k8s path (uses get_kubernetes_client to describe the orchestrator/gateway Deployments and Pods, extract image + imageID; checks for Calico DaemonSet in kube-system) or a Docker path (uses docker_client.list_containers, extracts image tag). Both paths return the same output shape. No inputs.",
+      "files": [
+        "orchestrator/mcp_tools.py (schema + handler + dispatch)",
+        "orchestrator/routes/cluster.py (GET /api/v1/cluster/deployment-context)",
+        "orchestrator/kubernetes_client.py (may add describe_deployment helper)",
+        "orchestrator/docker_client.py (may add analogous helper for the docker-runtime path)",
+        "tests/orchestrator/test_get_deployment_context.py",
+        "docs/reference/mcp-tools.md"
+      ]
+    },
+    "skill_1_deployment_diagnose": {
+      "description": "New skill at skills/deployment-diagnose/SKILL.md. Frontmatter: name: deployment-diagnose, description: 'Diagnose the egg control plane on a fresh deployment. Walks pod status, Events, image-vs-manifest drift, resolved mounts, health-endpoint bodies, applied-vs-running spec drift, and silent-failure log bursts; produces a prioritized human-readable report.', disable-model-invocation: true, argument-hint: '[--namespace egg-system] [--since <duration>]'. Body is a short orienting brief per reviewer_agent_design's guidance: domain knowledge (what to look at, in what order, for which failure modes), an evidence-chain hint sheet (pod phase → container statuses → Events → image-ID vs manifest → mounted Secrets/ConfigMaps → health endpoint body → applied-vs-running spec diff → gateway silent-failure scan), and a known-failure catalogue (272-consecutive-checkpoint-fail-burst from #1767; :latest-tag-unchanged-so-rollout-skipped from #1692; Secret-reference-doesn't-exist from the validation session; service-env-var collisions like ORCHESTRATOR_PORT=tcp://…). The skill composes: check_health, list_containers, get_container_logs, validate_deployment_manifests, get_deployment_context. Authoring guardrail (agent-mode-design.md:295-303): do NOT write a step-by-step procedure; write what to look at and why.",
+      "files": [
+        "skills/deployment-diagnose/SKILL.md (new)",
+        "docs/guides/deployment-diagnose.md (new — deeper reference doc; SKILL.md links here)",
+        "docs/index.md (add new guide to the index)"
+      ]
+    },
+    "skill_2_agent_diagnose": {
+      "description": "New skill at skills/agent-diagnose/SKILL.md. Frontmatter: name: agent-diagnose, description: 'Diagnose why a spawned agent pod failed. Walks the Job spec, Pod status, last 100 lines of logs, Events, resolved env, and synthetic gateway egress probe; pattern-matches symptoms to known failure classes.', disable-model-invocation: true, argument-hint: '<pipeline-id> <agent-role>'. Body includes a pattern-matched-failure catalogue as the core value-add: '403 from gateway → probably fine/coarse role mismatch (see #1766 pattern); 404 on container ID → probably Pod UID vs Job UID (see #1760/#1764); short-lived pod deleted before logs readable → persist out-of-band (Decision 5 separate issue); OOMKill exit → bump memory in Job spec; ImagePull failure → k3s ctr images import or :latest tag unchanged; NetworkPolicy denial silent → validate_network_isolation'. Composes: list_containers, get_container_logs, get_consensus_status, send_message (for synthetic egress probe). Constraint from Decision 5: ships against currently reachable evidence; log persistence for <10s-lived pods is a separate issue. Same authoring guardrail as deployment-diagnose.",
+      "files": [
+        "skills/agent-diagnose/SKILL.md (new)",
+        "docs/guides/agent-diagnose.md (new — deeper reference)",
+        "docs/index.md"
+      ]
+    },
+    "mcp_rate_limit_consideration": {
+      "description": "The MCP server is rate-limited at 30 req/min (orchestrator/mcp_server.py:36). deployment-diagnose fires several tool calls in sequence (probably 5-8); agent-diagnose similar. At 30 rpm, a single skill invocation is well within budget. Multiple consecutive invocations or the skill calling itself recursively on sub-findings would hit the limit. reviewer_agent_design flagged this explicitly as a plan-phase question. Recommended: document the budget, keep the default at 30 rpm, and if practice shows the limit is hit, bump it per-role rather than have the skill self-throttle. Not a code change in this issue — a plan-phase note for the authoring agent and a docs mention in the SKILL.md body."
+    },
+    "runtime_fallback_behavior": {
+      "description": "The three k8s-specific tools (validate_deployment_manifests, validate_network_isolation, prune_stale_worktrees) must handle EGG_RUNTIME=docker gracefully. The recommended shape (matching how list_containers/get_container_logs already work): the handler returns a structured error with `error_code='runtime_unsupported'` and a human message 'This tool requires EGG_RUNTIME=kubernetes; current runtime is docker.'. The MCP tool schema documents the requirement. get_deployment_context is the only tool that runs on both — same output shape, different population logic."
+    },
+    "probe_pod_design_decision_6": {
+      "description": "Decision 6 asks how validate_network_isolation's probe image + runtime should work. Recommended option (issue default): reuse the sandbox image and run curl/DNS probes from a short-lived Job; delete the Job after results are collected. Pros: one image to maintain, already trusted by the gateway, network tools (curl, nslookup) already present. Cons: larger image than strictly needed for a 4-probe script; dependency on sandbox-image build. Alternatives considered: (a) minimal dedicated probe image (busybox or nicolaka/netshoot) baked into k8s manifests as a pre-pulled reference — cleaner separation but adds an image to publish; (b) static inference from NetworkPolicy manifests only, no live probe — fast but doesn't catch Calico-not-installed or CNI-misconfig cases, which are exactly what we want to catch. Defer final choice to the human HITL gate on Decision 6."
+    },
+    "skill_directory_decision_2": {
+      "description": "Decision 2 asks whether to introduce skills/operator/ vs skills/agent/ now. Recommended option (refiner default): flat skills/ — add deployment-diagnose and agent-diagnose alongside existing sdlc/babysit-pr/egg-setup. Rationale: existing convention, no harness change, low friction. If #1765 (agent-facing tool discoverability for sandbox agents) introduces a split later, a rename is a mechanical follow-up. reviewer_agent_design agreed with this. Defer to the human HITL gate on Decision 2."
+    },
+    "tool_placement_decision_7": {
+      "description": "Decision 7 asks whether tools live in the orchestrator or the gateway. Recommended option (refiner default): orchestrator-owned routes + gateway proxying only where necessary. prune_stale_worktrees is the only tool that reaches into gateway-owned state (WORKTREE_BASE_DIR); it proxies to a new gateway endpoint. validate_network_isolation spawns a Job, which is orchestrator-territory. validate_deployment_manifests and get_deployment_context are pure orchestrator-side. This matches the pattern of every existing MCP tool. reviewer_agent_design confirmed."
+    },
+    "acceptance_criteria_matrix": {
+      "description": "End-to-end acceptance criterion from the issue: a replay of the #1692 validation session using only the new tools/skills does not fall back to raw kubectl for any of the documented failure modes. Per-item criteria below.",
+      "items": [
+        {"item": "validate_deployment_manifests", "criterion": "Catches the gateway EGG_ORCHESTRATOR_URL missing-env bug surfaced in this pipeline as a warn-level finding."},
+        {"item": "validate_deployment_manifests", "criterion": "Catches a Secret reference that doesn't exist in the cluster (reproduce by referencing gateway-secrets before creating it)."},
+        {"item": "validate_deployment_manifests", "criterion": "Catches a hostPath whose host path doesn't exist on the node (reproduce with /etc/egg-gateway/certs)."},
+        {"item": "validate_network_isolation", "criterion": "Probe succeeds against the gateway Service; fails against internet; fails against other agent pods; fails against orchestrator-direct. Captures #1769 class: any endpoint that shouldn't be reachable from egg-agents shows up."},
+        {"item": "prune_stale_worktrees", "criterion": "dry_run=True reports the orphan-dir case that broke the first k3s pipeline submission without mutating state."},
+        {"item": "prune_stale_worktrees", "criterion": "dry_run=False actually removes the orphan and logs an audit entry."},
+        {"item": "get_deployment_context", "criterion": "Reports runtime=kubernetes + current image tags vs manifest image tags; surfaces :latest-unchanged-so-rollout-skipped case."},
+        {"item": "deployment-diagnose skill", "criterion": "Invoked on a broken control plane, produces a prioritized report that names the failure class (missing Secret / silent-failure burst / image-drift) and points at the piece of evidence that makes it obvious, not a dump."},
+        {"item": "agent-diagnose skill", "criterion": "Invoked on a failed agent Job, produces a report that names the failure class from the catalogue (Pod UID vs Job UID / role mismatch / OOMKill / ImagePull / NetworkPolicy denial)."},
+        {"item": "Overall", "criterion": "A human runs the #1692 validation session with only these new MCP tools + skills available and does not reach for raw kubectl for any of #1760, #1764, #1766, #1767, #1768, #1769."}
+      ]
+    }
+  },
+  "affected_files": {
+    "orchestrator": [
+      "orchestrator/mcp_tools.py (four new PIPELINE_TOOLS schema entries; four new _handle_* methods on PipelineToolHandler; four new dispatch wires in handle_tool_call)",
+      "orchestrator/routes/cluster.py (new module — cluster-facing routes: validate-manifests, validate-network-isolation, prune-worktrees proxy, deployment-context)",
+      "orchestrator/routes/__init__.py (register cluster blueprint)",
+      "orchestrator/kubernetes_client.py (small extensions: list_secrets/list_configmaps if absent, describe_deployment helper, spawn_probe_job helper, containerd-image-list probe)",
+      "orchestrator/docker_client.py (small extension for get_deployment_context docker path)"
+    ],
+    "gateway": [
+      "gateway/worktree_api.py or gateway/routes/worktrees.py (new — prune endpoint proxied from orchestrator)",
+      "gateway/worktree_manager.py (extend cleanup_orphaned_worktrees with per-repo `git worktree prune`; formalize dry_run)"
+    ],
+    "skills": [
+      "skills/deployment-diagnose/SKILL.md (new)",
+      "skills/agent-diagnose/SKILL.md (new)"
+    ],
+    "k8s_manifests": [
+      "k8s/base/network-policies.yaml (no change; the probe Job labels must avoid matching existing selectors — confirm in implement)"
+    ],
+    "integration_tests": [
+      "integration_tests/test_k8s_network_isolation.py (new — drives validate_network_isolation against a real Calico cluster)",
+      "integration_tests/test_network_isolation.py (decide migration per Decision 3 / feedback Q3 — leave alongside vs migrate)"
+    ],
+    "unit_tests": [
+      "tests/orchestrator/test_validate_deployment_manifests.py (new)",
+      "tests/orchestrator/test_validate_network_isolation.py (new)",
+      "tests/orchestrator/test_prune_stale_worktrees.py (new)",
+      "tests/orchestrator/test_get_deployment_context.py (new)",
+      "tests/gateway/test_worktree_prune.py (new)"
+    ],
+    "docs": [
+      "docs/reference/mcp-tools.md (add entries for four new tools; the specific docs file may be orchestrator-cli.md or a new mcp-tools.md — confirm with documenter)",
+      "docs/guides/deployment-diagnose.md (new — companion doc for the skill)",
+      "docs/guides/agent-diagnose.md (new — companion doc for the skill)",
+      "docs/index.md (register new guides)"
+    ]
+  },
+  "dependencies_and_constraints": {
+    "no_new_auth_surface": "All four new MCP tools run inside the orchestrator's existing MCP server (orchestrator/mcp_server.py). The authenticated path is already the MCP request; no per-tool auth decisions are needed. Tools that reach into the cluster use the existing in-cluster ServiceAccount via get_kubernetes_client().",
+    "dual_runtime_compatibility": "The orchestrator still needs to run against Docker for local dev (EGG_RUNTIME=docker). Three of the four new tools are k8s-specific and must return a structured 'not available on this runtime' error. get_deployment_context is multi-runtime by design.",
+    "mcp_rate_limit": "30 req/min (orchestrator/mcp_server.py:36 DEFAULT_RATE_LIMIT). A single skill invocation (5-8 tool calls) fits within budget; recursive invocation does not. Plan-phase note, not a code change.",
+    "probe_pod_side_effects": "validate_network_isolation spawns a probe Job in egg-agents. Job must be short-lived (activeDeadlineSeconds=60), self-cleaning (ttlSecondsAfterFinished=60), backoffLimit=0, and carry unique labels so it cannot collide with or be selected by any active pipeline's agents.",
+    "host_filesystem_writes": "prune_stale_worktrees(dry_run=false) mutates hostPath state on the gateway node. dry_run=True is the safe default; audit-log all destructive operations. Whether dry_run alone is sufficient defer to HITL Decision 7 (Q7 feedback).",
+    "skill_authoring_guardrail": "reviewer_agent_design's non-blocking note: skills should be short orienting briefs (domain knowledge, evidence-chain hints, known-failure catalogue), NOT step-by-step procedures. agent-mode-design.md:295-303 names 'overloading with prescriptive checklists' as the anti-pattern. Task-planner should make this explicit in the skill-authoring task.",
+    "blocked_on_other_work": "rebuild_and_rollout is dropped per Decision 4 (refiner default). Re-evaluate after #1763 (SHA-tagged images) lands.",
+    "decoupled_from_in_situ_bug": "gateway EGG_ORCHESTRATOR_URL misconfig in k8s/base/gateway-deployment.yaml is evidence-for-the-approach but OUT OF SCOPE for #1759. Plan/implement phase should file this as a new issue and validate_deployment_manifests's first real-world catch.",
+    "related_issue_cluster": "The plan should explicitly note which of the following issues the new skills assume are separately tracked: #1760 (Pod-UID vs Job-UID runtime reconciliation false-positive), #1764 (same bug on get_container_logs surface), #1765 (agent-facing tool discoverability — the flip side), #1766 (fine-coarse role mapping), #1767 (silent checkpoint failures), #1768 (feedback field-owner default), #1769 (HITL resolve endpoint auth), #1763 (SHA-tag local images).",
+    "write_boundaries_gateway_enforced": "The implementer role is scoped to {orchestrator/, sandbox/, gateway/, k8s/, docs/, tests/, integration_tests/, skills/}. No part of the recommended design crosses that boundary.",
+    "egg_contract_cli_broken_in_this_pipeline": "reviewer_refine noted that egg-contract CLI from the sandbox is currently broken (gateway EGG_ORCHESTRATOR_URL bug). HITL decisions and feedback were registered by direct API call. Task-planner should treat the contract store as authoritative even if `egg-contract show` errors locally."
+  },
+  "open_questions": [
+    {
+      "id": "Q-1",
+      "question": "Should validate_deployment_manifests default to overlay=k8s/overlays/local/ or require explicit overlay selection?",
+      "options": ["Default to k8s/overlays/local/ (matches make deploy)", "Require explicit — fail if no overlay is selected"],
+      "notes": "Default is easier; explicit is safer in multi-overlay environments. Probably default-with-override once more overlays exist (GKE follow-up)."
+    },
+    {
+      "id": "Q-2",
+      "question": "Should validate_network_isolation's probe Job be owned by egg-agents or a new egg-probes namespace?",
+      "options": ["Reuse egg-agents (matches the policy surface being probed)", "New egg-probes namespace with its own NetworkPolicy posture"],
+      "notes": "Reusing egg-agents is the point — probing from a namespace with a different policy wouldn't validate the actual claim. Separate namespace adds a deploy step; defer unless probe-vs-real-agent collision becomes a real problem."
+    },
+    {
+      "id": "Q-3",
+      "question": "Should prune_stale_worktrees require a second confirmation flag (e.g., confirm=true) beyond dry_run=false, or is dry_run alone sufficient?",
+      "options": ["dry_run alone (simpler; matches common *nix prune semantics)", "Require confirm=true on top of dry_run=false (two-key launch)"],
+      "notes": "Feedback Q7 asks the same thing. Risk-analyst to weigh in. Note that the gateway already audit-logs destructive operations via its existing logging stack."
+    },
+    {
+      "id": "Q-4",
+      "question": "Should integration_tests/test_network_isolation.py (Docker-era) be migrated to drive validate_network_isolation, or kept as a legacy fixture alongside a new k8s-era test?",
+      "options": ["Migrate — single source of truth, but requires rewriting 472 lines", "Leave alongside — less churn, but two divergent views of the same security property"],
+      "notes": "Feedback Q3 asks the same. Task-planner decides. Migration is cleaner; if we leave both, the Docker-era test eventually becomes unreachable when the Docker backend is finally removed."
+    },
+    {
+      "id": "Q-5",
+      "question": "What's the expected operator persona for deployment-diagnose and agent-diagnose — local-dev on k3s, or production operator on a shared cluster?",
+      "options": ["Local-dev on k3s (skills assume `kubectl` context already resolves to egg-system)", "Production operator (skills must explicitly qualify namespace in every reference)"],
+      "notes": "Feedback Q1 asks the same. Task-planner should write the skills to the more conservative assumption (explicit namespace), which costs little and works for both personas."
+    },
+    {
+      "id": "Q-6",
+      "question": "What's the acceptable scanning window for deployment-diagnose's 'silent-failure scan across gateway logs'?",
+      "options": ["Last N lines of the live gateway pod (fastest; bounded)", "All pod logs since the last rollout (full picture; heavier)", "Persistent log aggregator (doesn't exist yet; out-of-scope)"],
+      "notes": "Feedback Q4 asks the same. Recommend option 1 for the first cut with a 'since-last-rollout' toggle when/if a persistent log aggregator lands."
+    },
+    {
+      "id": "Q-7",
+      "question": "Which image does the validate_network_isolation probe Job use?",
+      "options": ["Reuse the sandbox image (already trusted; curl+nslookup present)", "Use a minimal dedicated probe image (busybox / nicolaka/netshoot) baked into manifests", "Static inference — no live probe"],
+      "notes": "Decision 6 in the refiner draft. Reviewer recommendation and refiner default agree on option 1. Defer to HITL."
+    }
+  ]
+}
