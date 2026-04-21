@@ -273,10 +273,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-8",
+      "question": "get_deployment_context exposes the image tag currently running per component. Until #1763 lands (SHA-tagged images), the tag is :latest which is ambiguous. What should the tool do?",
+      "context": "",
+      "options": [
+        "Ship now; return :latest with a warning message; stop warning once SHA tags land (Recommended)",
+        "Block this tool on #1763",
+        "Ship now and also surface the image digest (imageID) which is unique even for :latest"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-21T06:37:43.140500Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-21T06:19:56.988139Z",
-  "updated_at": "2026-04-21T06:37:36.549907Z",
+  "updated_at": "2026-04-21T06:37:43.142733Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -289,5 +307,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 15
+  "version": 16
 }
