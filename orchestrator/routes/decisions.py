@@ -32,7 +32,7 @@ except ImportError:
         return logging.getLogger(name)
 
 
-from auth import require_lifecycle_secret
+from lifecycle_auth import require_lifecycle_secret
 from decision_queue import (
     DecisionAlreadyResolvedError,
     DecisionNotFoundError,

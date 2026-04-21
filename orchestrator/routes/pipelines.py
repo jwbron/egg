@@ -131,7 +131,7 @@ except ImportError:
         get_state_store,
     )
 
-from auth import require_lifecycle_secret
+from lifecycle_auth import require_lifecycle_secret
 from egg_git.default_branch import get_default_branch
 
 if TYPE_CHECKING:

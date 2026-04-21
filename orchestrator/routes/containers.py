@@ -31,7 +31,7 @@ except ImportError:
 
 import os
 
-from auth import require_lifecycle_secret
+from lifecycle_auth import require_lifecycle_secret
 from container_monitor import get_container_monitor
 from docker_client import (
     ContainerNotFoundError,
