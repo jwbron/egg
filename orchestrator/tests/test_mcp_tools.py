@@ -2235,7 +2235,14 @@ class TestPruneStaleWorktreesTool:
         kwargs = mock_req.call_args.kwargs
         assert kwargs["data"]["dry_run"] is False
 
-    def test_repo_scoping_is_forwarded(self, handler):
+    def test_repo_argument_is_silently_ignored(self, handler):
+        """``repo`` was dropped from the schema (see docstring); if callers
+        pass it anyway, the handler must NOT forward it upstream — otherwise
+        the gateway would 400 and the operator would see an opaque error.
+
+        This is the MEDIUM-2 NACK fix: dropping ``repo`` from the public
+        schema rather than silently filtering at the route boundary.
+        """
         with patch.object(
             handler,
             "_make_request",
@@ -2245,7 +2252,10 @@ class TestPruneStaleWorktreesTool:
                 "prune_stale_worktrees", {"dry_run": True, "repo": "jwbron/egg"}
             )
         kwargs = mock_req.call_args.kwargs
-        assert kwargs["data"]["repo"] == "jwbron/egg"
+        assert "repo" not in kwargs["data"], (
+            "repo was dropped from the schema and must not reach the gateway"
+        )
+        assert kwargs["data"] == {"dry_run": True}
 
     def test_upstream_failure_wraps_into_error(self, handler):
         with patch.object(handler, "_make_request", side_effect=RuntimeError("gateway down")):
@@ -2473,6 +2483,24 @@ class TestPipelineToolsSchemasForDeployment:
         tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
         props = tools_by_name["prune_stale_worktrees"]["inputSchema"]["properties"]
         assert props["dry_run"]["default"] is True
+
+    def test_prune_stale_worktrees_has_no_repo_argument(self):
+        """Per the MEDIUM-2 NACK fix: ``repo`` was dropped because the
+        gateway helper always sweeps every repo; advertising a scope
+        argument that silently no-ops would mislead operators.
+        """
+        from mcp_tools import PIPELINE_TOOLS
+
+        tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
+        schema = tools_by_name["prune_stale_worktrees"]["inputSchema"]
+        props = schema["properties"]
+        assert "repo" not in props, (
+            "repo must stay out of the schema — see NACK response on 8434d4dcf"
+        )
+        # Ensure ``additionalProperties`` (or no 'required' list) doesn't
+        # accidentally invite callers to pass arbitrary scope args.
+        required = schema.get("required", [])
+        assert "repo" not in required
 
     def test_rebuild_and_rollout_wait_default_false(self):
         from mcp_tools import PIPELINE_TOOLS

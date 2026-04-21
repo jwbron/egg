@@ -169,27 +169,79 @@ class TestWorktreesPruneMutation:
         assert str(orphan_path) in data["removed_paths"]
         fake_manager.cleanup_orphaned_worktrees.assert_called_once()
 
-    def test_cleanup_called_with_empty_active_set(
+    def test_cleanup_passes_active_container_ids_from_session_manager(
         self, client, launcher_auth_headers, fake_manager, tmp_path
     ):
-        """The route uses an empty ``active_containers`` set — the launcher
-        tool explicitly wants every non-recorded dir considered stale."""
+        """BLOCKER fix on coder commit ac5c4900f:
+
+        The route MUST pass an ``active_containers`` set derived from
+        ``_collect_active_container_ids()`` — NOT an empty set. An empty
+        set would cause every live-pipeline worktree to be treated as an
+        orphan and wiped. The session manager is the primary source of
+        truth, with ``docker ps`` as a safety-net fallback.
+
+        This test stubs ``_collect_active_container_ids`` to return a
+        non-empty set and asserts the route forwards exactly that set.
+        """
         orphan_path = tmp_path / "orphan"
         orphan_path.mkdir()
         fake_manager.list_orphan_worktree_dirs.return_value = [str(orphan_path)]
 
-        with patch.object(gateway, "get_worktree_manager", return_value=fake_manager):
-            client.post(
+        live_containers = {"pipeline-issue-1759-v3-coder", "pipeline-issue-1759-v3-tester"}
+
+        with (
+            patch.object(gateway, "get_worktree_manager", return_value=fake_manager),
+            patch.object(gateway, "_collect_active_container_ids", return_value=live_containers),
+        ):
+            response = client.post(
                 "/api/v1/worktrees/prune",
                 json={"dry_run": False},
                 headers=launcher_auth_headers,
             )
+        assert response.status_code == 200
 
+        # Verify the cleanup helper got the exact live set — not empty,
+        # not the orphan list, not something else.
         _args, kwargs = fake_manager.cleanup_orphaned_worktrees.call_args
-        assert kwargs.get("active_containers") == set() or (
-            fake_manager.cleanup_orphaned_worktrees.call_args.args
-            and fake_manager.cleanup_orphaned_worktrees.call_args.args[0] == set()
+        assert kwargs.get("active_containers") == live_containers, (
+            "cleanup_orphaned_worktrees must receive the live container set "
+            f"from _collect_active_container_ids, got: {kwargs!r}"
         )
+
+        # And list_orphan_worktree_dirs must see it too — otherwise the
+        # pre-enumeration would report a live worktree as an orphan in the
+        # dry_run plan.
+        _list_args, list_kwargs = fake_manager.list_orphan_worktree_dirs.call_args
+        assert list_kwargs.get("active_containers") == live_containers
+
+    def test_cleanup_still_runs_when_session_manager_unavailable(
+        self, client, launcher_auth_headers, fake_manager, tmp_path
+    ):
+        """If ``_collect_active_container_ids`` returns an empty set
+        because both the session manager and docker probe failed, the
+        route must still proceed — but every dir will look orphaned.
+
+        This is the worst-case fallback; the test simply asserts the
+        route does not crash and that the empty set reaches cleanup.
+        (The collector helper is responsible for the degrade-silently
+        semantics — see its own unit tests.)
+        """
+        orphan_path = tmp_path / "orphan"
+        orphan_path.mkdir()
+        fake_manager.list_orphan_worktree_dirs.return_value = [str(orphan_path)]
+
+        with (
+            patch.object(gateway, "get_worktree_manager", return_value=fake_manager),
+            patch.object(gateway, "_collect_active_container_ids", return_value=set()),
+        ):
+            response = client.post(
+                "/api/v1/worktrees/prune",
+                json={"dry_run": False},
+                headers=launcher_auth_headers,
+            )
+        assert response.status_code == 200
+        _args, kwargs = fake_manager.cleanup_orphaned_worktrees.call_args
+        assert kwargs.get("active_containers") == set()
 
     def test_mutation_without_orphans_skips_cleanup(self, client, launcher_auth_headers):
         """Empty orphan list → no cleanup call even on ``dry_run=false``."""
@@ -357,6 +409,80 @@ class TestListOrphanWorktreePathGuard:
         assert not any("outside" in o for o in orphans), (
             "symlink escape must not appear in orphan list"
         )
+
+
+class TestCollectActiveContainerIds:
+    """BLOCKER fix coverage: ``_collect_active_container_ids`` is the
+    helper the prune route leans on so it never runs with an empty
+    active-container set. These tests verify the merge-and-degrade
+    semantics so a session-manager regression surfaces here rather
+    than in the form of a wiped live worktree."""
+
+    def test_merges_session_manager_and_docker_ps(self):
+        from unittest.mock import MagicMock, patch
+
+        session_manager = MagicMock()
+        session_manager.list_sessions.return_value = [
+            {"container_id": "session-alpha"},
+            {"container_id": "session-beta"},
+            {"container_id": ""},  # empty string must not appear in the set
+        ]
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=session_manager),
+            patch.object(
+                gateway,
+                "get_active_docker_containers",
+                return_value={"docker-gamma", "session-alpha"},
+            ),
+        ):
+            result = gateway._collect_active_container_ids()
+
+        assert result == {"session-alpha", "session-beta", "docker-gamma"}
+
+    def test_degrades_when_session_manager_raises(self):
+        from unittest.mock import patch
+
+        with (
+            patch.object(gateway, "get_session_manager", side_effect=RuntimeError("boom")),
+            patch.object(gateway, "get_active_docker_containers", return_value={"docker-only"}),
+        ):
+            result = gateway._collect_active_container_ids()
+        # session manager failure must not swallow the docker set.
+        assert result == {"docker-only"}
+
+    def test_degrades_when_docker_unavailable(self):
+        """Running on k3s where dockerd is unreachable is a valid mode."""
+        from unittest.mock import MagicMock, patch
+
+        session_manager = MagicMock()
+        session_manager.list_sessions.return_value = [{"container_id": "session-only"}]
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=session_manager),
+            patch.object(
+                gateway,
+                "get_active_docker_containers",
+                side_effect=RuntimeError("no docker"),
+            ),
+        ):
+            result = gateway._collect_active_container_ids()
+        assert result == {"session-only"}
+
+    def test_both_sources_fail_returns_empty_set(self):
+        """If both sources fail, the caller sees an empty set and the
+        prune route will *still* run — the risk is covered by the
+        mutation-test ``test_cleanup_still_runs_when_session_manager_unavailable``."""
+        from unittest.mock import patch
+
+        with (
+            patch.object(gateway, "get_session_manager", side_effect=RuntimeError("sm fail")),
+            patch.object(
+                gateway, "get_active_docker_containers", side_effect=RuntimeError("docker fail")
+            ),
+        ):
+            result = gateway._collect_active_container_ids()
+        assert result == set()
 
 
 class TestConcurrentSecondCallGets409:
