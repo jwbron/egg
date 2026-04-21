@@ -50,6 +50,13 @@ Output:
 4. The decision is resolved and the contract is updated
 5. If this was the last pending decision, the pipeline advances to the next phase
 
+> **Phase completion is gated on resolved decisions.** The `complete_phase` endpoint
+> returns 409 if the current phase has any unresolved decisions (both orchestrator-side
+> and contract-side decisions scoped to that phase). Resolve all pending decisions before
+> completing a phase, or pass `force=true` to abandon them (abandoned IDs are recorded
+> in the phase's artifacts for audit). See
+> [Orchestrator CLI § complete_phase](../reference/orchestrator-cli.md) for details.
+
 ### Auto-appended "Other" Option
 
 When you provide `--options`, an "Other (explain in reply)" option is automatically
