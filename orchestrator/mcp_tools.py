@@ -666,6 +666,120 @@ PIPELINE_TOOLS = [
             "required": ["task_id"],
         },
     },
+    {
+        "name": "get_deployment_context",
+        "description": (
+            "Return runtime/cluster introspection for the egg deployment. "
+            "Fields include runtime (kubernetes/docker), kubeconfig context, "
+            "cluster_info (server_version, node count), detected CNI, "
+            "network_policy_enforcement, k3s detection, and deployed image tags "
+            "for orchestrator/gateway/agents. Used by deployment-diagnose and by "
+            "operators to verify a fresh rollout landed on the expected image tags."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "validate_deployment_manifests",
+        "description": (
+            "Run static validation rules against the rendered kustomize overlay. "
+            "Rules cover secret reference presence, hostPath volumes, image tags, "
+            "Service selector/Deployment label match, and env-var name collisions. "
+            "Returns a list of warnings so operators can catch misconfigured "
+            "overlays without applying them. Only available on the Kubernetes "
+            "runtime."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "overlay_path": {
+                    "type": "string",
+                    "description": (
+                        "Optional path to a kustomize overlay (relative to the "
+                        "repo root or absolute). Defaults to the active overlay."
+                    ),
+                },
+            },
+        },
+    },
+    {
+        "name": "prune_stale_worktrees",
+        "description": (
+            "Remove worktree registrations and orphan directories under "
+            "~/.egg-worktrees for containers that no longer exist. Proxies to "
+            "the gateway where the worktree mutex lives. Defaults to dry_run=true "
+            "so operators can review the plan before mutating filesystem state."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "When true, report what would be removed without mutating state.",
+                    "default": True,
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Optional repo name to scope the prune to.",
+                },
+            },
+        },
+    },
+    {
+        "name": "validate_network_isolation",
+        "description": (
+            "Spawn a throwaway probe Job in the egg-agents namespace to verify "
+            "Calico NetworkPolicy enforcement. Returns a structured "
+            "{gateway_reachable, internet_blocked, agent_pods_unreachable, "
+            "orchestrator_direct_blocked} result. The Job self-deletes on exit "
+            "(ttlSecondsAfterFinished=0). Only available on the Kubernetes "
+            "runtime and on CNIs that enforce NetworkPolicies."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pipeline_id": {
+                    "type": "string",
+                    "description": "Pipeline id for audit labels on the probe pod.",
+                },
+                "role": {
+                    "type": "string",
+                    "description": "Agent role label for the probe pod (default: coder).",
+                    "default": "coder",
+                },
+            },
+            "required": ["pipeline_id"],
+        },
+    },
+    {
+        "name": "rebuild_and_rollout",
+        "description": (
+            "Kick off `make redeploy` (build image → k3s ctr images import → "
+            "kubectl rollout restart). Returns a progress-stream id immediately "
+            "because the underlying work exceeds the MCP tool-call budget. "
+            "Callers poll /api/v1/deployment/rebuild-and-rollout/streams/{id} "
+            "for progress or pass wait=true to block until the terminal record. "
+            "Rejects concurrent invocations with `rollout_already_in_progress`. "
+            "Only available on the Kubernetes runtime."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "wait": {
+                    "type": "boolean",
+                    "description": (
+                        "When true, the handler long-polls the progress stream "
+                        "and returns the terminal record (exit_code, "
+                        "rolled_out_images). When false (default), returns the "
+                        "stream id for caller-driven polling."
+                    ),
+                    "default": False,
+                },
+            },
+        },
+    },
 ]
 
 
@@ -717,6 +831,11 @@ class PipelineToolHandler:
             "start_phase": self._handle_start_phase,
             "complete_phase": self._handle_complete_phase,
             "populate_contract": self._handle_populate_contract,
+            "get_deployment_context": self._handle_get_deployment_context,
+            "validate_deployment_manifests": self._handle_validate_deployment_manifests,
+            "prune_stale_worktrees": self._handle_prune_stale_worktrees,
+            "validate_network_isolation": self._handle_validate_network_isolation,
+            "rebuild_and_rollout": self._handle_rebuild_and_rollout,
         }
 
         handler = handlers.get(tool_name)
@@ -2001,3 +2120,159 @@ class PipelineToolHandler:
             f"/api/v1/pipelines/{task_id}/phase/populate-contract",
             method="POST",
         )
+
+    # ------------------------------------------------------------------
+    # Deployment introspection / action tools (#1759)
+    # ------------------------------------------------------------------
+
+    def _handle_get_deployment_context(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Return runtime/cluster introspection.
+
+        Always returns a data dict.  On Docker, the response carries an
+        ``error: not_available_on_runtime`` field that callers can check
+        without branching on HTTP status.
+        """
+        try:
+            result = self._make_request("/api/v1/deployment/context", method="GET")
+        except Exception as exc:
+            return {"error": f"get_deployment_context failed: {exc}"}
+        return result.get("data", result)
+
+    def _handle_validate_deployment_manifests(
+        self, args: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Static validation of the committed kustomize overlay."""
+        data: dict[str, Any] = {}
+        if args.get("overlay_path"):
+            data["overlay_path"] = args["overlay_path"]
+        try:
+            result = self._make_request(
+                "/api/v1/deployment/validate-manifests",
+                method="POST",
+                data=data,
+                timeout=90,
+            )
+        except Exception as exc:
+            return {"error": f"validate_deployment_manifests failed: {exc}"}
+        return result.get("data", result)
+
+    def _handle_prune_stale_worktrees(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Proxy to /api/v1/deployment/prune-worktrees (gateway-backed)."""
+        body: dict[str, Any] = {"dry_run": bool(args.get("dry_run", True))}
+        if args.get("repo"):
+            body["repo"] = args["repo"]
+        try:
+            result = self._make_request(
+                "/api/v1/deployment/prune-worktrees",
+                method="POST",
+                data=body,
+                timeout=120,
+            )
+        except Exception as exc:
+            return {"error": f"prune_stale_worktrees failed: {exc}"}
+        return result.get("data", result)
+
+    def _handle_validate_network_isolation(
+        self, args: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Spawn the throwaway probe Job and return its JSON payload."""
+        pipeline_id = args.get("pipeline_id")
+        if not pipeline_id:
+            return {"error": "pipeline_id is required"}
+        body: dict[str, Any] = {
+            "pipeline_id": pipeline_id,
+            "role": args.get("role") or "coder",
+        }
+        try:
+            result = self._make_request(
+                "/api/v1/deployment/validate-network-isolation",
+                method="POST",
+                data=body,
+                timeout=90,
+            )
+        except Exception as exc:
+            return {"error": f"validate_network_isolation failed: {exc}"}
+        return result.get("data", result)
+
+    def _handle_rebuild_and_rollout(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Start a ``make redeploy`` and optionally wait for the terminal record."""
+        import time
+        from urllib.error import HTTPError
+
+        wait = bool(args.get("wait", False))
+        try:
+            result = self._make_request(
+                "/api/v1/deployment/rebuild-and-rollout",
+                method="POST",
+                data={},
+                timeout=30,
+            )
+        except HTTPError as exc:
+            try:
+                import json as _json
+
+                body = _json.loads(exc.read().decode())
+            except Exception:
+                body = {}
+            # 409 ← rollout_already_in_progress. Surface as a structured
+            # payload rather than an error so callers can branch on it.
+            if exc.code == 409:
+                data = body.get("data") or {}
+                return {
+                    "error": "rollout_already_in_progress",
+                    "progress_stream_id": data.get("progress_stream_id"),
+                    "message": body.get("message", "rollout_already_in_progress"),
+                }
+            return {"error": f"rebuild_and_rollout failed (HTTP {exc.code})"}
+        except Exception as exc:
+            return {"error": f"rebuild_and_rollout failed: {exc}"}
+
+        data = result.get("data") or {}
+        # not_available_on_runtime short-circuit
+        if data.get("error") == "not_available_on_runtime":
+            return data
+        stream_id = data.get("progress_stream_id")
+        if not stream_id:
+            return data
+        if not wait:
+            return data
+
+        # wait=true: long-poll until the stream reports done.
+        deadline = time.time() + 15 * 60  # 15-minute hard cap
+        since = 0
+        terminal: dict[str, Any] | None = None
+        events: list[dict[str, Any]] = []
+        while time.time() < deadline:
+            try:
+                poll = self._make_request(
+                    f"/api/v1/deployment/rebuild-and-rollout/streams/{quote(stream_id, safe='')}?since={since}",
+                    method="GET",
+                    timeout=30,
+                )
+            except Exception as exc:
+                return {
+                    "error": f"stream poll failed: {exc}",
+                    "progress_stream_id": stream_id,
+                }
+            batch = (poll.get("data") or {}).get("events") or []
+            since = (poll.get("data") or {}).get("next_since", since + len(batch))
+            events.extend(batch)
+            for event in batch:
+                if event.get("phase") == "done":
+                    terminal = event
+                    break
+            if terminal or (poll.get("data") or {}).get("done"):
+                break
+            time.sleep(2.0)
+
+        payload = {
+            "progress_stream_id": stream_id,
+            "events": events,
+        }
+        if terminal:
+            payload["terminal"] = terminal
+            payload["exit_code"] = terminal.get("exit_code")
+            payload["rolled_out_images"] = terminal.get("rolled_out_images") or {}
+        else:
+            payload["error"] = "wait_timeout"
+        return payload
