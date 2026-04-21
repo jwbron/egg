@@ -73,8 +73,11 @@ def get_contract_identifier(args: argparse.Namespace) -> int | str | None:
     Priority (highest to lowest):
     1. --issue flag (int, for backward compatibility)
     2. --pipeline-id flag (str)
-    3. EGG_ISSUE_NUMBER env var (int)
-    4. EGG_PIPELINE_ID env var (str)
+    3. EGG_PIPELINE_ID env var (str) — preferred because contracts are
+       keyed by pipeline_id on disk; this also covers qualified pipelines
+       (e.g. ``issue-1759-v2``) where the bare issue number can't
+       disambiguate between multiple pipelines for the same issue.
+    4. EGG_ISSUE_NUMBER env var (int) — legacy fallback.
 
     Returns:
         int for issue numbers, str for pipeline IDs, None if nothing found
@@ -85,10 +88,10 @@ def get_contract_identifier(args: argparse.Namespace) -> int | str | None:
     pipeline_id_arg: str | None = getattr(args, "pipeline_id", None)
     if pipeline_id_arg is not None:
         return pipeline_id_arg
-    issue = get_issue_number()
-    if issue is not None:
-        return issue
-    return get_pipeline_id()
+    pipeline_id = get_pipeline_id()
+    if pipeline_id is not None:
+        return pipeline_id
+    return get_issue_number()
 
 
 def get_repo_path() -> str:

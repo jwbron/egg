@@ -263,17 +263,23 @@ class TestGetContractIdentifier:
         with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "99"}):
             assert get_contract_identifier(args) == "KORE-123"
 
-    def test_env_issue_number_third(self):
-        """EGG_ISSUE_NUMBER env var used when no flags set."""
+    def test_env_pipeline_id_third(self):
+        """EGG_PIPELINE_ID beats EGG_ISSUE_NUMBER when no flags are set.
+
+        Contracts are keyed by pipeline_id on disk, so the pipeline_id env
+        var wins over the bare issue number. This is what lets qualified
+        pipelines (e.g. ``issue-1759-v2``) find their contract without
+        having to pass ``--pipeline-id`` on every invocation.
+        """
         args = self._make_args()
         with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "99", "EGG_PIPELINE_ID": "KORE-1"}):
-            assert get_contract_identifier(args) == 99
+            assert get_contract_identifier(args) == "KORE-1"
 
-    def test_env_pipeline_id_last(self):
-        """EGG_PIPELINE_ID env var used as last resort."""
+    def test_env_issue_number_last(self):
+        """EGG_ISSUE_NUMBER is used as the final fallback."""
         args = self._make_args()
-        with patch.dict("os.environ", {"EGG_PIPELINE_ID": "KORE-1191-full"}, clear=True):
-            assert get_contract_identifier(args) == "KORE-1191-full"
+        with patch.dict("os.environ", {"EGG_ISSUE_NUMBER": "99"}, clear=True):
+            assert get_contract_identifier(args) == 99
 
     def test_nothing_set_returns_none(self):
         """Returns None when nothing is set."""

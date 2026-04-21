@@ -3174,11 +3174,10 @@ def _render_contract_tasks(
     except ImportError:
         return None
 
-    # Use issue_number as contract identifier when available
-    contract_id: int | str = _pipeline_identifier(issue_number, pipeline_id)
-
+    # Contracts are keyed by pipeline_id (loader's compat shim handles
+    # legacy paths for in-flight pipelines that predate key unification).
     try:
-        contract = load_contract(contract_id, Path(repo_path))
+        contract = load_contract(pipeline_id, Path(repo_path))
     except Exception:
         return None
 
@@ -4115,40 +4114,31 @@ def _ensure_statefiles_on_branch(
     Returns True if the contract exists (or was successfully restored),
     False if restoration failed.
     """
-    identifier = _pipeline_identifier(pipeline.issue_number, pipeline.id)
-    contract_path = worktree_repo_path / ".egg-state" / "contracts" / f"{identifier}.json"
+    from egg_contracts.loader import contract_exists, create_contract, get_contract_path
 
-    if contract_path.exists():
+    identifier = _pipeline_identifier(pipeline.issue_number, pipeline.id)
+    canonical_path = get_contract_path(identifier, worktree_repo_path)
+
+    # ``contract_exists`` checks both the canonical ``issue-<N>.json`` path
+    # and the pre-unification ``{issue_number}.json`` path, so legacy
+    # in-flight pipelines are still recognized.
+    if contract_exists(identifier, worktree_repo_path):
         return True
 
     logger.warning(
         "Contract file missing from worktree — attempting restoration",
         pipeline_id=pipeline.id,
-        expected_path=str(contract_path),
+        expected_path=str(canonical_path),
     )
 
     try:
-        from egg_contracts.loader import create_contract, get_contract_path
-
-        # Double-check using the canonical contract path from the loader to
-        # guard against path-construction drift between this function and the
-        # contract library.  This prevents data loss if the file exists under
-        # a slightly different naming convention.
-        canonical_path = get_contract_path(identifier, worktree_repo_path)
-        if canonical_path.exists():
-            logger.info(
-                "Contract file found at canonical path — skipping recreation",
-                pipeline_id=pipeline.id,
-                canonical_path=str(canonical_path),
-            )
-            return True
-
         if pipeline.issue_number is not None:
             issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
             create_contract(
                 issue_number=pipeline.issue_number,
                 title=f"Issue #{pipeline.issue_number}",
                 url=issue_url,
+                pipeline_id=pipeline.id,
                 repo_root=worktree_repo_path,
             )
         else:
@@ -8682,11 +8672,8 @@ def _populate_contract_from_plan(
         logger.warning("Plan draft not found, skipping contract population", path=str(plan_path))
         return
 
-    # Use issue_number as contract identifier when available
-    contract_id: int | str = _pipeline_identifier(issue_number, pipeline_id)
-
     try:
-        contract = load_contract(contract_id, repo_path)
+        contract = load_contract(pipeline_id, repo_path)
     except Exception:
         logger.warning(
             "Contract not found for pipeline, skipping population", pipeline_id=pipeline_id
@@ -8799,11 +8786,8 @@ def _sync_pipeline_decisions_to_contract(
         logger.debug("No substantive decisions to sync", pipeline_id=pipeline_id)
         return
 
-    # Use issue_number as contract identifier when available
-    contract_id: int | str = _pipeline_identifier(issue_number, pipeline_id)
-
     try:
-        contract = load_contract(contract_id, repo_path)
+        contract = load_contract(pipeline_id, repo_path)
     except Exception:
         logger.warning(
             "Contract not found, skipping decision sync",
@@ -8914,8 +8898,7 @@ def _persist_phase_gate_resolution(
         from egg_contracts.loader import load_contract, save_contract
         from egg_contracts.models import Decision, DecisionOption, DecisionType
 
-        contract_id: int | str = _pipeline_identifier(issue_number, pipeline_id)
-        contract = load_contract(contract_id, repo_path)
+        contract = load_contract(pipeline_id, repo_path)
 
         existing_questions = {d.question for d in contract.decisions}
         question_text = f"[Phase gate: {phase}] {decision.question}"
@@ -9325,6 +9308,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         issue_number=pipeline.issue_number,
                         title=f"Issue #{pipeline.issue_number}",
                         url=issue_url,
+                        pipeline_id=pipeline.id,
                         repo_root=worktree_repo_path,
                     )
                 else:
