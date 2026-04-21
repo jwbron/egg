@@ -299,16 +299,16 @@
       "options": [],
       "decision_type": "feedback",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-21T06:37:51.442906Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-21T06:43:34.386223Z",
+      "resolution": "(1) Additional validation checks beyond issue's six: PodDisruptionBudget consistency with replica count, HPA target reference validity, ServiceAccount existence, runAsNonRoot enforcement in PodSecurityContext, anti-affinity rules for HA-critical components.\n(2) RBAC: pods/exec gated separately and excluded from the base ServiceAccount. Decision-4 resolved to throwaway probe Jobs, so base SA needs only jobs/create, jobs/get, pods/get, pods/log, events/list. pods/exec behind an opt-in elevated SA if needed later.\n(3) validate_network_isolation: return structured per-claim results (pass/fail per claim). Tool-level failure only on infrastructure errors (cluster unreachable, Job create failed). Network claim failures are expected valid data.\n(4) Ranking heuristic: recency x severity — most-recent events first, weighted by severity (OOMKilled > CrashLoopBackOff > ImagePullBackoff > Pending > Warning). Tie-break on component criticality (orchestrator > agents > gateway > monitoring).\n(5) get_deployment_context: degrade cleanly across runtimes. Include a runtime field (kubernetes/docker/unknown). In Docker mode return available data (container names, images, status) with a warning that full k8s context is unavailable.\n(6) Naming: keep unprefixed (validate_network_isolation). MCP server name already scopes to k8s; shorter names read better in prompts. Add prefix only if naming conflicts arise in the future.",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-21T06:19:56.988139Z",
-  "updated_at": "2026-04-21T06:39:44.067664Z",
+  "updated_at": "2026-04-21T06:43:34.389854Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -321,5 +321,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 24
+  "version": 25
 }
