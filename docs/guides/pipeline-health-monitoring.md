@@ -447,7 +447,8 @@ All overseer CLI operations (`_broadcast_alert`, `_send_message`, `_resolve_aler
 - Agent container logs via `egg-orch container logs`
 - Gateway and orchestrator health endpoints
 - GitHub API: `gh issue create` for diagnostic filing
-- `egg-orch message send` to redirect individual agents or broadcast `OVERSEER_ALERT` notifications to all (always with explicit pipeline routing)
+- `egg-orch message send` to redirect individual agents
+- `egg-orch overseer alert` to broadcast `OVERSEER_ALERT` notifications to all (always with explicit pipeline routing; use this instead of `message send` for anomaly escalation — `HANDOFF`/`STATUS` types blend into normal inter-agent traffic)
 
 **Blocked from:**
 - All git operations (no repo mounted)
