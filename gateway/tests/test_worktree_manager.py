@@ -562,6 +562,96 @@ class TestWorktreeManagerDockerGitDir:
         assert git_file.is_file()
         assert git_file.read_text().strip().startswith("gitdir:")
 
+    def test_create_worktree_configures_push_upstream(self, git_repo):
+        """When assigned_branch is set, branch.<local>.merge should point at it.
+
+        Regression test for #1809.  Without this config, the sandbox's push
+        client falls back to pushing the local branch name, which the
+        gateway rejects as push_denied_wrong_branch.  Agents sometimes
+        "recover" from that rejection with ``git reset --hard`` and
+        destroy their committed work.
+        """
+        worktree_base, repos_base, repo_dir = git_repo
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        info = manager.create_worktree(
+            "test-repo",
+            "issue-42-coder",
+            assigned_branch="egg/issue-42",
+        )
+        assert info.branch == "egg/issue-42-coder/work"
+
+        # Config is keyed by the per-worktree local branch name; values
+        # make the sandbox's push client build ``<local>:egg/issue-42``.
+        remote = subprocess.run(
+            ["git", "-C", str(repo_dir), "config", "branch.egg/issue-42-coder/work.remote"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert remote.stdout.strip() == "origin"
+        merge = subprocess.run(
+            ["git", "-C", str(repo_dir), "config", "branch.egg/issue-42-coder/work.merge"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert merge.stdout.strip() == "refs/heads/egg/issue-42"
+
+    def test_create_worktree_leaves_upstream_alone_when_assigned_branch_absent(self, git_repo):
+        """Without assigned_branch, the gateway does not touch branch.<local>.merge.
+
+        Git's own ``worktree add -b`` may auto-set tracking against HEAD,
+        and non-pipeline callers rely on that default.  The fix should
+        only act when the caller explicitly passes assigned_branch.
+        """
+        worktree_base, repos_base, repo_dir = git_repo
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        manager.create_worktree("test-repo", "nonpipe-container")
+
+        result = subprocess.run(
+            ["git", "-C", str(repo_dir), "config", "branch.egg/nonpipe-container/work.merge"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        # If git set tracking on its own (branching from master/main), that
+        # value must not be overwritten with our pipeline refspec.
+        if result.returncode == 0:
+            assert not result.stdout.strip().startswith("refs/heads/egg/")
+
+    def test_create_worktree_reapplies_upstream_on_reuse(self, git_repo):
+        """When a valid worktree is reused, upstream config is re-applied.
+
+        Restart paths (e.g. restart_agent_job) call create_worktree against
+        an existing per-agent worktree.  If the assigned branch changes or
+        the config was never set (pre-fix worktree), reuse must still end
+        with the correct upstream wired up.
+        """
+        worktree_base, repos_base, repo_dir = git_repo
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        # Initial creation without assigned_branch — no upstream written.
+        info1 = manager.create_worktree("test-repo", "reuse-container")
+        assert info1.worktree_path.exists()
+
+        # Second call with assigned_branch — early-return path must set config.
+        info2 = manager.create_worktree(
+            "test-repo",
+            "reuse-container",
+            assigned_branch="egg/issue-99",
+        )
+        assert info2.worktree_path == info1.worktree_path
+
+        merge = subprocess.run(
+            ["git", "-C", str(repo_dir), "config", "branch.egg/reuse-container/work.merge"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert merge.stdout.strip() == "refs/heads/egg/issue-99"
+
 
 class TestWorktreeManagerRemoteBranchFetch:
     """Tests for create_worktree fetching remote branches that don't exist locally."""

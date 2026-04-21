@@ -585,6 +585,45 @@ class TestWorktreeManagement:
         assert result.success is True
         assert "repo1" in result.worktrees
 
+    def test_create_worktrees_forwards_assigned_branch(self, gateway_client):
+        """assigned_branch is forwarded to the gateway create-worktree API.
+
+        Regression guard for #1809: the orchestrator must tell the gateway
+        which remote branch a per-agent worktree should push to, otherwise
+        the default ``git push`` is denied by push_denied_wrong_branch.
+        """
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {
+                "success": True,
+                "data": {"worktrees": {"repo1": "/tmp/wt"}, "errors": []},
+            }
+            gateway_client.create_worktrees(
+                container_id="issue-1759-v3-task_planner",
+                repos=["owner/repo1"],
+                base_branch="main",
+                assigned_branch="egg/issue-1759-v3",
+            )
+
+        assert mock_request.call_count == 1
+        sent = mock_request.call_args.kwargs["data"]
+        assert sent["assigned_branch"] == "egg/issue-1759-v3"
+        assert sent["base_branch"] == "main"
+
+    def test_create_worktrees_omits_assigned_branch_when_none(self, gateway_client):
+        """When assigned_branch is None, the key is omitted from the request."""
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {
+                "success": True,
+                "data": {"worktrees": {"repo1": "/tmp/wt"}, "errors": []},
+            }
+            gateway_client.create_worktrees(
+                container_id="test",
+                repos=["owner/repo1"],
+            )
+
+        sent = mock_request.call_args.kwargs["data"]
+        assert "assigned_branch" not in sent
+
     def test_delete_worktrees(self, gateway_client, mock_gateway_server):
         """Test deleting worktrees for a container."""
         result = gateway_client.delete_worktrees(

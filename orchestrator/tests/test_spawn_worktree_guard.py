@@ -270,6 +270,29 @@ class TestWorktreeCreationGuard:
         call_kwargs = mock_gateway_client.create_worktrees.call_args.kwargs
         assert call_kwargs.get("base_branch") == "egg/issue-200"
 
+    def test_spawn_passes_branch_as_assigned_branch_to_create_worktrees(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """branch is forwarded as assigned_branch so the per-agent worktree
+        is configured to push to the pipeline's shared branch (#1809).
+
+        Without this, the sandbox's push client builds a refspec targeting
+        the per-agent local branch name, which the gateway rejects as
+        push_denied_wrong_branch.
+        """
+        spawner.spawn_agent_container(
+            pipeline_id="issue-1759-v3",
+            agent_role=AgentRole.CODER,
+            issue_number=1759,
+            repos=["owner/my-repo"],
+            repo_volumes=None,
+            branch="egg/issue-1759-v3",
+            base_branch="main",
+        )
+
+        call_kwargs = mock_gateway_client.create_worktrees.call_args.kwargs
+        assert call_kwargs.get("assigned_branch") == "egg/issue-1759-v3"
+
 
 # ---------------------------------------------------------------------------
 # Error handling
