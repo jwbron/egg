@@ -738,10 +738,6 @@ PIPELINE_TOOLS = [
                     "description": "When true, report what would be removed without mutating state.",
                     "default": True,
                 },
-                "repo": {
-                    "type": "string",
-                    "description": "Optional repo name to scope the prune to.",
-                },
             },
         },
     },
@@ -2160,9 +2156,7 @@ class PipelineToolHandler:
             return {"error": f"get_deployment_context failed: {exc}"}
         return result.get("data", result)
 
-    def _handle_validate_deployment_manifests(
-        self, args: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _handle_validate_deployment_manifests(self, args: dict[str, Any]) -> dict[str, Any]:
         """Static validation of the committed kustomize overlay."""
         data: dict[str, Any] = {}
         if args.get("overlay_path"):
@@ -2179,10 +2173,14 @@ class PipelineToolHandler:
         return result.get("data", result)
 
     def _handle_prune_stale_worktrees(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Proxy to /api/v1/deployment/prune-worktrees (gateway-backed)."""
+        """Proxy to /api/v1/deployment/prune-worktrees (gateway-backed).
+
+        The schema accepts only ``dry_run`` — a ``repo`` scope argument
+        was removed after the review in #1759 because the gateway helper
+        (:py:func:`gateway.worktrees_prune`) always sweeps every repo
+        under ``REPOS_BASE_DIR``; a silent-drop would mislead callers.
+        """
         body: dict[str, Any] = {"dry_run": bool(args.get("dry_run", True))}
-        if args.get("repo"):
-            body["repo"] = args["repo"]
         try:
             result = self._make_request(
                 "/api/v1/deployment/prune-worktrees",
@@ -2194,9 +2192,7 @@ class PipelineToolHandler:
             return {"error": f"prune_stale_worktrees failed: {exc}"}
         return result.get("data", result)
 
-    def _handle_validate_network_isolation(
-        self, args: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _handle_validate_network_isolation(self, args: dict[str, Any]) -> dict[str, Any]:
         """Spawn the throwaway probe Job and return its JSON payload."""
         pipeline_id = args.get("pipeline_id")
         if not pipeline_id:
