@@ -270,14 +270,18 @@ class TestSetupEnvironment:
         assert os.environ["DISABLE_AUTOUPDATER"] == "1"
 
     def test_updates_path(self, monkeypatch):
-        """Test that PATH is updated with egg runtime scripts and local bin."""
+        """Test that PATH is updated with local bin.
+
+        Note: /opt/egg-runtime/sandbox/bin is set at the Dockerfile ENV layer
+        (see issue #1799), not by setup_environment().
+        """
         monkeypatch.setenv("PATH", "/usr/bin")
         config = entrypoint.Config()
 
         entrypoint.setup_environment(config)
 
-        assert "/opt/egg-runtime/sandbox/bin" in os.environ["PATH"]
         assert "/home/egg/.local/bin" in os.environ["PATH"]
+        assert "/usr/bin" in os.environ["PATH"]
 
     def test_sets_egg_repo_path_when_not_set(self, monkeypatch):
         """Test that EGG_REPO_PATH is set to ~/repos when not already set."""
