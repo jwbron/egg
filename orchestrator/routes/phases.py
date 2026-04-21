@@ -508,7 +508,28 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
             }
         }
     """
-    data = request.get_json() or {}
+    # silent=True: Content-Type: application/json with an empty body would
+    # otherwise raise BadRequest(400), which breaks callers that omit
+    # `artifacts` (the field is documented as optional). See #1755.
+    data = request.get_json(silent=True) or {}
+
+    artifacts = data.get("artifacts")
+    if artifacts is not None:
+        # Reject non-dict artifacts and dicts with non-string values at the
+        # boundary — PhaseExecution.artifacts is typed as dict[str, str], and
+        # pydantic's default config does not validate on assignment, so a bad
+        # value would persist to disk and then fail validation on every
+        # subsequent read. See #1755.
+        if not isinstance(artifacts, dict):
+            return make_error_response(
+                f"artifacts must be a JSON object (got {type(artifacts).__name__})",
+                status_code=400,
+            )
+        if not all(isinstance(k, str) and isinstance(v, str) for k, v in artifacts.items()):
+            return make_error_response(
+                "artifacts must be a JSON object with string values",
+                status_code=400,
+            )
 
     try:
         store, pipeline = get_state_store_for_pipeline(pipeline_id)
@@ -519,8 +540,8 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
         phase_execution.completed_at = datetime.now(UTC)
 
         # Store artifacts if provided
-        if data.get("artifacts"):
-            phase_execution.artifacts = data["artifacts"]
+        if artifacts:
+            phase_execution.artifacts = artifacts
 
         # Determine next phase
         next_phases = PHASE_TRANSITIONS.get(pipeline.current_phase, [])

@@ -1594,6 +1594,26 @@ class TestAdvancePhase:
         assert result["stopped_containers"] == ["c1"]
         assert result["failed_containers"] == ["c2"]
 
+    def test_advance_invalid_target_phase_does_not_touch_containers(self, handler):
+        """Invalid target_phase returns an error before any container stops.
+
+        Regression for #1755: previously, force=true with an invalid
+        target_phase (e.g. 'complete') stopped containers first and
+        surfaced failed_containers in the error response, implying the
+        teardown had already happened when validation failed.
+        """
+        with patch.object(handler, "_make_request") as mock_req:
+            result = handler.handle_tool_call(
+                "advance_phase",
+                {"task_id": "issue-42", "target_phase": "complete", "force": True},
+            )
+
+        mock_req.assert_not_called()
+        assert "error" in result
+        assert "Invalid target_phase" in result["error"]
+        assert "stopped_containers" not in result
+        assert "failed_containers" not in result
+
 
 class TestStartPhase:
     """Tests for the start_phase MCP tool handler."""
