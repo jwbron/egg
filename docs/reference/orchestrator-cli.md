@@ -187,7 +187,7 @@ Four MCP tools expose phase management operations for pipeline recovery and manu
 |----------|---------------|-------------|
 | `advance_phase` | `POST /pipelines/{id}/phase` | Advance pipeline to a target phase. With `force=true`, stops running containers first to prevent SIGTERM cascading |
 | `start_phase` | `POST /pipelines/{id}/phase/start` | Start the current phase (spawns agents). Use when a phase is in state but no containers are running |
-| `complete_phase` | `POST /pipelines/{id}/phase/complete` | Mark a phase as complete. Returns 409 if the phase has unresolved HITL decisions; pass `force=true` to abandon them |
+| `complete_phase` | `POST /pipelines/{id}/phase/complete` | Mark a phase as complete. Use when automatic transition is stuck. Returns 409 if the phase has unresolved HITL decisions; pass `force=true` to abandon them |
 | `populate_contract` | `POST /pipelines/{id}/phase/populate-contract` | Populate contract from plan artifacts. Parses yaml-tasks from the plan draft into contract phases/tasks |
 
 **Parameters:**
@@ -196,7 +196,10 @@ All tools require `task_id` (the pipeline ID). Additional parameters:
 
 - **`advance_phase`**: `target_phase` (string, required) — the phase to advance to (e.g., `"plan"`, `"implement"`, `"pr"`). `force` (boolean, optional, default `false`) — skip validation and stop running containers before advancing. **Important:** When `force=true`, containers from the current phase are stopped before the transition to prevent their SIGTERM signals from being misinterpreted as failures in the new phase.
 - **`start_phase`**: No additional parameters.
-- **`complete_phase`**: `artifacts` (object, optional) — phase completion artifacts to store (e.g., commit SHAs, PR URLs). Returns 409 when the current phase has unresolved HITL decisions (both orchestrator-side and contract-side decisions scoped to the phase are checked). `force` (boolean, optional, default `false`) — skip the unresolved-decision guard and complete the phase anyway; abandoned decision IDs are recorded in the phase's artifacts for audit. `force_reason` (string, optional) — audit note explaining why `force=true` was used.
+- **`complete_phase`**: `artifacts` (object, optional) — phase completion artifacts to store (e.g., commit SHAs, PR URLs).
+  - Returns 409 when the current phase has unresolved HITL decisions (both orchestrator-side and contract-side decisions scoped to the phase are checked).
+  - `force` (boolean, optional, default `false`) — skip the unresolved-decision guard and complete the phase anyway; abandoned decision IDs are recorded in the phase's artifacts for audit.
+  - `force_reason` (string, optional) — audit note explaining why `force=true` was used.
 - **`populate_contract`**: No additional parameters. Resolves the pipeline's worktree path, reads the plan document, extracts task structure, and writes tasks and acceptance criteria to the contract. Returns phase and task counts on success.
 
 **Recovery workflow example (stuck pipeline):**
