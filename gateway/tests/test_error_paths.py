@@ -75,31 +75,30 @@ class TestSessionManagerDiskIOErrors:
             persist_path.chmod(0o644)
 
     def test_save_handles_permission_denied(self, tmp_path):
-        """Manager handles permission denied on save.
+        """Manager swallows permission denied on save and keeps the session in memory.
 
-        Note: The current implementation propagates PermissionError from
-        the cleanup path (temp_file.exists() check). This test documents
-        that behavior. Future improvement could catch this in _save_to_disk.
+        ``_save_to_disk`` catches ``OSError`` (which ``PermissionError`` inherits
+        from) so a failed persistence write does not bubble up and crash the
+        gateway; the session is still registered in memory.
         """
         persist_path = tmp_path / "subdir" / "sessions.json"
         persist_path.parent.mkdir()
 
         manager = SessionManager(persistence_file=persist_path)
 
-        # Make directory unwritable
         persist_path.parent.chmod(0o444)
         try:
-            # Current behavior: raises PermissionError from cleanup path
-            # This documents the current behavior - improvement would be
-            # to handle this gracefully in _save_to_disk
-            with pytest.raises(PermissionError):
-                manager.register_session(
-                    container_id="test-container",
-                    container_ip="172.18.0.5",
-                    mode="private",
-                )
+            _, session = manager.register_session(
+                container_id="test-container",
+                container_ip="172.18.0.5",
+                mode="private",
+            )
         finally:
             persist_path.parent.chmod(0o755)
+
+        assert session.container_id == "test-container"
+        assert manager.list_sessions(), "session should remain registered in memory"
+        assert not persist_path.exists(), "save should have failed silently"
 
     def test_save_handles_disk_full_scenario(self, tmp_path, monkeypatch):
         """Manager handles disk full errors during save."""
