@@ -127,23 +127,45 @@ def _get_merge_base(branch: str) -> str:
     if mb_result.returncode == 0:
         return mb_result.stdout.strip()
 
+    # Fallback: on work branches, try origin/$EGG_BRANCH (the assigned
+    # pipeline branch) — the work branch won't exist on the remote but
+    # the assigned branch will.
+    assigned = os.environ.get("EGG_BRANCH", "").strip()
+    if assigned and assigned != branch:
+        mb_result = subprocess.run(
+            ["git", "merge-base", f"origin/{assigned}", "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        if mb_result.returncode == 0:
+            return mb_result.stdout.strip()
+
     # Last resort: single commit
     return "HEAD~1"
 
 
-def _resolve_push_args(current_branch: str) -> list[str]:
-    """Build ``git push`` args, retargeting to the assigned pipeline branch.
+def _retarget_refspec(current_branch: str) -> str | None:
+    """Return ``HEAD:<assigned>`` when the push must target the pipeline's assigned branch.
 
     Pipeline agents run on per-agent work branches (``egg/<pid>-<role>/work``)
     but the gateway locks the session to the pipeline's assigned branch
-    (``egg/<pid>``). A plain ``git push origin <work-branch>`` produces a
-    ``work:work`` refspec the gateway always rejects. When ``EGG_BRANCH`` is
-    set and differs from the current branch, push ``HEAD:$EGG_BRANCH`` so the
-    target matches the assigned branch.
+    (``egg/<pid>``).  When ``EGG_BRANCH`` is set and differs from
+    *current_branch*, the push must use ``HEAD:<assigned>`` so the refspec
+    target matches the gateway's push-target check.
+
+    Returns ``None`` when no retargeting is needed.
     """
     assigned = os.environ.get("EGG_BRANCH", "").strip()
     if assigned and assigned != current_branch:
-        return ["git", "push", "origin", f"HEAD:{assigned}"]
+        return f"HEAD:{assigned}"
+    return None
+
+
+def _resolve_push_args(current_branch: str) -> list[str]:
+    """Build ``git push`` args, retargeting to the assigned pipeline branch."""
+    refspec = _retarget_refspec(current_branch)
+    if refspec:
+        return ["git", "push", "origin", refspec]
     return ["git", "push", "origin", current_branch]
 
 
@@ -154,13 +176,11 @@ def cmd_push(args: argparse.Namespace) -> None:
     # refspec to the assigned pipeline branch when running on a per-agent
     # work branch.
     if not args.scope_filter:
-        assigned = os.environ.get("EGG_BRANCH", "").strip()
-        if assigned:
-            current = _get_current_branch()
-            if current and current != assigned:
-                result = subprocess.run(["git", "push", "origin", f"HEAD:{assigned}"], text=True)
-                sys.exit(result.returncode)
-        result = subprocess.run(["git", "push"], text=True)
+        refspec = _retarget_refspec(_get_current_branch())
+        if refspec:
+            result = subprocess.run(["git", "push", "origin", refspec], text=True)
+        else:
+            result = subprocess.run(["git", "push"], text=True)
         sys.exit(result.returncode)
 
     # --scope-filter requires EGG_AGENT_FILE_PATTERNS

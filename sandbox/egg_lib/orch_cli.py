@@ -63,6 +63,8 @@ except ImportError:
     ORCHESTRATOR_PORT = 9849  # noqa: EGG002
     GATEWAY_PORT = 9848  # noqa: EGG002
 
+from egg_lib.cli_push import _retarget_refspec
+
 # Validation pattern for IDs used in URL path segments
 _SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_\-\.]+$")
 
@@ -1225,14 +1227,11 @@ def _consensus_push() -> int:
         print("Error: could not determine current branch for push", file=sys.stderr)
         return 1
 
-    # Pipeline agents run on per-agent work branches (egg/<pid>-<role>/work)
-    # but the gateway locks the session to the pipeline's assigned branch
-    # (egg/<pid>). When EGG_BRANCH is set and differs from the current
-    # branch, target the assigned branch explicitly so the refspec's target
-    # side matches what the gateway's push-target check expects.
-    assigned = os.environ.get("EGG_BRANCH", "").strip()
-    if assigned and assigned != branch:
-        refspec = f"HEAD:{assigned}"
+    # Retarget to the assigned pipeline branch when on a per-agent work
+    # branch (shared logic with cli_push).
+    retarget = _retarget_refspec(branch)
+    if retarget:
+        refspec = retarget
     else:
         # Resolve the remote tracking refspec (e.g. local:remote)
         try:

@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
 
 from egg_lib.cli_push import (
     _filter_files,
+    _get_merge_base,
     _matches_any_pattern,
     _matches_pattern,
     cmd_push,
@@ -214,8 +215,9 @@ def _make_args(scope_filter: bool = False) -> argparse.Namespace:
 class TestCmdPushNoScopeFilter:
     """Tests for cmd_push without --scope-filter (passthrough to git push)."""
 
+    @patch("egg_lib.cli_push._get_current_branch", return_value="egg/test")
     @patch("egg_lib.cli_push.subprocess.run")
-    def test_passthrough_to_git_push(self, mock_run):
+    def test_passthrough_to_git_push(self, mock_run, _mock_branch):
         """Without --scope-filter, just runs git push."""
         mock_run.return_value = MagicMock(returncode=0)
         env = {k: v for k, v in os.environ.items() if k != "EGG_BRANCH"}
@@ -225,8 +227,9 @@ class TestCmdPushNoScopeFilter:
         assert exc_info.value.code == 0
         mock_run.assert_called_once_with(["git", "push"], text=True)
 
+    @patch("egg_lib.cli_push._get_current_branch", return_value="egg/test")
     @patch("egg_lib.cli_push.subprocess.run")
-    def test_passthrough_failure(self, mock_run):
+    def test_passthrough_failure(self, mock_run, _mock_branch):
         """Passthrough preserves git push's exit code on failure."""
         mock_run.return_value = MagicMock(returncode=128)
         env = {k: v for k, v in os.environ.items() if k != "EGG_BRANCH"}
@@ -510,6 +513,48 @@ class TestCmdPushScopeFilter:
             with pytest.raises(SystemExit) as exc_info:
                 cmd_push(_make_args(scope_filter=True))
             assert exc_info.value.code == 0
+
+
+# ---------------------------------------------------------------------------
+# _get_merge_base tests
+# ---------------------------------------------------------------------------
+
+
+class TestGetMergeBase:
+    """Tests for _get_merge_base, specifically the EGG_BRANCH fallback."""
+
+    @patch("egg_lib.cli_push.subprocess.run")
+    def test_falls_back_to_egg_branch_on_work_branch(self, mock_run):
+        """When upstream and origin/<branch> fail, tries origin/$EGG_BRANCH."""
+        work_branch = "egg/issue-1-tester/work"
+
+        def side_effect(cmd, **kwargs):
+            cmd_str = " ".join(cmd)
+            if f"{work_branch}@{{upstream}}" in cmd_str:
+                return MagicMock(returncode=1)  # no upstream
+            if f"origin/{work_branch}" in cmd_str:
+                return MagicMock(returncode=1)  # doesn't exist on remote
+            if "origin/egg/issue-1" in cmd_str:
+                return MagicMock(stdout="abc123\n", returncode=0)  # found!
+            return MagicMock(returncode=1)
+
+        mock_run.side_effect = side_effect
+        with patch.dict(os.environ, {"EGG_BRANCH": "egg/issue-1"}):
+            result = _get_merge_base(work_branch)
+        assert result == "abc123"
+
+    @patch("egg_lib.cli_push.subprocess.run")
+    def test_egg_branch_fallback_not_used_when_matches_branch(self, mock_run):
+        """When EGG_BRANCH == branch, the EGG_BRANCH fallback is skipped."""
+
+        def side_effect(cmd, **kwargs):
+            return MagicMock(returncode=1)  # all lookups fail
+
+        mock_run.side_effect = side_effect
+        with patch.dict(os.environ, {"EGG_BRANCH": "egg/issue-1"}):
+            result = _get_merge_base("egg/issue-1")
+        # Falls through to HEAD~1 since EGG_BRANCH == branch (no extra attempt)
+        assert result == "HEAD~1"
 
 
 # ---------------------------------------------------------------------------
