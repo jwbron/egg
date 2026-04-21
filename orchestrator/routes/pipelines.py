@@ -9852,6 +9852,27 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_id=pipeline_id,
                         )
 
+                    # Commit any uncommitted contract mutations before
+                    # opening the PR.  Under the orchestrator-owned
+                    # contract model (#1781), late-phase agent mutations
+                    # land directly in the shared worktree file and may
+                    # not yet be on the branch; this ensures the contract
+                    # is captured in git history as part of the PR.
+                    try:
+                        _commit_statefiles_to_worktree(
+                            worktree_repo_path,
+                            "Persist contract before PR creation",
+                            pipeline_identifier=_pipeline_identifier(
+                                pipeline.issue_number, pipeline_id
+                            ),
+                        )
+                    except subprocess.CalledProcessError as git_err:
+                        logger.warning(
+                            "Pre-PR statefile commit failed (continuing)",
+                            pipeline_id=pipeline_id,
+                            error=str(git_err),
+                        )
+
                     # Safety net: re-write BRC history for all completed phases.
                     # Per-phase writes happen at phase completion, but pushes
                     # can fail silently — re-writing here guarantees the files

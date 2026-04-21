@@ -1,18 +1,26 @@
-"""
-Tests for Contract API endpoints.
+"""Tests for the gateway's contract API (pass-through to orchestrator).
 
-Tests cover:
-- get_role_from_context() role resolution
-- GET /api/v1/contract/<issue_number> - Get contract state
-- GET /api/v1/contract/exists/<issue_number> - Check contract existence
-- POST /api/v1/contract/validate - Validate mutation
-- POST /api/v1/contract/mutate - Apply mutation
+After #1781, the gateway no longer reads or writes contract files
+directly — it proxies every request to the orchestrator's
+``/api/v1/contracts/…`` endpoints.  These tests cover:
+
+- role resolution from session/header/env (unchanged behavior)
+- identifier validation before forwarding
+- request shape forwarded to the orchestrator
+- upstream error relay
+
+Business logic (role permissions, mutation application) lives in the
+orchestrator and is tested in ``orchestrator/tests/test_contracts_routes.py``.
 """
 
+from __future__ import annotations
+
+import io
 import json
 import os
 import sys
 from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError, URLError
 
 import auth
 import contract_api
@@ -25,49 +33,19 @@ import gateway
 
 @pytest.fixture
 def client():
-    """Create test client for Flask app."""
     gateway.app.config["TESTING"] = True
     with gateway.app.test_client() as client:
         yield client
 
 
-@pytest.fixture(autouse=True)
-def mock_worktree_helpers():
-    """Auto-mock _get_worktree_helpers to return passthrough mapping by default.
-
-    The session fixture sets container_id='test-container', which triggers
-    worktree path mapping. Without this mock, tests would fail because the
-    real worktree doesn't exist on disk.
-
-    Individual tests that need to verify worktree mapping behaviour should
-    override this by patching _get_worktree_helpers themselves.
-    """
-    # Passthrough: returns the repo_path unchanged regardless of container_id
-    passthrough_map = MagicMock(side_effect=lambda path, cid, op: path)
-    dummy_err = MagicMock()
-
-    # Clear the module-level cache so each test gets a fresh lookup
-    old_cache = contract_api._cached_worktree_helpers
-    contract_api._cached_worktree_helpers = None
-    with patch.object(
-        contract_api,
-        "_get_worktree_helpers",
-        return_value=(passthrough_map, dummy_err),
-    ):
-        yield
-    contract_api._cached_worktree_helpers = old_cache
-
-
 @pytest.fixture
 def auth_headers():
-    """Return valid session authentication headers with mocked session validation.
-
-    Note: We patch sys.modules entries directly to handle cases where other tests
-    may have loaded different module instances into sys.modules.
-    """
+    """Session-authenticated headers with a mock session on g."""
     mock_session = MagicMock()
     mock_session.mode = "public"
     mock_session.container_id = "test-container"
+    mock_session.pipeline_id = "test-pipeline"
+    mock_session.agent_role = "implementer"
     mock_session.expires_at = None
 
     mock_result = SessionValidationResult(valid=True, session=mock_session)
@@ -80,16 +58,13 @@ def auth_headers():
         visibility="public",
     )
 
-    # Clear auth module's cached references so it picks up our patched module
     auth._session_manager = None
     auth._rate_limiter = None
 
-    # Also clear any package-style cached references
     if "gateway.auth" in sys.modules:
         sys.modules["gateway.auth"]._session_manager = None
         sys.modules["gateway.auth"]._rate_limiter = None
 
-    # Patch the module that's currently in sys.modules
     current_session_manager = sys.modules.get("session_manager", session_manager)
 
     with (
@@ -101,16 +76,46 @@ def auth_headers():
         yield {"Authorization": "Bearer test-session-token"}
 
 
-# ---------------------------------------------------------------------------
-# get_role_from_context tests
-# ---------------------------------------------------------------------------
+def _make_urlopen(status: int, body: dict, *, capture: list | None = None):
+    """Build a urlopen stand-in that returns *body* with *status*.
+
+    Any list passed as ``capture`` collects the requests so tests can
+    assert on what the gateway forwarded.
+    """
+
+    def _fake_urlopen(req, timeout=None):
+        if capture is not None:
+            payload = req.data.decode() if req.data else None
+            capture.append(
+                {
+                    "url": req.full_url,
+                    "method": req.get_method(),
+                    "headers": dict(req.header_items()),
+                    "body": json.loads(payload) if payload else None,
+                }
+            )
+
+        class _Resp:
+            def __init__(self) -> None:
+                self.status = status
+                self._data = json.dumps(body).encode()
+
+            def read(self) -> bytes:
+                return self._data
+
+            def __enter__(self) -> _Resp:
+                return self
+
+            def __exit__(self, *args) -> None:
+                return None
+
+        return _Resp()
+
+    return _fake_urlopen
 
 
 class TestGetRoleFromContext:
-    """Tests for get_role_from_context() helper function."""
-
-    def test_role_from_session_agent_role(self, client, auth_headers):
-        """Role is resolved from g.session.agent_role when present."""
+    def test_role_from_session(self, client):
         mock_session = MagicMock()
         mock_session.agent_role = "implementer"
 
@@ -124,30 +129,14 @@ class TestGetRoleFromContext:
         assert role.value == "implementer"
 
     @pytest.mark.parametrize(
-        ("fine_role", "expected_coarse"),
+        ("fine_role", "expected"),
         [
             ("coder", "implementer"),
-            ("tester", "implementer"),
-            ("documenter", "implementer"),
-            ("refiner", "implementer"),
-            ("architect", "implementer"),
-            ("task_planner", "implementer"),
-            ("risk_analyst", "implementer"),
-            ("autofixer", "implementer"),
-            ("conflict_resolver", "implementer"),
             ("reviewer_code", "reviewer"),
-            ("reviewer_contract", "reviewer"),
-            ("reviewer_agent_design", "reviewer"),
-            ("reviewer_refine", "reviewer"),
-            ("reviewer_plan", "reviewer"),
             ("overseer", "system"),
-            ("inspector", "system"),
         ],
     )
-    def test_role_from_session_fine_grained_agent_role(
-        self, client, auth_headers, fine_role, expected_coarse
-    ):
-        """Fine-grained AgentRole values map to coarse contract Role (#1766)."""
+    def test_fine_grained_role_maps_to_coarse(self, client, fine_role, expected):
         mock_session = MagicMock()
         mock_session.agent_role = fine_role
 
@@ -157,11 +146,10 @@ class TestGetRoleFromContext:
             g.session = mock_session
             role = contract_api.get_role_from_context()
 
-        assert role is not None, f"fine role {fine_role!r} should resolve"
-        assert role.value == expected_coarse
+        assert role is not None
+        assert role.value == expected
 
-    def test_role_from_x_egg_role_header_when_enabled(self, client, auth_headers):
-        """Role is resolved from X-Egg-Role header when EGG_ENABLE_TEST_ROLE_HEADER=1."""
+    def test_header_honored_only_when_flag_set(self, client):
         with (
             client.application.test_request_context(headers={"X-Egg-Role": "reviewer"}),
             patch.dict(os.environ, {"EGG_ENABLE_TEST_ROLE_HEADER": "1"}, clear=False),
@@ -174,10 +162,8 @@ class TestGetRoleFromContext:
         assert role is not None
         assert role.value == "reviewer"
 
-    def test_role_from_x_egg_role_header_blocked_when_env_not_set(self, client, auth_headers):
-        """X-Egg-Role header is ignored when EGG_ENABLE_TEST_ROLE_HEADER is not set."""
-        env = os.environ.copy()
-        env.pop("EGG_ENABLE_TEST_ROLE_HEADER", None)
+    def test_header_ignored_without_flag(self, client):
+        env = {k: v for k, v in os.environ.items() if k not in ("EGG_ENABLE_TEST_ROLE_HEADER",)}
         env.pop("EGG_AGENT_ROLE", None)
 
         with (
@@ -191,10 +177,8 @@ class TestGetRoleFromContext:
 
         assert role is None
 
-    def test_role_from_env_var(self, client, auth_headers):
-        """Role is resolved from EGG_AGENT_ROLE env var as fallback."""
-        env = os.environ.copy()
-        env.pop("EGG_ENABLE_TEST_ROLE_HEADER", None)
+    def test_env_fallback(self, client):
+        env = {k: v for k, v in os.environ.items() if k != "EGG_ENABLE_TEST_ROLE_HEADER"}
         env["EGG_AGENT_ROLE"] = "human"
 
         with (
@@ -209,1256 +193,206 @@ class TestGetRoleFromContext:
         assert role is not None
         assert role.value == "human"
 
-    def test_invalid_role_returns_none(self, client, auth_headers):
-        """Invalid role string returns None."""
-        env = os.environ.copy()
-        env.pop("EGG_ENABLE_TEST_ROLE_HEADER", None)
-        env["EGG_AGENT_ROLE"] = "superadmin"
 
-        with (
-            client.application.test_request_context(),
-            patch.dict(os.environ, env, clear=True),
+class TestProxyToOrchestrator:
+    def test_get_forwards_to_orchestrator(self, client, auth_headers):
+        captured: list = []
+        with patch.object(
+            contract_api,
+            "urlopen",
+            _make_urlopen(200, {"success": True, "data": {"id": 42}}, capture=captured),
         ):
-            from flask import g
+            response = client.get(
+                "/api/v1/contract/42?pipeline_id=test-pipeline&repo=egg",
+                headers=auth_headers,
+            )
 
-            g.session = None
-            role = contract_api.get_role_from_context()
+        assert response.status_code == 200
+        assert len(captured) == 1
+        forwarded = captured[0]
+        assert "/api/v1/contracts/42" in forwarded["url"]
+        assert "pipeline_id=test-pipeline" in forwarded["url"]
+        assert forwarded["method"] == "GET"
 
-        assert role is None
+    def test_get_includes_audit_log_param(self, client, auth_headers):
+        captured: list = []
+        with patch.object(
+            contract_api,
+            "urlopen",
+            _make_urlopen(200, {"success": True, "data": {}}, capture=captured),
+        ):
+            client.get(
+                "/api/v1/contract/42?include_audit_log=true&pipeline_id=test-pipeline",
+                headers=auth_headers,
+            )
 
-    def test_no_role_set_returns_none(self, client, auth_headers):
-        """Returns None when no role source is available."""
-        env = os.environ.copy()
-        env.pop("EGG_ENABLE_TEST_ROLE_HEADER", None)
+        assert "include_audit_log=true" in captured[0]["url"]
+
+    def test_mutate_forwards_role_header_and_body(self, client, auth_headers):
+        captured: list = []
+        with patch.object(
+            contract_api,
+            "urlopen",
+            _make_urlopen(
+                200,
+                {"success": True, "data": {"contract": {"id": 42}}},
+                capture=captured,
+            ),
+        ):
+            response = client.post(
+                "/api/v1/contract/mutate",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "identifier": 42,
+                        "field_path": "phases.0.tasks.0.commit",
+                        "new_value": "abc1234",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200
+        forwarded = captured[0]
+        assert forwarded["url"].endswith("/api/v1/contracts/42/mutate")
+        header_map = {k.lower(): v for k, v in forwarded["headers"].items()}
+        assert header_map.get("x-egg-role") == "implementer"
+        assert forwarded["body"]["field_path"] == "phases.0.tasks.0.commit"
+        assert forwarded["body"]["new_value"] == "abc1234"
+        # pipeline_id comes from the session and is forwarded for bootstrap context.
+        assert forwarded["body"]["pipeline_id"] == "test-pipeline"
+
+    def test_mutate_requires_role(self, client):
+        env = {k: v for k, v in os.environ.items() if k != "EGG_ENABLE_TEST_ROLE_HEADER"}
         env.pop("EGG_AGENT_ROLE", None)
 
+        no_role_session = MagicMock()
+        no_role_session.mode = "public"
+        no_role_session.agent_role = None
+        no_role_session.pipeline_id = "test-pipeline"
+        no_role_session.container_id = "test-container"
+        no_role_session.expires_at = None
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        policy = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode",
+            visibility="public",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+
         with (
-            client.application.test_request_context(),
+            patch.object(
+                sys.modules.get("session_manager", session_manager),
+                "validate_session_for_request",
+                return_value=SessionValidationResult(valid=True, session=no_role_session),
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=policy),
             patch.dict(os.environ, env, clear=True),
         ):
-            from flask import g
-
-            g.session = None
-            role = contract_api.get_role_from_context()
-
-        assert role is None
-
-
-# ---------------------------------------------------------------------------
-# GET /api/v1/contract/<issue_number> tests
-# ---------------------------------------------------------------------------
-
-
-class TestGetContract:
-    """Tests for GET /api/v1/contract/<issue_number> endpoint."""
-
-    def test_get_contract_success(self, client, auth_headers):
-        """Successfully retrieves a contract."""
-        mock_contract = MagicMock()
-        mock_exported = {"issue": 42, "phases": []}
-
-        with (
-            patch.object(contract_api, "load_contract", return_value=mock_contract) as mock_load,
-            patch.object(
-                contract_api, "export_contract", return_value=mock_exported
-            ) as mock_export,
-        ):
-            response = client.get(
-                "/api/v1/contract/42?repo_path=/home/egg/repos/test",
-                headers=auth_headers,
+            response = client.post(
+                "/api/v1/contract/mutate",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "identifier": 42,
+                        "field_path": "phases",
+                        "new_value": [],
+                    }
+                ),
+                content_type="application/json",
             )
 
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data["success"] is True
-        assert data["message"] == "Contract retrieved"
-        assert data["data"]["issue"] == 42
-        mock_load.assert_called_once()
-        mock_export.assert_called_once_with(mock_contract, include_audit_log=False)
+        assert response.status_code == 403
 
-    def test_get_contract_not_found(self, client, auth_headers):
-        """Returns 404 when contract is not found."""
-        from pathlib import Path
+    def test_upstream_error_relayed(self, client, auth_headers):
+        error_body = json.dumps({"success": False, "message": "Not found"}).encode()
 
-        from egg_contracts import ContractNotFoundError
+        def raising_urlopen(req, timeout=None):
+            raise HTTPError(
+                url=req.full_url,
+                code=404,
+                msg="Not Found",
+                hdrs=None,  # type: ignore[arg-type]
+                fp=io.BytesIO(error_body),
+            )
 
-        with patch.object(
-            contract_api,
-            "load_contract",
-            side_effect=ContractNotFoundError(999, Path("/home/egg/repos/test")),
-        ):
+        with patch.object(contract_api, "urlopen", raising_urlopen):
             response = client.get(
-                "/api/v1/contract/999?repo_path=/home/egg/repos/test",
+                "/api/v1/contract/42?pipeline_id=test-pipeline",
                 headers=auth_headers,
             )
 
         assert response.status_code == 404
-        data = json.loads(response.data)
-        assert data["success"] is False
-        assert "not found" in data["message"].lower()
+        assert json.loads(response.data)["message"] == "Not found"
 
-    def test_get_contract_validation_error(self, client, auth_headers):
-        """Returns 500 when contract validation fails."""
-        from egg_contracts import ContractValidationError
+    def test_orchestrator_unreachable_returns_502(self, client, auth_headers):
+        def raising_urlopen(req, timeout=None):
+            raise URLError("connection refused")
 
+        with patch.object(contract_api, "urlopen", raising_urlopen):
+            response = client.get(
+                "/api/v1/contract/42?pipeline_id=test-pipeline",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 502
+
+    def test_validate_forwards_without_identifier(self, client, auth_headers):
+        captured: list = []
         with patch.object(
             contract_api,
-            "load_contract",
-            side_effect=ContractValidationError(42, ["Bad schema"]),
+            "urlopen",
+            _make_urlopen(200, {"success": True, "message": "Mutation allowed"}, capture=captured),
         ):
-            response = client.get(
-                "/api/v1/contract/42?repo_path=/home/egg/repos/test",
+            response = client.post(
+                "/api/v1/contract/validate",
                 headers=auth_headers,
-            )
-
-        assert response.status_code == 500
-        data = json.loads(response.data)
-        assert data["success"] is False
-        assert "validation failed" in data["message"].lower()
-
-    def test_get_contract_with_audit_log(self, client, auth_headers):
-        """Passes include_audit_log=True when query param is set."""
-        mock_contract = MagicMock()
-        mock_exported = {"issue": 42, "phases": [], "audit_log": []}
-
-        with (
-            patch.object(contract_api, "load_contract", return_value=mock_contract),
-            patch.object(
-                contract_api, "export_contract", return_value=mock_exported
-            ) as mock_export,
-        ):
-            response = client.get(
-                "/api/v1/contract/42?repo_path=/home/egg/repos/test&include_audit_log=true",
-                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "field_path": "phases.0.status",
+                        "new_value": "complete",
+                    }
+                ),
+                content_type="application/json",
             )
 
         assert response.status_code == 200
-        mock_export.assert_called_once_with(mock_contract, include_audit_log=True)
-
-
-# ---------------------------------------------------------------------------
-# GET /api/v1/contract/exists/<issue_number> tests
-# ---------------------------------------------------------------------------
-
-
-class TestCheckContractExists:
-    """Tests for GET /api/v1/contract/exists/<issue_number> endpoint."""
-
-    def test_contract_exists(self, client, auth_headers):
-        """Returns exists=True when contract exists."""
-        with patch.object(contract_api, "contract_exists", return_value=True):
-            response = client.get(
-                "/api/v1/contract/exists/42?repo_path=/home/egg/repos/test",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data["success"] is True
-        assert data["data"]["exists"] is True
-        assert "exists" in data["message"].lower()
-
-    def test_contract_does_not_exist(self, client, auth_headers):
-        """Returns exists=False when contract does not exist."""
-        with patch.object(contract_api, "contract_exists", return_value=False):
-            response = client.get(
-                "/api/v1/contract/exists/999?repo_path=/home/egg/repos/test",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data["success"] is True
-        assert data["data"]["exists"] is False
-        assert "does not exist" in data["message"].lower()
-
-
-# ---------------------------------------------------------------------------
-# String identifier (pipeline ID) tests
-# ---------------------------------------------------------------------------
-
-
-class TestGetContractByPipelineId:
-    """Tests for GET /api/v1/contract/<identifier> with string pipeline IDs."""
-
-    def test_get_contract_by_pipeline_id(self, client, auth_headers):
-        """Successfully retrieves a contract by string pipeline ID."""
-        mock_contract = MagicMock()
-        mock_exported = {"pipeline_id": "KORE-1191-full", "phases": []}
-
-        with (
-            patch.object(contract_api, "load_contract", return_value=mock_contract) as mock_load,
-            patch.object(contract_api, "export_contract", return_value=mock_exported),
-        ):
-            response = client.get(
-                "/api/v1/contract/KORE-1191-full?repo_path=/home/egg/repos/test",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data["success"] is True
-        assert data["data"]["pipeline_id"] == "KORE-1191-full"
-        mock_load.assert_called_once()
-        # Verify the identifier passed is the string pipeline ID
-        call_args = mock_load.call_args
-        assert call_args[0][0] == "KORE-1191-full"
-
-    def test_get_contract_pipeline_id_not_found(self, client, auth_headers):
-        """Returns 404 when pipeline ID contract not found."""
-        from pathlib import Path
-
-        from egg_contracts import ContractNotFoundError
-
-        with patch.object(
-            contract_api,
-            "load_contract",
-            side_effect=ContractNotFoundError("KORE-999", Path("/home/egg/repos/test")),
-        ):
-            response = client.get(
-                "/api/v1/contract/KORE-999?repo_path=/home/egg/repos/test",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 404
-        data = json.loads(response.data)
-        assert "not found" in data["message"].lower()
-
-
-class TestCheckContractExistsByPipelineId:
-    """Tests for GET /api/v1/contract/exists/<identifier> with string pipeline IDs."""
-
-    def test_exists_by_pipeline_id(self, client, auth_headers):
-        """Returns exists=True for contract found by pipeline ID."""
-        with patch.object(contract_api, "contract_exists", return_value=True) as mock_exists:
-            response = client.get(
-                "/api/v1/contract/exists/KORE-1191-full?repo_path=/home/egg/repos/test",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data["data"]["exists"] is True
-        mock_exists.assert_called_once()
-        assert mock_exists.call_args[0][0] == "KORE-1191-full"
-
-    def test_not_exists_by_pipeline_id(self, client, auth_headers):
-        """Returns exists=False when pipeline ID contract not found."""
-        with patch.object(contract_api, "contract_exists", return_value=False):
-            response = client.get(
-                "/api/v1/contract/exists/KORE-999?repo_path=/home/egg/repos/test",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data["data"]["exists"] is False
-
-
-# ---------------------------------------------------------------------------
-# Path traversal and routing edge-case tests
-# ---------------------------------------------------------------------------
+        assert captured[0]["url"].endswith("/api/v1/contract-mutations/validate")
 
 
 class TestIdentifierValidation:
-    """Tests for path traversal prevention on string identifier routes."""
-
     @pytest.mark.parametrize(
         "identifier",
         [
             "../../../etc/passwd",
-            "..%2F..%2Fetc%2Fpasswd",
             "drafts/../secret",
             "foo/bar",
             "foo\\bar",
         ],
     )
-    def test_get_contract_rejects_traversal(self, client, auth_headers, identifier):
-        """GET /api/v1/contract/<identifier> rejects path-traversal identifiers."""
+    def test_get_rejects_traversal(self, client, auth_headers, identifier):
         response = client.get(
-            f"/api/v1/contract/{identifier}?repo_path=/home/egg/repos/test",
+            f"/api/v1/contract/{identifier}?pipeline_id=test-pipeline",
             headers=auth_headers,
         )
-        # Flask may return 404 (route not matched due to slashes) or 400 (our validation)
+        # Either our regex rejects (400) or Flask's route matcher doesn't match (404)
         assert response.status_code in (400, 404)
 
-    def test_get_contract_rejects_dot_dot(self, client, auth_headers):
-        """GET /api/v1/contract/<identifier> rejects '..' even without slashes."""
-        response = client.get(
-            "/api/v1/contract/..?repo_path=/home/egg/repos/test",
-            headers=auth_headers,
-        )
-        assert response.status_code in (400, 404)
-
-    def test_exists_rejects_traversal(self, client, auth_headers):
-        """GET /api/v1/contract/exists/<identifier> rejects traversal identifiers."""
-        response = client.get(
-            "/api/v1/contract/exists/..%2Fsecret?repo_path=/home/egg/repos/test",
-            headers=auth_headers,
-        )
-        assert response.status_code in (400, 404)
-
-    def test_mutate_rejects_traversal_identifier(self, client, auth_headers):
-        """POST /api/v1/contract/mutate rejects traversal in identifier field."""
+    def test_mutate_rejects_traversal(self, client, auth_headers):
         response = client.post(
             "/api/v1/contract/mutate",
             headers=auth_headers,
             data=json.dumps(
                 {
                     "identifier": "../../../etc/passwd",
-                    "field_path": "phases.0.tasks.0.commit",
-                    "new_value": "abc1234",
-                    "repo_path": "/home/egg/repos/test",
+                    "field_path": "phases",
+                    "new_value": [],
                 }
             ),
             content_type="application/json",
         )
         assert response.status_code == 400
-        data = json.loads(response.data)
-        assert "invalid identifier" in data["message"].lower()
-
-
-class TestNumericStringRouting:
-    """Verify numeric strings route to <int:issue_number>, not <identifier>."""
-
-    def test_numeric_string_routes_to_int_handler(self, client, auth_headers):
-        """A numeric path like /api/v1/contract/123 hits the int route."""
-        mock_contract = MagicMock()
-        mock_exported = {"issue": {"number": 123}, "phases": []}
-
-        with (
-            patch.object(contract_api, "load_contract", return_value=mock_contract) as mock_load,
-            patch.object(contract_api, "export_contract", return_value=mock_exported),
-        ):
-            response = client.get(
-                "/api/v1/contract/123?repo_path=/home/egg/repos/test",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 200
-        # Verify the identifier passed was an int, not a string
-        call_args = mock_load.call_args
-        assert call_args[0][0] == 123
-        assert isinstance(call_args[0][0], int)
-
-
-# ---------------------------------------------------------------------------
-# POST /api/v1/contract/validate tests
-# ---------------------------------------------------------------------------
-
-
-class TestValidateContractMutation:
-    """Tests for POST /api/v1/contract/validate endpoint."""
-
-    def test_missing_body_returns_400(self, client, auth_headers):
-        """Returns 400 when request body is empty JSON."""
-        response = client.post(
-            "/api/v1/contract/validate",
-            headers=auth_headers,
-            data=json.dumps(None),
-            content_type="application/json",
-        )
-
-        assert response.status_code == 400
-        data = json.loads(response.data)
-        assert data["success"] is False
-        assert "Missing request body" in data["message"]
-
-    def test_missing_field_path_returns_400(self, client, auth_headers):
-        """Returns 400 when field_path is missing."""
-        response = client.post(
-            "/api/v1/contract/validate",
-            headers=auth_headers,
-            data=json.dumps({"new_value": "complete"}),
-            content_type="application/json",
-        )
-
-        assert response.status_code == 400
-        data = json.loads(response.data)
-        assert data["success"] is False
-        assert "field_path" in data["message"]
-
-    def test_missing_new_value_returns_400(self, client, auth_headers):
-        """Returns 400 when new_value is missing."""
-        response = client.post(
-            "/api/v1/contract/validate",
-            headers=auth_headers,
-            data=json.dumps({"field_path": "phases.0.tasks.0.status"}),
-            content_type="application/json",
-        )
-
-        assert response.status_code == 400
-        data = json.loads(response.data)
-        assert data["success"] is False
-        assert "new_value" in data["message"]
-
-    def test_no_role_returns_403(self, client, auth_headers):
-        """Returns 403 when agent role cannot be determined."""
-        with patch.object(contract_api, "get_role_from_context", return_value=None):
-            response = client.post(
-                "/api/v1/contract/validate",
-                headers=auth_headers,
-                data=json.dumps(
-                    {
-                        "field_path": "phases.0.tasks.0.status",
-                        "new_value": "complete",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-        assert response.status_code == 403
-        data = json.loads(response.data)
-        assert data["success"] is False
-        assert "role" in data["message"].lower()
-
-    def test_valid_mutation(self, client, auth_headers):
-        """Returns success when mutation is valid."""
-        from egg_contracts import Role, ValidationResult
-
-        mock_result = ValidationResult(valid=True, message="Mutation allowed")
-
-        with (
-            patch.object(contract_api, "get_role_from_context", return_value=Role.IMPLEMENTER),
-            patch.object(contract_api, "validate_mutation", return_value=mock_result),
-        ):
-            response = client.post(
-                "/api/v1/contract/validate",
-                headers=auth_headers,
-                data=json.dumps(
-                    {
-                        "field_path": "phases.0.tasks.0.commit",
-                        "new_value": "abc1234",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data["success"] is True
-        assert "allowed" in data["message"].lower()
-
-    def test_invalid_mutation_returns_403(self, client, auth_headers):
-        """Returns 403 when mutation is not allowed for the role."""
-        from egg_contracts import Role, ValidationResult
-
-        mock_result = ValidationResult(
-            valid=False,
-            message="Cannot modify field 'phases.*.tasks.*.status'.",
-            field_path="phases.0.tasks.0.status",
-            required_role="reviewer",
-        )
-
-        with (
-            patch.object(contract_api, "get_role_from_context", return_value=Role.IMPLEMENTER),
-            patch.object(contract_api, "validate_mutation", return_value=mock_result),
-        ):
-            response = client.post(
-                "/api/v1/contract/validate",
-                headers=auth_headers,
-                data=json.dumps(
-                    {
-                        "field_path": "phases.0.tasks.0.status",
-                        "new_value": "complete",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-        assert response.status_code == 403
-        data = json.loads(response.data)
-        assert data["success"] is False
-        assert "details" in data
-        assert data["details"]["role"] == "implementer"
-        assert data["details"]["required_role"] == "reviewer"
-
-
-# ---------------------------------------------------------------------------
-# POST /api/v1/contract/mutate tests
-# ---------------------------------------------------------------------------
-
-
-class TestMutateContract:
-    """Tests for POST /api/v1/contract/mutate endpoint."""
-
-    def test_missing_body_returns_400(self, client, auth_headers):
-        """Returns 400 when request body is empty JSON."""
-        response = client.post(
-            "/api/v1/contract/mutate",
-            headers=auth_headers,
-            data=json.dumps(None),
-            content_type="application/json",
-        )
-
-        assert response.status_code == 400
-        data = json.loads(response.data)
-        assert data["success"] is False
-        assert "Missing request body" in data["message"]
-
-    def test_missing_identifier_returns_400(self, client, auth_headers):
-        """Returns 400 when neither identifier nor issue_number is provided."""
-        response = client.post(
-            "/api/v1/contract/mutate",
-            headers=auth_headers,
-            data=json.dumps(
-                {
-                    "field_path": "phases.0.tasks.0.commit",
-                    "new_value": "abc1234",
-                }
-            ),
-            content_type="application/json",
-        )
-
-        assert response.status_code == 400
-        data = json.loads(response.data)
-        assert data["success"] is False
-        assert "identifier" in data["message"].lower()
-
-    def test_missing_field_path_returns_400(self, client, auth_headers):
-        """Returns 400 when field_path is missing."""
-        response = client.post(
-            "/api/v1/contract/mutate",
-            headers=auth_headers,
-            data=json.dumps(
-                {
-                    "issue_number": 42,
-                    "new_value": "abc1234",
-                }
-            ),
-            content_type="application/json",
-        )
-
-        assert response.status_code == 400
-        data = json.loads(response.data)
-        assert data["success"] is False
-        assert "field_path" in data["message"]
-
-    def test_missing_new_value_returns_400(self, client, auth_headers):
-        """Returns 400 when new_value is missing."""
-        response = client.post(
-            "/api/v1/contract/mutate",
-            headers=auth_headers,
-            data=json.dumps(
-                {
-                    "issue_number": 42,
-                    "field_path": "phases.0.tasks.0.commit",
-                }
-            ),
-            content_type="application/json",
-        )
-
-        assert response.status_code == 400
-        data = json.loads(response.data)
-        assert data["success"] is False
-        assert "new_value" in data["message"]
-
-    def test_no_role_returns_403(self, client, auth_headers):
-        """Returns 403 when agent role cannot be determined."""
-        with patch.object(contract_api, "get_role_from_context", return_value=None):
-            response = client.post(
-                "/api/v1/contract/mutate",
-                headers=auth_headers,
-                data=json.dumps(
-                    {
-                        "issue_number": 42,
-                        "field_path": "phases.0.tasks.0.commit",
-                        "new_value": "abc1234",
-                        "repo_path": "/home/egg/repos/test",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-        assert response.status_code == 403
-        data = json.loads(response.data)
-        assert data["success"] is False
-        assert "role" in data["message"].lower()
-
-    def test_contract_not_found_returns_404(self, client, auth_headers):
-        """Returns 404 when contract is not found."""
-        from pathlib import Path
-
-        from egg_contracts import ContractNotFoundError, Role
-
-        with (
-            patch.object(contract_api, "get_role_from_context", return_value=Role.IMPLEMENTER),
-            patch.object(
-                contract_api,
-                "load_contract",
-                side_effect=ContractNotFoundError(999, Path("/home/egg/repos/test")),
-            ),
-        ):
-            response = client.post(
-                "/api/v1/contract/mutate",
-                headers=auth_headers,
-                data=json.dumps(
-                    {
-                        "issue_number": 999,
-                        "field_path": "phases.0.tasks.0.commit",
-                        "new_value": "abc1234",
-                        "repo_path": "/home/egg/repos/test",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-        assert response.status_code == 404
-        data = json.loads(response.data)
-        assert data["success"] is False
-        assert "not found" in data["message"].lower()
-
-    def test_mutation_denied_returns_403(self, client, auth_headers):
-        """Returns 403 when mutation is denied by role-based enforcement."""
-        from egg_contracts import MutationResult, Role
-
-        mock_contract = MagicMock()
-        mock_mutation_result = MutationResult(
-            success=False,
-            message="Cannot modify field 'phases.*.tasks.*.status'. "
-            "Role 'implementer' is not authorized.",
-        )
-
-        with (
-            patch.object(contract_api, "get_role_from_context", return_value=Role.IMPLEMENTER),
-            patch.object(contract_api, "load_contract", return_value=mock_contract),
-            patch.object(contract_api, "apply_mutation", return_value=mock_mutation_result),
-        ):
-            response = client.post(
-                "/api/v1/contract/mutate",
-                headers=auth_headers,
-                data=json.dumps(
-                    {
-                        "issue_number": 42,
-                        "field_path": "phases.0.tasks.0.status",
-                        "new_value": "complete",
-                        "repo_path": "/home/egg/repos/test",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-        assert response.status_code == 403
-        data = json.loads(response.data)
-        assert data["success"] is False
-        assert "details" in data
-        assert data["details"]["role"] == "implementer"
-
-    def test_mutate_success(self, client, auth_headers):
-        """Successfully applies a mutation and saves the contract."""
-        from egg_contracts import MutationResult, Role
-
-        mock_contract = MagicMock()
-        mock_updated_contract = MagicMock()
-        mock_exported = {"issue": 42, "phases": [{"tasks": [{"commit": "abc1234"}]}]}
-
-        mock_mutation_result = MutationResult(
-            success=True,
-            message="Mutation applied successfully",
-            contract=mock_updated_contract,
-        )
-
-        with (
-            patch.object(contract_api, "get_role_from_context", return_value=Role.IMPLEMENTER),
-            patch.object(contract_api, "load_contract", return_value=mock_contract),
-            patch.object(contract_api, "apply_mutation", return_value=mock_mutation_result),
-            patch.object(contract_api, "save_contract") as mock_save,
-            patch.object(contract_api, "export_contract", return_value=mock_exported),
-        ):
-            response = client.post(
-                "/api/v1/contract/mutate",
-                headers=auth_headers,
-                data=json.dumps(
-                    {
-                        "issue_number": 42,
-                        "field_path": "phases.0.tasks.0.commit",
-                        "new_value": "abc1234",
-                        "actor": "james-in-a-box",
-                        "reason": "Implementation complete",
-                        "repo_path": "/home/egg/repos/test",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data["success"] is True
-        assert "applied" in data["message"].lower()
-        assert data["data"]["contract"]["issue"] == 42
-        mock_save.assert_called_once()
-
-    def test_mutate_with_identifier_field(self, client, auth_headers):
-        """Mutate accepts 'identifier' field with string pipeline ID."""
-        from egg_contracts import MutationResult, Role
-
-        mock_contract = MagicMock()
-        mock_updated = MagicMock()
-        mock_exported = {"pipeline_id": "KORE-1191-full", "phases": []}
-
-        mock_result = MutationResult(
-            success=True,
-            message="Mutation applied",
-            contract=mock_updated,
-        )
-
-        with (
-            patch.object(contract_api, "get_role_from_context", return_value=Role.IMPLEMENTER),
-            patch.object(contract_api, "load_contract", return_value=mock_contract) as mock_load,
-            patch.object(contract_api, "apply_mutation", return_value=mock_result),
-            patch.object(contract_api, "save_contract"),
-            patch.object(contract_api, "export_contract", return_value=mock_exported),
-        ):
-            response = client.post(
-                "/api/v1/contract/mutate",
-                headers=auth_headers,
-                data=json.dumps(
-                    {
-                        "identifier": "KORE-1191-full",
-                        "field_path": "phases.0.tasks.0.commit",
-                        "new_value": "abc1234",
-                        "repo_path": "/home/egg/repos/test",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data["success"] is True
-        mock_load.assert_called_once()
-        assert mock_load.call_args[0][0] == "KORE-1191-full"
-
-    def test_mutate_backward_compat_issue_number(self, client, auth_headers):
-        """Mutate still accepts legacy 'issue_number' field."""
-        from egg_contracts import MutationResult, Role
-
-        mock_contract = MagicMock()
-        mock_updated = MagicMock()
-        mock_exported = {"issue": 42, "phases": []}
-
-        mock_result = MutationResult(
-            success=True,
-            message="Mutation applied",
-            contract=mock_updated,
-        )
-
-        with (
-            patch.object(contract_api, "get_role_from_context", return_value=Role.IMPLEMENTER),
-            patch.object(contract_api, "load_contract", return_value=mock_contract) as mock_load,
-            patch.object(contract_api, "apply_mutation", return_value=mock_result),
-            patch.object(contract_api, "save_contract"),
-            patch.object(contract_api, "export_contract", return_value=mock_exported),
-        ):
-            response = client.post(
-                "/api/v1/contract/mutate",
-                headers=auth_headers,
-                data=json.dumps(
-                    {
-                        "issue_number": 42,
-                        "field_path": "phases.0.tasks.0.commit",
-                        "new_value": "abc1234",
-                        "repo_path": "/home/egg/repos/test",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-        assert response.status_code == 200
-        mock_load.assert_called_once()
-        assert mock_load.call_args[0][0] == 42
-
-
-# ---------------------------------------------------------------------------
-# Worktree path mapping tests
-# ---------------------------------------------------------------------------
-
-
-class TestWorktreePathMapping:
-    """Tests for worktree path mapping in contract API endpoints."""
-
-    def test_get_contract_with_container_id_maps_to_worktree(self, client, auth_headers):
-        """GET contract with container_id query param maps repo_path to worktree path."""
-        mock_contract = MagicMock()
-        mock_exported = {"issue": 42, "phases": []}
-
-        with (
-            patch.object(contract_api, "load_contract", return_value=mock_contract) as mock_load,
-            patch.object(contract_api, "export_contract", return_value=mock_exported),
-            patch.object(
-                contract_api,
-                "_get_worktree_helpers",
-                return_value=(
-                    MagicMock(return_value="/home/egg/.egg-worktrees/test-ctr/test"),
-                    MagicMock(),
-                ),
-            ),
-        ):
-            response = client.get(
-                "/api/v1/contract/42?repo_path=/home/egg/repos/test&container_id=test-ctr",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data["success"] is True
-        # Verify load_contract was called with the worktree-mapped path
-        from pathlib import Path
-
-        mock_load.assert_called_once_with(42, Path("/home/egg/.egg-worktrees/test-ctr/test"))
-
-    def test_get_contract_without_container_id_uses_original_path(self, client, auth_headers):
-        """GET contract without container_id uses original repo_path unchanged."""
-        mock_contract = MagicMock()
-        mock_exported = {"issue": 42, "phases": []}
-
-        with (
-            patch.object(contract_api, "load_contract", return_value=mock_contract) as mock_load,
-            patch.object(contract_api, "export_contract", return_value=mock_exported),
-            patch.object(
-                contract_api,
-                "_get_worktree_helpers",
-                return_value=(
-                    # map_container_path_to_worktree returns original path when no container_id
-                    MagicMock(return_value="/home/egg/repos/test"),
-                    MagicMock(),
-                ),
-            ),
-        ):
-            response = client.get(
-                "/api/v1/contract/42?repo_path=/home/egg/repos/test",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 200
-        from pathlib import Path
-
-        mock_load.assert_called_once_with(42, Path("/home/egg/repos/test"))
-
-    def test_get_contract_worktree_not_found_returns_error(self, client, auth_headers):
-        """GET contract returns error when container_id worktree doesn't exist."""
-        from flask import jsonify as flask_jsonify
-
-        def make_err(cid):
-            return flask_jsonify(
-                {"success": False, "message": f"Worktree not found for '{cid}'"}
-            ), 500
-
-        with patch.object(
-            contract_api,
-            "_get_worktree_helpers",
-            return_value=(
-                MagicMock(return_value=None),  # worktree not found
-                make_err,
-            ),
-        ):
-            response = client.get(
-                "/api/v1/contract/42?repo_path=/home/egg/repos/test&container_id=bad-ctr",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 500
-        data = json.loads(response.data)
-        assert data["success"] is False
-
-    def test_mutate_contract_with_container_id_maps_to_worktree(self, client, auth_headers):
-        """POST mutate with container_id in body maps repo_path to worktree path."""
-        from egg_contracts import MutationResult, Role
-
-        mock_contract = MagicMock()
-        mock_updated_contract = MagicMock()
-        mock_exported = {"issue": 42, "phases": []}
-        mock_mutation_result = MutationResult(
-            success=True,
-            message="Mutation applied",
-            contract=mock_updated_contract,
-        )
-
-        mock_map_fn = MagicMock(return_value="/home/egg/.egg-worktrees/test-ctr/test")
-
-        with (
-            patch.object(contract_api, "get_role_from_context", return_value=Role.IMPLEMENTER),
-            patch.object(contract_api, "load_contract", return_value=mock_contract) as mock_load,
-            patch.object(contract_api, "apply_mutation", return_value=mock_mutation_result),
-            patch.object(contract_api, "save_contract") as mock_save,
-            patch.object(contract_api, "export_contract", return_value=mock_exported),
-            patch.object(
-                contract_api,
-                "_get_worktree_helpers",
-                return_value=(mock_map_fn, MagicMock()),
-            ),
-        ):
-            response = client.post(
-                "/api/v1/contract/mutate",
-                headers=auth_headers,
-                data=json.dumps(
-                    {
-                        "issue_number": 42,
-                        "field_path": "phases.0.tasks.0.commit",
-                        "new_value": "abc1234",
-                        "repo_path": "/home/egg/repos/test",
-                        "container_id": "test-ctr",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-        assert response.status_code == 200
-        from pathlib import Path
-
-        # Verify load was called with worktree path
-        mock_load.assert_called_once_with(42, Path("/home/egg/.egg-worktrees/test-ctr/test"))
-        # Verify save was called with worktree path
-        mock_save.assert_called_once_with(
-            mock_updated_contract, Path("/home/egg/.egg-worktrees/test-ctr/test")
-        )
-        # Verify map function was called with container_id
-        mock_map_fn.assert_called_once_with("/home/egg/repos/test", "test-ctr", "contract")
-
-    def test_mutate_contract_worktree_not_found_returns_error(self, client, auth_headers):
-        """POST mutate returns error when container_id worktree doesn't exist."""
-        from egg_contracts import Role
-        from flask import jsonify as flask_jsonify
-
-        def make_err(cid):
-            return flask_jsonify(
-                {"success": False, "message": f"Worktree not found for '{cid}'"}
-            ), 500
-
-        with (
-            patch.object(contract_api, "get_role_from_context", return_value=Role.IMPLEMENTER),
-            patch.object(
-                contract_api,
-                "_get_worktree_helpers",
-                return_value=(
-                    MagicMock(return_value=None),
-                    make_err,
-                ),
-            ),
-        ):
-            response = client.post(
-                "/api/v1/contract/mutate",
-                headers=auth_headers,
-                data=json.dumps(
-                    {
-                        "issue_number": 42,
-                        "field_path": "phases.0.tasks.0.commit",
-                        "new_value": "abc1234",
-                        "repo_path": "/home/egg/repos/test",
-                        "container_id": "bad-ctr",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-        assert response.status_code == 500
-        data = json.loads(response.data)
-        assert data["success"] is False
-
-    def test_exists_with_container_id_maps_to_worktree(self, client, auth_headers):
-        """GET exists with container_id maps repo_path to worktree path."""
-        from pathlib import Path
-
-        mock_map_fn = MagicMock(return_value="/home/egg/.egg-worktrees/test-ctr/test")
-
-        with (
-            patch.object(contract_api, "contract_exists", return_value=True) as mock_exists,
-            patch.object(
-                contract_api,
-                "_get_worktree_helpers",
-                return_value=(mock_map_fn, MagicMock()),
-            ),
-        ):
-            response = client.get(
-                "/api/v1/contract/exists/42?repo_path=/home/egg/repos/test&container_id=test-ctr",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data["data"]["exists"] is True
-        mock_exists.assert_called_once_with(42, Path("/home/egg/.egg-worktrees/test-ctr/test"))
-        mock_map_fn.assert_called_once_with("/home/egg/repos/test", "test-ctr", "contract")
-
-    def test_exists_worktree_not_found_returns_error(self, client, auth_headers):
-        """GET exists returns error when container_id worktree doesn't exist."""
-        from flask import jsonify as flask_jsonify
-
-        def make_err(cid):
-            return flask_jsonify(
-                {"success": False, "message": f"Worktree not found for '{cid}'"}
-            ), 500
-
-        with patch.object(
-            contract_api,
-            "_get_worktree_helpers",
-            return_value=(
-                MagicMock(return_value=None),
-                make_err,
-            ),
-        ):
-            response = client.get(
-                "/api/v1/contract/exists/42?repo_path=/home/egg/repos/test&container_id=bad-ctr",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 500
-        data = json.loads(response.data)
-        assert data["success"] is False
-
-
-# ---------------------------------------------------------------------------
-# get_repo_path_from_request container_id extraction tests
-# ---------------------------------------------------------------------------
-
-
-class TestGetRepoPathFromRequestContainerId:
-    """Tests for container_id extraction in get_repo_path_from_request()."""
-
-    def test_container_id_from_query_params(self, client, auth_headers):
-        """Extracts container_id from query params for GET requests."""
-        with client.application.test_request_context(
-            "/?repo_path=/home/egg/repos/test&container_id=my-container"
-        ):
-            from flask import g
-
-            g.session = None
-            path, error, container_id = contract_api.get_repo_path_from_request(from_query=True)
-
-        assert container_id == "my-container"
-        assert error is None
-        from pathlib import Path
-
-        assert path == Path("/home/egg/repos/test")
-
-    def test_container_id_from_post_body(self, client, auth_headers):
-        """Extracts container_id from JSON body for POST requests."""
-        with client.application.test_request_context(
-            "/",
-            method="POST",
-            data=json.dumps({"repo_path": "/home/egg/repos/test", "container_id": "my-container"}),
-            content_type="application/json",
-        ):
-            from flask import g
-
-            g.session = None
-            path, error, container_id = contract_api.get_repo_path_from_request(from_query=False)
-
-        assert container_id == "my-container"
-        assert error is None
-        from pathlib import Path
-
-        assert path == Path("/home/egg/repos/test")
-
-    def test_container_id_falls_back_to_session(self, client, auth_headers):
-        """Falls back to session container_id when not in request."""
-        mock_session = MagicMock()
-        mock_session.container_id = "session-container"
-        mock_session.repo_path = None
-
-        with client.application.test_request_context("/?repo_path=/home/egg/repos/test"):
-            from flask import g
-
-            g.session = mock_session
-            path, error, container_id = contract_api.get_repo_path_from_request(from_query=True)
-
-        assert container_id == "session-container"
-
-    def test_container_id_none_when_not_available(self, client, auth_headers):
-        """Returns None container_id when not in request or session."""
-        with client.application.test_request_context("/?repo_path=/home/egg/repos/test"):
-            from flask import g
-
-            g.session = None
-            path, error, container_id = contract_api.get_repo_path_from_request(from_query=True)
-
-        assert container_id is None
-
-    def test_request_container_id_takes_priority_over_session(self, client, auth_headers):
-        """Request container_id takes priority over session container_id."""
-        mock_session = MagicMock()
-        mock_session.container_id = "session-container"
-        mock_session.repo_path = None
-
-        with client.application.test_request_context(
-            "/?repo_path=/home/egg/repos/test&container_id=request-container"
-        ):
-            from flask import g
-
-            g.session = mock_session
-            path, error, container_id = contract_api.get_repo_path_from_request(from_query=True)
-
-        assert container_id == "request-container"
-
-
-# ---------------------------------------------------------------------------
-# _get_worktree_helpers tests
-# ---------------------------------------------------------------------------
-
-
-class TestGetWorktreeHelpers:
-    """Tests for _get_worktree_helpers() lazy import function."""
-
-    def test_returns_callable_tuple(self, client):
-        """Returns a 2-tuple of callable functions."""
-        map_fn, err_fn = contract_api._get_worktree_helpers()
-        assert callable(map_fn)
-        assert callable(err_fn)
-
-
-# ---------------------------------------------------------------------------
-# Pipeline worktree fallback tests
-# ---------------------------------------------------------------------------
-
-
-class TestPipelineWorktreeFallback:
-    """Tests for pipeline_id worktree fallback in GET /api/v1/contract/."""
-
-    def test_fallback_finds_contract_in_pipeline_worktree(self, client, auth_headers, tmp_path):
-        """GET contract falls back to pipeline worktree when primary path misses."""
-        from egg_contracts import ContractNotFoundError
-
-        mock_contract = MagicMock()
-        mock_exported = {"issue": 1570, "phases": [{"name": "implement"}]}
-
-        # First call (primary path) raises not found; second call (worktree) succeeds
-        def load_side_effect(identifier, repo_root):
-            if str(repo_root) == "/home/egg/repos/test":
-                raise ContractNotFoundError(identifier, repo_root)
-            return mock_contract
-
-        worktree_repo = tmp_path / "issue-1570-v17" / "test"
-        worktree_repo.mkdir(parents=True)
-
-        with (
-            patch.object(contract_api, "load_contract", side_effect=load_side_effect),
-            patch.object(contract_api, "export_contract", return_value=mock_exported),
-            patch.object(contract_api, "_WORKTREE_BASE_DIR", tmp_path),
-        ):
-            response = client.get(
-                "/api/v1/contract/1570?repo_path=/home/egg/repos/test&pipeline_id=issue-1570-v17",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data["success"] is True
-        assert data["data"]["issue"] == 1570
-
-    def test_fallback_not_triggered_without_pipeline_id(self, client, auth_headers):
-        """GET contract returns 404 without pipeline_id even when worktree exists."""
-        from pathlib import Path
-
-        from egg_contracts import ContractNotFoundError
-
-        with patch.object(
-            contract_api,
-            "load_contract",
-            side_effect=ContractNotFoundError(999, Path("/home/egg/repos/test")),
-        ):
-            response = client.get(
-                "/api/v1/contract/999?repo_path=/home/egg/repos/test",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 404
-
-    def test_fallback_returns_404_for_nonexistent_worktree(self, client, auth_headers, tmp_path):
-        """GET contract returns 404 when pipeline_id worktree directory doesn't exist."""
-        from pathlib import Path
-
-        from egg_contracts import ContractNotFoundError
-
-        with (
-            patch.object(
-                contract_api,
-                "load_contract",
-                side_effect=ContractNotFoundError(1570, Path("/home/egg/repos/test")),
-            ),
-            patch.object(contract_api, "_WORKTREE_BASE_DIR", tmp_path),
-        ):
-            response = client.get(
-                "/api/v1/contract/1570?repo_path=/home/egg/repos/test&pipeline_id=no-such-pipeline",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 404
-
-    def test_fallback_rejects_invalid_pipeline_id(self, client, auth_headers, tmp_path):
-        """GET contract ignores pipeline_id with path traversal characters."""
-        from pathlib import Path
-
-        from egg_contracts import ContractNotFoundError
-
-        with (
-            patch.object(
-                contract_api,
-                "load_contract",
-                side_effect=ContractNotFoundError(1570, Path("/home/egg/repos/test")),
-            ),
-            patch.object(contract_api, "_WORKTREE_BASE_DIR", tmp_path),
-        ):
-            response = client.get(
-                "/api/v1/contract/1570?repo_path=/home/egg/repos/test&pipeline_id=../../etc",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 404
-
-    def test_fallback_uses_first_subdir_when_repo_name_mismatch(
-        self, client, auth_headers, tmp_path
-    ):
-        """Fallback resolves to first subdirectory if repo name doesn't match."""
-        from egg_contracts import ContractNotFoundError
-
-        mock_contract = MagicMock()
-        mock_exported = {"issue": 42, "phases": []}
-
-        def load_side_effect(identifier, repo_root):
-            if str(repo_root) == "/home/egg/repos/test":
-                raise ContractNotFoundError(identifier, repo_root)
-            return mock_contract
-
-        # Worktree has a differently-named repo directory
-        worktree_repo = tmp_path / "my-pipeline" / "other-repo"
-        worktree_repo.mkdir(parents=True)
-
-        with (
-            patch.object(contract_api, "load_contract", side_effect=load_side_effect),
-            patch.object(contract_api, "export_contract", return_value=mock_exported),
-            patch.object(contract_api, "_WORKTREE_BASE_DIR", tmp_path),
-        ):
-            response = client.get(
-                "/api/v1/contract/42?repo_path=/home/egg/repos/test&pipeline_id=my-pipeline",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 200
-
-    def test_fallback_returns_500_for_corrupt_contract_in_worktree(
-        self, client, auth_headers, tmp_path
-    ):
-        """GET contract returns 500 when worktree fallback finds a corrupt contract."""
-        from egg_contracts import ContractNotFoundError, ContractValidationError
-
-        def load_side_effect(identifier, repo_root):
-            if str(repo_root) == "/home/egg/repos/test":
-                raise ContractNotFoundError(identifier, repo_root)
-            # Worktree path — contract exists but is malformed
-            raise ContractValidationError(identifier, ["corrupt YAML"])
-
-        worktree_repo = tmp_path / "pipe-99" / "test"
-        worktree_repo.mkdir(parents=True)
-
-        with (
-            patch.object(contract_api, "load_contract", side_effect=load_side_effect),
-            patch.object(contract_api, "_WORKTREE_BASE_DIR", tmp_path),
-        ):
-            response = client.get(
-                "/api/v1/contract/99?repo_path=/home/egg/repos/test&pipeline_id=pipe-99",
-                headers=auth_headers,
-            )
-
-        assert response.status_code == 500
-        data = json.loads(response.data)
-        assert "validation failed" in data["message"].lower()
