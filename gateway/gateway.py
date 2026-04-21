@@ -3771,6 +3771,90 @@ def worktree_list() -> tuple[Response, int] | Response:
     return make_success("Worktrees listed", {"worktrees": worktrees})
 
 
+# Shared mutex: single lock shared by the prune route so that a
+# dry_run=true and dry_run=false call can never interleave. Local to
+# this module; tests exercise `request` against the Flask test client
+# so the process-wide lock is safe.
+_worktree_prune_lock = threading.Lock()
+
+
+@app.route("/api/v1/worktrees/prune", methods=["POST"])
+@require_launcher_auth
+def worktrees_prune() -> tuple[Response, int] | Response:
+    """
+    Run ``git worktree prune`` across every repo and sweep orphan dirs
+    under the worktree base.
+
+    Request body::
+
+        {"dry_run": bool = true}
+
+    When ``dry_run`` is true, returns the set of orphan directories
+    that would be removed but does not mutate the filesystem. When
+    false, removes them using the existing ``cleanup_orphaned_worktrees``
+    helper with an empty active-containers set so every dir is a
+    candidate.
+
+    Proxied from the orchestrator's
+    ``/api/v1/deployment/prune-worktrees`` endpoint (#1759).
+    """
+    data = request.get_json(silent=True) or {}
+    dry_run = bool(data.get("dry_run", True))
+
+    manager = get_worktree_manager()
+
+    # Serialize all prune activity — git operations on the same repo
+    # must not interleave even if two callers hit this endpoint
+    # concurrently.
+    if not _worktree_prune_lock.acquire(timeout=60):
+        return make_error(
+            "Another worktree prune is in progress", status_code=409
+        )
+    try:
+        git_prune_report = manager.git_worktree_prune_all()
+        orphan_dirs = manager.list_orphan_worktree_dirs(active_containers=set())
+
+        removed_count = 0
+        removed_paths: list[str] = []
+        if not dry_run and orphan_dirs:
+            removed_count = manager.cleanup_orphaned_worktrees(
+                active_containers=set(),
+            )
+            # Any orphan we enumerated that no longer exists on disk
+            # was removed by the helper.
+            for path in orphan_dirs:
+                try:
+                    if not Path(path).exists():
+                        removed_paths.append(path)
+                except OSError:
+                    pass
+
+        audit_log(
+            "worktrees_pruned",
+            "worktrees_prune",
+            success=True,
+            details={
+                "dry_run": dry_run,
+                "git_worktree_prune": git_prune_report,
+                "orphan_dirs_count": len(orphan_dirs),
+                "removed_count": removed_count,
+            },
+        )
+
+        return make_success(
+            "Worktree prune complete",
+            {
+                "dry_run": dry_run,
+                "git_worktree_prune": git_prune_report,
+                "orphan_dirs": orphan_dirs,
+                "removed_count": removed_count,
+                "removed_paths": removed_paths,
+            },
+        )
+    finally:
+        _worktree_prune_lock.release()
+
+
 # =============================================================================
 # Session Management Endpoints (Per-Container Repository Mode)
 # =============================================================================

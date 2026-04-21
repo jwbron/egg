@@ -41,6 +41,7 @@ try:
     from routes.containers import containers_bp
     from routes.contracts import contract_mutations_bp, contracts_bp
     from routes.decisions import decisions_bp
+    from routes.deployment import deployment_bp
     from routes.health import health_bp
     from routes.messages import messages_bp
     from routes.metrics import metrics_bp
@@ -56,6 +57,7 @@ try:
     app.register_blueprint(containers_bp)
     app.register_blueprint(contracts_bp)
     app.register_blueprint(contract_mutations_bp)
+    app.register_blueprint(deployment_bp)
     app.register_blueprint(phases_bp)
     app.register_blueprint(signals_bp)
     app.register_blueprint(decisions_bp)
@@ -71,6 +73,7 @@ except ImportError:
         contracts_bp,
     )
     from .routes.decisions import decisions_bp  # type: ignore[no-redef]
+    from .routes.deployment import deployment_bp  # type: ignore[no-redef]
     from .routes.health import health_bp  # type: ignore[no-redef]
     from .routes.messages import messages_bp  # type: ignore[no-redef]
     from .routes.metrics import metrics_bp  # type: ignore[no-redef]
@@ -86,6 +89,7 @@ except ImportError:
     app.register_blueprint(containers_bp)
     app.register_blueprint(contracts_bp)
     app.register_blueprint(contract_mutations_bp)
+    app.register_blueprint(deployment_bp)
     app.register_blueprint(phases_bp)
     app.register_blueprint(signals_bp)
     app.register_blueprint(decisions_bp)
