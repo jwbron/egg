@@ -66,6 +66,12 @@ class TestGetFieldOwner:
         assert isinstance(nested_owner, frozenset)
         assert nested_owner == frozenset({Role.IMPLEMENTER, Role.REVIEWER})
 
+    def test_feedback_submission_human_only(self):
+        """Feedback submission fields are human-only, mirroring decisions.*.resolved."""
+        assert get_field_owner("feedback.submitted") == Role.HUMAN
+        assert get_field_owner("feedback.submitted_by") == Role.HUMAN
+        assert get_field_owner("feedback.submitted_at") == Role.HUMAN
+
     def test_reviewer_fields(self):
         """Test fields owned exclusively by reviewer."""
         assert get_field_owner("acceptance_criteria.0.verified") == Role.REVIEWER
@@ -152,6 +158,12 @@ class TestCanModify:
         assert can_modify(Role.IMPLEMENTER, "feedback.questions.0.answer") is True
         assert can_modify(Role.REVIEWER, "feedback.questions.0.answer") is True
 
+    def test_agents_cannot_modify_feedback_submission(self):
+        """Agents cannot mark feedback as submitted — human-only."""
+        for field in ("feedback.submitted", "feedback.submitted_by", "feedback.submitted_at"):
+            assert can_modify(Role.IMPLEMENTER, field) is False
+            assert can_modify(Role.REVIEWER, field) is False
+
     def test_system_cannot_modify_feedback(self):
         """System no longer implicitly owns feedback after #1768."""
         assert can_modify(Role.SYSTEM, "feedback") is False
@@ -233,3 +245,6 @@ class TestFieldOwnershipConfiguration:
         human_paths = [p for p, r in FIELD_OWNERSHIP.items() if r == Role.HUMAN]
         assert "decisions.*.resolved" in human_paths
         assert "decisions.*.resolution" in human_paths
+        assert "feedback.submitted" in human_paths
+        assert "feedback.submitted_by" in human_paths
+        assert "feedback.submitted_at" in human_paths

@@ -62,6 +62,11 @@ FIELD_OWNERSHIP: dict[str, FieldOwner] = {
     # refine/review phases. feedback.* covers nested mutations (e.g. answers).
     "feedback": frozenset({Role.IMPLEMENTER, Role.REVIEWER}),
     "feedback.*": frozenset({Role.IMPLEMENTER, Role.REVIEWER}),
+    # Feedback submission fields: only human can mark feedback as submitted,
+    # mirroring the decisions.*.resolved pattern for defense-in-depth.
+    "feedback.submitted": Role.HUMAN,
+    "feedback.submitted_by": Role.HUMAN,
+    "feedback.submitted_at": Role.HUMAN,
 }
 
 # Fields that any role can read but only the owner can write
