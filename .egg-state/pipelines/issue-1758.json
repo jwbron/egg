@@ -66,9 +66,9 @@
         {
           "container_id": "2b938ce8-b90f-46a5-a72f-c4a4f730e951",
           "container_name": "issue-1758-reviewer_agent_design",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-04-21T03:30:52.967529Z",
-          "exited_at": null,
+          "exited_at": "2026-04-21T03:31:24.198691Z",
           "exit_code": null,
           "agent_role": "reviewer_agent_design",
           "session_token": null,
@@ -79,9 +79,9 @@
         {
           "container_id": "8b43588e-2d25-4113-84e1-ae544c539636",
           "container_name": "issue-1758-reviewer_refine",
-          "status": "running",
+          "status": "removed",
           "started_at": "2026-04-21T03:30:52.967533Z",
-          "exited_at": null,
+          "exited_at": "2026-04-21T03:31:24.198691Z",
           "exit_code": null,
           "agent_role": "reviewer_refine",
           "session_token": null,
@@ -105,25 +105,25 @@
         },
         {
           "role": "reviewer_agent_design",
-          "status": "running",
+          "status": "failed",
           "container_id": "2b938ce8-b90f-46a5-a72f-c4a4f730e951",
           "started_at": "2026-04-21T03:30:52.967531Z",
-          "completed_at": null,
+          "completed_at": "2026-04-21T03:31:24.198691Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pipeline cancelled",
           "retry_count": 0,
           "conflicts": []
         },
         {
           "role": "reviewer_refine",
-          "status": "running",
+          "status": "failed",
           "container_id": "8b43588e-2d25-4113-84e1-ae544c539636",
           "started_at": "2026-04-21T03:30:52.967535Z",
-          "completed_at": null,
+          "completed_at": "2026-04-21T03:31:24.198691Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pipeline cancelled",
           "retry_count": 0,
           "conflicts": []
         }
@@ -146,7 +146,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-21T03:30:18.551629Z",
-  "updated_at": "2026-04-21T03:31:24.178219Z",
+  "updated_at": "2026-04-21T03:31:24.198883Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -159,5 +159,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 9
+  "version": 10
 }
