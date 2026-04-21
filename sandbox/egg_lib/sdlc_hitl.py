@@ -131,8 +131,9 @@ def _get_contract_key(
 ) -> str | None:
     """Return the contract file key for the current pipeline.
 
-    Uses pipeline_id when available, otherwise derives a canonical key
-    from the issue_number (``issue-<N>``).
+    Prefers pipeline_id when available, otherwise derives the canonical
+    ``issue-<N>`` key from the issue number to match the loader's
+    ``_canonical_key`` convention.
     Returns None if neither identifier is available.
     """
     if pipeline_id:
