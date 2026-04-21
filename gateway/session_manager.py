@@ -3,12 +3,12 @@ Session Manager - Per-container session management for repository mode enforceme
 
 Provides thread-safe session storage with disk persistence for the gateway sidecar.
 Sessions bind containers to specific repository visibility modes (private or public)
-and are verified via container IP.
+and are verified via session token.
 
 Security Properties:
 - Session tokens are 256-bit random (cryptographically secure)
 - Only token hashes stored on disk (sha256)
-- Session-container binding verified by Docker network source IP
+- Token-only authentication (container_ip logged for audit but not validated)
 - Fail-closed: Invalid/missing sessions always denied
 - Rate limiting prevents enumeration attacks
 """
@@ -277,8 +277,8 @@ class Session:
     Attributes:
         session_token: Raw token (in-memory only, not persisted)
         session_token_hash: SHA-256 hash of token (persisted)
-        container_id: Docker container ID for audit and worktree cleanup
-        container_ip: Expected source IP for verification
+        container_id: Docker container ID or k8s Job name for audit and worktree cleanup
+        container_ip: Source IP for audit logging (optional; not validated against requests)
         mode: Repository visibility mode (private or public)
         created_at: Session creation timestamp
         last_seen: Last request timestamp (for heartbeat)
@@ -290,7 +290,9 @@ class Session:
     session_token: str | None  # Raw token, only in memory
     session_token_hash: str
     container_id: str
-    container_ip: str
+    container_ip: (
+        str | None
+    )  # Optional; logged for audit, not validated (k8s pod IPs are ephemeral)
     mode: ModeType
     created_at: datetime
     last_seen: datetime
@@ -361,7 +363,7 @@ class Session:
             session_token=None,  # Raw token not persisted
             session_token_hash=data["session_token_hash"],
             container_id=data["container_id"],
-            container_ip=data["container_ip"],
+            container_ip=data.get("container_ip"),
             mode=data["mode"],
             created_at=datetime.fromisoformat(data["created_at"]),
             last_seen=datetime.fromisoformat(data["last_seen"]),
@@ -517,8 +519,8 @@ class SessionManager:
     def register_session(
         self,
         container_id: str,
-        container_ip: str,
-        mode: ModeType,
+        container_ip: str | None = None,
+        mode: ModeType = "public",
         phase: str | None = None,
         issue_number: int | None = None,
         pr_number: int | None = None,
@@ -532,8 +534,8 @@ class SessionManager:
         Register a new session for a container.
 
         Args:
-            container_id: Docker container ID
-            container_ip: Container's IP address on the Docker network
+            container_id: Docker container ID or k8s Job name
+            container_ip: Container's IP address (optional; for audit logging only)
             mode: Repository visibility mode (private or public)
             phase: SDLC pipeline phase (e.g., "refine", "plan", "implement", "pr")
             issue_number: Optional GitHub issue number for checkpoint linkage
@@ -646,19 +648,16 @@ class SessionManager:
                     error="Session has expired",
                 )
 
-            # Verify source IP if provided
-            if source_ip and session.container_ip != source_ip:
-                logger.warning(
-                    "Session validation failed - IP mismatch",
-                    event_type="session_ip_mismatch",
+            # Log source IP for audit purposes (no longer validated against
+            # session.container_ip — pod IPs are ephemeral in Kubernetes).
+            if source_ip and session.container_ip and session.container_ip != source_ip:
+                logger.info(
+                    "Session source IP differs from registered IP (audit only)",
+                    event_type="session_ip_audit",
                     session_token_hash=token_hash[:16],
                     container_id=session.container_id,
-                    expected_ip=session.container_ip,
+                    registered_ip=session.container_ip,
                     actual_ip=source_ip,
-                )
-                return SessionValidationResult(
-                    valid=False,
-                    error="Session-container binding verification failed",
                 )
 
             # Extend session TTL (heartbeat on successful validation)

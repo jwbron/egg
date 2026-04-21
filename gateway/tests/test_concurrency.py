@@ -238,7 +238,7 @@ class TestSessionManagerConcurrency:
 
         def validate_with_wrong_ip():
             nonlocal valid_count
-            # Use wrong IP - should always fail
+            # IP mismatch is audit-only (pod IPs are ephemeral in Kubernetes)
             result = manager.validate_session(token, source_ip="192.168.1.100")
             with lock:
                 if result.valid:
@@ -250,8 +250,8 @@ class TestSessionManagerConcurrency:
         for t in threads:
             t.join()
 
-        # None should be valid due to IP mismatch
-        assert valid_count == 0
+        # All should be valid — IP mismatch is audit-only, not enforced
+        assert valid_count == 50
 
     def test_threadpool_session_operations(self, manager):
         """Session operations work correctly with ThreadPoolExecutor."""

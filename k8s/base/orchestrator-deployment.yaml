@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: egg-system
+  labels:
+    app.kubernetes.io/name: orchestrator
+    app.kubernetes.io/component: orchestrator
+    app.kubernetes.io/part-of: egg
+spec:
+  replicas: 1
+  # Recreate (not RollingUpdate) because the overlay can bind a hostPort
+  # (for MCP access from the host); hostPort is singleton per node, so a
+  # rolling update gets stuck Pending waiting for the port to free up.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orchestrator
+      app.kubernetes.io/component: orchestrator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orchestrator
+        app.kubernetes.io/component: orchestrator
+        app.kubernetes.io/part-of: egg
+    spec:
+      serviceAccountName: egg-orchestrator
+      # Disable legacy service-link env vars (ORCHESTRATOR_PORT, etc.) —
+      # they collide with the entrypoint's own config env var names.
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: orchestrator
+          image: egg-orchestrator:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          ports:
+            - name: api
+              containerPort: 9849
+              protocol: TCP
+            - name: mcp
+              containerPort: 9850
+              protocol: TCP
+          env:
+            - name: EGG_ORCHESTRATOR_URL
+              value: "http://orchestrator.egg-system.svc.cluster.local:9849"
+            - name: GATEWAY_URL
+              value: "http://gateway.egg-system.svc.cluster.local:9848" # noqa: EGG002
+            # gateway_client.py reads GATEWAY_HOST/GATEWAY_PORT directly
+            # (not GATEWAY_URL). In k8s the Service is named "gateway"; the
+            # Compose default "egg-gateway" doesn't resolve here.
+            - name: GATEWAY_HOST
+              value: "gateway.egg-system.svc.cluster.local"
+            - name: GATEWAY_PORT
+              value: "9848" # noqa: EGG002
+            # Orchestrator authenticates to the gateway using the shared
+            # launcher secret. Sourced from the same Secret that the gateway
+            # mounts at /secrets/launcher-secret.
+            - name: EGG_LAUNCHER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secrets
+                  key: launcher-secret
+            # Sandbox image name used by kubernetes_spawner. The code's
+            # default "egg:latest" doesn't match what `make build` produces
+            # (`egg-sandbox:latest`), and nothing exists at docker.io/egg.
+            - name: EGG_SANDBOX_IMAGE
+              value: "egg-sandbox:latest"
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: api
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: api
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            # emptyDir at /home/egg makes $HOME writable (needed for
+            # .gitconfig, .egg-worktrees, sharing/notifications, etc.)
+            # while keeping the rest of the rootfs read-only.
+            - name: home
+              mountPath: /home/egg
+            - name: egg-state
+              mountPath: /home/egg/.egg-state
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: home
+          emptyDir: {}
+        - name: egg-state
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

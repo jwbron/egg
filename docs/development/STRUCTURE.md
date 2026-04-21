@@ -10,7 +10,8 @@ egg/
 ├── config/                 # Central configuration (repos, secrets template)
 ├── docs/                   # Cross-cutting documentation
 ├── gateway/                # Gateway sidecar (trusted container)
-├── integration_tests/      # Integration tests (require Docker)
+├── integration_tests/      # Integration tests (require k3s)
+├── k8s/                    # Kubernetes manifests (Kustomize base + overlays)
 ├── orchestrator/           # SDLC pipeline orchestrator (local execution)
 ├── sandbox/                # Sandbox container (untrusted, runs the LLM agent)
 ├── scripts/                # Validation and lint scripts
@@ -29,7 +30,8 @@ egg/
 | `bin/` | CLI entry points (`egg`, `egg-sdlc`) | Host |
 | `config/` | Repository config, secrets template | Host |
 | `gateway/` | Gateway sidecar: policy enforcement, credential injection, proxying | Gateway container |
-| `integration_tests/` | Integration tests requiring Docker and real containers | CI / local |
+| `integration_tests/` | Integration tests requiring k3s cluster and real pods | CI / local |
+| `k8s/` | Kubernetes manifests: Kustomize base + overlays (local/k3s). Namespaces, Deployments, Services, NetworkPolicies, agent Job template, RBAC | k3s cluster |
 | `orchestrator/` | SDLC pipeline orchestrator: state management, container lifecycle, HITL queue | Orchestrator container |
 | `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
 | `scripts/` | CI/lint scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement, LLM API boundary enforcement, model alias enforcement, harness parity validation) | CI / local |
@@ -77,14 +79,16 @@ gateway/
 
 ## Orchestrator Structure
 
-The orchestrator manages local SDLC pipeline execution. It creates isolated git worktrees for each pipeline via the gateway's worktree API and mounts them into sandbox containers:
+The orchestrator manages local SDLC pipeline execution. It creates isolated git worktrees for each pipeline via the gateway's worktree API and mounts them into agent pods:
 
 ```
 orchestrator/
 ├── api.py                  # REST API server (Flask)
 ├── cli.py                  # CLI for pipeline management
-├── container_spawner.py    # Sandbox container lifecycle
-├── container_monitor.py    # Container health monitoring
+├── container_backend.py    # ContainerBackend protocol (structural typing interface)
+├── kubernetes_client.py    # Kubernetes API client (Job CRUD, pod logs, status)
+├── kubernetes_spawner.py   # Agent Job lifecycle (replaces ContainerSpawner)
+├── kubernetes_monitor.py   # k8s Job state monitoring (replaces ContainerMonitor)
 ├── concurrent_executor.py  # Concurrent phase executor (spawns all agents simultaneously)
 ├── action_guards.py        # Formal BRC state machine action guards (preconditions for propose/ack/nack/confirm/withdraw)
 ├── approval_matrix.py      # Per-reviewer ACK/NACK matrix for BRC consensus
@@ -93,7 +97,6 @@ orchestrator/
 ├── consensus_wrapper.py    # Shell wrapper that keeps containers alive polling for consensus after Claude exits
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status
 ├── decision_queue.py       # HITL decision queue
-├── docker_client.py        # Docker API client
 ├── events.py               # Event bus for pipeline events
 ├── gateway_client.py       # Gateway API client (sessions, worktrees, config)
 ├── handoffs.py             # Agent handoff data management
@@ -151,6 +154,31 @@ orchestrator/
 ├── tests/                  # Orchestrator tests (signal verification, worktree sync, health checks, 30+ files)
 └── CLAUDE.md               # Agent navigation guide
 ```
+
+## Kubernetes Manifests
+
+The `k8s/` directory contains Kustomize manifests for deploying egg to Kubernetes:
+
+```
+k8s/
+├── base/                              # Environment-agnostic base manifests
+│   ├── kustomization.yaml             # Kustomize resource listing
+│   ├── namespaces.yaml                # egg-system and egg-agents namespaces
+│   ├── orchestrator-deployment.yaml   # Orchestrator Deployment + environment config
+│   ├── orchestrator-service.yaml      # Service exposing port 9849
+│   ├── gateway-deployment.yaml        # Gateway Deployment + environment config
+│   ├── gateway-service.yaml           # Service exposing ports 9848, 3129, 9851
+│   ├── network-policies.yaml          # Calico NetworkPolicies for agent isolation
+│   └── rbac.yaml                      # ServiceAccount + Role + RoleBinding for orchestrator
+(Agent Job specs are built programmatically by ``KubernetesClient.create_container`` — no standalone YAML template.)
+│
+└── overlays/
+    └── local/                         # k3s-specific patches
+        ├── kustomization.yaml         # Overlay config referencing base
+        └── patches/                   # hostPath storage, local-path provisioner config
+```
+
+See [Kubernetes Migration](../architecture/kubernetes-migration.md) for architecture details.
 
 ## Sandbox Structure
 

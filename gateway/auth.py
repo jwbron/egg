@@ -118,7 +118,9 @@ def require_session_auth(f: F) -> F:  # noqa: UP047
         token = auth_header[7:]  # Remove "Bearer " prefix
         source_ip = request.remote_addr
 
-        # Validate session via session_manager (call via module to allow patching in tests)
+        # Validate session via session_manager (call via module to allow patching in tests).
+        # source_ip is passed for audit logging only — it is no longer used for
+        # request rejection (k8s pod IPs are ephemeral and change on restart).
         session_manager = _get_session_manager()
         result = session_manager.validate_session_for_request(token, source_ip)
         if not result.valid:

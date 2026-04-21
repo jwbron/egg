@@ -92,6 +92,7 @@ def _base_mocks(executions, container_infos=None):
     mock_docker.get_container_info.side_effect = lambda cid: container_infos.get(cid)
 
     mock_spawner = MagicMock()
+    mock_spawner.backend = mock_docker
     mock_spawner.docker = mock_docker
     mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
 

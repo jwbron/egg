@@ -45,7 +45,10 @@ from review_graph import ReviewGraph, get_review_graph_for_phase
 
 logger = get_logger("orchestrator.concurrent_executor")
 
-# Type alias for spawn function
+# Type alias for spawn function.
+# SpawnFn is called with (role, branch, extra_env, command) and returns
+# a SpawnedContainer (from either ContainerSpawner or KubernetesSpawner).
+# The result must have a container_info attribute with container_id.
 SpawnFn = Callable[..., Any]
 
 # Failure detection window: multiple failures within this window trigger abort
@@ -272,12 +275,15 @@ class ConcurrentPhaseExecutor:
         return executions
 
     def _spawn_agent(self, role: AgentRole, prompt_text: str = "") -> AgentExecution:
-        """Spawn a single agent container.
+        """Spawn a single agent container or Kubernetes Job.
 
         Args:
             role: The agent role to spawn.
             prompt_text: The prompt to pass to the Claude CLI. When non-empty,
                 a sandbox command is built and passed to the spawn function.
+
+        Works with both ContainerSpawner.create_concurrent_spawn_fn() and
+        KubernetesSpawner.create_concurrent_spawn_fn().
         """
         branch = self.get_worktree_branch(role)
         env = self.get_agent_env(role)
@@ -293,10 +299,14 @@ class ConcurrentPhaseExecutor:
             command=command,
         )
 
+        # container_id works for both Docker containers and k8s Jobs/pods.
+        # The KubernetesClient returns the Job UID as container_id.
+        container_id = result.container_info.container_id
+
         return AgentExecution(
             role=role,
             status=AgentExecutionStatus.RUNNING,
-            container_id=result.container_info.container_id,
+            container_id=container_id,
             started_at=datetime.now(UTC),
         )
 

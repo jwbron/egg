@@ -44,29 +44,23 @@ def mock_docker_client():
     """Create a mock Docker client."""
     mock = MagicMock()
     mock.is_connected.return_value = True
-    mock.CONTAINER_PREFIX = "egg-sandbox-"
-
     # get_container_info returns info for the existing container
     mock.get_container_info.return_value = ContainerInfo(
         container_id="old-container-abc",
-        container_name="egg-sandbox-egg-issue-100-coder",
+        container_name="egg-agent-issue-100-coder",
         status=ContainerStatus.RUNNING,
     )
 
+    # K8s create_container creates the Job atomically (no separate start)
     mock.create_container.return_value = ContainerInfo(
         container_id="new-container-123",
-        container_name="egg-issue-100-coder",
-        status=ContainerStatus.PENDING,
-    )
-    mock.start_container.return_value = ContainerInfo(
-        container_id="new-container-123",
-        container_name="egg-issue-100-coder",
+        container_name="egg-sandbox-egg-agent-issue-100-coder",
         status=ContainerStatus.RUNNING,
         started_at=datetime.now(UTC),
     )
     mock.stop_container.return_value = ContainerInfo(
         container_id="old-container-abc",
-        container_name="egg-issue-100-coder",
+        container_name="egg-agent-issue-100-coder",
         status=ContainerStatus.EXITED,
     )
     mock.list_containers.return_value = []
@@ -133,7 +127,7 @@ class TestRestartAgentContainer:
     def test_restart_stops_existing_container(
         self, spawner, mock_docker_client, mock_gateway_client
     ):
-        """Restart should stop the old container before spawning a new one."""
+        """Restart should remove the old Job before spawning a new one."""
         spawner.restart_agent_container(
             pipeline_id="issue-100",
             agent_role=AgentRole.CODER,
@@ -141,25 +135,11 @@ class TestRestartAgentContainer:
             mode="public",
         )
 
-        # Should call stop on the old container
-        mock_docker_client.stop_container.assert_called()
-
-    def test_restart_removes_existing_container(
-        self, spawner, mock_docker_client, mock_gateway_client
-    ):
-        """Restart should force-remove the old container."""
-        spawner.restart_agent_container(
-            pipeline_id="issue-100",
-            agent_role=AgentRole.CODER,
-            issue_number=100,
-            mode="public",
-        )
-
-        # Force removal should be called
+        # K8s restart calls remove_container (via remove_agent_job)
         mock_docker_client.remove_container.assert_called()
 
     def test_restart_spawns_new_container(self, spawner, mock_docker_client, mock_gateway_client):
-        """Restart should create and start a new container."""
+        """Restart should create a new Job."""
         spawner.restart_agent_container(
             pipeline_id="issue-100",
             agent_role=AgentRole.CODER,
@@ -167,8 +147,8 @@ class TestRestartAgentContainer:
             mode="public",
         )
 
+        # K8s Job creation is atomic (create_container creates the Job)
         mock_docker_client.create_container.assert_called()
-        mock_docker_client.start_container.assert_called()
 
     def test_restart_tracks_count(self, spawner, mock_docker_client, mock_gateway_client):
         """Restart should increment the restart count."""
@@ -212,8 +192,8 @@ class TestRestartAgentContainer:
     def test_restart_handles_stop_failure_gracefully(
         self, spawner, mock_docker_client, mock_gateway_client
     ):
-        """If stopping the old container fails, restart should still proceed."""
-        mock_docker_client.stop_container.side_effect = ContainerOperationError("timeout")
+        """If removing the old Job fails, restart should still proceed."""
+        mock_docker_client.remove_container.side_effect = ContainerOperationError("timeout")
 
         result = spawner.restart_agent_container(
             pipeline_id="issue-100",
@@ -288,9 +268,7 @@ class TestRestartAgentContainer:
         This ensures that a transient Docker failure during restart does not
         destroy the agent's worktree containing committed work.
         """
-        with patch.object(
-            spawner, "spawn_agent_container", wraps=spawner.spawn_agent_container
-        ) as mock_spawn:
+        with patch.object(spawner, "spawn_agent_job", wraps=spawner.spawn_agent_job) as mock_spawn:
             spawner.restart_agent_container(
                 pipeline_id="issue-100",
                 agent_role=AgentRole.CODER,
@@ -302,7 +280,7 @@ class TestRestartAgentContainer:
             call_kwargs = mock_spawn.call_args[1]
             assert call_kwargs.get("preserve_worktree_on_failure") is True, (
                 "restart_agent_container must pass preserve_worktree_on_failure=True "
-                "to protect existing worktree from transient Docker failures"
+                "to protect existing worktree from transient failures"
             )
 
 
@@ -964,10 +942,16 @@ class TestRestartConcurrencyGuard:
 
 
 class TestRestartLockCleanup:
-    """Tests that reset_restart_counts also cleans up per-key locks."""
+    """Tests lock behavior in reset_restart_counts."""
 
-    def test_reset_cleans_up_locks(self, spawner):
-        """reset_restart_counts should remove locks for the given pipeline."""
+    def test_reset_clears_counts_retains_locks(self, spawner):
+        """reset_restart_counts should clear counts but retain locks.
+
+        Locks are intentionally kept to prevent a race where
+        restart_agent_job holds a per-key lock, reset_restart_counts
+        deletes it from the dict, and _get_restart_lock creates a new
+        lock for the same key — breaking mutual exclusion.
+        """
         # Create some locks by accessing them
         spawner._get_restart_lock(("issue-100", "coder"))
         spawner._get_restart_lock(("issue-100", "tester"))
@@ -980,14 +964,13 @@ class TestRestartLockCleanup:
 
         spawner.reset_restart_counts("issue-100")
 
-        # Locks for issue-100 should be removed (check BEFORE get_restart_count
-        # which would re-create the lock as a side effect)
-        assert ("issue-100", "coder") not in spawner._restart_locks
-        assert ("issue-100", "tester") not in spawner._restart_locks
-
         # Counts for issue-100 should be cleared
         assert spawner._restart_counts.get(("issue-100", "coder"), 0) == 0
         assert spawner._restart_counts.get(("issue-100", "tester"), 0) == 0
+
+        # Locks for issue-100 should be retained (not deleted)
+        assert ("issue-100", "coder") in spawner._restart_locks
+        assert ("issue-100", "tester") in spawner._restart_locks
 
         # issue-200 should be untouched
         assert spawner._restart_counts.get(("issue-200", "coder"), 0) == 3

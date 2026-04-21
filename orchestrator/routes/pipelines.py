@@ -16,7 +16,15 @@ from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 import yaml
-from docker.errors import DockerException
+
+try:
+    from docker.errors import DockerException
+except ImportError:
+
+    class DockerException(Exception):  # type: ignore[no-redef]
+        pass
+
+
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 # Add shared directory to path for egg_logging
@@ -52,6 +60,12 @@ try:
     from ..decision_queue import get_decision_queue
     from ..docker_client import ContainerNotFoundError, ContainerOperationError, DockerClientError
     from ..gateway_client import GatewayError
+    from ..kubernetes_client import (
+        JobOperationError,
+        KubernetesClientError,
+        PodNotFoundError,
+    )
+    from ..kubernetes_spawner import KubernetesSpawnError, get_kubernetes_spawner
     from ..models import (
         AgentExecutionStatus,
         AgentRole,
@@ -84,6 +98,15 @@ except ImportError:
         DockerClientError,
     )
     from gateway_client import GatewayError  # type: ignore
+    from kubernetes_client import (  # type: ignore
+        JobOperationError,
+        KubernetesClientError,
+        PodNotFoundError,
+    )
+    from kubernetes_spawner import (  # type: ignore
+        KubernetesSpawnError,
+        get_kubernetes_spawner,
+    )
     from models import (  # type: ignore
         AgentExecutionStatus,
         AgentRole,
@@ -142,7 +165,7 @@ def _check_and_respawn_overseer(
         return overseer_container_id, overseer_respawn_count
 
     try:
-        info = spawner.docker.get_container_info(overseer_container_id)
+        info = spawner.backend.get_container_info(overseer_container_id)
         needs_respawn = info.status in (
             ContainerStatus.EXITED,
             ContainerStatus.FAILED,
@@ -170,7 +193,7 @@ def _check_and_respawn_overseer(
         # Capture log tail from the old container before respawning (best-effort).
         log_tail = "unavailable"
         try:
-            log_tail = spawner.docker.get_container_logs(overseer_container_id, tail=20)
+            log_tail = spawner.backend.get_container_logs(overseer_container_id, tail=20)
         except Exception:
             # Container may already be purged — fall back to "unavailable".
             pass
@@ -360,6 +383,21 @@ except ImportError:
 
 
 pipelines_bp = Blueprint("pipelines", __name__, url_prefix="/api/v1/pipelines")
+
+
+# Runtime detection: use Kubernetes spawner when EGG_RUNTIME=kubernetes
+_RUNTIME = os.environ.get("EGG_RUNTIME", "docker")
+
+
+def _get_spawner():
+    """Get the appropriate spawner for the current runtime.
+
+    Returns KubernetesSpawner when EGG_RUNTIME=kubernetes, otherwise
+    ContainerSpawner (Docker).
+    """
+    if _RUNTIME == "kubernetes":
+        return get_kubernetes_spawner()
+    return get_container_spawner()
 
 
 from routes import get_repo_path, resolve_worktree_repo_path  # noqa: E402 — shared helpers
@@ -1085,7 +1123,7 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
             # catch anything the background thread hasn't finished.
             def _background_cleanup(pid: str, status_value: str) -> None:
                 try:
-                    spawner = get_container_spawner()
+                    spawner = _get_spawner()
                     removed = spawner.cleanup_pipeline(pid, force=True)
                     if removed > 0:
                         logger.info(
@@ -1094,7 +1132,7 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
                             status=status_value,
                             containers_removed=removed,
                         )
-                except (DockerClientError, DockerException) as e:
+                except (DockerClientError, DockerException, KubernetesClientError) as e:
                     logger.warning(
                         "Failed to clean up pipeline containers",
                         pipeline_id=pid,
@@ -1225,7 +1263,7 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
         # Clean up any running containers for this pipeline
         try:
-            spawner = get_container_spawner()
+            spawner = _get_spawner()
             removed = spawner.cleanup_pipeline(pipeline_id, force=True)
             if removed > 0:
                 logger.info(
@@ -1233,7 +1271,7 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     pipeline_id=pipeline_id,
                     containers_removed=removed,
                 )
-        except (DockerClientError, DockerException) as e:
+        except (DockerClientError, DockerException, KubernetesClientError) as e:
             logger.warning(
                 "Failed to clean up pipeline containers",
                 pipeline_id=pipeline_id,
@@ -1344,7 +1382,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     reason = body.get("reason", "Manual restart via API")
 
     # Restart the container via spawner
-    spawner = get_container_spawner()
+    spawner = _get_spawner()
 
     # Gather spawn parameters from pipeline state
     current_phase = pipeline.current_phase.value
@@ -1448,7 +1486,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             base_branch=pipeline.branch,
             reason=reason,
         )
-    except ContainerSpawnError as e:
+    except (ContainerSpawnError, KubernetesSpawnError) as e:
         # Revert early status update — the agent is not actually running.
         # Consensus state is intentionally NOT reset here so a failed spawn
         # preserves the agent's prior consensus participation.
@@ -1640,7 +1678,7 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     # Compute gateway mode from pipeline config (not hardcoded "public")
     gateway_mode, _ = _compute_gateway_mode(pipeline)
 
-    spawner = get_container_spawner()
+    spawner = _get_spawner()
 
     # Acquire the pipeline state lock to collect agent roles, snapshot
     # container IDs, and update pipeline status to RUNNING *before* the
@@ -7515,7 +7553,7 @@ def _run_concurrent_phase(
         for e in executions:
             if e.container_id and e.status.value != "failed":
                 try:
-                    spawner.docker.stop_container(e.container_id, timeout=10)
+                    spawner.backend.stop_container(e.container_id, timeout=10)
                 except Exception:
                     pass
         logs = "\n".join(
@@ -7530,7 +7568,7 @@ def _run_concurrent_phase(
     # waiting for containers to exit.  If consensus is never reached (timeout
     # or all containers exit first), fall back to exit-code-based completion.
     active_executions = [e for e in executions if e.container_id]
-    docker_client = spawner.docker
+    docker_client = spawner.backend
     all_logs: list[str] = []
     has_failures = [False]  # Mutable container for closure access
     # Lock protects all_logs and has_failures mutations from the
@@ -7825,7 +7863,12 @@ def _run_concurrent_phase(
                 continue
             try:
                 info = docker_client.get_container_info(exec_info.container_id)
-            except (ContainerNotFoundError, ContainerOperationError) as e:
+            except (
+                ContainerNotFoundError,
+                ContainerOperationError,
+                PodNotFoundError,
+                JobOperationError,
+            ) as e:
                 logger.warning(
                     "Container lost during poll",
                     container_id=exec_info.container_id,
@@ -8112,7 +8155,12 @@ def _run_concurrent_phase(
                                 exec_info.container_id,
                                 timeout=3600,
                             )
-                        except (ContainerNotFoundError, ContainerOperationError):
+                        except (
+                            ContainerNotFoundError,
+                            ContainerOperationError,
+                            PodNotFoundError,
+                            JobOperationError,
+                        ):
                             # Timeout or lost — stop the container so it doesn't
                             # keep running as an orphan (issue #1691).
                             try:
@@ -8291,7 +8339,7 @@ def _spawn_and_wait(
     """
     from models import ContainerInfo, ContainerStatus, PipelinePhase
 
-    spawned = spawner.spawn_agent_container(
+    spawned = spawner.spawn_agent_job(
         pipeline_id=pipeline_id,
         agent_role=agent_role,
         issue_number=issue_number,
@@ -8302,7 +8350,6 @@ def _spawn_and_wait(
         extra_env=sandbox_env,
         command=sandbox_command,
         repo_volumes=repo_volumes,
-        certs_volume=certs_volume,
         branch=branch,
         extra_mounts=extra_mounts,
     )
@@ -8343,13 +8390,18 @@ def _spawn_and_wait(
                 error=str(track_err),
             )
 
-    docker_client = spawner.docker
+    backend = spawner.backend
     try:
-        final_info = docker_client.wait_for_container(
+        final_info = backend.wait_for_container(
             spawned.container_info.container_id,
             timeout=timeout,
         )
-    except (ContainerNotFoundError, ContainerOperationError) as e:
+    except (
+        ContainerNotFoundError,
+        ContainerOperationError,
+        PodNotFoundError,
+        JobOperationError,
+    ) as e:
         logger.warning(
             "Container lost during wait, marking failed",
             container_id=spawned.container_info.container_id,
@@ -8366,7 +8418,7 @@ def _spawn_and_wait(
     container_logs = ""
     if final_info.exit_code != 0:
         try:
-            container_logs = spawner.docker.get_container_logs(
+            container_logs = backend.get_container_logs(
                 spawned.container_info.container_id,
                 tail=200,
             )
@@ -8970,7 +9022,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
     try:
         store = get_state_store(repo_path)
-        spawner = get_container_spawner()
+        spawner = _get_spawner()
         pipeline = store.load_pipeline(pipeline_id)
         run_epoch = pipeline.run_epoch or pipeline.created_at
         pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
@@ -9670,7 +9722,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase=current_phase.value,
                         container_id=overseer_container_id[:12],
                     )
-                except ContainerSpawnError as e:
+                except (ContainerSpawnError, KubernetesSpawnError) as e:
                     # Non-fatal: pipeline can run without overseer monitoring
                     logger.warning(
                         "Failed to spawn overseer container (continuing without monitoring)",
@@ -10022,7 +10074,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             worktree_repo_path=worktree_repo_path,
                             review_feedback=_phase_review_feedback,
                         )
-                    except ContainerSpawnError as e:
+                    except (ContainerSpawnError, KubernetesSpawnError) as e:
                         with get_pipeline_state_lock(pipeline_id):
                             pipeline = store.load_pipeline(pipeline_id)
                             phase_execution = pipeline.get_phase_execution(current_phase)
@@ -10719,8 +10771,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # Stop overseer container if it was spawned
         if overseer_container_id:
             try:
-                _spawner = get_container_spawner()
-                _spawner.stop_agent_container(
+                _spawner = _get_spawner()
+                _spawner.stop_agent_job(
                     overseer_container_id,
                     cleanup_session=True,
                     timeout=10,
@@ -10741,7 +10793,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # recreated (delete + create with the same ID).  In that case the
         # new run owns the worktrees and we must not remove them.
         try:
-            _spawner = get_container_spawner()
+            _spawner = _get_spawner()
             _store = get_state_store(repo_path)
             skip_cleanup = False
             pipeline_was_restarted = False
@@ -10954,7 +11006,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         # Push if this repo tracks a remote branch
                         if pipeline.branch:
                             try:
-                                _spawner = get_container_spawner()
+                                _spawner = _get_spawner()
                                 _spawner.gateway.push_worktree_branch(
                                     pipeline_id=pipeline_id,
                                     repo_path=str(repo_path),

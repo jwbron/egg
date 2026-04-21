@@ -129,6 +129,7 @@ def spawner(mock_docker_client, mock_gateway_client):
 def mock_spawner(mock_docker_client):
     """Mock spawner for _check_and_respawn_overseer tests."""
     mock = MagicMock()
+    mock.backend = mock_docker_client
     mock.docker = mock_docker_client
     respawned_id = "overseer-respawned-1562"
     mock.spawn_overseer_container.return_value = SpawnedContainer(

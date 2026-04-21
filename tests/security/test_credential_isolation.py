@@ -297,10 +297,9 @@ class TestIPBindingEnforcement:
         result = manager.validate_session(token, source_ip="172.18.0.5")
         assert result.valid
 
-        # Wrong IP should fail
+        # Wrong IP is audit-only (pod IPs are ephemeral in Kubernetes)
         result = manager.validate_session(token, source_ip="172.18.0.99")
-        assert not result.valid
-        assert "binding" in result.error.lower() or "ip" in result.error.lower()
+        assert result.valid
 
     def test_ip_binding_error_message_not_verbose(self, tmp_path, isolated_env):
         """Verify IP mismatch error doesn't leak expected IP.

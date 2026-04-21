@@ -1,0 +1,747 @@
+"""
+Tests for the KubernetesSpawner.
+
+Covers Job spawning, gateway session integration, restart tracking,
+pipeline cleanup, and error handling.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
+
+import pytest
+from kubernetes_client import (
+    DEFAULT_NAMESPACE,
+    LABEL_AGENT_ROLE,
+    LABEL_CONTAINER_NAME,
+    LABEL_ORCHESTRATOR,
+    LABEL_PIPELINE_ID,
+    JobOperationError,
+    KubernetesClientError,
+    PodNotFoundError,
+)
+from models import AgentRole, ContainerInfo, ContainerStatus
+
+# ---------------------------------------------------------------------------
+# Fake gateway objects (avoid importing gateway_client directly)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _FakeSessionInfo:
+    session_token: str = "tok-abcdef123456"
+    container_id: str = "job-coder"
+    container_ip: str | None = None
+    mode: str = "public"
+    created_at: datetime = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
+    expires_at: datetime = datetime(2024, 1, 16, 12, 0, 0, tzinfo=UTC)
+
+
+@dataclass
+class _FakeGatewayHealth:
+    healthy: bool = True
+    status: str = "ok"
+    version: str | None = "1.0.0"
+    uptime_seconds: float | None = 3600.0
+    error: str | None = None
+
+
+@dataclass
+class _FakeWorktreeResult:
+    success: bool = True
+    worktrees: dict = None  # type: ignore[assignment]
+    errors: list = None  # type: ignore[assignment]
+
+    def __post_init__(self):
+        if self.worktrees is None:
+            self.worktrees = {"owner/repo": "/home/egg/.egg-worktrees/test/owner/repo"}
+        if self.errors is None:
+            self.errors = []
+
+
+class _FakeGatewayError(Exception):
+    """Fake GatewayError for testing."""
+
+    def __init__(self, message: str, status_code: int | None = None, details=None):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+        self.details = details
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def mock_k8s_client():
+    """Create a mock KubernetesClient."""
+    client = MagicMock()
+    client.delete_job.side_effect = PodNotFoundError("No existing job")
+    client.create_container.return_value = ContainerInfo(
+        container_id="uid-abc123",
+        container_name="egg-agent-pipe1-coder",
+        job_name="egg-agent-pipe1-coder",
+        namespace="egg-agents",
+        status=ContainerStatus.PENDING,
+    )
+    client.stop_container.return_value = ContainerInfo(
+        container_id="uid-abc123",
+        container_name="egg-agent-pipe1-coder",
+        status=ContainerStatus.EXITED,
+    )
+    client.remove_container.return_value = None
+    client.list_containers.return_value = []
+    return client
+
+
+@pytest.fixture()
+def mock_gateway():
+    """Create a mock GatewayClient."""
+    gw = MagicMock()
+    gw.check_health.return_value = _FakeGatewayHealth()
+    gw.register_session.return_value = _FakeSessionInfo()
+    gw.delete_session.return_value = True
+    gw.delete_session_by_container.return_value = True
+    gw.create_worktrees.return_value = _FakeWorktreeResult()
+    gw.delete_worktrees.return_value = _FakeWorktreeResult(worktrees={})
+    return gw
+
+
+@pytest.fixture()
+def spawner(mock_k8s_client, mock_gateway):
+    """Create a KubernetesSpawner with mock dependencies."""
+    # Patch the gateway_client module's GatewayError so except clauses work
+    with patch.dict(
+        "sys.modules",
+        {
+            "gateway_client": MagicMock(
+                GatewayClient=MagicMock,
+                GatewayError=_FakeGatewayError,
+                SessionInfo=_FakeSessionInfo,
+                get_gateway_client=MagicMock(return_value=mock_gateway),
+            ),
+        },
+    ):
+        from kubernetes_spawner import KubernetesSpawner
+
+        s = KubernetesSpawner(
+            k8s_client=mock_k8s_client,
+            gateway_client=mock_gateway,
+            namespace="test-ns",
+        )
+        return s
+
+
+@pytest.fixture()
+def _patch_gateway_error():
+    """Ensure GatewayError is importable for the spawner module."""
+    import sys
+
+    mod = sys.modules.get("gateway_client")
+    if mod is None or not hasattr(mod, "GatewayError") or not isinstance(mod.GatewayError, type):
+        mock_mod = MagicMock()
+        mock_mod.GatewayError = _FakeGatewayError
+        mock_mod.GatewayClient = MagicMock
+        mock_mod.SessionInfo = _FakeSessionInfo
+        mock_mod.get_gateway_client = MagicMock()
+        sys.modules["gateway_client"] = mock_mod
+    yield
+
+
+# ---------------------------------------------------------------------------
+# TestSpawnedContainer
+# ---------------------------------------------------------------------------
+
+
+class TestSpawnedContainer:
+    """Test the SpawnedContainer dataclass."""
+
+    def test_spawned_container_fields(self, spawner):
+        """SpawnedContainer stores all required fields."""
+        from kubernetes_spawner import SpawnedContainer
+
+        info = ContainerInfo(container_id="uid-1", container_name="test")
+        sc = SpawnedContainer(
+            container_info=info,
+            session_info=_FakeSessionInfo(),
+            agent_role=AgentRole.CODER,
+            pipeline_id="pipe-1",
+            environment={"KEY": "val"},
+        )
+        assert sc.container_info is info
+        assert sc.agent_role == AgentRole.CODER
+        assert sc.pipeline_id == "pipe-1"
+        assert sc.environment["KEY"] == "val"
+
+    def test_spawned_container_no_session(self, spawner):
+        """SpawnedContainer can have session_info=None."""
+        from kubernetes_spawner import SpawnedContainer
+
+        sc = SpawnedContainer(
+            container_info=ContainerInfo(container_id="u", container_name="n"),
+            session_info=None,
+            agent_role=AgentRole.TESTER,
+            pipeline_id="p2",
+            environment={},
+        )
+        assert sc.session_info is None
+
+
+# ---------------------------------------------------------------------------
+# TestKubernetesSpawnerInit
+# ---------------------------------------------------------------------------
+
+
+class TestKubernetesSpawnerInit:
+    """Test KubernetesSpawner initialization."""
+
+    def test_init_with_clients(self, mock_k8s_client, mock_gateway):
+        """Constructor accepts explicit clients."""
+        from kubernetes_spawner import KubernetesSpawner
+
+        s = KubernetesSpawner(
+            k8s_client=mock_k8s_client,
+            gateway_client=mock_gateway,
+            namespace="custom-ns",
+        )
+        assert s._namespace == "custom-ns"
+        assert s.k8s is mock_k8s_client
+        assert s.gateway is mock_gateway
+
+    def test_init_default_namespace(self, mock_k8s_client, mock_gateway):
+        """Default namespace is DEFAULT_NAMESPACE."""
+        from kubernetes_spawner import KubernetesSpawner
+
+        s = KubernetesSpawner(
+            k8s_client=mock_k8s_client,
+            gateway_client=mock_gateway,
+        )
+        assert s._namespace == DEFAULT_NAMESPACE
+
+    def test_empty_restart_counts(self, spawner):
+        """Restart counts start empty."""
+        assert spawner._restart_counts == {}
+
+
+# ---------------------------------------------------------------------------
+# TestSpawnAgentJob
+# ---------------------------------------------------------------------------
+
+
+class TestSpawnAgentJob:
+    """Test spawn_agent_job method."""
+
+    def test_basic_spawn(self, spawner, mock_k8s_client, mock_gateway):
+        """Basic spawn creates a Job with gateway session."""
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+        )
+        assert result.pipeline_id == "pipe-1"
+        assert result.agent_role == AgentRole.CODER
+        assert result.session_info is not None
+        assert result.container_info.container_id == "uid-abc123"
+
+        # Verify gateway health was checked
+        mock_gateway.check_health.assert_called_once()
+
+        # Verify session was registered
+        mock_gateway.register_session.assert_called_once()
+        call_kwargs = mock_gateway.register_session.call_args.kwargs
+        assert call_kwargs["container_id"] == "egg-agent-pipe-1-coder"
+        assert call_kwargs["container_ip"] is None  # Token-only
+        assert call_kwargs["pipeline_id"] == "pipe-1"
+        assert call_kwargs["agent_role"] == "coder"
+
+        # Verify k8s job was created
+        mock_k8s_client.create_container.assert_called_once()
+
+    def test_spawn_sets_environment(self, spawner, mock_k8s_client, mock_gateway):
+        """Spawn sets required environment variables."""
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-2",
+            agent_role=AgentRole.TESTER,
+            issue_number=42,
+            phase="implement",
+            branch="egg/issue-42",
+        )
+        env = result.environment
+        assert env["EGG_PIPELINE_ID"] == "pipe-2"
+        assert env["EGG_AGENT_ROLE"] == "tester"
+        assert env["EGG_ISSUE_NUMBER"] == "42"
+        assert env["EGG_PHASE"] == "implement"
+        assert env["EGG_BRANCH"] == "egg/issue-42"
+        assert "EGG_SESSION_TOKEN" in env
+        assert "GATEWAY_URL" in env
+        assert "EGG_ORCHESTRATOR_URL" in env
+
+    def test_spawn_extra_env_overrides(self, spawner, mock_k8s_client):
+        """extra_env overrides default environment."""
+        result = spawner.spawn_agent_job(
+            pipeline_id="p",
+            agent_role=AgentRole.CODER,
+            extra_env={"EGG_AGENT_ROLE": "custom", "MY_KEY": "val"},
+        )
+        assert result.environment["EGG_AGENT_ROLE"] == "custom"
+        assert result.environment["MY_KEY"] == "val"
+
+    def test_spawn_labels(self, spawner, mock_k8s_client):
+        """Spawn sets the expected labels on the Job."""
+        spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            issue_number=99,
+        )
+        call_kwargs = mock_k8s_client.create_container.call_args.kwargs
+        labels = call_kwargs["labels"]
+        assert labels[LABEL_ORCHESTRATOR] == "true"
+        assert labels[LABEL_PIPELINE_ID] == "pipe-1"
+        assert labels[LABEL_AGENT_ROLE] == "coder"
+        assert labels[LABEL_CONTAINER_NAME] == "egg-agent-pipe-1-coder"
+        assert labels["egg.issue.number"] == "99"
+
+    def test_spawn_without_gateway_wait(self, spawner, mock_gateway):
+        """wait_for_gateway=False skips health check."""
+        spawner.spawn_agent_job(
+            pipeline_id="p",
+            agent_role=AgentRole.CODER,
+            wait_for_gateway=False,
+        )
+        mock_gateway.check_health.assert_not_called()
+
+    def test_spawn_unhealthy_gateway_raises(self, spawner, mock_gateway):
+        """Spawn raises when gateway is unhealthy."""
+        from kubernetes_spawner import KubernetesSpawnError
+
+        mock_gateway.check_health.return_value = _FakeGatewayHealth(
+            healthy=False, status="down", error="connection refused"
+        )
+        with pytest.raises(KubernetesSpawnError, match="Gateway is not healthy"):
+            spawner.spawn_agent_job(
+                pipeline_id="p",
+                agent_role=AgentRole.CODER,
+            )
+
+    def test_spawn_cleans_existing_job(self, spawner, mock_k8s_client):
+        """Spawn deletes any existing Job with the same name."""
+        mock_k8s_client.delete_job.side_effect = None  # Simulate success
+        spawner.spawn_agent_job(
+            pipeline_id="p",
+            agent_role=AgentRole.CODER,
+        )
+        mock_k8s_client.delete_job.assert_called_once_with(
+            "egg-sandbox-egg-agent-p-coder", "test-ns"
+        )
+
+    def test_spawn_with_repos_creates_worktrees(self, spawner, mock_gateway):
+        """Spawn creates worktrees when repos are provided."""
+        spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+        )
+        mock_gateway.create_worktrees.assert_called_once()
+        call_kwargs = mock_gateway.create_worktrees.call_args.kwargs
+        assert call_kwargs["container_id"] == "pipe-1-coder"
+        assert call_kwargs["repos"] == ["owner/repo"]
+
+    def test_spawn_worktree_failure_raises(self, spawner, mock_gateway):
+        """Spawn raises when worktree creation fails."""
+        from kubernetes_spawner import KubernetesSpawnError
+
+        mock_gateway.create_worktrees.return_value = _FakeWorktreeResult(
+            success=False, worktrees={}, errors=["clone failed"]
+        )
+        with pytest.raises(KubernetesSpawnError, match="worktree creation returned no worktrees"):
+            spawner.spawn_agent_job(
+                pipeline_id="p",
+                agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
+            )
+
+    def test_spawn_k8s_error_cleans_session(self, spawner, mock_k8s_client, mock_gateway):
+        """K8s error during spawn cleans up gateway session."""
+        from kubernetes_spawner import KubernetesSpawnError
+
+        mock_k8s_client.create_container.side_effect = KubernetesClientError("API error")
+        with pytest.raises(KubernetesSpawnError, match="Failed to spawn Job"):
+            spawner.spawn_agent_job(
+                pipeline_id="p",
+                agent_role=AgentRole.CODER,
+            )
+        mock_gateway.delete_session.assert_called_once_with("tok-abcdef123456")
+
+    def test_spawn_default_branch_from_pipeline(self, spawner):
+        """Without branch, defaults to egg/{pipeline_id}/work."""
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-5",
+            agent_role=AgentRole.CODER,
+        )
+        assert result.environment["EGG_BRANCH"] == "egg/pipe-5/work"
+
+    def test_spawn_custom_image(self, spawner, mock_k8s_client):
+        """Spawn uses custom image when provided."""
+        spawner.spawn_agent_job(
+            pipeline_id="p",
+            agent_role=AgentRole.CODER,
+            image="custom-image:v2",
+        )
+        call_kwargs = mock_k8s_client.create_container.call_args.kwargs
+        assert call_kwargs["image"] == "custom-image:v2"
+
+
+# ---------------------------------------------------------------------------
+# TestStopAgentJob
+# ---------------------------------------------------------------------------
+
+
+class TestStopAgentJob:
+    """Test stop_agent_job method."""
+
+    def test_stop_job(self, spawner, mock_k8s_client, mock_gateway):
+        """Stop delegates to k8s and cleans up session."""
+        result = spawner.stop_agent_job("job-name")
+        mock_k8s_client.stop_container.assert_called_once_with("job-name", timeout=10)
+        mock_gateway.delete_session_by_container.assert_called_once_with("job-name")
+        assert result.status == ContainerStatus.EXITED
+
+    def test_stop_job_skip_session(self, spawner, mock_k8s_client, mock_gateway):
+        """Stop can skip session cleanup."""
+        spawner.stop_agent_job("job-name", cleanup_session=False)
+        mock_gateway.delete_session_by_container.assert_not_called()
+
+    def test_stop_not_found_cleans_session(self, spawner, mock_k8s_client, mock_gateway):
+        """Stop cleans up session even when Job is not found."""
+        mock_k8s_client.stop_container.side_effect = PodNotFoundError("gone")
+        with pytest.raises(PodNotFoundError):
+            spawner.stop_agent_job("job-name")
+        mock_gateway.delete_session_by_container.assert_called_once_with("job-name")
+
+
+# ---------------------------------------------------------------------------
+# TestRemoveAgentJob
+# ---------------------------------------------------------------------------
+
+
+class TestRemoveAgentJob:
+    """Test remove_agent_job method."""
+
+    def test_remove_job(self, spawner, mock_k8s_client, mock_gateway):
+        """Remove delegates to k8s and cleans up session."""
+        spawner.remove_agent_job("job-name")
+        mock_k8s_client.remove_container.assert_called_once_with("job-name", force=False)
+        mock_gateway.delete_session_by_container.assert_called_once_with("job-name")
+
+    def test_remove_force(self, spawner, mock_k8s_client):
+        """Remove passes force flag."""
+        spawner.remove_agent_job("job-name", force=True)
+        mock_k8s_client.remove_container.assert_called_once_with("job-name", force=True)
+
+    def test_remove_cleans_session_on_k8s_error(self, spawner, mock_k8s_client, mock_gateway):
+        """Session cleanup happens even if k8s removal fails."""
+        mock_k8s_client.remove_container.side_effect = JobOperationError("API error")
+        with pytest.raises(JobOperationError):
+            spawner.remove_agent_job("job-name")
+        # Session cleanup still happened (finally block)
+        mock_gateway.delete_session_by_container.assert_called_once_with("job-name")
+
+
+# ---------------------------------------------------------------------------
+# TestListPipelineJobs
+# ---------------------------------------------------------------------------
+
+
+class TestListPipelineJobs:
+    """Test list_pipeline_jobs method."""
+
+    def test_list_jobs(self, spawner, mock_k8s_client):
+        """list_pipeline_jobs delegates to k8s with correct labels."""
+        mock_k8s_client.list_containers.return_value = [
+            ContainerInfo(container_id="u1", container_name="j1"),
+        ]
+        result = spawner.list_pipeline_jobs("pipe-1")
+        mock_k8s_client.list_containers.assert_called_once_with(
+            labels={LABEL_PIPELINE_ID: "pipe-1"},
+        )
+        assert len(result) == 1
+
+    def test_list_jobs_empty(self, spawner, mock_k8s_client):
+        """list_pipeline_jobs returns empty list when no Jobs."""
+        result = spawner.list_pipeline_jobs("nonexistent")
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# TestCleanupPipeline
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupPipeline:
+    """Test cleanup_pipeline method."""
+
+    def test_cleanup_removes_jobs(self, spawner, mock_k8s_client, mock_gateway):
+        """cleanup_pipeline removes all Jobs for a pipeline."""
+        mock_k8s_client.list_containers.return_value = [
+            ContainerInfo(
+                container_id="u1",
+                container_name="j1",
+                job_name="egg-agent-pipe-1-coder",
+            ),
+            ContainerInfo(
+                container_id="u2",
+                container_name="j2",
+                job_name="egg-agent-pipe-1-tester",
+            ),
+        ]
+        removed = spawner.cleanup_pipeline("pipe-1")
+        assert removed == 2
+        assert mock_k8s_client.remove_container.call_count == 2
+
+    def test_cleanup_handles_errors(self, spawner, mock_k8s_client):
+        """cleanup_pipeline continues when removal fails."""
+        mock_k8s_client.list_containers.return_value = [
+            ContainerInfo(container_id="u1", container_name="j1", job_name="j1"),
+        ]
+        mock_k8s_client.remove_container.side_effect = JobOperationError("fail")
+        removed = spawner.cleanup_pipeline("pipe-1")
+        assert removed == 0  # Failed to remove
+
+    def test_cleanup_empty_pipeline(self, spawner, mock_k8s_client):
+        """cleanup_pipeline returns 0 for empty pipeline."""
+        removed = spawner.cleanup_pipeline("empty-pipe")
+        assert removed == 0
+
+
+# ---------------------------------------------------------------------------
+# TestRestartAgentJob
+# ---------------------------------------------------------------------------
+
+
+class TestRestartAgentJob:
+    """Test restart_agent_job method."""
+
+    def test_restart_increments_count(self, spawner, mock_k8s_client, mock_gateway):
+        """Restart increments the restart counter."""
+        result = spawner.restart_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+        )
+        assert spawner.get_restart_count("pipe-1", "coder") == 1
+        assert result.pipeline_id == "pipe-1"
+
+    def test_restart_limit_exceeded(self, spawner):
+        """Restart raises when limit is exceeded."""
+        from kubernetes_spawner import KubernetesSpawnError
+
+        spawner._restart_counts[("pipe-1", "coder")] = 2
+        with pytest.raises(KubernetesSpawnError, match="Restart limit.*exceeded"):
+            spawner.restart_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                max_restarts=2,
+            )
+
+    def test_restart_removes_existing(self, spawner, mock_k8s_client):
+        """Restart removes the existing Job before respawning."""
+        spawner.restart_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+        )
+        mock_k8s_client.remove_container.assert_called()
+
+    def test_restart_preserves_worktree(self, spawner, mock_k8s_client):
+        """Restart calls spawn_agent_job with preserve_worktree_on_failure=True."""
+        # We can verify indirectly — the spawn should NOT clean up worktrees on error
+        spawner.restart_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+        )
+        assert spawner.get_restart_count("pipe-1", "coder") == 1
+
+
+# ---------------------------------------------------------------------------
+# TestRestartCounts
+# ---------------------------------------------------------------------------
+
+
+class TestRestartCounts:
+    """Test restart count tracking."""
+
+    def test_get_restart_count_default(self, spawner):
+        """Default restart count is 0."""
+        assert spawner.get_restart_count("pipe-1", "coder") == 0
+
+    def test_reset_restart_counts(self, spawner):
+        """reset_restart_counts clears all counts for a pipeline."""
+        spawner._restart_counts[("pipe-1", "coder")] = 3
+        spawner._restart_counts[("pipe-1", "tester")] = 1
+        spawner._restart_counts[("pipe-2", "coder")] = 2
+
+        spawner.reset_restart_counts("pipe-1")
+
+        assert spawner.get_restart_count("pipe-1", "coder") == 0
+        assert spawner.get_restart_count("pipe-1", "tester") == 0
+        assert spawner.get_restart_count("pipe-2", "coder") == 2  # Unaffected
+
+
+# ---------------------------------------------------------------------------
+# TestDetectUncommittedChanges
+# ---------------------------------------------------------------------------
+
+
+class TestDetectUncommittedChanges:
+    """Test detect_uncommitted_changes method."""
+
+    def test_no_worktree_directory(self, spawner, tmp_path):
+        """Returns None when worktree directory doesn't exist."""
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path / "nonexistent"):
+            result = spawner.detect_uncommitted_changes("pipe-1", "coder")
+        assert result is None
+
+    def test_detects_changes(self, spawner, tmp_path):
+        """Detects uncommitted changes in the worktree."""
+        worktree_dir = tmp_path / "pipe-1-coder" / "owner-repo"
+        worktree_dir.mkdir(parents=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=" M file1.py\n?? file2.py\n",
+            )
+            result = spawner.detect_uncommitted_changes("pipe-1", "coder")
+
+        assert result is not None
+        assert result["pipeline_id"] == "pipe-1"
+        assert result["agent_role"] == "coder"
+        assert result["file_count"] == 2
+
+    def test_no_changes(self, spawner, tmp_path):
+        """Returns None when no uncommitted changes."""
+        worktree_dir = tmp_path / "pipe-1-coder" / "owner-repo"
+        worktree_dir.mkdir(parents=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="")
+            result = spawner.detect_uncommitted_changes("pipe-1", "coder")
+
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# TestCreateConcurrentSpawnFn
+# ---------------------------------------------------------------------------
+
+
+class TestCreateConcurrentSpawnFn:
+    """Test create_concurrent_spawn_fn method."""
+
+    def test_returns_callable(self, spawner):
+        """create_concurrent_spawn_fn returns a callable."""
+        fn = spawner.create_concurrent_spawn_fn(
+            pipeline_id="p",
+            issue_number=1,
+            repo_volumes=None,
+            mode="public",
+            repos=None,
+            phase="implement",
+        )
+        assert callable(fn)
+
+    def test_spawn_fn_delegates(self, spawner, mock_k8s_client, mock_gateway):
+        """The returned callable delegates to spawn_agent_job."""
+        fn = spawner.create_concurrent_spawn_fn(
+            pipeline_id="pipe-1",
+            issue_number=42,
+            repo_volumes=None,
+            mode="public",
+            repos=["owner/repo"],
+            phase="implement",
+        )
+        result = fn(AgentRole.CODER, branch="egg/issue-42")
+        assert result.pipeline_id == "pipe-1"
+        assert result.agent_role == AgentRole.CODER
+
+    def test_spawn_fn_merges_env(self, spawner, mock_k8s_client, mock_gateway):
+        """The returned callable merges sandbox_env and extra_env."""
+        fn = spawner.create_concurrent_spawn_fn(
+            pipeline_id="p",
+            issue_number=1,
+            repo_volumes=None,
+            mode="public",
+            repos=None,
+            phase="implement",
+            sandbox_env={"BASE_KEY": "base_val"},
+        )
+        result = fn(AgentRole.TESTER, extra_env={"EXTRA_KEY": "extra_val"})
+        assert result.environment["BASE_KEY"] == "base_val"
+        assert result.environment["EXTRA_KEY"] == "extra_val"
+
+
+# ---------------------------------------------------------------------------
+# TestKubernetesSpawnError
+# ---------------------------------------------------------------------------
+
+
+class TestKubernetesSpawnError:
+    """Test KubernetesSpawnError exception."""
+
+    def test_is_exception(self):
+        """KubernetesSpawnError is a standard Exception."""
+        from kubernetes_spawner import KubernetesSpawnError
+
+        assert issubclass(KubernetesSpawnError, Exception)
+
+    def test_message_preserved(self):
+        """Exception message is preserved."""
+        from kubernetes_spawner import KubernetesSpawnError
+
+        err = KubernetesSpawnError("spawn failed")
+        assert str(err) == "spawn failed"
+
+
+# ---------------------------------------------------------------------------
+# TestGetKubernetesSpawner
+# ---------------------------------------------------------------------------
+
+
+class TestGetKubernetesSpawner:
+    """Test get_kubernetes_spawner singleton."""
+
+    def test_returns_spawner(self):
+        """get_kubernetes_spawner returns a KubernetesSpawner."""
+        # Reset singleton
+        import kubernetes_spawner
+        from kubernetes_spawner import KubernetesSpawner, get_kubernetes_spawner
+
+        kubernetes_spawner._spawner = None
+
+        with patch.object(KubernetesSpawner, "__init__", return_value=None):
+            result = get_kubernetes_spawner()
+            assert isinstance(result, KubernetesSpawner)
+
+        # Clean up
+        kubernetes_spawner._spawner = None
+
+    def test_singleton_reuses_instance(self):
+        """Repeated calls return the same instance."""
+        import kubernetes_spawner
+        from kubernetes_spawner import KubernetesSpawner, get_kubernetes_spawner
+
+        kubernetes_spawner._spawner = None
+
+        with patch.object(KubernetesSpawner, "__init__", return_value=None):
+            first = get_kubernetes_spawner()
+            second = get_kubernetes_spawner()
+            assert first is second
+
+        kubernetes_spawner._spawner = None

@@ -58,3 +58,60 @@ except ImportError:
     sys.modules.setdefault("docker", _docker_mod)
     sys.modules.setdefault("docker.errors", _errors_mod)
     sys.modules.setdefault("docker.types", MagicMock())
+
+
+# Mock the ``kubernetes`` package when it is not installed so that
+# kubernetes_client tests can exercise code paths that do
+# ``from kubernetes import client as k8s_client``.
+try:
+    import kubernetes  # noqa: F401
+except ImportError:
+
+    class _K8sDataObject:
+        """Mock k8s SDK data class that stores kwargs as attributes."""
+
+        def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+
+        def __repr__(self) -> str:
+            attrs = ", ".join(f"{k}={v!r}" for k, v in self.__dict__.items())
+            return f"{type(self).__name__}({attrs})"
+
+    # Create named subclasses so repr is informative
+    _V1Container = type("V1Container", (_K8sDataObject,), {})
+    _V1EnvVar = type("V1EnvVar", (_K8sDataObject,), {})
+    _V1PodSpec = type("V1PodSpec", (_K8sDataObject,), {})
+    _V1PodTemplateSpec = type("V1PodTemplateSpec", (_K8sDataObject,), {})
+    _V1ObjectMeta = type("V1ObjectMeta", (_K8sDataObject,), {})
+    _V1JobSpec = type("V1JobSpec", (_K8sDataObject,), {})
+    _V1Job = type("V1Job", (_K8sDataObject,), {})
+    _V1DeleteOptions = type("V1DeleteOptions", (_K8sDataObject,), {})
+    _V1ResourceRequirements = type("V1ResourceRequirements", (_K8sDataObject,), {})
+
+    _k8s_client_mod = types.ModuleType("kubernetes.client")
+    _k8s_client_mod.V1Container = _V1Container  # type: ignore[attr-defined]
+    _k8s_client_mod.V1EnvVar = _V1EnvVar  # type: ignore[attr-defined]
+    _k8s_client_mod.V1PodSpec = _V1PodSpec  # type: ignore[attr-defined]
+    _k8s_client_mod.V1PodTemplateSpec = _V1PodTemplateSpec  # type: ignore[attr-defined]
+    _k8s_client_mod.V1ObjectMeta = _V1ObjectMeta  # type: ignore[attr-defined]
+    _k8s_client_mod.V1JobSpec = _V1JobSpec  # type: ignore[attr-defined]
+    _k8s_client_mod.V1Job = _V1Job  # type: ignore[attr-defined]
+    _k8s_client_mod.V1DeleteOptions = _V1DeleteOptions  # type: ignore[attr-defined]
+    _k8s_client_mod.V1ResourceRequirements = _V1ResourceRequirements  # type: ignore[attr-defined]
+    _k8s_client_mod.BatchV1Api = MagicMock  # type: ignore[attr-defined]
+    _k8s_client_mod.CoreV1Api = MagicMock  # type: ignore[attr-defined]
+
+    _k8s_config_mod = types.ModuleType("kubernetes.config")
+    # Simulate ConfigException for in-cluster config fallback
+    _k8s_config_mod.ConfigException = type("ConfigException", (Exception,), {})  # type: ignore[attr-defined]
+    _k8s_config_mod.load_incluster_config = MagicMock()  # type: ignore[attr-defined]
+    _k8s_config_mod.load_kube_config = MagicMock()  # type: ignore[attr-defined]
+
+    _k8s_mod = types.ModuleType("kubernetes")
+    _k8s_mod.client = _k8s_client_mod  # type: ignore[attr-defined]
+    _k8s_mod.config = _k8s_config_mod  # type: ignore[attr-defined]
+
+    sys.modules.setdefault("kubernetes", _k8s_mod)
+    sys.modules.setdefault("kubernetes.client", _k8s_client_mod)
+    sys.modules.setdefault("kubernetes.config", _k8s_config_mod)

@@ -53,7 +53,7 @@ class SessionInfo:
 
     session_token: str
     container_id: str
-    container_ip: str
+    container_ip: str | None  # Optional; k8s pod IPs are ephemeral
     mode: str  # "private" or "public"
     created_at: datetime
     expires_at: datetime
@@ -276,7 +276,7 @@ class GatewayClient:
     def register_session(
         self,
         container_id: str,
-        container_ip: str,
+        container_ip: str | None = None,
         mode: str = "public",
         repos: list[str] | None = None,
         uid: int | None = None,
@@ -295,8 +295,8 @@ class GatewayClient:
         Requires launcher secret authentication.
 
         Args:
-            container_id: Docker container ID
-            container_ip: Container IP address
+            container_id: Docker container ID or k8s Job name
+            container_ip: Container IP address (optional; for audit logging only)
             mode: Repository visibility mode (private, public, or local)
             repos: List of repositories in owner/name format
             uid: Host UID for worktree ownership
@@ -318,9 +318,10 @@ class GatewayClient:
         """
         request_data: dict[str, Any] = {
             "container_id": container_id,
-            "container_ip": container_ip,
             "mode": mode,
         }
+        if container_ip is not None:
+            request_data["container_ip"] = container_ip
         if repos:
             request_data["repos"] = repos
         if uid is not None:

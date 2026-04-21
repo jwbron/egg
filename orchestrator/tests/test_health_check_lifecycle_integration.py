@@ -300,90 +300,16 @@ class TestBasicEndpoints:
 
 
 class TestContainerMonitorHealthIntegrationExtra:
-    """Additional tests for container monitor health check integration."""
+    """Additional tests for container monitor health check integration.
 
-    @patch("state_store.get_state_store")
-    def test_multiple_running_pipelines_all_checked(self, mock_get_store):
-        """Health checks run for each running pipeline."""
-        from container_monitor import ContainerMonitor
+    KubernetesMonitor fires RUNTIME_TICK checks via _run_runtime_tick_checks
+    when pod state transitions are detected.  The underlying health-check
+    runner logic is tested in test_health_checks.py and the
+    KubernetesMonitor's check_container_health is tested in
+    test_kubernetes_monitor.py.
+    """
 
-        monitor = ContainerMonitor.__new__(ContainerMonitor)
-        monitor.docker_client = MagicMock()
-        monitor._health_check_runner = MagicMock()
-        monitor._health_check_repo_paths = [Path("/tmp/repo")]
-        monitor._health_check_stores = {}
-
-        p1 = _make_pipeline(status=PipelineStatus.RUNNING)
-        p1.id = "pipeline-1"
-        p2 = _make_pipeline(status=PipelineStatus.RUNNING)
-        p2.id = "pipeline-2"
-
-        mock_store = MagicMock()
-        mock_store.list_pipelines.return_value = ["pipeline-1", "pipeline-2"]
-        mock_store.load_pipeline.side_effect = lambda pid: p1 if pid == "pipeline-1" else p2
-        mock_get_store.return_value = mock_store
-
-        monitor._run_runtime_tick_checks()
-        assert monitor._health_check_runner.run.call_count == 2
-
-    @patch("state_store.get_state_store")
-    def test_empty_pipeline_list_no_checks(self, mock_get_store):
-        """No health checks run when no pipelines exist."""
-        from container_monitor import ContainerMonitor
-
-        monitor = ContainerMonitor.__new__(ContainerMonitor)
-        monitor.docker_client = MagicMock()
-        monitor._health_check_runner = MagicMock()
-        monitor._health_check_repo_paths = [Path("/tmp/repo")]
-        monitor._health_check_stores = {}
-
-        mock_store = MagicMock()
-        mock_store.list_pipelines.return_value = []
-        mock_get_store.return_value = mock_store
-
-        monitor._run_runtime_tick_checks()
-        monitor._health_check_runner.run.assert_not_called()
-
-    @patch("state_store.get_state_store")
-    def test_state_store_exception_handled(self, mock_get_store):
-        """Exceptions from get_state_store don't crash monitor."""
-        from container_monitor import ContainerMonitor
-
-        monitor = ContainerMonitor.__new__(ContainerMonitor)
-        monitor.docker_client = MagicMock()
-        monitor._health_check_runner = MagicMock()
-        monitor._health_check_repo_paths = [Path("/tmp/repo")]
-        monitor._health_check_stores = {}
-
-        mock_get_store.side_effect = RuntimeError("Store unavailable")
-        # Should not raise
-        monitor._run_runtime_tick_checks()
-
-    @patch("state_store.get_state_store")
-    def test_per_pipeline_error_doesnt_stop_iteration(self, mock_get_store):
-        """If one pipeline fails, others still get checked."""
-        from container_monitor import ContainerMonitor
-
-        monitor = ContainerMonitor.__new__(ContainerMonitor)
-        monitor.docker_client = MagicMock()
-        monitor._health_check_runner = MagicMock()
-        monitor._health_check_repo_paths = [Path("/tmp/repo")]
-        monitor._health_check_stores = {}
-
-        mock_store = MagicMock()
-        mock_store.list_pipelines.return_value = ["pipeline-1", "pipeline-2"]
-
-        def load_side_effect(pid):
-            if pid == "pipeline-1":
-                raise RuntimeError("Corrupt pipeline")
-            return _make_pipeline(status=PipelineStatus.RUNNING)
-
-        mock_store.load_pipeline.side_effect = load_side_effect
-        mock_get_store.return_value = mock_store
-
-        monitor._run_runtime_tick_checks()
-        # Pipeline-2 should still get checked
-        assert monitor._health_check_runner.run.call_count == 1
+    pass
 
 
 # ===========================================================================

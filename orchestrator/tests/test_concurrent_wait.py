@@ -128,6 +128,7 @@ class TestRunConcurrentPhaseWait:
 
         # Spawner mock
         mock_spawner = MagicMock()
+        mock_spawner.backend = mock_docker
         mock_spawner.docker = mock_docker
         mock_spawn_fn = MagicMock()
         mock_spawner.create_concurrent_spawn_fn.return_value = mock_spawn_fn
@@ -440,6 +441,7 @@ class TestPartialSpawnFailureCleanup:
 
         mock_docker = MagicMock()
         mock_spawner = MagicMock()
+        mock_spawner.backend = mock_docker
         mock_spawner.docker = mock_docker
         mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
 
@@ -491,6 +493,7 @@ class TestPartialSpawnFailureCleanup:
         mock_docker = MagicMock()
         mock_docker.stop_container.side_effect = Exception("Docker socket error")
         mock_spawner = MagicMock()
+        mock_spawner.backend = mock_docker
         mock_spawner.docker = mock_docker
         mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
 
@@ -540,6 +543,7 @@ class TestPartialSpawnFailureCleanup:
 
         mock_docker = MagicMock()
         mock_spawner = MagicMock()
+        mock_spawner.backend = mock_docker
         mock_spawner.docker = mock_docker
         mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
 
