@@ -342,6 +342,16 @@ This clears cached images and rebuilds the sandbox with Claude Code installed.
 
 **Network unavailable at startup**: The gateway retries GitHub App token initialization with exponential backoff for up to 120 seconds if the network is temporarily unavailable (e.g., DNS not yet ready). During this window you'll see log lines like `Token refresher not ready, retrying`. If the token never initializes within the timeout, the gateway exits with code 1. Increase the window with `EGG_TOKEN_INIT_TIMEOUT=<seconds>` if your network takes longer to come up.
 
+**Missing `EGG_ORCHESTRATOR_URL` in Kubernetes** (#1803): When `KUBERNETES_SERVICE_HOST` is present (i.e. the gateway is running inside a k8s pod), `EGG_ORCHESTRATOR_URL` must be explicitly set — the docker-compose default hostname `egg-orchestrator` doesn't resolve under k3s kube-dns. The `k8s/base/gateway-deployment.yaml` sets this automatically to `http://orchestrator.egg-system.svc.cluster.local:9849`. Custom overlays that omit this variable will cause the gateway to exit at startup with:
+```
+Startup failed: EGG_ORCHESTRATOR_URL must be set when running in Kubernetes
+```
+Fix by adding the env var to your gateway Deployment:
+```yaml
+- name: EGG_ORCHESTRATOR_URL
+  value: "http://orchestrator.egg-system.svc.cluster.local:9849"
+```
+
 **Missing or invalid credentials**: Configuration errors (missing key file, invalid credentials) are detected immediately and do not trigger retries. The gateway logs a warning and continues running, but GitHub operations will fail.
 
 ### Agent pod cannot reach gateway
