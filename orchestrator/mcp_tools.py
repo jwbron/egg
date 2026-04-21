@@ -1897,9 +1897,19 @@ class PipelineToolHandler:
         When force=true, stops all running containers before advancing
         to prevent SIGTERM cascading into the new phase (#1570).
         """
+        from models import PipelinePhase
+
         task_id = quote(args["task_id"], safe="")
         target_phase = args["target_phase"]
         force = args.get("force", False)
+
+        # Validate target_phase up front so an invalid value fails fast
+        # without first tearing down containers. See #1755.
+        try:
+            PipelinePhase(target_phase)
+        except ValueError:
+            valid = [p.value for p in PipelinePhase]
+            return {"error": (f"Invalid target_phase: {target_phase!r}. Valid phases: {valid}")}
 
         # When force=true, stop running containers before the transition
         # to avoid SIGTERM cascading into the new phase.
