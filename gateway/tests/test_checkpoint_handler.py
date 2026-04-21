@@ -761,9 +761,7 @@ class TestStoreCheckpointV2RemoteTarget:
             return_value=("", "fatal: No such remote 'origin'"),
         ):
             try:
-                handler.store_checkpoint_v2(
-                    checkpoint, "/fake/repo", checkpoint_repo=None
-                )
+                handler.store_checkpoint_v2(checkpoint, "/fake/repo", checkpoint_repo=None)
             except Exception:
                 pass
 
@@ -794,9 +792,7 @@ class TestFetchAndReadIndexRemoteTarget:
             return_value=resolve_return,
         ):
             try:
-                handler.fetch_and_read_index(
-                    "/fake/repo", checkpoint_repo=checkpoint_repo
-                )
+                handler.fetch_and_read_index("/fake/repo", checkpoint_repo=checkpoint_repo)
             except Exception:
                 pass
 
