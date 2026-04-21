@@ -8,6 +8,7 @@ from threading import Thread
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from cli import create_parser, main
 
 

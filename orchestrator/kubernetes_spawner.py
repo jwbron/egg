@@ -445,7 +445,9 @@ class KubernetesSpawner:
                 if len(volume_name) > 63:
                     import hashlib
 
-                    digest = hashlib.sha1(volume_name.encode()).hexdigest()[:8]
+                    digest = hashlib.sha1(volume_name.encode(), usedforsecurity=False).hexdigest()[
+                        :8
+                    ]
                     volume_name = f"{volume_name[:54].rstrip('-')}-{digest}"
                 host_path_mounts.append(
                     {
