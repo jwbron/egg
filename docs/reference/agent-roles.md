@@ -351,9 +351,9 @@ The gateway enforces which roles can modify which fields of the contract JSON vi
 
 | Role | Mutable contract fields |
 |------|------------------------|
-| `implementer` | `tasks[].commit`, `tasks[].notes`, `tasks[].files_affected` |
-| `reviewer` | `tasks[].status`, `phases[].status`, `phases[].review_feedback`, `acceptance_criteria[].verified`, `current_phase` |
-| `human` | `decisions[].resolved`, `decisions[].resolution`, `decisions[].resolved_by`, `decisions[].resolved_at`, all other fields |
+| `implementer` | `tasks[].commit`, `tasks[].notes`, `tasks[].files_affected`, `feedback`, `feedback.*` |
+| `reviewer` | `tasks[].status`, `phases[].status`, `phases[].review_feedback`, `acceptance_criteria[].verified`, `current_phase`, `feedback`, `feedback.*` |
+| `human` | `decisions[].resolved`, `decisions[].resolution`, `decisions[].resolved_by`, `decisions[].resolved_at`, `feedback.submitted`, `feedback.submitted_by`, `feedback.submitted_at`, all other fields |
 | `system` | Structural fields (`issue`, `schemaVersion`) |
 
 The gateway accepts both coarse roles (`implementer`, `reviewer`) and the fine-grained `AgentRole` values stored in agent session metadata (`coder`, `refiner`, `reviewer_code`, etc.). Fine-grained roles are mapped to their coarse equivalent via `AGENT_ROLE_TO_CONTRACT_ROLE` before field-ownership checks are applied.
