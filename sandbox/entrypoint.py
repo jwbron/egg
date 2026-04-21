@@ -565,10 +565,12 @@ def setup_environment(config: Config) -> None:
     os.environ["HOME"] = str(config.user_home)
     os.environ["USER"] = config.container_user
 
-    # Add user's local bin (Claude Code native install) and egg runtime scripts to PATH
+    # Add user's local bin (Claude Code native install) to PATH.
+    # Note: /opt/egg-runtime/sandbox/bin is already on PATH via the image-level ENV
+    # directive in Dockerfile (see issue #1799), so we don't re-add it here.
     current_path = os.environ.get("PATH", "")
     local_bin = config.user_home / ".local" / "bin"
-    os.environ["PATH"] = f"{local_bin}:/opt/egg-runtime/sandbox/bin:/usr/local/bin:{current_path}"
+    os.environ["PATH"] = f"{local_bin}:{current_path}"
 
     # Python settings
     os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
