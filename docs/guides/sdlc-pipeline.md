@@ -737,7 +737,7 @@ The orchestrator pushes worktree state (including `.egg-state/` files) to the re
 3. **Before PR creation** — Pushes BRC history re-writes and any pending statefiles. This is a safety net for cases where post-phase pushes (point 2) failed silently. Push outcomes are logged at INFO level with the number of local commits ahead of remote (see [PR-Phase State File Troubleshooting](#pr-phase-state-file-troubleshooting))
 4. **On pipeline failure** — Best-effort failsafe push to preserve in-progress work
 
-All pushes use `GatewayClient.push_worktree_branch()`, which registers a temporary session token, pushes the branch, and cleans up the session.
+All pushes use `GatewayClient.push_worktree_branch()`, which registers a temporary session token, pushes the branch, and cleans up the session. On non-fast-forward rejection, it automatically performs a `git fetch` + `git rebase` in the worktree and retries the push once before giving up.
 
 **Contract init push (point 1) is required**: If it fails after one retry, the pipeline is marked `FAILED` and aborted. Agents must not start before the contract is on the remote — otherwise their diffs would include `.egg-state/` files outside their allowed file boundaries. Post-phase and failsafe pushes (points 2–3) log warnings but do not block pipeline progress.
 
@@ -1494,8 +1494,8 @@ Look for these log entries in chronological order:
 If the commit logs show success but files are missing/present in the PR diff, the push failed:
 
 1. `PR-phase push succeeded` — Push completed. Includes `commits_ahead` showing how many local commits were ahead of remote before the push.
-2. `Pre-PR push failed — PR may reference stale code` (ERROR) — Initial push failed. Includes `commits_ahead` count and `error` details. The orchestrator then attempts a fetch+rebase reconcile and a second push.
-3. `PR-phase push failed after reconcile — falling back to PR against remote HEAD; orchestrator housekeeping commits dropped` (WARNING) — The second push also failed after reconcile. The PR is still created against the current remote HEAD — agent commits are preserved, but orchestrator housekeeping commits (BRC history rewrite, cleanup) are not included. This is preferable to failing the whole pipeline.
+2. `Push attempt failed — caller may retry via reconcile` (INFO) followed by `Push rejected — attempting fetch+rebase+retry to reconcile divergence` (WARNING) — Initial push was rejected; `GatewayClient` is attempting a fetch+rebase reconcile and a second push automatically.
+3. `PR-phase push failed after reconcile — falling back to PR against remote HEAD; orchestrator housekeeping commits dropped` (WARNING) — The reconcile+retry also failed. The PR is still created against the current remote HEAD — agent commits are preserved, but orchestrator housekeeping commits (BRC history rewrite, cleanup) are not included. This is preferable to failing the whole pipeline.
 4. `PR-phase push skipped` — The push was not attempted. The `reason` field explains why: `"worktree_repo_path == repo_path"` (no separate worktree to push from) or `"no branch set"` (pipeline has no branch configured).
 5. Check the gateway health: `curl http://egg-gateway:9848/api/v1/health`.
 
@@ -1510,7 +1510,7 @@ git show origin/egg/issue-<N>:.egg-state/drafts/ 2>&1
 
 # Search orchestrator logs for the pipeline's PR-phase activity
 # (adjust log source for your deployment)
-grep -E "(rewrite_brc_history|commit_statefiles|PR-phase push)" /path/to/orchestrator.log | grep "<pipeline-id>"
+grep -E "(rewrite_brc_history|commit_statefiles|PR-phase push|Push attempt failed|Push rejected|Push reconcile)" /path/to/orchestrator.log | grep "<pipeline-id>"
 ```
 
 ---
