@@ -233,7 +233,7 @@ The `egg-orch push --scope-filter` command automatically strips out-of-scope fil
 3. Filters files using the same `allowed`/`blocked`/`block_exempt` logic as the gateway
 4. Squashes filtered commits into one and pushes
 
-Without `--scope-filter`, `egg-orch push` passes through to `git push` unchanged.
+Without `--scope-filter`, `egg-orch push` passes through to `git push`. When `EGG_BRANCH` is set (pipeline sessions) and the current branch is the per-agent work branch, the push is retargeted to `HEAD:$EGG_BRANCH` so the refspec's target matches the gateway's assigned-branch check.
 
 See `sandbox/agent-config/rules/push-recovery.md` for step-by-step recovery instructions available to agents at runtime.
 

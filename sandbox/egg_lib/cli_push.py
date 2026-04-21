@@ -131,11 +131,35 @@ def _get_merge_base(branch: str) -> str:
     return "HEAD~1"
 
 
+def _resolve_push_args(current_branch: str) -> list[str]:
+    """Build ``git push`` args, retargeting to the assigned pipeline branch.
+
+    Pipeline agents run on per-agent work branches (``egg/<pid>-<role>/work``)
+    but the gateway locks the session to the pipeline's assigned branch
+    (``egg/<pid>``). A plain ``git push origin <work-branch>`` produces a
+    ``work:work`` refspec the gateway always rejects. When ``EGG_BRANCH`` is
+    set and differs from the current branch, push ``HEAD:$EGG_BRANCH`` so the
+    target matches the assigned branch.
+    """
+    assigned = os.environ.get("EGG_BRANCH", "").strip()
+    if assigned and assigned != current_branch:
+        return ["git", "push", "origin", f"HEAD:{assigned}"]
+    return ["git", "push", "origin", current_branch]
+
+
 def cmd_push(args: argparse.Namespace) -> None:
     """Handle the push subcommand."""
 
-    # Without --scope-filter, just passthrough to git push.
+    # Without --scope-filter, just passthrough to git push, but retarget the
+    # refspec to the assigned pipeline branch when running on a per-agent
+    # work branch.
     if not args.scope_filter:
+        assigned = os.environ.get("EGG_BRANCH", "").strip()
+        if assigned:
+            current = _get_current_branch()
+            if current and current != assigned:
+                result = subprocess.run(["git", "push", "origin", f"HEAD:{assigned}"], text=True)
+                sys.exit(result.returncode)
         result = subprocess.run(["git", "push"], text=True)
         sys.exit(result.returncode)
 
@@ -192,7 +216,7 @@ def cmd_push(args: argparse.Namespace) -> None:
 
     # If nothing was removed, push as-is — no rewriting needed.
     if not removed:
-        result = subprocess.run(["git", "push", "origin", branch], text=True)
+        result = subprocess.run(_resolve_push_args(branch), text=True)
         sys.exit(result.returncode)
 
     # Some files removed — inform the user and rewrite the commits.
@@ -239,7 +263,7 @@ def cmd_push(args: argparse.Namespace) -> None:
 
     # Step 5: push.
     push_result = subprocess.run(
-        ["git", "push", "origin", branch],
+        _resolve_push_args(branch),
         text=True,
     )
     if push_result.returncode != 0 and orig_head:

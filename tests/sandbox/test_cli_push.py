@@ -218,8 +218,10 @@ class TestCmdPushNoScopeFilter:
     def test_passthrough_to_git_push(self, mock_run):
         """Without --scope-filter, just runs git push."""
         mock_run.return_value = MagicMock(returncode=0)
-        with pytest.raises(SystemExit) as exc_info:
-            cmd_push(_make_args(scope_filter=False))
+        env = {k: v for k, v in os.environ.items() if k != "EGG_BRANCH"}
+        with patch.dict(os.environ, env, clear=True):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_push(_make_args(scope_filter=False))
         assert exc_info.value.code == 0
         mock_run.assert_called_once_with(["git", "push"], text=True)
 
@@ -227,9 +229,33 @@ class TestCmdPushNoScopeFilter:
     def test_passthrough_failure(self, mock_run):
         """Passthrough preserves git push's exit code on failure."""
         mock_run.return_value = MagicMock(returncode=128)
-        with pytest.raises(SystemExit) as exc_info:
-            cmd_push(_make_args(scope_filter=False))
+        env = {k: v for k, v in os.environ.items() if k != "EGG_BRANCH"}
+        with patch.dict(os.environ, env, clear=True):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_push(_make_args(scope_filter=False))
         assert exc_info.value.code == 128
+
+    @patch("egg_lib.cli_push._get_current_branch", return_value="egg/issue-1-tester/work")
+    @patch("egg_lib.cli_push.subprocess.run")
+    def test_retargets_to_assigned_branch_when_egg_branch_set(self, mock_run, _mock_branch):
+        """When EGG_BRANCH != current branch, push retargets via HEAD:$EGG_BRANCH."""
+        mock_run.return_value = MagicMock(returncode=0)
+        with patch.dict(os.environ, {"EGG_BRANCH": "egg/issue-1"}):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_push(_make_args(scope_filter=False))
+        assert exc_info.value.code == 0
+        mock_run.assert_called_once_with(["git", "push", "origin", "HEAD:egg/issue-1"], text=True)
+
+    @patch("egg_lib.cli_push._get_current_branch", return_value="egg/issue-1")
+    @patch("egg_lib.cli_push.subprocess.run")
+    def test_no_retarget_when_egg_branch_matches_current(self, mock_run, _mock_branch):
+        """When EGG_BRANCH == current branch, plain git push is used."""
+        mock_run.return_value = MagicMock(returncode=0)
+        with patch.dict(os.environ, {"EGG_BRANCH": "egg/issue-1"}):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_push(_make_args(scope_filter=False))
+        assert exc_info.value.code == 0
+        mock_run.assert_called_once_with(["git", "push"], text=True)
 
 
 class TestCmdPushScopeFilter:
@@ -284,7 +310,7 @@ class TestCmdPushScopeFilter:
     ):
         """When all files are in scope, pushes without rewriting."""
         patterns = json.dumps({"allowed": ["**/*.py"], "blocked": ["docs/"]})
-        with patch.dict(os.environ, {"EGG_AGENT_FILE_PATTERNS": patterns}):
+        with patch.dict(os.environ, {"EGG_AGENT_FILE_PATTERNS": patterns, "EGG_BRANCH": ""}):
             mock_run_git.return_value = MagicMock(stdout="src/main.py\nsrc/util.py\n", returncode=0)
             mock_subprocess_run.return_value = MagicMock(returncode=0)
             with pytest.raises(SystemExit) as exc_info:
@@ -292,6 +318,28 @@ class TestCmdPushScopeFilter:
             assert exc_info.value.code == 0
             mock_subprocess_run.assert_called_once_with(
                 ["git", "push", "origin", "egg/test"], text=True
+            )
+
+    @patch("egg_lib.cli_push._get_merge_base", return_value="abc123")
+    @patch("egg_lib.cli_push._get_current_branch", return_value="egg/issue-1-tester/work")
+    @patch("egg_lib.cli_push.subprocess.run")
+    @patch("egg_lib.cli_push._run_git")
+    def test_no_files_removed_retargets_to_assigned_branch(
+        self, mock_run_git, mock_subprocess_run, mock_get_branch, mock_merge_base
+    ):
+        """When EGG_BRANCH is set on a work branch, the push retargets to it."""
+        patterns = json.dumps({"allowed": ["**/*.py"], "blocked": ["docs/"]})
+        with patch.dict(
+            os.environ,
+            {"EGG_AGENT_FILE_PATTERNS": patterns, "EGG_BRANCH": "egg/issue-1"},
+        ):
+            mock_run_git.return_value = MagicMock(stdout="src/main.py\n", returncode=0)
+            mock_subprocess_run.return_value = MagicMock(returncode=0)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_push(_make_args(scope_filter=True))
+            assert exc_info.value.code == 0
+            mock_subprocess_run.assert_called_once_with(
+                ["git", "push", "origin", "HEAD:egg/issue-1"], text=True
             )
 
     @patch("egg_lib.cli_push._get_merge_base", return_value="abc123")
@@ -303,7 +351,7 @@ class TestCmdPushScopeFilter:
     ):
         """When some files removed, squashes and rewrites commit then pushes."""
         patterns = json.dumps({"allowed": ["**/*.py"], "blocked": ["docs/"]})
-        with patch.dict(os.environ, {"EGG_AGENT_FILE_PATTERNS": patterns}):
+        with patch.dict(os.environ, {"EGG_AGENT_FILE_PATTERNS": patterns, "EGG_BRANCH": ""}):
             # First call: diff returns mixed files
             diff_result = MagicMock(stdout="src/main.py\ndocs/guide.md\n", returncode=0)
             # Subsequent calls: soft-reset, un-stage, re-add, commit succeed
@@ -336,6 +384,38 @@ class TestCmdPushScopeFilter:
             # Verify push was to the correct branch
             push_call = mock_subprocess_run.call_args_list[2]
             assert push_call == call(["git", "push", "origin", "egg/my-branch"], text=True)
+
+    @patch("egg_lib.cli_push._get_merge_base", return_value="abc123")
+    @patch("egg_lib.cli_push._get_current_branch", return_value="egg/issue-1-tester/work")
+    @patch("egg_lib.cli_push.subprocess.run")
+    @patch("egg_lib.cli_push._run_git")
+    def test_rewrite_commit_retargets_to_assigned_branch(
+        self, mock_run_git, mock_subprocess_run, mock_get_branch, mock_merge_base
+    ):
+        """Rewrite path retargets the final push to EGG_BRANCH."""
+        patterns = json.dumps({"allowed": ["**/*.py"], "blocked": ["docs/"]})
+        with patch.dict(
+            os.environ,
+            {"EGG_AGENT_FILE_PATTERNS": patterns, "EGG_BRANCH": "egg/issue-1"},
+        ):
+            diff_result = MagicMock(stdout="src/main.py\ndocs/guide.md\n", returncode=0)
+            mock_run_git.side_effect = [
+                diff_result,
+                MagicMock(returncode=0),  # reset --soft
+                MagicMock(returncode=0),  # reset HEAD -- .
+                MagicMock(returncode=0),  # add
+                MagicMock(returncode=0),  # commit
+            ]
+            mock_subprocess_run.side_effect = [
+                MagicMock(stdout="abc999\n", returncode=0),  # rev-parse HEAD
+                MagicMock(returncode=1),  # diff --cached --quiet -> has staged
+                MagicMock(returncode=0),  # push
+            ]
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_push(_make_args(scope_filter=True))
+            assert exc_info.value.code == 0
+            push_call = mock_subprocess_run.call_args_list[2]
+            assert push_call == call(["git", "push", "origin", "HEAD:egg/issue-1"], text=True)
 
     @patch("egg_lib.cli_push._get_merge_base", return_value="abc123")
     @patch("egg_lib.cli_push._get_current_branch", return_value="egg/my-branch")
