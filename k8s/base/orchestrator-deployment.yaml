@@ -51,6 +51,21 @@ spec:
               value: "http://orchestrator.egg-system.svc.cluster.local:9849"
             - name: GATEWAY_URL
               value: "http://gateway.egg-system.svc.cluster.local:9848" # noqa: EGG002
+            # gateway_client.py reads GATEWAY_HOST/GATEWAY_PORT directly
+            # (not GATEWAY_URL). In k8s the Service is named "gateway"; the
+            # Compose default "egg-gateway" doesn't resolve here.
+            - name: GATEWAY_HOST
+              value: "gateway.egg-system.svc.cluster.local"
+            - name: GATEWAY_PORT
+              value: "9848" # noqa: EGG002
+            # Orchestrator authenticates to the gateway using the shared
+            # launcher secret. Sourced from the same Secret that the gateway
+            # mounts at /secrets/launcher-secret.
+            - name: EGG_LAUNCHER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secrets
+                  key: launcher-secret
           livenessProbe:
             httpGet:
               path: /api/v1/health
