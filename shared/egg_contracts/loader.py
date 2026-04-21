@@ -307,7 +307,11 @@ def list_contracts(repo_root: Path | None = None) -> list[int | str]:
         repo_root: Optional repository root path
 
     Returns:
-        List of identifiers (int for issue contracts, str for local pipeline contracts)
+        List of identifiers. Unqualified issue pipelines (``issue-42.json``
+        or legacy ``42.json``) are returned as ``int``. Qualified pipelines
+        (e.g., ``issue-42-v2.json``) and non-issue-prefixed stems (e.g.,
+        local pipeline contracts) are returned as ``str``. Callers filtering
+        on ``isinstance(_, int)`` will only see unqualified issue pipelines.
     """
     if repo_root is None:
         repo_root = Path.cwd()
