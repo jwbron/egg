@@ -219,7 +219,7 @@ class TestPayloadShape:
 
     @patch("egg_lib.orch_cli.orch_request")
     def test_role_from_env(self, mock_request, monkeypatch):
-        monkeypatch.setenv("EGG_AGENT_ROLE", "overseer")
+        monkeypatch.setenv("EGG_AGENT_ROLE", "sentinel_agent")
         _, kwargs = self._run(
             [
                 "overseer",
@@ -234,7 +234,7 @@ class TestPayloadShape:
             ],
             mock_request,
         )
-        assert kwargs["data"]["from_role"] == "overseer"
+        assert kwargs["data"]["from_role"] == "sentinel_agent"
 
     @patch("egg_lib.orch_cli.orch_request")
     def test_role_defaults_to_overseer_when_env_missing(self, mock_request, monkeypatch):
