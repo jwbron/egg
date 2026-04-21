@@ -652,7 +652,13 @@ class StateStore:
     def sync_to_remote(self) -> bool:
         """Push the state branch to remote (best-effort).
 
-        Uses the gateway client to push via a temporary session.
+        Pushes the state branch ref from the main repo's object DB, not
+        from the state worktree. The state worktree lives under
+        ``/home/egg/.egg-state/`` which is a pod-local ``emptyDir`` —
+        the gateway pod cannot ``cd`` into it. The main repo under
+        ``/home/egg/repos/`` is a shared hostPath that both pods see,
+        and the state branch's commits and ref live in its ``.git/``
+        object DB, so the push only needs the main repo path (see #1808).
 
         Returns:
             True on success, False on failure (logged, never raises)
@@ -663,9 +669,10 @@ class StateStore:
             client = get_gateway_client()
             return client.push_worktree_branch(
                 pipeline_id="state-sync",
-                repo_path=str(self.worktree),
+                repo_path=str(self.repo_path),
                 branch=STATE_BRANCH,
                 mode=self._detect_gateway_mode(),
+                ref=STATE_BRANCH,
             )
         except Exception as e:
             logger.warning(

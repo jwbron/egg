@@ -1,9 +1,14 @@
 """
-Tests for ``_reconcile_and_push_pr_branch``.
+Tests for the reconcile-on-failure path inside ``push_worktree_branch``.
 
-Covers the PR-phase push reconciliation path (originally added for #1706,
-rewritten for #1731 to prefer rebase over merge and to auto-resolve
-conflicts under ``.egg-state/agent-outputs/`` by taking the remote side):
+Reconcile was originally a wrapper (``_reconcile_and_push_pr_branch``)
+around the gateway client push; it was folded into
+``GatewayClient.push_worktree_branch`` itself in #1808 so every push
+call site gets the same fetch+rebase+retry behavior without a wrapper.
+
+Cases covered (originally added for #1706, rewritten for #1731 to
+prefer rebase over merge and to auto-resolve conflicts under
+``.egg-state/agent-outputs/`` by taking the remote side):
 
 - First push attempt succeeds → return True, no fetch/rebase attempted.
 - First push fails → fetch+rebase+retry path engaged.
@@ -12,10 +17,14 @@ conflicts under ``.egg-state/agent-outputs/`` by taking the remote side):
 - Rebase conflict only under .egg-state/agent-outputs/ → auto-resolve and continue.
 - Rebase timeout → rebase --abort, return False.
 - Rebase succeeds but retry push still fails → return False.
+- ``ref`` set (state-sync style, #1808): no reconcile — rebase is only
+  meaningful when ``repo_path`` is a worktree checked out to the branch.
 """
 
 import subprocess
 from unittest.mock import MagicMock, patch
+
+from gateway_client import GatewayClient
 
 
 def _run_result(returncode=0, stdout="", stderr=""):
@@ -27,44 +36,47 @@ def _run_result(returncode=0, stdout="", stderr=""):
     return result
 
 
-def _make_spawner(push_results):
-    """Return a spawner whose ``gateway.push_worktree_branch`` yields ``push_results`` in order."""
-    spawner = MagicMock()
-    spawner.gateway.push_worktree_branch.side_effect = list(push_results)
-    return spawner
+def _make_client(push_results):
+    """Return a GatewayClient whose ``_do_push`` yields ``push_results`` in order."""
+    client = GatewayClient(
+        gateway_host="test-gateway",
+        gateway_port=9848,  # noqa: EGG002
+        launcher_secret="test-secret",
+    )
+    client._do_push = MagicMock(side_effect=list(push_results))
+    return client
 
 
-class TestReconcileAndPushPrBranch:
+class TestPushWorktreeBranchReconcile:
     def test_first_push_success_skips_fetch_and_rebase(self, tmp_path):
         """When the initial push succeeds, no git subprocess calls happen."""
-        from routes.pipelines import _reconcile_and_push_pr_branch
-
-        spawner = _make_spawner([True])
-        with patch("routes.pipelines.subprocess.run") as mock_run:
-            ok = _reconcile_and_push_pr_branch(
-                spawner, tmp_path, "issue-42", "egg/feature", "public"
+        client = _make_client([True])
+        with patch("gateway_client.subprocess.run") as mock_run:
+            ok = client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path=str(tmp_path),
+                branch="egg/feature",
             )
 
         assert ok is True
-        assert spawner.gateway.push_worktree_branch.call_count == 1
+        assert client._do_push.call_count == 1
         mock_run.assert_not_called()
 
     def test_push_fail_then_fetch_rebase_retry_succeeds(self, tmp_path):
         """On initial failure: fetch, rebase, retry; all succeed → True."""
-        from routes.pipelines import _reconcile_and_push_pr_branch
-
-        spawner = _make_spawner([False, True])
-        # Two subprocess.run calls expected: fetch, rebase (clean — rc=0).
+        client = _make_client([False, True])
         with patch(
-            "routes.pipelines.subprocess.run",
+            "gateway_client.subprocess.run",
             side_effect=[_run_result(), _run_result()],
         ) as mock_run:
-            ok = _reconcile_and_push_pr_branch(
-                spawner, tmp_path, "issue-42", "egg/feature", "public"
+            ok = client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path=str(tmp_path),
+                branch="egg/feature",
             )
 
         assert ok is True
-        assert spawner.gateway.push_worktree_branch.call_count == 2
+        assert client._do_push.call_count == 2
         assert mock_run.call_count == 2
         fetch_cmd = mock_run.call_args_list[0].args[0]
         rebase_cmd = mock_run.call_args_list[1].args[0]
@@ -73,9 +85,7 @@ class TestReconcileAndPushPrBranch:
 
     def test_push_fail_then_fetch_fails_gives_up(self, tmp_path):
         """If fetch itself fails, rebase is not attempted and result is False."""
-        from routes.pipelines import _reconcile_and_push_pr_branch
-
-        spawner = _make_spawner([False])
+        client = _make_client([False])
 
         def _run_side_effect(cmd, *args, **kwargs):
             if "fetch" in cmd:
@@ -84,23 +94,21 @@ class TestReconcileAndPushPrBranch:
                 )
             raise AssertionError(f"Unexpected subprocess invocation: {cmd}")
 
-        with patch("routes.pipelines.subprocess.run", side_effect=_run_side_effect):
-            ok = _reconcile_and_push_pr_branch(
-                spawner, tmp_path, "issue-42", "egg/feature", "public"
+        with patch("gateway_client.subprocess.run", side_effect=_run_side_effect):
+            ok = client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path=str(tmp_path),
+                branch="egg/feature",
             )
 
         assert ok is False
-        assert spawner.gateway.push_worktree_branch.call_count == 1
+        assert client._do_push.call_count == 1
 
     def test_rebase_conflict_outside_agent_outputs_aborts(self, tmp_path):
         """Conflict in a non-ephemeral path triggers ``git rebase --abort`` and returns False."""
-        from routes.pipelines import _reconcile_and_push_pr_branch
-
-        spawner = _make_spawner([False])
-        # fetch ok, rebase returns non-zero, diff --name-only returns a code path,
-        # rebase --abort ok
+        client = _make_client([False])
         with patch(
-            "routes.pipelines.subprocess.run",
+            "gateway_client.subprocess.run",
             side_effect=[
                 _run_result(),  # fetch
                 _run_result(returncode=1, stdout="CONFLICT"),  # rebase (conflict)
@@ -108,28 +116,22 @@ class TestReconcileAndPushPrBranch:
                 _run_result(),  # rebase --abort
             ],
         ) as mock_run:
-            ok = _reconcile_and_push_pr_branch(
-                spawner, tmp_path, "issue-42", "egg/feature", "public"
+            ok = client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path=str(tmp_path),
+                branch="egg/feature",
             )
 
         assert ok is False
-        # No retry push after a failed rebase
-        assert spawner.gateway.push_worktree_branch.call_count == 1
-        # Last subprocess call must be `git rebase --abort`
+        assert client._do_push.call_count == 1
         abort_cmd = mock_run.call_args_list[-1].args[0]
         assert "rebase" in abort_cmd and "--abort" in abort_cmd
 
     def test_rebase_conflict_only_in_agent_outputs_auto_resolves(self, tmp_path):
         """Conflicts confined to .egg-state/agent-outputs/ auto-resolve to remote side."""
-        from routes.pipelines import _reconcile_and_push_pr_branch
-
-        spawner = _make_spawner([False, True])  # first push fails, retry push ok
-        # Sequence:
-        #   fetch ok → rebase (conflict) → diff --name-only (agent-outputs only)
-        #   → checkout --theirs → add → diff --cached --quiet (index has changes: rc=1)
-        #   → rebase --continue (clean — rc=0) → retry push ok
+        client = _make_client([False, True])
         with patch(
-            "routes.pipelines.subprocess.run",
+            "gateway_client.subprocess.run",
             side_effect=[
                 _run_result(),  # fetch
                 _run_result(returncode=1, stdout="CONFLICT"),  # rebase
@@ -142,13 +144,14 @@ class TestReconcileAndPushPrBranch:
                 _run_result(),  # rebase --continue (success)
             ],
         ) as mock_run:
-            ok = _reconcile_and_push_pr_branch(
-                spawner, tmp_path, "issue-42", "egg/feature", "public"
+            ok = client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path=str(tmp_path),
+                branch="egg/feature",
             )
 
         assert ok is True
-        assert spawner.gateway.push_worktree_branch.call_count == 2
-        # Assert we called checkout --theirs and rebase --continue
+        assert client._do_push.call_count == 2
         all_cmds = [c.args[0] for c in mock_run.call_args_list]
         assert any("checkout" in c and "--theirs" in c for c in all_cmds)
         assert any("rebase" in c and "--continue" in c for c in all_cmds)
@@ -158,11 +161,9 @@ class TestReconcileAndPushPrBranch:
         empty, ``git rebase --skip`` is used instead of ``--continue`` to avoid
         the 'No changes - did you forget to use git add?' error.
         """
-        from routes.pipelines import _reconcile_and_push_pr_branch
-
-        spawner = _make_spawner([False, True])
+        client = _make_client([False, True])
         with patch(
-            "routes.pipelines.subprocess.run",
+            "gateway_client.subprocess.run",
             side_effect=[
                 _run_result(),  # fetch
                 _run_result(returncode=1, stdout="CONFLICT"),  # rebase
@@ -173,23 +174,22 @@ class TestReconcileAndPushPrBranch:
                 _run_result(),  # rebase --skip (success)
             ],
         ) as mock_run:
-            ok = _reconcile_and_push_pr_branch(
-                spawner, tmp_path, "issue-42", "egg/feature", "public"
+            ok = client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path=str(tmp_path),
+                branch="egg/feature",
             )
 
         assert ok is True
-        # Assert we chose --skip over --continue
         all_cmds = [c.args[0] for c in mock_run.call_args_list]
         assert any("rebase" in c and "--skip" in c for c in all_cmds)
         assert not any("rebase" in c and "--continue" in c for c in all_cmds)
 
     def test_rebase_mixed_conflict_aborts(self, tmp_path):
         """A conflict list that includes any non-agent-outputs path aborts the rebase."""
-        from routes.pipelines import _reconcile_and_push_pr_branch
-
-        spawner = _make_spawner([False])
+        client = _make_client([False])
         with patch(
-            "routes.pipelines.subprocess.run",
+            "gateway_client.subprocess.run",
             side_effect=[
                 _run_result(),  # fetch
                 _run_result(returncode=1, stdout="CONFLICT"),  # rebase
@@ -199,13 +199,13 @@ class TestReconcileAndPushPrBranch:
                 _run_result(),  # rebase --abort
             ],
         ) as mock_run:
-            ok = _reconcile_and_push_pr_branch(
-                spawner, tmp_path, "issue-42", "egg/feature", "public"
+            ok = client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path=str(tmp_path),
+                branch="egg/feature",
             )
 
         assert ok is False
-        # We should NOT have invoked checkout --theirs — that path is reserved
-        # for the agent-outputs-only case.
         all_cmds = [c.args[0] for c in mock_run.call_args_list]
         assert not any("checkout" in c and "--theirs" in c for c in all_cmds)
         abort_cmd = mock_run.call_args_list[-1].args[0]
@@ -213,9 +213,7 @@ class TestReconcileAndPushPrBranch:
 
     def test_rebase_timeout_aborts(self, tmp_path):
         """Rebase TimeoutExpired triggers ``git rebase --abort`` and returns False."""
-        from routes.pipelines import _reconcile_and_push_pr_branch
-
-        spawner = _make_spawner([False])
+        client = _make_client([False])
 
         call_count = 0
 
@@ -228,42 +226,50 @@ class TestReconcileAndPushPrBranch:
                 raise subprocess.TimeoutExpired(cmd=cmd, timeout=120)  # rebase times out
             return _run_result()  # rebase --abort
 
-        with patch("routes.pipelines.subprocess.run", side_effect=_run_side_effect) as mock_run:
-            ok = _reconcile_and_push_pr_branch(
-                spawner, tmp_path, "issue-42", "egg/feature", "public"
+        with patch("gateway_client.subprocess.run", side_effect=_run_side_effect) as mock_run:
+            ok = client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path=str(tmp_path),
+                branch="egg/feature",
             )
 
         assert ok is False
-        assert spawner.gateway.push_worktree_branch.call_count == 1
+        assert client._do_push.call_count == 1
         abort_cmd = mock_run.call_args_list[-1].args[0]
         assert "rebase" in abort_cmd and "--abort" in abort_cmd
 
     def test_rebase_succeeds_retry_fails(self, tmp_path):
         """Successful reconcile but still-failing retry push returns False."""
-        from routes.pipelines import _reconcile_and_push_pr_branch
-
-        spawner = _make_spawner([False, False])
+        client = _make_client([False, False])
         with patch(
-            "routes.pipelines.subprocess.run",
+            "gateway_client.subprocess.run",
             side_effect=[_run_result(), _run_result()],  # fetch, rebase
         ):
-            ok = _reconcile_and_push_pr_branch(
-                spawner, tmp_path, "issue-42", "egg/feature", "public"
+            ok = client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path=str(tmp_path),
+                branch="egg/feature",
             )
 
         assert ok is False
-        assert spawner.gateway.push_worktree_branch.call_count == 2
+        assert client._do_push.call_count == 2
 
-    def test_worktree_path_passed_to_gateway_push(self, tmp_path):
-        """The worktree path is threaded through to push_worktree_branch."""
-        from routes.pipelines import _reconcile_and_push_pr_branch
+    def test_ref_push_skips_reconcile(self, tmp_path):
+        """When ``ref`` is set (state-sync style), reconcile is skipped.
 
-        worktree = tmp_path / "my-worktree"
-        spawner = _make_spawner([True])
-        _reconcile_and_push_pr_branch(spawner, worktree, "issue-42", "egg/feature", "private")
+        The rebase would mutate the checkout at repo_path, which for a
+        ``ref``-based push is not a dedicated pipeline worktree but a
+        shared repo whose checkout we must not disturb (see #1808).
+        """
+        client = _make_client([False])
+        with patch("gateway_client.subprocess.run") as mock_run:
+            ok = client.push_worktree_branch(
+                pipeline_id="state-sync",
+                repo_path=str(tmp_path),
+                branch="egg/pipeline-state",
+                ref="egg/pipeline-state",
+            )
 
-        call = spawner.gateway.push_worktree_branch.call_args
-        assert call.kwargs["repo_path"] == str(worktree)
-        assert call.kwargs["pipeline_id"] == "issue-42"
-        assert call.kwargs["branch"] == "egg/feature"
-        assert call.kwargs["mode"] == "private"
+        assert ok is False
+        assert client._do_push.call_count == 1
+        mock_run.assert_not_called()

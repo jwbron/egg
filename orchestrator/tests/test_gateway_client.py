@@ -772,6 +772,33 @@ class TestPushWorktreeBranch:
             push_data = push_calls[0].kwargs["data"]
             assert push_data["refspec"] == "HEAD:refs/heads/egg/issue-42"
 
+    def test_push_worktree_branch_ref_param_uses_branch_refspec(
+        self, gateway_client, mock_gateway_server
+    ):
+        """Test that ``ref=`` produces refs/heads/<ref>:refs/heads/<branch>.
+
+        Used for state-sync pushes (#1808): the gateway ``cd``s into the
+        main repo (shared hostPath) and pushes the state branch ref from
+        the shared ``.git/`` object DB, since the state worktree itself
+        lives in a pod-local unshared volume.
+        """
+        with patch.object(
+            gateway_client, "_make_request", wraps=gateway_client._make_request
+        ) as mock_req:
+            gateway_client.push_worktree_branch(
+                pipeline_id="state-sync",
+                repo_path="/home/egg/repos/myrepo",
+                branch="egg/pipeline-state",
+                ref="egg/pipeline-state",
+            )
+            push_calls = [c for c in mock_req.call_args_list if c.args[0] == "/api/v1/git/push"]
+            assert len(push_calls) == 1
+            push_data = push_calls[0].kwargs["data"]
+            assert (
+                push_data["refspec"]
+                == "refs/heads/egg/pipeline-state:refs/heads/egg/pipeline-state"
+            )
+
 
 class TestDeleteRemoteBranch:
     """Tests for delete_remote_branch method."""
