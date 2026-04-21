@@ -59,18 +59,17 @@ Both mechanisms use a 30-second debounce to allow humans to edit before processi
 When submitted, the pipeline resumes with the human input available in your prompt
 context via `get_submitted_feedback()` or the selected decision option.
 
-## Per-Agent Worktree Support
+## Contract State in Concurrent Mode
 
-All `egg-contract` commands work correctly from per-agent worktrees in concurrent execution mode. The CLI automatically sends the `CONTAINER_ID` environment variable to the gateway, which maps the container's repo path to the correct worktree path before loading or saving contracts.
+In concurrent execution mode, contracts are stored in the **shared pipeline worktree** (`/home/egg/.egg-worktrees/<pipeline_id>/<repo>/`) rather than in per-agent worktrees. All `egg-contract` commands route through the gateway, which proxies to the orchestrator's `/api/v1/contracts/` endpoints. The orchestrator is the single source of truth for contract state, ensuring all agents (producer and reviewers) observe the same contract regardless of which per-agent worktree they run in.
 
-No additional configuration is needed — the `CONTAINER_ID` env var is set automatically in pipeline containers.
+No additional configuration is needed — `EGG_PIPELINE_ID` is set automatically in pipeline containers and is used to locate the shared worktree.
 
 ## Environment
 
 - `EGG_ISSUE_NUMBER` — current GitHub issue number (auto-set in issue-driven pipelines)
 - `EGG_PIPELINE_ID` — pipeline ID string for JIRA-ticket pipelines (auto-set)
 - `EGG_REPO_PATH` — repository path (auto-set)
-- `CONTAINER_ID` — container identifier for worktree path resolution (auto-set in pipeline containers)
 
 When neither `EGG_ISSUE_NUMBER` nor `EGG_PIPELINE_ID` is set, all commands require `--issue` or `--pipeline-id`.
 

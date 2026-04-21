@@ -847,11 +847,11 @@ The gateway's push validation (`get_changed_files_in_push()`) only reports files
 
 Combined with per-agent worktree isolation, this eliminates false positives where an agent's push was rejected because a *different* agent had committed files outside this agent's role boundaries.
 
-### Contract API Worktree Support
+### Contract API in Concurrent Mode
 
-The gateway's contract API endpoints (`get_contract`, `mutate_contract`, `check_contract_exists`) support per-agent worktree path mapping, using the same `map_container_path_to_worktree()` mechanism as git endpoints. The `egg-contract` CLI automatically includes the `CONTAINER_ID` environment variable in all gateway requests, allowing the gateway to resolve the correct worktree path for each agent.
+Contract state is owned by the **orchestrator**, not individual agent worktrees. The gateway proxies all `egg-contract` requests to the orchestrator's `/api/v1/contracts/` endpoints, which read and write the **shared pipeline worktree** (`/home/egg/.egg-worktrees/<pipeline_id>/<repo>/`). This ensures every agent — producer and reviewers — sees the same contract regardless of which per-agent worktree it runs in (see [#1781](https://github.com/jwbron/egg/issues/1781)).
 
-Without this mapping, agents in per-agent worktrees would receive "Contract not found" errors because the gateway would look for the contract file at the container's repo path rather than the worktree path where the file actually resides. See [#1513](https://github.com/jwbron/egg/issues/1513) for the original issue.
+Per-agent worktrees are used only for code isolation. Contract files live exclusively in the shared worktree and are serialized to the feature branch at phase checkpoints via `_commit_statefiles_to_worktree`.
 
 ## Orchestrator API Reference
 
