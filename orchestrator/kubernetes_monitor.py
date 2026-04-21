@@ -215,7 +215,7 @@ class KubernetesMonitor:
     def _run_runtime_tick_checks(self) -> None:
         """Fire RUNTIME_TICK health checks on all running pipelines.
 
-        Called from ``_handle_pod_transition`` on container state changes
+        Called from ``_check_pod`` on container state changes
         and from ``_reconciliation_sweep`` on the periodic interval so the
         post-consensus stall recovery still runs for pipelines where no
         pods are transitioning. Requires that ``set_health_check_runner``
@@ -557,7 +557,7 @@ class KubernetesMonitor:
         # are transitioning (e.g. all agents quietly polling post-BRC
         # consensus) still exercise the consensus-stall recovery path.
         # Without this, a stuck post-consensus pipeline never recovers
-        # because _handle_pod_transition is the only other call site. (#1813)
+        # because _check_pod is the only other call site. (#1813)
         self._run_runtime_tick_checks()
 
     def stop(self) -> None:

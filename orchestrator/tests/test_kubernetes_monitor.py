@@ -1117,7 +1117,7 @@ class TestRuntimeTickConsensusStallWiring:
     def test_reconciliation_sweep_invokes_runtime_tick(self, monitor, mock_k8s_client):
         """_reconciliation_sweep must fire _run_runtime_tick_checks every sweep.
 
-        Previously only _handle_pod_transition called it; this left pipelines
+        Previously only _check_pod called it; this left pipelines
         with no pod churn unable to exercise the stall-recovery path.
         """
         mock_k8s_client.list_containers.return_value = []
