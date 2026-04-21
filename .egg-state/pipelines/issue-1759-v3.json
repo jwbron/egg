@@ -278,10 +278,10 @@
         {
           "container_id": "211dd327-b860-4b0a-be25-a261c6fc58a2",
           "container_name": "issue-1759-v3-coder",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-21T21:51:27.669966Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-21T23:21:32.990081Z",
+          "exit_code": -1,
           "agent_role": "coder",
           "session_token": null,
           "pod_name": null,
@@ -344,13 +344,13 @@
       "agents": [
         {
           "role": "coder",
-          "status": "running",
+          "status": "failed",
           "container_id": "211dd327-b860-4b0a-be25-a261c6fc58a2",
           "started_at": "2026-04-21T21:51:27.669972Z",
-          "completed_at": null,
+          "completed_at": "2026-04-21T23:21:33.152357Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -439,7 +439,7 @@
     }
   ],
   "created_at": "2026-04-21T20:06:57.322289Z",
-  "updated_at": "2026-04-21T23:21:33.109669Z",
+  "updated_at": "2026-04-21T23:21:33.153133Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -452,5 +452,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-21T21:51:23.359709Z",
-  "version": 26
+  "version": 27
 }
