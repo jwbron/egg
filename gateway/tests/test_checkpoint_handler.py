@@ -642,6 +642,216 @@ class TestStoreCheckpointV2GitOps:
         assert branch_delete_calls[0][2].get("check") is False
 
 
+class TestStoreCheckpointV2RemoteTarget:
+    """Tests for store_checkpoint_v2 remote URL resolution (issue #1767).
+
+    The gateway pod has no SSH config, so origin URLs inherited from the host
+    clone as SSH must be rewritten to HTTPS before any fetch/push.
+    """
+
+    def _run(self, checkpoint_repo, remote_url):
+        import checkpoint_handler
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            TriggerType,
+        )
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        now = datetime.now(UTC)
+        checkpoint = CheckpointV2(
+            id="ckpt-a1b2c3d4e5f67890",
+            trigger_type=TriggerType.COMMIT,
+            session_id="test-container",
+            commit_sha="abc123def456789012345678901234567890abcd",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+
+        with patch(
+            "checkpoint_handler.resolve_remote_url",
+            return_value=(remote_url, None),
+        ):
+            try:
+                handler.store_checkpoint_v2(
+                    checkpoint, "/fake/repo", checkpoint_repo=checkpoint_repo
+                )
+            except Exception:
+                pass
+
+        fetch_calls = [c for c in git_calls if "fetch" in c[1]]
+        assert fetch_calls, "Expected a git fetch call"
+        # The fetch target is the second arg after 'fetch'
+        return fetch_calls[0][1][1]
+
+    def test_ssh_origin_rewritten_to_https(self):
+        """SSH-form origin URL is rewritten to HTTPS before fetch/push."""
+        target = self._run(
+            checkpoint_repo=None,
+            remote_url="git@github.com:owner/repo.git",
+        )
+        assert target == "https://github.com/owner/repo.git"
+
+    def test_ssh_url_form_rewritten_to_https(self):
+        """ssh:// URL form is rewritten to HTTPS."""
+        target = self._run(
+            checkpoint_repo=None,
+            remote_url="ssh://git@github.com/owner/repo.git",
+        )
+        assert target == "https://github.com/owner/repo.git"
+
+    def test_https_origin_uses_remote_name(self):
+        """HTTPS origin keeps the remote name (credential helper works)."""
+        target = self._run(
+            checkpoint_repo=None,
+            remote_url="https://github.com/owner/repo.git",
+        )
+        assert target == "origin"
+
+    def test_checkpoint_repo_overrides_origin(self):
+        """Explicit checkpoint_repo is used regardless of origin URL."""
+        target = self._run(
+            checkpoint_repo="owner/other-repo",
+            remote_url="git@github.com:owner/repo.git",
+        )
+        assert target == "https://github.com/owner/other-repo.git"
+
+    def test_resolve_error_falls_back_to_remote_name(self):
+        """When resolve_remote_url returns an error, fall back to bare remote name."""
+        import checkpoint_handler
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            TriggerType,
+        )
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        now = datetime.now(UTC)
+        checkpoint = CheckpointV2(
+            id="ckpt-a1b2c3d4e5f67890",
+            trigger_type=TriggerType.COMMIT,
+            session_id="test-container",
+            commit_sha="abc123def456789012345678901234567890abcd",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+
+        with patch(
+            "checkpoint_handler.resolve_remote_url",
+            return_value=("", "fatal: No such remote 'origin'"),
+        ):
+            try:
+                handler.store_checkpoint_v2(checkpoint, "/fake/repo", checkpoint_repo=None)
+            except Exception:
+                pass
+
+        fetch_calls = [c for c in git_calls if "fetch" in c[1]]
+        assert fetch_calls, "Expected a git fetch call"
+        assert fetch_calls[0][1][1] == "origin"
+
+
+class TestFetchAndReadIndexRemoteTarget:
+    """Tests that fetch_and_read_index resolves SSH origins to HTTPS (#1767)."""
+
+    def _get_fetch_target(self, checkpoint_repo, remote_url, resolve_error=None):
+        import checkpoint_handler
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        resolve_return = ("", resolve_error) if resolve_error else (remote_url, None)
+        with patch(
+            "checkpoint_handler.resolve_remote_url",
+            return_value=resolve_return,
+        ):
+            try:
+                handler.fetch_and_read_index("/fake/repo", checkpoint_repo=checkpoint_repo)
+            except Exception:
+                pass
+
+        fetch_calls = [c for c in git_calls if "fetch" in c[1]]
+        assert fetch_calls, "Expected a git fetch call"
+        return fetch_calls[0][1][1]
+
+    def test_ssh_origin_rewritten_to_https(self):
+        target = self._get_fetch_target(None, "git@github.com:owner/repo.git")
+        assert target == "https://github.com/owner/repo.git"
+
+    def test_https_origin_uses_remote_name(self):
+        target = self._get_fetch_target(None, "https://github.com/owner/repo.git")
+        assert target == "origin"
+
+    def test_checkpoint_repo_overrides_origin(self):
+        target = self._get_fetch_target("owner/other", "git@github.com:owner/repo.git")
+        assert target == "https://github.com/owner/other.git"
+
+
+class TestEnsureRefRemoteTarget:
+    """Tests that ensure_ref resolves SSH origins to HTTPS (#1767)."""
+
+    def _get_fetch_target(self, checkpoint_repo, remote_url, resolve_error=None):
+        import checkpoint_handler
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        resolve_return = ("", resolve_error) if resolve_error else (remote_url, None)
+        with patch(
+            "checkpoint_handler.resolve_remote_url",
+            return_value=resolve_return,
+        ):
+            try:
+                handler.ensure_ref("/fake/repo", checkpoint_repo=checkpoint_repo)
+            except Exception:
+                pass
+
+        fetch_calls = [c for c in git_calls if "fetch" in c[1]]
+        assert fetch_calls, "Expected a git fetch call"
+        return fetch_calls[0][1][1]
+
+    def test_ssh_origin_rewritten_to_https(self):
+        target = self._get_fetch_target(None, "git@github.com:owner/repo.git")
+        assert target == "https://github.com/owner/repo.git"
+
+    def test_https_origin_uses_remote_name(self):
+        target = self._get_fetch_target(None, "https://github.com/owner/repo.git")
+        assert target == "origin"
+
+
 class TestResolvePipelineId:
     """Tests for CheckpointHandler._resolve_pipeline_id."""
 
