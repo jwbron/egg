@@ -15,6 +15,7 @@ returning a structured ``not_available_on_runtime`` payload.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -26,6 +27,10 @@ from typing import Any
 
 import yaml
 from flask import Blueprint, Response, jsonify, request
+
+# Kubernetes label values must match this regex (RFC 1123-ish) or the
+# apiserver rejects Job creation with a 422.
+_K8S_LABEL_VALUE_RE = re.compile(r"^[a-z0-9A-Z]([-._a-z0-9A-Z]{0,61}[a-z0-9A-Z])?$")
 
 # Add parent directory to path for imports
 _parent_path = Path(__file__).parent.parent
@@ -117,10 +122,6 @@ def _detect_k3s(k8s_client: Any) -> tuple[bool, str | None]:
             if kubelet and "+k3s" in kubelet:
                 return True, kubelet
 
-    try:
-        daemonsets = k8s_client.batch_api.api_client.call_api  # sentinel; real call below
-    except Exception:
-        daemonsets = None  # noqa: F841 — intentionally unused; probe below
     try:
         from kubernetes import client as k8s_client_pkg
 
@@ -342,14 +343,20 @@ def _run_kustomize(overlay_path: Path) -> list[dict[str, Any]]:
         )
     except FileNotFoundError:
         # Fall back to ``kubectl kustomize``; some environments only
-        # ship kubectl.
-        proc = subprocess.run(
-            ["kubectl", "kustomize", str(overlay_path)],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=60,
-        )
+        # ship kubectl. If kubectl is also missing, surface a
+        # structured error rather than a 500.
+        try:
+            proc = subprocess.run(
+                ["kubectl", "kustomize", str(overlay_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=60,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                "kustomize_unavailable: neither kustomize nor kubectl is on PATH"
+            ) from exc
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"kustomize build timed out: {exc}") from exc
 
@@ -560,18 +567,45 @@ def validate_deployment_manifests() -> tuple[Response, int]:
 
     # Resolve overlay relative to the repo root if a relative path was
     # passed.  The orchestrator container has the repo mounted at
-    # /home/egg/repos/egg by default.
-    overlay_path = Path(overlay)
-    if not overlay_path.is_absolute():
-        repo_root_candidates = [
+    # /home/egg/repos/egg by default.  The final resolved path MUST
+    # stay inside one of the recognised repo roots — otherwise an
+    # authenticated caller could probe arbitrary filesystem paths via
+    # 200/404 differentiation.
+    repo_root_candidates = [
+        p
+        for p in (
             Path(os.environ.get("EGG_REPO_PATH") or ""),
             Path("/home/egg/repos/egg"),
             Path.cwd(),
-        ]
+        )
+        if str(p)
+    ]
+    overlay_path = Path(overlay)
+    if not overlay_path.is_absolute():
         for root in repo_root_candidates:
             if root and (root / overlay).exists():
                 overlay_path = root / overlay
                 break
+
+    # Guard against path traversal — the resolved overlay must sit
+    # under a known repo root.
+    try:
+        resolved = overlay_path.resolve()
+        in_scope = any(
+            resolved.is_relative_to(root.resolve()) for root in repo_root_candidates if root
+        )
+    except (OSError, RuntimeError):
+        in_scope = False
+    if not in_scope:
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": "overlay_path must resolve under a known repo root",
+                }
+            ),
+            400,
+        )
 
     if not overlay_path.exists():
         return (
@@ -913,6 +947,33 @@ def validate_network_isolation() -> tuple[Response, int]:
     role = str(body.get("role") or "coder")
     namespace = os.environ.get("EGG_AGENTS_NAMESPACE", "egg-agents")
 
+    # Guard against invalid K8s label values.  Labels must match
+    # ^[a-z0-9A-Z]([-._a-z0-9A-Z]{0,61}[a-z0-9A-Z])?$ — failing Job
+    # creation otherwise returns an opaque 400 from the apiserver.
+    if not _K8S_LABEL_VALUE_RE.match(pipeline_id):
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": (
+                        "pipeline_id is not a valid Kubernetes label value "
+                        "(must match [a-z0-9A-Z]([-._a-z0-9A-Z]{0,61}[a-z0-9A-Z])?)"
+                    ),
+                }
+            ),
+            400,
+        )
+    if not _K8S_LABEL_VALUE_RE.match(role):
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": "role is not a valid Kubernetes label value",
+                }
+            ),
+            400,
+        )
+
     try:
         from kubernetes_client import get_kubernetes_client
     except Exception as exc:
@@ -1004,8 +1065,22 @@ _REBUILD_ACTIVE_STREAM_ID: str | None = None
 # the consumer reads via
 # GET /api/v1/deployment/rebuild-and-rollout/streams/<id>.
 _STREAM_BUFFERS: dict[str, deque[dict[str, Any]]] = {}
+_STREAM_TERMINATION_TS: dict[str, float] = {}
 _STREAM_LOCK = threading.Lock()
 _STREAM_TERMINATED: set[str] = set()
+
+# How many finished streams we keep around so a wait=true consumer can
+# still fetch the terminal events after the worker exited.  Older
+# entries are evicted FIFO — _STREAM_BUFFERS must not grow unbounded
+# across a long-running orchestrator (see #1759 review MEDIUM-3).
+_STREAM_RETENTION = 16
+
+# Hard timeout for the redeploy subprocess.  If ``make redeploy`` hangs
+# (stuck docker build, hung k3s ctr import, network wedge) the
+# watchdog kills it, emits a structured ``phase: "timeout"`` event, and
+# clears _REBUILD_IN_PROGRESS so the next caller is not wedged at 409
+# forever.  30 min is a generous upper bound for a clean rebuild.
+_REDEPLOY_SUBPROCESS_TIMEOUT_SEC = 1800
 
 
 def _stream_append(stream_id: str, event: dict[str, Any]) -> None:
@@ -1015,8 +1090,25 @@ def _stream_append(stream_id: str, event: dict[str, Any]) -> None:
 
 
 def _stream_mark_done(stream_id: str) -> None:
+    import time as _time
+
     with _STREAM_LOCK:
         _STREAM_TERMINATED.add(stream_id)
+        _STREAM_TERMINATION_TS[stream_id] = _time.monotonic()
+        _reap_stale_streams_locked()
+
+
+def _reap_stale_streams_locked() -> None:
+    """Evict terminated streams beyond the retention cap. Lock-held."""
+    if len(_STREAM_TERMINATION_TS) <= _STREAM_RETENTION:
+        return
+    # Oldest first.
+    ordered = sorted(_STREAM_TERMINATION_TS.items(), key=lambda kv: kv[1])
+    overflow = len(ordered) - _STREAM_RETENTION
+    for stream_id, _ts in ordered[:overflow]:
+        _STREAM_BUFFERS.pop(stream_id, None)
+        _STREAM_TERMINATED.discard(stream_id)
+        _STREAM_TERMINATION_TS.pop(stream_id, None)
 
 
 def _stream_is_done(stream_id: str) -> bool:
@@ -1039,6 +1131,7 @@ def _run_redeploy_subprocess(
     cwd: str,
     *,
     runner: Any = None,
+    timeout_sec: int | None = None,
 ) -> None:
     """Execute ``make redeploy`` and pipe progress events to the stream.
 
@@ -1049,6 +1142,11 @@ def _run_redeploy_subprocess(
     and terminates with a ``{"phase": "done", "exit_code": N,
     "rolled_out_images": {...}}`` record.
 
+    A watchdog kills the subprocess after *timeout_sec* seconds (default
+    :data:`_REDEPLOY_SUBPROCESS_TIMEOUT_SEC`) so a wedged
+    ``make redeploy`` never leaves ``_REBUILD_IN_PROGRESS`` pinned true
+    — review MEDIUM-1 in #1759.
+
     *runner* may be overridden for testing — any callable with the
     signature of :func:`subprocess.Popen`.
     """
@@ -1057,8 +1155,36 @@ def _run_redeploy_subprocess(
     from datetime import UTC, datetime
 
     popen = runner or subprocess.Popen
+    effective_timeout = timeout_sec if timeout_sec is not None else _REDEPLOY_SUBPROCESS_TIMEOUT_SEC
+    deadline = time.monotonic() + effective_timeout
     exit_code = -1
     rolled_out: dict[str, str] = {}
+    timed_out = False
+    proc: Any = None
+
+    def _watchdog() -> None:
+        # Sleep until the deadline, then kill the process if still alive.
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(remaining)
+        if proc is None or proc.poll() is not None:
+            return
+        nonlocal timed_out
+        timed_out = True
+        _stream_append(
+            stream_id,
+            {
+                "ts": datetime.now(UTC).isoformat(),
+                "phase": "timeout",
+                "message": (f"make redeploy exceeded {effective_timeout}s, killing subprocess"),
+            },
+        )
+        try:
+            proc.kill()
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+    watchdog_thread: threading.Thread | None = None
 
     try:
         proc = popen(
@@ -1070,6 +1196,13 @@ def _run_redeploy_subprocess(
             bufsize=1,
         )
         assert proc.stdout is not None
+
+        watchdog_thread = threading.Thread(
+            target=_watchdog,
+            daemon=True,
+            name=f"rebuild-watchdog-{stream_id}",
+        )
+        watchdog_thread.start()
 
         for raw_line in proc.stdout:
             line = raw_line.rstrip("\n")
@@ -1109,6 +1242,7 @@ def _run_redeploy_subprocess(
                 "phase": "done",
                 "exit_code": exit_code,
                 "rolled_out_images": rolled_out,
+                "timed_out": timed_out,
             },
         )
         _stream_mark_done(stream_id)

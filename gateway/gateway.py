@@ -3776,6 +3776,48 @@ def worktree_list() -> tuple[Response, int] | Response:
 _worktree_prune_lock = threading.Lock()
 
 
+def _collect_active_container_ids() -> set[str]:
+    """Return the best-effort set of container IDs that back live sessions.
+
+    Mirrors the startup-cleanup logic at module level so the prune route
+    never issues a sweep with an empty active set (which would otherwise
+    treat every worktree as an orphan — see #1759 review).
+
+    Consults:
+
+    1. Persisted sessions via :func:`get_session_manager` (primary source
+       of truth — survives gateway restarts).
+    2. ``docker ps`` when Docker is reachable (safety net for sessions
+       that outlive the session-manager snapshot).
+
+    Failures in either step degrade silently so the prune still runs —
+    the worst case is that a genuinely orphaned dir is preserved, which
+    the next scheduled prune will clean up.
+    """
+    active_container_ids: set[str] = set()
+    try:
+        session_manager = get_session_manager()
+        for session_info in session_manager.list_sessions():
+            cid = session_info.get("container_id")
+            if cid:
+                active_container_ids.add(cid)
+    except Exception as exc:
+        logger.warning(
+            "prune: session-manager active-container lookup failed",
+            error=str(exc),
+        )
+    try:
+        active_container_ids |= get_active_docker_containers()
+    except Exception as exc:
+        # Non-fatal: on k3s there is no dockerd reachable from the
+        # orchestrator's sidecar, and that is fine.
+        logger.debug(
+            "prune: docker active-container probe unavailable",
+            error=str(exc),
+        )
+    return active_container_ids
+
+
 @app.route("/api/v1/worktrees/prune", methods=["POST"])
 @require_launcher_auth
 def worktrees_prune() -> tuple[Response, int] | Response:
@@ -3790,8 +3832,9 @@ def worktrees_prune() -> tuple[Response, int] | Response:
     When ``dry_run`` is true, returns the set of orphan directories
     that would be removed but does not mutate the filesystem. When
     false, removes them using the existing ``cleanup_orphaned_worktrees``
-    helper with an empty active-containers set so every dir is a
-    candidate.
+    helper.  The active-container set is derived from the session
+    manager (plus an opportunistic ``docker ps`` fallback) so a live
+    pipeline's worktree is never mistaken for an orphan.
 
     Proxied from the orchestrator's
     ``/api/v1/deployment/prune-worktrees`` endpoint (#1759).
@@ -3805,18 +3848,17 @@ def worktrees_prune() -> tuple[Response, int] | Response:
     # must not interleave even if two callers hit this endpoint
     # concurrently.
     if not _worktree_prune_lock.acquire(timeout=60):
-        return make_error(
-            "Another worktree prune is in progress", status_code=409
-        )
+        return make_error("Another worktree prune is in progress", status_code=409)
     try:
+        active_container_ids = _collect_active_container_ids()
         git_prune_report = manager.git_worktree_prune_all()
-        orphan_dirs = manager.list_orphan_worktree_dirs(active_containers=set())
+        orphan_dirs = manager.list_orphan_worktree_dirs(active_containers=active_container_ids)
 
         removed_count = 0
         removed_paths: list[str] = []
         if not dry_run and orphan_dirs:
             removed_count = manager.cleanup_orphaned_worktrees(
-                active_containers=set(),
+                active_containers=active_container_ids,
             )
             # Any orphan we enumerated that no longer exists on disk
             # was removed by the helper.
@@ -3835,6 +3877,7 @@ def worktrees_prune() -> tuple[Response, int] | Response:
                 "dry_run": dry_run,
                 "git_worktree_prune": git_prune_report,
                 "orphan_dirs_count": len(orphan_dirs),
+                "active_containers_count": len(active_container_ids),
                 "removed_count": removed_count,
             },
         )
@@ -3845,6 +3888,7 @@ def worktrees_prune() -> tuple[Response, int] | Response:
                 "dry_run": dry_run,
                 "git_worktree_prune": git_prune_report,
                 "orphan_dirs": orphan_dirs,
+                "active_containers_count": len(active_container_ids),
                 "removed_count": removed_count,
                 "removed_paths": removed_paths,
             },
