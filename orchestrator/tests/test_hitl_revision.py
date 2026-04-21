@@ -1558,7 +1558,7 @@ class TestPhaseGateResolutionPersistence:
         assert len(updated.decisions) == 0
 
     def test_phase_gate_resolution_with_issue_number(self, tmp_path):
-        """When issue_number is provided, it should be used as the contract identifier."""
+        """When issue_number is provided, contract is keyed by pipeline_id."""
         from egg_contracts.loader import load_contract, save_contract
         from egg_contracts.models import Contract
         from routes.pipelines import _persist_phase_gate_resolution
@@ -1569,7 +1569,8 @@ class TestPhaseGateResolutionPersistence:
                 "title": "Test",
                 "repo": "owner/repo",
                 "url": "https://github.com/owner/repo/issues/42",
-            }
+            },
+            pipeline_id="test-pipe",
         )
         save_contract(contract, tmp_path)
 
@@ -1583,7 +1584,7 @@ class TestPhaseGateResolutionPersistence:
             42,
         )
 
-        updated = load_contract(42, tmp_path)
+        updated = load_contract("test-pipe", tmp_path)
         assert len(updated.decisions) == 1
         assert updated.decisions[0].resolution == "Ship it"
 

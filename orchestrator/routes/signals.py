@@ -398,10 +398,10 @@ def handle_complete_signal(
         contract_role = _AGENT_ROLE_TO_CONTRACT_ROLE.get(agent_role)
 
         if contract_role is not None:
-            identifier: int | str = (
-                pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
-            )
-            contract = load_contract(identifier, contract_path)
+            # Contracts are keyed by pipeline_id (includes any qualifier) so
+            # qualified pipelines resolve to the correct contract file. The
+            # loader's compat shim handles legacy pre-unification paths.
+            contract = load_contract(pipeline_id, contract_path)
             orch = create_orchestrator(contract)
             orch.complete_agent(contract_role, commit=commit, outputs=outputs)
             updated_contract = orch.apply_to_contract()
@@ -593,10 +593,10 @@ def handle_error_signal(
         contract_role = _AGENT_ROLE_TO_CONTRACT_ROLE.get(agent_role)
 
         if contract_role is not None:
-            identifier: int | str = (
-                pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
-            )
-            contract = load_contract(identifier, contract_path)
+            # Contracts are keyed by pipeline_id (includes any qualifier) so
+            # qualified pipelines resolve to the correct contract file. The
+            # loader's compat shim handles legacy pre-unification paths.
+            contract = load_contract(pipeline_id, contract_path)
             orch = create_orchestrator(contract)
             orch.fail_agent(contract_role, error_message)
             updated_contract = orch.apply_to_contract()

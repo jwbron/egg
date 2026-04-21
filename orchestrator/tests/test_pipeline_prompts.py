@@ -543,11 +543,11 @@ class TestRenderContractTasks:
             assert "[x] **task-1**" in result
 
     def test_issue_mode_uses_issue_number(self):
-        """In issue mode, uses issue_number as contract identifier."""
+        """In issue mode, contract is loaded by pipeline_id."""
         with tempfile.TemporaryDirectory() as tmpdir:
             self._make_contract(
                 tmpdir,
-                42,
+                "pid-1",
                 phases=[
                     {
                         "id": "phase-1",

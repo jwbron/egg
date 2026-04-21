@@ -92,23 +92,28 @@ class TestGetContractPath:
     """Tests for get_contract_path function."""
 
     def test_with_repo_root(self, tmp_path):
-        """Test path construction with explicit repo_root."""
+        """Integer issue numbers canonicalize to ``issue-<N>.json``."""
         path = get_contract_path(42, repo_root=tmp_path)
-        assert path == tmp_path / ".egg-state" / "contracts" / "42.json"
+        assert path == tmp_path / ".egg-state" / "contracts" / "issue-42.json"
 
     def test_without_repo_root_uses_cwd(self):
-        """Test path defaults to cwd when repo_root is None."""
+        """Path defaults to cwd when repo_root is None."""
         path = get_contract_path(7)
-        expected = Path.cwd() / ".egg-state" / "contracts" / "7.json"
+        expected = Path.cwd() / ".egg-state" / "contracts" / "issue-7.json"
         assert path == expected
 
     def test_different_issue_numbers(self, tmp_path):
-        """Test that different issue numbers produce different filenames."""
+        """Different issue numbers produce different filenames."""
         path_1 = get_contract_path(1, repo_root=tmp_path)
         path_2 = get_contract_path(999, repo_root=tmp_path)
-        assert path_1.name == "1.json"
-        assert path_2.name == "999.json"
+        assert path_1.name == "issue-1.json"
+        assert path_2.name == "issue-999.json"
         assert path_1 != path_2
+
+    def test_string_pipeline_id_passes_through(self, tmp_path):
+        """String pipeline IDs are used verbatim as the filename stem."""
+        path = get_contract_path("issue-1759-v2", repo_root=tmp_path)
+        assert path == tmp_path / ".egg-state" / "contracts" / "issue-1759-v2.json"
 
 
 class TestLoadContract:
@@ -167,7 +172,7 @@ class TestSaveContract:
         path = save_contract(contract, repo_root=tmp_path)
 
         assert path.exists()
-        assert path.name == "42.json"
+        assert path.name == "issue-42.json"
 
         # Verify contents are valid JSON that round-trips
         data = json.loads(path.read_text())
@@ -198,7 +203,7 @@ class TestSaveContract:
         """Test that save_contract returns the expected path."""
         contract = _make_contract(issue_number=77)
         path = save_contract(contract, repo_root=tmp_path)
-        expected = tmp_path / ".egg-state" / "contracts" / "77.json"
+        expected = tmp_path / ".egg-state" / "contracts" / "issue-77.json"
         assert path == expected
 
     def test_save_file_has_trailing_newline(self, tmp_path):
@@ -302,8 +307,10 @@ class TestLoadContractFromBranch:
         with patch("subprocess.run", return_value=mock_result) as mock_run:
             loaded = load_contract_from_branch(42, tmp_path, branch="feature/test")
 
+        # Canonical path is tried first; the mock succeeds so the legacy
+        # fallback is never exercised.
         mock_run.assert_called_once_with(
-            ["git", "show", "feature/test:.egg-state/contracts/42.json"],
+            ["git", "show", "feature/test:.egg-state/contracts/issue-42.json"],
             cwd=tmp_path,
             capture_output=True,
             text=True,
