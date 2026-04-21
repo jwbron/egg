@@ -109,17 +109,29 @@ Resolution payloads are JSON objects with an `action` field (`approve`, `select`
 
 All endpoints are prefixed with `/api/v1`.
 
+**Lifecycle-control auth (#1769):** Endpoints that mutate agent lifecycle require
+`Authorization: Bearer $EGG_LIFECYCLE_SECRET`. This covers HITL
+resolve/cancel, pipeline create/update/delete/start, agent and phase restarts,
+manual phase overrides (`/phase`, `/phase/start|complete|fail|populate-contract`),
+and container spawn/stop/delete. Endpoints marked below with † are gated.
+Requests without the header return 401; a server without
+`EGG_LIFECYCLE_SECRET` configured fails closed with 503. The MCP server
+(in-process) and host-side CLIs (`egg-sdlc`, `egg-orch`) attach the header
+automatically from the env var. Agent pods never receive the secret, so
+in-cluster agents cannot bypass HITL phase gates. Successful calls log a
+`source` field sourced from the advisory `X-Egg-Source` header.
+
 ### Pipelines
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/pipelines` | List all pipelines |
-| `POST` | `/pipelines` | Create new pipeline (supports `source_branch` for artifact reuse) |
+| `POST` | `/pipelines` † | Create new pipeline (supports `source_branch` for artifact reuse) |
 | `GET` | `/pipelines/{id}` | Get pipeline details |
-| `PATCH` | `/pipelines/{id}` | Update pipeline (async container cleanup) |
-| `DELETE` | `/pipelines/{id}` | Delete pipeline |
+| `PATCH` | `/pipelines/{id}` † | Update pipeline (async container cleanup) |
+| `DELETE` | `/pipelines/{id}` † | Delete pipeline |
 | `GET` | `/pipelines/{id}/status` | Get pipeline status summary (includes server-computed timing) |
-| `POST` | `/pipelines/{id}/start` | Start or restart pipeline |
+| `POST` | `/pipelines/{id}/start` † | Start or restart pipeline |
 | `GET` | `/pipelines/{id}/visualization` | Get DAG visualization (JSON, text, or ASCII) |
 | `GET` | `/pipelines/{id}/stream` | SSE stream for single pipeline |
 | `GET` | `/pipelines/stream` | Unified SSE stream for all active pipelines |
@@ -147,18 +159,18 @@ All endpoints are prefixed with `/api/v1`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/pipelines/{id}/agents/{role}/restart` | Restart a single stuck agent (increment count, stop, respawn, then reset consensus — concurrency-safe via per-agent lock) |
-| `POST` | `/pipelines/{id}/phases/{phase}/restart` | Restart an entire phase (stop all containers, reset consensus and review cycles, respawn all agents) |
+| `POST` | `/pipelines/{id}/agents/{role}/restart` † | Restart a single stuck agent (increment count, stop, respawn, then reset consensus — concurrency-safe via per-agent lock) |
+| `POST` | `/pipelines/{id}/phases/{phase}/restart` † | Restart an entire phase (stop all containers, reset consensus and review cycles, respawn all agents) |
 
 ### Containers
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/pipelines/{id}/spawn` | Spawn container |
+| `POST` | `/pipelines/{id}/spawn` † | Spawn container |
 | `GET` | `/pipelines/{id}/containers` | List containers |
 | `GET` | `/pipelines/{id}/containers/{cid}` | Get container details |
-| `DELETE` | `/pipelines/{id}/containers/{cid}` | Remove container |
-| `POST` | `/pipelines/{id}/containers/{cid}/stop` | Stop container |
+| `DELETE` | `/pipelines/{id}/containers/{cid}` † | Remove container |
+| `POST` | `/pipelines/{id}/containers/{cid}/stop` † | Stop container |
 | `GET` | `/pipelines/{id}/containers/{cid}/logs` | Get container logs |
 | `GET` | `/pipelines/{id}/containers/{cid}/health` | Container health check |
 
@@ -169,8 +181,8 @@ All endpoints are prefixed with `/api/v1`.
 | `GET` | `/pipelines/{id}/decisions` | List pending decisions |
 | `POST` | `/pipelines/{id}/decisions` | Create decision |
 | `GET` | `/pipelines/{id}/decisions/{did}` | Get decision details |
-| `POST` | `/pipelines/{id}/decisions/{did}/resolve` | Resolve decision |
-| `POST` | `/pipelines/{id}/decisions/{did}/cancel` | Cancel decision |
+| `POST` | `/pipelines/{id}/decisions/{did}/resolve` † | Resolve decision |
+| `POST` | `/pipelines/{id}/decisions/{did}/cancel` † | Cancel decision |
 | `GET` | `/pipelines/{id}/decisions/status` | Decision queue summary |
 
 ### Phases
@@ -178,11 +190,11 @@ All endpoints are prefixed with `/api/v1`.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/pipelines/{id}/phase` | Get current phase |
-| `POST` | `/pipelines/{id}/phase` | Advance to next phase |
-| `POST` | `/pipelines/{id}/phase/start` | Start current phase |
-| `POST` | `/pipelines/{id}/phase/complete` | Complete current phase |
-| `POST` | `/pipelines/{id}/phase/fail` | Fail current phase |
-| `POST` | `/pipelines/{id}/phase/populate-contract` | Populate contract from plan artifacts |
+| `POST` | `/pipelines/{id}/phase` † | Advance to next phase |
+| `POST` | `/pipelines/{id}/phase/start` † | Start current phase |
+| `POST` | `/pipelines/{id}/phase/complete` † | Complete current phase |
+| `POST` | `/pipelines/{id}/phase/fail` † | Fail current phase |
+| `POST` | `/pipelines/{id}/phase/populate-contract` † | Populate contract from plan artifacts |
 
 ### Structured Progress
 

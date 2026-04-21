@@ -31,6 +31,7 @@ except ImportError:
         return logging.getLogger(name)
 
 
+from lifecycle_auth import require_lifecycle_secret
 from models import (
     PipelinePhase,
     PipelineStatus,
@@ -208,6 +209,7 @@ def get_current_phase(pipeline_id: str) -> tuple[Response, int]:
 
 
 @phases_bp.route("/<pipeline_id>/phase", methods=["POST"])
+@require_lifecycle_secret
 def advance_phase(pipeline_id: str) -> tuple[Response, int]:
     """
     Advance pipeline to next phase.
@@ -417,6 +419,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
 
 
 @phases_bp.route("/<pipeline_id>/phase/start", methods=["POST"])
+@require_lifecycle_secret
 def start_phase(pipeline_id: str) -> tuple[Response, int]:
     """
     Start execution of current phase.
@@ -482,6 +485,7 @@ def start_phase(pipeline_id: str) -> tuple[Response, int]:
 
 
 @phases_bp.route("/<pipeline_id>/phase/complete", methods=["POST"])
+@require_lifecycle_secret
 def complete_phase(pipeline_id: str) -> tuple[Response, int]:
     """
     Mark current phase as complete.
@@ -559,6 +563,7 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
 
 
 @phases_bp.route("/<pipeline_id>/phase/populate-contract", methods=["POST"])
+@require_lifecycle_secret
 def populate_contract(pipeline_id: str) -> tuple[Response, int]:
     """
     Populate a pipeline's SDLC contract from its plan draft.
@@ -639,6 +644,7 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
 
 
 @phases_bp.route("/<pipeline_id>/phase/fail", methods=["POST"])
+@require_lifecycle_secret
 def fail_phase(pipeline_id: str) -> tuple[Response, int]:
     """
     Mark current phase as failed.

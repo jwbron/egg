@@ -947,3 +947,196 @@ class TestHandleRestartAgent:
 
         # Should not raise or attempt any docker operations
         _handle_restart_agent("pipeline-1", "Some unrelated question text")
+
+
+class TestLifecycleSecretAuth:
+    """Regression coverage for the #1769 HITL auto-approval auth gap.
+
+    The decisions/resolve and decisions/cancel routes must reject any
+    caller that doesn't present the configured
+    ``Authorization: Bearer <EGG_LIFECYCLE_SECRET>`` header. Agents must
+    never hold this secret, so in-cluster agent pods can't bypass HITL
+    phase gates.
+    """
+
+    def test_resolve_missing_header_returns_401(self, client):
+        """POST /resolve with no Authorization header returns 401."""
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            json={"resolution": "approve"},
+            _lifecycle_auth=False,
+        )
+        assert response.status_code == 401
+        assert response.get_json()["success"] is False
+
+    def test_resolve_wrong_secret_returns_401(self, client):
+        """POST /resolve with the wrong bearer token returns 401."""
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            json={"resolution": "approve"},
+            headers={"Authorization": "Bearer not-the-real-secret"},
+            _lifecycle_auth=False,
+        )
+        assert response.status_code == 401
+
+    def test_resolve_non_bearer_scheme_returns_401(self, client):
+        """Basic auth (or any non-Bearer scheme) is rejected."""
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            json={"resolution": "approve"},
+            headers={"Authorization": "Basic dXNlcjpwYXNz"},
+            _lifecycle_auth=False,
+        )
+        assert response.status_code == 401
+
+    @patch("routes.decisions.get_state_store_for_pipeline")
+    @patch("routes.decisions.get_decision_queue")
+    def test_resolve_correct_secret_passes_through(
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path, lifecycle_auth_headers
+    ):
+        """POST /resolve with the correct bearer token reaches the handler."""
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
+        mock_queue = MagicMock()
+        mock_queue.resolve_decision.return_value = _make_decision(
+            status="resolved", resolution="approve"
+        )
+        mock_get_queue.return_value = mock_queue
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            json={"resolution": "approve"},
+            headers=lifecycle_auth_headers,
+            _lifecycle_auth=False,
+        )
+        assert response.status_code == 200
+
+    def test_cancel_missing_header_returns_401(self, client):
+        """POST /cancel with no Authorization header returns 401."""
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/cancel",
+            _lifecycle_auth=False,
+        )
+        assert response.status_code == 401
+
+    def test_cancel_wrong_secret_returns_401(self, client):
+        """POST /cancel with the wrong bearer token returns 401."""
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/cancel",
+            headers={"Authorization": "Bearer not-the-real-secret"},
+            _lifecycle_auth=False,
+        )
+        assert response.status_code == 401
+
+    @patch("routes.decisions.get_state_store_for_pipeline")
+    @patch("routes.decisions.get_decision_queue")
+    def test_cancel_correct_secret_passes_through(
+        self, mock_get_queue, mock_get_store_for_pipeline, client, tmp_path, lifecycle_auth_headers
+    ):
+        """POST /cancel with the correct bearer token reaches the handler."""
+        from models import DecisionStatus
+
+        mock_get_store_for_pipeline.return_value = _mock_store_for_pipeline(tmp_path)
+        mock_queue = MagicMock()
+        cancelled = _make_decision(status="cancelled")
+        cancelled.status = DecisionStatus.CANCELLED
+        mock_queue.cancel_decision.return_value = cancelled
+        mock_get_queue.return_value = mock_queue
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/cancel",
+            headers=lifecycle_auth_headers,
+            _lifecycle_auth=False,
+        )
+        assert response.status_code == 200
+
+    def test_missing_env_secret_returns_503(self, client, monkeypatch):
+        """Server with no EGG_LIFECYCLE_SECRET fails closed with 503."""
+        monkeypatch.delenv("EGG_LIFECYCLE_SECRET", raising=False)
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            json={"resolution": "approve"},
+            _lifecycle_auth=False,
+        )
+        assert response.status_code == 503
+
+    @patch("routes.decisions.get_state_store_for_pipeline")
+    @patch("routes.decisions.get_decision_queue")
+    def test_resolve_attaches_source_to_request(
+        self,
+        mock_get_queue,
+        mock_get_store_for_pipeline,
+        client,
+        tmp_path,
+        lifecycle_auth_headers,
+    ):
+        """The decorator records the X-Egg-Source value on ``request``.
+
+        The decision route reads ``request.egg_source`` and emits it on
+        its audit log line. We verify the attach directly because egg's
+        structlog output bypasses pytest's caplog fixture.
+        """
+        from flask import Flask, request
+        from lifecycle_auth import require_lifecycle_secret
+
+        seen: dict[str, str] = {}
+        app = Flask(__name__)
+
+        @app.route("/probe", methods=["POST"])
+        @require_lifecycle_secret
+        def _probe():  # type: ignore[no-untyped-def]
+            seen["source"] = getattr(request, "egg_source", "missing")
+            return {"ok": True}, 200
+
+        probe_client = app.test_client()
+        headers = {**lifecycle_auth_headers, "X-Egg-Source": "mcp"}
+        response = probe_client.post("/probe", headers=headers, _lifecycle_auth=False)
+        assert response.status_code == 200
+        assert seen["source"] == "mcp"
+
+
+class TestLifecycleSecretAuthOtherEndpoints:
+    """Smoke tests confirming non-decision lifecycle routes also require auth.
+
+    One per category beyond resolve/cancel so the auth wiring doesn't
+    silently regress for pipeline / phase / container endpoints.
+    """
+
+    def test_delete_pipeline_requires_auth(self):
+        """DELETE /pipelines/<id> returns 401 without the bearer token."""
+        from flask import Flask
+        from routes.pipelines import pipelines_bp
+
+        app = Flask(__name__)
+        app.register_blueprint(pipelines_bp)
+        client = app.test_client()
+        response = client.delete("/api/v1/pipelines/test-pipeline", _lifecycle_auth=False)
+        assert response.status_code == 401
+
+    def test_advance_phase_requires_auth(self):
+        """POST /phase returns 401 without the bearer token."""
+        from flask import Flask
+        from routes.phases import phases_bp
+
+        app = Flask(__name__)
+        app.register_blueprint(phases_bp)
+        client = app.test_client()
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/phase",
+            json={"target_phase": "plan"},
+            _lifecycle_auth=False,
+        )
+        assert response.status_code == 401
+
+    def test_container_stop_requires_auth(self):
+        """POST /containers/<id>/stop returns 401 without the bearer token."""
+        from flask import Flask
+        from routes.containers import containers_bp
+
+        app = Flask(__name__)
+        app.register_blueprint(containers_bp)
+        client = app.test_client()
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/containers/abc123/stop",
+            _lifecycle_auth=False,
+        )
+        assert response.status_code == 401

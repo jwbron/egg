@@ -132,6 +132,7 @@ except ImportError:
     )
 
 from egg_git.default_branch import get_default_branch
+from lifecycle_auth import require_lifecycle_secret
 
 if TYPE_CHECKING:
     from egg_container import MountSpec
@@ -684,6 +685,7 @@ def get_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
 
 @pipelines_bp.route("", methods=["POST"])
+@require_lifecycle_secret
 def create_pipeline() -> tuple[Response, int]:
     """
     Create a new pipeline.
@@ -1046,6 +1048,7 @@ def _mark_pipeline_records_terminated(
 
 
 @pipelines_bp.route("/<pipeline_id>", methods=["PATCH"])
+@require_lifecycle_secret
 def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
     """
     Update a pipeline.
@@ -1243,6 +1246,7 @@ def _cleanup_remote_branches(
 
 
 @pipelines_bp.route("/<pipeline_id>", methods=["DELETE"])
+@require_lifecycle_secret
 def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
     """
     Delete a pipeline.
@@ -1326,6 +1330,7 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
 
 @pipelines_bp.route("/<pipeline_id>/agents/<agent_role>/restart", methods=["POST"])
+@require_lifecycle_secret
 def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     """Restart a single agent in a pipeline.
 
@@ -1607,6 +1612,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
 
 
 @pipelines_bp.route("/<pipeline_id>/phases/<phase>/restart", methods=["POST"])
+@require_lifecycle_secret
 def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     """Restart all agents in a pipeline phase.
 
@@ -10893,6 +10899,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
 
 @pipelines_bp.route("/<pipeline_id>/start", methods=["POST"])
+@require_lifecycle_secret
 def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
     """
     Start pipeline execution.

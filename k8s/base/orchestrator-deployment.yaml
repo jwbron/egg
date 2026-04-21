@@ -71,6 +71,16 @@ spec:
                 secretKeyRef:
                   name: gateway-secrets
                   key: launcher-secret
+            # Lifecycle-control endpoints (HITL resolve/cancel, pipeline
+            # CRUD, phase overrides, container spawn/stop) require this
+            # bearer token. MCP (in-process) and host-side CLIs read the
+            # same value. Agent pods must never receive this env var
+            # (#1769).
+            - name: EGG_LIFECYCLE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secrets
+                  key: lifecycle-secret
             # Sandbox image name used by kubernetes_spawner. The code's
             # default "egg:latest" doesn't match what `make build` produces
             # (`egg-sandbox:latest`), and nothing exists at docker.io/egg.

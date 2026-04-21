@@ -285,6 +285,22 @@ def _create_launcher_secret() -> None:
         info("Generated launcher secret for gateway authentication")
 
 
+def _create_lifecycle_secret() -> None:
+    """Create lifecycle secret for orchestrator HITL/phase-control auth.
+
+    Consumed by the orchestrator (decorator on lifecycle-control routes)
+    and by host-side CLIs (egg-sdlc, egg-orch) that need to resolve HITL
+    decisions or manage pipelines. Never injected into agent pods.
+    """
+    secret_file = Config.USER_CONFIG_DIR / "lifecycle-secret"
+    if not secret_file.exists():
+        new_secret = secrets.token_urlsafe(32)
+        Config.USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        secret_file.write_text(new_secret)
+        secret_file.chmod(0o600)
+        info("Generated lifecycle secret for orchestrator auth")
+
+
 def _configure_repo_checks(writable_repos: list[str]) -> dict[str, Any]:
     """Prompt for per-repo check commands (test/lint) for the SDLC pipeline.
 
@@ -615,6 +631,7 @@ def setup() -> bool:
 
     # Step 3: Create launcher secret for gateway auth
     _create_launcher_secret()
+    _create_lifecycle_secret()
 
     # Step 4: Create repository configuration
     if not _create_repositories_config():
@@ -641,6 +658,7 @@ def setup() -> bool:
     print("    - secrets.env        (API keys, credentials)")
     print("    - github-app.pem     (GitHub App private key)")
     print("    - launcher-secret    (gateway authentication)")
+    print("    - lifecycle-secret   (orchestrator HITL/phase-control auth)")
     print()
     print("Next steps:")
     print("  Start egg (gateway starts automatically):")

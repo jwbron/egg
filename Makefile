@@ -364,6 +364,11 @@ k3s-secrets:  ## Create gateway secrets from ~/.config/egg/
 		echo "Run 'bin/egg-deploy init' or 'egg --setup' to generate it."; \
 		exit 1; \
 	fi
+	@if [ ! -f "$$HOME/.config/egg/lifecycle-secret" ]; then \
+		echo "ERROR: $$HOME/.config/egg/lifecycle-secret not found."; \
+		echo "Run 'egg --setup' to generate it (required by #1769 HITL auth)."; \
+		exit 1; \
+	fi
 	@echo "==> Creating gateway-secrets in egg-system namespace..."
 	@echo "   (all files under ~/.config/egg/ become keys in the secret)"
 	export KUBECONFIG=$${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml} && \
