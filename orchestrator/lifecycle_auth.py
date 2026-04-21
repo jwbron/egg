@@ -48,19 +48,20 @@ LIFECYCLE_SECRET_ENV = "EGG_LIFECYCLE_SECRET"
 SOURCE_HEADER = "X-Egg-Source"
 
 
-class LifecycleSecretNotConfiguredError(RuntimeError):
-    """Raised when EGG_LIFECYCLE_SECRET is missing at startup."""
-
-
 def _configured_secret() -> str:
     """Read the configured secret each call so tests can patch env."""
     return os.environ.get(LIFECYCLE_SECRET_ENV, "")
 
 
 def _caller_source() -> str:
-    """Advisory source tag for audit logs (mcp, local-cli, etc.)."""
+    """Advisory source tag for audit logs (mcp, local-cli, etc.).
+
+    Truncates to 64 chars because the failed-auth path logs this value
+    from unauthenticated callers — an attacker could send a multi-MB
+    header that gets serialized into structured logs.
+    """
     raw = request.headers.get(SOURCE_HEADER, "").strip()
-    return raw or "unknown"
+    return (raw or "unknown")[:64]
 
 
 def require_lifecycle_secret[F: Callable[..., Any]](f: F) -> F:

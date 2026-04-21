@@ -13,13 +13,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Set the lifecycle bearer token for every test run. The auth decorator
-# added for #1769 rejects any request without a valid
+# The auth decorator added for #1769 rejects any request without a valid
 # ``Authorization: Bearer <EGG_LIFECYCLE_SECRET>`` header, so endpoint
 # tests need both a known secret and a way to attach the header. See the
-# FlaskClient patch below for the latter.
+# FlaskClient patch and session-scoped fixture below.
 TEST_LIFECYCLE_SECRET = "test-lifecycle-secret-egg1769"
-os.environ.setdefault("EGG_LIFECYCLE_SECRET", TEST_LIFECYCLE_SECRET)
 
 # Project root
 _project_root = Path(__file__).parent.parent.parent
@@ -154,7 +152,7 @@ def _flask_open_with_auth(original_open, secret):  # type: ignore[no-untyped-def
                     existing = dict(headers.items())
                 elif isinstance(headers, (list, tuple)):
                     existing = dict(headers)
-                if "Authorization" not in existing and "authorization" not in existing:
+                if not any(k.lower() == "authorization" for k in existing):
                     if isinstance(headers, dict):
                         headers = {**headers, "Authorization": f"Bearer {secret}"}
                     else:
@@ -163,6 +161,23 @@ def _flask_open_with_auth(original_open, secret):  # type: ignore[no-untyped-def
         return original_open(self, *args, **kwargs)
 
     return wrapper
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _set_lifecycle_secret_env():
+    """Set EGG_LIFECYCLE_SECRET for the orchestrator test session.
+
+    Uses a session-scoped fixture instead of module-level mutation so
+    the env var doesn't leak into other test suites that share the same
+    pytest process (e.g., sandbox tests that exercise orch_client.py).
+    """
+    prev = os.environ.get("EGG_LIFECYCLE_SECRET")
+    os.environ["EGG_LIFECYCLE_SECRET"] = TEST_LIFECYCLE_SECRET
+    yield
+    if prev is None:
+        os.environ.pop("EGG_LIFECYCLE_SECRET", None)
+    else:
+        os.environ["EGG_LIFECYCLE_SECRET"] = prev
 
 
 @pytest.fixture(autouse=True)
