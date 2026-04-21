@@ -294,6 +294,11 @@ RUN mkdir -p /opt/.egg-internal && \
 # This is simpler than pip install and doesn't require pyproject.toml
 ENV PYTHONPATH="/opt/egg-runtime/sandbox:/opt/egg-runtime/shared"
 
+# Put egg CLIs on PATH at the image level so every shell (agent Bash tool
+# calls, kubectl exec, interactive debug) finds egg-contract/egg-orch/etc.
+# without needing the entrypoint's env to propagate. See issue #1799.
+ENV PATH="/opt/egg-runtime/sandbox/bin:${PATH}"
+
 # Copy entrypoint script (Python for maintainability)
 COPY sandbox/entrypoint.py /usr/local/bin/entrypoint.py
 RUN chmod +x /usr/local/bin/entrypoint.py
