@@ -242,7 +242,7 @@ class KubernetesClient:
         if len(job_name) > 63:
             import hashlib
 
-            digest = hashlib.sha1(job_name.encode()).hexdigest()[:8]
+            digest = hashlib.sha1(job_name.encode(), usedforsecurity=False).hexdigest()[:8]
             # Reserve 9 chars for "-<digest>" + the trailing hyphen; trim
             # the readable part and strip any trailing hyphen so we don't
             # end up with two in a row.
