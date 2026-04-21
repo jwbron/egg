@@ -196,6 +196,11 @@ class Decision(BaseModel):
     id: str = Field(..., pattern=r"^decision-[0-9]+$", description="Unique decision identifier")
     question: str = Field(..., min_length=1, description="The decision question")
     type: DecisionType = Field(..., description="Decision type")
+    phase: PipelinePhase | None = Field(
+        default=None,
+        description="Pipeline phase this decision belongs to. Used to block "
+        "phase-complete while the phase still has unresolved decisions.",
+    )
     options: list[DecisionOption] = Field(default_factory=list, description="Available options")
     resolved: bool = Field(default=False, description="Whether resolved")
     resolution: str | None = Field(default=None, description="Selected resolution")
