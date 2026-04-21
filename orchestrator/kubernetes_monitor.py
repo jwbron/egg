@@ -535,7 +535,7 @@ class KubernetesMonitor:
                         logger.warning(
                             "Reconciliation: pod terminated, marking agent FAILED",
                             pipeline_id=pipeline_id,
-                            container_id=agent.container_id[:12],
+                            container_id=agent.container_id,
                             agent_role=str(agent.role),
                             exit_code=actual_exit_code,
                             pod_gone=pod_gone,
@@ -590,21 +590,6 @@ class KubernetesMonitor:
         """
         with self._lock:
             return self._pod_states.get(pod_id)
-
-    def _get_pod_exit_code(self, container_id: str) -> int | None:
-        """Get the exit code of a pod that is no longer in the live list.
-
-        Args:
-            container_id: Container/Job identifier
-
-        Returns:
-            Exit code if available, None otherwise.
-        """
-        try:
-            info = self.k8s_client.get_container_info(container_id)
-            return info.exit_code
-        except KubernetesClientError:
-            return None
 
     def check_container_health(self, container_id: str) -> dict[str, Any]:
         """Check health of a specific pod/Job.
@@ -900,7 +885,7 @@ def _reconcile_pod_state(store: Any, container_info: ContainerInfo) -> bool:
                         logger.warning(
                             "Runtime reconciliation: pod exited, marking FAILED",
                             pipeline_id=pipeline_id,
-                            container_id=container_info.container_id[:12],
+                            container_id=container_info.container_id,
                         )
                         ci.status = ContainerStatus.FAILED
                         ci.exit_code = (
@@ -923,7 +908,7 @@ def _reconcile_pod_state(store: Any, container_info: ContainerInfo) -> bool:
                             "Runtime reconciliation: agent pod exited, marking FAILED",
                             pipeline_id=pipeline_id,
                             agent_role=str(agent.role),
-                            container_id=container_info.container_id[:12],
+                            container_id=container_info.container_id,
                         )
                         agent.status = AgentExecutionStatus.FAILED
                         agent.completed_at = datetime.now(UTC)

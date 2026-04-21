@@ -469,24 +469,6 @@ class TestCheckContainerHealth:
 # ---------------------------------------------------------------------------
 
 
-class TestGetPodExitCode:
-    """Test _get_pod_exit_code method."""
-
-    def test_returns_exit_code(self, monitor, mock_k8s_client):
-        """Returns exit code from k8s API."""
-        mock_k8s_client.get_container_info.return_value = ContainerInfo(
-            container_id="u",
-            container_name="n",
-            exit_code=42,
-        )
-        assert monitor._get_pod_exit_code("job-1") == 42
-
-    def test_returns_none_on_error(self, monitor, mock_k8s_client):
-        """Returns None when k8s call fails."""
-        mock_k8s_client.get_container_info.side_effect = KubernetesClientError("fail")
-        assert monitor._get_pod_exit_code("job-1") is None
-
-
 # ---------------------------------------------------------------------------
 # TestGetKubernetesMonitor
 # ---------------------------------------------------------------------------
@@ -914,6 +896,34 @@ class TestReconciliationSweep:
             monitor._reconciliation_sweep()
 
         store.save_pipeline.assert_not_called()
+
+    def test_grace_period_skipped_when_started_at_none(self, monitor, mock_k8s_client):
+        """When started_at is None the grace period is bypassed.
+
+        An agent with ``started_at=None`` (e.g. incomplete timestamp
+        initialisation) should be treated as "old" — the sweep should
+        fall through to the termination check rather than skipping
+        indefinitely.
+        """
+        mock_k8s_client.list_containers.return_value = []
+        mock_k8s_client.list_jobs.return_value = []
+        # Pod is truly gone — should proceed to FAILED reconciliation.
+        mock_k8s_client.get_container_info.side_effect = PodNotFoundError("gone")
+        _, store = self._make_pipeline(
+            container_id="job-uid-1",
+            agent_started_at=None,
+        )
+        monitor._reconciliation_stores = [store]
+
+        with patch("state_store.get_pipeline_state_lock") as mock_lock:
+            mock_lock.return_value.__enter__ = MagicMock()
+            mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+            monitor._reconciliation_sweep()
+
+        # started_at=None means the grace period is not applied, so the
+        # sweep should reach the termination check.  With PodNotFoundError
+        # the pod is confirmed gone and reconciliation should fire.
+        store.save_pipeline.assert_called()
 
     def test_job_uid_in_live_ids_skips_reconciliation(self, monitor, mock_k8s_client):
         """list_jobs results are indexed, so Job UID matches live_ids."""

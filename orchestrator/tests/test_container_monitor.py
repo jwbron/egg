@@ -584,6 +584,7 @@ class TestPeriodicReconciliation:
         mock_docker = MagicMock()
         # No live containers — the agent's container is missing
         mock_docker.list_containers.return_value = []
+        mock_docker.list_jobs.return_value = []
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
@@ -609,6 +610,7 @@ class TestPeriodicReconciliation:
 
         mock_docker = MagicMock()
         mock_docker.list_containers.return_value = []
+        mock_docker.list_jobs.return_value = []
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
@@ -629,6 +631,7 @@ class TestPeriodicReconciliation:
 
         mock_docker = MagicMock()
         mock_docker.list_containers.return_value = []
+        mock_docker.list_jobs.return_value = []
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
@@ -646,6 +649,7 @@ class TestPeriodicReconciliation:
         """stop() properly terminates and joins the reconciliation thread."""
         mock_docker = MagicMock()
         mock_docker.list_containers.return_value = []
+        mock_docker.list_jobs.return_value = []
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
@@ -692,6 +696,7 @@ class TestPeriodicReconciliation:
 
         mock_docker = MagicMock()
         mock_docker.list_containers.return_value = []
+        mock_docker.list_jobs.return_value = []
         # Pod is gone — required to progress past the termination check.
         mock_docker.get_container_info.side_effect = PodNotFoundError("gone")
 
@@ -727,6 +732,7 @@ class TestPeriodicReconciliation:
         mock_docker = MagicMock()
         # Container is NOT in live list (it exited)
         mock_docker.list_containers.return_value = []
+        mock_docker.list_jobs.return_value = []
         # But when we inspect it, exit code is 0
         mock_docker.get_container_info.return_value = ContainerInfo(
             container_id=container_id,
@@ -759,6 +765,7 @@ class TestPeriodicReconciliation:
 
         mock_docker = MagicMock()
         mock_docker.list_containers.return_value = []
+        mock_docker.list_jobs.return_value = []
         # Non-zero exit code
         mock_docker.get_container_info.return_value = ContainerInfo(
             container_id=container_id,
@@ -797,6 +804,7 @@ class TestPeriodicReconciliation:
 
         mock_docker = MagicMock()
         mock_docker.list_containers.return_value = []
+        mock_docker.list_jobs.return_value = []
         # Pod has been deleted — PodNotFoundError surfaces from the API
         mock_docker.get_container_info.side_effect = PodNotFoundError("pod gone")
 
@@ -827,6 +835,7 @@ class TestPeriodicReconciliation:
 
         mock_docker = MagicMock()
         mock_docker.list_containers.return_value = []
+        mock_docker.list_jobs.return_value = []
         mock_docker.get_container_info.side_effect = DockerClientError("transient API error")
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
