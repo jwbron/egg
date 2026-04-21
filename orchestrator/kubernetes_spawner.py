@@ -316,6 +316,14 @@ class KubernetesSpawner:
                     uid=host_uid,
                     gid=host_gid,
                     base_branch=base_branch,
+                    # Wire the per-agent worktree's local branch to push to
+                    # the pipeline's assigned branch.  Without this, a naive
+                    # ``git push`` from the agent targets the per-agent
+                    # local branch name, which the gateway rejects as
+                    # ``push_denied_wrong_branch`` — and agents sometimes
+                    # "recover" from that rejection with ``git reset --hard``,
+                    # destroying their own committed work (#1809).
+                    assigned_branch=branch,
                 )
                 if wt_result and wt_result.success and wt_result.worktrees:
                     repo_volumes = wt_result.worktrees

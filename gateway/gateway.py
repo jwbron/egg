@@ -3588,6 +3588,7 @@ def worktree_create() -> tuple[Response, int] | Response:
     container_id = data.get("container_id")
     repos = data.get("repos", [])
     base_branch = data.get("base_branch")  # None = resolve per-repo
+    assigned_branch = data.get("assigned_branch")  # None = skip upstream config
     # UID/GID for worktree ownership (default: 1000 for egg user)
     uid = data.get("uid")
     gid = data.get("gid")
@@ -3625,6 +3626,7 @@ def worktree_create() -> tuple[Response, int] | Response:
                 base_branch=effective_branch,
                 uid=uid,
                 gid=gid,
+                assigned_branch=assigned_branch,
             )
             # Translate container path to host path for egg launcher mount sources
             worktrees[repo_name] = translate_to_host_path(str(info.worktree_path))
@@ -4078,6 +4080,7 @@ def session_create() -> tuple[Response, int] | Response:
                 base_branch=worktree_base_branch,
                 uid=uid,
                 gid=gid,
+                assigned_branch=branch,
             )
             # Capture the first worktree's gateway-side path for checkpoint context
             if first_worktree_path is None:
