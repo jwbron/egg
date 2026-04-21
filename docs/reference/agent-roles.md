@@ -255,6 +255,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 - Orchestrator APIs: pipeline status, container logs, progress queries, health alerts, message bus
 - GitHub API: `gh issue create` for diagnostic issue filing
 - `egg-orch message send` to redirect individual agents
+- `egg-orch overseer alert` to broadcast `OVERSEER_ALERT` notifications to the human operator (always uses `message_type=OVERSEER_ALERT` and `to_role=all`)
 
 **Blocked from**:
 - All git operations (no repo volume mounted)

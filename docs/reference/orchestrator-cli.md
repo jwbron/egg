@@ -37,6 +37,7 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch gateway phase --issue <n>` | Get current phase from gateway |
 | `egg-orch gateway permissions <phase>` | Get allowed ops for a phase |
 | `egg-orch message send [<id>] --to <role\|all> --type <type> --subject "..." --body "..."` | Send directed or broadcast message. Types: `HANDOFF`, `QUESTION`, `STATUS`, `PROGRESS` |
+| `egg-orch overseer alert [<id>] --anomaly <type> --priority <low\|medium\|high> --summary "..." [--detail "..."] [--recommend "..."]` | Broadcast `OVERSEER_ALERT` to human operator (overseer use only — always sets `message_type=OVERSEER_ALERT` and `to_role=all`) |
 | `egg-orch message poll [<id>] [--since <id>] [--limit <n>]` | Poll for messages from other agents (concurrent mode) |
 | `egg-orch message status [<id>]` | Get message bus status (concurrent mode) |
 | `egg-orch signal readiness [<id>] --state <WORKING\|READY\|BLOCKED\|OBJECTING> [--reason "..."]` | Signal readiness state (concurrent mode) |
