@@ -55,7 +55,7 @@ See the [main README](../../README.md) for the architecture diagram.
 | **Harness Integration** | Egg-specific harness wiring (tools, permissions, prompt, compaction) | [egg_harness_integration README](../../shared/egg_harness_integration/README.md) |
 | **egg_contracts** | SDLC contract models, role-based mutation validation, multi-agent orchestration | `shared/egg_contracts/` |
 | **egg_orchestrator** | Shared orchestrator types and sandbox-to-orchestrator communication | `shared/egg_orchestrator/` |
-| **Multi-Agent Orchestration** | Concurrent agent execution (Coder, Tester, Documenter, Reviewers) | `orchestrator/concurrent_executor.py`, `orchestrator/container_spawner.py` |
+| **Multi-Agent Orchestration** | Concurrent agent execution (Coder, Tester, Documenter, Reviewers) | `orchestrator/concurrent_executor.py`, `orchestrator/kubernetes_spawner.py` |
 
 ## SDLC Contracts
 
@@ -172,7 +172,7 @@ Contracts can override phase defaults via the `phase_configs` field, allowing pe
 The SDLC pipeline orchestrates agent-based development with structurally enforced checkpoints through the local orchestrator:
 
 **Core components:**
-- `orchestrator/container_spawner.py` - Agent container lifecycle management
+- `orchestrator/kubernetes_spawner.py` - Agent Job lifecycle management (k8s Jobs via `KubernetesSpawner`; `container_spawner.py` is a backward-compatibility shim)
 - `orchestrator/decision_queue.py` - Human-in-the-loop decision handling with debounce
 - `orchestrator/state_store.py` - Git-backed pipeline state management
 - `orchestrator/routes/pipelines.py` - Pipeline API, prompt building, and visualization

@@ -262,7 +262,7 @@ gateway_image: ghcr.io/jwbron/egg-gateway:latest
 sandbox_image: ghcr.io/jwbron/egg-sandbox:latest
 ```
 
-You can also specify tags directly in a docker-compose.yml override.
+For reproducible builds, pin to an exact version tag.
 
 ## Configuration Files
 
