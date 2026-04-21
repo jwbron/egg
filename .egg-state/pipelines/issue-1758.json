@@ -42,11 +42,28 @@
     "active_agent_stall_extension_seconds": 120,
     "start_phase": null
   },
-  "phases": {},
+  "phases": {
+    "refine": {
+      "phase": "refine",
+      "status": "running",
+      "started_at": "2026-04-21T03:30:51.879251Z",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": "b404b493d5ef3b9f17c15b97e207696e95bb44f0"
+    }
+  },
   "decisions": [],
   "created_at": "2026-04-21T03:30:18.551629Z",
-  "updated_at": "2026-04-21T03:30:18.613843Z",
-  "contract_synced": false,
+  "updated_at": "2026-04-21T03:30:51.879317Z",
+  "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
@@ -58,5 +75,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 3
+  "version": 5
 }
