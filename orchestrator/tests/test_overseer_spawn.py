@@ -316,8 +316,8 @@ class TestAutoSpawnWhenEnabled:
             assert result is not None
             assert isinstance(result, SpawnedContainer)
             assert result.agent_role == AgentRole.OVERSEER
+            # K8s Job creation is atomic (no separate start)
             mock_docker_client.create_container.assert_called()
-            mock_docker_client.start_container.assert_called()
 
     def test_auto_spawn_sets_correct_polling_from_config(self, spawner):
         """Auto-spawn uses the poll interval from pipeline config."""
@@ -691,7 +691,7 @@ class TestOverseerContainerName:
 
         register_call = mock_gateway_client.register_session.call_args
         container_id_arg = register_call.kwargs.get("container_id")
-        assert container_id_arg == "egg-issue-500-overseer"
+        assert container_id_arg == "egg-agent-issue-500-overseer"
 
     def test_overseer_container_name_local_pipeline(self, spawner, mock_gateway_client):
         """Overseer container name works with local pipeline IDs."""
@@ -701,7 +701,7 @@ class TestOverseerContainerName:
 
         register_call = mock_gateway_client.register_session.call_args
         container_id_arg = register_call.kwargs.get("container_id")
-        assert container_id_arg == "egg-local-a1b2c3d4-overseer"
+        assert container_id_arg == "egg-agent-local-a1b2c3d4-overseer"
 
     def test_overseer_session_role(self, spawner, mock_gateway_client):
         """Gateway session is registered with agent_role=overseer."""
@@ -730,6 +730,7 @@ class TestOverseerRespawn:
     def mock_spawner(self, mock_docker_client):
         """Create a mock spawner with a mock docker client for respawn tests."""
         mock = MagicMock()
+        mock.backend = mock_docker_client
         mock.docker = mock_docker_client
         respawned_id = "overseer-respawned-001"
         mock.spawn_overseer_container.return_value = SpawnedContainer(

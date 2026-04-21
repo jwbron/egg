@@ -1,5 +1,5 @@
 """
-Tests for container spawner with gateway integration.
+Tests for container spawner (KubernetesSpawner) with gateway integration.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -19,28 +19,28 @@ from models import AgentRole, ContainerInfo, ContainerStatus
 
 
 @pytest.fixture
-def mock_docker_client():
-    """Create a mock Docker client."""
+def mock_k8s_client():
+    """Create a mock Kubernetes client."""
     mock = MagicMock()
     mock.is_connected.return_value = True
 
-    # Default create_container behavior
+    # Default create_container behavior (used by spawn_agent_job)
     mock.create_container.return_value = ContainerInfo(
         container_id="abc123def456",
-        container_name="egg-issue-123-coder",
-        status=ContainerStatus.PENDING,
-    )
-
-    # Default start_container behavior
-    mock.start_container.return_value = ContainerInfo(
-        container_id="abc123def456",
-        container_name="egg-issue-123-coder",
+        container_name="egg-sandbox-egg-agent-issue-123-coder",
         status=ContainerStatus.RUNNING,
         started_at=datetime.now(UTC),
     )
 
     # Default list_containers behavior
     mock.list_containers.return_value = []
+
+    # Default stop_container behavior
+    mock.stop_container.return_value = ContainerInfo(
+        container_id="abc123",
+        container_name="test",
+        status=ContainerStatus.EXITED,
+    )
 
     return mock
 
@@ -60,8 +60,8 @@ def mock_gateway_client():
     # Default session registration
     mock.register_session.return_value = SessionInfo(
         session_token="test-token-12345",
-        container_id="abc123def456",
-        container_ip="172.32.0.50",
+        container_id="egg-agent-issue-123-coder",
+        container_ip=None,
         mode="public",
         created_at=datetime.now(UTC),
         expires_at=datetime.now(UTC) + timedelta(hours=24),
@@ -71,10 +71,10 @@ def mock_gateway_client():
 
 
 @pytest.fixture
-def spawner(mock_docker_client, mock_gateway_client):
+def spawner(mock_k8s_client, mock_gateway_client):
     """Create a container spawner with mocked clients."""
     return ContainerSpawner(
-        docker_client=mock_docker_client,
+        docker_client=mock_k8s_client,
         gateway_client=mock_gateway_client,
     )
 
@@ -86,24 +86,24 @@ class TestContainerSpawnerBasics:
         """Test that clients are lazily initialized."""
         spawner = ContainerSpawner()
         # Clients should not be initialized yet
-        assert spawner._docker is None
+        assert spawner._k8s is None
         assert spawner._gateway is None
 
-    def test_explicit_client_initialization(self, mock_docker_client, mock_gateway_client):
+    def test_explicit_client_initialization(self, mock_k8s_client, mock_gateway_client):
         """Test explicit client initialization."""
         spawner = ContainerSpawner(
-            docker_client=mock_docker_client,
+            docker_client=mock_k8s_client,
             gateway_client=mock_gateway_client,
         )
 
-        assert spawner.docker is mock_docker_client
+        assert spawner.k8s is mock_k8s_client
         assert spawner.gateway is mock_gateway_client
 
 
 class TestSpawnAgentContainer:
     """Tests for spawning agent containers."""
 
-    def test_spawn_coder_container(self, spawner, mock_docker_client, mock_gateway_client):
+    def test_spawn_coder_container(self, spawner, mock_k8s_client, mock_gateway_client):
         """Test spawning a coder container."""
         result = spawner.spawn_agent_container(
             pipeline_id="issue-123",
@@ -118,20 +118,13 @@ class TestSpawnAgentContainer:
         assert result.session_info is not None
         assert result.session_info.session_token == "test-token-12345"
 
-        # Verify Docker client calls
-        assert mock_docker_client.create_container.called
-        assert mock_docker_client.start_container.called
+        # Verify K8s client creates container (job)
+        assert mock_k8s_client.create_container.called
 
-        # Verify gateway registration
+        # Verify gateway registration (pre-registered, no update)
         mock_gateway_client.register_session.assert_called()
 
-        # Verify session is updated with actual Docker container ID
-        mock_gateway_client.update_session.assert_called_once()
-        update_call = mock_gateway_client.update_session.call_args
-        assert update_call.kwargs.get("container_id") == "abc123def456"
-        assert update_call.kwargs.get("session_token") == "test-token-12345"
-
-    def test_spawn_with_custom_image(self, spawner, mock_docker_client):
+    def test_spawn_with_custom_image(self, spawner, mock_k8s_client):
         """Test spawning with custom image."""
         spawner.spawn_agent_container(
             pipeline_id="issue-123",
@@ -141,28 +134,10 @@ class TestSpawnAgentContainer:
         )
 
         # Check that custom image was used
-        calls = mock_docker_client.create_container.call_args_list
-        # Get the last call (after recreate with env)
-        last_call = calls[-1]
-        assert last_call.kwargs.get("image") == "custom-sandbox:v2"
+        create_call = mock_k8s_client.create_container.call_args
+        assert create_call.kwargs.get("image") == "custom-sandbox:v2"
 
-    def test_spawn_with_repo_volumes(self, spawner, mock_docker_client):
-        """Test spawning with repository volumes."""
-        spawner.spawn_agent_container(
-            pipeline_id="issue-123",
-            agent_role=AgentRole.CODER,
-            issue_number=123,
-            repo_volumes={"my-repo": "/host/path/to/repo"},
-        )
-
-        # Check that volume was configured via mounts list
-        calls = mock_docker_client.create_container.call_args_list
-        last_call = calls[-1]
-        mounts = last_call.kwargs.get("mounts", [])
-        repo_mounts = [m for m in mounts if m.get("Source") == "/host/path/to/repo"]
-        assert len(repo_mounts) == 1
-
-    def test_spawn_with_extra_env(self, spawner, mock_docker_client, mock_gateway_client):
+    def test_spawn_with_extra_env(self, spawner, mock_k8s_client, mock_gateway_client):
         """Test spawning with extra environment variables."""
         result = spawner.spawn_agent_container(
             pipeline_id="issue-123",
@@ -222,9 +197,7 @@ class TestSpawnAgentContainer:
 
         assert result is not None
 
-    def test_spawn_raises_on_session_failure(
-        self, spawner, mock_gateway_client, mock_docker_client
-    ):
+    def test_spawn_raises_on_session_failure(self, spawner, mock_gateway_client, mock_k8s_client):
         """Test that spawn raises ContainerSpawnError if session registration fails."""
         mock_gateway_client.check_health.return_value = GatewayHealth(
             healthy=True,
@@ -241,7 +214,7 @@ class TestSpawnAgentContainer:
 
         assert "session" in str(exc_info.value).lower()
 
-    def test_spawn_sets_labels(self, spawner, mock_docker_client):
+    def test_spawn_sets_labels(self, spawner, mock_k8s_client):
         """Test that proper labels are set on container."""
         spawner.spawn_agent_container(
             pipeline_id="issue-456",
@@ -249,9 +222,8 @@ class TestSpawnAgentContainer:
             issue_number=456,
         )
 
-        calls = mock_docker_client.create_container.call_args_list
-        last_call = calls[-1]
-        labels = last_call.kwargs.get("labels", {})
+        create_call = mock_k8s_client.create_container.call_args
+        labels = create_call.kwargs.get("labels", {})
 
         assert labels.get("egg.pipeline.id") == "issue-456"
         assert labels.get("egg.agent.role") == "documenter"
@@ -311,43 +283,26 @@ class TestSpawnBranchPropagation:
 class TestStopAgentContainer:
     """Tests for stopping agent containers."""
 
-    def test_stop_container(self, spawner, mock_docker_client, mock_gateway_client):
+    def test_stop_container(self, spawner, mock_k8s_client, mock_gateway_client):
         """Test stopping a container."""
-        mock_docker_client.stop_container.return_value = ContainerInfo(
-            container_id="abc123",
-            container_name="test",
-            status=ContainerStatus.EXITED,
-        )
-
         result = spawner.stop_agent_container("abc123")
 
         assert result.status == ContainerStatus.EXITED
-        mock_docker_client.stop_container.assert_called_with("abc123", timeout=10)
+        mock_k8s_client.stop_container.assert_called_with("abc123", timeout=10)
         mock_gateway_client.delete_session_by_container.assert_called_with("abc123")
 
     def test_stop_container_without_session_cleanup(
-        self, spawner, mock_docker_client, mock_gateway_client
+        self, spawner, mock_k8s_client, mock_gateway_client
     ):
         """Test stopping without session cleanup."""
-        mock_docker_client.stop_container.return_value = ContainerInfo(
-            container_id="abc123",
-            container_name="test",
-            status=ContainerStatus.EXITED,
-        )
-
         spawner.stop_agent_container("abc123", cleanup_session=False)
 
         mock_gateway_client.delete_session_by_container.assert_not_called()
 
     def test_stop_container_session_cleanup_error(
-        self, spawner, mock_docker_client, mock_gateway_client
+        self, spawner, mock_k8s_client, mock_gateway_client
     ):
         """Test that session cleanup errors are logged but not raised."""
-        mock_docker_client.stop_container.return_value = ContainerInfo(
-            container_id="abc123",
-            container_name="test",
-            status=ContainerStatus.EXITED,
-        )
         mock_gateway_client.delete_session_by_container.side_effect = GatewayError("Error")
 
         # Should not raise
@@ -358,24 +313,22 @@ class TestStopAgentContainer:
 class TestRemoveAgentContainer:
     """Tests for removing agent containers."""
 
-    def test_remove_container(self, spawner, mock_docker_client, mock_gateway_client):
+    def test_remove_container(self, spawner, mock_k8s_client, mock_gateway_client):
         """Test removing a container."""
         spawner.remove_agent_container("abc123")
 
-        mock_docker_client.remove_container.assert_called_with("abc123", force=False)
+        mock_k8s_client.remove_container.assert_called_with("abc123", force=False)
         mock_gateway_client.delete_session_by_container.assert_called_with("abc123")
 
-    def test_remove_container_force(self, spawner, mock_docker_client):
+    def test_remove_container_force(self, spawner, mock_k8s_client):
         """Test force removing a container."""
         spawner.remove_agent_container("abc123", force=True)
 
-        mock_docker_client.remove_container.assert_called_with("abc123", force=True)
+        mock_k8s_client.remove_container.assert_called_with("abc123", force=True)
 
-    def test_remove_cleans_up_session_on_error(
-        self, spawner, mock_docker_client, mock_gateway_client
-    ):
+    def test_remove_cleans_up_session_on_error(self, spawner, mock_k8s_client, mock_gateway_client):
         """Test that session is cleaned up even if removal fails."""
-        mock_docker_client.remove_container.side_effect = ContainerOperationError("Failed")
+        mock_k8s_client.remove_container.side_effect = ContainerOperationError("Failed")
 
         with pytest.raises(ContainerOperationError):
             spawner.remove_agent_container("abc123")
@@ -387,17 +340,17 @@ class TestRemoveAgentContainer:
 class TestListPipelineContainers:
     """Tests for listing pipeline containers."""
 
-    def test_list_pipeline_containers(self, spawner, mock_docker_client):
+    def test_list_pipeline_containers(self, spawner, mock_k8s_client):
         """Test listing containers for a pipeline."""
-        mock_docker_client.list_containers.return_value = [
+        mock_k8s_client.list_containers.return_value = [
             ContainerInfo(
                 container_id="abc123",
-                container_name="egg-issue-123-coder",
+                container_name="egg-agent-issue-123-coder",
                 status=ContainerStatus.RUNNING,
             ),
             ContainerInfo(
                 container_id="def456",
-                container_name="egg-issue-123-tester",
+                container_name="egg-agent-issue-123-tester",
                 status=ContainerStatus.RUNNING,
             ),
         ]
@@ -405,52 +358,54 @@ class TestListPipelineContainers:
         result = spawner.list_pipeline_containers("issue-123")
 
         assert len(result) == 2
-        mock_docker_client.list_containers.assert_called_with(
-            labels={"egg.pipeline.id": "issue-123"}
-        )
+        mock_k8s_client.list_containers.assert_called_with(labels={"egg.pipeline.id": "issue-123"})
 
 
 class TestCleanupPipeline:
     """Tests for pipeline cleanup."""
 
-    def test_cleanup_pipeline(self, spawner, mock_docker_client, mock_gateway_client):
+    def test_cleanup_pipeline(self, spawner, mock_k8s_client, mock_gateway_client):
         """Test cleaning up all pipeline containers."""
-        mock_docker_client.list_containers.return_value = [
+        mock_k8s_client.list_containers.return_value = [
             ContainerInfo(
                 container_id="abc123",
-                container_name="egg-issue-123-coder",
+                container_name="egg-agent-issue-123-coder",
                 status=ContainerStatus.EXITED,
+                job_name="egg-sandbox-egg-agent-issue-123-coder",
             ),
             ContainerInfo(
                 container_id="def456",
-                container_name="egg-issue-123-tester",
+                container_name="egg-agent-issue-123-tester",
                 status=ContainerStatus.EXITED,
+                job_name="egg-sandbox-egg-agent-issue-123-tester",
             ),
         ]
 
         removed = spawner.cleanup_pipeline("issue-123")
 
         assert removed == 2
-        assert mock_docker_client.remove_container.call_count == 2
+        assert mock_k8s_client.remove_container.call_count == 2
         assert mock_gateway_client.delete_session_by_container.call_count == 2
 
-    def test_cleanup_continues_on_error(self, spawner, mock_docker_client, mock_gateway_client):
+    def test_cleanup_continues_on_error(self, spawner, mock_k8s_client, mock_gateway_client):
         """Test that cleanup continues even if some containers fail."""
-        mock_docker_client.list_containers.return_value = [
+        mock_k8s_client.list_containers.return_value = [
             ContainerInfo(
                 container_id="abc123",
                 container_name="test1",
                 status=ContainerStatus.EXITED,
+                job_name="egg-sandbox-test1",
             ),
             ContainerInfo(
                 container_id="def456",
                 container_name="test2",
                 status=ContainerStatus.EXITED,
+                job_name="egg-sandbox-test2",
             ),
         ]
 
         # First removal fails, second succeeds
-        mock_docker_client.remove_container.side_effect = [
+        mock_k8s_client.remove_container.side_effect = [
             ContainerOperationError("Failed"),
             None,
         ]
@@ -461,42 +416,11 @@ class TestCleanupPipeline:
         assert removed == 1
 
 
-class TestGetContainerIp:
-    """Tests for container IP resolution."""
-
-    def test_get_ip_from_docker(self, spawner, mock_docker_client):
-        """Test getting IP from Docker network info."""
-        mock_container = MagicMock()
-        mock_container.attrs = {
-            "NetworkSettings": {
-                "Networks": {
-                    "egg-isolated": {
-                        "IPAddress": "172.32.0.42",
-                    },
-                },
-            },
-        }
-        mock_docker_client.client.containers.get.return_value = mock_container
-
-        ip = spawner._get_container_ip("abc123def456")
-
-        assert ip == "172.32.0.42"
-
-    def test_get_ip_fallback(self, spawner, mock_docker_client):
-        """Test fallback IP generation."""
-        mock_docker_client.client.containers.get.side_effect = Exception("Not found")
-
-        ip = spawner._get_container_ip("abc123def456")
-
-        # Should return a valid IP in the range
-        assert ip.startswith("172.32.0.")
-
-
 class TestContainerEnvironmentAtCreation:
     """Tests verifying gateway environment is included at container creation time."""
 
     def test_spawn_includes_session_token_in_container_env(
-        self, spawner, mock_docker_client, mock_gateway_client
+        self, spawner, mock_k8s_client, mock_gateway_client
     ):
         """Test that session token is passed to create_container, not added after."""
         spawner.spawn_agent_container(
@@ -507,7 +431,7 @@ class TestContainerEnvironmentAtCreation:
         )
 
         # Verify the environment passed to create_container includes the session token
-        create_call = mock_docker_client.create_container.call_args
+        create_call = mock_k8s_client.create_container.call_args
         container_env = create_call.kwargs.get("environment", {})
 
         assert "EGG_SESSION_TOKEN" in container_env, (
@@ -516,45 +440,26 @@ class TestContainerEnvironmentAtCreation:
         assert container_env["EGG_SESSION_TOKEN"] == "test-token-12345"
 
     def test_spawn_includes_gateway_url_in_container_env(
-        self, spawner, mock_docker_client, mock_gateway_client
+        self, spawner, mock_k8s_client, mock_gateway_client
     ):
-        """Test that GATEWAY_URL uses hostname, not raw IP."""
+        """Test that GATEWAY_URL is set to K8s service DNS."""
         spawner.spawn_agent_container(
             pipeline_id="issue-123",
             agent_role=AgentRole.CODER,
             issue_number=123,
         )
 
-        create_call = mock_docker_client.create_container.call_args
+        create_call = mock_k8s_client.create_container.call_args
         container_env = create_call.kwargs.get("environment", {})
 
         assert "GATEWAY_URL" in container_env, (
             "Gateway URL must be included in container environment at creation time"
         )
-        # GATEWAY_URL should be hostname-based (from shared config builder)
-        assert "egg-gateway" in container_env["GATEWAY_URL"]
+        # K8s uses service DNS names, not Docker hostnames
+        assert "gateway" in container_env["GATEWAY_URL"].lower()
 
-    def test_spawn_private_mode_includes_proxy_config(
-        self, spawner, mock_docker_client, mock_gateway_client
-    ):
-        """Test that proxy configuration is set for private mode containers."""
-        spawner.spawn_agent_container(
-            pipeline_id="issue-123",
-            agent_role=AgentRole.CODER,
-            issue_number=123,
-            mode="private",
-        )
-
-        create_call = mock_docker_client.create_container.call_args
-        container_env = create_call.kwargs.get("environment", {})
-
-        assert "HTTP_PROXY" in container_env, "HTTP_PROXY must be included for private mode"
-        assert "HTTPS_PROXY" in container_env, "HTTPS_PROXY must be included for private mode"
-
-    def test_spawn_public_mode_no_proxy_config(
-        self, spawner, mock_docker_client, mock_gateway_client
-    ):
-        """Test that proxy configuration is NOT set for public mode containers."""
+    def test_spawn_includes_proxy_config(self, spawner, mock_k8s_client, mock_gateway_client):
+        """Test that proxy configuration is always set for K8s containers."""
         spawner.spawn_agent_container(
             pipeline_id="issue-123",
             agent_role=AgentRole.CODER,
@@ -562,14 +467,15 @@ class TestContainerEnvironmentAtCreation:
             mode="public",
         )
 
-        create_call = mock_docker_client.create_container.call_args
+        create_call = mock_k8s_client.create_container.call_args
         container_env = create_call.kwargs.get("environment", {})
 
-        assert "HTTP_PROXY" not in container_env
-        assert "HTTPS_PROXY" not in container_env
+        # In K8s mode, proxy is always set (NetworkPolicy enforces isolation)
+        assert "HTTP_PROXY" in container_env
+        assert "HTTPS_PROXY" in container_env
 
     def test_spawn_passes_repos_and_phase_to_register_session(
-        self, spawner, mock_docker_client, mock_gateway_client
+        self, spawner, mock_k8s_client, mock_gateway_client
     ):
         """Test that repos and phase are passed through to session registration."""
         spawner.spawn_agent_container(
@@ -585,43 +491,6 @@ class TestContainerEnvironmentAtCreation:
         register_call = mock_gateway_client.register_session.call_args
         assert register_call.kwargs.get("repos") == ["test-owner/test-repo"]
         assert register_call.kwargs.get("phase") == "refine"
-
-    def test_spawn_includes_extra_hosts_for_gateway(
-        self, spawner, mock_docker_client, mock_gateway_client
-    ):
-        """Test that extra_hosts maps gateway hostname to IP."""
-        spawner.spawn_agent_container(
-            pipeline_id="issue-123",
-            agent_role=AgentRole.CODER,
-            issue_number=123,
-        )
-
-        create_call = mock_docker_client.create_container.call_args
-        extra_hosts = create_call.kwargs.get("extra_hosts", {})
-
-        assert "egg-gateway" in extra_hosts, (
-            "extra_hosts must include gateway hostname for DNS resolution"
-        )
-
-    def test_spawn_with_repo_volumes_adds_git_shadows(
-        self, spawner, mock_docker_client, mock_gateway_client
-    ):
-        """Test that .git shadow mounts are added for repo volumes."""
-        spawner.spawn_agent_container(
-            pipeline_id="issue-123",
-            agent_role=AgentRole.CODER,
-            issue_number=123,
-            repo_volumes={"my-repo": "/host/repos/my-repo"},
-        )
-
-        create_call = mock_docker_client.create_container.call_args
-        mounts = create_call.kwargs.get("mounts", [])
-
-        # .git shadow uses /dev/null bind mount (file-over-file for worktrees)
-        git_shadow = [m for m in mounts if m["Target"] == "/home/egg/repos/my-repo/.git"]
-        assert len(git_shadow) == 1, ".git shadow mount must be added for each repo volume"
-        assert git_shadow[0]["Source"] == "/dev/null"
-        assert git_shadow[0]["ReadOnly"] is True
 
 
 class TestHostToLocalVolumes:
@@ -694,11 +563,14 @@ class TestSingletonSpawner:
 
     def test_get_container_spawner_returns_singleton(self):
         """Test that get_container_spawner returns the same instance."""
-        import container_spawner
+        import kubernetes_spawner
 
-        container_spawner._spawner = None
+        kubernetes_spawner._spawner = None
 
         spawner1 = get_container_spawner()
         spawner2 = get_container_spawner()
 
         assert spawner1 is spawner2
+
+        # Reset for other tests
+        kubernetes_spawner._spawner = None

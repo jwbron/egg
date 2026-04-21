@@ -1,0 +1,66 @@
+# Strategic merge patch: add local-dev-only host mounts for the orchestrator.
+# Appends to base volumes/volumeMounts by name.
+#
+# ⚠ DEVELOPER-SPECIFIC PATHS — edit before use ⚠
+# Every `/home/jwies/...` below and the owner/repo → host path map in
+# EGG_HOST_REPO_MAP point at this PR author's layout. Kustomize has no
+# env-var substitution, so other contributors must replace these with
+# their own $HOME and repo paths before `make deploy`. Tracked as a
+# follow-up in #1760: make this portable (envsubst wrapper, Helm chart,
+# or render from ~/.config/egg/repositories.yaml).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: egg-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: orchestrator
+          # Bind the MCP port directly to localhost on the k3s node so
+          # Claude Code's MCP config (http://localhost:9850/mcp) works
+          # without kubectl port-forward. Local-dev only; production
+          # k8s should use a Service/Ingress.
+          ports:
+            - name: mcp
+              containerPort: 9850
+              hostPort: 9850
+              protocol: TCP
+          env:
+            - name: EGG_REPO_PATH
+              value: "/home/egg/repos"
+            # Map owner/repo → host path for spawned agent pods. The
+            # orchestrator uses these paths to construct hostPath volume
+            # mounts when spawning sandbox Jobs. Local-dev only; production
+            # k8s would use a PV-backed repo store instead.
+            - name: EGG_HOST_REPO_MAP
+              value: '{"jwbron/testing":"/home/jwies/khan/testing","jwbron/egg":"/home/jwies/khan/egg","Khan/webapp":"/home/jwies/khan/webapp","Khan/internal-services":"/home/jwies/khan/internal-services","Khan/jenkins-jobs":"/home/jwies/khan/jenkins-jobs","Khan/buildmaster2":"/home/jwies/khan/buildmaster2"}'
+            # Host path for the shared worktrees directory. Agent Jobs
+            # mount this at /home/egg/.egg-worktrees so per-agent
+            # worktrees created by the orchestrator are visible to the
+            # spawned sandboxes.
+            - name: EGG_HOST_WORKTREES_PATH
+              value: "/home/jwies/.egg-worktrees"
+          volumeMounts:
+            # repos mount is read-write because the orchestrator creates
+            # per-pipeline worktrees inside each repo's .git/worktrees/.
+            - name: repos
+              mountPath: /home/egg/repos
+            - name: worktrees
+              mountPath: /home/egg/.egg-worktrees
+            - name: secrets
+              mountPath: /secrets
+              readOnly: true
+      volumes:
+        - name: repos
+          hostPath:
+            path: /home/jwies/repos
+            type: Directory
+        - name: worktrees
+          hostPath:
+            path: /home/jwies/.egg-worktrees
+            type: DirectoryOrCreate
+        - name: secrets
+          secret:
+            secretName: gateway-secrets

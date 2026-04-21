@@ -40,30 +40,28 @@ Specific threats:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                            Docker Compose Network                             │
+│                         Kubernetes Cluster (k3s)                              │
 │                                                                               │
-│  ┌───────────────────────────────┐      ┌───────────────────────────────┐  │
-│  │        egg container          │      │       gateway          │  │
-│  │                               │      │                               │  │
-│  │  - Claude Code agent          │      │  - GITHUB_TOKEN               │  │
-│  │  - No GITHUB_TOKEN            │      │  - git push capability        │  │
-│  │  - No git push capability     │ REST │  - gh CLI                     │  │
-│  │  - Full internet via proxy ───┼──────►  - HTTP/HTTPS proxy          │  │
-│  │  - git (no auth)              │      │  - Ownership checks           │  │
-│  │                               │      │  - Audit logging              │  │
-│  │  HTTP_PROXY=gateway:3128     │      │  - Policy enforcement         │  │
-│  │                               │      │                               │  │
-│  └───────────────────────────────┘      └───────────────────────────────┘  │
+│  egg-agents namespace              egg-system namespace                       │
+│  ┌───────────────────────────────┐ ┌───────────────────────────────┐         │
+│  │     agent pod (sandbox)       │ │      gateway pod              │         │
+│  │                               │ │                               │         │
+│  │  - Claude Code agent          │ │  - GITHUB_TOKEN               │         │
+│  │  - No GITHUB_TOKEN            │ │  - git push capability        │         │
+│  │  - No git push capability     │ │  - gh CLI                     │         │
+│  │  - Egress only to gateway  ───┼─►  - HTTP/HTTPS proxy          │         │
+│  │  - git (no auth)              │ │  - Ownership checks           │         │
+│  │                               │ │  - Audit logging              │         │
+│  │  HTTP_PROXY=gateway:3129     │ │  - Policy enforcement         │         │
+│  │                               │ │                               │         │
+│  └───────────────────────────────┘ └───────────────────────────────┘         │
 │                                                     │                        │
-│                                                     │ All traffic proxied    │
-│                                                     ▼                        │
-│                                              ┌─────────────┐                │
-│                                              │  Internet   │                │
-│                                              │  - GitHub   │                │
-│                                              │  - Claude   │                │
-│                                              │  - PyPI     │                │
-│                                              │  - etc      │                │
-│                                              └─────────────┘                │
+│  NetworkPolicies (Calico):                          │ All traffic proxied    │
+│  - Default deny ingress/egress                      ▼                        │
+│  - Allow egress to gateway only         ┌─────────────┐                     │
+│                                         │  Internet   │                     │
+│                                         │  (filtered) │                     │
+│                                         └─────────────┘                     │
 │                                                                               │
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -72,11 +70,12 @@ Specific threats:
 
 | Component | Purpose | Implementation |
 |-----------|---------|----------------|
-| egg container | Run Claude Code agent | Docker container, no credentials |
-| gateway | Handle authenticated ops + proxy all traffic | Docker container with credentials |
-| HTTP Proxy | Route all egg traffic through gateway | Squid in gateway |
-| REST API | Controlled interface for git/gh operations | Python service in gateway |
+| Agent pod | Run Claude Code agent | k8s Job in `egg-agents` namespace, no credentials |
+| Gateway pod | Handle authenticated ops + proxy all traffic | k8s Deployment in `egg-system` with credentials |
+| HTTP Proxy | Route all agent traffic through gateway | Squid in gateway pod |
+| REST API | Controlled interface for git/gh operations | Python service in gateway pod |
 | Audit Logger | Log all traffic and operations | Gateway component |
+| NetworkPolicies | Enforce network isolation | Calico CNI in k3s |
 
 ### Key Security Properties
 
@@ -528,14 +527,146 @@ When MCP is adopted for GitHub operations, two options preserve credential isola
 
 Both options preserve the key principle — credentials never enter the egg container.
 
-## GCP Deployment Considerations
+## Kubernetes Network Isolation
 
-| Component | Local (Docker) | GCP (Cloud Run) |
-|-----------|----------------|-----------------|
-| Network isolation | Docker networks | VPC Service Controls |
-| Gateway sidecar | Separate container | Cloud Run sidecar |
-| Audit logs | File/stdout | Cloud Logging |
-| Proxy | Squid container | Same or Serverless VPC |
+> **As of [#1553](https://github.com/jwbron/egg/issues/1553)**, the container runtime has migrated from Docker to Kubernetes (k3s). The network isolation model is preserved using Calico NetworkPolicies instead of Docker networks.
+
+### Architecture
+
+The Docker dual-network model (`egg-isolated` + `egg-external`) is replaced by Kubernetes namespace separation with Calico NetworkPolicies:
+
+| Docker Concept | Kubernetes Equivalent |
+|---------------|----------------------|
+| `egg-isolated` network (`internal: true`) | `egg-agents` namespace with default-deny egress NetworkPolicy |
+| `egg-external` network (bridge) | `egg-system` namespace (gateway has internet access) |
+| Fixed IPs (172.32.0.x) | Kubernetes Service DNS (`gateway.egg-system.svc.cluster.local`) |
+| Container on isolated-only network | Pod in `egg-agents` with egress restricted to gateway Service |
+| Gateway dual-homed (both networks) | Gateway Deployment in `egg-system` with Service exposed to both namespaces |
+
+### NetworkPolicy Rules
+
+Five policies in `k8s/base/network-policies.yaml` enforce isolation:
+
+```yaml
+# 1. Default deny all ingress in egg-agents
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: egg-agents
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+
+# 2. Default deny all egress in egg-agents
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: egg-agents
+spec:
+  podSelector: {}
+  policyTypes: ["Egress"]
+
+# 3. Allow agent pods to reach gateway (API + proxy)
+kind: NetworkPolicy
+metadata:
+  name: allow-agent-to-gateway
+  namespace: egg-agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agent
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: egg-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: gateway
+      ports:
+        - port: 9848   # Gateway API
+        - port: 3129   # Squid proxy
+
+# 4. Allow orchestrator to reach agent pods (health checks, logs)
+kind: NetworkPolicy
+metadata:
+  name: allow-orchestrator-to-agent
+  namespace: egg-agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agent
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: egg-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: orchestrator
+
+# 5. Allow agent pods to reach kube-dns for DNS resolution
+kind: NetworkPolicy
+metadata:
+  name: allow-agent-dns
+  namespace: egg-agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: agent
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+```
+
+### CNI Requirement
+
+**Calico is required.** k3s ships with Flannel as default CNI. Flannel does **not** support NetworkPolicies. k3s must be installed with Flannel disabled:
+
+```bash
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy" sh -
+kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.31.5/manifests/calico.yaml
+```
+
+This is handled automatically by `make k3s-setup`.
+
+### Security Properties Preserved
+
+All security properties from the Docker model are preserved:
+
+| Property | Docker Implementation | Kubernetes Implementation |
+|----------|----------------------|--------------------------|
+| Agents cannot reach internet | `internal: true` network (no gateway route) | Default-deny egress NetworkPolicy |
+| Agents can only reach gateway | Single network with gateway | Egress allowed only to gateway Service |
+| Agents cannot reach each other | Separate containers on isolated network | Default-deny ingress NetworkPolicy |
+| All traffic auditable | Gateway proxy is only egress path | Same — Squid proxy in gateway pod |
+| Credentials never enter agents | No `GITHUB_TOKEN` in container env | No `GITHUB_TOKEN` in pod env |
+
+### DNS Resolution in Kubernetes
+
+Agent pods use Kubernetes cluster DNS to resolve the gateway Service name. Unlike the Docker model (which used static `/etc/hosts` entries), agents resolve `gateway.egg-system.svc.cluster.local` via CoreDNS. The NetworkPolicy restricts which services the DNS-resolved addresses can actually reach — even if an agent resolves an external IP, the default-deny egress policy blocks the connection.
+
+For full migration details, see [Kubernetes Migration](kubernetes-migration.md).
+
+## Cloud Deployment Considerations
+
+| Component | Local (k3s) | GCP (GKE) | GCP (Cloud Run) |
+|-----------|-------------|-----------|-----------------|
+| Network isolation | Calico NetworkPolicies | GKE NetworkPolicies (Dataplane V2) | VPC Service Controls |
+| Gateway sidecar | k8s Deployment + Service | Same | Cloud Run sidecar |
+| Audit logs | File/stdout | Cloud Logging | Cloud Logging |
+| Proxy | Squid in gateway pod | Same or Serverless VPC | Same or Serverless VPC |
+| Storage | hostPath volumes | PVCs with ReadWriteMany | Managed storage |
 
 ## Configuration Reference
 

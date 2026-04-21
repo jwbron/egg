@@ -66,6 +66,7 @@ def _run_with_mocks(pipeline: Pipeline) -> list[AgentRole]:
             mock_store.load_pipeline.return_value = pipeline
 
             mock_spawner = MagicMock()
+            mock_spawner.backend = MagicMock()
             mock_spawner.docker = MagicMock()
             mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
 

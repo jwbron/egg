@@ -46,7 +46,7 @@ class TestDetectUncommittedChanges:
         # Patch the WORKTREE_BASE_DIR constant and subprocess.run
         with (
             patch("subprocess.run", return_value=mock_result),
-            patch("container_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
         ):
             result = spawner.detect_uncommitted_changes(
                 pipeline_id="issue-99",
@@ -72,7 +72,7 @@ class TestDetectUncommittedChanges:
 
         with (
             patch("subprocess.run", return_value=mock_result),
-            patch("container_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
         ):
             result = spawner.detect_uncommitted_changes(
                 pipeline_id="issue-99",
@@ -86,7 +86,7 @@ class TestDetectUncommittedChanges:
         spawner = self._make_spawner()
 
         # tmp_path exists but does NOT contain "nonexistent-pipeline-coder"
-        with patch("container_spawner.WORKTREE_BASE_DIR", tmp_path):
+        with patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path):
             result = spawner.detect_uncommitted_changes(
                 pipeline_id="nonexistent-pipeline",
                 agent_role="coder",
@@ -105,7 +105,7 @@ class TestDetectUncommittedChanges:
 
         with (
             patch("subprocess.run", return_value=mock_result),
-            patch("container_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
         ):
             result = spawner.detect_uncommitted_changes(
                 pipeline_id="issue-99",

@@ -422,7 +422,7 @@ When the overseer files a GitHub issue (decided by the Sonnet/Opus tier), it use
 
 ### Container Logs          <!-- only present when logs exist -->
 ````
-{last 2 000 chars of Docker container logs for the agent}
+{last 2 000 chars of agent pod logs}
 ````
 
 ### Suggested Remediation

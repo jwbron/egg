@@ -174,6 +174,7 @@ class TestConsensusTimeoutRecheck:
         )
 
         mock_spawner = MagicMock()
+        mock_spawner.backend = mock_docker
         mock_spawner.docker = mock_docker
         mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
 
@@ -283,6 +284,7 @@ class TestConsensusTimeoutRecheck:
         )
 
         mock_spawner = MagicMock()
+        mock_spawner.backend = mock_docker
         mock_spawner.docker = mock_docker
         mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
 
@@ -364,6 +366,7 @@ class TestConsensusTimeoutRecheck:
         )
 
         mock_spawner = MagicMock()
+        mock_spawner.backend = mock_docker
         mock_spawner.docker = mock_docker
         mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
 
@@ -454,6 +457,7 @@ class TestConsensusTimeoutRecheck:
         )
 
         mock_spawner = MagicMock()
+        mock_spawner.backend = mock_docker
         mock_spawner.docker = mock_docker
         mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
 
@@ -570,6 +574,7 @@ class TestConsensusTimeoutRecheck:
         )
 
         mock_spawner = MagicMock()
+        mock_spawner.backend = mock_docker
         mock_spawner.docker = mock_docker
         mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
 
@@ -686,6 +691,7 @@ class TestReconstructedNoShaFiltering:
         )
 
         mock_spawner = MagicMock()
+        mock_spawner.backend = mock_docker
         mock_spawner.docker = mock_docker
         mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
 

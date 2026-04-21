@@ -1,6 +1,8 @@
 # Deploy Migration Guide
 
-This guide helps you migrate from the legacy deployment scripts to the new Docker Compose-based deployment.
+> **Note:** Docker Compose has been replaced by Kubernetes (k3s) as of [#1553](https://github.com/jwbron/egg/issues/1553). For the current deployment method, see the [Deployment Guide](deployment.md). For migration architecture details, see [Kubernetes Migration](../architecture/kubernetes-migration.md). The guide below is retained for reference only.
+
+This guide helps you migrate from the legacy deployment scripts to the Docker Compose-based deployment (now superseded by Kubernetes).
 
 ## Why Migrate?
 

@@ -22,6 +22,17 @@ echo "  Port: $ORCHESTRATOR_PORT"
 echo "  Debug: $ORCHESTRATOR_DEBUG"
 echo "  UID/GID: $HOST_UID:$HOST_GID"
 
+# Load env-var-style secrets from the mounted secrets.env if present
+# (GITHUB_USER_TOKEN, GATEWAY_BOT_NAME, etc.) — Compose relied on shell-env
+# passthrough; in k8s the Secret volume exposes the file.
+if [ -f /secrets/secrets.env ]; then
+    echo "Sourcing /secrets/secrets.env"
+    set -a
+    # shellcheck disable=SC1091
+    . /secrets/secrets.env
+    set +a
+fi
+
 # Wait for gateway if configured
 if [ -n "$WAIT_FOR_GATEWAY" ] && [ "$WAIT_FOR_GATEWAY" = "true" ]; then
     GATEWAY_HOST="${GATEWAY_HOST:-egg-gateway}"
@@ -78,17 +89,19 @@ if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; the
 
     # chown Docker volume mount point that is root-owned by default
     if [ -d /home/egg/.egg-state ]; then
-        chown -R "$HOST_UID:$HOST_GID" /home/egg/.egg-state
+        chown -R "$HOST_UID:$HOST_GID" /home/egg/.egg-state 2>/dev/null || true
     fi
     # Chown repo bind-mount points — Docker bind mounts preserve host
     # ownership, so these directories may be root-owned inside the
     # container. Only chown the top-level directories (not recursive) —
     # repo file contents are managed by git/gateway worktree operations.
     if [ -d /home/egg/repos ]; then
-        chown "$HOST_UID:$HOST_GID" /home/egg/repos
+        # chown is best-effort — k8s hostPath readOnly mounts return EROFS
+        # but ownership is already correct on the host side.
+        chown "$HOST_UID:$HOST_GID" /home/egg/repos 2>/dev/null || true
         for repo_dir in /home/egg/repos/*/; do
             if [ -d "$repo_dir" ]; then
-                chown "$HOST_UID:$HOST_GID" "$repo_dir"
+                chown "$HOST_UID:$HOST_GID" "$repo_dir" 2>/dev/null || true
             fi
         done
     fi

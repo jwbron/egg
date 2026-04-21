@@ -131,6 +131,11 @@ class ContainerInfo(BaseModel):
     )
     session_token: str | None = Field(default=None, description="Session token for gateway auth")
 
+    # Kubernetes-native fields (optional, populated when running on k8s)
+    pod_name: str | None = Field(default=None, description="Kubernetes pod name")
+    namespace: str | None = Field(default=None, description="Kubernetes namespace")
+    job_name: str | None = Field(default=None, description="Kubernetes Job name")
+
     @model_validator(mode="before")
     @classmethod
     def _migrate_removed_roles(cls, data: Any) -> Any:
