@@ -218,10 +218,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "What should happen when submit_task is called with a pipeline_id whose previous run was just cancelled with cleanup=true?",
+      "context": "",
+      "options": [
+        "Add fresh=true flag on submit_task; without it, keep current 409 behavior; with it, wait for in-flight cleanup then create (Recommended)",
+        "Make cancel_task(cleanup=true) block until cleanup finishes (synchronous); no submit_task change",
+        "Document only — cancel_task(cleanup=true) + immediate submit_task is documented as non-idempotent; caller waits",
+        "Have submit_task detect cancelled+cleanup-in-progress state and queue the new run behind it"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-21T06:37:24.655701Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-21T06:19:56.988139Z",
-  "updated_at": "2026-04-21T06:37:17.173210Z",
+  "updated_at": "2026-04-21T06:37:24.663841Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -234,5 +253,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12
+  "version": 13
 }
