@@ -387,8 +387,11 @@ redeploy: build k3s-import deploy  ## Rebuild, re-import, and redeploy in one st
 
 k3s-import:  ## Import built images into k3s
 	docker save egg-gateway:$(EGG_IMAGE_TAG) | sudo k3s ctr images import -
+	docker save egg-gateway:latest | sudo k3s ctr images import -
 	docker save egg-orchestrator:$(EGG_IMAGE_TAG) | sudo k3s ctr images import -
+	docker save egg-orchestrator:latest | sudo k3s ctr images import -
 	docker save egg-sandbox:$(EGG_IMAGE_TAG) | sudo k3s ctr images import -
+	docker save egg-sandbox:latest | sudo k3s ctr images import -
 
 k3s-teardown:  ## Remove k3s
 	/usr/local/bin/k3s-uninstall.sh || true

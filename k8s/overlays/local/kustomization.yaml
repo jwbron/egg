@@ -9,14 +9,14 @@ patches:
   - path: patches/gateway-volumes.yaml
   - path: patches/orchestrator-volumes.yaml
 
-# Use local images without a registry prefix
+# Use local images without a registry prefix.
+# NOTE: The deploy target rewrites these tags at apply time via sed.
+# See Makefile `deploy` target. These "latest" entries are baselines,
+# not what actually gets deployed.
 images:
   - name: egg-orchestrator
     newName: egg-orchestrator
     newTag: latest
   - name: egg-gateway
     newName: egg-gateway
-    newTag: latest
-  - name: egg
-    newName: egg
     newTag: latest
