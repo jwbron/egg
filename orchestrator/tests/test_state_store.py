@@ -1164,7 +1164,12 @@ class TestRemoteSync:
     """Tests for remote sync (push/restore) of the state branch."""
 
     def test_sync_to_remote_calls_gateway_client(self, state_store):
-        """sync_to_remote calls push_worktree_branch on the gateway client."""
+        """sync_to_remote calls push_worktree_branch on the gateway client.
+
+        Regression for #1808: must push via the main repo path (shared
+        hostPath) with an explicit ``ref``, not the state worktree path
+        which lives in the orchestrator pod's unshared emptyDir.
+        """
         mock_client = MagicMock()
         mock_client.push_worktree_branch.return_value = True
 
@@ -1175,9 +1180,10 @@ class TestRemoteSync:
         assert result is True
         mock_client.push_worktree_branch.assert_called_once_with(
             pipeline_id="state-sync",
-            repo_path=str(state_store.worktree),
+            repo_path=str(state_store.repo_path),
             branch="egg/pipeline-state",
             mode="public",
+            ref="egg/pipeline-state",
         )
 
     def test_sync_to_remote_returns_false_on_failure(self, state_store):

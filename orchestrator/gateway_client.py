@@ -11,6 +11,7 @@ Provides coordination between the orchestrator and gateway sidecar for:
 import json
 import os
 import socket
+import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -608,25 +609,80 @@ class GatewayClient:
         repo_path: str,
         branch: str,
         mode: Literal["public", "private"] = "public",
+        ref: str | None = None,
     ) -> bool:
-        """Push a worktree branch to remote using a temporary session.
+        """Push a branch to remote using a temporary session.
 
-        Best-effort operation used to push worktree contents to remote —
-        called after contract initialization, phase completion, or pipeline
+        Called after contract initialization, phase completion, or pipeline
         failure. Registers a temp session, pushes, then cleans up the session.
+
+        When ``ref`` is ``None`` (default), pushes the worktree's current
+        ``HEAD`` — used when ``repo_path`` is a worktree checked out to
+        ``branch``. On non-fast-forward rejection, performs
+        ``git fetch origin`` + ``git rebase origin/{branch}`` in the
+        worktree (with ``.egg-state/agent-outputs/`` auto-resolve) and
+        retries the push once.
+
+        When ``ref`` is set, pushes ``refs/heads/{ref}:refs/heads/{branch}``
+        — used when ``repo_path`` is a plain repository (not a worktree
+        checked out to ``branch``) whose ``.git/`` holds the commits to
+        push. Reconcile is skipped: there is no working tree at
+        ``repo_path`` that can be rebased onto the remote tip without
+        disturbing its checkout.
 
         Args:
             pipeline_id: Pipeline ID (used as container_id for the temp session)
-            repo_path: Path to the worktree repo directory
-            branch: Branch name to push
+            repo_path: Path to the repo directory the gateway will ``cd`` into
+            branch: Remote branch name to push to
+            mode: Gateway session mode (public/private)
+            ref: Local ref to push (omit to push worktree HEAD)
 
         Returns:
-            True if push succeeded, False otherwise
+            True if push (possibly after reconcile) succeeded, False otherwise
         """
+        refspec = f"refs/heads/{ref}:refs/heads/{branch}" if ref else f"HEAD:refs/heads/{branch}"
+
+        if self._do_push(
+            pipeline_id=pipeline_id,
+            repo_path=repo_path,
+            branch=branch,
+            mode=mode,
+            refspec=refspec,
+        ):
+            return True
+
+        # Reconcile is only meaningful for worktree-HEAD pushes: the rebase
+        # mutates the checkout at repo_path, which we only want to do when
+        # that checkout is a dedicated pipeline worktree.
+        if ref is not None:
+            logger.warning(
+                "Push failed for ref-based push (no reconcile available)",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                ref=ref,
+            )
+            return False
+
+        return self._reconcile_and_retry_push(
+            pipeline_id=pipeline_id,
+            worktree_path=repo_path,
+            branch=branch,
+            mode=mode,
+            refspec=refspec,
+        )
+
+    def _do_push(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        branch: str,
+        mode: Literal["public", "private"],
+        refspec: str,
+    ) -> bool:
+        """Send a single push request to the gateway. Returns True on success."""
         temp_container_id = f"{pipeline_id}-failsafe-push"
         session_token: str | None = None
         try:
-            # Register a temporary session for the push
             session = self.register_session(
                 container_id=temp_container_id,
                 container_ip=self.self_ip,
@@ -636,43 +692,135 @@ class GatewayClient:
             )
             session_token = session.session_token
 
-            # Push the branch.  Do NOT include container_id — the repo_path
-            # is already the resolved worktree path.  Including the synthetic
-            # container_id would cause map_container_path_to_worktree() to
-            # fail with "worktree not found" since no real worktree exists
-            # for the temp session (see #1500).
+            # Do NOT include container_id — the repo_path is already resolved.
+            # Including the synthetic container_id would cause
+            # map_container_path_to_worktree() to fail with "worktree not found"
+            # since no real worktree exists for the temp session (see #1500).
             self._make_request(
                 "/api/v1/git/push",
                 method="POST",
                 data={
                     "repo_path": repo_path,
                     "remote": "origin",
-                    "refspec": f"HEAD:refs/heads/{branch}",
+                    "refspec": refspec,
                 },
                 bearer_token=session_token,
             )
 
             logger.info(
-                "Pushed worktree branch to remote",
+                "Pushed branch to remote",
                 pipeline_id=pipeline_id,
                 branch=branch,
+                refspec=refspec,
             )
             return True
         except Exception as e:
-            logger.warning(
-                "Best-effort push failed (work preserved locally in worktree)",
+            # First-attempt failure is logged at INFO: either reconcile will
+            # recover (handled by the caller) or the reconcile/unrecoverable
+            # path will log at WARNING/ERROR with detail.
+            logger.info(
+                "Push attempt failed — caller may retry via reconcile",
                 pipeline_id=pipeline_id,
                 branch=branch,
+                refspec=refspec,
                 error=str(e),
             )
             return False
         finally:
-            # Clean up temp session
             if session_token:
                 try:
                     self.delete_session(session_token)
                 except Exception:
                     pass
+
+    def _reconcile_and_retry_push(
+        self,
+        pipeline_id: str,
+        worktree_path: str,
+        branch: str,
+        mode: Literal["public", "private"],
+        refspec: str,
+    ) -> bool:
+        """Fetch, rebase the worktree onto ``origin/{branch}``, and retry push.
+
+        Runs directly against the worktree filesystem (shared hostPath) so
+        the orchestrator can mutate the checkout without round-tripping
+        through the gateway. Conflicts confined to
+        ``.egg-state/agent-outputs/`` are resolved in favour of the remote;
+        conflicts elsewhere abort the rebase and return False.
+
+        Returns True if the retry push succeeded, False otherwise. On
+        False, callers should treat the work as stranded locally and
+        surface an operator-actionable error (the housekeeping commits
+        are lost, but the agents' prior pushes are still on origin).
+        """
+        logger.warning(
+            "Push rejected — attempting fetch+rebase+retry to reconcile divergence",
+            pipeline_id=pipeline_id,
+            branch=branch,
+        )
+
+        git_base = [
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            f"safe.directory={worktree_path}",
+            "-C",
+            str(worktree_path),
+        ]
+
+        try:
+            subprocess.run(
+                [*git_base, "fetch", "origin", branch],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=60,
+            )
+        except subprocess.CalledProcessError as fetch_err:
+            logger.error(
+                "Push reconcile: fetch failed — work remains on local worktree only",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                stderr=fetch_err.stderr,
+            )
+            return False
+        except subprocess.TimeoutExpired:
+            logger.error(
+                "Push reconcile: fetch timed out — work remains on local worktree only",
+                pipeline_id=pipeline_id,
+                branch=branch,
+            )
+            return False
+
+        if not _rebase_with_agent_output_autoresolve(
+            git_base=git_base,
+            pipeline_id=pipeline_id,
+            branch=branch,
+        ):
+            return False
+
+        logger.info(
+            "Push reconcile: rebase succeeded — retrying push",
+            pipeline_id=pipeline_id,
+            branch=branch,
+        )
+        if self._do_push(
+            pipeline_id=pipeline_id,
+            repo_path=worktree_path,
+            branch=branch,
+            mode=mode,
+            refspec=refspec,
+        ):
+            return True
+
+        logger.error(
+            "Push reconcile: retry push still failed — work remains on local worktree only",
+            pipeline_id=pipeline_id,
+            branch=branch,
+        )
+        return False
 
     def delete_remote_branch(
         self,
@@ -1042,6 +1190,206 @@ class GatewayClient:
         except Exception as e:
             logger.warning("Failed to query repo visibility", repo=repo, error=str(e))
             return None
+
+
+# =============================================================================
+# Rebase helpers for push_worktree_branch reconcile path
+# =============================================================================
+
+
+def _rebase_with_agent_output_autoresolve(
+    git_base: list[str],
+    pipeline_id: str,
+    branch: str,
+    max_autoresolve_iterations: int = 3,
+) -> bool:
+    """Rebase the worktree onto ``origin/{branch}`` with agent-outputs auto-resolve.
+
+    Conflicts confined to ``.egg-state/agent-outputs/`` are resolved in
+    favour of the remote (``git checkout --theirs``) and the rebase is
+    continued; conflicts anywhere else cause the rebase to be aborted
+    and ``False`` returned.
+
+    The auto-resolve loop is bounded by ``max_autoresolve_iterations``
+    to defend against pathological cases where every replayed commit
+    re-introduces an agent-outputs conflict — three iterations is
+    plenty for a handful of housekeeping commits.
+
+    Returns ``True`` when the rebase finished cleanly (possibly after
+    auto-resolve), ``False`` on any other failure.
+    """
+    try:
+        rebase_result = subprocess.run(
+            [*git_base, "rebase", f"origin/{branch}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        logger.error(
+            "Push reconcile: rebase timed out — aborting",
+            pipeline_id=pipeline_id,
+            branch=branch,
+        )
+        _abort_rebase_best_effort(git_base, pipeline_id, branch)
+        return False
+
+    if rebase_result.returncode == 0:
+        return True
+
+    for iteration in range(max_autoresolve_iterations):
+        unmerged_paths = _list_unmerged_paths(git_base)
+        if not unmerged_paths:
+            logger.error(
+                "Push reconcile: rebase stopped with no unmerged paths — aborting",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                stdout=rebase_result.stdout,
+                stderr=rebase_result.stderr,
+            )
+            _abort_rebase_best_effort(git_base, pipeline_id, branch)
+            return False
+
+        non_ephemeral = [p for p in unmerged_paths if not p.startswith(".egg-state/agent-outputs/")]
+        if non_ephemeral:
+            logger.error(
+                "Push reconcile: rebase failed — conflicts outside agent-outputs, aborting",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                conflicting_paths=unmerged_paths,
+                stdout=rebase_result.stdout,
+                stderr=rebase_result.stderr,
+            )
+            _abort_rebase_best_effort(git_base, pipeline_id, branch)
+            return False
+
+        logger.warning(
+            "Push reconcile: auto-resolving agent-outputs conflicts (taking remote)",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            resolved_paths=unmerged_paths,
+            iteration=iteration + 1,
+        )
+        try:
+            subprocess.run(
+                [
+                    *git_base,
+                    "checkout",
+                    "--theirs",
+                    "--",
+                    ".egg-state/agent-outputs",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=30,
+            )
+            # Some paths may have been deleted on ``--theirs``; --all handles that.
+            subprocess.run(
+                [*git_base, "add", "--all", "--", ".egg-state/agent-outputs"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=30,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as resolve_err:
+            logger.error(
+                "Push reconcile: auto-resolve failed — aborting rebase",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                error=str(resolve_err),
+            )
+            _abort_rebase_best_effort(git_base, pipeline_id, branch)
+            return False
+
+        # If resolution cleared the index, ``--continue`` errors with
+        # "No changes - did you forget to use 'git add'?". Use --skip.
+        diff_result = subprocess.run(
+            [*git_base, "diff", "--cached", "--quiet"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        continue_cmd = "--skip" if diff_result.returncode == 0 else "--continue"
+
+        # GIT_EDITOR=true suppresses editor prompt on --continue only.
+        env = {**os.environ, "GIT_EDITOR": "true"} if continue_cmd == "--continue" else None
+        try:
+            rebase_result = subprocess.run(
+                [*git_base, "rebase", continue_cmd],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=120,
+                env=env,
+            )
+        except subprocess.TimeoutExpired:
+            logger.error(
+                "Push reconcile: rebase --continue timed out — aborting",
+                pipeline_id=pipeline_id,
+                branch=branch,
+            )
+            _abort_rebase_best_effort(git_base, pipeline_id, branch)
+            return False
+
+        if rebase_result.returncode == 0:
+            return True
+
+    logger.error(
+        "Push reconcile: rebase auto-resolve exceeded iteration limit — aborting",
+        pipeline_id=pipeline_id,
+        branch=branch,
+        max_iterations=max_autoresolve_iterations,
+    )
+    _abort_rebase_best_effort(git_base, pipeline_id, branch)
+    return False
+
+
+def _list_unmerged_paths(git_base: list[str]) -> list[str]:
+    """Return the set of paths currently in a conflicted state in the worktree.
+
+    Returns an empty list when the query itself fails — callers should be
+    aware that ``[]`` can mean either "no conflicts" or "query failed".
+    """
+    result = subprocess.run(
+        [*git_base, "diff", "--name-only", "--diff-filter=U"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        logger.warning(
+            "_list_unmerged_paths: git diff --diff-filter=U failed",
+            returncode=result.returncode,
+            stderr=result.stderr,
+        )
+        return []
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def _abort_rebase_best_effort(
+    git_base: list[str],
+    pipeline_id: str,
+    branch: str,
+) -> None:
+    """Run ``git rebase --abort`` and swallow any failure (worktree is junk anyway)."""
+    try:
+        subprocess.run(
+            [*git_base, "rebase", "--abort"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except Exception:
+        logger.warning(
+            "Push reconcile: rebase --abort also failed",
+            pipeline_id=pipeline_id,
+            branch=branch,
+        )
 
 
 class GatewayError(Exception):
