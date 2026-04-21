@@ -316,20 +316,26 @@ def list_contracts(repo_root: Path | None = None) -> list[int | str]:
     if not contracts_dir.exists():
         return []
 
-    identifiers: list[int | str] = []
+    seen: dict[int | str, None] = {}
     for path in contracts_dir.glob("*.json"):
         stem = path.stem
         # Recognize both the legacy bare-integer shape ("1759.json") and the
         # canonical ``issue-<N>.json`` shape as issue-driven pipelines so
         # callers that filter on ``isinstance(_, int)`` keep working.
+        # Skip legacy files when the canonical version already exists to
+        # avoid duplicates during the migration window.
         if stem.isdigit():
-            identifiers.append(int(stem))
+            key = int(stem)
+            canonical = contracts_dir / f"issue-{stem}.json"
+            if canonical.exists():
+                continue  # canonical version exists; skip legacy
+            seen[key] = None
         elif stem.startswith("issue-") and stem[len("issue-") :].isdigit():
-            identifiers.append(int(stem[len("issue-") :]))
+            seen[int(stem[len("issue-") :])] = None
         else:
-            identifiers.append(stem)
+            seen[stem] = None
 
-    return sorted(identifiers, key=str)
+    return sorted(seen.keys(), key=str)
 
 
 def delete_contract(identifier: int | str, repo_root: Path | None = None) -> bool:

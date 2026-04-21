@@ -131,12 +131,15 @@ def _get_contract_key(
 ) -> str | None:
     """Return the contract file key for the current pipeline.
 
-    Uses issue_number when available, otherwise pipeline_id.
+    Uses pipeline_id when available, otherwise derives a canonical key
+    from the issue_number (``issue-<N>``).
     Returns None if neither identifier is available.
     """
+    if pipeline_id:
+        return pipeline_id
     if issue_number is not None:
-        return str(issue_number)
-    return pipeline_id if pipeline_id else None
+        return f"issue-{issue_number}"
+    return None
 
 
 def _load_pending_contract_decisions(
