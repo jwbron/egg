@@ -155,16 +155,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-21T20:26:10.575389Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-21T20:54:24.094396Z",
+      "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved decisions\\n\\n- D1 (decompose deliverables): **single umbrella** — ship all 4 MCP tools + 2 skills in #1759 together.\\n- D2 (skill location): **skills/ alongside existing** — no operator/agent subtree split yet.\\n- D3 (submit_task task-id reuse): **defer** — tracked separately as #1804.\\n- D4 (rebuild_and_rollout): **include in scope** — #1763 has merged, unblocking the implementation.\\n- D5 (log persistence for agent-diagnose): **defer** — tracked separately as #1805; agent-diagnose ships against currently-available data.\\n- D6 (network-isolation probe image): **reuse sandbox image** — short-lived Job, delete after results.\\n- D7 (tool ownership): **orchestrator-owned** — new routes under orchestrator/routes/; matches existing pattern.\\n\\n## Resolved feedback (feedback-1)\\n\\n- Q1 (operator persona): egg developer running `make redeploy` on local k3s. No prod architecture yet. Skills can assume single-cluster / single-namespace / kubectl-context-resolves-to-egg-system.\\n- Q2 (identifier-translation asymmetries catalogue): Pod UID ↔ Job UID (#1760, #1764); session token ↔ container_id; issue number ↔ pipeline_id ↔ branch name (#1773); task_id ↔ agent role ↔ container name; contract field path `decisions.N` vs bare `decisions` (#1801 analysis).\\n- Q3 (existing integration tests): keep alongside the new MCP tool; don't migrate. Docker runtime is still supported for local dev; separate substrate.\\n- Q4 (deployment-diagnose silent-failure scan shape): scan **both** gateway + orchestrator; signature matching via structured-fields first with hash-of-stripped-line fallback; burst threshold 3+ in any 60s window; last ~2000 lines; human-invoked only (not continuous/automatic).\\n- Q5 (submit_task reuse fix shape): surface as known concern; specific fix tracked in #1804. No action in this umbrella.\\n- Q6 (other deployment environments): k3s only for day 1.\\n- Q7 (prune_stale_worktrees confirmation): `dry_run` is a sufficient gate for the local-dev persona. No extra confirmation needed.\\n- Q8 (existing ops runbook): none exists; skills bootstrap from the #1759 validation session's commentary.\\n\\n## Note added during review\\n\\n- Overlap between the proposed `deployment-diagnose` / `agent-diagnose` skills and the existing overseer agent is real (both are watchers that detect anomalies, classify them, and report to a human). Filed as #1806 — investigation, non-blocking for #1759. Implementation plan should reference #1806 so the skills and the overseer don't get built in isolation and patched together later.\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-21T20:06:57.322289Z",
-  "updated_at": "2026-04-21T20:26:10.603156Z",
+  "updated_at": "2026-04-21T20:54:24.099090Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -177,5 +177,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 11
+  "version": 12
 }
