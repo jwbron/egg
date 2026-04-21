@@ -4,6 +4,7 @@ Phase transition endpoints for egg-orchestrator.
 Provides REST endpoints for advancing pipeline phases with validation.
 """
 
+import json
 import sys
 import threading
 from datetime import UTC, datetime
@@ -33,6 +34,8 @@ except ImportError:
 
 from lifecycle_auth import require_lifecycle_secret
 from models import (
+    DecisionStatus,
+    Pipeline,
     PipelinePhase,
     PipelineStatus,
 )
@@ -487,6 +490,81 @@ def start_phase(pipeline_id: str) -> tuple[Response, int]:
         )
 
 
+def _collect_unresolved_phase_decisions(
+    pipeline: Pipeline,
+    store_repo_path: Path,
+) -> list[str]:
+    """Return IDs of decisions scoped to the current phase that are still pending.
+
+    Checks two decision stores:
+
+    - ``pipeline.decisions`` — orchestrator-side HITL queue (e.g. phase_gate
+      prompts).
+    - The SDLC contract's ``decisions`` list — agent-authored HITL points
+      created via ``egg-contract add-decision``.
+
+    Decisions with no phase tag are skipped for backward compatibility — we
+    cannot prove they belong to the current phase, and older persisted state
+    may predate the contract-side ``phase`` field (added alongside this
+    guard).
+    """
+    current_phase = pipeline.current_phase
+
+    unresolved = [
+        d.id
+        for d in pipeline.decisions
+        if d.status == DecisionStatus.PENDING and d.phase == current_phase
+    ]
+
+    # Contract decisions are optional — babysit-pr pipelines set
+    # has_contract=False, and issue pipelines may reach this endpoint before
+    # a contract has been populated.
+    if pipeline.has_contract:
+        try:
+            from egg_contracts.loader import (
+                ContractNotFoundError,
+                ContractValidationError,
+                load_contract,
+            )
+        except ImportError:
+            # egg_contracts not installed — cannot scan contract decisions.
+            logger.warning(
+                "Failed to scan contract decisions for unresolved entries",
+                pipeline_id=pipeline.id,
+                exc_info=True,
+            )
+            return unresolved
+
+        try:
+            from routes import resolve_worktree_path
+            from routes.pipelines import _pipeline_identifier
+
+            worktree_path = resolve_worktree_path(pipeline.id, store_repo_path)
+            contract_id = _pipeline_identifier(pipeline.issue_number, pipeline.id)
+            try:
+                contract = load_contract(contract_id, worktree_path)
+            except ContractNotFoundError:
+                contract = None
+            if contract is not None:
+                unresolved.extend(
+                    d.id for d in contract.decisions if not d.resolved and d.phase == current_phase
+                )
+        except (OSError, ValueError, ContractValidationError):
+            # OSError covers filesystem failures loading the contract,
+            # ValueError covers serialization/validation issues (pydantic V2
+            # raises ValueError for invalid data), and
+            # ContractValidationError covers corrupt/invalid contract JSON.
+            # Programming errors (AttributeError, TypeError, NameError)
+            # are left to propagate so they surface during development.
+            logger.warning(
+                "Failed to scan contract decisions for unresolved entries",
+                pipeline_id=pipeline.id,
+                exc_info=True,
+            )
+
+    return unresolved
+
+
 @phases_bp.route("/<pipeline_id>/phase/complete", methods=["POST"])
 @require_lifecycle_secret
 def complete_phase(pipeline_id: str) -> tuple[Response, int]:
@@ -498,7 +576,9 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
 
     Request body:
         {
-            "artifacts": {...}  // optional, phase artifacts
+            "artifacts": {...},       // optional, phase artifacts
+            "force": false,           // optional, skip pending-decision guard
+            "force_reason": "..."     // optional, audit note for force=true
         }
 
     Response:
@@ -534,9 +614,43 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
                 status_code=400,
             )
 
+    force = bool(data.get("force", False))
+    force_reason = data.get("force_reason")
+    if force_reason is not None and not isinstance(force_reason, str):
+        return make_error_response(
+            "force_reason must be a string",
+            status_code=400,
+        )
+    if isinstance(force_reason, str) and not force_reason.strip():
+        # Treat empty/whitespace-only strings the same as absent — an empty
+        # reason has no audit value, and this keeps validation symmetric with
+        # the artifact-recording path (which uses `if force_reason:`).
+        force_reason = None
+
     try:
         store, pipeline = get_state_store_for_pipeline(pipeline_id)
         original_version = pipeline.version
+
+        # Block advance while the current phase still has unresolved HITL
+        # decisions. The lifecycle secret authorises *who* can advance; this
+        # guard enforces *when* — a human or MCP client authorised to call
+        # this endpoint must still resolve outstanding HITL input first, or
+        # pass force=true to explicitly abandon it. See #1788.
+        unresolved_ids = _collect_unresolved_phase_decisions(pipeline, store.repo_path)
+        if unresolved_ids and not force:
+            return make_error_response(
+                (
+                    f"Phase '{pipeline.current_phase.value}' has "
+                    f"{len(unresolved_ids)} unresolved HITL decision"
+                    f"{'s' if len(unresolved_ids) != 1 else ''}. "
+                    "Resolve them or pass force=true to abandon."
+                ),
+                status_code=409,
+                details={
+                    "phase": pipeline.current_phase.value,
+                    "unresolved_decision_ids": unresolved_ids,
+                },
+            )
 
         phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
         phase_execution.status = PipelineStatus.COMPLETE
@@ -545,6 +659,24 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
         # Store artifacts if provided
         if artifacts:
             phase_execution.artifacts = artifacts
+
+        # Record the force override alongside any caller-supplied artifacts
+        # so the abandoned decisions remain on the frozen phase history for
+        # audit, even though they were never resolved. Values must be
+        # strings (PhaseExecution.artifacts is dict[str, str]).
+        if force and unresolved_ids:
+            merged = dict(phase_execution.artifacts)
+            merged["force_completed_decisions"] = json.dumps(unresolved_ids)
+            if force_reason:
+                merged["force_reason"] = force_reason
+            phase_execution.artifacts = merged
+            logger.warning(
+                "Phase force-completed with unresolved HITL decisions",
+                pipeline_id=pipeline_id,
+                phase=pipeline.current_phase.value,
+                unresolved_decision_ids=unresolved_ids,
+                force_reason=force_reason,
+            )
 
         # Determine next phase
         next_phases = PHASE_TRANSITIONS.get(pipeline.current_phase, [])
