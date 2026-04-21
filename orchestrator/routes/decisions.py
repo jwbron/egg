@@ -32,6 +32,7 @@ except ImportError:
         return logging.getLogger(name)
 
 
+from auth import require_lifecycle_secret
 from decision_queue import (
     DecisionAlreadyResolvedError,
     DecisionNotFoundError,
@@ -387,6 +388,7 @@ def get_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
 
 
 @decisions_bp.route("/<pipeline_id>/decisions/<decision_id>/resolve", methods=["POST"])
+@require_lifecycle_secret
 def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
     """
     Resolve a pending decision.
@@ -440,6 +442,7 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             "Decision resolved",
             pipeline_id=pipeline_id,
             decision_id=decision_id,
+            source=getattr(request, "egg_source", "unknown"),
         )
 
         try:
@@ -517,6 +520,7 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
 
 
 @decisions_bp.route("/<pipeline_id>/decisions/<decision_id>/cancel", methods=["POST"])
+@require_lifecycle_secret
 def cancel_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
     """
     Cancel a pending decision.
@@ -552,6 +556,7 @@ def cancel_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
             "Decision cancelled",
             pipeline_id=pipeline_id,
             decision_id=decision_id,
+            source=getattr(request, "egg_source", "unknown"),
         )
 
         return make_success_response(

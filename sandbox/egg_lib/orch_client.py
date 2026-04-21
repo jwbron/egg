@@ -61,11 +61,21 @@ class OrchClient:
         path: str,
         body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Make an HTTP request and return parsed JSON response."""
+        """Make an HTTP request and return parsed JSON response.
+
+        If ``EGG_LIFECYCLE_SECRET`` is in the environment, attaches
+        ``Authorization: Bearer <secret>`` and ``X-Egg-Source: cli``.
+        Agents don't receive this env var, so agent-initiated calls to
+        lifecycle-control endpoints will 401.
+        """
         conn: HTTPConnection | None = None
         try:
             conn = HTTPConnection(self.host, self.port, timeout=self.timeout)
             headers: dict[str, str] = {"Accept": "application/json"}
+            lifecycle_secret = os.environ.get("EGG_LIFECYCLE_SECRET")
+            if lifecycle_secret:
+                headers["Authorization"] = f"Bearer {lifecycle_secret}"
+                headers["X-Egg-Source"] = "cli"
             encoded_body: str | None = None
             if body is not None:
                 headers["Content-Type"] = "application/json"

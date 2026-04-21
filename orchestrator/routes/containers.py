@@ -31,6 +31,7 @@ except ImportError:
 
 import os
 
+from auth import require_lifecycle_secret
 from container_monitor import get_container_monitor
 from docker_client import (
     ContainerNotFoundError,
@@ -97,6 +98,7 @@ def make_success_response(
 
 
 @containers_bp.route("/<pipeline_id>/spawn", methods=["POST"])
+@require_lifecycle_secret
 def spawn_container(pipeline_id: str) -> tuple[Response, int]:
     """
     Spawn a sandbox container for a pipeline.
@@ -301,6 +303,7 @@ def get_container(pipeline_id: str, container_id: str) -> tuple[Response, int]:
 
 
 @containers_bp.route("/<pipeline_id>/containers/<container_id>", methods=["DELETE"])
+@require_lifecycle_secret
 def remove_container(pipeline_id: str, container_id: str) -> tuple[Response, int]:
     """
     Remove a container.
@@ -349,6 +352,7 @@ def remove_container(pipeline_id: str, container_id: str) -> tuple[Response, int
 
 
 @containers_bp.route("/<pipeline_id>/containers/<container_id>/stop", methods=["POST"])
+@require_lifecycle_secret
 def stop_container(pipeline_id: str, container_id: str) -> tuple[Response, int]:
     """
     Stop a running container.

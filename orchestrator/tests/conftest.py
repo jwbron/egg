@@ -5,10 +5,21 @@ Adds orchestrator and shared directories to sys.path so that modules
 can be imported with bare names (e.g., ``from models import Pipeline``).
 """
 
+import os
 import sys
 import types
 from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
+
+# Set the lifecycle bearer token for every test run. The auth decorator
+# added for #1769 rejects any request without a valid
+# ``Authorization: Bearer <EGG_LIFECYCLE_SECRET>`` header, so endpoint
+# tests need both a known secret and a way to attach the header. See the
+# FlaskClient patch below for the latter.
+TEST_LIFECYCLE_SECRET = "test-lifecycle-secret-egg1769"
+os.environ.setdefault("EGG_LIFECYCLE_SECRET", TEST_LIFECYCLE_SECRET)
 
 # Project root
 _project_root = Path(__file__).parent.parent.parent
@@ -115,3 +126,54 @@ except ImportError:
     sys.modules.setdefault("kubernetes", _k8s_mod)
     sys.modules.setdefault("kubernetes.client", _k8s_client_mod)
     sys.modules.setdefault("kubernetes.config", _k8s_config_mod)
+
+
+# Auto-attach the lifecycle bearer token to every FlaskClient request so
+# existing tests that don't know about auth continue to exercise the
+# happy path. Auth-specific tests pass ``Authorization`` or
+# ``_lifecycle_auth=False`` explicitly to override.
+try:
+    from flask.testing import FlaskClient  # type: ignore[import-not-found]
+
+    _original_flask_open = FlaskClient.open
+
+    def _flask_open_with_auth(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if kwargs.pop("_lifecycle_auth", True):
+            headers = kwargs.get("headers")
+            # Werkzeug accepts dict, list[tuple], or Headers — normalize to dict
+            # for a simple "is Authorization already set?" check.
+            if headers is None:
+                kwargs["headers"] = {
+                    "Authorization": f"Bearer {TEST_LIFECYCLE_SECRET}",
+                }
+            else:
+                existing = {}
+                if hasattr(headers, "items"):
+                    existing = dict(headers.items())
+                elif isinstance(headers, (list, tuple)):
+                    existing = dict(headers)
+                if "Authorization" not in existing and "authorization" not in existing:
+                    if isinstance(headers, dict):
+                        headers = {**headers, "Authorization": f"Bearer {TEST_LIFECYCLE_SECRET}"}
+                    else:
+                        headers = list(headers) + [
+                            ("Authorization", f"Bearer {TEST_LIFECYCLE_SECRET}")
+                        ]
+                    kwargs["headers"] = headers
+        return _original_flask_open(self, *args, **kwargs)
+
+    FlaskClient.open = _flask_open_with_auth  # type: ignore[method-assign]
+except ImportError:
+    pass
+
+
+@pytest.fixture
+def lifecycle_secret() -> str:
+    """The shared test bearer token. Useful for building explicit headers."""
+    return TEST_LIFECYCLE_SECRET
+
+
+@pytest.fixture
+def lifecycle_auth_headers() -> dict[str, str]:
+    """Valid Authorization header for lifecycle-control endpoints."""
+    return {"Authorization": f"Bearer {TEST_LIFECYCLE_SECRET}"}

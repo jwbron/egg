@@ -86,6 +86,12 @@ _PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
         "https_proxy",
         "no_proxy",
         "EGG_ORCHESTRATOR_URL",
+        # Lifecycle-control bearer token for the orchestrator's HITL/phase
+        # endpoints. Agents must never hold it — the auto-approval incident
+        # in #1769 was caused by in-cluster pods reaching unauth'd
+        # /resolve. Blocking the key here is defense in depth; the base
+        # spawner env below never sets it to begin with.
+        "EGG_LIFECYCLE_SECRET",
     }
 )
 
