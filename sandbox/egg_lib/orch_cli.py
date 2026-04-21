@@ -40,6 +40,7 @@ Commands:
     egg-orch consensus withdraw <pid> ...        Withdraw proposal
     egg-orch consensus confirmed <pid>           Confirm after all reviewers ACK
     egg-orch consensus status <pid>              Show BRC consensus status
+    egg-orch overseer alert <pid> ...            Broadcast OVERSEER_ALERT to human operator
 """
 
 import argparse
@@ -1073,6 +1074,54 @@ def cmd_message_status(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Overseer commands (escalation surface)
+# ---------------------------------------------------------------------------
+
+
+def cmd_overseer_alert(args: argparse.Namespace) -> int:
+    """Broadcast an OVERSEER_ALERT to the human operator.
+
+    Wraps the message-send endpoint with message_type=OVERSEER_ALERT and
+    to_role="all" hard-coded so the overseer agent never picks the type by
+    hand. The human-facing alert surfaces (sdlc skill, get_status enrichment)
+    only react to OVERSEER_ALERT — STATUS/HANDOFF blend into normal traffic.
+    """
+    pid = require_pipeline_id(args)
+    role = args.role or get_agent_role_from_env() or "overseer"
+
+    body_parts: list[str] = [args.summary]
+    if args.detail:
+        body_parts.append(f"\nDetail:\n{args.detail}")
+    if args.recommend:
+        body_parts.append(f"\nRecommended action:\n{args.recommend}")
+    body_text = "\n".join(body_parts).strip()
+
+    data: dict[str, Any] = {
+        "from_role": role,
+        "to_role": "all",
+        "message_type": "OVERSEER_ALERT",
+        "subject": f"{args.anomaly} [{args.priority}]",
+        "body": body_text,
+    }
+
+    result = orch_request(f"/api/v1/pipelines/{pid}/messages", method="POST", data=data)
+
+    if args.json:
+        print_json(result)
+        return 0 if result.get("success") else 1
+
+    if result.get("success"):
+        msg = result.get("data", {}).get("message", {})
+        print(
+            f"OVERSEER_ALERT broadcast: {msg.get('id', 'unknown')} "
+            f"({args.anomaly}, {args.priority})"
+        )
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
 def cmd_signal_readiness(args: argparse.Namespace) -> int:
     """Signal readiness state for consensus."""
     pid = require_pipeline_id(args)
@@ -2081,6 +2130,52 @@ def create_parser() -> argparse.ArgumentParser:
     prog_query.add_argument("--limit", type=int, help="Max events to return")
     _add_json_flag(prog_query)
     prog_query.set_defaults(func=cmd_progress_query)
+
+    # -- overseer --
+    overseer_parser = subparsers.add_parser(
+        "overseer",
+        help="Overseer-only operations (anomaly escalation)",
+    )
+    overseer_sub = overseer_parser.add_subparsers(dest="overseer_command")
+
+    # overseer alert
+    ov_alert = overseer_sub.add_parser(
+        "alert",
+        help="Broadcast an OVERSEER_ALERT to the human operator",
+        description=(
+            "Emit an OVERSEER_ALERT message that the human-facing alert "
+            "surfaces watch for. Always sends with message_type=OVERSEER_ALERT "
+            "and to_role=all. Use this whenever you observe an anomaly that "
+            "requires human attention -- never use 'message send --type "
+            "HANDOFF/STATUS' for anomaly escalation, those types blend into "
+            "normal inter-agent traffic."
+        ),
+    )
+    ov_alert.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    ov_alert.add_argument("--role", help="Sender role (default: EGG_AGENT_ROLE or 'overseer')")
+    ov_alert.add_argument(
+        "--anomaly",
+        required=True,
+        help="Anomaly type (e.g. stuck-phase-transition, agent-stall, repeated-401)",
+    )
+    ov_alert.add_argument(
+        "--priority",
+        required=True,
+        choices=["low", "medium", "high"],
+        help="Alert priority",
+    )
+    ov_alert.add_argument(
+        "--summary",
+        required=True,
+        help="One-line summary of what was observed",
+    )
+    ov_alert.add_argument("--detail", help="Longer description / observed evidence")
+    ov_alert.add_argument(
+        "--recommend",
+        help="What you'd recommend the human do (optional, for context)",
+    )
+    _add_json_flag(ov_alert)
+    ov_alert.set_defaults(func=cmd_overseer_alert)
 
     # --- push ---
     from egg_lib.cli_push import register_push_subcommand
