@@ -233,7 +233,10 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             }
         }
     """
-    data = request.get_json() or {}
+    # silent=True: tolerate empty body with Content-Type: application/json,
+    # which would otherwise raise BadRequest(400) before reaching the
+    # "Missing target_phase" error below. See #1787.
+    data = request.get_json(silent=True) or {}
 
     target_phase_str = data.get("target_phase")
     if not target_phase_str:
