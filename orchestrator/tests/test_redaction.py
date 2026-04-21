@@ -24,6 +24,8 @@ _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
+from egg_config.constants import TEST_GATEWAY_PORT  # noqa: E402
+
 from redaction import (  # noqa: E402
     REDACTION_PLACEHOLDER,
     _name_is_protected,
@@ -89,7 +91,7 @@ class TestRedactEnv:
     def test_redacts_all_protected_values(self):
         env = {
             "EGG_SESSION_TOKEN": "tok",
-            "GATEWAY_URL": "http://gw:9848",
+            "GATEWAY_URL": f"http://gw:{TEST_GATEWAY_PORT}",
             "GITHUB_TOKEN": "ghp_abc",
             "ANTHROPIC_API_KEY": "sk-xyz",
             "CUSTOM_TOKEN": "abc",
