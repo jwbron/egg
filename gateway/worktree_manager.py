@@ -241,6 +241,7 @@ class WorktreeManager:
         base_branch: str = "HEAD",
         uid: int | None = None,
         gid: int | None = None,
+        assigned_branch: str | None = None,
     ) -> WorktreeInfo:
         """
         Create an isolated worktree for a container.
@@ -251,6 +252,12 @@ class WorktreeManager:
             base_branch: Branch or ref to base the worktree on (default: HEAD)
             uid: User ID to set ownership to (default: 1000)
             gid: Group ID to set ownership to (default: 1000)
+            assigned_branch: Remote branch this worktree's pushes should
+                target.  When set, configures ``branch.<local>.merge`` so
+                the sandbox's push client builds a refspec that targets the
+                assigned branch instead of the per-worktree local branch
+                (which the gateway would reject as push_denied_wrong_branch).
+                See #1809.
 
         Returns:
             WorktreeInfo with paths and branch information
@@ -275,6 +282,8 @@ class WorktreeManager:
         validate_identifier(container_id, "container_id")
         validate_identifier(repo_name, "repo_name")
         validate_branch_ref(base_branch, "base_branch")
+        if assigned_branch is not None:
+            validate_branch_ref(assigned_branch, "assigned_branch")
 
         # Find main repo
         main_repo = self.repos_base / repo_name
@@ -305,10 +314,14 @@ class WorktreeManager:
                 container_id=container_id,
                 repo=repo_name,
                 path=str(worktree_path),
+                assigned_branch=assigned_branch,
             )
             # Ensure ownership is correct (may have been created with different uid/gid)
             self._chown_recursive(worktree_path, uid, gid)
             self._chown_single(worktree_path.parent, uid, gid)
+            # Re-apply push upstream config in case the assigned branch
+            # changed across calls (idempotent when unchanged).
+            self._configure_push_upstream(main_repo, branch_name, assigned_branch)
             # Return info about existing worktree
             return WorktreeInfo(
                 container_id=container_id,
@@ -466,6 +479,12 @@ class WorktreeManager:
         # Also ensure the container directory itself is writable (non-recursive)
         self._chown_single(worktree_path.parent, uid, gid)
 
+        # Point the per-worktree local branch at the assigned remote branch
+        # so `git push` resolves to a refspec the gateway will accept
+        # (#1809).  Must happen before returning so the sandbox's push
+        # client sees the config on its first push.
+        self._configure_push_upstream(main_repo, branch_name, assigned_branch)
+
         # Find the actual git dir (git names it based on worktree basename)
         git_dir = self._find_worktree_git_dir(main_repo, worktree_path)
 
@@ -499,6 +518,51 @@ class WorktreeManager:
             if repo_name not in self._repo_locks:
                 self._repo_locks[repo_name] = threading.Lock()
             return self._repo_locks[repo_name]
+
+    def _configure_push_upstream(
+        self,
+        main_repo: Path,
+        branch_name: str,
+        assigned_branch: str | None,
+    ) -> None:
+        """Configure the per-worktree branch to push to the assigned branch.
+
+        Without this, the sandbox's push client (``sandbox/egg_lib/orch_cli.py``)
+        reads ``branch.<local>.merge`` and — finding it unset — sends the
+        local branch name as the push destination.  The gateway's
+        ``push_denied_wrong_branch`` policy then rejects the push because
+        ``egg/{container_id}/work`` differs from the pipeline's assigned
+        branch.  Agents sometimes "recover" from that rejection with
+        ``git reset --hard``, destroying their own committed work
+        (#1809).
+
+        Best-effort: logs and returns on failure rather than aborting the
+        worktree creation, since the old behaviour (no upstream) is still
+        workable for non-pipeline sessions.
+        """
+        if not assigned_branch or assigned_branch == branch_name:
+            return
+
+        for key, value in (
+            (f"branch.{branch_name}.remote", "origin"),
+            (f"branch.{branch_name}.merge", f"refs/heads/{assigned_branch}"),
+        ):
+            result = subprocess.run(
+                git_cmd("config", key, value),
+                cwd=main_repo,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    "Failed to configure push upstream for worktree branch",
+                    branch=branch_name,
+                    assigned_branch=assigned_branch,
+                    key=key,
+                    stderr=result.stderr.strip(),
+                )
+                return
 
     def _run_git_worktree_add(
         self,

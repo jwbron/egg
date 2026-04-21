@@ -503,6 +503,7 @@ class GatewayClient:
         uid: int | None = None,
         gid: int | None = None,
         base_branch: str | None = None,
+        assigned_branch: str | None = None,
         timeout: int = 120,
     ) -> WorktreeResult:
         """Create isolated worktrees for a container.
@@ -518,6 +519,11 @@ class GatewayClient:
             gid: Group ID for worktree ownership
             base_branch: Branch to base worktrees on. When None, the gateway
                 resolves the remote default branch per-repo (e.g., origin/main).
+            assigned_branch: Remote branch that pushes from the worktree
+                should target.  When set, the gateway configures
+                ``branch.<local>.merge`` so a naive ``git push`` from the
+                worktree resolves to a refspec targeting this branch
+                instead of the per-worktree local branch name.  See #1809.
             timeout: Request timeout in seconds. Defaults to 120s because
                 concurrent pipeline starts may queue behind per-repo locks
                 in the gateway.
@@ -534,6 +540,8 @@ class GatewayClient:
         }
         if base_branch is not None:
             request_data["base_branch"] = base_branch
+        if assigned_branch is not None:
+            request_data["assigned_branch"] = assigned_branch
         if uid is not None:
             request_data["uid"] = uid
         if gid is not None:
