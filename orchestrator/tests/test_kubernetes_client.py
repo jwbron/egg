@@ -1477,15 +1477,87 @@ class TestResolveJobName:
 
         assert result == "egg-sandbox-found"
 
+    def test_pod_uid_lookup_via_owner_reference(
+        self,
+        k8s_client: KubernetesClient,
+        mock_batch_api: MagicMock,
+        mock_core_api: MagicMock,
+    ):
+        """Pod UID should resolve to its owning Job via owner_references.
+
+        list_containers returns pod.metadata.uid as container_id, so
+        callers routinely pass a Pod UID into container-id-keyed
+        routes (get_container_logs, get_container_info, stop_container,
+        remove_container). Without this path those all 404. See #1764.
+        """
+        mock_batch_api.list_namespaced_job.return_value = MagicMock(items=[])
+
+        owner = MagicMock()
+        owner.kind = "Job"
+        owner.name = "egg-sandbox-refiner"
+        pod = _make_mock_pod(uid="pod-uid-xyz")
+        pod.metadata.owner_references = [owner]
+
+        mock_core_api.list_namespaced_pod.return_value = MagicMock(items=[pod])
+
+        result = k8s_client._resolve_job_name("pod-uid-xyz")
+
+        assert result == "egg-sandbox-refiner"
+
+    def test_pod_uid_lookup_via_job_name_label(
+        self,
+        k8s_client: KubernetesClient,
+        mock_batch_api: MagicMock,
+        mock_core_api: MagicMock,
+    ):
+        """Fall back to the job-name label when owner_references is absent."""
+        mock_batch_api.list_namespaced_job.return_value = MagicMock(items=[])
+
+        pod = _make_mock_pod(
+            uid="pod-uid-xyz",
+            labels={LABEL_ORCHESTRATOR: "true", "job-name": "egg-sandbox-reviewer"},
+        )
+        pod.metadata.owner_references = None
+
+        mock_core_api.list_namespaced_pod.return_value = MagicMock(items=[pod])
+
+        result = k8s_client._resolve_job_name("pod-uid-xyz")
+
+        assert result == "egg-sandbox-reviewer"
+
+    def test_pod_uid_lookup_via_batch_prefixed_label(
+        self,
+        k8s_client: KubernetesClient,
+        mock_batch_api: MagicMock,
+        mock_core_api: MagicMock,
+    ):
+        """Accept the batch.kubernetes.io/job-name label variant too."""
+        mock_batch_api.list_namespaced_job.return_value = MagicMock(items=[])
+
+        pod = _make_mock_pod(
+            uid="pod-uid-xyz",
+            labels={
+                LABEL_ORCHESTRATOR: "true",
+                "batch.kubernetes.io/job-name": "egg-sandbox-overseer",
+            },
+        )
+        pod.metadata.owner_references = None
+
+        mock_core_api.list_namespaced_pod.return_value = MagicMock(items=[pod])
+
+        result = k8s_client._resolve_job_name("pod-uid-xyz")
+
+        assert result == "egg-sandbox-overseer"
+
     def test_uid_not_found_returns_raw(
         self,
         k8s_client: KubernetesClient,
         mock_batch_api: MagicMock,
+        mock_core_api: MagicMock,
     ):
-        """When UID doesn't match any job, return raw container_id."""
-        mock_result = MagicMock()
-        mock_result.items = []
-        mock_batch_api.list_namespaced_job.return_value = mock_result
+        """When UID matches no Job and no Pod, return the raw container_id."""
+        mock_batch_api.list_namespaced_job.return_value = MagicMock(items=[])
+        mock_core_api.list_namespaced_pod.return_value = MagicMock(items=[])
 
         result = k8s_client._resolve_job_name("unknown-id")
 
@@ -1495,13 +1567,116 @@ class TestResolveJobName:
         self,
         k8s_client: KubernetesClient,
         mock_batch_api: MagicMock,
+        mock_core_api: MagicMock,
     ):
-        """API failure during UID lookup should return raw container_id."""
+        """API failures during either lookup should fall back to the raw ID."""
         mock_batch_api.list_namespaced_job.side_effect = Exception("API error")
+        mock_core_api.list_namespaced_pod.side_effect = Exception("API error")
 
         result = k8s_client._resolve_job_name("some-id")
 
         assert result == "some-id"
+
+
+# ---------------------------------------------------------------------------
+# Pod-UID round-trip (regression coverage for #1764)
+# ---------------------------------------------------------------------------
+
+
+class TestPodUidRoundTrip:
+    """End-to-end coverage for passing Pod UIDs into container-id-keyed ops.
+
+    ``list_containers`` returns ``pod.metadata.uid`` as ``container_id``,
+    so callers round-trip Pod UIDs back into these routes. Before the
+    fix for #1764, every container-id-keyed operation 404'd on k8s
+    because ``_resolve_job_name`` couldn't translate a Pod UID to a Job
+    name. These tests pin the end-to-end behaviour.
+    """
+
+    POD_UID = "6b6fd3a8-a6c4-49eb-a9bb-8f1766984ae9"
+    JOB_NAME = "egg-sandbox-issue-1759-refiner"
+    POD_NAME = "egg-sandbox-issue-1759-refiner-ccdgx"
+
+    def _wire_pod_uid_lookup(
+        self,
+        mock_batch_api: MagicMock,
+        mock_core_api: MagicMock,
+        pod: MagicMock,
+    ) -> None:
+        """Point both Job-UID and Pod-UID lookups at a single owning Job.
+
+        ``_resolve_job_name`` tries Jobs first, then Pods. ``get_pod_for_job``
+        reuses the same ``list_namespaced_pod`` mock, so the returned pod
+        must satisfy both the UID scan and the subsequent name lookup.
+        """
+        mock_batch_api.list_namespaced_job.return_value = MagicMock(items=[])
+        mock_core_api.list_namespaced_pod.return_value = MagicMock(items=[pod])
+
+    def _make_owned_pod(self, phase: str = "Running") -> MagicMock:
+        owner = MagicMock()
+        owner.kind = "Job"
+        owner.name = self.JOB_NAME
+        pod = _make_mock_pod(name=self.POD_NAME, uid=self.POD_UID, phase=phase)
+        pod.metadata.owner_references = [owner]
+        pod.status.container_statuses = None
+        return pod
+
+    def test_get_container_logs_by_pod_uid(
+        self,
+        k8s_client: KubernetesClient,
+        mock_batch_api: MagicMock,
+        mock_core_api: MagicMock,
+    ):
+        """get_container_logs must work when given a Pod UID."""
+        self._wire_pod_uid_lookup(mock_batch_api, mock_core_api, self._make_owned_pod())
+        mock_core_api.read_namespaced_pod_log.return_value = "agent tool call ✓\n"
+
+        logs = k8s_client.get_container_logs(self.POD_UID)
+
+        assert "agent tool call" in logs
+
+    def test_get_container_info_by_pod_uid(
+        self,
+        k8s_client: KubernetesClient,
+        mock_batch_api: MagicMock,
+        mock_core_api: MagicMock,
+    ):
+        """get_container_info must work when given a Pod UID."""
+        pod = self._make_owned_pod()
+        self._wire_pod_uid_lookup(mock_batch_api, mock_core_api, pod)
+        mock_core_api.read_namespaced_pod.return_value = pod
+
+        info = k8s_client.get_container_info(self.POD_UID)
+
+        assert info.status == ContainerStatus.RUNNING
+
+    def test_stop_container_by_pod_uid(
+        self,
+        k8s_client: KubernetesClient,
+        mock_batch_api: MagicMock,
+        mock_core_api: MagicMock,
+    ):
+        """stop_container must delete the owning Job when given a Pod UID."""
+        self._wire_pod_uid_lookup(mock_batch_api, mock_core_api, self._make_owned_pod())
+
+        k8s_client.stop_container(self.POD_UID)
+
+        call_kwargs = mock_batch_api.delete_namespaced_job.call_args.kwargs
+        assert call_kwargs["name"] == self.JOB_NAME
+
+    def test_remove_container_by_pod_uid(
+        self,
+        k8s_client: KubernetesClient,
+        mock_batch_api: MagicMock,
+        mock_core_api: MagicMock,
+    ):
+        """remove_container must delete the owning Job when given a Pod UID."""
+        self._wire_pod_uid_lookup(mock_batch_api, mock_core_api, self._make_owned_pod())
+
+        k8s_client.remove_container(self.POD_UID)
+
+        call_kwargs = mock_batch_api.delete_namespaced_job.call_args.kwargs
+        assert call_kwargs["name"] == self.JOB_NAME
 
 
 # ---------------------------------------------------------------------------
