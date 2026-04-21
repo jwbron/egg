@@ -5451,6 +5451,18 @@ def main() -> None:
         logger.error("Startup failed: launcher secret not configured", error=str(e))
         sys.exit(1)
 
+    # Under k8s the compose-era default hostname "egg-orchestrator" does
+    # not resolve, so falling back to it produces cryptic "Orchestrator
+    # unreachable" errors on the agent side mid-pipeline. Fail startup
+    # instead so the misconfiguration is visible at deploy time (#1803).
+    if os.environ.get("KUBERNETES_SERVICE_HOST") and not os.environ.get("EGG_ORCHESTRATOR_URL"):
+        logger.error(
+            "Startup failed: EGG_ORCHESTRATOR_URL must be set when running in Kubernetes. "
+            "Set it on the gateway Deployment, e.g. "
+            "http://orchestrator.egg-system.svc.cluster.local:9849"
+        )
+        sys.exit(1)
+
     # Register SIGHUP handler for config reload.
     # Usage: docker kill -s HUP egg-gateway
     def _handle_sighup(signum: int, frame: Any) -> None:
