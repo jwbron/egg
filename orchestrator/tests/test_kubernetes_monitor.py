@@ -1040,3 +1040,92 @@ class TestReconciliationSweep:
             monitor._reconciliation_sweep()
 
         store.save_pipeline.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# TestRuntimeTickConsensusStallWiring (#1813)
+# ---------------------------------------------------------------------------
+
+
+class TestRuntimeTickConsensusStallWiring:
+    """Regression tests for #1813: RUNTIME_TICK results must drive stall recovery.
+
+    #1692 (Docker→k8s migration) dropped the call that forwarded health-check
+    results to _handle_consensus_stall_recovery and moved the only trigger from
+    the per-poll cycle to pod state transitions only. A pipeline stuck in
+    post-consensus with no pods transitioning was left with no recovery path.
+    """
+
+    def _make_running_pipeline(self):
+        from models import (
+            Pipeline,
+            PipelinePhase,
+            PipelineStatus,
+        )
+
+        pipeline = Pipeline(
+            id="issue-1759-v3",
+            issue_number=1759,
+            repo="owner/repo",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.PLAN,
+            phases={},
+        )
+        store = MagicMock()
+        store.list_pipelines.return_value = [pipeline.id]
+        store.load_pipeline.return_value = pipeline
+        store.repo_path = "/tmp/repo"
+        return pipeline, store
+
+    def test_runtime_tick_forwards_results_to_stall_recovery(self, monitor):
+        """_run_runtime_tick_checks must pass runner results to the recovery handler."""
+        pipeline, store = self._make_running_pipeline()
+        monitor._reconciliation_stores = [store]
+
+        mock_results = [MagicMock(check_name="consensus_stall")]
+        mock_runner = MagicMock()
+        mock_runner.run.return_value = mock_results
+        monitor.set_health_check_runner(mock_runner)
+
+        with patch.object(monitor, "_handle_consensus_stall_recovery") as mock_recovery:
+            monitor._run_runtime_tick_checks()
+
+        mock_recovery.assert_called_once()
+        args = mock_recovery.call_args.args
+        assert args[0] is mock_results
+        assert args[1] is pipeline
+        assert args[2] is store
+
+    def test_runtime_tick_skips_non_running_pipelines(self, monitor):
+        """Pipelines that are not RUNNING must not be passed to the recovery handler."""
+        from models import PipelineStatus
+
+        pipeline, store = self._make_running_pipeline()
+        pipeline.status = PipelineStatus.COMPLETE
+        monitor._reconciliation_stores = [store]
+
+        mock_runner = MagicMock()
+        mock_runner.run.return_value = []
+        monitor.set_health_check_runner(mock_runner)
+
+        with patch.object(monitor, "_handle_consensus_stall_recovery") as mock_recovery:
+            monitor._run_runtime_tick_checks()
+
+        mock_runner.run.assert_not_called()
+        mock_recovery.assert_not_called()
+
+    def test_reconciliation_sweep_invokes_runtime_tick(self, monitor, mock_k8s_client):
+        """_reconciliation_sweep must fire _run_runtime_tick_checks every sweep.
+
+        Previously only _handle_pod_transition called it; this left pipelines
+        with no pod churn unable to exercise the stall-recovery path.
+        """
+        mock_k8s_client.list_containers.return_value = []
+        mock_k8s_client.list_jobs.return_value = []
+
+        # No reconciliation stores needed — we're asserting the hook fires
+        # regardless of pipeline content.
+        with patch.object(monitor, "_run_runtime_tick_checks") as mock_tick:
+            monitor._reconciliation_sweep()
+
+        mock_tick.assert_called_once()
