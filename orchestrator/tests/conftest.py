@@ -5,10 +5,19 @@ Adds orchestrator and shared directories to sys.path so that modules
 can be imported with bare names (e.g., ``from models import Pipeline``).
 """
 
+import os
 import sys
 import types
 from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
+
+# The auth decorator added for #1769 rejects any request without a valid
+# ``Authorization: Bearer <EGG_LIFECYCLE_SECRET>`` header, so endpoint
+# tests need both a known secret and a way to attach the header. See the
+# FlaskClient patch and session-scoped fixture below.
+TEST_LIFECYCLE_SECRET = "test-lifecycle-secret-egg1769"
 
 # Project root
 _project_root = Path(__file__).parent.parent.parent
@@ -115,3 +124,83 @@ except ImportError:
     sys.modules.setdefault("kubernetes", _k8s_mod)
     sys.modules.setdefault("kubernetes.client", _k8s_client_mod)
     sys.modules.setdefault("kubernetes.config", _k8s_config_mod)
+
+
+# Auto-attach the lifecycle bearer token to every FlaskClient request so
+# existing orchestrator tests that don't know about auth continue to
+# exercise the happy path. Auth-specific tests pass ``Authorization`` or
+# ``_lifecycle_auth=False`` explicitly to override.
+#
+# This is applied via an autouse fixture (below) rather than a module-level
+# monkey-patch so that it does NOT leak into gateway or other test suites
+# that share the same pytest session.
+def _flask_open_with_auth(original_open, secret):  # type: ignore[no-untyped-def]
+    """Build a wrapper around FlaskClient.open that injects lifecycle auth."""
+
+    def wrapper(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if kwargs.pop("_lifecycle_auth", True):
+            headers = kwargs.get("headers")
+            # Werkzeug accepts dict, list[tuple], or Headers — normalize to dict
+            # for a simple "is Authorization already set?" check.
+            if headers is None:
+                kwargs["headers"] = {
+                    "Authorization": f"Bearer {secret}",
+                }
+            else:
+                existing = {}
+                if hasattr(headers, "items"):
+                    existing = dict(headers.items())
+                elif isinstance(headers, (list, tuple)):
+                    existing = dict(headers)
+                if not any(k.lower() == "authorization" for k in existing):
+                    if isinstance(headers, dict):
+                        headers = {**headers, "Authorization": f"Bearer {secret}"}
+                    else:
+                        headers = list(headers) + [("Authorization", f"Bearer {secret}")]
+                    kwargs["headers"] = headers
+        return original_open(self, *args, **kwargs)
+
+    return wrapper
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _set_lifecycle_secret_env():
+    """Set EGG_LIFECYCLE_SECRET for the orchestrator test session.
+
+    Uses a session-scoped fixture instead of module-level mutation so
+    the env var doesn't leak into other test suites that share the same
+    pytest process (e.g., sandbox tests that exercise orch_client.py).
+    """
+    prev = os.environ.get("EGG_LIFECYCLE_SECRET")
+    os.environ["EGG_LIFECYCLE_SECRET"] = TEST_LIFECYCLE_SECRET
+    yield
+    if prev is None:
+        os.environ.pop("EGG_LIFECYCLE_SECRET", None)
+    else:
+        os.environ["EGG_LIFECYCLE_SECRET"] = prev
+
+
+@pytest.fixture(autouse=True)
+def _inject_lifecycle_auth(monkeypatch):
+    """Patch FlaskClient.open for the duration of each orchestrator test."""
+    try:
+        from flask.testing import FlaskClient  # type: ignore[import-not-found]
+    except ImportError:
+        yield
+        return
+
+    wrapper = _flask_open_with_auth(FlaskClient.open, TEST_LIFECYCLE_SECRET)
+    monkeypatch.setattr(FlaskClient, "open", wrapper)
+    yield
+
+
+@pytest.fixture
+def lifecycle_secret() -> str:
+    """The shared test bearer token. Useful for building explicit headers."""
+    return TEST_LIFECYCLE_SECRET
+
+
+@pytest.fixture
+def lifecycle_auth_headers() -> dict[str, str]:
+    """Valid Authorization header for lifecycle-control endpoints."""
+    return {"Authorization": f"Bearer {TEST_LIFECYCLE_SECRET}"}

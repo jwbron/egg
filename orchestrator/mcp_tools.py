@@ -736,12 +736,22 @@ class PipelineToolHandler:
         data: dict[str, Any] | None = None,
         timeout: int = 30,
     ) -> dict[str, Any]:
-        """Make HTTP request to orchestrator."""
+        """Make HTTP request to orchestrator.
+
+        Always attaches ``Authorization: Bearer <EGG_LIFECYCLE_SECRET>`` and
+        ``X-Egg-Source: mcp`` when the secret is configured. The in-process
+        MCP server runs inside the orchestrator Deployment, so it reads the
+        same env var as the lifecycle-secret decorator.
+        """
         import json
         from urllib.request import ProxyHandler, Request, build_opener
 
         url = f"{self.orchestrator_url}{endpoint}"
         headers = {"Content-Type": "application/json"}
+        lifecycle_secret = os.environ.get("EGG_LIFECYCLE_SECRET")
+        if lifecycle_secret:
+            headers["Authorization"] = f"Bearer {lifecycle_secret}"
+            headers["X-Egg-Source"] = "mcp"
         body = json.dumps(data).encode() if data else None
 
         opener = build_opener(ProxyHandler({}))

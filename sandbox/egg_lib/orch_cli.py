@@ -236,8 +236,22 @@ def orch_request(
     data: dict[str, Any] | None = None,
     timeout: int = 15,
 ) -> dict[str, Any]:
-    """Make a request to the orchestrator API."""
-    return api_request_or_exit(get_orchestrator_url(), endpoint, method, data, timeout)
+    """Make a request to the orchestrator API.
+
+    Attaches ``Authorization: Bearer <EGG_LIFECYCLE_SECRET>`` and
+    ``X-Egg-Source: cli`` when the env var is present. Lifecycle-control
+    endpoints (HITL resolve, pipeline CRUD, phase overrides, container
+    spawn/stop) require this header. Agents don't get the env var, so
+    they'll 401; humans running ``egg-orch`` from their shell will pass.
+    """
+    headers: dict[str, str] = {}
+    lifecycle_secret = os.environ.get("EGG_LIFECYCLE_SECRET")
+    if lifecycle_secret:
+        headers["Authorization"] = f"Bearer {lifecycle_secret}"
+        headers["X-Egg-Source"] = "cli"
+    return api_request_or_exit(
+        get_orchestrator_url(), endpoint, method, data, timeout, headers or None
+    )
 
 
 def gateway_request(
