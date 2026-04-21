@@ -336,13 +336,13 @@ POST /api/v1/worktree/create
                worktree local branch name (see Push-Target Enforcement)
 
 POST /api/v1/worktree/delete
-  Request: {worktree_path}
-  Policy: session_auth
-  Description: Delete a worktree
+  Request: {container_id, force?}
+  Policy: launcher_auth
+  Description: Delete worktrees for a container
 
 GET /api/v1/worktree/list
-  Policy: session_auth
-  Description: List active worktrees
+  Policy: launcher_auth
+  Description: List all active worktrees
 ```
 
 ### Session Management (Extended)
