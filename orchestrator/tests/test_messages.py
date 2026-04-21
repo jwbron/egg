@@ -710,6 +710,81 @@ class TestLongPolling:
                 assert data["data"]["count"] == 1
 
 
+class TestSinceIdRecovery:
+    """A stale ``since_id`` (e.g., surviving a phase-boundary ``clear()`` or
+    fed from ``brc_state.last_message_id`` after anchor recovery) previously
+    caused polls to silently return empty. Verify the cursor degrades to
+    full-history replay and that targeted directed delivery still works end
+    to end through the HTTP layer."""
+
+    def test_stale_since_id_returns_all_messages(self, client, app):
+        store = MessageStore()
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="overseer",
+                to_role="architect",
+                message_type=MessageType.STATUS,
+                subject="Signal completion required",
+            )
+        )
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
+
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages"
+                    "?role=architect&since_id=nonexistent-cursor-xyz"
+                )
+                data = json.loads(resp.data)
+
+                assert resp.status_code == 200
+                assert data["data"]["count"] == 1
+                assert data["data"]["messages"][0]["from_role"] == "overseer"
+                assert data["data"]["messages"][0]["to_role"] == "architect"
+
+    def test_known_since_id_still_returns_only_newer(self, client, app):
+        store = MessageStore()
+        first = Message(
+            pipeline_id="test-pipeline",
+            from_role="coder",
+            to_role="all",
+            message_type=MessageType.PROGRESS,
+            subject="first",
+        )
+        second = Message(
+            pipeline_id="test-pipeline",
+            from_role="coder",
+            to_role="all",
+            message_type=MessageType.PROGRESS,
+            subject="second",
+        )
+        store.add_message(first)
+        store.add_message(second)
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
+
+                resp = client.get(f"/api/v1/pipelines/test-pipeline/messages?since_id={first.id}")
+                data = json.loads(resp.data)
+
+                assert resp.status_code == 200
+                assert data["data"]["count"] == 1
+                assert data["data"]["messages"][0]["subject"] == "second"
+
+
 class TestMessageStatus:
     """Test message status endpoint."""
 
@@ -739,6 +814,42 @@ class TestMessageStatus:
 
                 assert resp.status_code == 200
                 assert data["data"]["total"] == 1
+
+
+class TestShellEscapeGuard:
+    """Reject message sends where ``to_role`` / ``from_role`` looks like an
+    unexpanded shell variable -- a footgun we hit in practice when a caller
+    runs ``--to $role`` outside a context that expands the variable.
+    Without this guard the message lands in the bus with a literal
+    ``"$role"`` target and silently fails to deliver to any real agent."""
+
+    def test_rejects_unexpanded_to_role(self, client, app):
+        with app.test_request_context():
+            resp = client.post(
+                "/api/v1/pipelines/test-pipeline/messages",
+                json={
+                    "from_role": "overseer",
+                    "to_role": "$role",
+                    "message_type": "STATUS",
+                },
+            )
+            data = json.loads(resp.data)
+            assert resp.status_code == 400
+            assert "unexpanded shell variable" in data["message"]
+
+    def test_rejects_unexpanded_from_role(self, client, app):
+        with app.test_request_context():
+            resp = client.post(
+                "/api/v1/pipelines/test-pipeline/messages",
+                json={
+                    "from_role": "$EGG_AGENT_ROLE",
+                    "to_role": "architect",
+                    "message_type": "STATUS",
+                },
+            )
+            data = json.loads(resp.data)
+            assert resp.status_code == 400
+            assert "unexpanded shell variable" in data["message"]
 
 
 class TestInvalidPipelineId:

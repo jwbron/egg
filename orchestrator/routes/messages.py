@@ -76,6 +76,19 @@ def send_message(pipeline_id: str) -> tuple[Response, int]:
     if not message_type:
         return _make_error("Missing message_type")
 
+    # Catch the common shell-escape footgun where a caller sends e.g.
+    # `--to $role` in a context that didn't expand the variable. The message
+    # would otherwise be stored with a literal "$role" to_role and silently
+    # fail to deliver to any real agent poll. See issue #1814.
+    to_role_raw = body.get("to_role", "all")
+    if isinstance(to_role_raw, str) and to_role_raw.startswith("$"):
+        return _make_error(
+            f"to_role looks like an unexpanded shell variable: {to_role_raw!r}. "
+            "Pass the literal role name (e.g. 'architect') or 'all'."
+        )
+    if isinstance(from_role, str) and from_role.startswith("$"):
+        return _make_error(f"from_role looks like an unexpanded shell variable: {from_role!r}.")
+
     # Validate pipeline exists
     try:
         store, pipeline = get_state_store_for_pipeline(pipeline_id)
@@ -89,7 +102,7 @@ def send_message(pipeline_id: str) -> tuple[Response, int]:
     msg = Message(
         pipeline_id=pipeline_id,
         from_role=from_role,
-        to_role=body.get("to_role", "all"),
+        to_role=to_role_raw,
         message_type=message_type,
         subject=body.get("subject", ""),
         body=body.get("body", ""),

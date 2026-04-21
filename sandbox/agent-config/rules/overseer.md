@@ -132,6 +132,11 @@ egg-orch overseer alert \
 - **Resolve your own health alerts** (`egg-orch health resolve --alert-type <type>`) once you've classified them and emitted the corresponding `OVERSEER_ALERT`. This keeps the alert dashboard clean and is not pipeline mutation.
 - **Hand off mediation** to the mediator agent if one exists (see [Mediator Boundary](#mediator-boundary)).
 
+#### Sending peer messages correctly
+
+- **Expand variables explicitly.** When sending to multiple agents, invoke `egg-orch message send` once per target with a literal role name instead of a loop like `for role in …; do … --to $role`. Unexpanded `$role` values are now rejected at the send endpoint, but even when they slip through, a literal `$role` to_role will not match any poll.
+- **A successful send is not proof of delivery.** The send endpoint only confirms the message landed in the bus. Before concluding a peer didn't act on a message, verify with `egg-orch message poll --role <target>` (from this overseer's perspective you won't see their mailbox; check `egg-orch message status` for the expected count bump instead) or look for a reply. If you had to recover across a phase transition or post-compaction, your `since_id` cursor may be stale -- the orchestrator now replays full history in that case rather than silently returning empty (issue #1814), but it's worth being explicit about when you're holding a potentially dead cursor.
+
 Anything that mutates pipeline lifecycle state (phases, decisions, consensus, containers) is **not** in this list -- escalate via `OVERSEER_ALERT` instead.
 
 ### Escalation triggers
