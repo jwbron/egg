@@ -8,6 +8,7 @@ swallowed add_decision failures so the stall had no visible HITL decision.
 from unittest.mock import MagicMock, patch
 
 import pytest
+from events import EventType
 from models import Pipeline, PipelinePhase
 from routes.pipelines import _handle_brc_consensus_timeout
 
@@ -39,7 +40,14 @@ class TestHandleBrcConsensusTimeout:
 
         assert len(pipeline.decisions) == 1
         assert "Consensus not reached after 30 minutes" in pipeline.decisions[0].question
-        mock_emit.assert_called_once()
+        mock_emit.assert_called_once_with(
+            EventType.CONSENSUS_TIMEOUT,
+            pipeline.id,
+            data={
+                "timeout_minutes": 30.0,
+                "blocking_agents": ["reviewer_code"],
+            },
+        )
 
     @patch("routes.pipelines._emit_event")
     def test_brc_escalate_queues_hitl_decision(self, mock_emit, pipeline):
@@ -78,6 +86,33 @@ class TestHandleBrcConsensusTimeout:
 
     @patch("routes.pipelines.logger")
     @patch("routes.pipelines._emit_event")
+    def test_tracker_import_error_falls_back_to_hitl(self, mock_emit, mock_logger, pipeline):
+        # Regression test for issue #1783: bare relative import raised
+        # ImportError under k3s, and the outer except caught it but the
+        # HITL decision must still be created via the fallback path.
+        with patch(
+            "peer_consensus.get_peer_consensus_tracker",
+            side_effect=ImportError("simulated k3s import failure"),
+        ):
+            _handle_brc_consensus_timeout(
+                pipeline,
+                pipeline.id,
+                consensus_timeout=1800.0,
+                blocking_agents=["reviewer_code"],
+            )
+
+        # The warning log records the import failure
+        mock_logger.warning.assert_called_once()
+        _, warn_kwargs = mock_logger.warning.call_args
+        assert "simulated k3s import failure" in warn_kwargs.get("error", "")
+
+        # Fallback HITL decision is still queued
+        assert len(pipeline.decisions) == 1
+        assert "Consensus not reached after 30 minutes" in pipeline.decisions[0].question
+        mock_emit.assert_called_once()
+
+    @patch("routes.pipelines.logger")
+    @patch("routes.pipelines._emit_event")
     def test_add_decision_failure_is_logged_not_swallowed(self, mock_emit, mock_logger, pipeline):
         # Covers the issue #1783 second-order bug: the except Exception: pass
         # at the old decision-queue call sites hid stall-causing failures.
@@ -92,7 +127,7 @@ class TestHandleBrcConsensusTimeout:
                 blocking_agents=[],
             )
 
-        error_calls = [c for c in mock_logger.error.call_args_list if c]
+        error_calls = list(mock_logger.error.call_args_list)
         assert error_calls, "add_decision failure must be logged at ERROR"
         _, kwargs = error_calls[0]
         assert kwargs.get("pipeline_id") == pipeline.id
