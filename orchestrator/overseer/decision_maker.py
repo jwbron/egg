@@ -26,6 +26,7 @@ RESTARTABLE_PATTERNS: list[str] = [
     "crashed",
     "oom",
     "timeout",
+    "timed out",
     "hung",
     "not responding",
 ]
