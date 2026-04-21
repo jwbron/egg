@@ -109,7 +109,14 @@ class TestHandleBrcConsensusTimeout:
         # Fallback HITL decision is still queued
         assert len(pipeline.decisions) == 1
         assert "Consensus not reached after 30 minutes" in pipeline.decisions[0].question
-        mock_emit.assert_called_once()
+        mock_emit.assert_called_once_with(
+            EventType.CONSENSUS_TIMEOUT,
+            pipeline.id,
+            data={
+                "timeout_minutes": 30.0,
+                "blocking_agents": ["reviewer_code"],
+            },
+        )
 
     @patch("routes.pipelines.logger")
     @patch("routes.pipelines._emit_event")
