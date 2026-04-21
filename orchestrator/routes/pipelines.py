@@ -4664,7 +4664,9 @@ def _finalize_pr_phase_failed(
     of the full polling loop.
 
     ``push_ok`` reflects whether the preceding
-    :func:`_reconcile_and_push_pr_branch` call succeeded.  Regardless,
+    :func:`GatewayClient.push_worktree_branch` call succeeded (the client
+    reconciles non-fast-forward rejections internally via fetch+rebase+retry;
+    see #1706/#1731/#1808).  Regardless,
     we call :func:`_auto_create_pr` — when ``push_ok`` is False the PR is
     opened against whatever is currently on ``origin/<pipeline.branch>``
     (the agents' work), dropping the orchestrator's housekeeping commits
@@ -4954,333 +4956,6 @@ def _rewrite_brc_history_for_pr(
         "_rewrite_brc_history_for_pr: exiting",
         pipeline_id=pipeline_id,
     )
-
-
-def _reconcile_and_push_pr_branch(
-    spawner,
-    worktree_path: Path,
-    pipeline_id: str,
-    branch: str,
-    gateway_mode: Literal["public", "private"],
-) -> bool:
-    """Push the PR-phase worktree branch, reconciling with the remote on failure.
-
-    The PR-phase worktree is checked out from ``origin/{branch}`` at phase
-    entry, then has local-only commits layered on top (BRC history rewrite
-    via :func:`_rewrite_brc_history_for_pr`). Between the worktree checkout
-    and this push, the remote tip can advance — for example from checkpoint-handler
-    pushes or concurrent agent activity — leaving the worktree behind its
-    remote and causing the non-fast-forward ``HEAD:refs/heads/{branch}``
-    push to be rejected (see #1706).
-
-    :func:`GatewayClient.push_worktree_branch` swallows push failures and
-    returns ``False``, so the caller cannot distinguish success from a
-    silent rejection by catching exceptions.  This helper checks the
-    return value directly and, on failure, performs ``git fetch origin``
-    plus ``git rebase origin/{branch}`` in the worktree to replay the
-    orchestrator's local housekeeping commits on top of the remote tip,
-    then retries the push once.
-
-    Rebase is preferred over merge here because the orchestrator's
-    local-only commits (BRC history, statefile commits) are small,
-    append-only housekeeping; rebasing them onto the remote tip avoids a
-    merge commit in the PR history and matches the manual rescue path
-    documented in #1731.
-
-    Rebase conflicts confined to ``.egg-state/agent-outputs/`` are
-    auto-resolved by taking the remote version — those paths hold
-    ephemeral coder→tester handoff artifacts that the tester has already
-    consumed, so the orchestrator's local copy is disposable.  Conflicts
-    in any other path are treated as a hard failure: the rebase is
-    aborted (so the worktree is left in a clean state) and ``False`` is
-    returned.
-
-    Returns ``True`` if the push ultimately succeeded, ``False`` otherwise.
-    On ``False``, callers can still open a PR against the current remote
-    HEAD — the agents' work is already on origin; only the orchestrator's
-    housekeeping commits are lost.
-    """
-    if spawner.gateway.push_worktree_branch(
-        pipeline_id=pipeline_id,
-        repo_path=str(worktree_path),
-        branch=branch,
-        mode=gateway_mode,
-    ):
-        return True
-
-    logger.warning(
-        "PR-phase push failed — attempting fetch+rebase+retry to reconcile divergence",
-        pipeline_id=pipeline_id,
-        branch=branch,
-    )
-
-    git_base = [
-        "git",
-        "-c",
-        "core.hooksPath=/dev/null",
-        "-c",
-        f"safe.directory={worktree_path}",
-        "-C",
-        str(worktree_path),
-    ]
-
-    try:
-        subprocess.run(
-            [*git_base, "fetch", "origin", branch],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=60,
-        )
-    except subprocess.CalledProcessError as fetch_err:
-        logger.error(
-            "PR-phase reconcile: fetch failed",
-            pipeline_id=pipeline_id,
-            branch=branch,
-            stderr=fetch_err.stderr,
-        )
-        return False
-    except subprocess.TimeoutExpired:
-        logger.error(
-            "PR-phase reconcile: fetch timed out",
-            pipeline_id=pipeline_id,
-            branch=branch,
-        )
-        return False
-
-    rebase_ok = _rebase_with_agent_output_autoresolve(
-        git_base=git_base,
-        pipeline_id=pipeline_id,
-        branch=branch,
-    )
-    if not rebase_ok:
-        return False
-
-    logger.info(
-        "PR-phase reconcile: rebase succeeded — retrying push",
-        pipeline_id=pipeline_id,
-        branch=branch,
-    )
-    retry_ok = spawner.gateway.push_worktree_branch(
-        pipeline_id=pipeline_id,
-        repo_path=str(worktree_path),
-        branch=branch,
-        mode=gateway_mode,
-    )
-    if not retry_ok:
-        logger.error(
-            "PR-phase reconcile: retry push still failed",
-            pipeline_id=pipeline_id,
-            branch=branch,
-        )
-    return retry_ok
-
-
-def _rebase_with_agent_output_autoresolve(
-    git_base: list[str],
-    pipeline_id: str,
-    branch: str,
-    max_autoresolve_iterations: int = 3,
-) -> bool:
-    """Rebase the worktree onto ``origin/{branch}`` with agent-outputs auto-resolve.
-
-    Called by :func:`_reconcile_and_push_pr_branch` after a successful fetch.
-    Conflicts confined to ``.egg-state/agent-outputs/`` are resolved in
-    favour of the remote (``git checkout --theirs``) and the rebase is
-    continued; conflicts anywhere else cause the rebase to be aborted and
-    ``False`` returned.
-
-    The auto-resolve loop is bounded by ``max_autoresolve_iterations`` to
-    defend against pathological cases where every replayed commit
-    re-introduces an agent-outputs conflict — three iterations is plenty
-    for a handful of housekeeping commits.
-
-    Returns ``True`` when the rebase finished cleanly (possibly after
-    auto-resolve), ``False`` on any other failure.
-    """
-    try:
-        rebase_result = subprocess.run(
-            [*git_base, "rebase", f"origin/{branch}"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=120,
-        )
-    except subprocess.TimeoutExpired:
-        logger.error(
-            "PR-phase reconcile: rebase timed out — aborting",
-            pipeline_id=pipeline_id,
-            branch=branch,
-        )
-        _abort_rebase_best_effort(git_base, pipeline_id, branch)
-        return False
-
-    if rebase_result.returncode == 0:
-        return True
-
-    # Non-zero exit: rebase stopped on a conflict.  Inspect the unmerged
-    # paths and auto-resolve when they are all under agent-outputs.
-    for iteration in range(max_autoresolve_iterations):
-        unmerged_paths = _list_unmerged_paths(git_base)
-        if not unmerged_paths:
-            # Nothing unmerged but rebase didn't exit 0 — unusual state.
-            # Abort rather than guess.
-            logger.error(
-                "PR-phase reconcile: rebase stopped with no unmerged paths — aborting",
-                pipeline_id=pipeline_id,
-                branch=branch,
-                stdout=rebase_result.stdout,
-                stderr=rebase_result.stderr,
-            )
-            _abort_rebase_best_effort(git_base, pipeline_id, branch)
-            return False
-
-        non_ephemeral = [p for p in unmerged_paths if not p.startswith(".egg-state/agent-outputs/")]
-        if non_ephemeral:
-            logger.error(
-                "PR-phase reconcile: rebase failed — conflicts outside agent-outputs, aborting",
-                pipeline_id=pipeline_id,
-                branch=branch,
-                conflicting_paths=unmerged_paths,
-                stdout=rebase_result.stdout,
-                stderr=rebase_result.stderr,
-            )
-            _abort_rebase_best_effort(git_base, pipeline_id, branch)
-            return False
-
-        logger.warning(
-            "PR-phase reconcile: auto-resolving agent-outputs conflicts (taking remote)",
-            pipeline_id=pipeline_id,
-            branch=branch,
-            resolved_paths=unmerged_paths,
-            iteration=iteration + 1,
-        )
-        try:
-            subprocess.run(
-                [
-                    *git_base,
-                    "checkout",
-                    "--theirs",
-                    "--",
-                    ".egg-state/agent-outputs",
-                ],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=30,
-            )
-            # Add the resolved paths.  Some may have been deleted on
-            # ``--theirs`` — ``git add`` handles that via --all on the path.
-            subprocess.run(
-                [*git_base, "add", "--all", "--", ".egg-state/agent-outputs"],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=30,
-            )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as resolve_err:
-            logger.error(
-                "PR-phase reconcile: auto-resolve failed — aborting rebase",
-                pipeline_id=pipeline_id,
-                branch=branch,
-                error=str(resolve_err),
-            )
-            _abort_rebase_best_effort(git_base, pipeline_id, branch)
-            return False
-
-        # Re-check: if resolution cleared the index and there's nothing
-        # new to commit for this rebase step, ``--continue`` would error
-        # with "No changes - did you forget to use 'git add'?".  Use
-        # ``--skip`` in that case.
-        diff_result = subprocess.run(
-            [*git_base, "diff", "--cached", "--quiet"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=30,
-        )
-        continue_cmd = "--skip" if diff_result.returncode == 0 else "--continue"
-
-        # GIT_EDITOR=true is only needed for --continue (suppresses editor
-        # prompt); --skip never opens an editor.  Avoid copying os.environ
-        # when unnecessary — it's mutable global state and the dict snapshot
-        # could race with background threads (e.g. _health_monitor_poll).
-        env = {**os.environ, "GIT_EDITOR": "true"} if continue_cmd == "--continue" else None
-        try:
-            rebase_result = subprocess.run(
-                [*git_base, "rebase", continue_cmd],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=120,
-                env=env,
-            )
-        except subprocess.TimeoutExpired:
-            logger.error(
-                "PR-phase reconcile: rebase --continue timed out — aborting",
-                pipeline_id=pipeline_id,
-                branch=branch,
-            )
-            _abort_rebase_best_effort(git_base, pipeline_id, branch)
-            return False
-
-        if rebase_result.returncode == 0:
-            return True
-        # Loop: rebase stopped again, inspect unmerged paths next iteration.
-
-    logger.error(
-        "PR-phase reconcile: rebase auto-resolve exceeded iteration limit — aborting",
-        pipeline_id=pipeline_id,
-        branch=branch,
-        max_iterations=max_autoresolve_iterations,
-    )
-    _abort_rebase_best_effort(git_base, pipeline_id, branch)
-    return False
-
-
-def _list_unmerged_paths(git_base: list[str]) -> list[str]:
-    """Return the set of paths currently in a conflicted state in the worktree.
-
-    Returns an empty list when the query itself fails — callers should be
-    aware that ``[]`` can mean either "no conflicts" or "query failed".
-    """
-    result = subprocess.run(
-        [*git_base, "diff", "--name-only", "--diff-filter=U"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=30,
-    )
-    if result.returncode != 0:
-        logger.warning(
-            "_list_unmerged_paths: git diff --diff-filter=U failed",
-            returncode=result.returncode,
-            stderr=result.stderr,
-        )
-        return []
-    return [line for line in result.stdout.splitlines() if line.strip()]
-
-
-def _abort_rebase_best_effort(
-    git_base: list[str],
-    pipeline_id: str,
-    branch: str,
-) -> None:
-    """Run ``git rebase --abort`` and swallow any failure (worktree is junk anyway)."""
-    try:
-        subprocess.run(
-            [*git_base, "rebase", "--abort"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=30,
-        )
-    except Exception:
-        logger.warning(
-            "PR-phase reconcile: rebase --abort also failed",
-            pipeline_id=pipeline_id,
-            branch=branch,
-        )
 
 
 def _msg_version(m: Any) -> int:
@@ -9924,8 +9599,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
                 # Push latest commits before creating PR.  If the push fails
                 # (e.g. the remote advanced while the PR-phase worktree was
-                # adding BRC commits), reconcile via fetch+rebase and
-                # retry once — see _reconcile_and_push_pr_branch and #1706/#1731.
+                # adding BRC commits), push_worktree_branch reconciles via
+                # fetch+rebase and retries once internally (#1706/#1731/#1808).
                 # Babysit-pr with a tripped head-move guard skips the push
                 # entirely to preserve the existing PR state (#1748).
                 push_ok = True
@@ -9956,12 +9631,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     except Exception:
                         commits_ahead = "unknown"
 
-                    push_ok = _reconcile_and_push_pr_branch(
-                        spawner,
-                        worktree_repo_path,
-                        pipeline_id,
-                        pipeline.branch,
-                        gateway_mode,
+                    push_ok = spawner.gateway.push_worktree_branch(
+                        pipeline_id=pipeline_id,
+                        repo_path=str(worktree_repo_path),
+                        branch=pipeline.branch,
+                        mode=gateway_mode,
                     )
                     if push_ok:
                         logger.info(
