@@ -303,6 +303,16 @@ class KubernetesClient:
             command=command or None,
             resources=resources,
             volume_mounts=container_volume_mounts or None,
+            # Container-level hardening. Agent already runs as UID 1000
+            # via the pod securityContext below, so it has no reason to
+            # gain new privileges or hold any Linux capabilities. These
+            # were present on the old ConfigMap-based Job template; they
+            # need to be re-applied here now that Job specs are built
+            # programmatically.
+            security_context=k8s_client.V1SecurityContext(
+                allow_privilege_escalation=False,
+                capabilities=k8s_client.V1Capabilities(drop=["ALL"]),
+            ),
         )
 
         pod_spec = k8s_client.V1PodSpec(

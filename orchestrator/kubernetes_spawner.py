@@ -435,10 +435,21 @@ class KubernetesSpawner:
             # orchestrator's /home/egg/.egg-worktrees points at.
             host_path_mounts: list[dict[str, Any]] = []
             for owner_repo, host_path in (repo_volumes or {}).items():
-                short = owner_repo.split("/")[-1].lower().replace("_", "-")
+                # Include the owner in the k8s volume name so two repos
+                # with the same basename from different orgs don't collide
+                # (e.g. "Khan/webapp" and "other-org/webapp" both produce
+                # container path /home/egg/repos/webapp, but need distinct
+                # volume names). Normalize to RFC-1123 (lowercase, hyphens)
+                # and truncate to fit the 63-char name limit.
+                volume_name = f"repo-{owner_repo.lower().replace('/', '-').replace('_', '-')}"
+                if len(volume_name) > 63:
+                    import hashlib
+
+                    digest = hashlib.sha1(volume_name.encode()).hexdigest()[:8]
+                    volume_name = f"{volume_name[:54].rstrip('-')}-{digest}"
                 host_path_mounts.append(
                     {
-                        "name": f"repo-{short}",
+                        "name": volume_name,
                         "host_path": host_path,
                         "container_path": f"/home/egg/repos/{owner_repo.split('/')[-1]}",
                         "read_only": False,

@@ -1,5 +1,13 @@
 # Strategic merge patch: add local-dev-only host mounts for the orchestrator.
 # Appends to base volumes/volumeMounts by name.
+#
+# ⚠ DEVELOPER-SPECIFIC PATHS — edit before use ⚠
+# Every `/home/jwies/...` below and the owner/repo → host path map in
+# EGG_HOST_REPO_MAP point at this PR author's layout. Kustomize has no
+# env-var substitution, so other contributors must replace these with
+# their own $HOME and repo paths before `make deploy`. Tracked as a
+# follow-up in #1760: make this portable (envsubst wrapper, Helm chart,
+# or render from ~/.config/egg/repositories.yaml).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
