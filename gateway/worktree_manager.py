@@ -314,6 +314,7 @@ class WorktreeManager:
                 container_id=container_id,
                 repo=repo_name,
                 path=str(worktree_path),
+                assigned_branch=assigned_branch,
             )
             # Ensure ownership is correct (may have been created with different uid/gid)
             self._chown_recursive(worktree_path, uid, gid)
@@ -547,7 +548,8 @@ class WorktreeManager:
             (f"branch.{branch_name}.merge", f"refs/heads/{assigned_branch}"),
         ):
             result = subprocess.run(
-                ["git", "-C", str(main_repo), "config", key, value],
+                git_cmd("config", key, value),
+                cwd=main_repo,
                 capture_output=True,
                 text=True,
                 check=False,
