@@ -79,7 +79,7 @@ A two-tier health check framework provides structured, extensible failure detect
 
 **Lifecycle integration:**
 - `STARTUP`: Runs after startup reconciliation on all RUNNING pipelines (non-blocking)
-- `RUNTIME_TICK`: Triggered by pod state changes via `KubernetesMonitor` (non-blocking)
+- `RUNTIME_TICK`: Triggered by pod state changes and on every periodic reconciliation sweep via `KubernetesMonitor` (non-blocking). Firing on every sweep ensures pipelines with no pod churn (e.g. all agents quietly polling post-BRC consensus) still exercise the consensus-stall recovery path.
 - `WAVE_COMPLETE`: Runs after each agent wave completes; `FAIL_PIPELINE` breaks wave execution
 - `PHASE_COMPLETE`: Runs before phase advance in `routes/phases.py`; `FAIL_PIPELINE` blocks the transition (409 Conflict)
 - `ON_DEMAND`: Available via `GET /api/v1/pipelines/{id}/health`
