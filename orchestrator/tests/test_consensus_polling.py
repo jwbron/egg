@@ -271,8 +271,16 @@ class TestConsensusTimeout:
         self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
     ):
         """When consensus times out, a HITL decision is created."""
-        # Start past the timeout (30 min = 1800s)
-        mock_monotonic.side_effect = [0.0, 1801.0]
+        # Use a callable side_effect instead of a finite list to avoid
+        # StopIteration if leaked threads from other tests call time.monotonic()
+        # while the module-level mock is active.
+        _calls = [0]
+
+        def _monotonic():
+            _calls[0] += 1
+            return 0.0 if _calls[0] == 1 else 1801.0
+
+        mock_monotonic.side_effect = _monotonic
 
         executions = [_make_execution(AgentRole.CODER, "coder-1")]
         pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions)
@@ -328,7 +336,13 @@ class TestConsensusTimeout:
         """CONSENSUS_TIMEOUT event is emitted on timeout."""
         from events import EventType
 
-        mock_monotonic.side_effect = [0.0, 1801.0]
+        _calls = [0]
+
+        def _monotonic():
+            _calls[0] += 1
+            return 0.0 if _calls[0] == 1 else 1801.0
+
+        mock_monotonic.side_effect = _monotonic
 
         executions = [_make_execution(AgentRole.CODER, "coder-1")]
         pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions)

@@ -115,15 +115,29 @@ Phase approval uses `<!-- egg-phase-approval -->` markers with a single approval
 
 ### Contract API Endpoints
 
+Contract state is owned by the **orchestrator**. The gateway proxies agent requests to the orchestrator and enforces role authentication; it no longer holds contract state itself.
+
+**Orchestrator endpoints** (authoritative):
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/v1/contract/{issue_number}` | GET | Retrieve contract state |
-| `/api/v1/contract/mutate` | POST | Apply mutation with role enforcement |
-| `/api/v1/contract/validate` | POST | Validate mutation without applying |
+| `/api/v1/contracts/<identifier>` | GET | Retrieve contract state |
+| `/api/v1/contracts/<identifier>/exists` | GET | Check whether a contract exists |
+| `/api/v1/contracts/<identifier>/mutate` | POST | Apply mutation with role enforcement |
+| `/api/v1/contract-mutations/validate` | POST | Dry-run a mutation without applying |
+
+**Gateway endpoints** (proxy for sandbox agents — same paths as before):
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/contract/<identifier>` | GET | Proxied read (forwards to orchestrator) |
+| `/api/v1/contract/exists/<identifier>` | GET | Proxied existence check |
+| `/api/v1/contract/mutate` | POST | Proxied mutation (role verified, then forwarded) |
+| `/api/v1/contract/validate` | POST | Proxied validation |
 | `/api/v1/phase/advance` | POST | Advance to next phase |
 | `/api/v1/phase/filter` | POST | Check if operation is allowed |
 
-Role is determined from session metadata (set by launcher), not from the agent environment.
+Role is determined from session metadata (set by launcher), not from the agent environment. The gateway sends the verified role to the orchestrator via `X-Egg-Role`.
 
 ## Orchestrator Integration
 
@@ -133,6 +147,8 @@ The local distributed orchestrator (`orchestrator/` package) manages the full li
 - `orchestrator/container_spawner.py` — Agent container lifecycle
 - `orchestrator/decision_queue.py` — HITL decision handling
 - `orchestrator/state_store.py` — Git-backed pipeline state
+- `orchestrator/contract_store.py` — Shared-worktree contract I/O and per-identifier locking
+- `orchestrator/routes/contracts.py` — REST endpoints for contract reads and mutations
 
 ## Security Properties
 
@@ -152,7 +168,9 @@ The local distributed orchestrator (`orchestrator/` package) manages the full li
 | BRC consensus history | `.egg-state/brc-history/{identifier}-{phase}.md` and `.json` (re-written in PR phase as safety net; `.md` is human-readable with YAML metadata blocks, `.json` is machine-readable) |
 | Review verdicts | `.egg-state/reviews/{identifier}-{phase}-{reviewer}.json` |
 | Contract library | `shared/egg_contracts/` |
-| Gateway endpoints | `gateway/contract_api.py`, `gateway/phase_api.py` |
+| Gateway endpoints | `gateway/contract_api.py` (proxy), `gateway/phase_api.py` |
+| Orchestrator contract endpoints | `orchestrator/routes/contracts.py` |
+| Orchestrator contract store | `orchestrator/contract_store.py` |
 | Orchestrator | `orchestrator/` |
 | CLI tools | `sandbox/egg_lib/contract_cli.py` |
 | HITL documentation | `docs/hitl-decisions.md` |
