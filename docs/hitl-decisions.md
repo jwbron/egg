@@ -175,6 +175,7 @@ The orchestrator's decision queue (`orchestrator/decision_queue.py`) monitors fo
 - Only authorized users can trigger phase transitions
 - The bot cannot approve its own comments
 - Debounce logic prevents rapid-fire updates when multiple boxes are checked quickly
+- The decision resolve and cancel API endpoints (`POST .../decisions/{id}/resolve` and `.../cancel`) require `Authorization: Bearer <EGG_LIFECYCLE_SECRET>`. Agent pods never receive this env var, so agents cannot auto-approve HITL decisions via the API (see #1769).
 
 ## Best Practices
 
