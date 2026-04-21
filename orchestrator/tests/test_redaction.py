@@ -25,7 +25,6 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 from egg_config.constants import TEST_GATEWAY_PORT  # noqa: E402
-
 from redaction import (  # noqa: E402
     REDACTION_PLACEHOLDER,
     _name_is_protected,
