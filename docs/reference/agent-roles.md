@@ -351,12 +351,12 @@ The gateway enforces which roles can modify which fields of the contract JSON vi
 
 | Role | Mutable contract fields |
 |------|------------------------|
-| `implementer` | `tasks[].commit`, `tasks[].notes`, `tasks[].files_affected`, `tasks[].files_affected.*`, `tasks[].status`^1^, `phases[].commit`, `phases[].status`^1^, `decisions[]`^3^, `feedback`, `feedback.*` |
-| `reviewer` | `tasks[].status`^1^, `phases[].status`^1^, `phases[].review_feedback`, `phases[].review_feedback.*`, `acceptance_criteria[].verified`, `current_phase`, `feedback`, `feedback.*` |
+| `implementer` | `tasks[].commit`, `tasks[].notes`, `tasks[].files_affected`, `tasks[].files_affected.*`, `tasks[].status`^1^, `phases[].commit`, `phases[].status`^1^, `decisions[]`^3^, `feedback`^1^, `feedback.*`^1^ |
+| `reviewer` | `tasks[].status`^1^, `phases[].status`^1^, `phases[].review_feedback`, `phases[].review_feedback.*`, `acceptance_criteria[].verified`, `current_phase`, `feedback`^1^, `feedback.*`^1^ |
 | `human` | `decisions[].resolved`, `decisions[].resolution`, `decisions[].resolved_by`, `decisions[].resolved_at`, `feedback.submitted`^2^, `feedback.submitted_by`^2^, `feedback.submitted_at`^2^, all other fields |
 | `system` | Structural fields (`issue`, `schemaVersion`) |
 
-^1^ **Shared ownership**: `tasks[].status` and `phases[].status` are writable by both `implementer` and `reviewer`. Implementer agents mark tasks/phases done during implementation; reviewers can validate or override during review.
+^1^ **Shared ownership**: `tasks[].status`, `phases[].status`, `feedback`, and `feedback.*` are writable by both `implementer` and `reviewer`. Implementer agents mark tasks/phases done during implementation; reviewers can validate or override during review. Both roles can read and write feedback fields during their respective workflow phases.
 
 ^2^ **Precedence**: Although `feedback.*` grants implementer/reviewer access to nested feedback fields, these specific subfields (`feedback.submitted`, `feedback.submitted_by`, `feedback.submitted_at`) are human-only. `get_field_owner()` in `roles.py` resolves this via exact-match-first precedence — exact paths always win over wildcard patterns.
 
