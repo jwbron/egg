@@ -372,6 +372,15 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             # Save updated pipeline with optimistic locking
             store.save_pipeline(pipeline, expected_version=original_version)
 
+        # Persist BRC history for the outgoing phase before the message
+        # store is wiped — otherwise advance_phase (and especially
+        # --force, used to unstick #1813) silently drops that phase's
+        # consensus transcript.  Runs for both normal advances and
+        # force=true.  See #1827.
+        from routes.pipelines import _persist_phase_brc_history
+
+        _persist_phase_brc_history(pipeline, store, previous_phase.value)
+
         # Clear ephemeral inter-agent messaging and consensus state.
         # Intentionally called after lock release but before thread spawn:
         # the new phase starts with fresh concurrent state, and any racing
@@ -683,6 +692,15 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
         next_phase = next_phases[0] if next_phases else None
 
         store.save_pipeline(pipeline, expected_version=original_version)
+
+        # Persist BRC history for the phase being completed before
+        # _clear_concurrent_state wipes the message store — otherwise
+        # the consensus transcript for this phase is lost when callers
+        # complete a phase externally (e.g. the #1813 unstick flow).
+        # See #1827.
+        from routes.pipelines import _persist_phase_brc_history
+
+        _persist_phase_brc_history(pipeline, store, pipeline.current_phase.value)
 
         # Clear ephemeral inter-agent messaging and consensus state
         _clear_concurrent_state(pipeline_id)
