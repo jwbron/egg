@@ -825,39 +825,31 @@ class TestShellEscapeGuard:
 
     def test_rejects_unexpanded_to_role(self, client, app):
         with app.test_request_context():
-            with patch(
-                "routes.messages.get_state_store_for_pipeline"
-            ) as mock_get_store_for_pipeline:
-                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
-                resp = client.post(
-                    "/api/v1/pipelines/test-pipeline/messages",
-                    json={
-                        "from_role": "overseer",
-                        "to_role": "$role",
-                        "message_type": "STATUS",
-                    },
-                )
-                data = json.loads(resp.data)
-                assert resp.status_code == 400
-                assert "unexpanded shell variable" in data["message"]
+            resp = client.post(
+                "/api/v1/pipelines/test-pipeline/messages",
+                json={
+                    "from_role": "overseer",
+                    "to_role": "$role",
+                    "message_type": "STATUS",
+                },
+            )
+            data = json.loads(resp.data)
+            assert resp.status_code == 400
+            assert "unexpanded shell variable" in data["message"]
 
     def test_rejects_unexpanded_from_role(self, client, app):
         with app.test_request_context():
-            with patch(
-                "routes.messages.get_state_store_for_pipeline"
-            ) as mock_get_store_for_pipeline:
-                mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
-                resp = client.post(
-                    "/api/v1/pipelines/test-pipeline/messages",
-                    json={
-                        "from_role": "$EGG_AGENT_ROLE",
-                        "to_role": "architect",
-                        "message_type": "STATUS",
-                    },
-                )
-                data = json.loads(resp.data)
-                assert resp.status_code == 400
-                assert "unexpanded shell variable" in data["message"]
+            resp = client.post(
+                "/api/v1/pipelines/test-pipeline/messages",
+                json={
+                    "from_role": "$EGG_AGENT_ROLE",
+                    "to_role": "architect",
+                    "message_type": "STATUS",
+                },
+            )
+            data = json.loads(resp.data)
+            assert resp.status_code == 400
+            assert "unexpanded shell variable" in data["message"]
 
 
 class TestInvalidPipelineId:
