@@ -1420,16 +1420,14 @@ class WorktreeManager:
                     if not line:
                         continue
                     if line.lower().startswith("removing "):
-                        tail = line[len("Removing "):]
+                        tail = line[len("Removing ") :]
                         name = tail.split(":", 1)[0].strip()
                         if name:
                             paths.append(name)
                 result[repo_name] = paths
         return result
 
-    def list_orphan_worktree_dirs(
-        self, active_containers: set[str]
-    ) -> list[str]:
+    def list_orphan_worktree_dirs(self, active_containers: set[str]) -> list[str]:
         """Return absolute paths of container dirs considered orphaned.
 
         A container dir under ``worktree_base`` is considered orphaned
