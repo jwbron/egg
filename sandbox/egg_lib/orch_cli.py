@@ -2156,7 +2156,12 @@ def create_parser() -> argparse.ArgumentParser:
     ov_alert.add_argument(
         "--anomaly",
         required=True,
-        help="Anomaly type (e.g. stuck-phase-transition, agent-stall, repeated-401)",
+        help=(
+            "Anomaly type -- intentionally free-text so new types can emerge "
+            "without CLI changes. Known types: stuck-phase-transition, "
+            "agent-heartbeat-stall, agent-loop, orchestrator-consensus-silent, "
+            "unauthorized-overseer-action, unmediated-disagreement"
+        ),
     )
     ov_alert.add_argument(
         "--priority",

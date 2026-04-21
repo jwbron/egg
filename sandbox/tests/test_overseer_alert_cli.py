@@ -264,7 +264,7 @@ class TestPayloadShape:
                 "alert",
                 "pipe-1",
                 "--role",
-                "overseer",
+                "sentinel_agent",
                 "--anomaly",
                 "x",
                 "--priority",
@@ -274,7 +274,7 @@ class TestPayloadShape:
             ],
             mock_request,
         )
-        assert kwargs["data"]["from_role"] == "overseer"
+        assert kwargs["data"]["from_role"] == "sentinel_agent"
 
 
 class TestExitCodes:
@@ -301,3 +301,58 @@ class TestExitCodes:
         assert rc == 1
         err = capsys.readouterr().err
         assert "boom" in err
+
+    @patch("egg_lib.orch_cli.orch_request")
+    def test_json_success_returns_zero(self, mock_request, capsys):
+        mock_request.return_value = {
+            "success": True,
+            "data": {"message": {"id": "msg-42"}},
+        }
+        rc = cmd_overseer_alert(
+            _parse(
+                [
+                    "overseer",
+                    "alert",
+                    "pipe-1",
+                    "--anomaly",
+                    "agent-loop",
+                    "--priority",
+                    "medium",
+                    "--summary",
+                    "coder looping",
+                    "--json",
+                ]
+            )
+        )
+        assert rc == 0
+        out = capsys.readouterr().out
+        import json
+
+        payload = json.loads(out)
+        assert payload["success"] is True
+
+    @patch("egg_lib.orch_cli.orch_request")
+    def test_json_failure_returns_nonzero(self, mock_request, capsys):
+        mock_request.return_value = {"success": False, "message": "auth denied"}
+        rc = cmd_overseer_alert(
+            _parse(
+                [
+                    "overseer",
+                    "alert",
+                    "pipe-1",
+                    "--anomaly",
+                    "x",
+                    "--priority",
+                    "low",
+                    "--summary",
+                    "x",
+                    "--json",
+                ]
+            )
+        )
+        assert rc == 1
+        out = capsys.readouterr().out
+        import json
+
+        payload = json.loads(out)
+        assert payload["success"] is False

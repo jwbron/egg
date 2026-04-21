@@ -19,7 +19,7 @@ The following commands are **never** appropriate for the overseer to run:
 - `egg-orch phase start ...`
 - `egg-orch signal complete ...` (you are not a producing agent)
 - `egg-orch decision resolve ...`
-- `egg-orch decision create --decision-type phase_gate ...`
+- `egg-orch decision create ...` (all variants -- `phase_gate`, `choice`, `feedback`, etc. all block the pipeline waiting for human resolution, which is an intervention, not an observation)
 - `egg-orch consensus nack/withdraw/confirmed ...` for a producer that is not you (you are not a producer)
 - `egg-orch container spawn/stop ...`
 
@@ -188,7 +188,7 @@ If your own metrics are unhealthy, include a self-report in the pipeline health 
 When you detect inter-agent disagreements (conflicting proposals, NACK loops in BRC consensus), do NOT attempt to resolve them yourself. Instead:
 
 1. Classify the disagreement type (technical, scope, approach).
-2. If a mediator agent is available, hand off to the mediator via `egg-orch message send --to mediator --type HANDOFF`.
+2. If a mediator agent is available, hand off to the mediator via `egg-orch message send --to mediator --type HANDOFF` (this is peer delegation, not anomaly escalation -- `HANDOFF` is appropriate here).
 3. If no mediator is available, emit an `OVERSEER_ALERT` with anomaly type `unmediated-disagreement` and the disagreement context in `--detail`.
 
 You observe and escalate disputes. You do not adjudicate them.
@@ -219,4 +219,4 @@ When `"terminal": true`, stop calling the script and generate a health summary.
 | `egg-orch signal heartbeat` | Send heartbeat signal |
 | `egg-orch pipeline status <id> --json` | Check pipeline status |
 
-**Forbidden** (will be rejected by the orchestrator's auth layer; do not call): `egg-orch phase advance/complete/start`, `egg-orch signal complete`, `egg-orch decision resolve`, `egg-orch decision create --decision-type phase_gate`, `egg-orch consensus nack/withdraw/confirmed` (when not the producer), `egg-orch container spawn/stop`. See [Forbidden Actions](#critical-forbidden-actions).
+**Forbidden** (will be rejected by the orchestrator's auth layer; do not call): `egg-orch phase advance/complete/start`, `egg-orch signal complete`, `egg-orch decision resolve`, `egg-orch decision create` (all variants), `egg-orch consensus nack/withdraw/confirmed` (when not the producer), `egg-orch container spawn/stop`. See [Forbidden Actions](#critical-forbidden-actions).
