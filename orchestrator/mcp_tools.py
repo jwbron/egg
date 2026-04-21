@@ -632,7 +632,12 @@ PIPELINE_TOOLS = [
     },
     {
         "name": "complete_phase",
-        "description": "Mark the current phase as complete for a pipeline, with optional artifacts.",
+        "description": (
+            "Mark the current phase as complete for a pipeline, with optional "
+            "artifacts. Returns 409 when the phase still has unresolved HITL "
+            "decisions; pass force=true to abandon them (the abandoned ids are "
+            "recorded in the phase's artifacts for audit)."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -643,6 +648,19 @@ PIPELINE_TOOLS = [
                 "artifacts": {
                     "type": "object",
                     "description": "Optional phase artifacts to store (e.g. commit SHAs, PR URLs)",
+                },
+                "force": {
+                    "type": "boolean",
+                    "description": (
+                        "Skip the unresolved-decision guard and force the "
+                        "phase to complete. Abandoned decision ids are "
+                        "written to the phase's artifacts."
+                    ),
+                    "default": False,
+                },
+                "force_reason": {
+                    "type": "string",
+                    "description": "Audit note explaining why force=true was used",
                 },
             },
             "required": ["task_id"],
@@ -1988,6 +2006,10 @@ class PipelineToolHandler:
         data: dict[str, Any] = {}
         if args.get("artifacts"):
             data["artifacts"] = args["artifacts"]
+        if args.get("force"):
+            data["force"] = True
+        if args.get("force_reason"):
+            data["force_reason"] = args["force_reason"]
         return self._make_request(
             f"/api/v1/pipelines/{task_id}/phase/complete",
             method="POST",

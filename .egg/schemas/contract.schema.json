@@ -393,6 +393,12 @@
           "description": "Decision type",
           "enum": ["hitl", "auto"]
         },
+        "phase": {
+          "type": ["string", "null"],
+          "description": "Pipeline phase this decision belongs to",
+          "enum": ["refine", "plan", "implement", "pr", null],
+          "default": null
+        },
         "options": {
           "type": "array",
           "description": "Available options for the decision",
