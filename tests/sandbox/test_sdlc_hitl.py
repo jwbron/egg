@@ -2205,8 +2205,8 @@ class TestContractDecisionBridge:
     # -- _get_contract_key --
 
     def test_get_contract_key_with_issue_number(self):
-        """Returns str(issue_number) when provided."""
-        assert _get_contract_key(issue_number=42) == "42"
+        """Returns canonical issue-<N> key when issue_number provided."""
+        assert _get_contract_key(issue_number=42) == "issue-42"
 
     def test_get_contract_key_no_identifiers(self):
         """Returns None when no identifiers provided."""
@@ -2361,7 +2361,7 @@ class TestContractDecisionBridge:
 
         self._write_contract(
             tmp_path,
-            "42",
+            "issue-42",
             [
                 {
                     "id": "decision-1",
@@ -2418,7 +2418,7 @@ class TestContractDecisionBridge:
 
         self._write_contract(
             tmp_path,
-            "42",
+            "issue-42",
             [
                 {
                     "id": "decision-1",
@@ -2749,7 +2749,7 @@ class TestContractDecisionBridge:
 
         self._write_contract(
             tmp_path,
-            "42",
+            "issue-42",
             [
                 {
                     "id": "decision-1",
@@ -2782,7 +2782,7 @@ class TestContractDecisionBridge:
 
         assert result == "resolved"
         # Verify the contract decision was resolved
-        data = json.loads((tmp_path / ".egg-state" / "contracts" / "42.json").read_text())
+        data = json.loads((tmp_path / ".egg-state" / "contracts" / "issue-42.json").read_text())
         assert data["decisions"][0]["resolved"] is True
         assert data["decisions"][0]["resolution"] == "PostgreSQL"
         # After answering, approve should not warn about pending questions

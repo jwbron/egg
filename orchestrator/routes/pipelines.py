@@ -4116,14 +4116,11 @@ def _ensure_statefiles_on_branch(
     """
     from egg_contracts.loader import contract_exists, create_contract, get_contract_path
 
-    identifier = _pipeline_identifier(pipeline.issue_number, pipeline.id)
-    canonical_path = get_contract_path(identifier, worktree_repo_path)
-
-    # ``contract_exists`` checks both the canonical ``issue-<N>.json`` path
-    # and the pre-unification ``{issue_number}.json`` path, so legacy
-    # in-flight pipelines are still recognized.
-    if contract_exists(identifier, worktree_repo_path):
+    # Contract lookup uses pipeline.id directly (canonical key).
+    if contract_exists(pipeline.id, worktree_repo_path):
         return True
+
+    canonical_path = get_contract_path(pipeline.id, worktree_repo_path)
 
     logger.warning(
         "Contract file missing from worktree — attempting restoration",
@@ -4242,6 +4239,8 @@ def _ensure_statefiles_on_branch(
             pipeline.issue_number,
         )
 
+        # File-staging identifier still uses _pipeline_identifier convention.
+        identifier = _pipeline_identifier(pipeline.issue_number, pipeline.id)
         _commit_statefiles_to_worktree(
             worktree_repo_path,
             f"Restore missing contract for {identifier}",

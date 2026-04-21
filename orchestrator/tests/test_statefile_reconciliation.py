@@ -94,10 +94,10 @@ class TestEnsureStatefilesOnBranch:
     def test_returns_true_when_contract_exists(self, tmp_path: Path):
         """When the contract file already exists, return True without re-creating."""
         pipeline = _make_pipeline()
-        # Create the expected contract file
+        # Create the expected contract file (keyed by pipeline.id)
         contract_dir = tmp_path / ".egg-state" / "contracts"
         contract_dir.mkdir(parents=True)
-        contract_file = contract_dir / "42.json"
+        contract_file = contract_dir / "pipe-1.json"
         contract_file.write_text("{}")
 
         result = _ensure_statefiles_on_branch(tmp_path, pipeline)
