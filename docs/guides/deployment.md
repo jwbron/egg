@@ -332,7 +332,7 @@ The k8s Deployment includes liveness and readiness probes on port 9851:
 > - [`/agent-diagnose <pipeline_id> <container_id>`](../../skills/agent-diagnose/SKILL.md) —
 >   per-agent-pod triage with a pattern-matched error classifier.
 >
-> The skills compose five k8s-facing MCP tools documented in the
+> The skills compose six k8s-facing MCP tools documented in the
 > [MCP Deployment Tools reference](../reference/mcp-deployment-tools.md).
 > See the [Deployment Diagnostics guide](deployment-diagnostics.md) for
 > when to use which skill, evidence boundaries, and the redaction
