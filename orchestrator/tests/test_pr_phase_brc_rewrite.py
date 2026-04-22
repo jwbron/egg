@@ -315,6 +315,7 @@ class TestRewriteBrcHistoryForPr:
             tmp_path,
             "Persist BRC history files for PR",
             pipeline_identifier=42,
+            pipeline_id="issue-42",
         )
 
     def test_outer_except_catches_write_brc_history_exception(self, tmp_path):
