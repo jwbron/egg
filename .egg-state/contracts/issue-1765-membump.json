@@ -9,15 +9,736 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Which architectural shape should we adopt for making egg-internal CLIs discoverable to sandbox agents?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "A \u2014 Auto-generated tool reference doc mounted in sandbox + improved --help",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "B \u2014 tools.json manifest injected into agent system prompt (still shell-mediated)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "C \u2014 Orchestrator-hosted MCP server dedicated to sandbox agents (typed tools in tool_use stream)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "D \u2014 Agent SDK @tool decorators on orchestrator side (SDK path only, does not cover interactive claude CLI)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Hybrid: B + C (markdown manifest now, typed MCP later)",
+          "description": null
+        },
+        {
+          "id": "opt-6",
+          "label": "Hybrid: A + C (reference doc as fallback, MCP as primary)",
+          "description": null
+        },
+        {
+          "id": "opt-7",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "If we adopt Option C: should the agent-facing MCP surface be a SEPARATE server process from the existing orchestrator MCP server (port 9850), or a second tool namespace on the existing server with per-caller ACLs?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Separate MCP server (new port, dedicated process, clean blast-radius split between operator tools and agent tools)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Same server, separate tool namespace with role-based ACL (one process to operate, ACL checks per tool call)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Same server, no split (rely on tool-level permission checks only \u2014 simpler but agents can see submit_task/cancel_task)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "If we adopt Option C: how granular should the MCP tool surface be?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "One MCP tool per CLI subcommand (e.g. egg_contract_add_decision, egg_orch_consensus_propose, \u2026) \u2014 ~40+ tools total, maximum discoverability",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "One MCP tool per top-level CLI (e.g. egg_contract, egg_orch, \u2026) with a subcommand arg \u2014 ~7 tools, compact but schemas become unions",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "One MCP tool per CLI command group (e.g. egg_orch_consensus, egg_orch_message, egg_contract_decision, \u2026) \u2014 ~15\u201320 tools, middle ground",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "What should be the source of truth for MCP tool schemas, to prevent drift from the CLIs?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Auto-generate MCP schemas from each CLI's argparse parser (single source of truth, requires argparse introspection helper)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Hand-write MCP schemas alongside CLI subparsers; enforce parity via a test that diffs the two (explicit, easier to customize)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Extract both CLI and MCP from a shared Pydantic/dataclass schema module (refactor CLIs to consume the same schemas)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Which CLIs are in scope for exposure as discoverable tools in this issue?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "All seven: egg-contract, egg-orch, egg-checkpoint, egg-sdlc, egg-pipeline-watch, egg-health-inspect, egg-onboarding-docs",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Agent-mutating only: egg-contract + egg-orch (message/consensus/phase/signal) \u2014 the highest-traffic surfaces",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Agent-mutating + read-only observability: egg-contract, egg-orch, egg-checkpoint, egg-pipeline-watch",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "How should agent role/phase gating be enforced at the new tool boundary?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Filter the tool list returned to each agent at MCP connect time based on EGG_AGENT_ROLE (agent sees only tools it is allowed to invoke)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Always advertise the full tool list; enforce role checks per tool invocation and return structured errors on deny (current gateway pattern)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Mix: filter destructive tools at connect, allow-list informational tools unconditionally",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Should existing sandbox/bin/egg-* CLIs remain first-class after the typed tool surface lands, or be marked fallback-only?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep CLIs as a first-class, fully supported surface (scripts, tests, humans, and agents can all use either; typed tools are preferred but equivalent)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Mark CLIs as fallback-only in agent rules (agents prefer MCP tools; CLIs remain for scripts/tests/humans but agents discouraged)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep CLIs first-class now; schedule deprecation of agent use after a bake-in period",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "How should the MCP client config reach sandbox agents so both execution paths pick it up?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Write mcpServers into ~/.claude/settings.json at entrypoint and pass mcp_servers into ClaudeAgentOptions in egg_agent.client (both paths covered)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Settings.json only (interactive claude CLI gets it; SDK path relies on settings.json auto-load \u2014 verify SDK actually reads mcpServers from settings.json)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Env var EGG_MCP_URL + runtime-resolver in both runner and client.py (config survives file mutations; explicit code path)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-04-22T20:37:40.580593Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Which architectural shape should we adopt for making egg-internal CLIs discoverable to sandbox agents?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "A \u2014 Auto-generated tool reference doc mounted in sandbox + improved --help",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "B \u2014 tools.json manifest injected into agent system prompt (still shell-mediated)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "C \u2014 Orchestrator-hosted MCP server dedicated to sandbox agents (typed tools in tool_use stream)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "D \u2014 Agent SDK @tool decorators on orchestrator side (SDK path only, does not cover interactive claude CLI)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Hybrid: B + C (markdown manifest now, typed MCP later)",
+            "description": null
+          },
+          {
+            "id": "opt-6",
+            "label": "Hybrid: A + C (reference doc as fallback, MCP as primary)",
+            "description": null
+          },
+          {
+            "id": "opt-7",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Which architectural shape should we adopt for maki...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:37:51.128256Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "If we adopt Option C: should the agent-facing MCP surface be a SEPARATE server process from the existing orchestrator MCP server (port 9850), or a second tool namespace on the existing server with per-caller ACLs?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Separate MCP server (new port, dedicated process, clean blast-radius split between operator tools and agent tools)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Same server, separate tool namespace with role-based ACL (one process to operate, ACL checks per tool call)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Same server, no split (rely on tool-level permission checks only \u2014 simpler but agents can see submit_task/cancel_task)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: If we adopt Option C: should the agent-facing MCP ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:37:51.337439Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "If we adopt Option C: how granular should the MCP tool surface be?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "One MCP tool per CLI subcommand (e.g. egg_contract_add_decision, egg_orch_consensus_propose, \u2026) \u2014 ~40+ tools total, maximum discoverability",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "One MCP tool per top-level CLI (e.g. egg_contract, egg_orch, \u2026) with a subcommand arg \u2014 ~7 tools, compact but schemas become unions",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "One MCP tool per CLI command group (e.g. egg_orch_consensus, egg_orch_message, egg_contract_decision, \u2026) \u2014 ~15\u201320 tools, middle ground",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: If we adopt Option C: how granular should the MCP ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:38:00.621655Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "What should be the source of truth for MCP tool schemas, to prevent drift from the CLIs?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Auto-generate MCP schemas from each CLI's argparse parser (single source of truth, requires argparse introspection helper)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Hand-write MCP schemas alongside CLI subparsers; enforce parity via a test that diffs the two (explicit, easier to customize)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Extract both CLI and MCP from a shared Pydantic/dataclass schema module (refactor CLIs to consume the same schemas)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What should be the source of truth for MCP tool sc...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:38:00.839433Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "Which CLIs are in scope for exposure as discoverable tools in this issue?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "All seven: egg-contract, egg-orch, egg-checkpoint, egg-sdlc, egg-pipeline-watch, egg-health-inspect, egg-onboarding-docs",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Agent-mutating only: egg-contract + egg-orch (message/consensus/phase/signal) \u2014 the highest-traffic surfaces",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Agent-mutating + read-only observability: egg-contract, egg-orch, egg-checkpoint, egg-pipeline-watch",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Which CLIs are in scope for exposure as discoverab...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:38:10.532175Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "How should agent role/phase gating be enforced at the new tool boundary?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Filter the tool list returned to each agent at MCP connect time based on EGG_AGENT_ROLE (agent sees only tools it is allowed to invoke)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Always advertise the full tool list; enforce role checks per tool invocation and return structured errors on deny (current gateway pattern)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Mix: filter destructive tools at connect, allow-list informational tools unconditionally",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should agent role/phase gating be enforced at ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:38:10.759234Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "Should existing sandbox/bin/egg-* CLIs remain first-class after the typed tool surface lands, or be marked fallback-only?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep CLIs as a first-class, fully supported surface (scripts, tests, humans, and agents can all use either; typed tools are preferred but equivalent)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Mark CLIs as fallback-only in agent rules (agents prefer MCP tools; CLIs remain for scripts/tests/humans but agents discouraged)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep CLIs first-class now; schedule deprecation of agent use after a bake-in period",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should existing sandbox/bin/egg-* CLIs remain firs...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:38:27.228066Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-8",
+        "question": "How should the MCP client config reach sandbox agents so both execution paths pick it up?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Write mcpServers into ~/.claude/settings.json at entrypoint and pass mcp_servers into ClaudeAgentOptions in egg_agent.client (both paths covered)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Settings.json only (interactive claude CLI gets it; SDK path relies on settings.json auto-load \u2014 verify SDK actually reads mcpServers from settings.json)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Env var EGG_MCP_URL + runtime-resolver in both runner and client.py (config survives file mutations; explicit code path)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the MCP client config reach sandbox age...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:38:27.463578Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Is there a named contract for how heavy agent-to-MCP traffic can become (per-agent or per-pipeline call rate)? Today DEFAULT_RATE_LIMIT is 30 req/min on the orchestrator MCP server; with BRC poll loops + message send + consensus propose, agents may exceed that once tools are first-class.",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Are there other egg CLIs on the near-term roadmap that this discovery mechanism should accommodate out of the gate (beyond the seven listed)? Specifically any planned for overseer, retries, or release tooling?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "For the k8s deployment path: is it acceptable to widen the egg-agents \u2192 egg-system orchestrator NetworkPolicy to allow port 9850, and add port 9850 to the orchestrator Service? Today only 9849 is reachable from agents and only 9849 is exposed on the Service.",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "If a new agent CLI is added under sandbox/bin/, what is the preferred mechanism for keeping it in sync with the discoverable tool surface \u2014 CI check, generated code, runtime reflection, or docs update? (The acceptance criteria require this to not drift.)",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Should the same discoverability mechanism also be exposed to the overseer agent, which already has its own allow-list of commands (overseer.md) \u2014 or does overseer remain on the current CLI-only surface?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 5 question(s)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Is there a named contract for how heavy agent-to-MCP traffic can become (per-agent or per-pipeline call rate)? Today DEFAULT_RATE_LIMIT is 30 req/min on the orchestrator MCP server; with BRC poll loops + message send + consensus propose, agents may exceed that once tools are first-class.",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Are there other egg CLIs on the near-term roadmap that this discovery mechanism should accommodate out of the gate (beyond the seven listed)? Specifically any planned for overseer, retries, or release tooling?",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "For the k8s deployment path: is it acceptable to widen the egg-agents \u2192 egg-system orchestrator NetworkPolicy to allow port 9850, and add port 9850 to the orchestrator Service? Today only 9849 is reachable from agents and only 9849 is exposed on the Service.",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "If a new agent CLI is added under sandbox/bin/, what is the preferred mechanism for keeping it in sync with the discoverable tool surface \u2014 CI check, generated code, runtime reflection, or docs update? (The acceptance criteria require this to not drift.)",
+        "answer": null
+      },
+      {
+        "id": "Q5",
+        "question": "Should the same discoverability mechanism also be exposed to the overseer agent, which already has its own allow-list of commands (overseer.md) \u2014 or does overseer remain on the current CLI-only surface?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }

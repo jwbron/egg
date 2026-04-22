@@ -1,0 +1,301 @@
+# BRC Consensus History — refine phase
+
+Generated: 2026-04-22T20:46:17Z
+Pipeline: issue-1765-membump
+
+### [2026-04-22T20:42:10Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Refine-phase analysis for #1765 (agent-facing tool discoverability). Evaluates all four shapes from the issue (A doc+--help, B manifest, C orchestrator-hosted MCP, D SDK @tool) against every acceptance criterion; recommends C as the only shape that satisfies all of them (typed tools in tool_use stream, connect-time discovery, JSON-schema validation at the tool boundary, mode-independent via intra-cluster traffic, additive to existing CLIs). Registers 8 decisions + 5 feedback questions via egg-contract — covering architectural shape (D1), server split (D2), tool granularity (D3), schema source of truth (D4), CLI scope (D5), role gating (D6), CLI coexistence (D7), and client wiring (D8), plus k8s deployment plumbing concerns (port 9850 on orchestrator Service + NetworkPolicy). Complexity: high. Artifact pushed at .egg-state/drafts/1765-analysis.md.
+
+````yaml
+id: 19213706-1b51-49
+phase: refine
+metadata:
+  payload:
+    summary: "Refine-phase analysis for #1765 (agent-facing tool discoverability).\
+      \ Evaluates all four shapes from the issue (A doc+--help, B manifest, C orchestrator-hosted\
+      \ MCP, D SDK @tool) against every acceptance criterion; recommends C as the\
+      \ only shape that satisfies all of them (typed tools in tool_use stream, connect-time\
+      \ discovery, JSON-schema validation at the tool boundary, mode-independent via\
+      \ intra-cluster traffic, additive to existing CLIs). Registers 8 decisions +\
+      \ 5 feedback questions via egg-contract \u2014 covering architectural shape\
+      \ (D1), server split (D2), tool granularity (D3), schema source of truth (D4),\
+      \ CLI scope (D5), role gating (D6), CLI coexistence (D7), and client wiring\
+      \ (D8), plus k8s deployment plumbing concerns (port 9850 on orchestrator Service\
+      \ + NetworkPolicy). Complexity: high. Artifact pushed at .egg-state/drafts/1765-analysis.md."
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/1765-analysis.md
+    risk_considered: ''
+    commit_sha: 30adde889da87d1485de045801f9c70e03825341
+    files_changed:
+    - .egg-state/drafts/1765-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 1
+  commit_sha: 30adde889da87d1485de045801f9c70e03825341
+````
+
+### [2026-04-22T20:43:53Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
+
+
+Reviewed .egg-state/drafts/1765-analysis.md (506 lines) against agent-mode design criteria in docs/guides/agent-mode-design.md. Verified: (1) no excessive pre-fetching in the proposal, (2) no structured-output-for-humans anti-pattern, (3) no post-processing pipelines, (4) no prompt-level security constraints, (5) no direct LLM API calls, (6) no hardcoded model identifiers.
+
+### Agent-mode alignment is strong
+The draft's recommended Option C (orchestrator-hosted MCP server exposing typed tools in the tool_use stream) is the most agent-mode-aligned option of the four presented:
+
+- **Typed tool boundary over shell-mediated text parsing** (lines 232-253): replaces argparse-exit-code validation with JSON-Schema validation at the tool boundary — exactly the direction the guidelines endorse.
+- **Connect-time discovery via tool_use stream** (line 236): agents see the tool list as first-class tools rather than having to re-derive CLI surface from --help and cat. Prompt-budget win called out explicitly (lines 252-253).
+- **Structural access control, not prompt-level** (Decisions D2/D6, lines 379-420): enforces role/phase gating at connect time or per-invocation in the MCP server rather than by instructing the agent in prose. Sandbox-enforced, which is the correct pattern.
+- **Correct rejection of Option D** (lines 286-291): declined precisely because Agent-SDK-only @tool decorators leave the interactive claude CLI path uncovered. Covering both exec paths (Decision D8, line 431) is the right framing.
+- **CLIs remain the graceful-degradation fallback** (line 168, step 7 line 347): fallback path is a design requirement rather than emergent. Good.
+
+### Borderline but acceptable
+- **Step 7 (lines 346-349)** suggests emitting a generated markdown catalog into the system prompt as 'belt-and-braces.' This could become prompt bloat if it grows to full schemas. The draft characterizes it as 'compact' / 'what tools exist, what they do' which lands on the right side of the orienting-vs-constraining line per the guidelines. No block — but the design phase should make clear this stays a one-line-per-tool summary, not a full schema dump.
+- **Option B's system-prompt manifest** is evaluated and correctly flagged as prompt-budget-taxing (lines 219-221). Not recommended as primary, and correctly subordinated under C.
+
+### Non-blocking
+- **lines 373-374**: Hybrid options 'B + C' and 'A + C' are listed in decision-1 without pros/cons. A one-line note for each hybrid would tighten the HITL decision ask.
+- **Decision D4 (lines 395-402)**: good framing, but 'Other' would benefit from a concrete example seed (e.g., 'generate from argparse but snapshot schemas in-repo for review').
+- **line 453 (Q1)**: Rate-limit question is well-framed. If C is chosen, the design should surface whether DEFAULT_RATE_LIMIT=30 applies to the agent-facing namespace too; tool_use calls will vastly outnumber CLI invocations.
+
+No blocking agent-mode-design issues. The draft is a coherent analysis that correctly steers toward typed tools + boundary validation rather than shell-mediated text parsing.
+
+
+````yaml
+id: 6d0dafd9-8454-45
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/1765-analysis.md
+    reason: "\nReviewed .egg-state/drafts/1765-analysis.md (506 lines) against agent-mode\
+      \ design criteria in docs/guides/agent-mode-design.md. Verified: (1) no excessive\
+      \ pre-fetching in the proposal, (2) no structured-output-for-humans anti-pattern,\
+      \ (3) no post-processing pipelines, (4) no prompt-level security constraints,\
+      \ (5) no direct LLM API calls, (6) no hardcoded model identifiers.\n\n### Agent-mode\
+      \ alignment is strong\nThe draft's recommended Option C (orchestrator-hosted\
+      \ MCP server exposing typed tools in the tool_use stream) is the most agent-mode-aligned\
+      \ option of the four presented:\n\n- **Typed tool boundary over shell-mediated\
+      \ text parsing** (lines 232-253): replaces argparse-exit-code validation with\
+      \ JSON-Schema validation at the tool boundary \u2014 exactly the direction the\
+      \ guidelines endorse.\n- **Connect-time discovery via tool_use stream** (line\
+      \ 236): agents see the tool list as first-class tools rather than having to\
+      \ re-derive CLI surface from --help and cat. Prompt-budget win called out explicitly\
+      \ (lines 252-253).\n- **Structural access control, not prompt-level** (Decisions\
+      \ D2/D6, lines 379-420): enforces role/phase gating at connect time or per-invocation\
+      \ in the MCP server rather than by instructing the agent in prose. Sandbox-enforced,\
+      \ which is the correct pattern.\n- **Correct rejection of Option D** (lines\
+      \ 286-291): declined precisely because Agent-SDK-only @tool decorators leave\
+      \ the interactive claude CLI path uncovered. Covering both exec paths (Decision\
+      \ D8, line 431) is the right framing.\n- **CLIs remain the graceful-degradation\
+      \ fallback** (line 168, step 7 line 347): fallback path is a design requirement\
+      \ rather than emergent. Good.\n\n### Borderline but acceptable\n- **Step 7 (lines\
+      \ 346-349)** suggests emitting a generated markdown catalog into the system\
+      \ prompt as 'belt-and-braces.' This could become prompt bloat if it grows to\
+      \ full schemas. The draft characterizes it as 'compact' / 'what tools exist,\
+      \ what they do' which lands on the right side of the orienting-vs-constraining\
+      \ line per the guidelines. No block \u2014 but the design phase should make\
+      \ clear this stays a one-line-per-tool summary, not a full schema dump.\n- **Option\
+      \ B's system-prompt manifest** is evaluated and correctly flagged as prompt-budget-taxing\
+      \ (lines 219-221). Not recommended as primary, and correctly subordinated under\
+      \ C.\n\n### Non-blocking\n- **lines 373-374**: Hybrid options 'B + C' and 'A\
+      \ + C' are listed in decision-1 without pros/cons. A one-line note for each\
+      \ hybrid would tighten the HITL decision ask.\n- **Decision D4 (lines 395-402)**:\
+      \ good framing, but 'Other' would benefit from a concrete example seed (e.g.,\
+      \ 'generate from argparse but snapshot schemas in-repo for review').\n- **line\
+      \ 453 (Q1)**: Rate-limit question is well-framed. If C is chosen, the design\
+      \ should surface whether DEFAULT_RATE_LIMIT=30 applies to the agent-facing namespace\
+      \ too; tool_use calls will vastly outnumber CLI invocations.\n\nNo blocking\
+      \ agent-mode-design issues. The draft is a coherent analysis that correctly\
+      \ steers toward typed tools + boundary validation rather than shell-mediated\
+      \ text parsing.\n"
+  version: 1
+````
+
+### [2026-04-22T20:43:55Z] reviewer_agent_design (CONSENSUS_CONFIRMED): Confirmed by reviewer_agent_design
+
+````yaml
+id: 66109dc6-b047-42
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-04-22T20:46:05Z] reviewer_refine → refiner (CONSENSUS_ACK): ACK from reviewer_refine for refiner
+
+Reviewed .egg-state/drafts/1765-analysis.md (506 lines) and the egg-contract state. Cross-checked every major file:line citation against the source tree. Running through the rubric section-by-section:
+
+### 1. Problem Understanding — PASS
+Problem Statement (lines 5–29) correctly restates the issue: sandbox agents burn tool budget rediscovering the seven egg-internal CLIs. Concrete framing — "five tool calls just to rediscover egg-contract add-decision in the first 12 minutes" (line 14–15) — anchors the analysis in the issue body's exact evidence. Desired outcome captures all acceptance criteria (line 19–29): upfront knowledge, tool-boundary validation, both network modes, additive, no drift. The "prioritize the best long-term shape" directive (line 27–29) is explicit and correctly flagged.
+
+### 2. Research Quality — PASS (unusually thorough)
+Citations are specific and mostly accurate:
+- sandbox/entrypoint.py:setup_agent_rules() at lines 913–968 ✓ (verified — function spans 913 to ~968).
+- ClaudeAgentOptions(setting_sources=["project","user"]) at client.py:202 ✓ (verified).
+- settings.json write at entrypoint.py:1031–1052 ✓ (dict at 1032, write at 1052).
+- orchestrator/mcp_server.py DEFAULT_MCP_PORT = 9850 ✓.
+- k8s: orchestrator-deployment.yaml containerPort 9850 line 52 ✓; orchestrator-service.yaml only exposes 9849 ✓; network-policies.yaml allow-agent-to-orchestrator whitelists only 9849 ✓ (verified lines 56–81).
+- Three-of-seven CLIs have dedicated rules files (rules/orchestrator.md, contract.md, checkpoint.md); the other four (egg-sdlc, egg-pipeline-watch, egg-health-inspect, egg-onboarding-docs) are not documented in rules ✓ — verified against sandbox/agent-config/rules/.
+
+The two-exec-path framing (interactive CLI vs SDK path, lines 35–48) is the critical architectural fact for this issue and is captured correctly. The observation that mcp_servers is NOT passed into ClaudeAgentOptions today (lines 52–53) and no mcpServers key in the written settings.json (lines 104–106) is the precise gap any C/D proposal has to close.
+
+### 3. Options Analysis — PASS
+Four options (A status-quo polish, B manifest, C MCP server, D SDK @tool decorators) match the issue body's sketch and are meaningfully distinct. Pros/cons are concrete (not generic) — e.g. Option D's explicit coverage gap for the interactive claude CLI (lines 286–291) aligns with what the issue itself calls out. Option B's "system-prompt bloat grows with every new subcommand" (line 219–220) is an honest drawback a weaker analysis would elide. Option C's cons (lines 256–272) genuinely weigh the cost: two-surface maintenance, D4 source-of-truth drift risk, runtime dependency on the MCP server, need for an explicit fallback design. Neither boosters nor dismissers.
+
+### 4. Constraints and Dependencies — PASS
+Ten constraints listed (lines 133–172), each tied to an acceptance criterion or known artifact: both exec paths, public/private modes, additivity, no-sandbox-long-running-process, no drift, tool-boundary validation, k8s deployment plumbing (service port + NetworkPolicy), role-aware access (submit_task/cancel_task blast radius), blast radius on MCP unavailability, #1759 prior art. The role-aware access concern (lines 160–165) and the blast-radius-on-failure concern (lines 166–168) are exactly the things Option C's design has to handle — the constraints section forces those into the recommendation.
+
+### 5. Open Questions — PASS
+Eight decisions cover the genuinely open calls: overall shape (D1), server split (D2), tool granularity (D3), schema source-of-truth (D4), CLI scope (D5), role gating enforcement (D6), CLI deprecation stance (D7), client-config wiring (D8). None are leading, none are "do you want the good thing or the bad thing?". Five feedback questions cover rate-limit contracts (Q1 — nontrivial, DEFAULT_RATE_LIMIT is 30 req/min today and BRC loops will hit it), roadmap CLIs (Q2), k8s NetworkPolicy widening (Q3), drift-prevention mechanism (Q4), overseer inclusion (Q5). These are actionable and specific. No silent assumptions; the analysis openly flags D4 source-of-truth as controversial (lines 268–270) rather than picking for the human.
+
+### 6. Recommendation Quality — PASS
+Clear recommendation of Option C "built so that Option B's manifest falls out of it for free" (line 302). Justified (lines 304–311): it's the only shape that meets every acceptance criterion simultaneously, and it composes with the direction the orchestrator-side MCP surface has already committed to (#1759). The 7-step construction plan (lines 315–349) references decisions by ID and includes the fallback path (step 7 — generated manifest as belt-and-braces). Does not trivialize the cost — "this shape is the most work of the four options" (lines 351–355) is honest.
+
+### 7. HITL Decision Registration — PASS
+Ran egg-contract show and egg-contract show --json. All 8 decisions (decision-1 through decision-8) are registered as pending with labeled options, and feedback-1 with 5 questions is registered. The <!-- egg-hitl-decision id=decision-N --> markers in the draft correspond 1:1 to registered decisions. feedback-1 block in the markdown corresponds to the registered feedback item with Q1–Q5 verbatim. No decisions exist in prose without corresponding markers.
+
+### Non-blocking observations
+- **line 38 (run_interactive citation)** — Says "run_interactive() (line 1988)". Actual function definition is at line 1909; line 1988 is the subprocess launch inside the function. Minor nit — the code at 1988 is relevant (it's where Claude Code is exec'd) but the reader will look for the function header and find it 79 lines earlier. Could read "run_interactive() (defined at line 1909, launches at line 1988)" or just "line 1909".
+- **line 128 (client.py:160–161)** — The actual disallowed_tools line is 161; the "160–161" range is the surrounding private_mode block. Fine as context but strictly the assignment is 161.
+- **Hybrid options in decision-1 (options 5 and 6)** are offered to the human but not analyzed as first-class options in the Options Considered section. Not a gap — the recommendation (Option C with manifest byproduct) IS effectively the B+C hybrid — but a reader choosing "B+C" vs "C with manifest byproduct" from decision-1 may find it useful to have those sketched as explicit pros/cons before the question.
+- **Rate-limit concern** (Q1 in feedback) is a genuine architectural issue worth surfacing in Constraints too, not just in feedback — DEFAULT_RATE_LIMIT = 30/min on the MCP server + BRC poll loops = credible production problem. Currently lives only as a feedback question.
+- **Option C cons** (line 263) mentions "New MCP service wiring (or tool-namespace split within existing server)" without noting that the MCP SDK already used by orchestrator/mcp_server.py has the tooling for this — minor omission, since it would strengthen the "tractable" framing of C.
+
+These are polish items; none block the refine output. This is a very strong refine analysis that meets the issue's explicit "prioritize architectural fit over speed-to-ship" criterion.
+
+````yaml
+id: de1804e3-d53c-4c
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/1765-analysis.md
+    - .egg-state/contracts/issue-1765-membump.json
+    reason: "Reviewed .egg-state/drafts/1765-analysis.md (506 lines) and the egg-contract\
+      \ state. Cross-checked every major file:line citation against the source tree.\
+      \ Running through the rubric section-by-section:\n\n### 1. Problem Understanding\
+      \ \u2014 PASS\nProblem Statement (lines 5\u201329) correctly restates the issue:\
+      \ sandbox agents burn tool budget rediscovering the seven egg-internal CLIs.\
+      \ Concrete framing \u2014 \"five tool calls just to rediscover egg-contract\
+      \ add-decision in the first 12 minutes\" (line 14\u201315) \u2014 anchors the\
+      \ analysis in the issue body's exact evidence. Desired outcome captures all\
+      \ acceptance criteria (line 19\u201329): upfront knowledge, tool-boundary validation,\
+      \ both network modes, additive, no drift. The \"prioritize the best long-term\
+      \ shape\" directive (line 27\u201329) is explicit and correctly flagged.\n\n\
+      ### 2. Research Quality \u2014 PASS (unusually thorough)\nCitations are specific\
+      \ and mostly accurate:\n- sandbox/entrypoint.py:setup_agent_rules() at lines\
+      \ 913\u2013968 \u2713 (verified \u2014 function spans 913 to ~968).\n- ClaudeAgentOptions(setting_sources=[\"\
+      project\",\"user\"]) at client.py:202 \u2713 (verified).\n- settings.json write\
+      \ at entrypoint.py:1031\u20131052 \u2713 (dict at 1032, write at 1052).\n- orchestrator/mcp_server.py\
+      \ DEFAULT_MCP_PORT = 9850 \u2713.\n- k8s: orchestrator-deployment.yaml containerPort\
+      \ 9850 line 52 \u2713; orchestrator-service.yaml only exposes 9849 \u2713; network-policies.yaml\
+      \ allow-agent-to-orchestrator whitelists only 9849 \u2713 (verified lines 56\u2013\
+      81).\n- Three-of-seven CLIs have dedicated rules files (rules/orchestrator.md,\
+      \ contract.md, checkpoint.md); the other four (egg-sdlc, egg-pipeline-watch,\
+      \ egg-health-inspect, egg-onboarding-docs) are not documented in rules \u2713\
+      \ \u2014 verified against sandbox/agent-config/rules/.\n\nThe two-exec-path\
+      \ framing (interactive CLI vs SDK path, lines 35\u201348) is the critical architectural\
+      \ fact for this issue and is captured correctly. The observation that mcp_servers\
+      \ is NOT passed into ClaudeAgentOptions today (lines 52\u201353) and no mcpServers\
+      \ key in the written settings.json (lines 104\u2013106) is the precise gap any\
+      \ C/D proposal has to close.\n\n### 3. Options Analysis \u2014 PASS\nFour options\
+      \ (A status-quo polish, B manifest, C MCP server, D SDK @tool decorators) match\
+      \ the issue body's sketch and are meaningfully distinct. Pros/cons are concrete\
+      \ (not generic) \u2014 e.g. Option D's explicit coverage gap for the interactive\
+      \ claude CLI (lines 286\u2013291) aligns with what the issue itself calls out.\
+      \ Option B's \"system-prompt bloat grows with every new subcommand\" (line 219\u2013\
+      220) is an honest drawback a weaker analysis would elide. Option C's cons (lines\
+      \ 256\u2013272) genuinely weigh the cost: two-surface maintenance, D4 source-of-truth\
+      \ drift risk, runtime dependency on the MCP server, need for an explicit fallback\
+      \ design. Neither boosters nor dismissers.\n\n### 4. Constraints and Dependencies\
+      \ \u2014 PASS\nTen constraints listed (lines 133\u2013172), each tied to an\
+      \ acceptance criterion or known artifact: both exec paths, public/private modes,\
+      \ additivity, no-sandbox-long-running-process, no drift, tool-boundary validation,\
+      \ k8s deployment plumbing (service port + NetworkPolicy), role-aware access\
+      \ (submit_task/cancel_task blast radius), blast radius on MCP unavailability,\
+      \ #1759 prior art. The role-aware access concern (lines 160\u2013165) and the\
+      \ blast-radius-on-failure concern (lines 166\u2013168) are exactly the things\
+      \ Option C's design has to handle \u2014 the constraints section forces those\
+      \ into the recommendation.\n\n### 5. Open Questions \u2014 PASS\nEight decisions\
+      \ cover the genuinely open calls: overall shape (D1), server split (D2), tool\
+      \ granularity (D3), schema source-of-truth (D4), CLI scope (D5), role gating\
+      \ enforcement (D6), CLI deprecation stance (D7), client-config wiring (D8).\
+      \ None are leading, none are \"do you want the good thing or the bad thing?\"\
+      . Five feedback questions cover rate-limit contracts (Q1 \u2014 nontrivial,\
+      \ DEFAULT_RATE_LIMIT is 30 req/min today and BRC loops will hit it), roadmap\
+      \ CLIs (Q2), k8s NetworkPolicy widening (Q3), drift-prevention mechanism (Q4),\
+      \ overseer inclusion (Q5). These are actionable and specific. No silent assumptions;\
+      \ the analysis openly flags D4 source-of-truth as controversial (lines 268\u2013\
+      270) rather than picking for the human.\n\n### 6. Recommendation Quality \u2014\
+      \ PASS\nClear recommendation of Option C \"built so that Option B's manifest\
+      \ falls out of it for free\" (line 302). Justified (lines 304\u2013311): it's\
+      \ the only shape that meets every acceptance criterion simultaneously, and it\
+      \ composes with the direction the orchestrator-side MCP surface has already\
+      \ committed to (#1759). The 7-step construction plan (lines 315\u2013349) references\
+      \ decisions by ID and includes the fallback path (step 7 \u2014 generated manifest\
+      \ as belt-and-braces). Does not trivialize the cost \u2014 \"this shape is the\
+      \ most work of the four options\" (lines 351\u2013355) is honest.\n\n### 7.\
+      \ HITL Decision Registration \u2014 PASS\nRan egg-contract show and egg-contract\
+      \ show --json. All 8 decisions (decision-1 through decision-8) are registered\
+      \ as pending with labeled options, and feedback-1 with 5 questions is registered.\
+      \ The <!-- egg-hitl-decision id=decision-N --> markers in the draft correspond\
+      \ 1:1 to registered decisions. feedback-1 block in the markdown corresponds\
+      \ to the registered feedback item with Q1\u2013Q5 verbatim. No decisions exist\
+      \ in prose without corresponding markers.\n\n### Non-blocking observations\n\
+      - **line 38 (run_interactive citation)** \u2014 Says \"run_interactive() (line\
+      \ 1988)\". Actual function definition is at line 1909; line 1988 is the subprocess\
+      \ launch inside the function. Minor nit \u2014 the code at 1988 is relevant\
+      \ (it's where Claude Code is exec'd) but the reader will look for the function\
+      \ header and find it 79 lines earlier. Could read \"run_interactive() (defined\
+      \ at line 1909, launches at line 1988)\" or just \"line 1909\".\n- **line 128\
+      \ (client.py:160\u2013161)** \u2014 The actual disallowed_tools line is 161;\
+      \ the \"160\u2013161\" range is the surrounding private_mode block. Fine as\
+      \ context but strictly the assignment is 161.\n- **Hybrid options in decision-1\
+      \ (options 5 and 6)** are offered to the human but not analyzed as first-class\
+      \ options in the Options Considered section. Not a gap \u2014 the recommendation\
+      \ (Option C with manifest byproduct) IS effectively the B+C hybrid \u2014 but\
+      \ a reader choosing \"B+C\" vs \"C with manifest byproduct\" from decision-1\
+      \ may find it useful to have those sketched as explicit pros/cons before the\
+      \ question.\n- **Rate-limit concern** (Q1 in feedback) is a genuine architectural\
+      \ issue worth surfacing in Constraints too, not just in feedback \u2014 DEFAULT_RATE_LIMIT\
+      \ = 30/min on the MCP server + BRC poll loops = credible production problem.\
+      \ Currently lives only as a feedback question.\n- **Option C cons** (line 263)\
+      \ mentions \"New MCP service wiring (or tool-namespace split within existing\
+      \ server)\" without noting that the MCP SDK already used by orchestrator/mcp_server.py\
+      \ has the tooling for this \u2014 minor omission, since it would strengthen\
+      \ the \"tractable\" framing of C.\n\nThese are polish items; none block the\
+      \ refine output. This is a very strong refine analysis that meets the issue's\
+      \ explicit \"prioritize architectural fit over speed-to-ship\" criterion."
+  version: 1
+````
+
+### [2026-04-22T20:46:05Z] orchestrator → refiner (STATUS): All reviewers have ACKed — ready to confirm
+
+All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 55bd3df7-b570-4a
+phase: refine
+metadata:
+  fully_acked: true
+  version: 1
+````
+
+### [2026-04-22T20:46:09Z] refiner (CONSENSUS_CONFIRMED): Confirmed by refiner
+
+````yaml
+id: dd988b40-dfaf-41
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-04-22T20:46:17Z] reviewer_refine (CONSENSUS_CONFIRMED): Confirmed by reviewer_refine
+
+````yaml
+id: 3bb97c58-31b9-41
+phase: refine
+metadata:
+  consensus_reached: true
+````
