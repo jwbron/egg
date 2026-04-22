@@ -9,15 +9,468 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "How should the matcher treat an empty allowed_patterns list for the coder role?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep deny-all semantics; add an explicit catch-all pattern ('**') to CODER_PATTERNS.allowed_patterns",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Change semantics: empty allowed_patterns means 'allow by default' (blocklist-only mode) across all roles",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Add a new sentinel flag (e.g., allow_by_default=True) on AgentFilePattern; coder opts in",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Should autofixer and conflict_resolver (which also use extension-based allowlists) get the same blocklist-complement treatment in this issue?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes \u2014 rewrite all three utility roles now for consistency (coder, autofixer, conflict_resolver)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Coder only \u2014 keep this issue scoped to the reported bug; file follow-ups for autofixer/conflict_resolver",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Coder + autofixer (both apply automated fixes to source) \u2014 leave conflict_resolver for a follow-up",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "How should the coder's .egg-state/ access be carved?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Block all of .egg-state/ and use block_exempt_patterns=['.egg-state/agent-outputs/'] to carve out the handoff dir (what the issue proposes)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Enumerate blocked .egg-state/ subdirs explicitly: contracts/, drafts/, pipelines/, reviews/, oversight/, checkpoints/, brc-history/, agent-anchors/ \u2014 and leave agent-outputs/ implicitly allowed",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep today's approach: allowed_patterns includes '.egg-state/agent-outputs/' and blocked_patterns includes '.egg-state/contracts/' only",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Overseer hit the same wall per the issue's 'out of scope' note. Should we include overseer in this fix?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Out of scope \u2014 leave overseer for a separate issue as the reporter suggested",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "In scope \u2014 give overseer the same treatment (allow everything except .egg-state/ non-oversight subdirs, tester's scope, documenter's scope)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Middle ground \u2014 tighten overseer's access only enough to unblock the specific deletion path that stalled the pipeline (list extensionless scripts)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Should we also fix the pre-existing matcher bug where '**/tests/' does NOT match nested test directories as a directory (nested .py files under test dirs are only blocked via file-name patterns like '**/test_*.py', so nested test __init__.py leaks through)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes \u2014 fix the '**/tests/' directory pattern matching as part of this issue (coder would then be strictly blocked from any file under a tests/ subdirectory)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No \u2014 keep the pre-existing behavior; file a separate issue for the matcher bug",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Partial \u2014 add explicit file-type patterns covering the leak (e.g., '**/tests/**') without changing the general matcher",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-04-22T23:30:26.544916Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "How should the matcher treat an empty allowed_patterns list for the coder role?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep deny-all semantics; add an explicit catch-all pattern ('**') to CODER_PATTERNS.allowed_patterns",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Change semantics: empty allowed_patterns means 'allow by default' (blocklist-only mode) across all roles",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Add a new sentinel flag (e.g., allow_by_default=True) on AgentFilePattern; coder opts in",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the matcher treat an empty allowed_patt...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:30:32.931950Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "Should autofixer and conflict_resolver (which also use extension-based allowlists) get the same blocklist-complement treatment in this issue?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes \u2014 rewrite all three utility roles now for consistency (coder, autofixer, conflict_resolver)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Coder only \u2014 keep this issue scoped to the reported bug; file follow-ups for autofixer/conflict_resolver",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Coder + autofixer (both apply automated fixes to source) \u2014 leave conflict_resolver for a follow-up",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should autofixer and conflict_resolver (which also...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:30:39.323686Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "How should the coder's .egg-state/ access be carved?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Block all of .egg-state/ and use block_exempt_patterns=['.egg-state/agent-outputs/'] to carve out the handoff dir (what the issue proposes)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Enumerate blocked .egg-state/ subdirs explicitly: contracts/, drafts/, pipelines/, reviews/, oversight/, checkpoints/, brc-history/, agent-anchors/ \u2014 and leave agent-outputs/ implicitly allowed",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep today's approach: allowed_patterns includes '.egg-state/agent-outputs/' and blocked_patterns includes '.egg-state/contracts/' only",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the coder's .egg-state/ access be carve...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:30:45.238434Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "Overseer hit the same wall per the issue's 'out of scope' note. Should we include overseer in this fix?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Out of scope \u2014 leave overseer for a separate issue as the reporter suggested",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "In scope \u2014 give overseer the same treatment (allow everything except .egg-state/ non-oversight subdirs, tester's scope, documenter's scope)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Middle ground \u2014 tighten overseer's access only enough to unblock the specific deletion path that stalled the pipeline (list extensionless scripts)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Overseer hit the same wall per the issue's 'out of...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:30:51.947907Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "Should we also fix the pre-existing matcher bug where '**/tests/' does NOT match nested test directories as a directory (nested .py files under test dirs are only blocked via file-name patterns like '**/test_*.py', so nested test __init__.py leaks through)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes \u2014 fix the '**/tests/' directory pattern matching as part of this issue (coder would then be strictly blocked from any file under a tests/ subdirectory)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "No \u2014 keep the pre-existing behavior; file a separate issue for the matcher bug",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Partial \u2014 add explicit file-type patterns covering the leak (e.g., '**/tests/**') without changing the general matcher",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should we also fix the pre-existing matcher bug wh...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:31:03.497600Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "The '.egg/phase-permissions.json' file has a separate 'file_restrictions' section (role='implementer', blocked_patterns=['.egg-state/contracts/']) enforced by gateway/phase_filter.py::check_file_restrictions. Is that role-based phase restriction expected to stay as-is, or should it also reflect the new three-role model (e.g., split into coder/tester/documenter)?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Comment in shared/egg_container/__init__.py:131 says _IMPLEMENT_READONLY_DIRS 'Must stay in sync with .egg/phase-permissions.json blocked_patterns for implement'. After this rewrite, which file is authoritative, and should the container side be simplified to derive its readonly dirs from the blocklist (rather than hardcoded)?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Under the new model, coder gains write access to any new top-level path or file type \u2014 including hypothetical .egg-state/ subdirs that don't exist yet. Are there future .egg-state/ subdirectories you'd want coder pre-emptively blocked from (e.g., a future '.egg-state/secrets/')?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Currently CODER_PATTERNS.allowed_patterns includes 'skills/' (a directory prefix), while DOCUMENTER_PATTERNS blocks '**/*.md' implicitly. Under the new blocklist-complement model, should 'skills/' .md files still be coder-owned (as today) or are they documenter-owned? (SKILL.md is arguably functional code describing agent behavior, but it's still markdown.)",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 4 question(s)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "The '.egg/phase-permissions.json' file has a separate 'file_restrictions' section (role='implementer', blocked_patterns=['.egg-state/contracts/']) enforced by gateway/phase_filter.py::check_file_restrictions. Is that role-based phase restriction expected to stay as-is, or should it also reflect the new three-role model (e.g., split into coder/tester/documenter)?",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Comment in shared/egg_container/__init__.py:131 says _IMPLEMENT_READONLY_DIRS 'Must stay in sync with .egg/phase-permissions.json blocked_patterns for implement'. After this rewrite, which file is authoritative, and should the container side be simplified to derive its readonly dirs from the blocklist (rather than hardcoded)?",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "Under the new model, coder gains write access to any new top-level path or file type \u2014 including hypothetical .egg-state/ subdirs that don't exist yet. Are there future .egg-state/ subdirectories you'd want coder pre-emptively blocked from (e.g., a future '.egg-state/secrets/')?",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "Currently CODER_PATTERNS.allowed_patterns includes 'skills/' (a directory prefix), while DOCUMENTER_PATTERNS blocks '**/*.md' implicitly. Under the new blocklist-complement model, should 'skills/' .md files still be coder-owned (as today) or are they documenter-owned? (SKILL.md is arguably functional code describing agent behavior, but it's still markdown.)",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
