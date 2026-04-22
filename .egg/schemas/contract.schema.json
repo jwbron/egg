@@ -453,7 +453,7 @@
     },
     "prMetadata": {
       "type": "object",
-      "description": "Planner-generated PR title and description",
+      "description": "Planner-generated PR title, description, test plan, and manual steps",
       "required": ["title"],
       "properties": {
         "title": {
@@ -464,6 +464,16 @@
         "description": {
           "type": "string",
           "description": "PR description/body explaining the context and changes",
+          "default": ""
+        },
+        "test_plan": {
+          "type": "string",
+          "description": "Test plan: automated tests and manual verification steps",
+          "default": ""
+        },
+        "manual_steps": {
+          "type": "string",
+          "description": "Manual pre/post-merge steps (migrations, config changes, etc.)",
           "default": ""
         }
       },
