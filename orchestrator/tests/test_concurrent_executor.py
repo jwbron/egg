@@ -309,6 +309,112 @@ class TestRolesOverride:
             assert set(registered_roles) == {"coder", "reviewer_code"}
 
 
+class TestIsTransientAgentError:
+    """_is_transient_agent_error classifies spawn error strings for #1879 retry."""
+
+    def test_connection_refused_is_transient(self):
+        from concurrent_executor import _is_transient_agent_error
+
+        assert _is_transient_agent_error("GatewayError: Connection refused")
+
+    def test_remote_end_closed_is_transient(self):
+        from concurrent_executor import _is_transient_agent_error
+
+        assert _is_transient_agent_error("Remote end closed connection without response")
+
+    def test_connection_reset_is_transient(self):
+        from concurrent_executor import _is_transient_agent_error
+
+        assert _is_transient_agent_error(
+            "ConnectionResetError: [Errno 104] Connection reset by peer"
+        )
+
+    def test_timeout_is_transient(self):
+        from concurrent_executor import _is_transient_agent_error
+
+        assert _is_transient_agent_error("HTTPConnectionPool: Read timed out")
+
+    def test_service_unavailable_is_transient(self):
+        from concurrent_executor import _is_transient_agent_error
+
+        assert _is_transient_agent_error("503 Service Unavailable")
+
+    def test_failed_to_create_any_worktrees_is_transient(self):
+        from concurrent_executor import _is_transient_agent_error
+
+        assert _is_transient_agent_error(
+            "KubernetesSpawnError: Failed to create any worktrees for container"
+        )
+
+    def test_permanent_errors_not_transient(self):
+        from concurrent_executor import _is_transient_agent_error
+
+        # Typical permanent failures
+        assert not _is_transient_agent_error("Repository not found")
+        assert not _is_transient_agent_error("HTTP 403 Forbidden")
+        assert not _is_transient_agent_error("2 validation errors for AgentExecution container_id")
+
+    def test_none_is_not_transient(self):
+        from concurrent_executor import _is_transient_agent_error
+
+        assert not _is_transient_agent_error(None)
+        assert not _is_transient_agent_error("")
+
+
+class TestSpawnSpecificRoles:
+    """spawn_specific_roles respawns only the requested roles."""
+
+    def test_only_listed_roles_are_spawned(self):
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock()
+        mock_spawn.return_value = MagicMock(container_id="new-container")
+
+        # Executor initialised with a full cohort, but the retry call
+        # should only hit the subset we pass in.
+        executor = ConcurrentPhaseExecutor(
+            pipeline,
+            spawn_fn=mock_spawn,
+            roles=[AgentRole.CODER, AgentRole.REVIEWER_CODE, AgentRole.TESTER],
+        )
+
+        with patch("concurrent_executor.emit_event"):
+            executions = executor.spawn_specific_roles(
+                [AgentRole.CODER, AgentRole.TESTER],
+                agent_prompts={
+                    AgentRole.CODER: "coder prompt",
+                    AgentRole.TESTER: "tester prompt",
+                },
+            )
+
+        assert mock_spawn.call_count == 2
+        spawned_roles = {call.kwargs["role"] for call in mock_spawn.call_args_list}
+        assert spawned_roles == {AgentRole.CODER, AgentRole.TESTER}
+        assert {e.role for e in executions} == {AgentRole.CODER, AgentRole.TESTER}
+
+    def test_does_not_register_tracker_agents(self):
+        """spawn_specific_roles must not touch the consensus tracker — the
+        original spawn_all already registered every role."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock()
+        mock_spawn.return_value = MagicMock(container_id="new-container")
+
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn, roles=[AgentRole.CODER])
+
+        with (
+            patch("concurrent_executor.create_peer_consensus_tracker") as mock_tracker,
+            patch("concurrent_executor.emit_event"),
+        ):
+            executor.spawn_specific_roles([AgentRole.CODER], agent_prompts={})
+
+        mock_tracker.assert_not_called()
+
+
 class TestReviewGraphIntegration:
     """Test that the review graph is properly integrated."""
 

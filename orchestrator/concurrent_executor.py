@@ -55,6 +55,36 @@ SpawnFn = Callable[..., Any]
 MULTI_FAILURE_WINDOW_SECONDS = 60
 
 
+# Substrings (case-insensitive) indicating a spawn failure is worth retrying at
+# the phase level.  Per-role retries in kubernetes_spawner already handle the
+# short (<10s) case; these patterns cover longer gateway outages like a cold
+# start (~30s) where every per-role attempt saw the gateway down.  See #1879.
+_TRANSIENT_AGENT_ERROR_SUBSTRINGS: tuple[str, ...] = (
+    "connection refused",
+    "remote end closed",
+    "closed connection",
+    "connection reset",
+    "timed out",
+    "timeout",
+    "service unavailable",
+    "bad gateway",
+    "failed to create any worktrees",
+    "max retries exceeded",
+)
+
+
+def _is_transient_agent_error(error: str | None) -> bool:
+    """Return True if an AgentExecution.error string looks retry-worthy.
+
+    Conservative: only matches known transient patterns.  Unknown errors are
+    treated as permanent so we fail fast instead of spinning on a real bug.
+    """
+    if not error:
+        return False
+    lowered = error.lower()
+    return any(frag in lowered for frag in _TRANSIENT_AGENT_ERROR_SUBSTRINGS)
+
+
 class ConcurrentPhaseExecutor:
     """Executes a pipeline phase with all agents running concurrently.
 
@@ -235,15 +265,47 @@ class ConcurrentPhaseExecutor:
             auto_repropose_debounce_seconds=config.auto_repropose_debounce_seconds,
             max_auto_repropose=config.max_auto_repropose,
         )
+        for role in roles:
+            tracker.register_agent(role.value)
+
+        return self._spawn_roles(roles, agent_prompts or {})
+
+    def spawn_specific_roles(
+        self,
+        roles: list[AgentRole],
+        agent_prompts: dict[AgentRole, str] | None = None,
+    ) -> list[AgentExecution]:
+        """Spawn a subset of agent roles.
+
+        Used by the phase coordinator's transient-failure retry path
+        (#1879): after ``spawn_all`` returns with some roles in FAILED
+        state, the coordinator classifies failures and calls this to
+        respawn just the failed roles without disturbing survivors.
+
+        Does not touch the consensus tracker — roles were already
+        registered by the original ``spawn_all`` call.
+
+        Args:
+            roles: Agent roles to spawn.
+            agent_prompts: Mapping of role to prompt text (subset is OK).
+
+        Returns:
+            List of AgentExecution records for the respawned roles.
+        """
+        return self._spawn_roles(roles, agent_prompts or {})
+
+    def _spawn_roles(
+        self,
+        roles: list[AgentRole],
+        agent_prompts: dict[AgentRole, str],
+    ) -> list[AgentExecution]:
+        """Spawn the given roles concurrently on the thread pool."""
         executions: list[AgentExecution] = []
 
         with ThreadPoolExecutor(max_workers=self.max_concurrent) as pool:
             futures = {}
             for role in roles:
-                # Register agent for consensus tracking
-                tracker.register_agent(role.value)
-
-                prompt_text = (agent_prompts or {}).get(role, "")
+                prompt_text = agent_prompts.get(role, "")
                 future = pool.submit(self._spawn_agent, role, prompt_text)
                 futures[future] = role
 
