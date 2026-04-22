@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+from kubernetes_spawner import SpawnFailureError
 from models import (
     AgentExecution,
     AgentExecutionStatus,
@@ -545,14 +547,70 @@ class TestRunConcurrentPhaseWait:
 
 
 class TestPartialSpawnFailureCleanup:
-    """Tests for stopping orphaned containers when some agents fail to spawn."""
+    """Tests for stopping orphaned containers when some agents fail to spawn.
 
-    @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
-    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
-    def test_partial_failure_stops_running_containers(
-        self, MockExecutor, mock_build_prompt, mock_state_lock
-    ):
+    Issue #1837: spawn failures raise SpawnFailureError (a KubernetesSpawnError
+    subclass) rather than returning (1, logs), so pipeline.error distinguishes
+    spawn failures from container exits. Survivor state must be written back to
+    the pipeline store before the exception propagates.
+    """
+
+    def _invoke(self, executions, docker_side_effect=None):
+        """Run _run_concurrent_phase with the given executions and return the
+        raised SpawnFailureError plus the phase_exec used by the mock store.
+
+        Note: ``mock_store.load_pipeline()`` always returns the same
+        ``mock_pipeline_state`` object, so mutations made by the recording
+        block (line ~7291) and the cleanup block (line ~7342) both land on
+        the same ``phase_exec``.  This mirrors production where save→load
+        round-trips through the same store within a single lock scope.
+        """
+        pipeline = _make_concurrent_pipeline()
+        phase_exec = _make_phase_execution()
+        mock_store = MagicMock()
+        mock_pipeline_state = MagicMock()
+        mock_pipeline_state.get_phase_execution.return_value = phase_exec
+        mock_store.load_pipeline.return_value = mock_pipeline_state
+
+        mock_docker = MagicMock()
+        if docker_side_effect is not None:
+            mock_docker.stop_container.side_effect = docker_side_effect
+        mock_spawner = MagicMock()
+        mock_spawner.backend = mock_docker
+        mock_spawner.docker = mock_docker
+        mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        MockExecutor = MagicMock(return_value=mock_executor_instance)
+
+        mock_state_lock_cm = MagicMock()
+        mock_state_lock_cm.return_value.__enter__ = MagicMock(return_value=None)
+        mock_state_lock_cm.return_value.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("concurrent_executor.ConcurrentPhaseExecutor", MockExecutor),
+            patch("routes.pipelines._build_agent_prompt", return_value="test prompt"),
+            patch("routes.pipelines.get_pipeline_state_lock", mock_state_lock_cm),
+        ):
+            with pytest.raises(SpawnFailureError) as excinfo:
+                _run_concurrent_phase(
+                    pipeline_id="issue-999",
+                    pipeline=pipeline,
+                    phase="implement",
+                    spawner=mock_spawner,
+                    repo_volumes={},
+                    gateway_mode="public",
+                    repos=["owner/repo"],
+                    sandbox_env={},
+                    store=mock_store,
+                    certs_volume=None,
+                    worktree_repo_path=Path("/tmp/test-repo"),
+                )
+
+        return excinfo.value, phase_exec, mock_docker, mock_store
+
+    def test_partial_failure_stops_running_containers(self):
         """When one agent fails to spawn, running containers are stopped."""
         executions = [
             _make_execution(AgentRole.CODER, "coder-abc"),
@@ -560,140 +618,96 @@ class TestPartialSpawnFailureCleanup:
             _make_failed_execution(AgentRole.DOCUMENTER),
         ]
 
-        pipeline = _make_concurrent_pipeline()
-        mock_store = MagicMock()
-        mock_pipeline_state = MagicMock()
-        mock_pipeline_state.get_phase_execution.return_value = _make_phase_execution()
-        mock_store.load_pipeline.return_value = mock_pipeline_state
+        err, phase_exec, mock_docker, _ = self._invoke(executions)
 
-        mock_docker = MagicMock()
-        mock_spawner = MagicMock()
-        mock_spawner.backend = mock_docker
-        mock_spawner.docker = mock_docker
-        mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
-
-        mock_executor_instance = MagicMock()
-        mock_executor_instance.spawn_all.return_value = executions
-        MockExecutor.return_value = mock_executor_instance
-
-        mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
-        mock_state_lock.return_value.__exit__ = MagicMock(return_value=False)
-
-        exit_code, logs = _run_concurrent_phase(
-            pipeline_id="issue-999",
-            pipeline=pipeline,
-            phase="implement",
-            spawner=mock_spawner,
-            repo_volumes={},
-            gateway_mode="public",
-            repos=["owner/repo"],
-            sandbox_env={},
-            store=mock_store,
-            certs_volume=None,
-            worktree_repo_path=Path("/tmp/test-repo"),
-        )
-
-        assert exit_code == 1
-        # Both running containers should have been stopped
         assert mock_docker.stop_container.call_count == 2
         stopped_ids = {call.args[0] for call in mock_docker.stop_container.call_args_list}
         assert stopped_ids == {"coder-abc", "tester-abc"}
+        assert err.failures == [(AgentRole.DOCUMENTER.value, "Spawn failed")]
 
-    @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
-    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
-    def test_stop_container_error_does_not_block_return(
-        self, MockExecutor, mock_build_prompt, mock_state_lock
-    ):
-        """If stopping a container fails, partial failure still returns (1, logs)."""
+    def test_survivor_state_marked_failed_before_raise(self):
+        """Survivor agents and containers must be written back as FAILED so
+        get_status agrees with list_containers."""
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-abc"),
+            _make_execution(AgentRole.TESTER, "tester-abc"),
+            _make_failed_execution(AgentRole.DOCUMENTER),
+        ]
+
+        _, phase_exec, _, mock_store = self._invoke(executions)
+
+        # State must be persisted: once for recording agents, once for cleanup.
+        assert mock_store.save_pipeline.call_count >= 2
+
+        survivor_agents = {
+            a.role: a for a in phase_exec.agents if a.container_id in {"coder-abc", "tester-abc"}
+        }
+        assert survivor_agents[AgentRole.CODER].status == AgentExecutionStatus.FAILED
+        assert survivor_agents[AgentRole.TESTER].status == AgentExecutionStatus.FAILED
+        assert survivor_agents[AgentRole.CODER].error is not None
+        assert survivor_agents[AgentRole.TESTER].error is not None
+        assert survivor_agents[AgentRole.CODER].completed_at is not None
+        assert survivor_agents[AgentRole.TESTER].completed_at is not None
+
+        survivor_containers = {
+            c.container_id: c
+            for c in phase_exec.containers
+            if c.container_id in {"coder-abc", "tester-abc"}
+        }
+        assert survivor_containers["coder-abc"].status == ContainerStatus.FAILED
+        assert survivor_containers["tester-abc"].status == ContainerStatus.FAILED
+        assert survivor_containers["coder-abc"].exited_at is not None
+        assert survivor_containers["tester-abc"].exited_at is not None
+
+    def test_spawn_failure_error_message_includes_roles_and_reasons(self):
+        """SpawnFailureError.__str__ identifies failed roles and their reasons
+        so pipeline.error is actionable rather than 'Container exited with code 1'."""
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-abc"),
+            _make_failed_execution(AgentRole.TESTER),
+            _make_failed_execution(AgentRole.DOCUMENTER),
+        ]
+
+        err, _, _, _ = self._invoke(executions)
+
+        message = str(err)
+        assert "Spawn failed" in message
+        assert "tester" in message
+        assert "documenter" in message
+        assert "coder" not in message  # coder survived and was stopped, not a spawn failure
+        assert err.failures == [
+            (AgentRole.TESTER.value, "Spawn failed"),
+            (AgentRole.DOCUMENTER.value, "Spawn failed"),
+        ]
+
+    def test_stop_container_error_does_not_block_raise(self):
+        """If stopping a container fails, SpawnFailureError still propagates."""
         executions = [
             _make_execution(AgentRole.CODER, "coder-abc"),
             _make_failed_execution(AgentRole.TESTER),
         ]
 
-        pipeline = _make_concurrent_pipeline()
-        mock_store = MagicMock()
-        mock_pipeline_state = MagicMock()
-        mock_pipeline_state.get_phase_execution.return_value = _make_phase_execution()
-        mock_store.load_pipeline.return_value = mock_pipeline_state
-
-        mock_docker = MagicMock()
-        mock_docker.stop_container.side_effect = Exception("Docker socket error")
-        mock_spawner = MagicMock()
-        mock_spawner.backend = mock_docker
-        mock_spawner.docker = mock_docker
-        mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
-
-        mock_executor_instance = MagicMock()
-        mock_executor_instance.spawn_all.return_value = executions
-        MockExecutor.return_value = mock_executor_instance
-
-        mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
-        mock_state_lock.return_value.__exit__ = MagicMock(return_value=False)
-
-        exit_code, logs = _run_concurrent_phase(
-            pipeline_id="issue-999",
-            pipeline=pipeline,
-            phase="implement",
-            spawner=mock_spawner,
-            repo_volumes={},
-            gateway_mode="public",
-            repos=["owner/repo"],
-            sandbox_env={},
-            store=mock_store,
-            certs_volume=None,
-            worktree_repo_path=Path("/tmp/test-repo"),
+        err, _, mock_docker, _ = self._invoke(
+            executions, docker_side_effect=Exception("Docker socket error")
         )
 
-        # Should still return failure even though stop_container raised
-        assert exit_code == 1
         assert mock_docker.stop_container.call_count == 1
+        assert "tester" in str(err)
 
-    @patch("routes.pipelines.get_pipeline_state_lock")
-    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
-    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
-    def test_all_spawns_fail_no_containers_to_stop(
-        self, MockExecutor, mock_build_prompt, mock_state_lock
-    ):
-        """When all agents fail to spawn, no stop_container calls."""
+    def test_all_spawns_fail_no_containers_to_stop(self):
+        """When all agents fail to spawn, no stop_container calls and error
+        still names every failed role."""
         executions = [
             _make_failed_execution(AgentRole.CODER),
             _make_failed_execution(AgentRole.TESTER),
             _make_failed_execution(AgentRole.DOCUMENTER),
         ]
 
-        pipeline = _make_concurrent_pipeline()
-        mock_store = MagicMock()
-        mock_pipeline_state = MagicMock()
-        mock_pipeline_state.get_phase_execution.return_value = _make_phase_execution()
-        mock_store.load_pipeline.return_value = mock_pipeline_state
+        err, _, mock_docker, _ = self._invoke(executions)
 
-        mock_docker = MagicMock()
-        mock_spawner = MagicMock()
-        mock_spawner.backend = mock_docker
-        mock_spawner.docker = mock_docker
-        mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
-
-        mock_executor_instance = MagicMock()
-        mock_executor_instance.spawn_all.return_value = executions
-        MockExecutor.return_value = mock_executor_instance
-
-        mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
-        mock_state_lock.return_value.__exit__ = MagicMock(return_value=False)
-
-        exit_code, logs = _run_concurrent_phase(
-            pipeline_id="issue-999",
-            pipeline=pipeline,
-            phase="implement",
-            spawner=mock_spawner,
-            repo_volumes={},
-            gateway_mode="public",
-            repos=["owner/repo"],
-            sandbox_env={},
-            store=mock_store,
-            certs_volume=None,
-            worktree_repo_path=Path("/tmp/test-repo"),
-        )
-
-        assert exit_code == 1
         mock_docker.stop_container.assert_not_called()
+        assert err.failures == [
+            (AgentRole.CODER.value, "Spawn failed"),
+            (AgentRole.TESTER.value, "Spawn failed"),
+            (AgentRole.DOCUMENTER.value, "Spawn failed"),
+        ]
