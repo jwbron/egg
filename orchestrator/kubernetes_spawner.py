@@ -178,6 +178,30 @@ def _classify_spawn_error(e: BaseException | None) -> str | None:
     return f"unknown_{status_code}"
 
 
+# Roles that can run without a per-agent git worktree.  Reviewers and
+# operator-facing roles only poll consensus messages / pipeline state —
+# they never commit or push, so spawning them with ``repos=[]`` is a
+# valid configuration.  Every other role produces or edits files in a
+# worktree, so spawning it without one would stall the pipeline with
+# "Worktree not found" on the first git call (#1869).
+_ROLES_WITHOUT_WORKTREE: frozenset[AgentRole] = frozenset(
+    {
+        AgentRole.REVIEWER_CODE,
+        AgentRole.REVIEWER_CONTRACT,
+        AgentRole.REVIEWER_AGENT_DESIGN,
+        AgentRole.REVIEWER_REFINE,
+        AgentRole.REVIEWER_PLAN,
+        AgentRole.OVERSEER,
+        AgentRole.INSPECTOR,
+    }
+)
+
+
+def _role_needs_worktree(role: AgentRole) -> bool:
+    """Return True for roles whose work cannot proceed without a worktree."""
+    return role not in _ROLES_WITHOUT_WORKTREE
+
+
 def _host_to_local_volumes(repo_volumes: dict[str, str]) -> dict[str, str]:
     """Translate host paths to orchestrator-local paths for filesystem ops.
 
@@ -272,6 +296,25 @@ class KubernetesSpawner:
             if key not in self._restart_locks:
                 self._restart_locks[key] = threading.Lock()
             return self._restart_locks[key]
+
+    def _find_missing_worktrees(self, agent_worktree_id: str, repos: list[str]) -> list[str]:
+        """Return the list of per-agent worktree paths that don't exist on disk.
+
+        Called right before spawning the k8s Job to catch the #1869 class
+        of failure: ``create_worktrees`` returned success but the directory
+        is gone by the time we'd spawn the Job (concurrent cleanup race,
+        or create_worktrees was never called because ``repos`` was empty).
+        Returns an empty list when all worktrees are in place.  Split out
+        as an instance method so tests can monkey-patch it without having
+        to manage a tmp filesystem hierarchy.
+        """
+        missing: list[str] = []
+        for repo in repos:
+            repo_name = repo.split("/")[-1] if "/" in repo else repo
+            expected = WORKTREE_BASE_DIR / agent_worktree_id / repo_name
+            if not expected.exists():
+                missing.append(str(expected))
+        return missing
 
     def spawn_agent_job(
         self,
@@ -491,6 +534,36 @@ class KubernetesSpawner:
                     f"Per-agent worktree creation returned no worktrees "
                     f"for {agent_worktree_id}: {errors}"
                 )
+
+        # Defensive sanity check: confirm the per-agent worktree actually
+        # exists on disk before we spawn the Job.  Producers silently burn
+        # minutes of tokens retrying git against a missing worktree when
+        # ``create_worktrees`` looked like it succeeded but the directory
+        # is gone — e.g. if a concurrent cleanup raced in between creation
+        # and Job spawn, or if ``repos`` was empty so no worktree was ever
+        # made for a role that needs one.  Surface that at spawn time
+        # with an actionable message instead (#1869).
+        if repos:
+            missing = self._find_missing_worktrees(agent_worktree_id, repos)
+            if missing:
+                raise KubernetesSpawnError(
+                    f"Per-agent worktree missing at spawn time for "
+                    f"{agent_worktree_id} (role={agent_role.value}): "
+                    f"{', '.join(missing)}. The worktree was either never "
+                    f"created or deleted before the Job could start — see #1869."
+                )
+        elif _role_needs_worktree(agent_role):
+            # No repos were provided but this role cannot function without
+            # a worktree (any non-reviewer role).  Previously we spawned
+            # anyway; the container would come up, issue a ``git status``,
+            # and get a 500 "Worktree not found" from the gateway on every
+            # call — pipelines stalled until manual cancellation (#1869).
+            raise KubernetesSpawnError(
+                f"Cannot spawn {agent_role.value} for pipeline "
+                f"{pipeline_id}: no repos provided so no per-agent worktree "
+                f"can be created, and this role requires one for git "
+                f"operations. See #1869."
+            )
 
         # Register gateway session (token-only, no container_ip)
         session_info = None
