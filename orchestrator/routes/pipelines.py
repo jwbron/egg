@@ -3291,10 +3291,18 @@ def _build_review_prompt(
 
     # Delta review: for re-reviews with a known last-reviewed commit,
     # instruct the reviewer to focus on the delta.
+    #
+    # We use `git log {last_reviewed_commit}..HEAD --not {_base_ref} -p`
+    # instead of `git diff {last_reviewed_commit}..HEAD` so that commits
+    # merged in from the base branch (e.g. a `Merge branch 'main'` that
+    # landed between reviews) are explicitly excluded. The two-dot diff
+    # form is a snapshot diff that includes every change reachable from
+    # HEAD since the last review, which caused reviewers to attribute
+    # base-branch work to the PR author (issue #1758).
     is_delta_review = review_cycle > 1 and last_reviewed_commit and not draft_path
     _base_ref = _resolve_origin_ref(base_branch)
     diff_command = (
-        f"git diff {last_reviewed_commit}..HEAD"
+        f"git log {last_reviewed_commit}..HEAD --not {_base_ref} -p"
         if is_delta_review
         else f"git diff {_base_ref}...HEAD"
     )
@@ -3442,11 +3450,20 @@ def _build_review_prompt(
 
     # Delta review directive for re-reviews
     if is_delta_review:
+        # Strip the ``origin/`` prefix for the ``git fetch`` hint so the
+        # command stays valid — ``git fetch`` expects a refspec / branch
+        # name, not the remote-tracking form.
+        _base_branch_hint = _base_ref.split("/", 1)[1] if "/" in _base_ref else _base_ref
         lines.append("## Delta Review\n")
         lines.append(
             f"This is review cycle {review_cycle}. Focus on new changes since your "
-            f"last review. Use `git diff {last_reviewed_commit}..HEAD` to see the "
-            "delta. Verify prior feedback was addressed AND review new code thoroughly."
+            f"last review, excluding any commits merged in from the base branch. "
+            f"First run `git fetch origin {_base_branch_hint}` so the base ref is "
+            f"up to date, then use "
+            f"`git log {last_reviewed_commit}..HEAD --not {_base_ref} -p` to see "
+            "the delta authored on this PR. This avoids attributing base-branch "
+            "merges to the PR author. Verify prior feedback was addressed AND "
+            "review new code thoroughly."
         )
         lines.append("")
 
