@@ -1,10 +1,11 @@
 """Deployment introspection and action endpoints.
 
 Exposes read-only introspection tools
-(``get_deployment_context``, ``validate_deployment_manifests``) and
-mutating actions (``prune_stale_worktrees`` — proxied to the gateway,
-``validate_network_isolation``, ``rebuild_and_rollout``) for operator
-diagnostics on the Kubernetes runtime.
+(``get_deployment_context``, ``validate_deployment_manifests``,
+``get_service_logs``) and mutating actions (``prune_stale_worktrees`` —
+proxied to the gateway, ``validate_network_isolation``,
+``rebuild_and_rollout``) for operator diagnostics on the Kubernetes
+runtime.
 
 Every route requires the lifecycle bearer token (parity with the
 fix made for #1769) because these are agent-visible via the MCP
@@ -317,6 +318,106 @@ def get_deployment_context() -> tuple[Response, int]:
     except Exception as exc:
         logger.error("get_deployment_context failed", error=str(exc))
         return jsonify({"success": False, "message": f"failed: {exc}"}), 500
+    return jsonify({"success": True, "data": payload}), 200
+
+
+# ---------------------------------------------------------------------------
+# get_service_logs (#1853)
+# ---------------------------------------------------------------------------
+
+# Allowlist of services whose logs are readable via this endpoint.  Keeping
+# the surface bounded avoids turning this into a generic kubectl-logs proxy:
+# agent-pod logs live in the `egg-agents` namespace and are already exposed
+# through the container-scoped `get_container_logs` tool.
+_SERVICE_LOG_ALLOWLIST: frozenset[str] = frozenset({"gateway", "orchestrator"})
+
+_MAX_LOG_LINES = 10_000
+
+
+@deployment_bp.route("/logs", methods=["GET"])
+@require_lifecycle_secret
+def get_service_logs() -> tuple[Response, int]:
+    """Return logs from the pod(s) backing the gateway or orchestrator Deployment.
+
+    Query params:
+        service: one of _SERVICE_LOG_ALLOWLIST (required).
+        lines: tail length, default 100, capped at _MAX_LOG_LINES.
+        since_seconds: only return logs newer than this many seconds.
+    """
+    if _current_runtime() != "kubernetes":
+        return _not_available_on_runtime()
+
+    service = (request.args.get("service") or "").strip()
+    if not service:
+        return jsonify({"success": False, "message": "service is required"}), 400
+    if service not in _SERVICE_LOG_ALLOWLIST:
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": (
+                        f"service must be one of {sorted(_SERVICE_LOG_ALLOWLIST)}; got {service!r}"
+                    ),
+                }
+            ),
+            400,
+        )
+
+    try:
+        lines = int(request.args.get("lines", 100))
+    except (ValueError, TypeError):
+        lines = 100
+    if lines <= 0:
+        lines = 100
+    lines = min(lines, _MAX_LOG_LINES)
+
+    since_raw = request.args.get("since_seconds")
+    since_seconds: int | None = None
+    if since_raw is not None:
+        try:
+            since_seconds = int(since_raw)
+        except (ValueError, TypeError):
+            return (
+                jsonify({"success": False, "message": "since_seconds must be an integer"}),
+                400,
+            )
+        if since_seconds <= 0:
+            since_seconds = None
+
+    namespace = os.environ.get("EGG_K8S_NAMESPACE", "egg-system")
+
+    try:
+        from kubernetes_client import (
+            JobOperationError,
+            PodNotFoundError,
+            get_kubernetes_client,
+        )
+    except Exception as exc:  # pragma: no cover - env wiring
+        return jsonify({"success": False, "message": f"kubernetes unavailable: {exc}"}), 503
+
+    try:
+        k8s = get_kubernetes_client()
+    except Exception as exc:
+        return (
+            jsonify({"success": False, "message": f"kubernetes init failed: {exc}"}),
+            503,
+        )
+
+    try:
+        payload = k8s.get_service_logs(
+            service=service,
+            namespace=namespace,
+            tail_lines=lines,
+            since_seconds=since_seconds,
+        )
+    except PodNotFoundError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
+    except JobOperationError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 500
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("get_service_logs failed", service=service, error=str(exc))
+        return jsonify({"success": False, "message": f"failed: {exc}"}), 500
+
     return jsonify({"success": True, "data": payload}), 200
 
 
@@ -1367,4 +1468,6 @@ __all__ = [
     "_stream_mark_done",
     "_STREAM_BUFFERS",
     "_STREAM_TERMINATED",
+    "_SERVICE_LOG_ALLOWLIST",
+    "_MAX_LOG_LINES",
 ]

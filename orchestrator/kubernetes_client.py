@@ -825,6 +825,100 @@ class KubernetesClient:
                 raise PodNotFoundError(f"Pod {pod_name} not found in {namespace}") from exc
             raise JobOperationError(f"Failed to get logs for pod {pod_name}: {exc}") from exc
 
+    def get_service_logs(
+        self,
+        service: str,
+        namespace: str,
+        tail_lines: int = 100,
+        since_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        """Read logs from the pod(s) backing a Deployment.
+
+        Resolves *service* to a Deployment in *namespace* whose metadata
+        name matches exactly, pulls the pod selector from
+        ``spec.selector.matchLabels``, and concatenates logs from each
+        matching pod.  Used by the ``get_service_logs`` MCP tool so
+        operators can cross-reference gateway/orchestrator logs without
+        shelling into the cluster (#1853).
+
+        Returns a dict of
+        ``{"service", "namespace", "pods": [{"pod", "logs"}, ...]}``
+        so the caller can see which pod each chunk came from when a
+        Deployment has multiple replicas.
+
+        Raises:
+            PodNotFoundError: If the Deployment is missing or has no pods.
+            JobOperationError: For other k8s API failures.
+        """
+        try:
+            from kubernetes import client as k8s_client_pkg
+        except Exception as exc:  # pragma: no cover - env wiring
+            raise JobOperationError(f"kubernetes client package unavailable: {exc}") from exc
+
+        apps_api = k8s_client_pkg.AppsV1Api(self.batch_api.api_client)
+
+        try:
+            dep = apps_api.read_namespaced_deployment(name=service, namespace=namespace)
+        except Exception as exc:
+            error_msg = str(exc).lower()
+            if "not found" in error_msg or "404" in error_msg:
+                raise PodNotFoundError(f"Deployment {service} not found in {namespace}") from exc
+            raise JobOperationError(
+                f"Failed to read deployment {service} in {namespace}: {exc}"
+            ) from exc
+
+        match_labels = (
+            (getattr(dep.spec, "selector", None) and dep.spec.selector.match_labels) or {}
+            if dep and dep.spec
+            else {}
+        )
+        if not match_labels:
+            raise JobOperationError(
+                f"Deployment {service} in {namespace} has no selector.matchLabels"
+            )
+
+        label_selector = ",".join(f"{k}={v}" for k, v in sorted(match_labels.items()))
+
+        try:
+            pods = self.core_api.list_namespaced_pod(
+                namespace=namespace, label_selector=label_selector
+            )
+        except Exception as exc:
+            raise JobOperationError(
+                f"Failed to list pods for {service} in {namespace}: {exc}"
+            ) from exc
+
+        items = list(getattr(pods, "items", []) or [])
+        if not items:
+            raise PodNotFoundError(
+                f"No pods found for deployment {service} in {namespace} "
+                f"(selector: {label_selector})"
+            )
+
+        chunks: list[dict[str, str]] = []
+        for pod in items:
+            pod_name = (getattr(pod, "metadata", None) and pod.metadata.name) or ""
+            if not pod_name:
+                continue
+            try:
+                logs = self.get_pod_logs(
+                    pod_name,
+                    namespace,
+                    tail_lines=tail_lines,
+                    since_seconds=since_seconds,
+                )
+            except PodNotFoundError:
+                # Pod vanished between list and read; skip it rather than
+                # failing the whole request.
+                continue
+            chunks.append({"pod": pod_name, "logs": logs or ""})
+
+        return {
+            "service": service,
+            "namespace": namespace,
+            "pods": chunks,
+        }
+
     def get_pod_status(
         self,
         pod_name: str,
