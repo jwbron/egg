@@ -616,11 +616,13 @@ class TestSpawnUsesConsensusWrapper:
     def test_spawn_agent_uses_wrapped_command(self):
         """_spawn_agent should produce a bash -c wrapper, not raw claude args."""
         from concurrent_executor import ConcurrentPhaseExecutor
-        from models import AgentRole
+        from models import AgentRole, ContainerInfo
 
         pipeline = _make_concurrent_pipeline()
         mock_spawn = MagicMock()
-        mock_spawn.return_value = MagicMock(container_info=MagicMock(container_id="abc123"))
+        mock_spawn.return_value = MagicMock(
+            container_info=ContainerInfo(container_id="abc123", container_name="abc123"),
+        )
 
         executor = ConcurrentPhaseExecutor(pipeline=pipeline, spawn_fn=mock_spawn)
         executor._spawn_agent(AgentRole.CODER, prompt_text="Do the work")
