@@ -2533,6 +2533,17 @@ class TestPipelineToolsSchemasForDeployment:
         assert set(props["service"].get("enum", [])) == {"gateway", "orchestrator"}
         assert props["lines"]["default"] == 100
 
+    def test_get_service_logs_enum_matches_route_allowlist(self):
+        """MCP schema enum and route allowlist must stay in sync."""
+        from mcp_tools import PIPELINE_TOOLS
+        from routes.deployment import _SERVICE_LOG_ALLOWLIST
+
+        tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
+        schema_enum = set(
+            tools_by_name["get_service_logs"]["inputSchema"]["properties"]["service"]["enum"]
+        )
+        assert schema_enum == _SERVICE_LOG_ALLOWLIST
+
     def test_validate_network_isolation_requires_pipeline_id(self):
         from mcp_tools import PIPELINE_TOOLS
 

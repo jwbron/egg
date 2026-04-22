@@ -911,6 +911,12 @@ class KubernetesClient:
                 # Pod vanished between list and read; skip it rather than
                 # failing the whole request.
                 continue
+            except JobOperationError as exc:
+                # Transient non-404 failure (kubelet timeout, CrashLoopBackOff
+                # with no logs yet, etc.).  Include the pod with an error note
+                # so the operator sees partial results from healthy replicas.
+                chunks.append({"pod": pod_name, "logs": "", "error": str(exc)})
+                continue
             chunks.append({"pod": pod_name, "logs": logs or ""})
 
         return {

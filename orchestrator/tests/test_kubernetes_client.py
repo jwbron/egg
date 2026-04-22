@@ -946,6 +946,38 @@ class TestGetServiceLogs:
 
         assert [p["pod"] for p in result["pods"]] == ["gateway-abc"]
 
+    def test_per_pod_operation_error_returns_partial_results(
+        self,
+        k8s_client: KubernetesClient,
+        mock_core_api: MagicMock,
+    ):
+        """A transient non-404 error on one pod returns partial results with an error entry."""
+        dep = self._make_deployment({"app.kubernetes.io/name": "gateway"})
+        apps_patch, _ = self._install_apps_api(dep)
+
+        mock_pods = MagicMock()
+        mock_pods.items = [
+            _make_mock_pod(name="gateway-healthy"),
+            _make_mock_pod(name="gateway-crashloop"),
+        ]
+        mock_core_api.list_namespaced_pod.return_value = mock_pods
+        mock_core_api.read_namespaced_pod_log.side_effect = [
+            "healthy logs\n",
+            Exception("status=500 container in CrashLoopBackOff"),
+        ]
+
+        with apps_patch:
+            result = k8s_client.get_service_logs(service="gateway", namespace="egg-system")
+
+        assert len(result["pods"]) == 2
+        assert result["pods"][0]["pod"] == "gateway-healthy"
+        assert result["pods"][0]["logs"] == "healthy logs\n"
+        assert "error" not in result["pods"][0]
+        assert result["pods"][1]["pod"] == "gateway-crashloop"
+        assert result["pods"][1]["logs"] == ""
+        assert "error" in result["pods"][1]
+        assert "CrashLoopBackOff" in result["pods"][1]["error"]
+
 
 # ---------------------------------------------------------------------------
 # wait_for_container
