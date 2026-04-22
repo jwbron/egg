@@ -56,7 +56,7 @@ except ImportError:
 
 # Import orchestrator modules - try relative import first
 try:
-    from ..container_spawner import ContainerSpawnError, get_container_spawner
+    from ..container_spawner import ContainerSpawnError, SpawnFailureError, get_container_spawner
     from ..decision_queue import get_decision_queue
     from ..docker_client import ContainerNotFoundError, ContainerOperationError, DockerClientError
     from ..gateway_client import GatewayError
@@ -90,7 +90,11 @@ try:
         get_state_store,
     )
 except ImportError:
-    from container_spawner import ContainerSpawnError, get_container_spawner  # type: ignore
+    from container_spawner import (  # type: ignore
+        ContainerSpawnError,
+        SpawnFailureError,
+        get_container_spawner,
+    )
     from decision_queue import get_decision_queue  # type: ignore
     from docker_client import (  # type: ignore
         ContainerNotFoundError,
@@ -7169,6 +7173,12 @@ def _run_concurrent_phase(
 
     Returns:
         (exit_code, logs) — 0 on success.
+
+    Raises:
+        SpawnFailureError: If any agent fails to spawn. Survivors are stopped
+            and their pipeline-state records are marked FAILED before the
+            exception propagates. Distinguishes spawn failures from container
+            exits so the outer caller's ``pipeline.error`` is accurate.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -7328,19 +7338,52 @@ def _run_concurrent_phase(
             )
 
     # Check for spawn failures before waiting.  Stop successfully-spawned
-    # containers so they don't continue running after the phase is aborted.
+    # containers so they don't continue running after the phase is aborted,
+    # then write their terminal status back to pipeline state so get_status
+    # agrees with list_containers (kubernetes_monitor won't reconcile a
+    # non-RUNNING pipeline, so we must finalize here).
     spawn_failures = [e for e in executions if e.status.value == "failed"]
     if spawn_failures:
+        survivor_container_ids: set[str] = set()
         for e in executions:
             if e.container_id and e.status.value != "failed":
+                survivor_container_ids.add(e.container_id)
                 try:
                     spawner.backend.stop_container(e.container_id, timeout=10)
                 except Exception:
                     pass
-        logs = "\n".join(
-            f"--- {e.role.value} (status={e.status.value}, error={e.error}) ---" for e in executions
-        )
-        return 1, logs
+
+        if store is not None:
+            try:
+                with get_pipeline_state_lock(pipeline_id):
+                    pip = store.load_pipeline(pipeline_id)
+                    phase_execution = pip.get_phase_execution(PipelinePhase(phase_str))
+                    abort_error = "Aborted during spawn-failure cleanup"
+                    now = datetime.now(UTC)
+                    for agent_state in phase_execution.agents:
+                        if (
+                            agent_state.container_id in survivor_container_ids
+                            and agent_state.status == StateAgentStatus.RUNNING
+                        ):
+                            agent_state.status = StateAgentStatus.FAILED
+                            agent_state.error = abort_error
+                            agent_state.completed_at = now
+                    for container_info in phase_execution.containers:
+                        if (
+                            container_info.container_id in survivor_container_ids
+                            and container_info.status == ContainerStatus.RUNNING
+                        ):
+                            container_info.status = ContainerStatus.FAILED
+                            container_info.exited_at = now
+                    store.save_pipeline(pip)
+            except Exception as cleanup_err:
+                logger.warning(
+                    "Failed to record spawn-failure cleanup in pipeline state",
+                    pipeline_id=pipeline_id,
+                    error=str(cleanup_err),
+                )
+
+        raise SpawnFailureError([(e.role.value, e.error) for e in spawn_failures])
 
     # Consensus-driven polling loop with container-exit fallback.
     #
