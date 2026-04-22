@@ -240,6 +240,7 @@ class TestSpawnAgentJob:
         result = spawner.spawn_agent_job(
             pipeline_id="pipe-1",
             agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
         )
         assert result.pipeline_id == "pipe-1"
         assert result.agent_role == AgentRole.CODER
@@ -268,6 +269,7 @@ class TestSpawnAgentJob:
             issue_number=42,
             phase="implement",
             branch="egg/issue-42",
+            repos=["owner/repo"],
         )
         env = result.environment
         assert env["EGG_PIPELINE_ID"] == "pipe-2"
@@ -285,6 +287,7 @@ class TestSpawnAgentJob:
             pipeline_id="p",
             agent_role=AgentRole.CODER,
             extra_env={"EGG_AGENT_ROLE": "custom", "MY_KEY": "val"},
+            repos=["owner/repo"],
         )
         assert result.environment["EGG_AGENT_ROLE"] == "custom"
         assert result.environment["MY_KEY"] == "val"
@@ -295,6 +298,7 @@ class TestSpawnAgentJob:
             pipeline_id="pipe-1",
             agent_role=AgentRole.CODER,
             issue_number=99,
+            repos=["owner/repo"],
         )
         call_kwargs = mock_k8s_client.create_container.call_args.kwargs
         labels = call_kwargs["labels"]
@@ -310,6 +314,7 @@ class TestSpawnAgentJob:
             pipeline_id="p",
             agent_role=AgentRole.CODER,
             wait_for_gateway=False,
+            repos=["owner/repo"],
         )
         mock_gateway.check_health.assert_not_called()
 
@@ -324,6 +329,7 @@ class TestSpawnAgentJob:
             spawner.spawn_agent_job(
                 pipeline_id="p",
                 agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
             )
 
     def test_spawn_cleans_existing_job(self, spawner, mock_k8s_client):
@@ -332,6 +338,7 @@ class TestSpawnAgentJob:
         spawner.spawn_agent_job(
             pipeline_id="p",
             agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
         )
         mock_k8s_client.delete_job.assert_called_once_with(
             "egg-sandbox-egg-agent-p-coder", "test-ns"
@@ -368,15 +375,79 @@ class TestSpawnAgentJob:
         assert register_kwargs["worktree_container_id"] == "pipe-1-coder"
 
     def test_spawn_without_repos_omits_worktree_container_id(self, spawner, mock_gateway):
-        """Local-mode spawns skip worktree creation entirely — passing a
+        """Review-only spawns skip worktree creation entirely — passing a
         worktree_container_id would force the gateway to look up a
-        worktree that was never made."""
+        worktree that was never made.
+
+        Uses ``REVIEWER_CODE`` because producers with empty ``repos`` are
+        now rejected at spawn time (#1869).
+        """
         spawner.spawn_agent_job(
             pipeline_id="pipe-1",
-            agent_role=AgentRole.CODER,
+            agent_role=AgentRole.REVIEWER_CODE,
         )
         register_kwargs = mock_gateway.register_session.call_args.kwargs
         assert register_kwargs.get("worktree_container_id") is None
+
+    def test_spawn_producer_without_repos_raises(self, spawner, monkeypatch):
+        """Spawning a producer role with empty ``repos`` now raises.
+
+        Regression guard for #1869: previously the container came up
+        without a worktree and burned tokens retrying git against a
+        gateway that kept returning "Worktree not found" — the
+        pipeline stalled until a human cancelled.
+        """
+        import kubernetes_spawner
+        from kubernetes_spawner import KubernetesSpawnError
+
+        # Undo the conftest autouse stub for this regression test.
+        monkeypatch.setattr(
+            kubernetes_spawner,
+            "_role_needs_worktree",
+            lambda role: role not in kubernetes_spawner._ROLES_WITHOUT_WORKTREE,
+        )
+
+        with pytest.raises(KubernetesSpawnError, match="no repos provided"):
+            spawner.spawn_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+            )
+
+    def test_spawn_missing_worktree_on_disk_raises(self, spawner, monkeypatch):
+        """Spawn fails when the worktree disappears between creation and Job start.
+
+        Simulates the race where ``create_worktrees`` returns success but
+        a concurrent ``cleanup_pipeline`` wipes the directory before the
+        Job can start — surfaced now so producers don't silently burn
+        tokens on a missing worktree (#1869).
+        """
+        from kubernetes_spawner import KubernetesSpawner, KubernetesSpawnError
+
+        # The conftest autouse fixture stubs _find_missing_worktrees to
+        # return empty.  Re-patch here so the check reports the worktree
+        # as missing — simulating a concurrent cleanup race.
+        monkeypatch.setattr(
+            KubernetesSpawner,
+            "_find_missing_worktrees",
+            lambda self, agent_worktree_id, repos: [
+                f"/home/egg/.egg-worktrees/{agent_worktree_id}/repo"
+            ],
+        )
+
+        with pytest.raises(KubernetesSpawnError, match="missing at spawn time"):
+            spawner.spawn_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
+            )
+
+    def test_spawn_reviewer_without_repos_succeeds(self, spawner):
+        """Reviewer roles can spawn without ``repos`` — they never do git."""
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.REVIEWER_CONTRACT,
+        )
+        assert result.agent_role == AgentRole.REVIEWER_CONTRACT
 
     def test_spawn_worktree_failure_raises(self, spawner, mock_gateway):
         """Spawn raises when worktree creation fails."""
@@ -401,6 +472,7 @@ class TestSpawnAgentJob:
             spawner.spawn_agent_job(
                 pipeline_id="p",
                 agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
             )
         mock_gateway.delete_session.assert_called_once_with("tok-abcdef123456")
 
@@ -409,6 +481,7 @@ class TestSpawnAgentJob:
         result = spawner.spawn_agent_job(
             pipeline_id="pipe-5",
             agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
         )
         assert result.environment["EGG_BRANCH"] == "egg/pipe-5/work"
 
@@ -418,6 +491,7 @@ class TestSpawnAgentJob:
             pipeline_id="p",
             agent_role=AgentRole.CODER,
             image="custom-image:v2",
+            repos=["owner/repo"],
         )
         call_kwargs = mock_k8s_client.create_container.call_args.kwargs
         assert call_kwargs["image"] == "custom-image:v2"
@@ -775,6 +849,7 @@ class TestRestartAgentJob:
         result = spawner.restart_agent_job(
             pipeline_id="pipe-1",
             agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
         )
         assert spawner.get_restart_count("pipe-1", "coder") == 1
         assert result.pipeline_id == "pipe-1"
@@ -796,6 +871,7 @@ class TestRestartAgentJob:
         spawner.restart_agent_job(
             pipeline_id="pipe-1",
             agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
         )
         mock_k8s_client.remove_container.assert_called()
 
@@ -805,6 +881,7 @@ class TestRestartAgentJob:
         spawner.restart_agent_job(
             pipeline_id="pipe-1",
             agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
         )
         assert spawner.get_restart_count("pipe-1", "coder") == 1
 
@@ -924,7 +1001,7 @@ class TestCreateConcurrentSpawnFn:
             issue_number=1,
             repo_volumes=None,
             mode="public",
-            repos=None,
+            repos=["owner/repo"],
             phase="implement",
             sandbox_env={"BASE_KEY": "base_val"},
         )
