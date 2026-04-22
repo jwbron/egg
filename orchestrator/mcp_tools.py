@@ -2288,6 +2288,9 @@ class PipelineToolHandler:
 
     def _handle_get_service_logs(self, args: dict[str, Any]) -> dict[str, Any]:
         """Fetch logs for the gateway or orchestrator Deployment."""
+        import json
+        from urllib.error import HTTPError
+
         service = args.get("service")
         if not service:
             return {"error": "service is required"}
@@ -2303,6 +2306,23 @@ class PipelineToolHandler:
         endpoint = "/api/v1/deployment/logs?" + "&".join(params)
         try:
             result = self._make_request(endpoint, method="GET", timeout=30)
+        except HTTPError as exc:
+            # Surface the orchestrator's structured error body — urllib's
+            # default HTTPError.__str__ is just "HTTP Error N: <reason>",
+            # which hides the message our route actually set. Before this
+            # #1870 fix the caller saw only "HTTP Error 500: INTERNAL
+            # SERVER ERROR" with no hint that the real cause was an RBAC
+            # denial reading Deployments in egg-system.
+            detail = ""
+            try:
+                raw = exc.read()
+                resp_body = json.loads(raw.decode()) if raw else {}
+                detail = resp_body.get("message") or ""
+            except Exception:
+                detail = ""
+            if detail:
+                return {"error": f"get_service_logs failed (HTTP {exc.code}): {detail}"}
+            return {"error": f"get_service_logs failed: {exc}"}
         except Exception as exc:
             return {"error": f"get_service_logs failed: {exc}"}
         return result.get("data", result)
