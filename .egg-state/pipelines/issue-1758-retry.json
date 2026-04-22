@@ -73,7 +73,7 @@
       ],
       "artifacts": {},
       "error": null,
-      "hitl_feedback": "approve\n\nResponses to the refiner's sub-decisions and feedback:\n\n**decision-1 (output format)**: per-commit `git log <sha>..HEAD --not origin/<base> -p`. Proceed with Option A as recommended.\n\n**decision-2 (orchestrator fetch nudge)**: add the `git fetch origin <base>` nudge to the orchestrator Delta Review directive too. Mirror the GHA fix for safety.\n\n**decision-3 (BASE_REF default)**: default to `main` when unset. Keep the status quo so existing callers that forget to plumb BASE_REF still work.\n\n**Q1 (retract old reviews)**: no. Strictly forward-only. Don't retroactively flag or retract previously posted reviews.\n\n**Q2 (per-commit output on long PRs)**: no objection. Per-commit format is fine even for large PRs. Don't add commit-count caps or pagination nudges for now.\n\n**Q3 (non-main base branches)**: no egg PRs target non-main today, but `BASE_REF` plumbing matters because other repos using this system will have different target branches (long-lived branches, chained PRs, etc.). Keep the plumbing and keep the `develop` (non-default-base) test case.\n\nProceed to plan phase.",
+      "hitl_feedback": null,
       "phase_start_sha": "4a21bdf128e1b4765c25146a9dc01698ba8fc1b9"
     }
   },
@@ -97,7 +97,7 @@
     }
   ],
   "created_at": "2026-04-22T20:38:39.013020Z",
-  "updated_at": "2026-04-22T20:57:53.565868Z",
+  "updated_at": "2026-04-22T20:57:53.580474Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -110,5 +110,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14
+  "version": 15
 }
