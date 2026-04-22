@@ -842,9 +842,11 @@ class KubernetesClient:
         shelling into the cluster (#1853).
 
         Returns a dict of
-        ``{"service", "namespace", "pods": [{"pod", "logs"}, ...]}``
+        ``{"service", "namespace", "pods": [{"pod", "logs"[, "error"]}, ...]}``
         so the caller can see which pod each chunk came from when a
-        Deployment has multiple replicas.
+        Deployment has multiple replicas.  Pods that encounter a
+        transient non-404 failure include an ``"error"`` key with the
+        message and ``"logs": ""``.
 
         Raises:
             PodNotFoundError: If the Deployment is missing or has no pods.

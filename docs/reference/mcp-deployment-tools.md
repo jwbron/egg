@@ -485,15 +485,22 @@ self-serve.
     {
       "pod": "gateway-7d4b9c5f9-abcde",
       "logs": "INFO ... listening on :9848\n..."
+    },
+    {
+      "pod": "gateway-7d4b9c5f9-fghij",
+      "logs": "",
+      "error": "Failed to read logs: container in CrashLoopBackOff"
     }
   ]
 }
 ```
 
 Replicas >1 are each returned as their own `{pod, logs}` entry so the
-operator can tell which chunk came from where. A pod that vanishes
-between the selector listing and the log read is skipped rather than
-failing the whole request.
+operator can tell which chunk came from where. Pods that encounter a
+transient non-404 failure (kubelet timeout, `CrashLoopBackOff` with no
+logs yet, etc.) include an `"error"` key so operators see partial
+results from healthy replicas. A pod that vanishes between the selector
+listing and the log read is skipped entirely.
 
 **Error shapes**:
 
@@ -519,7 +526,10 @@ logs = await mcp.call_tool("get_service_logs", {
 })
 for chunk in logs["pods"]:
     print(chunk["pod"])
-    print(chunk["logs"])
+    if "error" in chunk:
+        print(f"  [error] {chunk['error']}")
+    else:
+        print(chunk["logs"])
 ```
 
 ## See Also
