@@ -1234,6 +1234,8 @@ Or pass it in the pipeline config JSON (e.g. via the API):
 | `overseer_enabled` | bool | `true` | Enable the overseer agent for pipeline health monitoring |
 | `spawn_max_retries` | int | `2` | Max additional retry attempts for transient gateway worktree-creation failures during agent spawn. Total attempts = `spawn_max_retries + 1`. Set to `0` to disable retry. |
 | `spawn_retry_initial_backoff_seconds` | float | `2.0` | Initial backoff between spawn retries. Subsequent attempts scale by 2.5× (e.g. 2 s, 5 s, 12.5 s). |
+| `phase_spawn_max_retries` | int | `2` | Max phase-level retry attempts when one or more roles fail with a transient spawn error (e.g. gateway cold start). Total phase-level attempts = `phase_spawn_max_retries + 1`. Only failed roles are respawned; survivors continue running. Per-role retries (`spawn_max_retries`) run first; this outer budget covers longer outages (~30 s+). Set to `0` to disable. |
+| `phase_spawn_retry_initial_backoff_seconds` | float | `30.0` | Initial backoff before the first phase-level spawn retry. Subsequent attempts scale by 3× (e.g. 30 s, 90 s). |
 
 All phases use concurrent BRC execution by default.
 
