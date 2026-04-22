@@ -58,10 +58,11 @@ class HealthTracker:
             elif not self._current_healthy and is_healthy:
                 self._healthy_since = ts
                 self._transitions.append({"ts": ts.isoformat(), "state": "healthy"})
-            else:
+            elif not self._current_healthy and not is_healthy:
                 # still unhealthy — refresh last_unhealthy_at but don't record
                 # a transition (it wasn't one).
                 self._last_unhealthy_at = ts
+            # else: still healthy — nothing to update.
             self._current_healthy = is_healthy
 
     def snapshot(self) -> dict[str, Any]:
