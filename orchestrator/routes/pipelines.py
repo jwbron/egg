@@ -3864,6 +3864,8 @@ def _commit_statefiles_to_worktree(
     worktree_path: Path,
     message: str,
     pipeline_identifier: int | str | None = None,
+    *,
+    pipeline_id: str | None = None,
 ) -> None:
     """Stage and commit ``.egg-state/`` files in *worktree_path*.
 
@@ -3872,8 +3874,17 @@ def _commit_statefiles_to_worktree(
     prevents concurrent pipelines from leaking each other's state files
     into unrelated PRs (see #1390).
 
-    Falls back to staging the entire ``.egg-state/`` directory when
-    *pipeline_identifier* is ``None`` (backwards-compatibility).
+    Most ``.egg-state/`` files are prefixed with the issue number (drafts,
+    reviews, BRC history, agent-outputs), but contract files are keyed by
+    ``pipeline_id`` (e.g. ``issue-1759-v3.json``) and don't share the
+    issue-number prefix.  When *pipeline_id* is provided alongside
+    *pipeline_identifier*, files matching either prefix are staged — this
+    closes the gap where plan-phase contract updates were written to disk
+    but never committed because the glob only saw the issue-number prefix
+    (see #1829).
+
+    Falls back to staging the entire ``.egg-state/`` directory when both
+    *pipeline_identifier* and *pipeline_id* are ``None`` (backwards-compat).
 
     The commit is idempotent (skips when nothing is staged).
     Raises ``subprocess.CalledProcessError`` on git failure.
@@ -3884,6 +3895,7 @@ def _commit_statefiles_to_worktree(
         "_commit_statefiles_to_worktree: entering",
         worktree_path=str(worktree_path),
         pipeline_identifier=str(pipeline_identifier),
+        pipeline_id=str(pipeline_id),
         commit_message=message,
     )
     if not state_dir.exists():
@@ -3891,6 +3903,7 @@ def _commit_statefiles_to_worktree(
             "_commit_statefiles_to_worktree: no .egg-state directory — exiting",
             worktree_path=str(worktree_path),
             pipeline_identifier=str(pipeline_identifier),
+            pipeline_id=str(pipeline_id),
         )
         return  # Nothing to commit yet
 
@@ -3904,23 +3917,35 @@ def _commit_statefiles_to_worktree(
         str(worktree_path),
     ]
 
-    if pipeline_identifier is not None:
+    if pipeline_identifier is not None or pipeline_id is not None:
         # Scope to files belonging to this pipeline only (#1390).
         # Use prefix-anchored patterns with delimiter boundaries to avoid
         # substring false positives (e.g. pipeline 4 matching pipeline 42).
-        pid = str(pipeline_identifier)
-        pattern_dot = str(state_dir / "**" / f"{pid}.*")
-        pattern_dash = str(state_dir / "**" / f"{pid}-*")
-        matched = [
-            f
-            for f in (
-                glob.glob(pattern_dot, recursive=True) + glob.glob(pattern_dash, recursive=True)
-            )
-            if Path(f).is_file()
-        ]
+        # Union both prefixes so issue-number-prefixed files (drafts,
+        # reviews, BRC history) and pipeline-id-keyed files (contracts)
+        # are all staged (#1829).
+        prefixes: list[str] = []
+        if pipeline_identifier is not None:
+            prefixes.append(str(pipeline_identifier))
+        if pipeline_id is not None and pipeline_id not in prefixes:
+            prefixes.append(pipeline_id)
+
+        matched_set: set[str] = set()
+        for pid in prefixes:
+            escaped = glob.escape(pid)
+            pattern_dot = str(state_dir / "**" / f"{escaped}.*")
+            pattern_dash = str(state_dir / "**" / f"{escaped}-*")
+            for f in glob.glob(pattern_dot, recursive=True) + glob.glob(
+                pattern_dash, recursive=True
+            ):
+                if Path(f).is_file():
+                    matched_set.add(f)
+        matched = sorted(matched_set)
         logger.info(
             "_commit_statefiles_to_worktree: glob match results",
             pipeline_identifier=str(pipeline_identifier),
+            pipeline_id=str(pipeline_id),
+            prefixes=prefixes,
             match_count=len(matched),
             matched_paths=[str(Path(f).relative_to(worktree_path)) for f in matched[:20]],
             truncated=len(matched) > 20,
@@ -4251,6 +4276,7 @@ def _ensure_statefiles_on_branch(
             worktree_repo_path,
             f"Restore missing contract for {identifier}",
             pipeline_identifier=identifier,
+            pipeline_id=pipeline.id,
         )
         logger.info(
             "Contract file restored successfully",
@@ -4941,6 +4967,7 @@ def _rewrite_brc_history_for_pr(
             worktree_path,
             "Persist BRC history files for PR",
             pipeline_identifier=identifier,
+            pipeline_id=pipeline_id,
         )
         logger.info(
             "_rewrite_brc_history_for_pr: commit step completed successfully",
@@ -9087,6 +9114,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline_identifier=_pipeline_identifier(
                             pipeline.issue_number, pipeline_id
                         ),
+                        pipeline_id=pipeline_id,
                     )
                 except subprocess.CalledProcessError as git_err:
                     logger.error(
@@ -9553,6 +9581,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_identifier=_pipeline_identifier(
                                 pipeline.issue_number, pipeline_id
                             ),
+                            pipeline_id=pipeline_id,
                         )
                     except subprocess.CalledProcessError as git_err:
                         logger.warning(
@@ -9988,6 +10017,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     worktree_repo_path,
                     f"Persist statefiles after {current_phase.value} phase",
                     pipeline_identifier=_pipeline_identifier(pipeline.issue_number, pipeline_id),
+                    pipeline_id=pipeline_id,
                 )
             except subprocess.CalledProcessError as git_err:
                 logger.warning(
@@ -10332,6 +10362,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline_identifier=_pipeline_identifier(
                             pipeline.issue_number, pipeline_id
                         ),
+                        pipeline_id=pipeline_id,
                     )
                 except subprocess.CalledProcessError as git_err:
                     logger.warning(
@@ -10704,6 +10735,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                                 pipeline_identifier=_pipeline_identifier(
                                     pipeline.issue_number, pipeline_id
                                 ),
+                                pipeline_id=pipeline_id,
                             )
                         except subprocess.CalledProcessError as git_err:
                             logger.warning(
