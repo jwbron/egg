@@ -66,7 +66,8 @@ When updating review behavior, ensure both surfaces reflect the change:
 | Quality standards (be comprehensive, specific, etc.) | `action/review-conventions.md` "Comment Quality" section | `_build_review_prompt()` inline conventions |
 | Verdict classification (what's blocking vs non-blocking) | `action/review-conventions.md` "When to Approve vs Request Changes" | `_build_review_prompt()` "When to Use needs_revision vs approved" (sequential); `_build_brc_preamble()` ACK/NACK lifecycle (concurrent) |
 | Procedural review steps | `action/build-review-prompt.sh` "How to Proceed" / inline fallback "How to Review" | `_build_review_prompt()` procedural steps for code reviewer |
-| Diff command | `gh pr diff` (full PR changeset) | `git diff origin/{base_branch}...HEAD` (full changeset against base) |
+| Diff command (cycle 1 / initial review) | `gh pr diff` (full PR changeset) | `git diff origin/{base_branch}...HEAD` (full changeset against base) |
+| Diff command (cycle > 1 / re-review) | `git fetch origin <base>` + `git log <last-sha>..HEAD --not origin/<base> -p` (from `build-review-prompt.sh` / `build-agent-mode-design-review-prompt.sh` / `build-contract-verification-prompt.sh`; `BASE_REF` plumbed from `reusable-review.yml`'s `pr-meta` step, defaults to `main`) | `git fetch origin {base_branch}` + `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` (from `_build_review_prompt()` delta branch). Both surfaces exclude base-branch commits merged in since the last review so merged-in work isn't mis-attributed to the producer — see [#1758](https://github.com/jwbron/egg/issues/1758). |
 | Thoroughness emphasis | "Find ALL issues on the first pass" (build-review-prompt.sh) | "Find ALL issues on the first pass" (`_build_review_prompt()`) |
 | Severity classification | `shared/prompts/code-review-criteria.md` (shared) | Same file (shared) |
 
@@ -82,3 +83,4 @@ When changing review criteria or conventions:
 - [ ] Verify the procedural review steps match between both surfaces
 - [ ] If changing verdict format: check `_build_review_prompt()` (sequential verdict JSON) and `_build_agent_prompt()` + `_build_brc_preamble()` (concurrent ACK/NACK)
 - [ ] If changing ACK/NACK format guidance: update the structured format in `_build_brc_preamble()`
+- [ ] If changing the re-review delta diff command: update **all five** call sites — `action/build-review-prompt.sh`, `action/build-agent-mode-design-review-prompt.sh`, `action/build-contract-verification-prompt.sh` (and plumb any new env vars through `.github/workflows/reusable-review.yml`'s `pr-meta` and prompt-builder steps), plus both the delta `diff_command` assignment and the "Delta Review" directive in `orchestrator/routes/pipelines.py:_build_review_prompt`. Update matching tests in `tests/action/` and `orchestrator/tests/test_pipeline_prompts.py`.

@@ -819,7 +819,9 @@ This explicit fetch+merge step ensures reviewers see the latest code (including 
 
 The same sync instruction is included for dual-role agents (e.g., `tester`) in their producer ORIENT step, so they also have up-to-date code before beginning work.
 
-**Reviewer diff command:** Reviewers use `git diff origin/{base_branch}...HEAD` (three-dot merge-base syntax) to see the full changeset against the base branch, rather than an arbitrary truncated window. The `base_branch` is resolved from `pipeline.base_branch` or the repository's default branch. This matches the context available to PR review bots, which see the complete PR diff.
+**Reviewer diff command:** On the first review cycle (cycle 1), reviewers use `git diff origin/{base_branch}...HEAD` (three-dot merge-base syntax) to see the full changeset against the base branch, rather than an arbitrary truncated window. The `base_branch` is resolved from `pipeline.base_branch` or the repository's default branch. This matches the context available to PR review bots, which see the complete PR diff.
+
+**Delta re-review command (cycle > 1):** On subsequent review cycles, when a `last_reviewed_commit` is known, reviewers use `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` (preceded by a `git fetch origin {base_branch}` nudge). The `--not origin/{base_branch}` exclusion is required: without it, any base-branch merge that landed on the pipeline branch between reviews would appear in the delta and be mis-attributed to the producer. `git log … -p` produces a per-commit patch series, which LLM reviewers handle naturally and which further reduces mis-attribution risk by showing authorship on each commit. Cycle-1 full-PR reviews are unchanged. See [#1758](https://github.com/jwbron/egg/issues/1758) for the incident that motivated this.
 
 ### Per-Agent Git Author
 

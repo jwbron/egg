@@ -59,7 +59,15 @@ and via `workflow_dispatch` with a PR number.
    and proceeds anyway.
 3. **Re-review detection** — Searches for an `<!-- egg-automated-review bot=<name> commit=<sha> -->`
    marker in previous reviews/comments to identify the last reviewed commit. On re-review,
-   the agent uses `git diff <last-commit>..HEAD` to focus on new changes only.
+   the agent uses `git log <last-commit>..HEAD --not origin/<base-ref> -p` (preceded by
+   `git fetch origin <base-ref>` so the shallow PR checkout has the base branch available)
+   to focus on new PR-authored changes only. The `--not origin/<base-ref>` exclusion drops
+   any base-branch commits that were merged into the PR between reviews, so the reviewer
+   is not shown — and cannot mis-attribute — work that shipped to the base branch. The
+   base ref is the PR's actual base branch, plumbed from the `pr-meta` step's
+   `base-ref` output to the `BASE_REF` env var on the prompt builder (defaults to `main`
+   when unset). See [#1758](https://github.com/jwbron/egg/issues/1758) for the bug this
+   prevents.
 4. **Stale review dismissal** — Dismisses previous bot reviews before posting a new one.
 5. **Trusted prompt build** — Checks out `main` (not the PR branch) to run
    `build-review-prompt.sh`, preventing prompt injection from malicious PRs.
