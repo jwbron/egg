@@ -203,6 +203,36 @@ class TestWorktreeCreationFallback:
             )
 
 
+class TestSpawnRetryOnTransientFailure:
+    """Transient gateway failures during worktree creation are retried (#1839)."""
+
+    @patch.dict("os.environ", {"HOST_UID": "1000", "HOST_GID": "1000"})
+    def test_transient_failure_retried(self, spawner, mock_docker_client, mock_gateway_client):
+        """A transient failure on first attempt is retried successfully."""
+        from gateway_client import GatewayError
+
+        mock_gateway_client.create_worktrees.side_effect = [
+            GatewayError("Timed out fetching refs", status_code=504),
+            WorktreeResult(
+                success=True,
+                worktrees={"egg": "/home/egg/.egg-worktrees/issue-123-coder/egg"},
+                errors=[],
+            ),
+        ]
+        with patch("kubernetes_spawner.time.sleep"):
+            spawner.spawn_agent_container(
+                pipeline_id="issue-123",
+                agent_role=AgentRole.CODER,
+                repo_volumes={"egg": "/host/path/egg"},
+                repos=["owner/egg"],
+                mode="public",
+                branch="egg/issue-123/work",
+                spawn_max_retries=2,
+                spawn_retry_initial_backoff_seconds=0.01,
+            )
+        assert mock_gateway_client.create_worktrees.call_count == 2
+
+
 class TestCleanupPipelineWorktrees:
     """Tests for per-agent worktree cleanup during pipeline cleanup."""
 
