@@ -1,0 +1,707 @@
+[
+  {
+    "id": "23be974a-9d9c-44",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Plan-phase risk assessment for #1762 (add run_agent_task + PipelineMode.CUSTOM + Pipeline.active_roles; remove bin/egg, egg_lib/cli.py, compose.py, run_claude, run_interactive, --setup/--reset/--compose flags). Enumerates 14 risks: 4 HIGH (R1 gha_exec import path break after module relocation \u2014 action/entrypoint.sh line 122 + sandbox Dockerfile must ship new module in lockstep; R2 Pipeline.active_roles + PipelineMode.CUSTOM forward/back persistence compatibility with pydantic v2 and rollback asymmetry; R3 reviewer-graph deadlock when producer is selected without critical reviewer \u2014 decision-6 covers reviewer-only rosters but NOT producer-without-reviewer; R4 integration_tests/conftest.py egg_stack fixture loses compose fallback), 7 MEDIUM (R5 all 11+ PipelineMode.BABYSIT conditionals in pipelines.py/concurrent_executor.py/state_store.py need CUSTOM policy calls, R6 pyproject.toml [project.scripts] egg entry + Makefile egg --setup references, R7 sandbox/entrypoint.py sys.argv==1 branch dispatches into deleted run_interactive, R8 bin/egg-deploy compose subcommands cleanup scope, R9 run_agent_task repo parameter allowlist enforcement, R12 65+ tests churn + commit hygiene, R13 8+ docs sweep with grep gate, R14 HITL gate integration scope feedback-1 Q1), 3 LOW (R10 branch/worktree proliferation from auto-generated egg/custom-<id>, R11 draft-file naming collision between CUSTOM and ISSUE on same issue_number). Overall MEDIUM-HIGH, verdict GO_WITH_MITIGATIONS with 6 conditions for task_planner (R3/R4/R5/R9/R11/R13/R14 as discrete tasks with explicit acceptance criteria). Flags 6 HITL-review questions for reviewer_plan: the decision-6 producer-without-reviewer gap, PipelineMode audit scope, repo allowlist parity with submit_task, draft-file keying policy (feedback-1 Q2), HITL gate integration (feedback-1 Q1), and gha_exec relocation verification. Rollback plan documents single-revert strategy with pinned-image constraint.",
+    "metadata": {
+      "payload": {
+        "summary": "Plan-phase risk assessment for #1762 (add run_agent_task + PipelineMode.CUSTOM + Pipeline.active_roles; remove bin/egg, egg_lib/cli.py, compose.py, run_claude, run_interactive, --setup/--reset/--compose flags). Enumerates 14 risks: 4 HIGH (R1 gha_exec import path break after module relocation \u2014 action/entrypoint.sh line 122 + sandbox Dockerfile must ship new module in lockstep; R2 Pipeline.active_roles + PipelineMode.CUSTOM forward/back persistence compatibility with pydantic v2 and rollback asymmetry; R3 reviewer-graph deadlock when producer is selected without critical reviewer \u2014 decision-6 covers reviewer-only rosters but NOT producer-without-reviewer; R4 integration_tests/conftest.py egg_stack fixture loses compose fallback), 7 MEDIUM (R5 all 11+ PipelineMode.BABYSIT conditionals in pipelines.py/concurrent_executor.py/state_store.py need CUSTOM policy calls, R6 pyproject.toml [project.scripts] egg entry + Makefile egg --setup references, R7 sandbox/entrypoint.py sys.argv==1 branch dispatches into deleted run_interactive, R8 bin/egg-deploy compose subcommands cleanup scope, R9 run_agent_task repo parameter allowlist enforcement, R12 65+ tests churn + commit hygiene, R13 8+ docs sweep with grep gate, R14 HITL gate integration scope feedback-1 Q1), 3 LOW (R10 branch/worktree proliferation from auto-generated egg/custom-<id>, R11 draft-file naming collision between CUSTOM and ISSUE on same issue_number). Overall MEDIUM-HIGH, verdict GO_WITH_MITIGATIONS with 6 conditions for task_planner (R3/R4/R5/R9/R11/R13/R14 as discrete tasks with explicit acceptance criteria). Flags 6 HITL-review questions for reviewer_plan: the decision-6 producer-without-reviewer gap, PipelineMode audit scope, repo allowlist parity with submit_task, draft-file keying policy (feedback-1 Q2), HITL gate integration (feedback-1 Q1), and gha_exec relocation verification. Rollback plan documents single-revert strategy with pinned-image constraint.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/1762-risk_analyst-output.json"
+        ],
+        "risk_considered": "",
+        "commit_sha": "ede7e44c0d9eeeca177d3e58070ad03ace5e22bb",
+        "files_changed": [
+          ".egg-state/agent-outputs/1762-risk_analyst-output.json"
+        ],
+        "tests_run": [
+          "json.load validation on 1762-risk_analyst-output.json (14 risks, 6 HITL)"
+        ],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "ede7e44c0d9eeeca177d3e58070ad03ace5e22bb"
+    },
+    "timestamp": "2026-04-22T21:07:30.292215+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "dad2b411-59a3-4b",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Architect output for #1762 ready at .egg-state/agent-outputs/1762-architect-output.json. Architecture covers: (1) new MCP tool run_agent_task (per decision-1 HITL), (2) PipelineMode.CUSTOM enum value + Pipeline.active_roles: list[str] | None field with additive persistence, (3) create_pipeline route validation rules for phase-scoped role subsets including producer-required (decision-6), cross-phase-roles rejected (decision-8), auto-generated branch egg/custom-<pipeline_id> (decision-7), reviewer_contract auto-include, and CUSTOM+pr_number reusing BABYSIT pre-flight (decision-2 option 3), (4) _run_concurrent_phase honors pipeline.active_roles while reusing existing review-graph filter and ConcurrentPhaseExecutor.roles override (no executor change), (5) BRC unchanged - existing ApprovalMatrix.is_fully_acked short-circuits degenerate rosters at approval_matrix.py:162, (6) full interactive-mode removal - bin/egg, egg_lib.cli.main, run_claude, run_interactive, compose.py, ensure_compose_services() call sites at runtime.py:686,1060, tests/sandbox/test_cli_main.py, compose subcommands in bin/egg-deploy, with gha_exec relocated to sandbox/egg_lib/gha_exec.py and action/entrypoint.sh import path updated (decisions 3,4,9), (7) docs rewrite across README + 5 guide/architecture docs + new docs/guides/agent-task.md, (8) new test modules for run_agent_task handler, create_pipeline CUSTOM-mode validation, and active_roles concurrent-phase plumbing with explicit degenerate-roster coverage. Called out 6 risks (3 high, 3 medium, 3 low) for risk_analyst, 16 acceptance-criteria hints for task_planner, and 3 open questions for reviewer_plan. Aligns with all 9 HITL decisions resolved at the refine gate.",
+    "metadata": {
+      "payload": {
+        "summary": "Architect output for #1762 ready at .egg-state/agent-outputs/1762-architect-output.json. Architecture covers: (1) new MCP tool run_agent_task (per decision-1 HITL), (2) PipelineMode.CUSTOM enum value + Pipeline.active_roles: list[str] | None field with additive persistence, (3) create_pipeline route validation rules for phase-scoped role subsets including producer-required (decision-6), cross-phase-roles rejected (decision-8), auto-generated branch egg/custom-<pipeline_id> (decision-7), reviewer_contract auto-include, and CUSTOM+pr_number reusing BABYSIT pre-flight (decision-2 option 3), (4) _run_concurrent_phase honors pipeline.active_roles while reusing existing review-graph filter and ConcurrentPhaseExecutor.roles override (no executor change), (5) BRC unchanged - existing ApprovalMatrix.is_fully_acked short-circuits degenerate rosters at approval_matrix.py:162, (6) full interactive-mode removal - bin/egg, egg_lib.cli.main, run_claude, run_interactive, compose.py, ensure_compose_services() call sites at runtime.py:686,1060, tests/sandbox/test_cli_main.py, compose subcommands in bin/egg-deploy, with gha_exec relocated to sandbox/egg_lib/gha_exec.py and action/entrypoint.sh import path updated (decisions 3,4,9), (7) docs rewrite across README + 5 guide/architecture docs + new docs/guides/agent-task.md, (8) new test modules for run_agent_task handler, create_pipeline CUSTOM-mode validation, and active_roles concurrent-phase plumbing with explicit degenerate-roster coverage. Called out 6 risks (3 high, 3 medium, 3 low) for risk_analyst, 16 acceptance-criteria hints for task_planner, and 3 open questions for reviewer_plan. Aligns with all 9 HITL decisions resolved at the refine gate.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/1762-architect-output.json"
+        ],
+        "risk_considered": "",
+        "commit_sha": "a6fcb015875bb76c57186cff84c15a298d3efa24",
+        "files_changed": [
+          ".egg-state/agent-outputs/1762-architect-output.json"
+        ],
+        "tests_run": [
+          "none (plan-phase architecture output; no code produced)"
+        ],
+        "tasks_satisfied": [
+          "architecture-1762"
+        ]
+      },
+      "version": 1,
+      "commit_sha": "a6fcb015875bb76c57186cff84c15a298d3efa24"
+    },
+    "timestamp": "2026-04-22T21:10:08.661917+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ccb43d60-7baa-4e",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Agent architect cannot confirm: producers ['task_planner'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:10:19.489709+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f267abc3-9c90-45",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Agent architect cannot confirm: producers ['task_planner'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:11:16.059487+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b32b1587-b5cd-47",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Agent architect cannot confirm: producers ['task_planner'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:11:21.397992+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fcec2daf-026c-44",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Agent architect cannot confirm: producers ['task_planner'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:11:26.737762+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "360a4834-e3f0-4c",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Agent architect cannot confirm: producers ['task_planner'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:11:32.081631+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bd3944c8-b62f-42",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Agent architect cannot confirm: producers ['task_planner'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:11:37.381854+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "97fc007e-9989-46",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Agent architect cannot confirm: producers ['task_planner'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:11:42.688661+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7899346e-4b0f-4c",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Agent architect cannot confirm: producers ['task_planner'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:11:48.004310+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e21d4d8c-e598-45",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Agent architect cannot confirm: producers ['task_planner'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:11:53.318945+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fa3971e2-f9a6-49",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Agent architect cannot confirm: producers ['task_planner'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:11:58.628769+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cae4e49e-6587-43",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Agent architect cannot confirm: producers ['task_planner'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:12:03.990137+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2457e77a-951e-4c",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Agent architect cannot confirm: producers ['task_planner'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:12:27.939090+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "83923db8-0e77-48",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Agent architect cannot confirm: producers ['task_planner'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:12:37.575346+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7435853d-ffc3-42",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Plan-phase decomposition for #1762 drafted at .egg-state/drafts/1762-plan.md. Decomposes the HITL-resolved refine analysis into 7 phases and 30 discrete tasks spanning a single PR (Option A, decision-9). Phases 1-4 are additive (model + role-validation helper, route handler + roster threading, run_agent_task MCP tool, BABYSIT subsumption internals); Phases 5-6 are subtractive (bin/egg, egg_lib/cli.py main, compose.py + all ensure_compose_services call sites including exec_in_new_container, run_claude, run_interactive, compose paths in bin/egg-deploy, integration-test compose fixture); Phase 7 is tests+docs. All 9 HITL decisions adopted verbatim \u2014 tool name is run_agent_task (D1), CUSTOM accepts pr_number and subsumes BABYSIT internally (D2), bin/egg + egg_lib.cli.main gone with gha_exec relocated to egg_lib/gha_exec.py (D3), full compose cutover (D4), Pipeline.active_roles on the Pipeline model not PipelineConfig (D5), reviewer-only rosters rejected at route (D6), egg/custom-<pipeline_id> branch fallback (D7), phase-scoped roles only (D8), one-PR cutover (D9). 9 F-numbered plan-phase resolutions documented for deferred refine questions. Test strategy covers degenerate-roster short-circuit via ApprovalMatrix.is_fully_acked, reviewer-only 400 rejection, cross-phase 400 rejection, BABYSIT parity after subsumption, GHA relocation (risk_analyst R1), Pipeline persistence backward compatibility (risk_analyst R2 via active_roles default None). pr.description, test_plan, and manual_steps fields populated; no pr_plan key.",
+    "metadata": {
+      "payload": {
+        "summary": "Plan-phase decomposition for #1762 drafted at .egg-state/drafts/1762-plan.md. Decomposes the HITL-resolved refine analysis into 7 phases and 30 discrete tasks spanning a single PR (Option A, decision-9). Phases 1-4 are additive (model + role-validation helper, route handler + roster threading, run_agent_task MCP tool, BABYSIT subsumption internals); Phases 5-6 are subtractive (bin/egg, egg_lib/cli.py main, compose.py + all ensure_compose_services call sites including exec_in_new_container, run_claude, run_interactive, compose paths in bin/egg-deploy, integration-test compose fixture); Phase 7 is tests+docs. All 9 HITL decisions adopted verbatim \u2014 tool name is run_agent_task (D1), CUSTOM accepts pr_number and subsumes BABYSIT internally (D2), bin/egg + egg_lib.cli.main gone with gha_exec relocated to egg_lib/gha_exec.py (D3), full compose cutover (D4), Pipeline.active_roles on the Pipeline model not PipelineConfig (D5), reviewer-only rosters rejected at route (D6), egg/custom-<pipeline_id> branch fallback (D7), phase-scoped roles only (D8), one-PR cutover (D9). 9 F-numbered plan-phase resolutions documented for deferred refine questions. Test strategy covers degenerate-roster short-circuit via ApprovalMatrix.is_fully_acked, reviewer-only 400 rejection, cross-phase 400 rejection, BABYSIT parity after subsumption, GHA relocation (risk_analyst R1), Pipeline persistence backward compatibility (risk_analyst R2 via active_roles default None). pr.description, test_plan, and manual_steps fields populated; no pr_plan key.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/1762-plan.md"
+        ],
+        "risk_considered": "",
+        "commit_sha": "fe04dc1a62865c33e9d0609c4a7a94dfc55a2a64",
+        "files_changed": [
+          ".egg-state/drafts/1762-plan.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "TASK-1-1",
+          "TASK-1-2",
+          "TASK-1-3",
+          "TASK-1-4",
+          "TASK-2-1",
+          "TASK-2-2",
+          "TASK-2-3",
+          "TASK-2-4",
+          "TASK-2-5",
+          "TASK-2-6",
+          "TASK-3-1",
+          "TASK-3-2",
+          "TASK-3-3",
+          "TASK-4-1",
+          "TASK-4-2",
+          "TASK-5-1",
+          "TASK-5-2",
+          "TASK-5-3",
+          "TASK-5-4",
+          "TASK-5-5",
+          "TASK-5-6",
+          "TASK-5-7",
+          "TASK-5-8",
+          "TASK-6-1",
+          "TASK-7-1",
+          "TASK-7-2",
+          "TASK-7-3",
+          "TASK-7-4",
+          "TASK-7-5",
+          "TASK-7-6",
+          "TASK-7-7",
+          "TASK-7-8",
+          "TASK-7-9"
+        ]
+      },
+      "version": 1,
+      "commit_sha": "fe04dc1a62865c33e9d0609c4a7a94dfc55a2a64"
+    },
+    "timestamp": "2026-04-22T21:14:32.254705+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "27f4b267-0fef-4f",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "task_planner",
+    "to_role": "reviewer_plan",
+    "message_type": "HANDOFF",
+    "subject": "Plan ready for review: #1762 run_agent_task",
+    "body": "Plan for #1762 drafted at .egg-state/drafts/1762-plan.md (commit fe04dc1a62). 7 phases, 33 tasks, single-PR Option A cutover. All 9 HITL decisions adopted verbatim; F1-F9 plan-phase resolutions inline. Ready for review.",
+    "metadata": {},
+    "timestamp": "2026-04-22T21:14:36.950847+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "627c1f49-e72e-41",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Producer architect cannot confirm: not fully ACKed. Pending reviewers: ['reviewer_plan']",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:14:49.199503+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7db83331-d9a6-4e",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Producer architect cannot confirm: not fully ACKed. Pending reviewers: ['reviewer_plan']",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:16:49.548924+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "93edda15-286e-4f",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Producer architect cannot confirm: not fully ACKed. Pending reviewers: ['reviewer_plan']",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:18:49.866477+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "241d3a2a-28d2-4a",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_plan for task_planner",
+    "body": "\nReviewed the plan against the refine analysis, the architect's and risk_analyst's proposals, and the cited code. The plan is well-structured (7 phases, 33 tasks), adopts all 9 HITL decisions verbatim, and resolves the 9 deferred F1\u2013F9 questions inline. But six concrete gaps are blocking the implement phase.\n\n### Blocking\n\n1. **pyproject.toml `egg` script entry not removed + Makefile references stale (matches risk_analyst R6).** TASK-5-3 deletes `sandbox/egg_lib/cli.py` but the plan has no task to remove `egg = \"egg_lib.cli:main\"` at **pyproject.toml:43** (verified present). After merge, `uv pip install -e .` fails with ImportError. Also **Makefile:364** and **Makefile:369** both say `'Run bin/egg-deploy init or egg --setup'` / `'Run egg --setup to generate it (required by #1769 HITL auth).'` (verified). These error strings become misleading/broken. Fix: add a task in Phase 5 (or extend TASK-5-7) with explicit acceptance: `grep -n 'egg_lib.cli' pyproject.toml` returns zero matches; `grep -n 'egg --setup' Makefile` returns zero matches; the two Makefile error messages redirect to the new onboarding surface.\n\n2. **CUSTOM+PR does NOT actually inherit BABYSIT's staging-branch or orient-prompt semantics (matches architect's own spec + risk_analyst R5).** D2 says \"CUSTOM subsumes BABYSIT internally\", and TASK-2-6 refactors the PR pre-flight helper to fire for both modes \u2014 but the sites that implement BABYSIT's *runtime* behavior are never broadened:\n   - **orchestrator/concurrent_executor.py:174** \u2014 `pipeline_mode == _PipelineMode.BABYSIT` gates per-role staging branches (`egg/babysit-pr/<pr>/<sha>/<role>`). Verified. A CUSTOM pipeline with pr_number will fall through to `self.pipeline.branch` and skip staging isolation entirely. No plan task touches line 174.\n   - **orchestrator/routes/pipelines.py:6192** and **:6357** \u2014 `mode == PipelineMode.BABYSIT and phase == \"implement\"` gates PR-diff-aware reviewer/producer orient prompts (gh pr checkout, base...head diff framing). Verified. CUSTOM+PR pipelines would use the ISSUE-mode orient prompts, i.e., the wrong prompts.\n   - **orchestrator/routes/pipelines.py:957** \u2014 `has_contract = mode != PipelineMode.BABYSIT`. CUSTOM+PR should also set has_contract=False (per architect section 3/5 and its own open_questions_for_reviewer_plan #1), but this line forces True. TASK-2-2 defines its own has_contract logic for CUSTOM but doesn't amend line 957.\n   - **orchestrator/routes/pipelines.py:353, 822, 825, 959, 9661** and **state_store.py:882** \u2014 all check BABYSIT and were enumerated in risk_analyst R5 but no plan task addresses them.\n\n   This means a `run_agent_task(phase=implement, pr_number=N, repo=R)` call will create a pipeline that does the PR pre-flight correctly (TASK-2-6) but then writes to the PR head branch with no staging isolation and with ISSUE-mode orient prompts. That breaks the subsumption claim. Fix: add an explicit audit task in Phase 2 or Phase 4 that enumerates every `mode == PipelineMode.BABYSIT` / `mode != PipelineMode.BABYSIT` site in orchestrator/ and decides CUSTOM's behavior per-site. At minimum broaden lines 174, 957, 6192, 6357 to `mode in (BABYSIT, CUSTOM) and pr_number is not None` (or extract a `_uses_per_role_staging(pipeline) -> bool` helper per risk_analyst R5 mitigation). Add parametrized tests (extend TASK-7-2) that assert CUSTOM+PR gets the same staging branch name and orient prompt content as BABYSIT.\n\n3. **Draft-file keying collision between CUSTOM and ISSUE on the same issue_number (risk_analyst R11 unresolved).** F2 resolves *contract-file* keying (shared issue-<N>.json, idempotent merge). It does NOT address *draft-file* keying. `_draft_path` at **orchestrator/routes/pipelines.py:2510-2518** uses `issue_number` as prefix when available: `.egg-state/drafts/<issue>-analysis.md`. A CUSTOM pipeline with `issue_number=N` and `phase=refine` will overwrite an in-flight ISSUE pipeline's analysis draft. Risk_analyst R11 explicitly recommended \"For CUSTOM pipelines, always use pipeline_id-keyed draft filenames regardless of issue_number.\" Fix: add a task under Phase 2 (e.g. TASK-2-7) that forces CUSTOM-mode drafts to use the pipeline_id prefix (or argues explicitly why sharing is safe), with tests that verify parallel ISSUE+CUSTOM runs on the same issue do not collide on draft files.\n\n4. **Repo allowlist enforcement is not an explicit acceptance criterion (risk_analyst R9).** F4 says \"reuse the existing repositories.yaml allowlist enforced by the gateway.\" But grep confirms `repositories.yaml` is only consulted in routes/pipelines.py:6658, 6702, 8936 \u2014 and those are check-command lookups, not pipeline-creation gates. No plan task verifies that `run_agent_task(repo=\"random/not-allowed\")` is rejected at the route before a pipeline is created. TASK-2-1, TASK-3-2, and TASK-7-2 all omit this. Fix: add a concrete acceptance criterion under TASK-2-1 (route) and a test under TASK-7-2 (or a new `test_run_agent_task_security.py`): (a) repo in allowlist \u2192 201, (b) repo not in allowlist \u2192 400, (c) repo with shell metacharacters \u2192 400. This matches the pattern risk_analyst asks for verbatim.\n\n5. **Integration-test compose-fallback migration is incomplete (risk_analyst R4 only partially addressed).** TASK-6-1 migrates `integration_tests/local_pipeline/conftest.py` only. But the top-level **integration_tests/conftest.py** (verified) also has a session-scoped `egg_stack` fixture with `compose_file = PROJECT_ROOT / \"integration_tests\" / \"docker-compose.yml\"` at line 270 and `docker compose` subprocess invocations at line 290+. Risk_analyst R4 explicitly flagged this fixture as CERTAIN to break `test_e2e_workflow.py`, `test_babysit_pr/*`, `test_agent_security_fuzz.py`, and the rest of the top-level integration suite. Fix: extend TASK-6-1 (or add TASK-6-2) to also migrate the top-level `integration_tests/conftest.py` \u2014 delete the `_docker_compose_egg_stack` fallback, make the k8s path the only path, and pytest.skip cleanly when k8s is not reachable. Acceptance: `grep -n 'compose' integration_tests/conftest.py` returns zero non-doc matches.\n\n6. **Post-phase completion semantics for CUSTOM pipelines are undefined.** CUSTOM is single-phase by design, but the plan never states what happens once the one phase reaches CONSENSUS_REACHED. Grep shows `next_phase = next_phases[0]; pipeline.current_phase = next_phase` at **orchestrator/routes/pipelines.py:10591-10594** and :10957 \u2014 these auto-advance through refine\u2192plan\u2192implement. Without a `mode == CUSTOM` guard, a `run_agent_task(phase=refine, roles=[refiner])` call will finish refine and then try to start plan. Architect's risks_for_risk_analyst callout #1 (\"Phase completion semantics for CUSTOM\") raised exactly this. No task covers it. Fix: add a task under Phase 2 (or Phase 4 for consistency with BABYSIT's single-phase termination) that guards the phase-advance sites in pipelines.py to mark CUSTOM pipelines COMPLETE after their single phase consents. Add a test: `run_agent_task(phase=refine, roles=[refiner])` ends in state COMPLETE with no attempt to spawn plan-phase agents.\n\n### Non-blocking\n\n- **Dependency Ordering section missing** \u2014 Prior plans (e.g., `.egg-state/drafts/1748-plan.md:104-114`) include a phase dependency graph. For a 33-task plan this is conventional and useful. Consider adding.\n\n- **Risks mapping section missing** \u2014 Prior plans (e.g., `1748-plan.md:116`) include a table mapping each risk_analyst risk to its mitigating task. Would have surfaced the gaps in R6, R9, R11, R14 on its own. Recommend adding now so the coder can read the plan as a risk-complete plan.\n\n- **F1 (HITL scope) diverges from architect's answer.** Plan F1: \"Out-of-scope for v1. run_agent_task does not trigger HITL gates.\" Architect q1_hitl_scope: \"PipelineConfig.hitl_gates default stays true (parity with ISSUE mode).\" Risk_analyst R14 prefers the architect's answer (\"HITL decisions created during a CUSTOM phase are captured the same way as in ISSUE mode\"). This is a real semantic divergence: plan's choice means a refine-phase CUSTOM pipeline does NOT pause after consensus for human approval, architect's means it does. Either is defensible but the plan should (a) explicitly justify the divergence from the architect or (b) adopt the architect's answer. Note that `PipelineConfig.hitl_gates` (default True, models.py:303) is an existing knob \u2014 plan's answer presumably requires forcing it False for CUSTOM, which is not stated anywhere.\n\n- **Pipeline-id collision for multiple CUSTOM runs on same issue/PR** \u2014 TASK-3-2: `pipeline_id = f\"issue-{issue_number}-custom\"`. Two concurrent `run_agent_task(issue_number=N)` calls collide with a 409. Architect's interface_contracts listed `qualifier: optional \u2014 disambiguates pipeline_id when multiple custom-phase runs target the same issue/PR`; plan schema TASK-3-1 omits qualifier. Add qualifier to the tool schema and to pipeline_id composition (e.g. `issue-{N}-{qualifier or 'custom'}`).\n\n- **TASK-2-4 review-graph filter test coverage is thin.** Acceptance only exercises `[refiner]` and `[coder, reviewer_code]` \u2014 misses the exact case risk_analyst R3 warns about: `active_roles=[\"coder\"]` without reviewer_code. The plan relies on the existing filter at pipelines.py:7263-7270 to drop the reviewer_code edge, letting BRC short-circuit \u2014 but no test confirms this happens. Add: `active_roles=[\"coder\"]` spawns exactly one container (coder), the review graph has zero edges into coder, and BRC reaches CONSENSUS_REACHED on coder's first propose.\n\n- **TASK-5-8 ambiguity.** \"Alternatively, if the script has no remaining subcommands worth keeping, delete it and adjust docs \u2014 architect's call; default to 'keep init, error on compose subs' for lower churn.\" Pick one. Recommend \"keep init, stub compose subs with deprecation error and exit 2\" as already described.\n\n- **TASK-5-4 reasoning is inaccurate.** The task says \"Replace the two ensure_compose_services() call sites at runtime.py:686 and runtime.py:1060 with a no-op delete (the function that contains them is being removed in TASK-5-5\u2026).\" Only `run_claude` (line 686) is removed in TASK-5-5; `exec_in_new_container` (line 1060) is explicitly KEPT per TASK-5-5's description. Clarify: line 686 is removed transitively via run_claude deletion; line 1060 must be deleted as an in-place edit to the surviving exec_in_new_container.\n\n- **TASK-5-3 grep acceptance command is malformed.** `grep -rn 'from .cli\\b\\|from egg_lib.cli\\b'` \u2014 the regex alternation is correct but `--include='*.py'` filter should be added to match the TASK-5-4 form. Minor.\n\nPlease revise and re-propose.\n",
+    "metadata": {
+      "payload": {
+        "reason": "\nReviewed the plan against the refine analysis, the architect's and risk_analyst's proposals, and the cited code. The plan is well-structured (7 phases, 33 tasks), adopts all 9 HITL decisions verbatim, and resolves the 9 deferred F1\u2013F9 questions inline. But six concrete gaps are blocking the implement phase.\n\n### Blocking\n\n1. **pyproject.toml `egg` script entry not removed + Makefile references stale (matches risk_analyst R6).** TASK-5-3 deletes `sandbox/egg_lib/cli.py` but the plan has no task to remove `egg = \"egg_lib.cli:main\"` at **pyproject.toml:43** (verified present). After merge, `uv pip install -e .` fails with ImportError. Also **Makefile:364** and **Makefile:369** both say `'Run bin/egg-deploy init or egg --setup'` / `'Run egg --setup to generate it (required by #1769 HITL auth).'` (verified). These error strings become misleading/broken. Fix: add a task in Phase 5 (or extend TASK-5-7) with explicit acceptance: `grep -n 'egg_lib.cli' pyproject.toml` returns zero matches; `grep -n 'egg --setup' Makefile` returns zero matches; the two Makefile error messages redirect to the new onboarding surface.\n\n2. **CUSTOM+PR does NOT actually inherit BABYSIT's staging-branch or orient-prompt semantics (matches architect's own spec + risk_analyst R5).** D2 says \"CUSTOM subsumes BABYSIT internally\", and TASK-2-6 refactors the PR pre-flight helper to fire for both modes \u2014 but the sites that implement BABYSIT's *runtime* behavior are never broadened:\n   - **orchestrator/concurrent_executor.py:174** \u2014 `pipeline_mode == _PipelineMode.BABYSIT` gates per-role staging branches (`egg/babysit-pr/<pr>/<sha>/<role>`). Verified. A CUSTOM pipeline with pr_number will fall through to `self.pipeline.branch` and skip staging isolation entirely. No plan task touches line 174.\n   - **orchestrator/routes/pipelines.py:6192** and **:6357** \u2014 `mode == PipelineMode.BABYSIT and phase == \"implement\"` gates PR-diff-aware reviewer/producer orient prompts (gh pr checkout, base...head diff framing). Verified. CUSTOM+PR pipelines would use the ISSUE-mode orient prompts, i.e., the wrong prompts.\n   - **orchestrator/routes/pipelines.py:957** \u2014 `has_contract = mode != PipelineMode.BABYSIT`. CUSTOM+PR should also set has_contract=False (per architect section 3/5 and its own open_questions_for_reviewer_plan #1), but this line forces True. TASK-2-2 defines its own has_contract logic for CUSTOM but doesn't amend line 957.\n   - **orchestrator/routes/pipelines.py:353, 822, 825, 959, 9661** and **state_store.py:882** \u2014 all check BABYSIT and were enumerated in risk_analyst R5 but no plan task addresses them.\n\n   This means a `run_agent_task(phase=implement, pr_number=N, repo=R)` call will create a pipeline that does the PR pre-flight correctly (TASK-2-6) but then writes to the PR head branch with no staging isolation and with ISSUE-mode orient prompts. That breaks the subsumption claim. Fix: add an explicit audit task in Phase 2 or Phase 4 that enumerates every `mode == PipelineMode.BABYSIT` / `mode != PipelineMode.BABYSIT` site in orchestrator/ and decides CUSTOM's behavior per-site. At minimum broaden lines 174, 957, 6192, 6357 to `mode in (BABYSIT, CUSTOM) and pr_number is not None` (or extract a `_uses_per_role_staging(pipeline) -> bool` helper per risk_analyst R5 mitigation). Add parametrized tests (extend TASK-7-2) that assert CUSTOM+PR gets the same staging branch name and orient prompt content as BABYSIT.\n\n3. **Draft-file keying collision between CUSTOM and ISSUE on the same issue_number (risk_analyst R11 unresolved).** F2 resolves *contract-file* keying (shared issue-<N>.json, idempotent merge). It does NOT address *draft-file* keying. `_draft_path` at **orchestrator/routes/pipelines.py:2510-2518** uses `issue_number` as prefix when available: `.egg-state/drafts/<issue>-analysis.md`. A CUSTOM pipeline with `issue_number=N` and `phase=refine` will overwrite an in-flight ISSUE pipeline's analysis draft. Risk_analyst R11 explicitly recommended \"For CUSTOM pipelines, always use pipeline_id-keyed draft filenames regardless of issue_number.\" Fix: add a task under Phase 2 (e.g. TASK-2-7) that forces CUSTOM-mode drafts to use the pipeline_id prefix (or argues explicitly why sharing is safe), with tests that verify parallel ISSUE+CUSTOM runs on the same issue do not collide on draft files.\n\n4. **Repo allowlist enforcement is not an explicit acceptance criterion (risk_analyst R9).** F4 says \"reuse the existing repositories.yaml allowlist enforced by the gateway.\" But grep confirms `repositories.yaml` is only consulted in routes/pipelines.py:6658, 6702, 8936 \u2014 and those are check-command lookups, not pipeline-creation gates. No plan task verifies that `run_agent_task(repo=\"random/not-allowed\")` is rejected at the route before a pipeline is created. TASK-2-1, TASK-3-2, and TASK-7-2 all omit this. Fix: add a concrete acceptance criterion under TASK-2-1 (route) and a test under TASK-7-2 (or a new `test_run_agent_task_security.py`): (a) repo in allowlist \u2192 201, (b) repo not in allowlist \u2192 400, (c) repo with shell metacharacters \u2192 400. This matches the pattern risk_analyst asks for verbatim.\n\n5. **Integration-test compose-fallback migration is incomplete (risk_analyst R4 only partially addressed).** TASK-6-1 migrates `integration_tests/local_pipeline/conftest.py` only. But the top-level **integration_tests/conftest.py** (verified) also has a session-scoped `egg_stack` fixture with `compose_file = PROJECT_ROOT / \"integration_tests\" / \"docker-compose.yml\"` at line 270 and `docker compose` subprocess invocations at line 290+. Risk_analyst R4 explicitly flagged this fixture as CERTAIN to break `test_e2e_workflow.py`, `test_babysit_pr/*`, `test_agent_security_fuzz.py`, and the rest of the top-level integration suite. Fix: extend TASK-6-1 (or add TASK-6-2) to also migrate the top-level `integration_tests/conftest.py` \u2014 delete the `_docker_compose_egg_stack` fallback, make the k8s path the only path, and pytest.skip cleanly when k8s is not reachable. Acceptance: `grep -n 'compose' integration_tests/conftest.py` returns zero non-doc matches.\n\n6. **Post-phase completion semantics for CUSTOM pipelines are undefined.** CUSTOM is single-phase by design, but the plan never states what happens once the one phase reaches CONSENSUS_REACHED. Grep shows `next_phase = next_phases[0]; pipeline.current_phase = next_phase` at **orchestrator/routes/pipelines.py:10591-10594** and :10957 \u2014 these auto-advance through refine\u2192plan\u2192implement. Without a `mode == CUSTOM` guard, a `run_agent_task(phase=refine, roles=[refiner])` call will finish refine and then try to start plan. Architect's risks_for_risk_analyst callout #1 (\"Phase completion semantics for CUSTOM\") raised exactly this. No task covers it. Fix: add a task under Phase 2 (or Phase 4 for consistency with BABYSIT's single-phase termination) that guards the phase-advance sites in pipelines.py to mark CUSTOM pipelines COMPLETE after their single phase consents. Add a test: `run_agent_task(phase=refine, roles=[refiner])` ends in state COMPLETE with no attempt to spawn plan-phase agents.\n\n### Non-blocking\n\n- **Dependency Ordering section missing** \u2014 Prior plans (e.g., `.egg-state/drafts/1748-plan.md:104-114`) include a phase dependency graph. For a 33-task plan this is conventional and useful. Consider adding.\n\n- **Risks mapping section missing** \u2014 Prior plans (e.g., `1748-plan.md:116`) include a table mapping each risk_analyst risk to its mitigating task. Would have surfaced the gaps in R6, R9, R11, R14 on its own. Recommend adding now so the coder can read the plan as a risk-complete plan.\n\n- **F1 (HITL scope) diverges from architect's answer.** Plan F1: \"Out-of-scope for v1. run_agent_task does not trigger HITL gates.\" Architect q1_hitl_scope: \"PipelineConfig.hitl_gates default stays true (parity with ISSUE mode).\" Risk_analyst R14 prefers the architect's answer (\"HITL decisions created during a CUSTOM phase are captured the same way as in ISSUE mode\"). This is a real semantic divergence: plan's choice means a refine-phase CUSTOM pipeline does NOT pause after consensus for human approval, architect's means it does. Either is defensible but the plan should (a) explicitly justify the divergence from the architect or (b) adopt the architect's answer. Note that `PipelineConfig.hitl_gates` (default True, models.py:303) is an existing knob \u2014 plan's answer presumably requires forcing it False for CUSTOM, which is not stated anywhere.\n\n- **Pipeline-id collision for multiple CUSTOM runs on same issue/PR** \u2014 TASK-3-2: `pipeline_id = f\"issue-{issue_number}-custom\"`. Two concurrent `run_agent_task(issue_number=N)` calls collide with a 409. Architect's interface_contracts listed `qualifier: optional \u2014 disambiguates pipeline_id when multiple custom-phase runs target the same issue/PR`; plan schema TASK-3-1 omits qualifier. Add qualifier to the tool schema and to pipeline_id composition (e.g. `issue-{N}-{qualifier or 'custom'}`).\n\n- **TASK-2-4 review-graph filter test coverage is thin.** Acceptance only exercises `[refiner]` and `[coder, reviewer_code]` \u2014 misses the exact case risk_analyst R3 warns about: `active_roles=[\"coder\"]` without reviewer_code. The plan relies on the existing filter at pipelines.py:7263-7270 to drop the reviewer_code edge, letting BRC short-circuit \u2014 but no test confirms this happens. Add: `active_roles=[\"coder\"]` spawns exactly one container (coder), the review graph has zero edges into coder, and BRC reaches CONSENSUS_REACHED on coder's first propose.\n\n- **TASK-5-8 ambiguity.** \"Alternatively, if the script has no remaining subcommands worth keeping, delete it and adjust docs \u2014 architect's call; default to 'keep init, error on compose subs' for lower churn.\" Pick one. Recommend \"keep init, stub compose subs with deprecation error and exit 2\" as already described.\n\n- **TASK-5-4 reasoning is inaccurate.** The task says \"Replace the two ensure_compose_services() call sites at runtime.py:686 and runtime.py:1060 with a no-op delete (the function that contains them is being removed in TASK-5-5\u2026).\" Only `run_claude` (line 686) is removed in TASK-5-5; `exec_in_new_container` (line 1060) is explicitly KEPT per TASK-5-5's description. Clarify: line 686 is removed transitively via run_claude deletion; line 1060 must be deleted as an in-place edit to the surviving exec_in_new_container.\n\n- **TASK-5-3 grep acceptance command is malformed.** `grep -rn 'from .cli\\b\\|from egg_lib.cli\\b'` \u2014 the regex alternation is correct but `--include='*.py'` filter should be added to match the TASK-5-4 form. Minor.\n\nPlease revise and re-propose.\n",
+        "artifact_references": [
+          ".egg-state/drafts/1762-plan.md",
+          ".egg-state/agent-outputs/1762-architect-output.json",
+          ".egg-state/agent-outputs/1762-risk_analyst-output.json",
+          ".egg-state/drafts/1762-analysis.md",
+          "orchestrator/concurrent_executor.py",
+          "orchestrator/routes/pipelines.py",
+          "pyproject.toml",
+          "Makefile",
+          "integration_tests/conftest.py"
+        ]
+      },
+      "reason": "\nReviewed the plan against the refine analysis, the architect's and risk_analyst's proposals, and the cited code. The plan is well-structured (7 phases, 33 tasks), adopts all 9 HITL decisions verbatim, and resolves the 9 deferred F1\u2013F9 questions inline. But six concrete gaps are blocking the implement phase.\n\n### Blocking\n\n1. **pyproject.toml `egg` script entry not removed + Makefile references stale (matches risk_analyst R6).** TASK-5-3 deletes `sandbox/egg_lib/cli.py` but the plan has no task to remove `egg = \"egg_lib.cli:main\"` at **pyproject.toml:43** (verified present). After merge, `uv pip install -e .` fails with ImportError. Also **Makefile:364** and **Makefile:369** both say `'Run bin/egg-deploy init or egg --setup'` / `'Run egg --setup to generate it (required by #1769 HITL auth).'` (verified). These error strings become misleading/broken. Fix: add a task in Phase 5 (or extend TASK-5-7) with explicit acceptance: `grep -n 'egg_lib.cli' pyproject.toml` returns zero matches; `grep -n 'egg --setup' Makefile` returns zero matches; the two Makefile error messages redirect to the new onboarding surface.\n\n2. **CUSTOM+PR does NOT actually inherit BABYSIT's staging-branch or orient-prompt semantics (matches architect's own spec + risk_analyst R5).** D2 says \"CUSTOM subsumes BABYSIT internally\", and TASK-2-6 refactors the PR pre-flight helper to fire for both modes \u2014 but the sites that implement BABYSIT's *runtime* behavior are never broadened:\n   - **orchestrator/concurrent_executor.py:174** \u2014 `pipeline_mode == _PipelineMode.BABYSIT` gates per-role staging branches (`egg/babysit-pr/<pr>/<sha>/<role>`). Verified. A CUSTOM pipeline with pr_number will fall through to `self.pipeline.branch` and skip staging isolation entirely. No plan task touches line 174.\n   - **orchestrator/routes/pipelines.py:6192** and **:6357** \u2014 `mode == PipelineMode.BABYSIT and phase == \"implement\"` gates PR-diff-aware reviewer/producer orient prompts (gh pr checkout, base...head diff framing). Verified. CUSTOM+PR pipelines would use the ISSUE-mode orient prompts, i.e., the wrong prompts.\n   - **orchestrator/routes/pipelines.py:957** \u2014 `has_contract = mode != PipelineMode.BABYSIT`. CUSTOM+PR should also set has_contract=False (per architect section 3/5 and its own open_questions_for_reviewer_plan #1), but this line forces True. TASK-2-2 defines its own has_contract logic for CUSTOM but doesn't amend line 957.\n   - **orchestrator/routes/pipelines.py:353, 822, 825, 959, 9661** and **state_store.py:882** \u2014 all check BABYSIT and were enumerated in risk_analyst R5 but no plan task addresses them.\n\n   This means a `run_agent_task(phase=implement, pr_number=N, repo=R)` call will create a pipeline that does the PR pre-flight correctly (TASK-2-6) but then writes to the PR head branch with no staging isolation and with ISSUE-mode orient prompts. That breaks the subsumption claim. Fix: add an explicit audit task in Phase 2 or Phase 4 that enumerates every `mode == PipelineMode.BABYSIT` / `mode != PipelineMode.BABYSIT` site in orchestrator/ and decides CUSTOM's behavior per-site. At minimum broaden lines 174, 957, 6192, 6357 to `mode in (BABYSIT, CUSTOM) and pr_number is not None` (or extract a `_uses_per_role_staging(pipeline) -> bool` helper per risk_analyst R5 mitigation). Add parametrized tests (extend TASK-7-2) that assert CUSTOM+PR gets the same staging branch name and orient prompt content as BABYSIT.\n\n3. **Draft-file keying collision between CUSTOM and ISSUE on the same issue_number (risk_analyst R11 unresolved).** F2 resolves *contract-file* keying (shared issue-<N>.json, idempotent merge). It does NOT address *draft-file* keying. `_draft_path` at **orchestrator/routes/pipelines.py:2510-2518** uses `issue_number` as prefix when available: `.egg-state/drafts/<issue>-analysis.md`. A CUSTOM pipeline with `issue_number=N` and `phase=refine` will overwrite an in-flight ISSUE pipeline's analysis draft. Risk_analyst R11 explicitly recommended \"For CUSTOM pipelines, always use pipeline_id-keyed draft filenames regardless of issue_number.\" Fix: add a task under Phase 2 (e.g. TASK-2-7) that forces CUSTOM-mode drafts to use the pipeline_id prefix (or argues explicitly why sharing is safe), with tests that verify parallel ISSUE+CUSTOM runs on the same issue do not collide on draft files.\n\n4. **Repo allowlist enforcement is not an explicit acceptance criterion (risk_analyst R9).** F4 says \"reuse the existing repositories.yaml allowlist enforced by the gateway.\" But grep confirms `repositories.yaml` is only consulted in routes/pipelines.py:6658, 6702, 8936 \u2014 and those are check-command lookups, not pipeline-creation gates. No plan task verifies that `run_agent_task(repo=\"random/not-allowed\")` is rejected at the route before a pipeline is created. TASK-2-1, TASK-3-2, and TASK-7-2 all omit this. Fix: add a concrete acceptance criterion under TASK-2-1 (route) and a test under TASK-7-2 (or a new `test_run_agent_task_security.py`): (a) repo in allowlist \u2192 201, (b) repo not in allowlist \u2192 400, (c) repo with shell metacharacters \u2192 400. This matches the pattern risk_analyst asks for verbatim.\n\n5. **Integration-test compose-fallback migration is incomplete (risk_analyst R4 only partially addressed).** TASK-6-1 migrates `integration_tests/local_pipeline/conftest.py` only. But the top-level **integration_tests/conftest.py** (verified) also has a session-scoped `egg_stack` fixture with `compose_file = PROJECT_ROOT / \"integration_tests\" / \"docker-compose.yml\"` at line 270 and `docker compose` subprocess invocations at line 290+. Risk_analyst R4 explicitly flagged this fixture as CERTAIN to break `test_e2e_workflow.py`, `test_babysit_pr/*`, `test_agent_security_fuzz.py`, and the rest of the top-level integration suite. Fix: extend TASK-6-1 (or add TASK-6-2) to also migrate the top-level `integration_tests/conftest.py` \u2014 delete the `_docker_compose_egg_stack` fallback, make the k8s path the only path, and pytest.skip cleanly when k8s is not reachable. Acceptance: `grep -n 'compose' integration_tests/conftest.py` returns zero non-doc matches.\n\n6. **Post-phase completion semantics for CUSTOM pipelines are undefined.** CUSTOM is single-phase by design, but the plan never states what happens once the one phase reaches CONSENSUS_REACHED. Grep shows `next_phase = next_phases[0]; pipeline.current_phase = next_phase` at **orchestrator/routes/pipelines.py:10591-10594** and :10957 \u2014 these auto-advance through refine\u2192plan\u2192implement. Without a `mode == CUSTOM` guard, a `run_agent_task(phase=refine, roles=[refiner])` call will finish refine and then try to start plan. Architect's risks_for_risk_analyst callout #1 (\"Phase completion semantics for CUSTOM\") raised exactly this. No task covers it. Fix: add a task under Phase 2 (or Phase 4 for consistency with BABYSIT's single-phase termination) that guards the phase-advance sites in pipelines.py to mark CUSTOM pipelines COMPLETE after their single phase consents. Add a test: `run_agent_task(phase=refine, roles=[refiner])` ends in state COMPLETE with no attempt to spawn plan-phase agents.\n\n### Non-blocking\n\n- **Dependency Ordering section missing** \u2014 Prior plans (e.g., `.egg-state/drafts/1748-plan.md:104-114`) include a phase dependency graph. For a 33-task plan this is conventional and useful. Consider adding.\n\n- **Risks mapping section missing** \u2014 Prior plans (e.g., `1748-plan.md:116`) include a table mapping each risk_analyst risk to its mitigating task. Would have surfaced the gaps in R6, R9, R11, R14 on its own. Recommend adding now so the coder can read the plan as a risk-complete plan.\n\n- **F1 (HITL scope) diverges from architect's answer.** Plan F1: \"Out-of-scope for v1. run_agent_task does not trigger HITL gates.\" Architect q1_hitl_scope: \"PipelineConfig.hitl_gates default stays true (parity with ISSUE mode).\" Risk_analyst R14 prefers the architect's answer (\"HITL decisions created during a CUSTOM phase are captured the same way as in ISSUE mode\"). This is a real semantic divergence: plan's choice means a refine-phase CUSTOM pipeline does NOT pause after consensus for human approval, architect's means it does. Either is defensible but the plan should (a) explicitly justify the divergence from the architect or (b) adopt the architect's answer. Note that `PipelineConfig.hitl_gates` (default True, models.py:303) is an existing knob \u2014 plan's answer presumably requires forcing it False for CUSTOM, which is not stated anywhere.\n\n- **Pipeline-id collision for multiple CUSTOM runs on same issue/PR** \u2014 TASK-3-2: `pipeline_id = f\"issue-{issue_number}-custom\"`. Two concurrent `run_agent_task(issue_number=N)` calls collide with a 409. Architect's interface_contracts listed `qualifier: optional \u2014 disambiguates pipeline_id when multiple custom-phase runs target the same issue/PR`; plan schema TASK-3-1 omits qualifier. Add qualifier to the tool schema and to pipeline_id composition (e.g. `issue-{N}-{qualifier or 'custom'}`).\n\n- **TASK-2-4 review-graph filter test coverage is thin.** Acceptance only exercises `[refiner]` and `[coder, reviewer_code]` \u2014 misses the exact case risk_analyst R3 warns about: `active_roles=[\"coder\"]` without reviewer_code. The plan relies on the existing filter at pipelines.py:7263-7270 to drop the reviewer_code edge, letting BRC short-circuit \u2014 but no test confirms this happens. Add: `active_roles=[\"coder\"]` spawns exactly one container (coder), the review graph has zero edges into coder, and BRC reaches CONSENSUS_REACHED on coder's first propose.\n\n- **TASK-5-8 ambiguity.** \"Alternatively, if the script has no remaining subcommands worth keeping, delete it and adjust docs \u2014 architect's call; default to 'keep init, error on compose subs' for lower churn.\" Pick one. Recommend \"keep init, stub compose subs with deprecation error and exit 2\" as already described.\n\n- **TASK-5-4 reasoning is inaccurate.** The task says \"Replace the two ensure_compose_services() call sites at runtime.py:686 and runtime.py:1060 with a no-op delete (the function that contains them is being removed in TASK-5-5\u2026).\" Only `run_claude` (line 686) is removed in TASK-5-5; `exec_in_new_container` (line 1060) is explicitly KEPT per TASK-5-5's description. Clarify: line 686 is removed transitively via run_claude deletion; line 1060 must be deleted as an in-place edit to the surviving exec_in_new_container.\n\n- **TASK-5-3 grep acceptance command is malformed.** `grep -rn 'from .cli\\b\\|from egg_lib.cli\\b'` \u2014 the regex alternation is correct but `--include='*.py'` filter should be added to match the TASK-5-4 form. Minor.\n\nPlease revise and re-propose.\n",
+      "revision_count": 1
+    },
+    "timestamp": "2026-04-22T21:20:28.942414+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b67415e6-21e3-47",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Producer architect cannot confirm: not fully ACKed. Pending reviewers: ['reviewer_plan']",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:20:50.176274+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3c4ffaf5-6996-4f",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "reviewer_plan",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for architect",
+    "body": "\nReviewed architect-output.json (299 lines) against the refine analysis, the resolved HITL decisions in the contract, and the referenced code sites. Verified the architectural claims against the repo:\n\n- ConcurrentPhaseExecutor.__init__ accepts a roles override (confirmed at orchestrator/concurrent_executor.py:102-145; _roles_override at line 114; get_agent_roles() returns override if set at line 133-134).\n- ApprovalMatrix.is_fully_acked short-circuits empty reviewer lists (confirmed at orchestrator/approval_matrix.py:162).\n- _PHASE_ROLES / _PHASE_REVIEWERS layout in shared/egg_contracts/agent_roles.py:1020-1038, and has_contract filter at lines 1086-1089.\n- PipelineMode enum at orchestrator/models.py:29; Pipeline.has_contract field present; pr_head_sha validator at line 547.\n- The BABYSIT conditional branches called out in section 5 (concurrent_executor.py:174, routes/pipelines.py:6192, 6357) \u2014 verified present in the current tree.\n\nThe architecture document cleanly adopts the 9 resolved HITL decisions, proposes concrete resolutions for the 9 deferred F1\u2013F9 questions, and raises the right risks_for_risk_analyst callouts (GHA import, compose removal sweep, active_roles read-everywhere, phase-completion semantics for single-phase CUSTOM runs, CUSTOM+PR staging-branch broadening). Its own open_questions_for_reviewer_plan (has_contract semantics for CUSTOM+PR; start_phase reuse vs. dedicated custom_phase field; egg-deploy compose-stub vs. deletion) are reasonable plan-phase decision points.\n\n### Non-blocking\n\n- **open_questions #1 (has_contract for CUSTOM+PR)**: I'd recommend adopting the strict-BABYSIT-parity answer (always has_contract=False when pr_number is set, regardless of analysis/plan inline args) rather than the split proposal. Rationale: BABYSIT's has_contract=False is what filters reviewer_contract out, and for CUSTOM+PR the same logic applies \u2014 there's no upstream contract artifact on a PR-targeted implement run. Keeping the rule simple (`mode == BABYSIT or (mode == CUSTOM and pr_number is not None) \u2192 has_contract=False`) also collapses the audit surface called out in the plan.\n- **open_questions #2 (start_phase reuse)**: reusing PipelineConfig.start_phase with an extended validator (adding 'refine') is pragmatic but the semantic of start_phase differs between ISSUE (advance-to knob; prior phases are skipped) and CUSTOM (the-only-phase-I-run knob; post-phase machinery must stop). The plan would need a mode == CUSTOM guard in the phase-advance sites (pipelines.py:10591-10594, 10957) to prevent CUSTOM runs from auto-advancing to the next phase. A dedicated Pipeline.custom_phase: str | None might be cleaner. Either works, but the plan should pick one and cover the completion semantics explicitly \u2014 I've flagged this in the plan NACK.\n- **decision-5 redundancy callout**: the output notes that concurrent_executor.py:114 \"already supports roles override, no change needed there.\" Correct. Suggest the plan include a regression test or assertion step so a future refactor can't silently drop this override plumbing.\n- The architect's acceptance_criteria_hints_for_task_planner list (16 ACs) is useful \u2014 all but the security-allowlist + phase-completion-semantics ACs made it into the plan. The remaining gaps are on the task_planner to close (see plan NACK).\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/1762-architect-output.json",
+          ".egg-state/drafts/1762-analysis.md",
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/concurrent_executor.py",
+          "orchestrator/models.py",
+          "shared/egg_contracts/agent_roles.py"
+        ],
+        "reason": "\nReviewed architect-output.json (299 lines) against the refine analysis, the resolved HITL decisions in the contract, and the referenced code sites. Verified the architectural claims against the repo:\n\n- ConcurrentPhaseExecutor.__init__ accepts a roles override (confirmed at orchestrator/concurrent_executor.py:102-145; _roles_override at line 114; get_agent_roles() returns override if set at line 133-134).\n- ApprovalMatrix.is_fully_acked short-circuits empty reviewer lists (confirmed at orchestrator/approval_matrix.py:162).\n- _PHASE_ROLES / _PHASE_REVIEWERS layout in shared/egg_contracts/agent_roles.py:1020-1038, and has_contract filter at lines 1086-1089.\n- PipelineMode enum at orchestrator/models.py:29; Pipeline.has_contract field present; pr_head_sha validator at line 547.\n- The BABYSIT conditional branches called out in section 5 (concurrent_executor.py:174, routes/pipelines.py:6192, 6357) \u2014 verified present in the current tree.\n\nThe architecture document cleanly adopts the 9 resolved HITL decisions, proposes concrete resolutions for the 9 deferred F1\u2013F9 questions, and raises the right risks_for_risk_analyst callouts (GHA import, compose removal sweep, active_roles read-everywhere, phase-completion semantics for single-phase CUSTOM runs, CUSTOM+PR staging-branch broadening). Its own open_questions_for_reviewer_plan (has_contract semantics for CUSTOM+PR; start_phase reuse vs. dedicated custom_phase field; egg-deploy compose-stub vs. deletion) are reasonable plan-phase decision points.\n\n### Non-blocking\n\n- **open_questions #1 (has_contract for CUSTOM+PR)**: I'd recommend adopting the strict-BABYSIT-parity answer (always has_contract=False when pr_number is set, regardless of analysis/plan inline args) rather than the split proposal. Rationale: BABYSIT's has_contract=False is what filters reviewer_contract out, and for CUSTOM+PR the same logic applies \u2014 there's no upstream contract artifact on a PR-targeted implement run. Keeping the rule simple (`mode == BABYSIT or (mode == CUSTOM and pr_number is not None) \u2192 has_contract=False`) also collapses the audit surface called out in the plan.\n- **open_questions #2 (start_phase reuse)**: reusing PipelineConfig.start_phase with an extended validator (adding 'refine') is pragmatic but the semantic of start_phase differs between ISSUE (advance-to knob; prior phases are skipped) and CUSTOM (the-only-phase-I-run knob; post-phase machinery must stop). The plan would need a mode == CUSTOM guard in the phase-advance sites (pipelines.py:10591-10594, 10957) to prevent CUSTOM runs from auto-advancing to the next phase. A dedicated Pipeline.custom_phase: str | None might be cleaner. Either works, but the plan should pick one and cover the completion semantics explicitly \u2014 I've flagged this in the plan NACK.\n- **decision-5 redundancy callout**: the output notes that concurrent_executor.py:114 \"already supports roles override, no change needed there.\" Correct. Suggest the plan include a regression test or assertion step so a future refactor can't silently drop this override plumbing.\n- The architect's acceptance_criteria_hints_for_task_planner list (16 ACs) is useful \u2014 all but the security-allowlist + phase-completion-semantics ACs made it into the plan. The remaining gaps are on the task_planner to close (see plan NACK).\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-22T21:21:13.746416+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "71f2221a-a34b-46",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-22T21:21:13.746444+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "39ae6e5d-ee4f-48",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "\nReviewed risk_analyst-output.json (364 lines, 14 risks) against the refine analysis and verified the concrete file/line references. Spot-checked several risk findings against the repo:\n\n- R1 (gha_exec import path break): `action/entrypoint.sh` does reference `from egg_lib.cli import gha_exec` \u2014 confirmed. Decision-3 removes that module. Risk correctly identified and scoped.\n- R2 (Pipeline persistence compatibility): additive-only Pydantic defaults for active_roles are sufficient \u2014 mitigation is sound.\n- R3 (reviewer-graph deadlock for producer-without-critical-reviewer): verified at orchestrator/approval_matrix.py:162 \u2014 is_fully_acked iterates critical_reviewers_for() and stalls if the reviewer is graph-edge-present but not spawned. This risk is real; the mitigation (auto-inject critical reviewers or reject at validation) is appropriate \u2014 I've pushed this as an explicit plan acceptance criterion in the plan NACK (reviewer-graph filter must drop edges to unselected reviewers; test with `active_roles=[\"coder\"]` alone).\n- R4 (integration_tests conftest): verified `integration_tests/conftest.py` has a session-scoped compose fallback (compose_file at line 270, docker compose subprocess invocations at line 290+). The risk is CERTAIN; the plan currently only migrates local_pipeline/conftest.py, leaving the top-level fixture broken. I've flagged this in the plan NACK.\n- R5 (BABYSIT conditional branches): grep confirmed BABYSIT-specific branches at routes/pipelines.py:353, 754, 768, 822, 825, 957, 959, 6192, 6357, 9661; concurrent_executor.py:174; state_store.py:882. The risk is well-scoped. Plan does not audit these.\n- R6 (pyproject.toml egg entry): verified `egg = \"egg_lib.cli:main\"` at pyproject.toml:43 and `egg --setup` at Makefile:364, :369. Risk materializes as certain on merge. Plan doesn't remove either.\n- R9 (repo allowlist): verified repositories.yaml is referenced in routes/pipelines.py at 6658, 6702, 8936 \u2014 all check-command lookups, not pipeline-creation gates. Risk correctly calls out that submit_task's allowlist enforcement is not centralized in a reusable helper; run_agent_task must re-derive it. Plan doesn't make this an explicit AC.\n- R11 (draft-file collision): verified `_draft_path` at routes/pipelines.py:2510-2518 uses issue_number as prefix when available. Risk is real; plan's F2 resolves contract-file keying but not draft-file keying.\n\nThe 14 risks are well-categorized (correctness / compatibility / security / performance / operational), severity/likelihood are defensible, and every risk has a concrete mitigation that fits inside Option A's single-PR cutover. The `areas_requiring_human_review` list surfaces the right 6 questions for the plan-phase HITL decision surface. The `go_no_go` verdict of GO-with-conditions is appropriate.\n\n### Non-blocking\n\n- **R10 (branch/worktree proliferation) mitigation is doc-only.** Would be stronger to suggest a concrete TTL or retention knob (e.g. auto-delete `egg/custom-*` branches with no commits newer than N days on pipeline completion). The follow-up ticket framing is acceptable given the low severity.\n- **R14 (HITL gate integration)**: the risk correctly flags feedback-1 Q1 as unresolved. Task_planner resolved it as \"out-of-scope / no HITL\" (plan F1); you prefer \"inherit ISSUE's HITL behavior\". The architect also prefers the parity answer. I've flagged the divergence in the plan NACK; worth re-raising at the plan HITL gate if the task_planner sticks with its answer.\n- **Rollback plan** notes \"state_store must fail loud rather than silent when it sees an unknown PipelineMode value\" \u2014 good callout. Mentioning a specific exception type (e.g. `UnknownPipelineModeError`) would make it actionable for the coder.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/1762-risk_analyst-output.json",
+          ".egg-state/drafts/1762-analysis.md",
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/concurrent_executor.py",
+          "orchestrator/models.py",
+          "pyproject.toml",
+          "Makefile",
+          "integration_tests/conftest.py",
+          "action/entrypoint.sh"
+        ],
+        "reason": "\nReviewed risk_analyst-output.json (364 lines, 14 risks) against the refine analysis and verified the concrete file/line references. Spot-checked several risk findings against the repo:\n\n- R1 (gha_exec import path break): `action/entrypoint.sh` does reference `from egg_lib.cli import gha_exec` \u2014 confirmed. Decision-3 removes that module. Risk correctly identified and scoped.\n- R2 (Pipeline persistence compatibility): additive-only Pydantic defaults for active_roles are sufficient \u2014 mitigation is sound.\n- R3 (reviewer-graph deadlock for producer-without-critical-reviewer): verified at orchestrator/approval_matrix.py:162 \u2014 is_fully_acked iterates critical_reviewers_for() and stalls if the reviewer is graph-edge-present but not spawned. This risk is real; the mitigation (auto-inject critical reviewers or reject at validation) is appropriate \u2014 I've pushed this as an explicit plan acceptance criterion in the plan NACK (reviewer-graph filter must drop edges to unselected reviewers; test with `active_roles=[\"coder\"]` alone).\n- R4 (integration_tests conftest): verified `integration_tests/conftest.py` has a session-scoped compose fallback (compose_file at line 270, docker compose subprocess invocations at line 290+). The risk is CERTAIN; the plan currently only migrates local_pipeline/conftest.py, leaving the top-level fixture broken. I've flagged this in the plan NACK.\n- R5 (BABYSIT conditional branches): grep confirmed BABYSIT-specific branches at routes/pipelines.py:353, 754, 768, 822, 825, 957, 959, 6192, 6357, 9661; concurrent_executor.py:174; state_store.py:882. The risk is well-scoped. Plan does not audit these.\n- R6 (pyproject.toml egg entry): verified `egg = \"egg_lib.cli:main\"` at pyproject.toml:43 and `egg --setup` at Makefile:364, :369. Risk materializes as certain on merge. Plan doesn't remove either.\n- R9 (repo allowlist): verified repositories.yaml is referenced in routes/pipelines.py at 6658, 6702, 8936 \u2014 all check-command lookups, not pipeline-creation gates. Risk correctly calls out that submit_task's allowlist enforcement is not centralized in a reusable helper; run_agent_task must re-derive it. Plan doesn't make this an explicit AC.\n- R11 (draft-file collision): verified `_draft_path` at routes/pipelines.py:2510-2518 uses issue_number as prefix when available. Risk is real; plan's F2 resolves contract-file keying but not draft-file keying.\n\nThe 14 risks are well-categorized (correctness / compatibility / security / performance / operational), severity/likelihood are defensible, and every risk has a concrete mitigation that fits inside Option A's single-PR cutover. The `areas_requiring_human_review` list surfaces the right 6 questions for the plan-phase HITL decision surface. The `go_no_go` verdict of GO-with-conditions is appropriate.\n\n### Non-blocking\n\n- **R10 (branch/worktree proliferation) mitigation is doc-only.** Would be stronger to suggest a concrete TTL or retention knob (e.g. auto-delete `egg/custom-*` branches with no commits newer than N days on pipeline completion). The follow-up ticket framing is acceptable given the low severity.\n- **R14 (HITL gate integration)**: the risk correctly flags feedback-1 Q1 as unresolved. Task_planner resolved it as \"out-of-scope / no HITL\" (plan F1); you prefer \"inherit ISSUE's HITL behavior\". The architect also prefers the parity answer. I've flagged the divergence in the plan NACK; worth re-raising at the plan HITL gate if the task_planner sticks with its answer.\n- **Rollback plan** notes \"state_store must fail loud rather than silent when it sees an unknown PipelineMode value\" \u2014 good callout. Mentioning a specific exception type (e.g. `UnknownPipelineModeError`) would make it actionable for the coder.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-22T21:21:44.391729+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9f8b50bb-589b-49",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-22T21:21:44.391757+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "187deabb-26cb-40",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by risk_analyst",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-22T21:21:48.814736+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "57fef2e6-c007-44",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_plan (pending_acks)",
+    "body": "Reviewer reviewer_plan cannot confirm: unresolved NACKs. Wait for these producers to re-propose before confirming: ['task_planner']",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-22T21:21:56.352941+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0a6f31ba-27a7-4d",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-22T21:22:50.480503+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b17045ce-8e7f-41",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Revised plan for #1762 at .egg-state/drafts/1762-plan.md (commit 0551ef0c4). Addresses all 6 blocking and 7 non-blocking NACK items from reviewer_plan. Blocking fixes: (1) TASK-5-7 removes pyproject.toml [project.scripts] egg entry + TASK-5-9 scrubs egg --setup from Makefile (risk_analyst R6); (2) TASK-2-7 adds _uses_per_role_staging() helper so CUSTOM+pr_number broadens concurrent_executor.py:174 staging branches, pipelines.py:957 has_contract, pipelines.py:6192/6357 PR-diff orient prompts (risk_analyst R5); (3) TASK-2-8 keys CUSTOM drafts by pipeline_id even with issue_number present (risk_analyst R11); (4) TASK-2-1 adds repo-allowlist acceptance + TASK-7-2 adds test_run_agent_task_security.py (risk_analyst R9); (5) TASK-6-2 migrates top-level integration_tests/conftest.py egg_stack fixture off compose (risk_analyst R4); (6) TASK-2-9 guards phase-advance at pipelines.py:10591-10594 and :10957-10958 so CUSTOM pipelines terminate COMPLETE after one phase. Non-blocking: added Dependency Ordering graph, Risk Mitigation Map table (14 risks mapped); F1 revised to parity with ISSUE mode per architect q1_hitl_scope and risk_analyst R14; TASK-3-1/3-2 add qualifier schema field; TASK-2-4 exercises active_roles=[coder] alone for R3 short-circuit; TASK-5-8 ambiguity resolved to keep init + stub compose subs; TASK-5-4 reasoning clarified for runtime.py:686 vs :1060; TASK-5-3 grep gets --include=*.py. Plan now has 7 phases / 38 tasks; yaml validates; no pr_plan key; pr.description/test_plan/manual_steps populated.",
+    "metadata": {
+      "payload": {
+        "summary": "Revised plan for #1762 at .egg-state/drafts/1762-plan.md (commit 0551ef0c4). Addresses all 6 blocking and 7 non-blocking NACK items from reviewer_plan. Blocking fixes: (1) TASK-5-7 removes pyproject.toml [project.scripts] egg entry + TASK-5-9 scrubs egg --setup from Makefile (risk_analyst R6); (2) TASK-2-7 adds _uses_per_role_staging() helper so CUSTOM+pr_number broadens concurrent_executor.py:174 staging branches, pipelines.py:957 has_contract, pipelines.py:6192/6357 PR-diff orient prompts (risk_analyst R5); (3) TASK-2-8 keys CUSTOM drafts by pipeline_id even with issue_number present (risk_analyst R11); (4) TASK-2-1 adds repo-allowlist acceptance + TASK-7-2 adds test_run_agent_task_security.py (risk_analyst R9); (5) TASK-6-2 migrates top-level integration_tests/conftest.py egg_stack fixture off compose (risk_analyst R4); (6) TASK-2-9 guards phase-advance at pipelines.py:10591-10594 and :10957-10958 so CUSTOM pipelines terminate COMPLETE after one phase. Non-blocking: added Dependency Ordering graph, Risk Mitigation Map table (14 risks mapped); F1 revised to parity with ISSUE mode per architect q1_hitl_scope and risk_analyst R14; TASK-3-1/3-2 add qualifier schema field; TASK-2-4 exercises active_roles=[coder] alone for R3 short-circuit; TASK-5-8 ambiguity resolved to keep init + stub compose subs; TASK-5-4 reasoning clarified for runtime.py:686 vs :1060; TASK-5-3 grep gets --include=*.py. Plan now has 7 phases / 38 tasks; yaml validates; no pr_plan key; pr.description/test_plan/manual_steps populated.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/1762-plan.md"
+        ],
+        "risk_considered": "",
+        "commit_sha": "0551ef0c4ee5034fe85c21a9f438a75be1b4a9f6",
+        "files_changed": [
+          ".egg-state/drafts/1762-plan.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "TASK-1-1",
+          "TASK-1-2",
+          "TASK-1-3",
+          "TASK-1-4",
+          "TASK-2-1",
+          "TASK-2-2",
+          "TASK-2-3",
+          "TASK-2-4",
+          "TASK-2-5",
+          "TASK-2-6",
+          "TASK-2-7",
+          "TASK-2-8",
+          "TASK-2-9",
+          "TASK-3-1",
+          "TASK-3-2",
+          "TASK-3-3",
+          "TASK-4-1",
+          "TASK-4-2",
+          "TASK-5-1",
+          "TASK-5-2",
+          "TASK-5-3",
+          "TASK-5-4",
+          "TASK-5-5",
+          "TASK-5-6",
+          "TASK-5-7",
+          "TASK-5-8",
+          "TASK-5-9",
+          "TASK-6-1",
+          "TASK-6-2",
+          "TASK-7-1",
+          "TASK-7-2",
+          "TASK-7-3",
+          "TASK-7-4",
+          "TASK-7-5",
+          "TASK-7-6",
+          "TASK-7-7",
+          "TASK-7-8",
+          "TASK-7-9"
+        ]
+      },
+      "version": 2,
+      "commit_sha": "0551ef0c4ee5034fe85c21a9f438a75be1b4a9f6"
+    },
+    "timestamp": "2026-04-22T21:27:02.682366+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e62beb86-5ad0-46",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "task_planner",
+    "to_role": "reviewer_plan",
+    "message_type": "HANDOFF",
+    "subject": "Revised plan for #1762 \u2014 addresses all NACK items",
+    "body": "Revised plan at .egg-state/drafts/1762-plan.md (commit 0551ef0c4). All 6 blocking + 7 non-blocking items from your NACK addressed. See commit message for per-item mapping. Re-review welcome.",
+    "metadata": {},
+    "timestamp": "2026-04-22T21:27:07.847561+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9f03a445-ac41-48",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "\nRe-reviewed the revised plan (commit 0551ef0c4, 1478 lines, 38 tasks). Verified each blocking issue from my prior NACK is addressed:\n\n1. **pyproject.toml + Makefile scrub (R6, blocking #1)** \u2014 TASK-5-7 now deletes `bin/egg` AND removes the `egg = \"egg_lib.cli:main\"` entry from pyproject.toml:43; acceptance includes `uv pip install -e .` success in a clean venv. TASK-5-9 rewrites Makefile:364 and :369 messages from `egg --setup` to `bin/egg-deploy init`. \u2713\n\n2. **CUSTOM+PR inherits BABYSIT semantics (R5, blocking #2)** \u2014 TASK-2-7 introduces `_uses_per_role_staging(pipeline) -> bool` and enumerates the call sites to broaden: concurrent_executor.py:174 (staging branches), pipelines.py:957 (has_contract), :6192, :6357 (PR-diff orient prompts), plus an audit of :353, :768, :822, :825, :959, :9661 and state_store.py:882. Acceptance asserts `grep -n 'PipelineMode.BABYSIT' orchestrator/` shows only the helper def + docstring after refactor. A CUSTOM+PR pipeline now gets `egg/babysit-pr/<pr>/<sha>/<role>` staging branches and has_contract=False. \u2713\n\n3. **Draft-file keying for CUSTOM (R11, blocking #3)** \u2014 TASK-2-8 modifies `_get_draft_path()` / `_pipeline_identifier()` to prefer pipeline_id when mode==CUSTOM regardless of issue_number. Acceptance includes concurrent-ISSUE-and-CUSTOM-on-same-issue test producing two distinct draft files. \u2713\n\n4. **Repo allowlist as explicit AC (R9, blocking #4)** \u2014 TASK-2-1 description now explicitly calls out the allowlist validation before any pipeline record is created; acceptance adds `repo=\"totally/unknown\"` \u2192 400 `repo_not_allowed` and shell-metacharacter rejection. TASK-7-2 adds a dedicated `test_run_agent_task_security.py` test file. \u2713\n\n5. **Top-level integration_tests/conftest.py (R4, blocking #5)** \u2014 TASK-6-2 migrates the `_docker_compose_egg_stack` fallback and `compose_file = PROJECT_ROOT / \"integration_tests\" / \"docker-compose.yml\"` at line 266-347, k8s-only path, pytest.skip cleanly when unreachable. Distinct from TASK-6-1 which handles local_pipeline/conftest.py. \u2713\n\n6. **Phase-advance guard for CUSTOM (blocking #6)** \u2014 TASK-2-9 explicitly guards pipelines.py:10591-10594 and :10957-10958 so CUSTOM pipelines transition to COMPLETE after the single phase. Acceptance verifies `run_agent_task(phase=refine, ...)` does NOT spawn plan-phase agents, and ISSUE-mode auto-advance is preserved. \u2713\n\nNon-blocking items: Dependency Ordering graph added (section at line 193). Risk Mitigation Map table added mapping all 14 risks to their mitigating tasks. F1 HITL revised from \"out-of-scope\" to \"parity with ISSUE mode\" (TASK-2-1 acceptance confirms `config.hitl_gates` passthrough). TASK-3-1/3-2 add `qualifier` schema field and use it in pipeline_id composition. TASK-2-4 acceptance broadened to include `active_roles=[\"coder\"]` alone with CONSENSUS_REACHED assertion on first propose. TASK-5-8 ambiguity resolved (keep init; stub compose subs with exit 2). TASK-5-4 reasoning clarified (runtime.py:686 transitive via run_claude deletion; :1060 is a surgical in-place edit). TASK-5-3 grep now includes `--include='*.py'`.\n\n### Non-blocking (new, minor)\n\n- **TASK-2-1 phrasing**: \"the same way `submit_task` implicitly does through `get_gateway_client().check_*`\" \u2014 risk_analyst R9 actually noted submit_task's allowlist enforcement is \"presumed\" but not obviously centralized at pipeline-creation time. If the plan extracts a shared helper (as TASK-2-1 suggests \"pull into a shared helper if necessary\"), fine; if submit_task doesn't already enforce, this task is adding a new enforcement point (which is still the right thing to do). Suggest the coder verify submit_task's current behaviour first; if not enforced there either, call it out as a drive-by fix.\n\n- **TASK-2-9**: \"Mirror the existing BABYSIT termination semantics\" \u2014 useful pointer. The implementer should confirm BABYSIT today actually terminates (rather than advancing) by grep-ing the phase-advance sites and finding the existing guard, if any. If no guard exists and BABYSIT happens to pass by coincidence (e.g., no next phase configured), the plan's parallel approach may not apply verbatim \u2014 the coder may need a fresh mode-based check.\n\n- **TASK-7-2 item 4 (`test_pipelines_custom_phase_advance_guard.py`)**: acceptance-criterion granularity is good but the test should also cover `run_agent_task(phase=refine, roles=[refiner, reviewer_refine])` (refine with full roster) to make sure HITL-eligible CUSTOM refine also terminates correctly and doesn't get confused with ISSUE's refine\u2192plan transition.\n\n- **TASK-2-7 acceptance**: \"A CUSTOM pipeline with `pr_number=<open-pr>` and `phase=implement` produces: (a) per-role staging branches\u2026\" \u2014 the staging-branch name format says `egg/babysit-pr/<pr>/<sha>/<role>`. That's fine for correctness, but naming a CUSTOM pipeline's branch with the `babysit-pr` prefix is a small UX smell \u2014 consider a follow-up to rename the format to `egg/pr-<pr>/<sha>/<role>` if/when BABYSIT is fully consolidated (issue #1762 follow-up).\n\nPlan is now implement-ready. Thank you for the thorough revision.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/1762-plan.md",
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/concurrent_executor.py",
+          "pyproject.toml",
+          "Makefile",
+          "integration_tests/conftest.py"
+        ],
+        "reason": "\nRe-reviewed the revised plan (commit 0551ef0c4, 1478 lines, 38 tasks). Verified each blocking issue from my prior NACK is addressed:\n\n1. **pyproject.toml + Makefile scrub (R6, blocking #1)** \u2014 TASK-5-7 now deletes `bin/egg` AND removes the `egg = \"egg_lib.cli:main\"` entry from pyproject.toml:43; acceptance includes `uv pip install -e .` success in a clean venv. TASK-5-9 rewrites Makefile:364 and :369 messages from `egg --setup` to `bin/egg-deploy init`. \u2713\n\n2. **CUSTOM+PR inherits BABYSIT semantics (R5, blocking #2)** \u2014 TASK-2-7 introduces `_uses_per_role_staging(pipeline) -> bool` and enumerates the call sites to broaden: concurrent_executor.py:174 (staging branches), pipelines.py:957 (has_contract), :6192, :6357 (PR-diff orient prompts), plus an audit of :353, :768, :822, :825, :959, :9661 and state_store.py:882. Acceptance asserts `grep -n 'PipelineMode.BABYSIT' orchestrator/` shows only the helper def + docstring after refactor. A CUSTOM+PR pipeline now gets `egg/babysit-pr/<pr>/<sha>/<role>` staging branches and has_contract=False. \u2713\n\n3. **Draft-file keying for CUSTOM (R11, blocking #3)** \u2014 TASK-2-8 modifies `_get_draft_path()` / `_pipeline_identifier()` to prefer pipeline_id when mode==CUSTOM regardless of issue_number. Acceptance includes concurrent-ISSUE-and-CUSTOM-on-same-issue test producing two distinct draft files. \u2713\n\n4. **Repo allowlist as explicit AC (R9, blocking #4)** \u2014 TASK-2-1 description now explicitly calls out the allowlist validation before any pipeline record is created; acceptance adds `repo=\"totally/unknown\"` \u2192 400 `repo_not_allowed` and shell-metacharacter rejection. TASK-7-2 adds a dedicated `test_run_agent_task_security.py` test file. \u2713\n\n5. **Top-level integration_tests/conftest.py (R4, blocking #5)** \u2014 TASK-6-2 migrates the `_docker_compose_egg_stack` fallback and `compose_file = PROJECT_ROOT / \"integration_tests\" / \"docker-compose.yml\"` at line 266-347, k8s-only path, pytest.skip cleanly when unreachable. Distinct from TASK-6-1 which handles local_pipeline/conftest.py. \u2713\n\n6. **Phase-advance guard for CUSTOM (blocking #6)** \u2014 TASK-2-9 explicitly guards pipelines.py:10591-10594 and :10957-10958 so CUSTOM pipelines transition to COMPLETE after the single phase. Acceptance verifies `run_agent_task(phase=refine, ...)` does NOT spawn plan-phase agents, and ISSUE-mode auto-advance is preserved. \u2713\n\nNon-blocking items: Dependency Ordering graph added (section at line 193). Risk Mitigation Map table added mapping all 14 risks to their mitigating tasks. F1 HITL revised from \"out-of-scope\" to \"parity with ISSUE mode\" (TASK-2-1 acceptance confirms `config.hitl_gates` passthrough). TASK-3-1/3-2 add `qualifier` schema field and use it in pipeline_id composition. TASK-2-4 acceptance broadened to include `active_roles=[\"coder\"]` alone with CONSENSUS_REACHED assertion on first propose. TASK-5-8 ambiguity resolved (keep init; stub compose subs with exit 2). TASK-5-4 reasoning clarified (runtime.py:686 transitive via run_claude deletion; :1060 is a surgical in-place edit). TASK-5-3 grep now includes `--include='*.py'`.\n\n### Non-blocking (new, minor)\n\n- **TASK-2-1 phrasing**: \"the same way `submit_task` implicitly does through `get_gateway_client().check_*`\" \u2014 risk_analyst R9 actually noted submit_task's allowlist enforcement is \"presumed\" but not obviously centralized at pipeline-creation time. If the plan extracts a shared helper (as TASK-2-1 suggests \"pull into a shared helper if necessary\"), fine; if submit_task doesn't already enforce, this task is adding a new enforcement point (which is still the right thing to do). Suggest the coder verify submit_task's current behaviour first; if not enforced there either, call it out as a drive-by fix.\n\n- **TASK-2-9**: \"Mirror the existing BABYSIT termination semantics\" \u2014 useful pointer. The implementer should confirm BABYSIT today actually terminates (rather than advancing) by grep-ing the phase-advance sites and finding the existing guard, if any. If no guard exists and BABYSIT happens to pass by coincidence (e.g., no next phase configured), the plan's parallel approach may not apply verbatim \u2014 the coder may need a fresh mode-based check.\n\n- **TASK-7-2 item 4 (`test_pipelines_custom_phase_advance_guard.py`)**: acceptance-criterion granularity is good but the test should also cover `run_agent_task(phase=refine, roles=[refiner, reviewer_refine])` (refine with full roster) to make sure HITL-eligible CUSTOM refine also terminates correctly and doesn't get confused with ISSUE's refine\u2192plan transition.\n\n- **TASK-2-7 acceptance**: \"A CUSTOM pipeline with `pr_number=<open-pr>` and `phase=implement` produces: (a) per-role staging branches\u2026\" \u2014 the staging-branch name format says `egg/babysit-pr/<pr>/<sha>/<role>`. That's fine for correctness, but naming a CUSTOM pipeline's branch with the `babysit-pr` prefix is a small UX smell \u2014 consider a follow-up to rename the format to `egg/pr-<pr>/<sha>/<role>` if/when BABYSIT is fully consolidated (issue #1762 follow-up).\n\nPlan is now implement-ready. Thank you for the thorough revision.\n"
+      },
+      "version": 2
+    },
+    "timestamp": "2026-04-22T21:28:47.682622+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "55534d5e-1a73-4c",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 2). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 2
+    },
+    "timestamp": "2026-04-22T21:28:47.682648+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cf5d615a-aeb4-47",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_plan",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-22T21:28:52.582714+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6bc1093f-120f-4a",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by task_planner",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-04-22T21:28:53.492125+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "af85081c-549e-46",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-04-22T21:33:14.846500+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5dea0707-60c5-48",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "plan_phase_gate_not_created [medium]",
+    "body": "Plan phase BRC consensus complete but orchestrator did not auto-create phase gate decision after 7+ minutes\n\nDetail:\nAll 4 agents confirmed (consensus_reached: true at 21:28:53Z). Plan at .egg-state/drafts/1762-plan.md commit 0551ef0c4 (38 tasks / 7 phases). Pipeline Updated timestamp frozen at 21:29:21. Created decision-2 (phase_gate) manually for recovery. Awaiting human review and approve/feedback.\n\nRecommended action:\nReview .egg-state/drafts/1762-plan.md and resolve decision-2 to advance to implement phase.",
+    "metadata": {},
+    "timestamp": "2026-04-22T21:37:07.699986+00:00",
+    "phase": "plan"
+  }
+]
