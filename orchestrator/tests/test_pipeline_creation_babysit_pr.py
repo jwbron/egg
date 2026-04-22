@@ -620,6 +620,8 @@ class TestGatewayReadinessGate:
         assert details.get("gateway_status") == "unreachable"
         assert details.get("gateway_error") == "Connection refused"
         assert details.get("timeout_seconds") == 1
+        # RFC 7231 §6.6.4: Retry-After guides client retry behaviour.
+        assert response.headers.get("Retry-After") == "1"
         # Pipeline must not be created when the gateway is unreachable.
         mock_store_factory.assert_not_called()
 
@@ -664,6 +666,38 @@ class TestGatewayReadinessGate:
         band, e.g. integration test harnesses that wire it up themselves).
         """
         monkeypatch.setenv("EGG_GATEWAY_READY_TIMEOUT_SECONDS", "0")
+
+        with (
+            patch("routes.pipelines.get_state_store") as mock_store_factory,
+            patch("routes.pipelines.get_repo_path") as mock_repo_path,
+            patch("routes.pipelines.get_gateway_client") as mock_gw,
+        ):
+            mock_repo_path.return_value = "/tmp/repo"
+            mock_gw.return_value.ls_remote_branch.return_value = False
+            mock_store = MagicMock()
+            fake = MagicMock()
+            fake.id = "issue-123"
+            fake.model_dump.return_value = {"id": "issue-123", "has_contract": True}
+            mock_store.create_pipeline.return_value = fake
+            mock_store_factory.return_value = mock_store
+
+            response = client.post(
+                "/api/v1/pipelines",
+                json={
+                    "issue_number": 123,
+                    "repo": "owner/repo",
+                    "branch": "egg/issue-123",
+                },
+            )
+
+        assert response.status_code in (200, 201), response.get_json()
+        mock_gw.return_value.wait_for_healthy.assert_not_called()
+
+    def test_negative_timeout_clamped_to_zero(self, client, monkeypatch):
+        """Negative ``EGG_GATEWAY_READY_TIMEOUT_SECONDS`` is clamped to 0
+        (i.e. gate disabled), not silently treated as a truthy value.
+        """
+        monkeypatch.setenv("EGG_GATEWAY_READY_TIMEOUT_SECONDS", "-5")
 
         with (
             patch("routes.pipelines.get_state_store") as mock_store_factory,

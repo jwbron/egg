@@ -836,11 +836,12 @@ def create_pipeline() -> tuple[Response, int]:
         _ready_timeout = int(os.environ.get("EGG_GATEWAY_READY_TIMEOUT_SECONDS", "60"))
     except ValueError:
         _ready_timeout = 60
+    _ready_timeout = max(0, _ready_timeout)
     if _ready_timeout > 0:
         _gw_ready = get_gateway_client()
         if not _gw_ready.wait_for_healthy(timeout_seconds=_ready_timeout):
             _last = _gw_ready.check_health()
-            return make_error_response(
+            _resp, _status = make_error_response(
                 f"Gateway not ready after {_ready_timeout}s "
                 f"(status={_last.status}): {_last.error or 'unhealthy'}. "
                 "Retry once the gateway has finished starting up.",
@@ -852,6 +853,8 @@ def create_pipeline() -> tuple[Response, int]:
                     "timeout_seconds": _ready_timeout,
                 },
             )
+            _resp.headers["Retry-After"] = str(_ready_timeout)
+            return _resp, _status
 
     repo_path = get_repo_path()
 
