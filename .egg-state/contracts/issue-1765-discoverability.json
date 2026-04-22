@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1765,
+    "title": "Issue #1765",
+    "url": "https://github.com/jwbron/egg/issues/1765"
+  },
+  "pipeline_id": "issue-1765-discoverability",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
