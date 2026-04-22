@@ -162,16 +162,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-22T23:49:51.796808Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-22T23:59:38.140105Z",
+      "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved Questions\\n\\n### Decisions\\n\\n**decision-1 (Scope)**: All 5 items (full scope) — audit prompts, blocking primitive, idempotent CLI, docs, heartbeats. Triggers Option C.\\n\\n**decision-2 (Blocking primitive)**: Add new dedicated CLI `egg-orch message wait --for TYPE [--from ROLE] [--timeout N]`.\\n\\n**decision-3 (--wait cap)**: Make configurable via env var `EGG_MESSAGE_POLL_MAX_WAIT` with current 60s default. Gateway HTTP_PROXY idle timeout must rise in lockstep if the cap is raised.\\n\\n**decision-4 (In-memory store for --wait > 0)**: Implement true blocking via condition variable on the in-memory store. Note: local deploys run without Redis for now, so this is load-bearing for local dev in addition to CI — not just a test-only concern.\\n\\n**decision-5 (QUESTION message type)**: Remove it. Zero production use today, only in test fixtures, encourages off-protocol chatter. No replacement needed in this pipeline — existing NACK/STATUS/HANDOFF/OVERSEER_ALERT channels cover legitimate cases. If structured peer Q&A is needed later, introduce it as a purpose-built REQUEST/REPLY subsystem in a future issue.\\n\\n**decision-6 (Duplicate block)**: Superseded — see decision-7.\\n\\n**decision-7 (Regression guard)**: Explicit Don'ts in prompt preamble — 'Do NOT use for-loops to wrap message poll; do NOT call sleep N to wait; rely on --wait blocking semantics'. No gateway-level bash rejection.\\n\\n**decision-8 (consensus_wrapper stay-alive loop)**: Replace shell sleep loop with a long XREAD BLOCK or SSE listener tied to is_complete signal. SIGTERM handling and orchestrator graceful-shutdown semantics must be preserved.\\n\\n### Feedback / Questions\\n\\n**Q1 (timing of issue-1762-membump pollution vs. PR #1896)**: Before #1896 merged — item 3 (consensus-confirmed idempotency) is likely already done by the merged fix. Planner should still verify via replay or synthetic test but no additional dedup work is expected.\\n\\n**Q2 (in-memory store production use)**: Local deploys run without Redis for now. This strengthens decision-4: the condition-variable blocking on the in-memory store is load-bearing for local development, not just CI test environments.\\n\\n**Q3 (constraints on new message types / CLI)**: No hard constraints — new types are additive, old agents ignore unknowns, CLI changes are forward-only.\\n\\n**Q4 (heartbeat design)**: New dedicated HEARTBEAT message type with a structured state field (WORKING | WAITING_ON_ROLE | PROPOSED | IDLE). Clean separation from PROGRESS/STATUS. Overseer Tier 1 reads it directly instead of inferring from message timing.\\n\\n**Q5 (agent UX)**: Single recommended idiom and explicit bans on alternatives — `while true; do egg-orch message wait --for <TYPE> || break; done` — combined with the decision-7 Don'ts. Minimizes variance across agents.\\n\\n### Scope summary for plan phase\\n\\nThis is full-scope Option C work: prompt audit + typed blocking primitive (`message wait`) + env-configurable --wait cap + in-memory store blocking + remove QUESTION + add HEARTBEAT type + explicit prompt Don'ts + consensus_wrapper replacement + single-idiom docs + agent-wait-patterns.md. Complexity is high — plan phase should organize into parallel tracks where possible.\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-22T23:27:22.582974Z",
-  "updated_at": "2026-04-22T23:49:51.820552Z",
+  "updated_at": "2026-04-22T23:59:38.158269Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -184,5 +184,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 11
+  "version": 12
 }
