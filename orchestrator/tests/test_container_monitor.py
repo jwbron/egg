@@ -180,8 +180,12 @@ class TestReconcileContainerState:
         assert pipeline.status == PipelineStatus.RUNNING
         store.save_pipeline.assert_not_called()
 
-    def test_ignores_non_running_pipelines(self):
-        """A COMPLETE pipeline is not affected by container exits."""
+    def test_reconciles_stale_records_on_complete_pipeline(self):
+        """A COMPLETE pipeline with stale RUNNING records gets records reconciled.
+
+        The pipeline's own status stays COMPLETE — only the stale agent/container
+        records are updated (#1840).
+        """
         container_id = "dead_container_xyz"
         pipeline = _make_pipeline_with_running_agent(container_id)
         pipeline.status = PipelineStatus.COMPLETE
@@ -190,8 +194,9 @@ class TestReconcileContainerState:
 
         result = _reconcile_container_state(store, exited_info)
 
-        assert result is False
-        store.save_pipeline.assert_not_called()
+        assert result is True
+        assert pipeline.status == PipelineStatus.COMPLETE
+        store.save_pipeline.assert_called_once()
 
     def test_handles_store_list_error(self):
         """Returns False without crashing when store.list_pipelines fails."""
@@ -601,8 +606,8 @@ class TestPeriodicReconciliation:
             assert call_args[0][0] is store
             assert call_args[0][1].container_id == container_id
 
-    def test_skips_non_running_pipelines(self):
-        """Loop skips pipelines that are not in RUNNING status."""
+    def test_reconciles_stale_records_on_complete_pipeline(self):
+        """Loop reconciles COMPLETE pipelines that have stale RUNNING records (#1840)."""
         container_id = "stale_abc"
         pipeline = _make_pipeline_with_running_agent(container_id)
         pipeline.status = PipelineStatus.COMPLETE
@@ -621,7 +626,7 @@ class TestPeriodicReconciliation:
 
             _run_one_reconciliation_sweep(monitor)
 
-            mock_reconcile.assert_not_called()
+            mock_reconcile.assert_called_once()
 
     def test_handles_store_load_pipeline_exception(self):
         """Loop continues without crashing when store.load_pipeline raises."""
