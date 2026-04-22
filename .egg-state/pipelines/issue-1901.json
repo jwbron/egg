@@ -225,10 +225,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Block all of .egg-state/ and use block_exempt_patterns=['.egg-state/agent-outputs/'] to carve out the handoff dir (what the issue proposes)\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Overseer hit the same wall per the issue's 'out of scope' note. Should we include overseer in this fix?",
+      "context": "Open contract question decision-4, registered by an agent during the refine phase.",
+      "options": [
+        "Out of scope — leave overseer for a separate issue as the reporter suggested",
+        "In scope — give overseer the same treatment (allow everything except .egg-state/ non-oversight subdirs, tester's scope, documenter's scope)",
+        "Middle ground — tighten overseer's access only enough to unblock the specific deletion path that stalled the pipeline (list extensionless scripts)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-22T23:47:35.716233Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-22T23:25:22.973469Z",
-  "updated_at": "2026-04-22T23:47:33.221952Z",
+  "updated_at": "2026-04-22T23:47:35.735747Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -241,5 +260,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 18
+  "version": 19
 }
