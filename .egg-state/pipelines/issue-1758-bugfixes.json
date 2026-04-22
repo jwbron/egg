@@ -203,9 +203,28 @@
       "phase_start_sha": "219f100e449675359b24e9928020b7ac47a42842"
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Tester container failed (exit code 1) at 20:08:41 UTC and has been removed. Pipeline is stuck — tester is the only remaining unproposed producer blocking BRC consensus. All other agents (coder, documenter, reviewer_code, reviewer_contract) are ready. How should the pipeline proceed?",
+      "context": "Pipeline: issue-1758-bugfixes (phase: implement). Tester container 8ace5ca6-af0 failed and was garbage-collected. OVERSEER_ALERT was broadcast at 20:11:35 UTC (id: e612c69e). Tester's producer_phase is WORKING (never proposed), reviewer_phase is REVIEWING. BRC protocol requires all producers (coder, documenter, tester) to propose before any agent can confirm. Coder and documenter have both proposed (commits 66bf2977 and f5925f1d). Overseer lacks permissions to spawn a replacement container (container spawn returns 401).",
+      "options": [
+        "re-spawn-tester: restart the tester container so it can write and propose its test changes",
+        "cancel-pipeline: cancel the pipeline and investigate tester failure root cause",
+        "waive-tester: administratively bypass tester proposal requirement and allow remaining agents to confirm"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-22T20:25:54.001199Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "implement",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-04-22T19:52:26.426314Z",
-  "updated_at": "2026-04-22T20:08:41.430741Z",
+  "updated_at": "2026-04-22T20:25:54.006775Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -218,5 +237,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 8
+  "version": 9
 }
