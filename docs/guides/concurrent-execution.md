@@ -87,6 +87,7 @@ All concurrent agent containers are wrapped with a shell script defined in `orch
 | `max_restarts` | `2` | Maximum restart attempts (passed to `build_consensus_wrapped_command()`). Shared between clean-exit and transient-crash restarts. |
 | `max_ready_polls` | `10` | Maximum poll cycles (each ~30 s) to wait for global consensus when this agent has already reached `CONFIRMED` |
 | `TRANSIENT_RESTART_BACKOFF_INITIAL` | `5` | Initial backoff delay (seconds) before restarting after a transient crash. Doubles after each crash restart, capped at 30 s. Clean-exit restarts skip the backoff. |
+| `STARTUP_FAILURE_WINDOW_SECONDS` | `30` | Window (seconds) during which exit code 1 is classified as a transient startup failure and retried. Set to `0` to disable. |
 | `EGG_MESSAGE_POLL_INTERVAL` | `30` | Seconds between message polls during restarts |
 
 ## Message Bus
