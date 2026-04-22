@@ -194,6 +194,34 @@ def _inject_lifecycle_auth(monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _skip_worktree_disk_check(monkeypatch):
+    """Bypass the spawner's spawn-time worktree-existence checks (#1869).
+
+    ``KubernetesSpawner.spawn_agent_job`` now verifies both (a) that the
+    per-agent worktree exists on disk after ``create_worktrees`` returns
+    and (b) that producer-class roles were not spawned with ``repos=[]``.
+    In unit tests the gateway is mocked, so no real worktree is ever
+    created and many pre-existing tests spawn producers with empty
+    ``repos`` purely to exercise other spawn mechanics — the checks
+    would trip on those tests.
+
+    Stub both checks with a monkey-patch on the class so tests see the
+    pre-#1869 behavior by default.  Tests specifically exercising the
+    #1869 scenarios re-patch these to the real behavior.
+    """
+    try:
+        import kubernetes_spawner
+        from kubernetes_spawner import KubernetesSpawner
+    except ImportError:
+        yield
+        return
+
+    monkeypatch.setattr(KubernetesSpawner, "_find_missing_worktrees", lambda self, *args, **kw: [])
+    monkeypatch.setattr(kubernetes_spawner, "_role_needs_worktree", lambda role: False)
+    yield
+
+
 @pytest.fixture
 def lifecycle_secret() -> str:
     """The shared test bearer token. Useful for building explicit headers."""
