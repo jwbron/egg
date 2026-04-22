@@ -386,6 +386,60 @@ class TestSessionManagement:
         assert session.container_ip == "172.32.0.10"
         assert session.mode == "public"
 
+    def test_register_session_forwards_worktree_container_id(self, gateway_client):
+        """worktree_container_id reaches the wire payload so the gateway can
+        reuse an existing per-agent worktree instead of creating a second
+        one (#1857)."""
+        captured: dict = {}
+
+        def fake_make_request(endpoint, method, data, use_launcher_auth):
+            captured["endpoint"] = endpoint
+            captured["data"] = data
+            return {
+                "success": True,
+                "data": {
+                    "session_token": "tok-1",
+                    "created_at": datetime.now().isoformat(),
+                    "expires_at": datetime.now().isoformat(),
+                },
+            }
+
+        with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
+            gateway_client.register_session(
+                container_id="egg-agent-pipe-1-coder",
+                mode="private",
+                pipeline_id="pipe-1",
+                worktree_container_id="pipe-1-coder",
+            )
+
+        assert captured["endpoint"] == "/api/v1/sessions/create"
+        assert captured["data"]["worktree_container_id"] == "pipe-1-coder"
+
+    def test_register_session_omits_worktree_container_id_when_none(self, gateway_client):
+        """When the caller doesn't supply worktree_container_id, the field is
+        absent from the payload — keeps the wire contract minimal for callers
+        that still rely on the gateway creating a worktree for them."""
+        captured: dict = {}
+
+        def fake_make_request(endpoint, method, data, use_launcher_auth):
+            captured["data"] = data
+            return {
+                "success": True,
+                "data": {
+                    "session_token": "tok-1",
+                    "created_at": datetime.now().isoformat(),
+                    "expires_at": datetime.now().isoformat(),
+                },
+            }
+
+        with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
+            gateway_client.register_session(
+                container_id="abc",
+                mode="public",
+            )
+
+        assert "worktree_container_id" not in captured["data"]
+
     def test_register_session_without_secret(self, mock_gateway_server):
         """Test session registration without launcher secret fails."""
         client = GatewayClient(

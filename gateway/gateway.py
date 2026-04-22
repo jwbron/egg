@@ -3970,7 +3970,12 @@ def session_create() -> tuple[Response, int] | Response:
             "repos": ["owner/repo1", "owner/repo2"],
             "local_only_repos": ["repo-name"],  // optional; no GitHub remote
             "uid": 1000,
-            "gid": 1000
+            "gid": 1000,
+            // Optional: when the caller already created per-agent worktrees
+            // via /api/v1/worktrees/create, pass that container_id here so
+            // the session reuses the existing worktrees instead of racing
+            // to re-create them on the same bare repo (#1857).
+            "worktree_container_id": "pipeline-role"
         }
 
     Response:
@@ -3996,6 +4001,11 @@ def session_create() -> tuple[Response, int] | Response:
     local_only_repos = data.get("local_only_repos", [])
     uid = data.get("uid")
     gid = data.get("gid")
+    # Optional worktree container_id — when provided, look up existing
+    # worktrees created by a prior /api/v1/worktrees/create call instead of
+    # re-creating them here.  Prevents the double create that races on
+    # .git/config.lock for concurrent per-agent spawns (#1857).
+    worktree_container_id = data.get("worktree_container_id")
     phase = data.get("phase")  # Optional SDLC pipeline phase
     pipeline_id = data.get("pipeline_id")  # Optional pipeline run ID
     issue_number = data.get("issue_number")  # Optional GitHub issue number
@@ -4079,6 +4089,19 @@ def session_create() -> tuple[Response, int] | Response:
             return make_error("Invalid branch: must be a string")
         if len(branch) > 256:
             return make_error("Invalid branch: must be 256 characters or fewer")
+
+    # Validate worktree_container_id if provided
+    if worktree_container_id is not None:
+        if not isinstance(worktree_container_id, str):
+            return make_error("Invalid worktree_container_id: must be a string")
+        if not worktree_container_id:
+            return make_error("Invalid worktree_container_id: must be non-empty if provided")
+        if len(worktree_container_id) > 256:
+            return make_error("Invalid worktree_container_id: must be 256 characters or fewer")
+        if ".." in worktree_container_id or not re.match(
+            r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$", worktree_container_id
+        ):
+            return make_error("Invalid worktree_container_id: contains unsafe characters")
 
     # Validate local_only_repos if provided
     if local_only_repos:
@@ -4197,34 +4220,43 @@ def session_create() -> tuple[Response, int] | Response:
             repo_name = repo
 
         try:
-            # For pipeline sessions, prefer the pipeline's existing worktree
-            # branch (which contains artifacts from prior agents) over a fresh
-            # branch from origin/main.  This ensures HITL exec sessions can
-            # see drafts, contracts, and reviews committed by pipeline agents.
-            # See #1016.
-            #
-            # For fresh pipelines (no prior worktree branch), fall back to the
-            # remote default branch (e.g., origin/main) instead of HEAD.  HEAD
-            # may point to a feature branch in the main repo, which would
-            # pollute the worktree with commits outside the current phase's
-            # allowed scope and cause push rejections.  See #860.
-            if pipeline_id:
-                pipeline_work_branch = f"egg/{pipeline_id}/work"
-                if _branch_exists_on_remote(manager, repo_name, pipeline_work_branch):
-                    worktree_base_branch = f"origin/{pipeline_work_branch}"
-                else:
-                    worktree_base_branch = manager.resolve_default_branch(repo_name)
+            if worktree_container_id:
+                # Reuse worktrees created by a prior /api/v1/worktrees/create
+                # call.  Avoids a second concurrent ``git worktree add`` on the
+                # same bare repo, which races on ``.git/config.lock`` (#1857).
+                info = manager.lookup_worktree(
+                    repo_name=repo_name,
+                    container_id=worktree_container_id,
+                )
             else:
-                worktree_base_branch = "HEAD"
+                # For pipeline sessions, prefer the pipeline's existing worktree
+                # branch (which contains artifacts from prior agents) over a fresh
+                # branch from origin/main.  This ensures HITL exec sessions can
+                # see drafts, contracts, and reviews committed by pipeline agents.
+                # See #1016.
+                #
+                # For fresh pipelines (no prior worktree branch), fall back to the
+                # remote default branch (e.g., origin/main) instead of HEAD.  HEAD
+                # may point to a feature branch in the main repo, which would
+                # pollute the worktree with commits outside the current phase's
+                # allowed scope and cause push rejections.  See #860.
+                if pipeline_id:
+                    pipeline_work_branch = f"egg/{pipeline_id}/work"
+                    if _branch_exists_on_remote(manager, repo_name, pipeline_work_branch):
+                        worktree_base_branch = f"origin/{pipeline_work_branch}"
+                    else:
+                        worktree_base_branch = manager.resolve_default_branch(repo_name)
+                else:
+                    worktree_base_branch = "HEAD"
 
-            info = manager.create_worktree(
-                repo_name=repo_name,
-                container_id=container_id,
-                base_branch=worktree_base_branch,
-                uid=uid,
-                gid=gid,
-                assigned_branch=branch,
-            )
+                info = manager.create_worktree(
+                    repo_name=repo_name,
+                    container_id=container_id,
+                    base_branch=worktree_base_branch,
+                    uid=uid,
+                    gid=gid,
+                    assigned_branch=branch,
+                )
             # Capture the first worktree's gateway-side path for checkpoint context
             if first_worktree_path is None:
                 first_worktree_path = str(info.worktree_path)

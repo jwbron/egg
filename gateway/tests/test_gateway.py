@@ -4661,6 +4661,236 @@ class TestSessionCreateLocalOnlyRepos:
         assert "unsafe repo name" in data["message"]
 
 
+class TestSessionCreateReusesExistingWorktrees:
+    """Tests that session_create reuses prior worktrees via worktree_container_id.
+
+    Regression: when the orchestrator creates per-agent worktrees via
+    /api/v1/worktrees/create and then calls /api/v1/sessions/create with
+    a different container_id (the k8s job name), the session endpoint used
+    to run its own ``git worktree add`` against the same bare repo.  With
+    multiple concurrent spawns that second create raced on
+    ``.git/config.lock`` and intermittently killed one agent per phase.
+    See #1857.
+    """
+
+    def test_session_create_with_worktree_container_id_skips_create(
+        self, client, launcher_auth_headers, tmp_path
+    ):
+        """When worktree_container_id is set, session_create calls lookup_worktree,
+        not create_worktree — eliminating the .git/config.lock race."""
+        from session_manager import SessionManager
+
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_repo_visibility", return_value="private"),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+        ):
+            mock_wt_manager = mock_worktree.return_value
+            mock_wt_info = MagicMock()
+            mock_wt_info.worktree_path = "/home/egg/.egg-worktrees/pipe-1-coder/repo"
+            mock_wt_info.branch = "egg/pipe-1-coder/work"
+            mock_wt_manager.lookup_worktree.return_value = mock_wt_info
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "egg-agent-pipe-1-coder",
+                        "mode": "private",
+                        "repos": ["owner/repo"],
+                        "pipeline_id": "pipe-1",
+                        "agent_role": "coder",
+                        "worktree_container_id": "pipe-1-coder",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+            # Lookup — not create — is the whole point of the fix.
+            mock_wt_manager.lookup_worktree.assert_called_once()
+            lookup_kwargs = mock_wt_manager.lookup_worktree.call_args.kwargs
+            assert lookup_kwargs["container_id"] == "pipe-1-coder"
+            assert lookup_kwargs["repo_name"] == "repo"
+            mock_wt_manager.create_worktree.assert_not_called()
+
+            # Worktree path is reported back to the caller.
+            assert "repo" in data["data"]["worktrees"]
+
+    def test_session_create_without_worktree_container_id_still_creates(
+        self, client, launcher_auth_headers, tmp_path
+    ):
+        """Absent worktree_container_id, session_create keeps its existing
+        create_worktree behaviour (backward compatibility for HITL, temp
+        sessions, tests)."""
+        from session_manager import SessionManager
+
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_repo_visibility", return_value="private"),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+            patch.object(gateway, "_branch_exists_on_remote", return_value=False),
+        ):
+            mock_wt_manager = mock_worktree.return_value
+            mock_wt_manager.resolve_default_branch.return_value = "origin/main"
+            mock_wt_info = MagicMock()
+            mock_wt_info.worktree_path = "/home/egg/.egg-worktrees/c/repo"
+            mock_wt_info.branch = "egg/c/work"
+            mock_wt_manager.create_worktree.return_value = mock_wt_info
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "egg-agent-pipe-1-coder",
+                        "mode": "private",
+                        "repos": ["owner/repo"],
+                        "pipeline_id": "pipe-1",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            mock_wt_manager.create_worktree.assert_called_once()
+            mock_wt_manager.lookup_worktree.assert_not_called()
+
+    def test_session_create_lookup_failure_returns_error(
+        self, client, launcher_auth_headers, tmp_path
+    ):
+        """If the worktree_container_id doesn't resolve to an existing
+        worktree, session_create fails cleanly instead of silently
+        creating a fresh one."""
+        from session_manager import SessionManager
+
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_repo_visibility", return_value="private"),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+        ):
+            mock_wt_manager = mock_worktree.return_value
+            mock_wt_manager.lookup_worktree.side_effect = ValueError("Worktree not found")
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "egg-agent-pipe-1-coder",
+                        "mode": "private",
+                        "repos": ["owner/repo"],
+                        "pipeline_id": "pipe-1",
+                        "worktree_container_id": "pipe-1-coder",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 500
+            mock_wt_manager.create_worktree.assert_not_called()
+
+    def test_session_create_validates_worktree_container_id_type(
+        self, client, launcher_auth_headers
+    ):
+        """worktree_container_id must be a non-empty string when provided."""
+        response = client.post(
+            "/api/v1/sessions/create",
+            headers=launcher_auth_headers,
+            data=json.dumps(
+                {
+                    "container_id": "egg-agent-pipe-1-coder",
+                    "mode": "private",
+                    "repos": ["owner/repo"],
+                    "pipeline_id": "pipe-1",
+                    "worktree_container_id": 12345,
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "worktree_container_id" in data["message"]
+
+    def test_session_create_validates_worktree_container_id_empty(
+        self, client, launcher_auth_headers
+    ):
+        """Empty worktree_container_id is rejected at the API boundary."""
+        response = client.post(
+            "/api/v1/sessions/create",
+            headers=launcher_auth_headers,
+            data=json.dumps(
+                {
+                    "container_id": "egg-agent-pipe-1-coder",
+                    "mode": "private",
+                    "repos": ["owner/repo"],
+                    "pipeline_id": "pipe-1",
+                    "worktree_container_id": "",
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "non-empty" in data["message"]
+
+    def test_session_create_validates_worktree_container_id_too_long(
+        self, client, launcher_auth_headers
+    ):
+        """Overly long worktree_container_id is rejected at the API boundary."""
+        response = client.post(
+            "/api/v1/sessions/create",
+            headers=launcher_auth_headers,
+            data=json.dumps(
+                {
+                    "container_id": "egg-agent-pipe-1-coder",
+                    "mode": "private",
+                    "repos": ["owner/repo"],
+                    "pipeline_id": "pipe-1",
+                    "worktree_container_id": "a" * 257,
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "256 characters" in data["message"]
+
+    def test_session_create_validates_worktree_container_id_unsafe_chars(
+        self, client, launcher_auth_headers
+    ):
+        """Path traversal and unsafe characters in worktree_container_id
+        are rejected with a clear 400 instead of surfacing as a 500."""
+        for bad_value in ["../evil", "/absolute", "has spaces", ".hidden"]:
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "egg-agent-pipe-1-coder",
+                        "mode": "private",
+                        "repos": ["owner/repo"],
+                        "pipeline_id": "pipe-1",
+                        "worktree_container_id": bad_value,
+                    }
+                ),
+                content_type="application/json",
+            )
+            assert response.status_code == 400, f"Expected 400 for {bad_value!r}"
+            data = json.loads(response.data)
+            assert "unsafe characters" in data["message"], f"Bad message for {bad_value!r}"
+
+
 class TestWorktreeCreateEndpointResolution:
     """Tests for worktree_create endpoint's resolve_default_branch logic."""
 

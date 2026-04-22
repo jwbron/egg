@@ -349,6 +349,35 @@ class TestSpawnAgentJob:
         assert call_kwargs["container_id"] == "pipe-1-coder"
         assert call_kwargs["repos"] == ["owner/repo"]
 
+    def test_spawn_passes_worktree_container_id_to_register_session(self, spawner, mock_gateway):
+        """register_session must receive worktree_container_id=agent_worktree_id.
+
+        Regression for #1857: without this, the gateway created a second
+        worktree under the k8s job_name and raced on .git/config.lock with
+        concurrent spawns, intermittently killing one agent per phase.
+        """
+        spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+        )
+        register_kwargs = mock_gateway.register_session.call_args.kwargs
+        # container_id is still the job name (used for session identity).
+        assert register_kwargs["container_id"] == "egg-agent-pipe-1-coder"
+        # But the worktree comes from the earlier create_worktrees call.
+        assert register_kwargs["worktree_container_id"] == "pipe-1-coder"
+
+    def test_spawn_without_repos_omits_worktree_container_id(self, spawner, mock_gateway):
+        """Local-mode spawns skip worktree creation entirely — passing a
+        worktree_container_id would force the gateway to look up a
+        worktree that was never made."""
+        spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+        )
+        register_kwargs = mock_gateway.register_session.call_args.kwargs
+        assert register_kwargs.get("worktree_container_id") is None
+
     def test_spawn_worktree_failure_raises(self, spawner, mock_gateway):
         """Spawn raises when worktree creation fails."""
         from kubernetes_spawner import KubernetesSpawnError
