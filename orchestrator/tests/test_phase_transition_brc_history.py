@@ -82,6 +82,10 @@ class TestCompletePhasePersistsBrcHistory:
     @patch("routes.phases._clear_concurrent_state")
     @patch("routes.phases.get_state_store_for_pipeline")
     def test_persist_runs_before_clear(self, mock_get_store, mock_clear, mock_persist, client):
+        # Note: _collect_unresolved_phase_decisions is not mocked here — it
+        # works because Pipeline defaults has_contract=False and decisions=[],
+        # so the collection short-circuits.  If those defaults change, this
+        # test will need an explicit mock for that helper.
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN, phase_status=PipelineStatus.RUNNING)
         mock_store = MagicMock()
         mock_store.repo_path = Path("/tmp/repo")

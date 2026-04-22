@@ -4973,7 +4973,8 @@ def _resolve_pipeline_worktree_path(pipeline: "Pipeline", fallback: Path) -> Pat
             return candidate
     pipeline_wt_dir = WORKTREE_BASE_DIR / pipeline.id
     if pipeline_wt_dir.exists():
-        for sub in pipeline_wt_dir.iterdir():
+        # sorted() for deterministic selection when multiple subdirs exist
+        for sub in sorted(pipeline_wt_dir.iterdir()):
             if sub.is_dir() and (sub / ".git").exists():
                 return sub
     return fallback
@@ -4991,6 +4992,12 @@ def _persist_phase_brc_history(
     (the ``complete_phase`` / ``advance_phase`` REST+MCP handlers) do
     not silently drop BRC transcripts when ``_clear_concurrent_state``
     wipes the message store.  See #1827.
+
+    Note: this commits but does **not** push.  Callers must ensure a
+    push happens downstream — in ``advance_phase`` the spawned
+    ``_run_pipeline`` thread pushes the branch, carrying this commit
+    along; in a standalone ``complete_phase`` the caller is expected to
+    trigger a subsequent advance or push.
     """
     worktree_path = _resolve_pipeline_worktree_path(pipeline, store.repo_path)
     try:
