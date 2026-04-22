@@ -712,6 +712,79 @@ class TestWorktreeManagement:
             for _key in result.worktrees:
                 pass
 
+    def test_create_worktrees_inlines_per_repo_errors_on_total_failure(self, gateway_client):
+        """Per-repo error reasons from details.errors surface in str(e).
+
+        Regression guard for #1838: when every worktree fails, the gateway
+        returns a 500 with ``details.errors`` listing each repo's reason.
+        Downstream callers (kubernetes_spawner, concurrent_executor) only
+        stringify the exception, so the per-repo detail must be inlined
+        into the message — otherwise spawn failures are undiagnosable
+        without ``kubectl logs``.
+        """
+        per_repo_errors = [
+            "coder: Timed out fetching base branch 'main' from remote",
+            "reviewer_contract: Timed out fetching base branch 'main' from remote",
+        ]
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.side_effect = GatewayError(
+                "Failed to create any worktrees",
+                status_code=500,
+                details={"errors": per_repo_errors},
+            )
+            with pytest.raises(GatewayError) as excinfo:
+                gateway_client.create_worktrees(
+                    container_id="issue-1758-coder",
+                    repos=["owner/repo1", "owner/repo2"],
+                )
+
+        raised = excinfo.value
+        assert raised.status_code == 500
+        assert raised.details == {"errors": per_repo_errors}
+        for reason in per_repo_errors:
+            assert reason in str(raised)
+        assert "Failed to create any worktrees" in str(raised)
+
+    def test_create_worktrees_reraises_without_details_errors(self, gateway_client):
+        """GatewayError without ``details.errors`` is re-raised unchanged."""
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            original = GatewayError("Unauthorized", status_code=401)
+            mock_request.side_effect = original
+            with pytest.raises(GatewayError) as excinfo:
+                gateway_client.create_worktrees(
+                    container_id="test",
+                    repos=["owner/repo1"],
+                )
+
+        # No rewrap — message stays identical, details stays None.
+        assert excinfo.value is original
+        assert str(excinfo.value) == "Unauthorized"
+        assert excinfo.value.details is None
+
+    def test_create_worktrees_partial_success_path_unchanged(self, gateway_client):
+        """When gateway returns 200 with partial errors, WorktreeResult is untouched.
+
+        The inlining only fires on the 500-all-failed path; the partial-
+        success path (worktrees present, some per-repo errors) must keep
+        returning a normal WorktreeResult without raising.
+        """
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {
+                "success": True,
+                "data": {
+                    "worktrees": {"repo1": "/tmp/wt/repo1"},
+                    "errors": ["repo2: some transient error"],
+                },
+            }
+            result = gateway_client.create_worktrees(
+                container_id="test-pipeline",
+                repos=["owner/repo1", "owner/repo2"],
+            )
+
+        assert result.success is True
+        assert result.worktrees == {"repo1": "/tmp/wt/repo1"}
+        assert result.errors == ["repo2: some transient error"]
+
     def test_delete_worktrees_with_explicit_null_fields(self, gateway_client):
         """Test that explicit null deleted and errors from gateway are handled."""
         with patch.object(gateway_client, "_make_request") as mock_request:
