@@ -424,6 +424,25 @@ class PipelineConfig(BaseModel):
             "scale by 2.5x (e.g. 2s, 5s, 12.5s). See #1839."
         ),
     )
+    phase_spawn_max_retries: int = Field(
+        default=2,
+        ge=0,
+        description=(
+            "Phase-level retry attempts when at least one role's spawn fails "
+            "with a transient error (e.g. gateway restart). Per-role retries "
+            "(see spawn_max_retries) run first; this second budget bridges "
+            "longer outages like a ~30s gateway cold start. 0 disables "
+            "phase-level retry. See #1879."
+        ),
+    )
+    phase_spawn_retry_initial_backoff_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        description=(
+            "Initial backoff seconds before the first phase-level spawn retry. "
+            "Subsequent attempts scale by 3x (e.g. 30s, 90s). See #1879."
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod

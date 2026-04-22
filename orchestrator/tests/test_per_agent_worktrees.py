@@ -286,3 +286,23 @@ class TestCleanupPipelineWorktrees:
             for call in delete_calls
         ]
         assert "issue-123" in deleted_ids
+
+    def test_cleanup_preserves_worktrees_when_requested(
+        self, spawner, mock_docker_client, mock_gateway_client
+    ):
+        """preserve_worktrees=True skips every worktree deletion (#1878)."""
+        container = ContainerInfo(
+            container_id="abc123",
+            container_name="egg-agent-issue-123-coder",
+            status=ContainerStatus.EXITED,
+            agent_role=AgentRole.CODER,
+            job_name="egg-sandbox-egg-agent-issue-123-coder",
+        )
+        mock_docker_client.list_containers.return_value = [container]
+
+        removed = spawner.cleanup_pipeline("issue-123", preserve_worktrees=True)
+
+        # Job is still removed so a retry can spawn a fresh pod...
+        assert removed == 1
+        # ...but no worktree — pipeline-level or per-agent — is deleted.
+        assert mock_gateway_client.delete_worktrees.call_count == 0
