@@ -2946,7 +2946,7 @@ def _read_source_branch_artifacts(
 
     1. ``source_artifact_prefix`` (explicit override, e.g. ``"issue-1570-v3"``)
     2. ``pipeline_id`` (includes qualifier, e.g. ``"issue-1570-v7"``)
-    3. ``_pipeline_identifier(issue_number, pipeline_id)`` (bare issue number)
+    3. ``issue_number`` (bare issue number, e.g. ``1570``)
 
     Falls back to listing available files via ``git ls-tree`` when none
     of the prefixes match.
@@ -2981,7 +2981,11 @@ def _read_source_branch_artifacts(
         "-C",
         str(repo_path),
     ]
-    bare_prefix = _pipeline_identifier(issue_number, pipeline_id)
+    # Bare prefix is the issue number when available — used as a fallback
+    # after the full pipeline_id prefix.  Do NOT use _pipeline_identifier()
+    # here because it returns pipeline_id for CUSTOM-mode pipelines,
+    # which defeats the fallback chain (pipeline_id → bare issue number).
+    bare_prefix: int | str = issue_number if issue_number is not None else pipeline_id
     updated = False
 
     # Fetch the source branch so origin/{source_branch} is up-to-date.

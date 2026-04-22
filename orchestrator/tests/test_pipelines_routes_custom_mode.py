@@ -91,8 +91,10 @@ class _PatchBundle:
             patch("routes.pipelines.get_repo_path"),
             patch("routes.pipelines.get_gateway_client"),
             patch("routes.pipelines._fetch_pr_state"),
+            patch("config.repo_config.is_writable_repo", return_value=True),
+            patch("config.repo_config.is_readable_repo", return_value=True),
         ]
-        self.mock_store_factory, self.mock_repo_path, self.mock_gw, self.mock_fetch = [
+        self.mock_store_factory, self.mock_repo_path, self.mock_gw, self.mock_fetch, *_ = [
             c.__enter__() for c in self._ctx
         ]
         self.mock_store = MagicMock()
