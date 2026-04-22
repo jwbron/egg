@@ -211,11 +211,11 @@ Clean up stale git worktrees plus orphaned directories under
 **Input schema**:
 
 ```json
-{"repo": "jwbron/egg", "dry_run": true}
+{"dry_run": true}
 ```
 
-Both fields are optional. `repo` defaults to every configured repo;
-`dry_run` defaults to `true`.
+`dry_run` is optional and defaults to `true`. The tool always sweeps every
+configured repo — there is no per-repo scope parameter.
 
 **Output shape**:
 
@@ -278,7 +278,7 @@ that performs four probes and returns a structured allow/deny matrix.
 {"pipeline_id": "issue-1759-v3", "role": "coder"}
 ```
 
-Both fields are required. `role` defaults to `"coder"` if omitted.
+`pipeline_id` is required. `role` defaults to `"coder"` if omitted.
 
 **Output shape**:
 
