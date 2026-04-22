@@ -389,14 +389,16 @@ class TestTimeoutWithNacks:
         """On timeout with unresolved NACKs, returns (1, ...) with NACK details."""
         from routes.pipelines import _run_concurrent_phase
 
-        # Use a callable side_effect instead of a finite list to avoid
-        # StopIteration if leaked threads call time.monotonic() while
-        # the module-level mock is active.
-        _calls = [0]
+        # Use a callable side_effect that advances by >consensus_timeout
+        # on every call, so elapsed always triggers the timeout regardless
+        # of how many pre-loop calls consume time.monotonic() (e.g. from
+        # module-level imports, logging, or leaked threads).
+        _counter = [0]
 
         def _monotonic():
-            _calls[0] += 1
-            return 0.0 if _calls[0] == 1 else 1801.0
+            val = _counter[0]
+            _counter[0] += 2000  # each call jumps 2000s (> 1800s timeout)
+            return float(val)
 
         mock_monotonic.side_effect = _monotonic
 
