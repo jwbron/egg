@@ -63,9 +63,35 @@ deployment_bp = Blueprint("deployment", __name__, url_prefix="/api/v1/deployment
 # ---------------------------------------------------------------------------
 
 
+def _resolve_runtime() -> tuple[str, str]:
+    """Return ``(runtime, detection_source)``.
+
+    Resolution order:
+
+    1. ``EGG_RUNTIME`` env var (``"env"`` source) — operator-configured.
+    2. ``KUBERNETES_SERVICE_HOST`` is injected into every pod by the
+       apiserver; treat its presence as a strong in-cluster signal and
+       infer ``"kubernetes"`` (``"auto:k8s-service-host"`` source).
+    3. Otherwise fall back to ``"docker"`` (``"auto:default"`` source).
+
+    Issue #1850: previously defaulted to ``"docker"`` unconditionally, so
+    in-cluster orchestrators whose manifests forgot to set ``EGG_RUNTIME``
+    silently misreported themselves as Docker and masked cluster-access
+    failures downstream. Auto-detection closes that gap without changing
+    behavior when ``EGG_RUNTIME`` is set explicitly.
+    """
+    explicit = os.environ.get("EGG_RUNTIME")
+    if explicit:
+        return explicit.lower(), "env"
+    if os.environ.get("KUBERNETES_SERVICE_HOST"):
+        return "kubernetes", "auto:k8s-service-host"
+    return "docker", "auto:default"
+
+
 def _current_runtime() -> str:
-    """Return the configured runtime ("kubernetes" or "docker")."""
-    return os.environ.get("EGG_RUNTIME", "docker").lower()
+    """Return the resolved runtime label (back-compat shim)."""
+    runtime, _source = _resolve_runtime()
+    return runtime
 
 
 def _not_available_on_runtime() -> tuple[Response, int]:
@@ -83,6 +109,54 @@ def _not_available_on_runtime() -> tuple[Response, int]:
         ),
         200,
     )
+
+
+def _runtime_detection_failed(detail: str) -> tuple[Response, int]:
+    """Return a 200 payload used when runtime detection came back ``unknown``.
+
+    Distinct from ``not_available_on_runtime`` (which means "you explicitly
+    asked for docker, this tool is k8s-only") so operators can tell
+    "apiserver unreachable / detection failed" apart from "tool doesn't
+    apply to docker" (#1850).
+    """
+    return (
+        jsonify(
+            {
+                "success": True,
+                "data": {
+                    "error": "runtime_detection_failed",
+                    "runtime": "unknown",
+                    "detail": detail,
+                },
+            }
+        ),
+        200,
+    )
+
+
+def _probe_kubernetes_reachable() -> tuple[bool, str | None]:
+    """Return ``(reachable, reason_if_not)`` for the k8s apiserver.
+
+    Used by gated routes so they refuse cleanly with
+    ``runtime_detection_failed`` when the process claims ``kubernetes``
+    but can't actually reach the cluster (#1850). Cheap: one VersionApi
+    call; on failure the caller's downstream logic is bypassed.
+    """
+    try:
+        from kubernetes_client import get_kubernetes_client
+    except Exception as exc:  # pragma: no cover - environment wiring
+        return False, f"kubernetes_client_unavailable: {exc}"
+    try:
+        k8s = get_kubernetes_client()
+    except Exception as exc:
+        return False, f"kubernetes_client_init_failed: {exc}"
+    try:
+        from kubernetes import client as k8s_client_pkg
+
+        k8s_client_pkg.VersionApi(k8s.batch_api.api_client).get_code()
+    except Exception as exc:
+        return False, f"apiserver_unreachable: {exc}"
+    return True, None
 
 
 # ---------------------------------------------------------------------------
@@ -215,10 +289,18 @@ def _collect_egg_image_tags(k8s_client: Any, namespace: str) -> dict[str, str]:
 
 
 def _build_deployment_context_payload() -> dict[str, Any]:
-    """Assemble the ``get_deployment_context`` response body."""
-    runtime = _current_runtime()
+    """Assemble the ``get_deployment_context`` response body.
+
+    When ``runtime`` resolves to ``"kubernetes"`` but every cluster probe
+    fails (apiserver unreachable, RBAC denial, missing kubeconfig), the
+    runtime is demoted to ``"unknown"`` with a ``detection_error`` so
+    downstream guards can distinguish "you're on docker" from "I couldn't
+    tell what cluster I'm on" (#1850).
+    """
+    runtime, detection_source = _resolve_runtime()
     payload: dict[str, Any] = {
         "runtime": runtime,
+        "detection_source": detection_source,
         "namespace": os.environ.get("EGG_K8S_NAMESPACE", "egg-system"),
     }
 
@@ -245,9 +327,10 @@ def _build_deployment_context_payload() -> dict[str, Any]:
         from kubernetes_client import get_kubernetes_client
     except Exception as exc:  # pragma: no cover - environment wiring
         logger.warning("kubernetes_client import failed", error=str(exc))
+        payload["runtime"] = "unknown"
         payload.update(
             {
-                "error": "kubernetes_client_unavailable",
+                "detection_error": "kubernetes_client_unavailable",
                 "detail": str(exc),
             }
         )
@@ -257,9 +340,10 @@ def _build_deployment_context_payload() -> dict[str, Any]:
         k8s = get_kubernetes_client()
     except Exception as exc:
         logger.warning("kubernetes client init failed", error=str(exc))
+        payload["runtime"] = "unknown"
         payload.update(
             {
-                "error": "kubernetes_client_init_failed",
+                "detection_error": "kubernetes_client_init_failed",
                 "detail": str(exc),
             }
         )
@@ -267,23 +351,44 @@ def _build_deployment_context_payload() -> dict[str, Any]:
 
     namespace = payload["namespace"]
 
-    # Cluster info
+    # Cluster info — track whether each probe actually reached the
+    # apiserver so we can tell "healthy cluster with zero nodes" (not a
+    # thing) apart from "never got an answer."
     server_version = None
+    version_ok = False
     try:
         from kubernetes import client as k8s_client_pkg
 
         version_api = k8s_client_pkg.VersionApi(k8s.batch_api.api_client)
         vinfo = version_api.get_code()
         server_version = getattr(vinfo, "git_version", None)
-    except Exception:
-        pass
+        version_ok = True
+    except Exception as exc:
+        logger.warning("kubernetes version probe failed", error=str(exc))
 
     nodes_count = 0
+    nodes_ok = False
     try:
         nodes = k8s.core_api.list_node()
         nodes_count = len(getattr(nodes, "items", []) or [])
-    except Exception:
-        pass
+        nodes_ok = True
+    except Exception as exc:
+        logger.warning("kubernetes node list failed", error=str(exc))
+
+    if not version_ok and not nodes_ok:
+        # Neither probe reached the apiserver — we cannot claim the
+        # runtime is kubernetes. Demote so rebuild_and_rollout and other
+        # gated tools can refuse with an honest reason rather than
+        # operating against a cluster that isn't really there.
+        payload["runtime"] = "unknown"
+        payload.update(
+            {
+                "detection_error": "cluster_unreachable",
+                "detail": "neither VersionApi.get_code nor core_api.list_node succeeded",
+                "cluster_info": {"server_version": None, "nodes": 0},
+            }
+        )
+        return payload
 
     is_k3s, k3s_hint = _detect_k3s(k8s)
     cni, enforcement = _detect_cni(k8s)
@@ -304,6 +409,12 @@ def _build_deployment_context_payload() -> dict[str, Any]:
             "k3s_flavor_hint": k3s_hint,
         }
     )
+    if not images:
+        # Empty images on an otherwise-reachable cluster is a partial
+        # failure (RBAC, wrong namespace, empty ns). Flag it so the
+        # operator isn't guessing why the tool's docstring promise of
+        # "deployed image tags" came back empty.
+        payload["images_unavailable"] = True
 
     return payload
 
@@ -1259,6 +1370,10 @@ def rebuild_and_rollout() -> tuple[Response, int]:
 
     Safeties:
     - Gated on ``EGG_RUNTIME=kubernetes`` (docker returns ``not_available_on_runtime``).
+    - Refuses with ``runtime_detection_failed`` when the process claims
+      kubernetes but can't reach the apiserver — kicking off
+      ``make redeploy`` against a nonexistent cluster just wastes cycles
+      and produces confusing output (#1850).
     - Rejects concurrent invocations while a rollout is live
       (returns 409 with the existing stream id).
     - Actual subprocess runs in a background thread so the HTTP
@@ -1269,6 +1384,10 @@ def rebuild_and_rollout() -> tuple[Response, int]:
 
     if _current_runtime() != "kubernetes":
         return _not_available_on_runtime()
+
+    reachable, reason = _probe_kubernetes_reachable()
+    if not reachable:
+        return _runtime_detection_failed(reason or "apiserver unreachable")
 
     cwd = os.environ.get("EGG_REPO_PATH") or "/home/egg/repos/egg"
     if not Path(cwd).exists():

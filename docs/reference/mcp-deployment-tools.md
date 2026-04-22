@@ -28,8 +28,17 @@ handlers on `PipelineToolHandler`. The server is rate-limited to 30 req/min
 ## Runtime Gating
 
 The four k8s-specific tools branch on the `EGG_RUNTIME` env var, which is
-read at the orchestrator process boundary. When `EGG_RUNTIME != "kubernetes"`
-(typically Docker for legacy local development), they return:
+read at the orchestrator process boundary. When `EGG_RUNTIME` is unset,
+the orchestrator auto-detects: if `KUBERNETES_SERVICE_HOST` is present
+(injected into every pod by the apiserver) the runtime is inferred to be
+`"kubernetes"`; otherwise it defaults to `"docker"`. The resolved runtime
+and its provenance are returned on `get_deployment_context` as
+`runtime` + `detection_source` (values: `"env"`, `"auto:k8s-service-host"`,
+`"auto:default"`). Issue
+[#1850](https://github.com/jwbron/egg/issues/1850) tracked the earlier
+silent-docker-default that hid in-cluster misconfigs.
+
+When `EGG_RUNTIME != "kubernetes"`, the four k8s-specific tools return:
 
 ```json
 {"error": "not_available_on_runtime", "runtime": "docker"}
@@ -38,6 +47,18 @@ read at the orchestrator process boundary. When `EGG_RUNTIME != "kubernetes"`
 rather than failing the MCP call. `get_deployment_context` is portable — it
 returns a Docker-analog payload on the Docker runtime (matching the
 pre-k3s deployment model).
+
+When the orchestrator claims `"kubernetes"` but every cluster introspection
+probe fails (apiserver unreachable, RBAC denial, missing kubeconfig),
+`get_deployment_context` demotes `runtime` to `"unknown"` and attaches a
+`detection_error` field (for example `"cluster_unreachable"`,
+`"kubernetes_client_init_failed"`). `rebuild_and_rollout` refuses with a
+distinct payload so operators can tell "apiserver unreachable" apart from
+"you're on docker":
+
+```json
+{"error": "runtime_detection_failed", "runtime": "unknown", "detail": "..."}
+```
 
 `validate_network_isolation` additionally gates on
 `get_deployment_context.network_policy_enforcement`. If the detected CNI
@@ -77,6 +98,7 @@ Read-only cluster introspection.
 ```json
 {
   "runtime": "kubernetes",
+  "detection_source": "env",
   "kubeconfig_context": "default",
   "cluster_info": {"server_version": "v1.30.2+k3s1"},
   "namespace": "egg-system",
@@ -89,6 +111,11 @@ Read-only cluster introspection.
   }
 }
 ```
+
+When cluster introspection succeeds but listing deployments comes back
+empty (RBAC denial, empty namespace), `images_unavailable: true` is added
+so operators know the empty map reflects a partial failure rather than a
+cluster with no egg workloads.
 
 **Output shape** (Docker runtime — degrade-gracefully mode):
 
