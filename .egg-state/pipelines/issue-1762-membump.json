@@ -152,10 +152,10 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-04-22T20:58:31.425091Z",
       "work_started_at": "2026-04-22T20:58:31.949307Z",
-      "completed_at": null,
+      "completed_at": "2026-04-22T21:29:21.747570Z",
       "containers": [
         {
           "container_id": "41c0395f-f977-493c-9e2d-7f546313b3d9",
@@ -213,11 +213,11 @@
       "agents": [
         {
           "role": "architect",
-          "status": "running",
+          "status": "complete",
           "container_id": "41c0395f-f977-493c-9e2d-7f546313b3d9",
           "container_info": null,
           "started_at": "2026-04-22T20:58:39.120583Z",
-          "completed_at": null,
+          "completed_at": "2026-04-22T21:29:21.747564Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -226,11 +226,11 @@
         },
         {
           "role": "reviewer_plan",
-          "status": "running",
+          "status": "complete",
           "container_id": "5edc2c1b-c858-4b26-8dc6-06bdfbf96780",
           "container_info": null,
           "started_at": "2026-04-22T20:58:39.120601Z",
-          "completed_at": null,
+          "completed_at": "2026-04-22T21:29:21.747566Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -239,11 +239,11 @@
         },
         {
           "role": "risk_analyst",
-          "status": "running",
+          "status": "complete",
           "container_id": "f21fa35d-da54-4d78-8f0f-b6bb9fa76826",
           "container_info": null,
           "started_at": "2026-04-22T20:58:39.120613Z",
-          "completed_at": null,
+          "completed_at": "2026-04-22T21:29:21.747567Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -252,11 +252,11 @@
         },
         {
           "role": "task_planner",
-          "status": "running",
+          "status": "complete",
           "container_id": "d7f2b778-c405-45f1-be23-61f06f8498a5",
           "container_info": null,
           "started_at": "2026-04-22T20:58:39.120625Z",
-          "completed_at": null,
+          "completed_at": "2026-04-22T21:29:21.747568Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -300,7 +300,7 @@
     }
   ],
   "created_at": "2026-04-22T20:29:39.197819Z",
-  "updated_at": "2026-04-22T20:58:39.120813Z",
+  "updated_at": "2026-04-22T21:29:21.747856Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -313,5 +313,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 17
+  "version": 18
 }
