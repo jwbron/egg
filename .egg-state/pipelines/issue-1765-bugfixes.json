@@ -5,7 +5,7 @@
   "branch": "egg/issue-1765-bugfixes",
   "base_branch": null,
   "prompt": null,
-  "status": "pending",
+  "status": "running",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -49,7 +49,7 @@
   "phases": {},
   "decisions": [],
   "created_at": "2026-04-22T20:00:43.040769Z",
-  "updated_at": "2026-04-22T20:00:43.040918Z",
+  "updated_at": "2026-04-22T20:00:43.113494Z",
   "contract_synced": false,
   "network_mode": null,
   "mode": "issue",
@@ -62,5 +62,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 2
+  "version": 3
 }
