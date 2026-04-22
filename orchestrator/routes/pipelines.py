@@ -7282,13 +7282,26 @@ def _run_concurrent_phase(
                 phase_execution = pip.get_phase_execution(PipelinePhase(phase_str))
                 for exec_info in executions:
                     if exec_info.container_id:
-                        container_info = ContainerInfo(
-                            container_id=exec_info.container_id,
-                            container_name=f"{pipeline_id}-{exec_info.role.value}",
-                            status=ContainerStatus.RUNNING,
-                            started_at=datetime.now(UTC),
-                            agent_role=exec_info.role,
-                        )
+                        spawn_info = exec_info.container_info
+                        if spawn_info is not None:
+                            # Preserve backend-specific fields (pod_name,
+                            # namespace, job_name on k8s) from the spawner
+                            # while overriding the live bookkeeping fields.
+                            container_info = spawn_info.model_copy(
+                                update={
+                                    "status": ContainerStatus.RUNNING,
+                                    "started_at": datetime.now(UTC),
+                                    "agent_role": exec_info.role,
+                                }
+                            )
+                        else:
+                            container_info = ContainerInfo(
+                                container_id=exec_info.container_id,
+                                container_name=f"{pipeline_id}-{exec_info.role.value}",
+                                status=ContainerStatus.RUNNING,
+                                started_at=datetime.now(UTC),
+                                agent_role=exec_info.role,
+                            )
                         phase_execution.containers.append(container_info)
 
                     agent_state = StateAgentExecution(
@@ -8074,13 +8087,14 @@ def _spawn_and_wait(
                 pipeline = store.load_pipeline(pipeline_id)
                 phase_execution = pipeline.get_phase_execution(PipelinePhase(phase))
 
-                # Track container
-                container_info = ContainerInfo(
-                    container_id=spawned.container_info.container_id,
-                    container_name=spawned.container_info.container_name,
-                    status=ContainerStatus.RUNNING,
-                    started_at=datetime.now(UTC),
-                    agent_role=agent_role,
+                # Track container — preserve backend-specific fields
+                # (pod_name, namespace, job_name on K8s) from the spawner.
+                container_info = spawned.container_info.model_copy(
+                    update={
+                        "status": ContainerStatus.RUNNING,
+                        "started_at": datetime.now(UTC),
+                        "agent_role": agent_role,
+                    }
                 )
                 phase_execution.containers.append(container_info)
 
