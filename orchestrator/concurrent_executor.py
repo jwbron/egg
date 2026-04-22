@@ -73,6 +73,32 @@ _TRANSIENT_AGENT_ERROR_SUBSTRINGS: tuple[str, ...] = (
 )
 
 
+def _uses_per_role_staging(pipeline: "Pipeline") -> bool:
+    """Return True when a pipeline uses BABYSIT-style per-role staging branches.
+
+    Mirrors the helper in ``orchestrator/routes/pipelines.py``: BABYSIT
+    pipelines always use per-role staging; CUSTOM pipelines that supply
+    a ``pr_number`` (#1762) inherit the same semantics so both modes
+    share one runtime code path.
+
+    Defined here as well (rather than importing from routes/pipelines.py)
+    because ``routes.pipelines`` already imports from
+    ``concurrent_executor`` — the reverse import would create a cycle.
+    """
+    try:
+        from models import PipelineMode as _PipelineMode
+    except Exception:
+        return False
+    mode = getattr(pipeline, "mode", None)
+    if mode is None:
+        return False
+    if mode == _PipelineMode.BABYSIT:
+        return True
+    if mode == _PipelineMode.CUSTOM and getattr(pipeline, "pr_number", None) is not None:
+        return True
+    return False
+
+
 def _is_transient_agent_error(error: str | None) -> bool:
     """Return True if an AgentExecution.error string looks retry-worthy.
 
@@ -191,22 +217,9 @@ class ConcurrentPhaseExecutor:
         # Babysit-pr AND CUSTOM+PR (#1762): per-role staging branch
         # namespaced by PR head SHA. CUSTOM-mode pipelines that supply a
         # pr_number inherit BABYSIT's per-role staging semantics so both
-        # modes land on one runtime code path.
-        try:
-            from models import PipelineMode as _PipelineMode  # local import to avoid cycles
-        except Exception:
-            _PipelineMode = None  # type: ignore[assignment]
-        pipeline_mode = getattr(self.pipeline, "mode", None)
-        _uses_staging = False
-        if _PipelineMode is not None and pipeline_mode is not None:
-            if pipeline_mode == _PipelineMode.BABYSIT:
-                _uses_staging = True
-            elif (
-                pipeline_mode == _PipelineMode.CUSTOM
-                and getattr(self.pipeline, "pr_number", None) is not None
-            ):
-                _uses_staging = True
-        if _uses_staging:
+        # modes land on one runtime code path. See
+        # :func:`_uses_per_role_staging` at module scope.
+        if _uses_per_role_staging(self.pipeline):
             pr_number = getattr(self.pipeline, "pr_number", None)
             sha = getattr(self.pipeline, "pr_head_sha", None)
             if pr_number and isinstance(sha, str) and len(sha) >= 7:

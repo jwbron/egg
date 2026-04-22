@@ -1168,7 +1168,11 @@ def validate_roles_for_custom_phase(
             # repo / has_contract gates above.
             return None, "invalid_roles"
         # Falls through for reviewers of other phases, producers of
-        # other phases, etc.
+        # other phases, etc. — grouped under the generic
+        # ``invalid_roles`` reason to match existing test expectations
+        # (reviewer_code raised a distinct-reason nit but it was
+        # non-blocking; keep the single reason until docs/tests catch
+        # up in a follow-up).
         return None, "invalid_roles"
 
     # Must have at least one producer to avoid a BRC deadlock (a

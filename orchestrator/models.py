@@ -583,12 +583,15 @@ class Pipeline(BaseModel):
           (a) None is allowed (default roster / ISSUE mode backward compat).
           (b) Non-None MUST be a non-empty list of strings.
           (c) Every entry must be a valid AgentRole value.
-          (d) At least one entry must be a "producer" role (i.e. a role
-              that does not start with "reviewer_"). This catches
-              reviewer-only rosters that would deadlock BRC — the full
-              phase-aware check lives in
+          (d) At least one entry must be a phase-scoped producer role.
+              We compute the producer set as
+              ``all AgentRoles - reviewer_* - cross_phase``
+              so ``overseer`` / ``autofixer`` / ``conflict_resolver`` /
+              ``inspector`` are never counted as producers here. The
+              full phase-aware check still lives in
               ``validate_roles_for_custom_phase`` (callers should prefer
-              that helper for detailed error reasons).
+              that helper for detailed error reasons); this check is
+              defence-in-depth for direct-construction callers.
         """
         if v is None:
             return None
@@ -600,11 +603,21 @@ class Pipeline(BaseModel):
             raise ValueError(
                 f"active_roles contains unknown AgentRole values: {invalid}"
             )
-        has_producer = any(not r.startswith("reviewer_") for r in v)
+        # Defensive producer check: exclude reviewers AND cross-phase roles.
+        _cross_phase_values = {
+            AgentRole.OVERSEER.value,
+            AgentRole.AUTOFIXER.value,
+            AgentRole.CONFLICT_RESOLVER.value,
+            AgentRole.INSPECTOR.value,
+        }
+        has_producer = any(
+            (not r.startswith("reviewer_")) and r not in _cross_phase_values
+            for r in v
+        )
         if not has_producer:
             raise ValueError(
                 "active_roles must include at least one producer role "
-                "(reviewer-only rosters deadlock BRC)"
+                "(reviewer-only or cross-phase-only rosters deadlock BRC)"
             )
         return v
 
