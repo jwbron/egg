@@ -448,3 +448,32 @@ benefit from explicit role/task decomposition during planning.
 ---
 
 *Authored-by: egg*
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+## Resolved Decisions
+
+**decision-1 (tool name)**: run_agent_task
+
+**decision-2 (CUSTOM + BABYSIT)**: CUSTOM accepts pr_number and subsumes BABYSIT — BABYSIT mode should be refactored to use CUSTOM internally; plan for eventual deprecation of BABYSIT once CUSTOM proves out against PR targets.
+
+**decision-3 (cli.py scope)**: Remove bin/egg AND egg_lib.cli.main; relocate gha_exec to its own module (e.g. sandbox/egg_lib/gha_exec.py) so action/entrypoint.sh still works.
+
+**decision-4 (compose removal)**: Full cutover — delete compose.py module and ALL call sites, including ensure_compose_services() in exec_in_new_container(). Integration test fixtures should migrate too.
+
+**decision-5 (roster storage)**: New field Pipeline.active_roles: list[str] | None — stored at pipeline creation, read by ConcurrentPhaseExecutor (already supports roles override at concurrent_executor.py:108) and by _execute_concurrent_phase when filtering the review graph. NOT PipelineConfig (that's caller input) and NOT PhaseExecution (custom-phase is single-phase by design; YAGNI).
+
+**decision-6 (degenerate rosters)**: Reject at validation — require at least one producer role. Empty or reviewer-only rosters return 400. BRC's short-circuit only helps when the producer has no critical reviewers, not the reverse.
+
+**decision-7 (no-branch behavior)**: Auto-generate branch 'egg/custom-<pipeline_id>' when caller passes no branch. Callers always get a branch in the pipeline record and can git show drafts.
+
+**decision-8 (cross-phase roles)**: Reject — strictly phase-scoped per the issue. Overseer, autofixer, conflict_resolver, and other cross-phase/utility roles are not selectable via run_agent_task.
+
+**decision-9 (cutover strategy)**: Option A — ship both add + remove in one PR. Justification: compose fallback is already broken (no docker-compose.yml in tree), so two-phase rollout buys no real safety.
+
+## Deferred to Plan Phase
+
+The 9 open-ended questions in feedback-1 (HITL gate integration scope, contract-file keying with issue_number, analysis/plan arg semantics, repo allowlist source, pr_number v1 validation, CLI surface for bin/egg-sdlc, persisted-state migration, degenerate-roster test coverage, docs rewrite list) are deferred to the plan phase — the task_planner should incorporate them into task decomposition with the 9 resolved decisions above as fixed context.
