@@ -83,6 +83,9 @@ def _sampler_loop(interval_seconds: float, top_n: int) -> None:
             logger.warning("gateway_mem_trace_failed", error=str(exc))
 
 
+_started = False
+
+
 def _is_truthy(value: str) -> bool:
     return value.lower() in {"1", "true", "yes", "on"}
 
@@ -91,9 +94,12 @@ def start_if_enabled() -> bool:
     """Start the sampler iff ``GATEWAY_MEM_TRACE`` is truthy.
 
     Returns True if sampling was started, False otherwise. Safe to call multiple
-    times; subsequent calls after the first are no-ops if tracemalloc is already
-    tracing.
+    times; subsequent calls after the first are no-ops.
     """
+    global _started
+    if _started:
+        return False
+
     if not _is_truthy(os.environ.get(ENABLE_ENV_VAR, "")):
         return False
 
@@ -101,6 +107,8 @@ def start_if_enabled() -> bool:
         interval = float(os.environ.get(INTERVAL_ENV_VAR, DEFAULT_INTERVAL_SECONDS))
     except ValueError:
         interval = DEFAULT_INTERVAL_SECONDS
+    interval = max(1.0, interval)
+
     try:
         top_n = int(os.environ.get(TOP_N_ENV_VAR, DEFAULT_TOP_N))
     except ValueError:
@@ -116,6 +124,7 @@ def start_if_enabled() -> bool:
         daemon=True,
     )
     thread.start()
+    _started = True
     logger.info(
         "Memory trace sampler started",
         interval_seconds=interval,

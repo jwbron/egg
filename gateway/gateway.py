@@ -5286,12 +5286,19 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
                 finally:
                     upstream.close()
                     if accumulator is not None and container_id:
-                        _capture_streaming_response(
-                            container_id=container_id,
-                            request_json=request_json,
-                            result=accumulator.result(),
-                            start_time=start_time,
-                        )
+                        try:
+                            _capture_streaming_response(
+                                container_id=container_id,
+                                request_json=request_json,
+                                result=accumulator.result(),
+                                start_time=start_time,
+                            )
+                        except Exception as e:
+                            logger.debug(
+                                "Failed to capture streaming response to transcript",
+                                container_id=container_id,
+                                error=str(e),
+                            )
 
             return Response(
                 stream_with_context(generate()),

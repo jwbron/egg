@@ -11,10 +11,15 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _tracemalloc_cleanup():
-    """Ensure tracemalloc state is restored between tests — start_if_enabled
-    calls tracemalloc.start(), which is process-global."""
+    """Ensure tracemalloc and module-level _started state are restored between
+    tests — start_if_enabled uses process-global tracemalloc and a module-level
+    guard."""
+    import gateway.mem_trace as _mt
+
     was_tracing = tracemalloc.is_tracing()
+    was_started = _mt._started
     yield
+    _mt._started = was_started
     if tracemalloc.is_tracing() and not was_tracing:
         tracemalloc.stop()
 
@@ -34,8 +39,11 @@ class TestStartIfEnabled:
             assert start_if_enabled() is False, f"expected False for {value!r}"
 
     def test_returns_true_and_starts_tracing_for_truthy_values(self, monkeypatch):
+        import gateway.mem_trace as _mt
         from gateway.mem_trace import ENABLE_ENV_VAR, start_if_enabled
 
+        # Reset module guard so this test can start fresh.
+        _mt._started = False
         # Stop any prior sampler thread from bleeding into this test by
         # replacing the thread target with a no-op that returns immediately.
         with patch("gateway.mem_trace._sampler_loop") as mock_loop:
@@ -43,6 +51,32 @@ class TestStartIfEnabled:
             monkeypatch.setenv(ENABLE_ENV_VAR, "1")
             assert start_if_enabled() is True
             assert tracemalloc.is_tracing()
+
+    def test_second_call_is_noop(self, monkeypatch):
+        import gateway.mem_trace as _mt
+        from gateway.mem_trace import ENABLE_ENV_VAR, start_if_enabled
+
+        _mt._started = False
+        with patch("gateway.mem_trace._sampler_loop") as mock_loop:
+            mock_loop.return_value = None
+            monkeypatch.setenv(ENABLE_ENV_VAR, "1")
+            assert start_if_enabled() is True
+            assert start_if_enabled() is False  # second call is a no-op
+
+    def test_interval_clamped_to_minimum(self, monkeypatch):
+        import gateway.mem_trace as _mt
+        from gateway.mem_trace import ENABLE_ENV_VAR, INTERVAL_ENV_VAR, start_if_enabled
+
+        _mt._started = False
+        with patch("gateway.mem_trace._sampler_loop") as mock_loop:
+            mock_loop.return_value = None
+            monkeypatch.setenv(ENABLE_ENV_VAR, "1")
+            monkeypatch.setenv(INTERVAL_ENV_VAR, "0")
+            start_if_enabled()
+            # The interval passed to _sampler_loop should be clamped to 1.0
+            mock_loop.assert_called_once()
+            actual_interval = mock_loop.call_args[0][0]
+            assert actual_interval == 1.0
 
 
 class TestReadRssMb:

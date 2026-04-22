@@ -940,7 +940,6 @@ class TestSSEAccumulatorChunkBoundaries:
         """The accumulator must not retain a reference to fed chunks — that
         was the #1885 regression. Approximate this by checking that the
         per-instance byte footprint stays small after feeding a large stream."""
-        import sys
 
         from gateway.gateway import _SSEAccumulator
 
@@ -950,7 +949,7 @@ class TestSSEAccumulatorChunkBoundaries:
         big_chunk = b"comment: ignored\n" * (1024 * 64)  # ~1 MB
         acc.feed(big_chunk)
         # line_buf should be empty (chunk ends on \n) and no parsed state held.
-        assert sys.getsizeof(acc._line_buf) < 1024  # type: ignore[attr-defined]
+        assert acc._line_buf == ""  # type: ignore[attr-defined]
         assert acc._content_by_index == {}  # type: ignore[attr-defined]
 
 
