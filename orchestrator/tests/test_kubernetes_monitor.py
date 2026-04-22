@@ -8,7 +8,6 @@ reconciliation, and singleton management.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,7 +15,7 @@ from kubernetes_client import (
     KubernetesClientError,
     PodNotFoundError,
 )
-from models import ContainerInfo, ContainerStatus
+from models import ContainerInfo, ContainerStatus, PipelineStatus
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -720,6 +719,7 @@ class TestReconcilePodState:
             current_phase=PipelinePhase.IMPLEMENT,
             phases={"implement": phase_exec},
         )
+        pipeline.error = "Original failure reason"
         original_error = pipeline.error
 
         store = self._make_mock_store(pipeline)
@@ -920,7 +920,7 @@ class TestReconciliationSweep:
         container_id: str,
         ci_status: ContainerStatus = ContainerStatus.RUNNING,
         agent_started_at: datetime | None = None,
-        pipeline_status: Any = None,
+        pipeline_status: PipelineStatus | None = None,
     ):
         from models import (
             AgentExecution,
@@ -952,7 +952,7 @@ class TestReconciliationSweep:
             id="pipe-1",
             issue_number=1,
             repo="owner/repo",
-            status=pipeline_status or PipelineStatus.RUNNING,
+            status=pipeline_status if pipeline_status is not None else PipelineStatus.RUNNING,
             current_phase=PipelinePhase.IMPLEMENT,
             phases={"implement": phase_exec},
         )

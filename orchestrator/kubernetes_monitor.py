@@ -432,20 +432,18 @@ class KubernetesMonitor:
                 # Reconcile stale RUNNING records on non-RUNNING
                 # pipelines too (#1840). Skip terminal pipelines with
                 # nothing to clean up — the common case.
+                current_phase_key = pipeline.current_phase.value
+                phase_execution = pipeline.phases.get(current_phase_key)
+
                 if pipeline.status not in (
                     PipelineStatus.RUNNING,
                     PipelineStatus.AWAITING_HUMAN,
                 ):
-                    has_running_records = any(
-                        a.status == AgentExecutionStatus.RUNNING
-                        for pe in pipeline.phases.values()
-                        for a in pe.agents
+                    has_running_records = phase_execution is not None and any(
+                        a.status == AgentExecutionStatus.RUNNING for a in phase_execution.agents
                     )
                     if not has_running_records:
                         continue
-
-                current_phase_key = pipeline.current_phase.value
-                phase_execution = pipeline.phases.get(current_phase_key)
                 if phase_execution is None:
                     continue
 
@@ -841,8 +839,10 @@ def get_kubernetes_monitor() -> KubernetesMonitor:
 def _reconcile_pod_state(store: Any, container_info: ContainerInfo) -> bool:
     """Update pipeline state for a single pod that has exited.
 
-    Scans all RUNNING pipelines for a container matching the given
-    container_info and marks the container and its agent as FAILED.
+    Scans pipelines for a container matching the given container_info
+    and reconciles stale RUNNING agent/container records.  On RUNNING
+    pipelines the pipeline itself is also marked FAILED; on terminal or
+    AWAITING_HUMAN pipelines only the sub-records are updated.
 
     Args:
         store: StateStore instance
