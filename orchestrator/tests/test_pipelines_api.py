@@ -255,6 +255,7 @@ class TestCreatePipelineMultiRepo:
     ):
         """create_pipeline should call get_repo_path() for all pipeline types."""
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_gw.return_value.ls_remote_branch.return_value = False
         mock_store = MagicMock()
         mock_pipeline = MagicMock()
         mock_pipeline.id = "issue-42"
@@ -699,6 +700,7 @@ class TestCreatePipelineErrorHandling:
     ):
         """OSError during pipeline creation should return 500 with detail, not generic error."""
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_gw.return_value.ls_remote_branch.return_value = False
         mock_store = MagicMock()
         mock_store.create_pipeline.side_effect = OSError("Permission denied")
         mock_get_store.return_value = mock_store
