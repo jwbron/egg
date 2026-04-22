@@ -1347,6 +1347,17 @@ class WorktreeManager:
             if container_id in active_containers:
                 continue
 
+            # Skip worktrees that this process just created.  create_worktree
+            # populates ``_active_worktrees[container_id]`` before returning,
+            # so any per-agent worktree made during this gateway's lifetime
+            # is protected even if its session was not yet registered when
+            # ``active_containers`` was captured — closing the spawn-vs-prune
+            # race that motivated #1874.  Re-checked per iteration so a
+            # worktree created mid-sweep is still shielded.
+            with self._lock:
+                if container_id in self._active_worktrees:
+                    continue
+
             logger.info(
                 "Cleaning up orphaned worktrees",
                 container_id=container_id,
@@ -1596,6 +1607,11 @@ class WorktreeManager:
                     continue
             if child.name in active_containers:
                 continue
+            # Mirror the _active_worktrees guard from cleanup_orphaned_worktrees
+            # so dry-run output accurately reflects what cleanup would skip.
+            with self._lock:
+                if child.name in self._active_worktrees:
+                    continue
             orphans.append(str(child))
         return orphans
 

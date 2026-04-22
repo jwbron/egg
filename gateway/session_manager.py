@@ -990,7 +990,11 @@ class SessionManager:
         List all active (non-expired) sessions.
 
         Returns:
-            List of session info dictionaries (without tokens)
+            List of session info dictionaries (without tokens).  Includes
+            ``pipeline_id`` and ``agent_role`` when the session was created
+            for a pipeline agent so cleanup paths can derive the associated
+            per-agent worktree container id (``{pipeline_id}-{agent_role}``)
+            and skip it during orphan sweeps — see #1874.
         """
         with self._lock:
             return [
@@ -1000,6 +1004,8 @@ class SessionManager:
                     "mode": session.mode,
                     "created_at": session.created_at.isoformat(),
                     "expires_at": session.expires_at.isoformat(),
+                    "pipeline_id": session.pipeline_id,
+                    "agent_role": session.agent_role,
                 }
                 for session in self._sessions.values()
                 if not session.is_expired()
