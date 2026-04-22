@@ -290,6 +290,7 @@ class GatewayClient:
         pr_number: int | None = None,
         claude_code_version: str | None = None,
         branch: str | None = None,
+        worktree_container_id: str | None = None,
     ) -> SessionInfo:
         """Register a session for a container.
 
@@ -310,6 +311,11 @@ class GatewayClient:
             pr_number: Optional GitHub PR number for checkpoint linkage
             claude_code_version: Optional Claude Code version string
             branch: Optional git branch for non-pushing session metadata
+            worktree_container_id: Optional container_id under which per-agent
+                worktrees were already created by a prior create_worktrees
+                call.  When provided, the gateway reuses those worktrees
+                instead of re-creating them — avoids a second
+                ``git worktree add`` racing on ``.git/config.lock`` (#1857).
 
         Returns:
             SessionInfo with the created session
@@ -345,6 +351,8 @@ class GatewayClient:
             request_data["claude_code_version"] = claude_code_version
         if branch is not None:
             request_data["branch"] = branch
+        if worktree_container_id is not None:
+            request_data["worktree_container_id"] = worktree_container_id
         result = self._make_request(
             "/api/v1/sessions/create",
             method="POST",

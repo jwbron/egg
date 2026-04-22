@@ -512,6 +512,57 @@ class WorktreeManager:
 
         return info
 
+    def lookup_worktree(
+        self,
+        repo_name: str,
+        container_id: str,
+    ) -> WorktreeInfo:
+        """Return info for an existing worktree without creating one.
+
+        Used when the caller already created the worktree in a prior step
+        and just needs its paths (e.g. session_create reusing a worktree
+        that create_worktrees already made — see #1857).  Creating a second
+        worktree for the same agent races on ``.git/config.lock`` in the
+        bare repo and intermittently fails concurrent spawns.
+
+        Args:
+            repo_name: Name of the repository.
+            container_id: Container id under which the worktree was created.
+
+        Returns:
+            WorktreeInfo describing the existing worktree.
+
+        Raises:
+            ValueError: If inputs are invalid, the repo doesn't exist, or
+                no valid worktree is present at the expected path.
+        """
+        validate_identifier(container_id, "container_id")
+        validate_identifier(repo_name, "repo_name")
+
+        main_repo = self.repos_base / repo_name
+        if not main_repo.exists():
+            raise ValueError(f"Repository not found: {repo_name}")
+
+        worktree_path = self.worktree_base / container_id / repo_name
+        git_file = worktree_path / ".git"
+        if not (
+            worktree_path.exists()
+            and git_file.is_file()
+            and git_file.read_text().strip().startswith("gitdir:")
+        ):
+            raise ValueError(
+                f"Worktree not found for container_id={container_id} "
+                f"repo={repo_name} at {worktree_path}"
+            )
+
+        return WorktreeInfo(
+            container_id=container_id,
+            repo_name=repo_name,
+            branch=f"egg/{container_id}/work",
+            worktree_path=worktree_path,
+            git_dir=self._find_worktree_git_dir(main_repo, worktree_path),
+        )
+
     def _get_repo_lock(self, repo_name: str) -> threading.Lock:
         """Get or create a per-repo lock for serializing git operations."""
         with self._repo_locks_guard:
