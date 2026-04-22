@@ -5016,6 +5016,49 @@ def _build_brc_history_link_line(
     return f"_Per-phase BRC transcripts: {links}._"
 
 
+def _pr_metadata_from_plan_draft(
+    worktree_repo_path: Path,
+    issue_number: int | None,
+    pipeline_id: str,
+) -> tuple[str | None, str, str, str]:
+    """Parse PR metadata from the plan draft on disk.
+
+    Used as a fallback in ``_build_pr_body`` when ``contract.pr`` is not
+    populated — e.g. when the plan-phase contract write did not reach the
+    branch tip (see #1829). The plan draft itself is reliably on the
+    branch even when the contract is not.
+
+    Returns ``(title, description, test_plan, manual_steps)``; ``title``
+    is ``None`` when the draft is missing, unparseable, or has no ``pr:``
+    block, signalling the caller to fall through to the next tier.
+    """
+    draft_rel = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
+    if not draft_rel:
+        return None, "", "", ""
+    plan_path = worktree_repo_path / draft_rel
+    if not plan_path.exists():
+        return None, "", "", ""
+    try:
+        from egg_contracts.plan_parser import parse_plan
+
+        result = parse_plan(plan_path.read_text())
+    except Exception as e:
+        logger.debug(
+            "Could not parse plan draft for PR metadata fallback",
+            path=str(plan_path),
+            error=str(e),
+        )
+        return None, "", "", ""
+    if not result.pr_title:
+        return None, "", "", ""
+    return (
+        result.pr_title,
+        result.pr_description or "",
+        result.pr_test_plan or "",
+        result.pr_manual_steps or "",
+    )
+
+
 def _build_pr_body(
     pipeline: Pipeline,
     worktree_repo_path: Path,
@@ -5023,9 +5066,10 @@ def _build_pr_body(
     """Build a PR title and body from contract state.
 
     Uses the planner-generated PR metadata from the contract when available,
-    falling back to the issue title.  Commit logs and diff stats are omitted
-    because GitHub already displays them natively on the PR page, and including
-    them caused body-size blowups (see #1374).
+    falling back to the plan draft on disk (#1829) and then to the issue
+    title.  Commit logs and diff stats are omitted because GitHub already
+    displays them natively on the PR page, and including them caused
+    body-size blowups (see #1374).
 
     Args:
         pipeline: The pipeline state
@@ -5039,8 +5083,9 @@ def _build_pr_body(
     pr_description: str | None = None
     pr_test_plan: str = ""
     pr_manual_steps: str = ""
+    issue_title: str | None = None
 
-    # Try to load PR metadata from the contract (populated by the plan agent).
+    # Tier 1: load PR metadata from the contract (populated by the plan agent).
     # Contracts are keyed by pipeline_id after key unification (#1773).
     try:
         from egg_contracts.loader import load_contract
@@ -5051,10 +5096,8 @@ def _build_pr_body(
             pr_description = contract.pr.description
             pr_test_plan = contract.pr.test_plan
             pr_manual_steps = contract.pr.manual_steps
-
-        # Fall back to issue title if no PR title from contract
-        if not pr_title and contract.issue:
-            pr_title = contract.issue.title
+        if contract.issue:
+            issue_title = contract.issue.title
     except Exception as e:
         logger.debug(
             "Could not load contract for PR metadata",
@@ -5062,9 +5105,24 @@ def _build_pr_body(
             error=str(e),
         )
 
-    # Final fallback for title
+    # Tier 2: parse the plan draft directly when the contract has no PR
+    # metadata.  The draft is reliably on the branch even when the
+    # contract write didn't land (#1829).
     if not pr_title:
-        pr_title = f"Implementation for pipeline {pipeline.id}"
+        draft_title, draft_desc, draft_test_plan, draft_manual_steps = _pr_metadata_from_plan_draft(
+            worktree_repo_path,
+            issue_number=pipeline.issue_number,
+            pipeline_id=pipeline.id,
+        )
+        if draft_title:
+            pr_title = draft_title
+            pr_description = draft_desc
+            pr_test_plan = draft_test_plan
+            pr_manual_steps = draft_manual_steps
+
+    # Tier 3: issue title, then generic stub
+    if not pr_title:
+        pr_title = issue_title or f"Implementation for pipeline {pipeline.id}"
 
     # Assemble body
     body_parts: list[str] = []

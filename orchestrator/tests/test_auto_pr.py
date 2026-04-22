@@ -165,6 +165,147 @@ class TestBuildPrBody:
         assert len(body) < 65_536
 
 
+def _write_plan_draft(tmp_path, issue_number, *, title, description, test_plan, manual_steps):
+    """Helper: write a plan draft with a ``pr:`` yaml-tasks block.
+
+    Mirrors the layout the planner produces, which the plan parser reads
+    via ``parse_plan``.
+
+    Note: YAML is assembled via string concatenation — inputs must be
+    simple strings with no quotes, newlines, or special YAML characters.
+    """
+    drafts_dir = tmp_path / ".egg-state" / "drafts"
+    drafts_dir.mkdir(parents=True, exist_ok=True)
+    plan_path = drafts_dir / f"{issue_number}-plan.md"
+    plan_path.write_text(
+        "# Plan\n\n"
+        "```yaml\n"
+        "# yaml-tasks\n"
+        "pr:\n"
+        f'  title: "{title}"\n'
+        "  description: |\n"
+        f"    {description}\n"
+        "  test_plan: |\n"
+        f"    {test_plan}\n"
+        "  manual_steps: |\n"
+        f"    {manual_steps}\n"
+        "phases:\n"
+        "  - id: 1\n"
+        "    name: Phase 1\n"
+        "    goal: Do something\n"
+        "    tasks: []\n"
+        "```\n"
+    )
+    return plan_path
+
+
+class TestBuildPrBodyPlanDraftFallback:
+    """Tests for the plan-draft fallback in _build_pr_body (#1825 / #1829).
+
+    When ``contract.pr`` is missing (e.g. the plan-phase contract write did
+    not reach the branch tip), ``_build_pr_body`` should parse the plan
+    draft on disk and use its ``pr:`` block.
+    """
+
+    def test_uses_plan_draft_when_contract_has_no_pr(self, tmp_path):
+        """Plan draft is used when contract.pr is absent."""
+        pipeline = _make_pipeline()
+        contract_dir = tmp_path / ".egg-state" / "contracts"
+        contract_dir.mkdir(parents=True)
+        (contract_dir / "42.json").write_text(json.dumps(_make_contract_json(pr_title=None)))
+        _write_plan_draft(
+            tmp_path,
+            42,
+            title="Fix the auth bug via plan draft",
+            description="From the plan draft description.",
+            test_plan="- Automated: pytest passes",
+            manual_steps="Pre-merge: run migration",
+        )
+
+        title, body = _build_pr_body(pipeline, tmp_path)
+
+        assert title == "Fix the auth bug via plan draft"
+        assert "From the plan draft description." in body
+        assert "## Test Plan" in body
+        assert "pytest passes" in body
+        assert "## Manual Steps" in body
+        assert "run migration" in body
+        # Plan draft provides its own description, so the Closes link must not appear.
+        assert "Closes #42" not in body
+
+    def test_uses_plan_draft_when_no_contract_at_all(self, tmp_path):
+        """Plan draft is used even when contract load fails entirely."""
+        pipeline = _make_pipeline()
+        _write_plan_draft(
+            tmp_path,
+            42,
+            title="Draft-only title",
+            description="Draft-only description.",
+            test_plan="- Test X",
+            manual_steps="None",
+        )
+
+        title, body = _build_pr_body(pipeline, tmp_path)
+
+        assert title == "Draft-only title"
+        assert "Draft-only description." in body
+        assert "Test X" in body
+
+    def test_contract_pr_beats_plan_draft(self, tmp_path):
+        """Contract PR metadata wins over plan draft when both exist."""
+        pipeline = _make_pipeline()
+        contract_dir = tmp_path / ".egg-state" / "contracts"
+        contract_dir.mkdir(parents=True)
+        (contract_dir / "42.json").write_text(
+            json.dumps(
+                _make_contract_json(
+                    pr_title="From contract",
+                    pr_description="From contract description.",
+                )
+            )
+        )
+        _write_plan_draft(
+            tmp_path,
+            42,
+            title="From plan draft",
+            description="Plan-draft description.",
+            test_plan="- X",
+            manual_steps="None",
+        )
+
+        title, body = _build_pr_body(pipeline, tmp_path)
+
+        assert title == "From contract"
+        assert "From contract description." in body
+        assert "From plan draft" not in body
+        assert "Plan-draft description." not in body
+
+    def test_falls_through_to_issue_title_when_draft_missing(self, tmp_path):
+        """When neither contract.pr nor plan draft has PR metadata, issue title is used."""
+        pipeline = _make_pipeline()
+        contract_dir = tmp_path / ".egg-state" / "contracts"
+        contract_dir.mkdir(parents=True)
+        (contract_dir / "42.json").write_text(json.dumps(_make_contract_json(pr_title=None)))
+
+        title, body = _build_pr_body(pipeline, tmp_path)
+
+        assert title == "Fix the auth bug"
+
+    def test_unparseable_plan_draft_falls_through(self, tmp_path):
+        """A plan draft with no pr: block falls through to the issue title."""
+        pipeline = _make_pipeline()
+        contract_dir = tmp_path / ".egg-state" / "contracts"
+        contract_dir.mkdir(parents=True)
+        (contract_dir / "42.json").write_text(json.dumps(_make_contract_json(pr_title=None)))
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True)
+        (drafts_dir / "42-plan.md").write_text("# Plan with no yaml-tasks block\n\nJust prose.\n")
+
+        title, body = _build_pr_body(pipeline, tmp_path)
+
+        assert title == "Fix the auth bug"
+
+
 class TestAutoCreatePr:
     """Tests for _auto_create_pr."""
 
