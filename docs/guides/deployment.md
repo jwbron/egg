@@ -408,6 +408,20 @@ The orchestrator now waits for the gateway to become healthy before creating a p
 3. Check NetworkPolicies: `kubectl get networkpolicies -n egg-agents`
 4. Test connectivity from agent namespace: `kubectl run -n egg-agents test --rm -it --image=busybox -- wget -qO- http://gateway.egg-system:9848/api/v1/health`
 
+### Session expired before agent finished
+
+The gateway auto-prunes sessions that have been idle (no requests from the container) for more than 60 minutes. If an agent is killed or its pipeline is cancelled, its session is cleaned up automatically within the next prune cycle rather than lingering until its 24-hour TTL.
+
+If legitimate long-running agents are losing their sessions, tune the idle threshold on the gateway:
+
+```yaml
+# In your gateway Deployment
+- name: EGG_SESSION_IDLE_TIMEOUT_MINUTES
+  value: "120"  # default: 60
+- name: EGG_SESSION_CLEANUP_INTERVAL_MINUTES
+  value: "15"   # default: 15, minimum: 1
+```
+
 ### Git operations fail
 
 1. Verify GITHUB_USER_TOKEN is set
