@@ -13,6 +13,7 @@ Kubernetes deployments:
 import os
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -108,6 +109,69 @@ class SpawnedContainer:
     agent_role: AgentRole
     pipeline_id: str
     environment: dict[str, str]
+
+
+# --- spawn-retry policy (#1839) -------------------------------------------
+# A single transient gateway error used to kill the whole pipeline. We now
+# retry a bounded number of times with exponential backoff for failures
+# that look transient (network/timeout/5xx), and fail fast for permanent
+# errors (404 "Repository not found", 400/422 validation, etc.).
+
+DEFAULT_SPAWN_MAX_RETRIES = 2
+DEFAULT_SPAWN_RETRY_INITIAL_BACKOFF_SECONDS = 2.0
+_SPAWN_RETRY_BACKOFF_MULTIPLIER = 2.5
+_TRANSIENT_STATUS_CODES: frozenset[int] = frozenset({408, 429, 500, 502, 503, 504})
+_PERMANENT_STATUS_CODES: frozenset[int] = frozenset({400, 401, 403, 404, 422})
+_PERMANENT_MESSAGE_FRAGMENTS: tuple[str, ...] = (
+    "repository not found",
+    "invalid container_id",
+)
+
+
+def _is_transient_spawn_failure(e: BaseException) -> bool:
+    """Classify whether a worktree-creation failure should be retried.
+
+    Coarse classifier based on ``GatewayError.status_code`` and message
+    content. Refinement via ``GatewayError.details["errors"]`` is blocked
+    on #1838.
+
+    Rules (in priority order):
+    1. Message contains a permanent fragment (e.g. "Repository not found"): permanent.
+    2. ``status_code`` is a known permanent code (400/401/403/404/422): permanent.
+    3. ``status_code`` is a known transient code (408/429/5xx): transient.
+    4. ``status_code`` is any other HTTP status: permanent (fail fast).
+    5. No ``status_code`` (connection-level failure or non-HTTP exception):
+       transient by default — matches the issue #1839 recommendation of
+       "retry by default but bounded."
+    """
+    message = str(e).lower()
+    if any(frag in message for frag in _PERMANENT_MESSAGE_FRAGMENTS):
+        return False
+    status_code = getattr(e, "status_code", None)
+    if status_code is None:
+        return True
+    if status_code in _PERMANENT_STATUS_CODES:
+        return False
+    if status_code in _TRANSIENT_STATUS_CODES:
+        return True
+    return False
+
+
+def _classify_spawn_error(e: BaseException | None) -> str | None:
+    """Short tag used in structured spawn-attempt logs."""
+    if e is None:
+        return None
+    status_code = getattr(e, "status_code", None)
+    if status_code in _PERMANENT_STATUS_CODES:
+        return f"permanent_{status_code}"
+    if status_code in _TRANSIENT_STATUS_CODES:
+        return f"transient_{status_code}"
+    message = str(e).lower()
+    if any(frag in message for frag in _PERMANENT_MESSAGE_FRAGMENTS):
+        return "permanent_message"
+    if status_code is None:
+        return type(e).__name__
+    return f"unknown_{status_code}"
 
 
 def _host_to_local_volumes(repo_volumes: dict[str, str]) -> dict[str, str]:
@@ -223,6 +287,8 @@ class KubernetesSpawner:
         extra_mounts: list["MountSpec"] | None = None,
         preserve_worktree_on_failure: bool = False,
         certs_volume: str | None = None,  # noqa: ARG002 — Docker-era compat
+        spawn_max_retries: int = DEFAULT_SPAWN_MAX_RETRIES,
+        spawn_retry_initial_backoff_seconds: float = (DEFAULT_SPAWN_RETRY_INITIAL_BACKOFF_SECONDS),
     ) -> SpawnedContainer:
         """Spawn a Kubernetes Job for an agent.
 
@@ -242,6 +308,10 @@ class KubernetesSpawner:
             base_branch: Branch to base worktrees on
             extra_mounts: Additional mount specs (not used in k8s — handled by pod template)
             preserve_worktree_on_failure: If True, do not delete worktree on failure
+            spawn_max_retries: Additional retry attempts for transient gateway
+                worktree-creation failures. ``0`` disables retry (#1839).
+            spawn_retry_initial_backoff_seconds: Initial backoff between retries;
+                subsequent attempts scale by ``_SPAWN_RETRY_BACKOFF_MULTIPLIER``.
 
         Returns:
             SpawnedContainer with Job and session info
@@ -309,48 +379,114 @@ class KubernetesSpawner:
         worktree_created_this_call = False
 
         if repos:
-            try:
-                wt_result = self.gateway.create_worktrees(
-                    container_id=agent_worktree_id,
-                    repos=repos,
-                    uid=host_uid,
-                    gid=host_gid,
-                    base_branch=base_branch,
-                    # Wire the per-agent worktree's local branch to push to
-                    # the pipeline's assigned branch.  Without this, a naive
-                    # ``git push`` from the agent targets the per-agent
-                    # local branch name, which the gateway rejects as
-                    # ``push_denied_wrong_branch`` — and agents sometimes
-                    # "recover" from that rejection with ``git reset --hard``,
-                    # destroying their own committed work (#1809).
-                    assigned_branch=branch,
-                )
+            max_attempts = max(1, spawn_max_retries + 1)
+            for attempt in range(max_attempts):
+                attempt_started = time.monotonic()
+                try:
+                    wt_result = self.gateway.create_worktrees(
+                        container_id=agent_worktree_id,
+                        repos=repos,
+                        uid=host_uid,
+                        gid=host_gid,
+                        base_branch=base_branch,
+                        # Wire the per-agent worktree's local branch to push to
+                        # the pipeline's assigned branch.  Without this, a naive
+                        # ``git push`` from the agent targets the per-agent
+                        # local branch name, which the gateway rejects as
+                        # ``push_denied_wrong_branch`` — and agents sometimes
+                        # "recover" from that rejection with ``git reset --hard``,
+                        # destroying their own committed work (#1809).
+                        assigned_branch=branch,
+                    )
+                except Exception as e:  # noqa: BLE001 — classify below
+                    duration_ms = int((time.monotonic() - attempt_started) * 1000)
+                    transient = _is_transient_spawn_failure(e)
+                    is_last = attempt >= max_attempts - 1
+                    logger.info(
+                        "Spawn attempt outcome",
+                        event_type="spawn_attempt",
+                        pipeline_id=pipeline_id,
+                        agent_role=agent_role.value,
+                        agent_worktree_id=agent_worktree_id,
+                        phase=phase,
+                        attempt=attempt + 1,
+                        max_attempts=max_attempts,
+                        outcome="failed",
+                        error_category=_classify_spawn_error(e),
+                        error_detail=str(e),
+                        duration_ms=duration_ms,
+                        will_retry=(transient and not is_last),
+                    )
+                    if transient and not is_last:
+                        delay = spawn_retry_initial_backoff_seconds * (
+                            _SPAWN_RETRY_BACKOFF_MULTIPLIER**attempt
+                        )
+                        logger.warning(
+                            "Transient worktree creation failure, retrying",
+                            agent_worktree_id=agent_worktree_id,
+                            attempt=attempt + 1,
+                            max_attempts=max_attempts,
+                            delay_seconds=delay,
+                            error=str(e),
+                        )
+                        time.sleep(delay)
+                        continue
+                    raise KubernetesSpawnError(
+                        f"Per-agent worktree creation failed for "
+                        f"{agent_worktree_id} after {attempt + 1} attempt(s): {e}"
+                    ) from e
+
+                duration_ms = int((time.monotonic() - attempt_started) * 1000)
                 if wt_result and wt_result.success and wt_result.worktrees:
                     repo_volumes = wt_result.worktrees
                     worktree_created_this_call = True
+                    logger.info(
+                        "Spawn attempt outcome",
+                        event_type="spawn_attempt",
+                        pipeline_id=pipeline_id,
+                        agent_role=agent_role.value,
+                        agent_worktree_id=agent_worktree_id,
+                        phase=phase,
+                        attempt=attempt + 1,
+                        max_attempts=max_attempts,
+                        outcome="success",
+                        error_category=None,
+                        error_detail=None,
+                        duration_ms=duration_ms,
+                        will_retry=False,
+                    )
                     logger.info(
                         "Per-agent worktree created",
                         agent_worktree_id=agent_worktree_id,
                         role=agent_role.value,
                         pipeline_id=pipeline_id,
                         worktrees=list(repo_volumes.keys()),
+                        attempt=attempt + 1,
                     )
-                else:
-                    errors = wt_result.errors if wt_result else []
-                    raise KubernetesSpawnError(
-                        f"Per-agent worktree creation returned no worktrees "
-                        f"for {agent_worktree_id}: {errors}"
-                    )
-            except KubernetesSpawnError:
-                raise
-            except GatewayError as e:
+                    break
+                # Empty / unsuccessful result — treat as non-retryable;
+                # the gateway returned structured errors which usually
+                # reflect permanent issues (missing repo, bad ref).
+                errors = wt_result.errors if wt_result else []
+                logger.info(
+                    "Spawn attempt outcome",
+                    event_type="spawn_attempt",
+                    pipeline_id=pipeline_id,
+                    agent_role=agent_role.value,
+                    agent_worktree_id=agent_worktree_id,
+                    phase=phase,
+                    attempt=attempt + 1,
+                    max_attempts=max_attempts,
+                    outcome="failed",
+                    error_category="empty_result",
+                    error_detail=str(errors),
+                    duration_ms=duration_ms,
+                    will_retry=False,
+                )
                 raise KubernetesSpawnError(
-                    f"Per-agent worktree creation failed for {agent_worktree_id}: {e}"
-                ) from e
-            except Exception as e:
-                raise KubernetesSpawnError(
-                    f"Per-agent worktree creation failed for {agent_worktree_id}: {e}"
-                ) from e
+                    f"Per-agent worktree creation returned no worktrees "
+                    f"for {agent_worktree_id}: {errors}"
+                )
 
         # Register gateway session (token-only, no container_ip)
         session_info = None
@@ -1012,6 +1148,8 @@ class KubernetesSpawner:
         image: str | None = None,
         base_branch: str | None = None,
         certs_volume: str | None = None,  # noqa: ARG002 — Docker-era compat
+        spawn_max_retries: int = DEFAULT_SPAWN_MAX_RETRIES,
+        spawn_retry_initial_backoff_seconds: float = (DEFAULT_SPAWN_RETRY_INITIAL_BACKOFF_SECONDS),
     ):
         """Create a spawn callable compatible with ConcurrentPhaseExecutor.
 
@@ -1053,6 +1191,8 @@ class KubernetesSpawner:
                 branch=branch,
                 base_branch=base_branch,
                 command=command,
+                spawn_max_retries=spawn_max_retries,
+                spawn_retry_initial_backoff_seconds=(spawn_retry_initial_backoff_seconds),
             )
 
         return _spawn

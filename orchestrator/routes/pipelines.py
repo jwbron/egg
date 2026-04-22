@@ -7260,6 +7260,10 @@ def _run_concurrent_phase(
         sandbox_env=sandbox_env,
         certs_volume=certs_volume,
         base_branch=pipeline.base_branch,
+        spawn_max_retries=getattr(pipeline.config, "spawn_max_retries", 2),
+        spawn_retry_initial_backoff_seconds=getattr(
+            pipeline.config, "spawn_retry_initial_backoff_seconds", 2.0
+        ),
     )
 
     max_concurrent = getattr(pipeline.config, "max_concurrent_agents", 6)

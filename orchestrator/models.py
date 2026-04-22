@@ -399,6 +399,23 @@ class PipelineConfig(BaseModel):
         "Valid values: 'plan', 'implement'. When set, the pipeline starts "
         "at this phase instead of 'refine'.",
     )
+    spawn_max_retries: int = Field(
+        default=2,
+        ge=0,
+        description=(
+            "Maximum retry attempts for transient gateway worktree-creation "
+            "failures during agent spawn. Total attempts = spawn_max_retries + 1. "
+            "0 disables retry. See #1839."
+        ),
+    )
+    spawn_retry_initial_backoff_seconds: float = Field(
+        default=2.0,
+        gt=0,
+        description=(
+            "Initial backoff seconds between spawn retries. Subsequent attempts "
+            "scale by 2.5x (e.g. 2s, 5s, 12.5s). See #1839."
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod
