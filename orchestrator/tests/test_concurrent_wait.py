@@ -334,6 +334,130 @@ class TestRunConcurrentPhaseWait:
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_recorded_container_preserves_k8s_metadata(
+        self, MockExecutor, mock_build_prompt, mock_state_lock, mock_monotonic, mock_sleep
+    ):
+        """When AgentExecution.container_info carries K8s fields (namespace,
+        job_name, pod_name), the recorded phase_execution.containers[] entry
+        preserves them instead of rebuilding a minimal ContainerInfo (#1841)."""
+        mock_monotonic.return_value = 0.0
+
+        k8s_info = ContainerInfo(
+            container_id="uid-abc123",
+            container_name="issue-999-coder",
+            status=ContainerStatus.PENDING,
+            namespace="egg-sandbox",
+            job_name="issue-999-coder",
+            pod_name="issue-999-coder-xyz",
+        )
+        execution = AgentExecution(
+            role=AgentRole.CODER,
+            status=AgentExecutionStatus.RUNNING,
+            container_id="uid-abc123",
+            container_info=k8s_info,
+            started_at=datetime.now(UTC),
+        )
+        executions = [execution]
+
+        # Wait results must key on the same container_id.
+        wait_results = {
+            "uid-abc123": ContainerInfo(
+                container_id="uid-abc123",
+                container_name="issue-999-coder",
+                status=ContainerStatus.EXITED,
+                exit_code=0,
+                exited_at=datetime.now(UTC),
+            ),
+        }
+        pipeline, mock_store, mock_spawner, mock_docker, phase_exec = self._make_mocks(
+            executions, wait_results=wait_results
+        )
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = _NO_CONSENSUS
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_state_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            repo_volumes={},
+            gateway_mode="public",
+            repos=["owner/repo"],
+            sandbox_env={},
+            store=mock_store,
+            certs_volume=None,
+            worktree_repo_path=Path("/tmp/test-repo"),
+        )
+
+        assert len(phase_exec.containers) == 1
+        recorded = phase_exec.containers[0]
+        assert recorded.container_id == "uid-abc123"
+        assert recorded.namespace == "egg-sandbox"
+        assert recorded.job_name == "issue-999-coder"
+        assert recorded.pod_name == "issue-999-coder-xyz"
+        # agent_role comes from the bookkeeping path.
+        assert recorded.agent_role == AgentRole.CODER
+        assert recorded.started_at is not None
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_recorded_container_fallback_when_info_missing(
+        self, MockExecutor, mock_build_prompt, mock_state_lock, mock_monotonic, mock_sleep
+    ):
+        """Docker-style AgentExecution with no container_info still produces
+        a minimal ContainerInfo record (backward compatibility for #1841)."""
+        mock_monotonic.return_value = 0.0
+
+        executions = [_make_execution(AgentRole.CODER, "coder-abc")]
+        # Precondition: no container_info set (docker-style execution).
+        assert executions[0].container_info is None
+
+        pipeline, mock_store, mock_spawner, mock_docker, phase_exec = self._make_mocks(executions)
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = _NO_CONSENSUS
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_state_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            repo_volumes={},
+            gateway_mode="public",
+            repos=["owner/repo"],
+            sandbox_env={},
+            store=mock_store,
+            certs_volume=None,
+            worktree_repo_path=Path("/tmp/test-repo"),
+        )
+
+        assert len(phase_exec.containers) == 1
+        recorded = phase_exec.containers[0]
+        assert recorded.container_id == "coder-abc"
+        assert recorded.container_name == "issue-999-coder"
+        assert recorded.namespace is None
+        assert recorded.job_name is None
+        assert recorded.pod_name is None
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
     def test_store_none_does_not_crash(
         self, MockExecutor, mock_build_prompt, mock_state_lock, mock_monotonic, mock_sleep
     ):

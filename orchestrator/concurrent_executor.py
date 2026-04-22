@@ -307,6 +307,7 @@ class ConcurrentPhaseExecutor:
             role=role,
             status=AgentExecutionStatus.RUNNING,
             container_id=container_id,
+            container_info=result.container_info,
             started_at=datetime.now(UTC),
         )
 

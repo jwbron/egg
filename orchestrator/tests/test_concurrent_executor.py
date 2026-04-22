@@ -218,6 +218,44 @@ class TestSpawnCreatesTracker:
             )
 
 
+class TestSpawnPropagatesContainerInfo:
+    """Test that _spawn_agent carries the full ContainerInfo from the spawner
+    onto AgentExecution, preserving backend-specific fields like K8s
+    pod_name/namespace/job_name (issue #1841)."""
+
+    def test_spawn_agent_propagates_k8s_container_info(self):
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from egg_orchestrator.types import AgentRole
+        from kubernetes_spawner import SpawnedContainer
+        from models import ContainerInfo, ContainerStatus
+
+        pipeline = _make_pipeline()
+        k8s_info = ContainerInfo(
+            container_id="uid-abc123",
+            container_name="issue-999-coder",
+            status=ContainerStatus.PENDING,
+            namespace="egg-sandbox",
+            job_name="issue-999-coder",
+        )
+        spawn_result = SpawnedContainer(
+            container_info=k8s_info,
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-999",
+            environment={},
+        )
+        mock_spawn = MagicMock(return_value=spawn_result)
+
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+        execution = executor._spawn_agent(AgentRole.CODER)
+
+        assert execution.container_id == "uid-abc123"
+        assert execution.container_info is not None
+        assert execution.container_info.namespace == "egg-sandbox"
+        assert execution.container_info.job_name == "issue-999-coder"
+        assert execution.container_info.container_id == "uid-abc123"
+
+
 class TestRolesOverride:
     """Test that the roles override is respected by the executor."""
 
