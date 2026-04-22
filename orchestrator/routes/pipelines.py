@@ -825,6 +825,34 @@ def create_pipeline() -> tuple[Response, int]:
     if (issue_number or pipeline_id) and not branch and mode != PipelineMode.BABYSIT:
         return make_error_response("Missing branch")
 
+    # Wait for the gateway to be ready before any gateway-dependent work.
+    # On fresh deploys / pod restarts the orchestrator can accept requests
+    # while the gateway HTTP listener is still coming up; without this gate
+    # the first submission proceeds, hits the gateway during pipeline-level
+    # worktree creation or per-agent fan-out, and surfaces as a cascade of
+    # generic per-agent ConnectionRefused / "Remote end closed connection"
+    # errors that operators have to reverse-engineer.  See #1851.
+    try:
+        _ready_timeout = int(os.environ.get("EGG_GATEWAY_READY_TIMEOUT_SECONDS", "60"))
+    except ValueError:
+        _ready_timeout = 60
+    if _ready_timeout > 0:
+        _gw_ready = get_gateway_client()
+        if not _gw_ready.wait_for_healthy(timeout_seconds=_ready_timeout):
+            _last = _gw_ready.check_health()
+            return make_error_response(
+                f"Gateway not ready after {_ready_timeout}s "
+                f"(status={_last.status}): {_last.error or 'unhealthy'}. "
+                "Retry once the gateway has finished starting up.",
+                status_code=503,
+                details={
+                    "reason": "gateway_not_ready",
+                    "gateway_status": _last.status,
+                    "gateway_error": _last.error,
+                    "timeout_seconds": _ready_timeout,
+                },
+            )
+
     repo_path = get_repo_path()
 
     # Check that the target branch does not already exist on the remote.
