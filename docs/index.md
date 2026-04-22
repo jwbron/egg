@@ -55,6 +55,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Babysit-PR](guides/babysit-pr.md) | One-off implement-phase BRC cycle against an existing PR: role-typed producers (coder/tester/documenter) + `reviewer_code`, staging-branch isolation, single final consensus push |
 | [Anchor Recovery](guides/anchor-recovery.md) | Agent post-compaction state recovery via persistent anchors |
 | [Harness Configuration](guides/harness-configuration.md) | Selecting and configuring agent runtime harness (egg, claude-sdk, claude-code) |
+| [Deployment Diagnostics](guides/deployment-diagnostics.md) | When to use `/deployment-diagnose` vs `/agent-diagnose`, evidence boundaries, and redaction guarantees |
 
 ### Reference
 
@@ -67,6 +68,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Orchestrator CLI](reference/orchestrator-cli.md) | Full `egg-orch` command reference for pipelines, phases, decisions, containers |
 | [Checkpoint Browser](reference/checkpoint-browser.md) | Full `egg-checkpoint` command reference for browsing agent session history |
 | [SDLC Contract](reference/sdlc-contract.md) | Full `egg-contract` command reference for tracking tasks, commits, decisions |
+| [MCP Deployment Tools](reference/mcp-deployment-tools.md) | Five k8s-facing MCP tools: `get_deployment_context`, `validate_deployment_manifests`, `prune_stale_worktrees`, `validate_network_isolation`, `rebuild_and_rollout` |
 
 ### SDLC Pipeline Templates
 

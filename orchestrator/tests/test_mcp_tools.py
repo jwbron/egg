@@ -809,6 +809,12 @@ class TestToolRouting:
             "complete_phase",
             "populate_contract",
             "babysit_pr",
+            # Deployment-diagnostic tools (#1759)
+            "get_deployment_context",
+            "validate_deployment_manifests",
+            "prune_stale_worktrees",
+            "validate_network_isolation",
+            "rebuild_and_rollout",
         }
         assert tool_names == expected
 
@@ -2111,3 +2117,394 @@ class TestMakeRequestBody:
             handler._make_request("/api/v1/pipelines/foo", method="GET")
 
         assert captured["req"].data is None
+
+
+# ---------------------------------------------------------------------------
+# Deployment-diagnostic MCP tools (#1759)
+# ---------------------------------------------------------------------------
+
+
+class TestGetDeploymentContextTool:
+    """``get_deployment_context`` — thin GET proxy that unwraps ``data``."""
+
+    def test_returns_data_from_orchestrator(self, handler):
+        payload = {
+            "runtime": "kubernetes",
+            "namespace": "egg-system",
+            "cni": "calico",
+            "network_policy_enforcement": True,
+            "is_k3s": True,
+        }
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={"success": True, "data": payload},
+        ) as mock_req:
+            result = handler.handle_tool_call("get_deployment_context", {})
+        mock_req.assert_called_once_with("/api/v1/deployment/context", method="GET")
+        assert result == payload
+
+    def test_docker_not_available_is_surfaced_as_data_field(self, handler):
+        """Docker clusters return a ``not_available_on_runtime`` payload, not an error."""
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={
+                "success": True,
+                "data": {"error": "not_available_on_runtime", "runtime": "docker"},
+            },
+        ):
+            result = handler.handle_tool_call("get_deployment_context", {})
+        assert result["error"] == "not_available_on_runtime"
+        assert result["runtime"] == "docker"
+
+    def test_http_failure_wraps_into_error(self, handler):
+        with patch.object(handler, "_make_request", side_effect=RuntimeError("connection refused")):
+            result = handler.handle_tool_call("get_deployment_context", {})
+        assert "error" in result
+        assert "get_deployment_context failed" in result["error"]
+
+
+class TestValidateDeploymentManifestsTool:
+    """``validate_deployment_manifests`` — POST with optional ``overlay_path``."""
+
+    def test_sends_overlay_path_when_provided(self, handler):
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={"success": True, "data": {"warnings": []}},
+        ) as mock_req:
+            handler.handle_tool_call(
+                "validate_deployment_manifests",
+                {"overlay_path": "k8s/overlays/staging"},
+            )
+        kwargs = mock_req.call_args.kwargs
+        args = mock_req.call_args.args
+        assert args[0] == "/api/v1/deployment/validate-manifests"
+        assert kwargs["method"] == "POST"
+        assert kwargs["data"] == {"overlay_path": "k8s/overlays/staging"}
+
+    def test_omits_overlay_path_when_absent(self, handler):
+        """No ``overlay_path`` → empty body so the server applies its default."""
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={"success": True, "data": {"warnings": []}},
+        ) as mock_req:
+            handler.handle_tool_call("validate_deployment_manifests", {})
+        kwargs = mock_req.call_args.kwargs
+        assert kwargs["data"] == {}
+
+    def test_returns_warnings_list_on_success(self, handler):
+        warnings = [{"rule": "secret-missing", "severity": "error"}]
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={"success": True, "data": {"warnings": warnings}},
+        ):
+            result = handler.handle_tool_call("validate_deployment_manifests", {})
+        assert result["warnings"] == warnings
+
+    def test_http_failure_wraps_into_error(self, handler):
+        with patch.object(handler, "_make_request", side_effect=RuntimeError("500")):
+            result = handler.handle_tool_call("validate_deployment_manifests", {})
+        assert "error" in result
+        assert "validate_deployment_manifests failed" in result["error"]
+
+
+class TestPruneStaleWorktreesTool:
+    """``prune_stale_worktrees`` — POST proxy; dry-run by default."""
+
+    def test_dry_run_defaults_to_true(self, handler):
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={"success": True, "data": {"removed_count": 0}},
+        ) as mock_req:
+            handler.handle_tool_call("prune_stale_worktrees", {})
+        kwargs = mock_req.call_args.kwargs
+        assert kwargs["data"] == {"dry_run": True}
+
+    def test_dry_run_false_forwarded(self, handler):
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={"success": True, "data": {}},
+        ) as mock_req:
+            handler.handle_tool_call("prune_stale_worktrees", {"dry_run": False})
+        kwargs = mock_req.call_args.kwargs
+        assert kwargs["data"]["dry_run"] is False
+
+    def test_repo_argument_is_silently_ignored(self, handler):
+        """``repo`` was dropped from the schema (see docstring); if callers
+        pass it anyway, the handler must NOT forward it upstream — otherwise
+        the gateway would 400 and the operator would see an opaque error.
+
+        This is the MEDIUM-2 NACK fix: dropping ``repo`` from the public
+        schema rather than silently filtering at the route boundary.
+        """
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={"success": True, "data": {}},
+        ) as mock_req:
+            handler.handle_tool_call(
+                "prune_stale_worktrees", {"dry_run": True, "repo": "jwbron/egg"}
+            )
+        kwargs = mock_req.call_args.kwargs
+        assert "repo" not in kwargs["data"], (
+            "repo was dropped from the schema and must not reach the gateway"
+        )
+        assert kwargs["data"] == {"dry_run": True}
+
+    def test_upstream_failure_wraps_into_error(self, handler):
+        with patch.object(handler, "_make_request", side_effect=RuntimeError("gateway down")):
+            result = handler.handle_tool_call("prune_stale_worktrees", {})
+        assert "error" in result
+        assert "prune_stale_worktrees failed" in result["error"]
+
+
+class TestValidateNetworkIsolationTool:
+    """``validate_network_isolation`` — requires ``pipeline_id``."""
+
+    def test_missing_pipeline_id_returns_error(self, handler):
+        result = handler.handle_tool_call("validate_network_isolation", {})
+        assert result == {"error": "pipeline_id is required"}
+
+    def test_defaults_role_to_coder(self, handler):
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={"success": True, "data": {"probe_id": "abc"}},
+        ) as mock_req:
+            handler.handle_tool_call("validate_network_isolation", {"pipeline_id": "p1"})
+        kwargs = mock_req.call_args.kwargs
+        assert kwargs["data"] == {"pipeline_id": "p1", "role": "coder"}
+
+    def test_role_is_forwarded(self, handler):
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={"success": True, "data": {}},
+        ) as mock_req:
+            handler.handle_tool_call(
+                "validate_network_isolation",
+                {"pipeline_id": "p2", "role": "reviewer_code"},
+            )
+        kwargs = mock_req.call_args.kwargs
+        assert kwargs["data"]["role"] == "reviewer_code"
+
+    def test_returns_probe_result(self, handler):
+        data = {
+            "probe_id": "hex",
+            "result": {
+                "gateway_reachable": True,
+                "internet_blocked": True,
+                "agent_pods_unreachable": True,
+                "orchestrator_direct_blocked": True,
+            },
+        }
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={"success": True, "data": data},
+        ):
+            result = handler.handle_tool_call("validate_network_isolation", {"pipeline_id": "p1"})
+        assert result["probe_id"] == "hex"
+        assert result["result"]["internet_blocked"] is True
+
+    def test_upstream_failure_wraps_into_error(self, handler):
+        with patch.object(handler, "_make_request", side_effect=RuntimeError("boom")):
+            result = handler.handle_tool_call("validate_network_isolation", {"pipeline_id": "p1"})
+        assert "error" in result
+        assert "validate_network_isolation failed" in result["error"]
+
+
+class TestRebuildAndRolloutTool:
+    """``rebuild_and_rollout`` — fire-and-forget by default; long-poll when ``wait=True``."""
+
+    def test_no_wait_returns_stream_id(self, handler):
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={
+                "success": True,
+                "data": {"progress_stream_id": "abc123", "started_at": 1},
+            },
+        ) as mock_req:
+            result = handler.handle_tool_call("rebuild_and_rollout", {})
+        # Initial POST kicks off the rollout.
+        first_call = mock_req.call_args_list[0]
+        assert first_call.args[0] == "/api/v1/deployment/rebuild-and-rollout"
+        assert first_call.kwargs["method"] == "POST"
+        assert result["progress_stream_id"] == "abc123"
+
+    def test_not_available_on_runtime_short_circuits(self, handler):
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={
+                "success": True,
+                "data": {"error": "not_available_on_runtime", "runtime": "docker"},
+            },
+        ):
+            result = handler.handle_tool_call("rebuild_and_rollout", {})
+        assert result["error"] == "not_available_on_runtime"
+
+    def test_409_surfaces_rollout_already_in_progress(self, handler):
+        """A 409 from the orchestrator becomes a structured error payload."""
+
+        class _FakeErr(HTTPError):
+            def __init__(self):
+                super().__init__(url="http://x", code=409, msg="conflict", hdrs={}, fp=None)
+
+            def read(self):
+                import json as _json
+
+                return _json.dumps(
+                    {
+                        "success": False,
+                        "message": "rollout_already_in_progress",
+                        "data": {
+                            "error": "rollout_already_in_progress",
+                            "progress_stream_id": "existing",
+                        },
+                    }
+                ).encode()
+
+        with patch.object(handler, "_make_request", side_effect=_FakeErr()):
+            result = handler.handle_tool_call("rebuild_and_rollout", {})
+        assert result["error"] == "rollout_already_in_progress"
+        assert result["progress_stream_id"] == "existing"
+
+    def test_other_http_error_returns_generic_error(self, handler):
+        class _FakeErr(HTTPError):
+            def __init__(self):
+                super().__init__(url="http://x", code=500, msg="boom", hdrs={}, fp=None)
+
+            def read(self):
+                return b""
+
+        with patch.object(handler, "_make_request", side_effect=_FakeErr()):
+            result = handler.handle_tool_call("rebuild_and_rollout", {})
+        assert "error" in result
+        assert "HTTP 500" in result["error"]
+
+    def test_wait_polls_until_terminal_record(self, handler):
+        """``wait=True`` polls the stream endpoint and returns the terminal event."""
+        started = {
+            "success": True,
+            "data": {"progress_stream_id": "stream-1", "started_at": 1},
+        }
+        poll1 = {
+            "success": True,
+            "data": {
+                "stream_id": "stream-1",
+                "events": [{"phase": "line", "line": "building"}],
+                "next_since": 1,
+                "done": False,
+            },
+        }
+        poll2 = {
+            "success": True,
+            "data": {
+                "stream_id": "stream-1",
+                "events": [
+                    {
+                        "phase": "done",
+                        "exit_code": 0,
+                        "rolled_out_images": {"egg-orchestrator:dev": "imported"},
+                    }
+                ],
+                "next_since": 2,
+                "done": True,
+            },
+        }
+
+        call_count = {"n": 0}
+
+        def _fake_request(endpoint, method="GET", data=None, timeout=30):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return started
+            if call_count["n"] == 2:
+                return poll1
+            return poll2
+
+        with (
+            patch.object(handler, "_make_request", side_effect=_fake_request),
+            patch("time.sleep"),
+        ):
+            result = handler.handle_tool_call("rebuild_and_rollout", {"wait": True})
+
+        assert result["progress_stream_id"] == "stream-1"
+        assert result["exit_code"] == 0
+        assert result["rolled_out_images"] == {"egg-orchestrator:dev": "imported"}
+        assert result["terminal"]["phase"] == "done"
+
+    def test_wait_poll_failure_returns_stream_id_and_error(self, handler):
+        """If polling fails mid-rollout, we still return the stream id for resume."""
+        started = {
+            "success": True,
+            "data": {"progress_stream_id": "s-x", "started_at": 1},
+        }
+        call_count = {"n": 0}
+
+        def _fake_request(endpoint, method="GET", data=None, timeout=30):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return started
+            raise RuntimeError("poll dropped")
+
+        with (
+            patch.object(handler, "_make_request", side_effect=_fake_request),
+            patch("time.sleep"),
+        ):
+            result = handler.handle_tool_call("rebuild_and_rollout", {"wait": True})
+
+        assert result["progress_stream_id"] == "s-x"
+        assert "error" in result
+        assert "poll" in result["error"].lower()
+
+
+class TestPipelineToolsSchemasForDeployment:
+    """Guard the input-schema shape of the five new tools."""
+
+    def test_validate_network_isolation_requires_pipeline_id(self):
+        from mcp_tools import PIPELINE_TOOLS
+
+        tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
+        schema = tools_by_name["validate_network_isolation"]["inputSchema"]
+        assert schema.get("required") == ["pipeline_id"]
+
+    def test_prune_stale_worktrees_dry_run_default_true(self):
+        from mcp_tools import PIPELINE_TOOLS
+
+        tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
+        props = tools_by_name["prune_stale_worktrees"]["inputSchema"]["properties"]
+        assert props["dry_run"]["default"] is True
+
+    def test_prune_stale_worktrees_has_no_repo_argument(self):
+        """Per the MEDIUM-2 NACK fix: ``repo`` was dropped because the
+        gateway helper always sweeps every repo; advertising a scope
+        argument that silently no-ops would mislead operators.
+        """
+        from mcp_tools import PIPELINE_TOOLS
+
+        tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
+        schema = tools_by_name["prune_stale_worktrees"]["inputSchema"]
+        props = schema["properties"]
+        assert "repo" not in props, (
+            "repo must stay out of the schema — see NACK response on 8434d4dcf"
+        )
+        # Ensure ``additionalProperties`` (or no 'required' list) doesn't
+        # accidentally invite callers to pass arbitrary scope args.
+        required = schema.get("required", [])
+        assert "repo" not in required
+
+    def test_rebuild_and_rollout_wait_default_false(self):
+        from mcp_tools import PIPELINE_TOOLS
+
+        tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
+        props = tools_by_name["rebuild_and_rollout"]["inputSchema"]["properties"]
+        assert props["wait"]["default"] is False
