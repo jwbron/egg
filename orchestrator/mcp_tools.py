@@ -2183,9 +2183,11 @@ class PipelineToolHandler:
     def _handle_get_deployment_context(self, args: dict[str, Any]) -> dict[str, Any]:
         """Return runtime/cluster introspection.
 
-        Always returns a data dict.  On Docker, the response carries an
-        ``error: not_available_on_runtime`` field that callers can check
-        without branching on HTTP status.
+        Always returns a data dict.  On Docker, the response carries a
+        degraded placeholder payload with ``runtime: "docker"`` and
+        ``detection_source`` indicating provenance.  The k8s-gated routes
+        (not this one) use the ``not_available_on_runtime`` / ``runtime_detection_failed``
+        error pattern.
         """
         try:
             result = self._make_request("/api/v1/deployment/context", method="GET")
@@ -2283,8 +2285,8 @@ class PipelineToolHandler:
             return {"error": f"rebuild_and_rollout failed: {exc}"}
 
         data = result.get("data") or {}
-        # not_available_on_runtime short-circuit
-        if data.get("error") == "not_available_on_runtime":
+        # not_available_on_runtime / runtime_detection_failed short-circuit
+        if data.get("error") in ("not_available_on_runtime", "runtime_detection_failed"):
             return data
         stream_id = data.get("progress_stream_id")
         if not stream_id:
