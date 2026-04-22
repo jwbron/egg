@@ -672,6 +672,8 @@ Pipeline decisions made during refine and plan phases are automatically synced t
 5. Synced decisions appear in `.egg-state/contracts/{identifier}.json` under the `decisions` array
 6. Implement-phase agents can read these decisions from the contract to understand context
 
+Agents can also register questions directly in the contract via `egg-contract add-decision` / `egg-contract add-feedback`. These writes bypass the orchestrator's decision queue. After phase gate approval, `_queue_and_await_contract_decisions()` promotes any unresolved contract HITL decisions and feedback into the orchestrator queue so they are surfaced to the human. Resolutions are written back to the contract before the next phase starts.
+
 **What gets synced:**
 
 - Resolved decisions with `decision_type != "phase_gate"` (substantive choices, not process gates) — via `_sync_pipeline_decisions_to_contract()`
@@ -681,7 +683,7 @@ Pipeline decisions made during refine and plan phases are automatically synced t
 
 **Key files:**
 
-- `orchestrator/routes/pipelines.py` — `_sync_pipeline_decisions_to_contract()` and `_persist_phase_gate_resolution()` implementations
+- `orchestrator/routes/pipelines.py` — `_sync_pipeline_decisions_to_contract()`, `_persist_phase_gate_resolution()`, and `_queue_and_await_contract_decisions()` implementations
 - `orchestrator/models.py` — `HITLDecision` model (pipeline state)
 - `shared/egg_contracts/models.py` — `Decision` model (contract state)
 
