@@ -5,7 +5,7 @@
   "branch": "egg/issue-1765",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -45,10 +45,10 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-04-22T01:29:24.046736Z",
       "work_started_at": "2026-04-22T01:29:26.158256Z",
-      "completed_at": null,
+      "completed_at": "2026-04-22T01:29:33.340634Z",
       "containers": [
         {
           "container_id": "5e566946-5086-476d-a461-e49525e95914",
@@ -121,30 +121,30 @@
         {
           "cycle": 0,
           "started_at": "2026-04-22T01:29:26.158256Z",
-          "completed_at": null,
+          "completed_at": "2026-04-22T01:29:33.340626Z",
           "commit_sha": "66087d7d34824e4d369f1bca5a6dd038036db924"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- reviewer_agent_design (status=failed, error=Per-agent worktree creation failed for issue-1765-reviewer_agent_design: Failed to create any worktrees) ---\n--- refiner (status=running, error=None) ---\n--- reviewer_refine (status=running, error=None) ---",
       "hitl_feedback": null,
       "phase_start_sha": "66087d7d34824e4d369f1bca5a6dd038036db924"
     }
   },
   "decisions": [],
   "created_at": "2026-04-22T01:28:49.360036Z",
-  "updated_at": "2026-04-22T01:29:33.205634Z",
+  "updated_at": "2026-04-22T01:29:33.340699Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "pr_head_sha": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- reviewer_agent_design (status=failed, error=Per-agent worktree creation failed for issue-1765-reviewer_agent_design: Failed to create any worktrees) ---\n--- refiner (status=running, error=None) ---\n--- reviewer_refine (status=running, error=None) ---",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 7
+  "version": 8
 }
