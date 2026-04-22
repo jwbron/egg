@@ -563,7 +563,20 @@ class GatewayClient:
                 worktrees=data.get("worktrees") or {},
                 errors=data.get("errors") or [],
             )
-        except GatewayError:
+        except GatewayError as e:
+            # The gateway returns per-repo failure reasons in details["errors"]
+            # when every worktree fails. Inline them into the message so
+            # downstream callers that only see str(e) (e.g. kubernetes_spawner
+            # wrapping in KubernetesSpawnError) still surface the specific
+            # cause instead of the generic "Failed to create any worktrees".
+            # See #1838.
+            specific = e.details.get("errors") if e.details else None
+            if specific:
+                raise GatewayError(
+                    f"{e.message}: {'; '.join(str(x) for x in specific)}",
+                    status_code=e.status_code,
+                    details=e.details,
+                ) from e
             raise
         except Exception as e:
             raise GatewayError(f"Failed to create worktrees: {e}") from e
