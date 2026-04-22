@@ -1238,12 +1238,74 @@ def _write_consensus_confirmed_marker(pipeline_id: str, agent_role: str, repo_pa
         )
 
 
+def _existing_confirmed_for_role(
+    pipeline_id: str,
+    agent_role: str,
+    phase: str | None,
+) -> tuple[bool, bool]:
+    """Return (has_final, has_pending_acks) for prior CONFIRMED messages.
+
+    Scans the message store for prior ``CONSENSUS_CONFIRMED`` messages
+    from ``agent_role`` in ``phase``.  Used for idempotency so that
+    repeated ``egg-orch consensus confirmed`` invocations don't pollute
+    the bus with duplicate messages (see #1890).
+
+    - ``has_final``: a non-pending_acks CONFIRMED message already exists.
+    - ``has_pending_acks``: a pending_acks CONFIRMED message exists.
+    """
+    try:
+        from message_store import get_message_store
+    except ImportError:
+        try:
+            from ..message_store import get_message_store  # type: ignore[no-redef]
+        except ImportError:
+            return (False, False)
+
+    try:
+        store = get_message_store()
+        # Fetch a generous window of recent messages.  get_messages returns
+        # the *newest* N, so an extremely old CONFIRMED in a >10k-message
+        # pipeline could be missed — but that's the safe failure direction
+        # (a duplicate write, not a lost write).  Don't lower this limit
+        # without understanding that tradeoff.
+        messages = store.get_messages(pipeline_id, limit=10000)
+    except Exception:
+        return (False, False)
+
+    has_final = False
+    has_pending = False
+    for m in messages:
+        if getattr(m, "from_role", None) != agent_role:
+            continue
+        if str(getattr(m, "message_type", "")) != "CONSENSUS_CONFIRMED":
+            continue
+        msg_phase = getattr(m, "phase", None)
+        # A null msg_phase is treated as matching any phase.  In practice
+        # all CONSENSUS_CONFIRMED writes set a phase, but if one somehow
+        # doesn't, counting it as a match is the conservative choice
+        # (prevents a duplicate rather than allowing one).
+        if phase is not None and msg_phase is not None and msg_phase != phase:
+            continue
+        metadata = getattr(m, "metadata", None) or {}
+        if metadata.get("pending_acks"):
+            has_pending = True
+        else:
+            has_final = True
+    return (has_final, has_pending)
+
+
 def handle_consensus_confirmed_signal(
     pipeline_id: str,
     data: dict[str, Any],
     repo_path: Path,
 ) -> tuple[Response, int]:
-    """Handle CONSENSUS_CONFIRMED signal from an agent."""
+    """Handle CONSENSUS_CONFIRMED signal from an agent.
+
+    Idempotent with respect to the message store: repeated invocations
+    from the same agent in the same phase do not pollute the bus with
+    duplicate CONFIRMED messages (see #1890).  The underlying consensus
+    tracker still observes each call so its own state stays in sync.
+    """
     agent_role = data.get("agent_role")
     if not agent_role:
         return make_error_response("Missing agent_role")
@@ -1313,26 +1375,33 @@ def handle_consensus_confirmed_signal(
                         pipeline_id=pipeline_id,
                         confirmed_roles=sorted(confirmed_roles),
                     )
-                    # Write the CONSENSUS_CONFIRMED message
-                    store.add_message(
-                        Message(
-                            pipeline_id=pipeline_id,
-                            from_role=agent_role,
-                            to_role="all",
-                            message_type=MessageType.CONSENSUS_CONFIRMED,
-                            subject=f"Confirmed by {agent_role}",
-                            body="",
-                            phase=_phase,
-                            metadata={"consensus_reached": True, "fallback": "message_bus"},
+                    # Idempotency: only write the CONFIRMED message if this
+                    # role hasn't already emitted a final one in this phase.
+                    has_final, _ = _existing_confirmed_for_role(pipeline_id, agent_role, _phase)
+                    if not has_final:
+                        store.add_message(
+                            Message(
+                                pipeline_id=pipeline_id,
+                                from_role=agent_role,
+                                to_role="all",
+                                message_type=MessageType.CONSENSUS_CONFIRMED,
+                                subject=f"Confirmed by {agent_role}",
+                                body="",
+                                phase=_phase,
+                                metadata={
+                                    "consensus_reached": True,
+                                    "fallback": "message_bus",
+                                },
+                            )
                         )
-                    )
-                    _write_consensus_confirmed_marker(pipeline_id, agent_role, repo_path)
+                        _write_consensus_confirmed_marker(pipeline_id, agent_role, repo_path)
                     return make_success_response(
                         f"Confirmation recorded for {agent_role} (message-bus fallback)",
                         data={
                             "status": "confirmed",
                             "consensus_reached": True,
                             "fallback": "message_bus",
+                            "idempotent": has_final,
                         },
                     )
             except Exception as fallback_err:
@@ -1354,7 +1423,37 @@ def handle_consensus_confirmed_signal(
         # pending_acks=True metadata) so the message-bus fallback in
         # check_consensus() can detect when all agents have *attempted*
         # confirmation even if the tracker rejected some (#1615).
+        current_phase = _resolve_pipeline_phase(pipeline_id, repo_path)
+        has_final, has_pending = _existing_confirmed_for_role(
+            pipeline_id, agent_role, current_phase
+        )
+
         if result.get("status") == "pending_acks":
+            # Dedupe pending_acks writes once an agent has already emitted one
+            # (or a final) in this phase — the fallback check only needs one
+            # to detect "attempted confirmation" (#1615).
+            if not has_pending and not has_final:
+                from message_store import Message, MessageType, get_message_store
+
+                store = get_message_store()
+                store.add_message(
+                    Message(
+                        pipeline_id=pipeline_id,
+                        from_role=agent_role,
+                        to_role="all",
+                        message_type=MessageType.CONSENSUS_CONFIRMED,
+                        subject=f"Confirmed by {agent_role} (pending_acks)",
+                        body=result.get("message", ""),
+                        phase=current_phase,
+                        metadata={"pending_acks": True},
+                    )
+                )
+            return make_success_response(result["message"], data=result, status_code=202)
+
+        # Final CONFIRMED: skip if this role has already emitted one in this
+        # phase.  Prevents the ``egg-orch consensus confirmed`` retry-loop
+        # from spraying the bus with duplicates (#1890).
+        if not has_final:
             from message_store import Message, MessageType, get_message_store
 
             store = get_message_store()
@@ -1364,37 +1463,23 @@ def handle_consensus_confirmed_signal(
                     from_role=agent_role,
                     to_role="all",
                     message_type=MessageType.CONSENSUS_CONFIRMED,
-                    subject=f"Confirmed by {agent_role} (pending_acks)",
-                    body=result.get("message", ""),
-                    phase=_resolve_pipeline_phase(pipeline_id, repo_path),
-                    metadata={"pending_acks": True},
+                    subject=f"Confirmed by {agent_role}",
+                    body="",
+                    phase=current_phase,
+                    metadata={"consensus_reached": result.get("consensus_reached", False)},
                 )
             )
-            return make_success_response(result["message"], data=result, status_code=202)
 
-        from message_store import Message, MessageType, get_message_store
+            # Write consensus-confirmed marker so auto-commit can detect that
+            # BRC review is complete and skip pushing unreviewed WIP (#1473).
+            _write_consensus_confirmed_marker(pipeline_id, agent_role, repo_path)
 
-        store = get_message_store()
-        store.add_message(
-            Message(
-                pipeline_id=pipeline_id,
-                from_role=agent_role,
-                to_role="all",
-                message_type=MessageType.CONSENSUS_CONFIRMED,
-                subject=f"Confirmed by {agent_role}",
-                body="",
-                phase=_resolve_pipeline_phase(pipeline_id, repo_path),
-                metadata={"consensus_reached": result.get("consensus_reached", False)},
-            )
-        )
-
-        # Write consensus-confirmed marker so auto-commit can detect that
-        # BRC review is complete and skip pushing unreviewed WIP (#1473).
-        _write_consensus_confirmed_marker(pipeline_id, agent_role, repo_path)
-
+        payload = dict(result)
+        if has_final:
+            payload["idempotent"] = True
         return make_success_response(
             f"Confirmation recorded for {agent_role}",
-            data=result,
+            data=payload,
         )
     except ValueError as e:
         logger.error("Failed to process consensus confirmed", pipeline_id=pipeline_id, error=str(e))
