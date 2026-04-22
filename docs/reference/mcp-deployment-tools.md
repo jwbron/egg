@@ -42,7 +42,7 @@ and its provenance are returned on `get_deployment_context` as
 [#1850](https://github.com/jwbron/egg/issues/1850) tracked the earlier
 silent-docker-default that hid in-cluster misconfigs.
 
-When `EGG_RUNTIME != "kubernetes"`, the six k8s-specific tools return:
+When `EGG_RUNTIME != "kubernetes"`, the five k8s-only tools return:
 
 ```json
 {"error": "not_available_on_runtime", "runtime": "docker"}
