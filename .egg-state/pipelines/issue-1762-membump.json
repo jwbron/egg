@@ -173,10 +173,10 @@
         {
           "container_id": "5edc2c1b-c858-4b26-8dc6-06bdfbf96780",
           "container_name": "egg-sandbox-egg-agent-issue-1762-membump-reviewer-plan",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-22T20:58:39.120594Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-22T21:54:51Z",
+          "exit_code": 0,
           "agent_role": "reviewer_plan",
           "session_token": null,
           "pod_name": null,
@@ -230,7 +230,7 @@
           "container_id": "5edc2c1b-c858-4b26-8dc6-06bdfbf96780",
           "container_info": null,
           "started_at": "2026-04-22T20:58:39.120601Z",
-          "completed_at": "2026-04-22T21:29:21.747566Z",
+          "completed_at": "2026-04-22T21:54:56.962038Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -317,7 +317,7 @@
     }
   ],
   "created_at": "2026-04-22T20:29:39.197819Z",
-  "updated_at": "2026-04-22T21:53:43.508971Z",
+  "updated_at": "2026-04-22T21:54:56.962213Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -330,5 +330,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22
+  "version": 23
 }
