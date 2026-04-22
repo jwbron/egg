@@ -105,7 +105,8 @@ orchestrator/
 ├── progress_store.py       # In-memory structured progress event store with configurable retention
 ├── peer_consensus.py       # BRC (Broadcast-Review-Converge) peer consensus tracker
 ├── mcp_server.py           # MCP server providing comprehensive egg platform interface to Claude Code (port 9850)
-├── mcp_tools.py            # MCP tool definitions and handlers: pipeline state, containers, messages, checkpoints, contracts, health
+├── mcp_tools.py            # MCP tool definitions and handlers: pipeline state, containers, messages, checkpoints, contracts, health, deployment
+├── redaction.py            # Secret redaction helpers for operator-facing diagnostic output (env vars, Bearer JWTs, API key shapes)
 ├── metrics.py              # Pipeline metrics and telemetry
 ├── models.py               # Pydantic models for pipelines
 ├── redis_message_store.py  # Redis Streams-backed message store implementation
@@ -141,6 +142,7 @@ orchestrator/
 │   ├── anchors.py          # Agent anchor CRUD and team anchor generation endpoints
 │   ├── containers.py       # Container management endpoints
 │   ├── decisions.py        # HITL decision endpoints
+│   ├── deployment.py       # Deployment introspection and action endpoints (k8s diagnostics, prune, rebuild)
 │   ├── health.py           # Health check endpoints
 │   ├── messages.py         # Inter-agent message bus endpoints (concurrent mode)
 │   ├── metrics.py          # Metrics endpoints
@@ -376,7 +378,8 @@ integration_tests/
 │   ├── test_local_pipeline.py     # Orchestrator pipeline tests
 │   ├── test_signals.py            # Signal handling tests
 │   ├── test_unified_pipeline_behavior.py  # Unified pipeline behavior tests
-│   └── test_worktree_integration.py  # Worktree lifecycle and pipeline isolation tests
+│   ├── test_worktree_integration.py  # Worktree lifecycle and pipeline isolation tests
+│   └── test_k8s_deployment_tools.py  # End-to-end tests for MCP deployment diagnostic tools (k8s runtime)
 └── sdlc/                          # SDLC pipeline integration tests
     ├── conftest.py                # SDLC test fixtures
     ├── test_happy_path.py         # Full pipeline success flow
