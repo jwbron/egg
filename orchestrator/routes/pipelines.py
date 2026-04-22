@@ -7226,9 +7226,15 @@ def _run_concurrent_phase(
     )
 
     try:
-        from concurrent_executor import ConcurrentPhaseExecutor
+        from concurrent_executor import (
+            ConcurrentPhaseExecutor,
+            _is_transient_agent_error,
+        )
     except ImportError:
-        from ..concurrent_executor import ConcurrentPhaseExecutor  # type: ignore
+        from ..concurrent_executor import (  # type: ignore
+            ConcurrentPhaseExecutor,
+            _is_transient_agent_error,
+        )
 
     phase_str = phase if isinstance(phase, str) else phase.value
     pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
@@ -7318,6 +7324,77 @@ def _run_concurrent_phase(
 
     # Spawn all agents with their prompts.
     executions = executor.spawn_all(agent_prompts=agent_prompts)
+
+    # Phase-level retry for transient spawn failures (#1879).  Per-role
+    # retries in kubernetes_spawner handle short blips (~7s budget); this
+    # outer budget bridges longer outages like a gateway cold start by
+    # respawning only the failed roles while survivors wait idle.  BRC can
+    # not start without the full cohort anyway, so leaving survivors alone
+    # during the retry window does not risk correctness.
+    phase_max_retries = getattr(pipeline.config, "phase_spawn_max_retries", 2)
+    phase_initial_backoff = getattr(
+        pipeline.config, "phase_spawn_retry_initial_backoff_seconds", 30.0
+    )
+    _PHASE_RETRY_BACKOFF_MULTIPLIER = 3.0
+    for attempt in range(phase_max_retries):
+        failed = [e for e in executions if e.status.value == "failed"]
+        if not failed:
+            break
+        transient_failed = [e for e in failed if _is_transient_agent_error(e.error)]
+        if not transient_failed:
+            # All remaining failures are permanent — retrying would just
+            # burn the budget for no benefit.
+            break
+
+        delay = phase_initial_backoff * (_PHASE_RETRY_BACKOFF_MULTIPLIER**attempt)
+        failed_roles = [e.role for e in failed]
+        logger.warning(
+            "Phase-level spawn retry scheduled",
+            pipeline_id=pipeline_id,
+            phase=phase_str,
+            attempt=attempt + 1,
+            max_attempts=phase_max_retries,
+            delay_seconds=delay,
+            failed_roles=[r.value for r in failed_roles],
+            transient_roles=[e.role.value for e in transient_failed],
+        )
+        time.sleep(delay)
+
+        # Clear any half-created gateway worktree state for failed roles
+        # so the retry sees a clean slate.  Survivors' worktrees use
+        # different container_ids and are untouched.
+        for role in failed_roles:
+            agent_worktree_id = f"{pipeline_id}-{role.value}"
+            try:
+                spawner.gateway.delete_worktrees(
+                    container_id=agent_worktree_id,
+                    force=True,
+                )
+            except Exception as clear_err:
+                logger.warning(
+                    "Failed to clear partial worktree before retry",
+                    pipeline_id=pipeline_id,
+                    agent_worktree_id=agent_worktree_id,
+                    error=str(clear_err),
+                )
+
+        retry_executions = executor.spawn_specific_roles(failed_roles, agent_prompts=agent_prompts)
+        by_role = {e.role: e for e in retry_executions}
+        executions = [
+            by_role.get(e.role, e) if e.status.value == "failed" else e for e in executions
+        ]
+
+        still_failed = [e for e in executions if e.status.value == "failed"]
+        logger.info(
+            "Phase-level spawn retry outcome",
+            pipeline_id=pipeline_id,
+            phase=phase_str,
+            attempt=attempt + 1,
+            recovered_roles=[
+                r.value for r in failed_roles if r not in {e.role for e in still_failed}
+            ],
+            still_failed_roles=[e.role.value for e in still_failed],
+        )
 
     # Record spawned containers/agents in pipeline state.
     if store is not None:

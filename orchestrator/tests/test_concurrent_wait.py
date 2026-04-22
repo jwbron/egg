@@ -711,3 +711,225 @@ class TestPartialSpawnFailureCleanup:
             (AgentRole.TESTER.value, "Spawn failed"),
             (AgentRole.DOCUMENTER.value, "Spawn failed"),
         ]
+
+
+class TestPhaseLevelTransientRetry:
+    """Phase coordinator retries transient spawn failures before aborting (#1879)."""
+
+    def _make_transient_failed_execution(
+        self, role: AgentRole, error: str = "GatewayError: Connection refused"
+    ):
+        return AgentExecution(role=role, status=AgentExecutionStatus.FAILED, error=error)
+
+    def _make_permanent_failed_execution(
+        self, role: AgentRole, error: str = "Repository not found"
+    ):
+        return AgentExecution(role=role, status=AgentExecutionStatus.FAILED, error=error)
+
+    def _harness(
+        self,
+        spawn_all_result,
+        spawn_specific_side_effect=None,
+        expect_raise=True,
+    ):
+        """Run _run_concurrent_phase with a configurable retry scenario.
+
+        Args:
+            spawn_all_result: List of AgentExecution returned by the initial
+                spawn_all call.
+            spawn_specific_side_effect: A list of return values or side_effect
+                callable for spawn_specific_roles. When None, the method is
+                not expected to be called.
+            expect_raise: If True, expect SpawnFailureError; if False, expect
+                the phase to run the wait loop and return (exit_code, logs).
+                When False, all container_ids in the final executions are
+                given exit_code=0 wait results.
+
+        Returns a dict with harness references for assertions.
+        """
+        pipeline = _make_concurrent_pipeline()
+        phase_exec = _make_phase_execution()
+        mock_store = MagicMock()
+        mock_pipeline_state = MagicMock()
+        mock_pipeline_state.get_phase_execution.return_value = phase_exec
+        mock_store.load_pipeline.return_value = mock_pipeline_state
+
+        mock_docker = MagicMock()
+        mock_gateway = MagicMock()
+        mock_spawner = MagicMock()
+        mock_spawner.backend = mock_docker
+        mock_spawner.docker = mock_docker
+        mock_spawner.gateway = mock_gateway
+        mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
+
+        # If the phase should reach the wait loop, wire up wait_for_container /
+        # get_container_info to return exit_code=0 for every final container.
+        final_executions_holder = {"value": list(spawn_all_result)}
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = spawn_all_result
+        if spawn_specific_side_effect is not None:
+            if callable(spawn_specific_side_effect):
+                mock_executor_instance.spawn_specific_roles.side_effect = spawn_specific_side_effect
+            else:
+                mock_executor_instance.spawn_specific_roles.side_effect = list(
+                    spawn_specific_side_effect
+                )
+        # When consensus is checked during the wait loop, return "not complete"
+        # so the loop falls through to container-exit detection.
+        mock_executor_instance.check_consensus.return_value = _NO_CONSENSUS
+        MockExecutor = MagicMock(return_value=mock_executor_instance)
+
+        # Wait loop stubs — used only on the recovery path.
+        def _wait_side_effect(container_id, timeout=3600):
+            return ContainerInfo(
+                container_id=container_id,
+                container_name=f"issue-999-{container_id}",
+                status=ContainerStatus.EXITED,
+                exit_code=0,
+                exited_at=datetime.now(UTC),
+            )
+
+        mock_docker.wait_for_container.side_effect = _wait_side_effect
+        mock_docker.get_container_info.side_effect = _wait_side_effect
+
+        mock_state_lock_cm = MagicMock()
+        mock_state_lock_cm.return_value.__enter__ = MagicMock(return_value=None)
+        mock_state_lock_cm.return_value.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("concurrent_executor.ConcurrentPhaseExecutor", MockExecutor),
+            patch("routes.pipelines._build_agent_prompt", return_value="test prompt"),
+            patch("routes.pipelines.get_pipeline_state_lock", mock_state_lock_cm),
+            patch("routes.pipelines.time.sleep"),
+        ):
+            raised = None
+            result = None
+            try:
+                result = _run_concurrent_phase(
+                    pipeline_id="issue-999",
+                    pipeline=pipeline,
+                    phase="implement",
+                    spawner=mock_spawner,
+                    repo_volumes={},
+                    gateway_mode="public",
+                    repos=["owner/repo"],
+                    sandbox_env={},
+                    store=mock_store,
+                    certs_volume=None,
+                    worktree_repo_path=Path("/tmp/test-repo"),
+                )
+            except SpawnFailureError as e:
+                raised = e
+
+        if expect_raise:
+            assert raised is not None, "Expected SpawnFailureError but phase returned"
+        else:
+            assert raised is None, f"Did not expect SpawnFailureError: {raised}"
+
+        return {
+            "raised": raised,
+            "result": result,
+            "executor": mock_executor_instance,
+            "docker": mock_docker,
+            "gateway": mock_gateway,
+            "phase_exec": phase_exec,
+            "final_executions_holder": final_executions_holder,
+        }
+
+    def test_transient_failure_retries_and_recovers(self):
+        """One transient failure -> retry succeeds -> phase runs to completion."""
+        initial = [
+            _make_execution(AgentRole.CODER, "coder-abc"),
+            _make_execution(AgentRole.TESTER, "tester-abc"),
+            self._make_transient_failed_execution(AgentRole.DOCUMENTER),
+        ]
+        # Retry recovers documenter with a fresh container_id.
+        retry_result = [_make_execution(AgentRole.DOCUMENTER, "doc-xyz")]
+
+        h = self._harness(initial, spawn_specific_side_effect=[retry_result], expect_raise=False)
+
+        # Retry was attempted exactly once with the transient role.
+        assert h["executor"].spawn_specific_roles.call_count == 1
+        call = h["executor"].spawn_specific_roles.call_args
+        assert call.args[0] == [AgentRole.DOCUMENTER]
+
+        # Gateway cleared half-created worktree for failed role before retry.
+        assert h["gateway"].delete_worktrees.call_count == 1
+        assert h["gateway"].delete_worktrees.call_args.kwargs["container_id"] == (
+            "issue-999-documenter"
+        )
+
+        # Survivors were NOT stopped during the retry window — the existing
+        # abort block should not have run.
+        h["docker"].stop_container.assert_not_called()
+
+    def test_permanent_failure_skips_retry(self):
+        """Permanent failure goes straight to the existing abort path."""
+        initial = [
+            _make_execution(AgentRole.CODER, "coder-abc"),
+            self._make_permanent_failed_execution(AgentRole.TESTER),
+        ]
+
+        h = self._harness(initial, spawn_specific_side_effect=None, expect_raise=True)
+
+        # No retry attempted — classifier recognised a permanent failure.
+        h["executor"].spawn_specific_roles.assert_not_called()
+        h["gateway"].delete_worktrees.assert_not_called()
+
+        # Existing abort path ran: survivor stopped + failure surfaced.
+        assert h["docker"].stop_container.call_count == 1
+        assert h["raised"].failures == [(AgentRole.TESTER.value, "Repository not found")]
+
+    def test_retry_budget_exhausts_then_aborts(self):
+        """Persistent transient failures exhaust the budget and then abort."""
+        initial = [
+            _make_execution(AgentRole.CODER, "coder-abc"),
+            self._make_transient_failed_execution(AgentRole.TESTER),
+        ]
+        # Every retry returns the same transient failure.
+        retry_result = [self._make_transient_failed_execution(AgentRole.TESTER)]
+
+        h = self._harness(
+            initial,
+            spawn_specific_side_effect=[retry_result, retry_result, retry_result],
+            expect_raise=True,
+        )
+
+        # Default phase_spawn_max_retries=2 -> exactly 2 retry attempts.
+        assert h["executor"].spawn_specific_roles.call_count == 2
+
+        # Gateway was cleaned up before each retry.
+        assert h["gateway"].delete_worktrees.call_count == 2
+
+        # Abort path eventually ran once budget exhausted.
+        assert h["docker"].stop_container.call_count == 1
+        assert h["raised"].failures == [
+            (AgentRole.TESTER.value, "GatewayError: Connection refused"),
+        ]
+
+    def test_mixed_transient_and_permanent_retries_only_what_can_recover(self):
+        """Permanent + transient both fail first -> retry runs; transient recovers,
+        permanent stays failed -> abort with just the permanent error."""
+        initial = [
+            _make_execution(AgentRole.CODER, "coder-abc"),
+            self._make_transient_failed_execution(AgentRole.TESTER),
+            self._make_permanent_failed_execution(AgentRole.DOCUMENTER),
+        ]
+        # Retry is called with BOTH failed roles (tester + documenter).  Tester
+        # recovers, documenter fails permanently again.
+        retry_result = [
+            _make_execution(AgentRole.TESTER, "tester-xyz"),
+            self._make_permanent_failed_execution(AgentRole.DOCUMENTER),
+        ]
+
+        h = self._harness(initial, spawn_specific_side_effect=[retry_result], expect_raise=True)
+
+        # First retry attempt ran.
+        assert h["executor"].spawn_specific_roles.call_count == 1
+        retry_call_roles = set(h["executor"].spawn_specific_roles.call_args.args[0])
+        assert retry_call_roles == {AgentRole.TESTER, AgentRole.DOCUMENTER}
+
+        # Second retry was NOT attempted — only permanent remains after round 1.
+        # (The loop breaks because no remaining failure is transient.)
+        assert h["raised"].failures == [(AgentRole.DOCUMENTER.value, "Repository not found")]
