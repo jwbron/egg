@@ -8089,22 +8089,13 @@ def _spawn_and_wait(
 
                 # Track container — preserve backend-specific fields
                 # (pod_name, namespace, job_name on K8s) from the spawner.
-                if spawned.container_info is not None:
-                    container_info = spawned.container_info.model_copy(
-                        update={
-                            "status": ContainerStatus.RUNNING,
-                            "started_at": datetime.now(UTC),
-                            "agent_role": agent_role,
-                        }
-                    )
-                else:
-                    container_info = ContainerInfo(
-                        container_id=spawned.container_info.container_id,
-                        container_name=spawned.container_info.container_name,
-                        status=ContainerStatus.RUNNING,
-                        started_at=datetime.now(UTC),
-                        agent_role=agent_role,
-                    )
+                container_info = spawned.container_info.model_copy(
+                    update={
+                        "status": ContainerStatus.RUNNING,
+                        "started_at": datetime.now(UTC),
+                        "agent_role": agent_role,
+                    }
+                )
                 phase_execution.containers.append(container_info)
 
                 # Track agent execution
