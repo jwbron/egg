@@ -42,6 +42,17 @@ MAX_READY_POLL_CYCLES = 10
 # after each consecutive crash restart, capped at 30 seconds.
 TRANSIENT_RESTART_BACKOFF_INITIAL = 5
 
+# Window (in seconds) during which an exit code 1 is classified as a transient
+# startup failure rather than a permanent error. The Agent SDK surfaces
+# API-level errors (network blips, socket closes, 5xx responses during the
+# first few turns) as success=False + exit 1, which exit-code alone cannot
+# distinguish from a prompt-level failure. Agents that exit 1 within this
+# window have almost certainly not done meaningful work yet, so the retry
+# cost is negligible compared to stalling a BRC phase on a transient network
+# hiccup. Agents that exit 1 after doing real work (past the window) are
+# still treated as permanent failures.
+STARTUP_FAILURE_WINDOW_SECONDS = 30
+
 # System prompt injected on restart so the agent treats recovery instructions as
 # trusted operator context (not user input that might be flagged as injection).
 # Placeholders: {restart_number}, {max_restarts}, {brc_state}, {nack_feedback}
@@ -106,6 +117,7 @@ RESTART_COUNT=0
 CRASH_BACKOFF=0
 TRANSIENT_BACKOFF_INITIAL={transient_backoff_initial}
 TRANSIENT_BACKOFF_MAX=30
+STARTUP_FAILURE_WINDOW_SECONDS={startup_failure_window_seconds}
 
 # Log wrapper messages to stderr so they never leak into agent SDK context.
 cw_log() {{
@@ -220,9 +232,29 @@ is_transient_crash() {{
     esac
 }}
 
+# Detect transient startup failures: exit code 1 within the startup window.
+# The Agent SDK reports API-level errors (socket close, 5xx, network) as
+# success=False + exit 1, which looks identical to a permanent prompt error
+# by exit code alone. Gating on agent lifetime distinguishes "died before
+# doing any real work" (retry) from "completed work and failed at the end"
+# (permanent). Returns 0 (true) if retryable, 1 (false) otherwise.
+is_startup_failure() {{
+    local code="$1"
+    local duration="$2"
+    if [ "$code" -ne 1 ]; then
+        return 1
+    fi
+    if [ "$duration" -lt "$STARTUP_FAILURE_WINDOW_SECONDS" ]; then
+        return 0
+    fi
+    return 1
+}}
+
 # --- Initial run ---
+AGENT_START=$SECONDS
 run_agent {initial_prompt}
 AGENT_EXIT=$?
+AGENT_DURATION=$((SECONDS - AGENT_START))
 
 # If not in concurrent mode, exit normally
 if [ "${{EGG_CONCURRENT_MODE:-}}" != "true" ]; then
@@ -257,8 +289,11 @@ if [ "$AGENT_EXIT" -ne 0 ]; then
     if is_transient_crash "$AGENT_EXIT"; then
         cw_log "Transient crash (code $AGENT_EXIT). Will restart with backoff."
         CRASH_BACKOFF=$TRANSIENT_BACKOFF_INITIAL
+    elif is_startup_failure "$AGENT_EXIT" "$AGENT_DURATION"; then
+        cw_log "Startup failure (code $AGENT_EXIT after ${{AGENT_DURATION}}s, likely transient API/network error). Will restart with backoff."
+        CRASH_BACKOFF=$TRANSIENT_BACKOFF_INITIAL
     else
-        cw_log "Agent failed (code $AGENT_EXIT). NOT restarting."
+        cw_log "Agent failed (code $AGENT_EXIT after ${{AGENT_DURATION}}s). NOT restarting."
         exit $AGENT_EXIT
     fi
 fi
@@ -379,8 +414,10 @@ m = {{"restart_number": os.environ["_CW_RESTART"], "max_restarts": os.environ["_
      "anchor_state": os.environ.get("_CW_ANCHOR", "")}}
 sys.stdout.write(re.sub(r"\{{(\w+)\}}", lambda x: m.get(x.group(1), x.group(0)), t))' <<< "$RECOVERY_SYS")
 
+    AGENT_START=$SECONDS
     run_agent {recovery_user_prompt} "$RECOVERY_SYS"
     AGENT_EXIT=$?
+    AGENT_DURATION=$((SECONDS - AGENT_START))
 
     if [ "$AGENT_EXIT" -ne 0 ]; then
         # Same consensus/confirmed check as the initial exit handler (issue #1495).
@@ -406,7 +443,14 @@ sys.stdout.write(re.sub(r"\{{(\w+)\}}", lambda x: m.get(x.group(1), x.group(0)),
             fi
             continue
         fi
-        cw_log "Agent failed on restart $RESTART_COUNT (code $AGENT_EXIT). Stopping."
+        if is_startup_failure "$AGENT_EXIT" "$AGENT_DURATION"; then
+            cw_log "Startup failure on restart $RESTART_COUNT (code $AGENT_EXIT after ${{AGENT_DURATION}}s). Will retry."
+            if [ "$CRASH_BACKOFF" -eq 0 ]; then
+                CRASH_BACKOFF=$TRANSIENT_BACKOFF_INITIAL
+            fi
+            continue
+        fi
+        cw_log "Agent failed on restart $RESTART_COUNT (code $AGENT_EXIT after ${{AGENT_DURATION}}s). Stopping."
         exit $AGENT_EXIT
     fi
 
@@ -458,6 +502,7 @@ def build_consensus_wrapped_command(
     max_restarts: int = MAX_CONSENSUS_RESTARTS,
     max_ready_polls: int = MAX_READY_POLL_CYCLES,
     transient_backoff_initial: int = TRANSIENT_RESTART_BACKOFF_INITIAL,
+    startup_failure_window_seconds: int = STARTUP_FAILURE_WINDOW_SECONDS,
 ) -> list[str]:
     """Build a shell command that runs the agent with a BRC consensus restart wrapper.
 
@@ -475,6 +520,9 @@ def build_consensus_wrapped_command(
             signaled READY (avoids unnecessary restarts).
         transient_backoff_initial: Initial backoff in seconds for transient
             crash restarts. Doubles after each crash, capped at 30s.
+        startup_failure_window_seconds: Agents that exit with code 1 within
+            this many seconds are treated as transient API/network failures
+            and restarted. Set to 0 to disable the heuristic.
 
     Returns:
         Command list suitable for container spawning (bash -c "...").
@@ -503,6 +551,7 @@ def build_consensus_wrapped_command(
         recovery_system_prompt_template=_RECOVERY_SYSTEM_PROMPT,
         recovery_user_prompt=recovery_user_prompt,
         transient_backoff_initial=transient_backoff_initial,
+        startup_failure_window_seconds=startup_failure_window_seconds,
     )
 
     return ["bash", "-c", script]
