@@ -5,7 +5,7 @@
   "branch": "egg/issue-1758-retry",
   "base_branch": null,
   "prompt": null,
-  "status": "awaiting_human",
+  "status": "running",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -49,94 +49,14 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "awaiting_human",
+      "status": "running",
       "started_at": "2026-04-22T20:39:13.446833Z",
       "work_started_at": "2026-04-22T20:39:14.361013Z",
-      "completed_at": "2026-04-22T20:49:30.849877Z",
-      "containers": [
-        {
-          "container_id": "1f3582c0-cf1b-4c33-99c9-347dc15b9105",
-          "container_name": "egg-sandbox-egg-agent-issue-1758-retry-refiner",
-          "status": "exited",
-          "started_at": "2026-04-22T20:39:19.563135Z",
-          "exited_at": "2026-04-22T20:49:30.682485Z",
-          "exit_code": 0,
-          "agent_role": "refiner",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1758-retry-refiner"
-        },
-        {
-          "container_id": "af65d3fe-178f-42a7-8f67-e37b7ccb7e18",
-          "container_name": "egg-sandbox-egg-agent-issue-1758-retry-reviewer-agent-design",
-          "status": "exited",
-          "started_at": "2026-04-22T20:39:19.563159Z",
-          "exited_at": "2026-04-22T20:49:30.682487Z",
-          "exit_code": 0,
-          "agent_role": "reviewer_agent_design",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1758-retry-reviewer-agent-design"
-        },
-        {
-          "container_id": "197dd2b7-1f5d-463f-b8e1-6bbb97eaab87",
-          "container_name": "egg-sandbox-egg-agent-issue-1758-retry-reviewer-refine",
-          "status": "exited",
-          "started_at": "2026-04-22T20:39:19.563165Z",
-          "exited_at": "2026-04-22T20:49:30.682489Z",
-          "exit_code": 0,
-          "agent_role": "reviewer_refine",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1758-retry-reviewer-refine"
-        }
-      ],
-      "agents": [
-        {
-          "role": "refiner",
-          "status": "complete",
-          "container_id": "1f3582c0-cf1b-4c33-99c9-347dc15b9105",
-          "container_info": null,
-          "started_at": "2026-04-22T20:39:19.563151Z",
-          "completed_at": "2026-04-22T20:49:30.682467Z",
-          "commit": "616311b9b67d6e7e76227ac0dfa081d8b43078af",
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_agent_design",
-          "status": "complete",
-          "container_id": "af65d3fe-178f-42a7-8f67-e37b7ccb7e18",
-          "container_info": null,
-          "started_at": "2026-04-22T20:39:19.563162Z",
-          "completed_at": "2026-04-22T20:49:30.682475Z",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_refine",
-          "status": "complete",
-          "container_id": "197dd2b7-1f5d-463f-b8e1-6bbb97eaab87",
-          "container_info": null,
-          "started_at": "2026-04-22T20:39:19.563166Z",
-          "completed_at": "2026-04-22T20:49:30.682479Z",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        }
-      ],
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
-      "hitl_review_cycles": 0,
+      "hitl_review_cycles": 1,
       "cycle_timings": [
         {
           "cycle": 0,
@@ -147,7 +67,7 @@
       ],
       "artifacts": {},
       "error": null,
-      "hitl_feedback": null,
+      "hitl_feedback": "approve\n\nResponses to the refiner's sub-decisions and feedback:\n\n**decision-1 (output format)**: per-commit `git log <sha>..HEAD --not origin/<base> -p`. Proceed with Option A as recommended.\n\n**decision-2 (orchestrator fetch nudge)**: add the `git fetch origin <base>` nudge to the orchestrator Delta Review directive too. Mirror the GHA fix for safety.\n\n**decision-3 (BASE_REF default)**: default to `main` when unset. Keep the status quo so existing callers that forget to plumb BASE_REF still work.\n\n**Q1 (retract old reviews)**: no. Strictly forward-only. Don't retroactively flag or retract previously posted reviews.\n\n**Q2 (per-commit output on long PRs)**: no objection. Per-commit format is fine even for large PRs. Don't add commit-count caps or pagination nudges for now.\n\n**Q3 (non-main base branches)**: no egg PRs target non-main today, but `BASE_REF` plumbing matters because other repos using this system will have different target branches (long-lived branches, chained PRs, etc.). Keep the plumbing and keep the `develop` (non-default-base) test case.\n\nProceed to plan phase.",
       "phase_start_sha": "4a21bdf128e1b4765c25146a9dc01698ba8fc1b9"
     }
   },
@@ -171,7 +91,7 @@
     }
   ],
   "created_at": "2026-04-22T20:38:39.013020Z",
-  "updated_at": "2026-04-22T20:57:52.276445Z",
+  "updated_at": "2026-04-22T20:57:53.423355Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -184,5 +104,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12
+  "version": 13
 }
