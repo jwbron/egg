@@ -101,10 +101,10 @@ spec:
           resources:
             requests:
               cpu: 200m
-              memory: 2Gi
+              memory: 1Gi
             limits:
-              cpu: "1"
-              memory: 4Gi # TODO(#1885): review after leak-vs-load investigation
+              cpu: "2"
+              memory: 2Gi
           volumeMounts:
             - name: secrets
               mountPath: /secrets
