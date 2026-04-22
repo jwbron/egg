@@ -3291,10 +3291,16 @@ def _build_review_prompt(
 
     # Delta review: for re-reviews with a known last-reviewed commit,
     # instruct the reviewer to focus on the delta.
+    #
+    # Use `git log <last>..HEAD --not <base>` (not `git diff <last>..HEAD`) so
+    # commits reachable from the base branch — e.g. a base-branch merge that
+    # landed between reviews — are excluded from the delta. Otherwise the
+    # reviewer sees merged-in base-branch work and attributes it to the PR
+    # author (see issue #1758).
     is_delta_review = review_cycle > 1 and last_reviewed_commit and not draft_path
     _base_ref = _resolve_origin_ref(base_branch)
     diff_command = (
-        f"git diff {last_reviewed_commit}..HEAD"
+        f"git log {last_reviewed_commit}..HEAD --not {_base_ref} -p"
         if is_delta_review
         else f"git diff {_base_ref}...HEAD"
     )
@@ -3442,11 +3448,19 @@ def _build_review_prompt(
 
     # Delta review directive for re-reviews
     if is_delta_review:
+        # Strip the "origin/" prefix for the fetch command so it reads as
+        # `git fetch origin <branch>` rather than `git fetch origin origin/<branch>`.
+        _fetch_branch = _base_ref.removeprefix("origin/")
         lines.append("## Delta Review\n")
         lines.append(
             f"This is review cycle {review_cycle}. Focus on new changes since your "
-            f"last review. Use `git diff {last_reviewed_commit}..HEAD` to see the "
-            "delta. Verify prior feedback was addressed AND review new code thoroughly."
+            f"last review. First run `git fetch origin {_fetch_branch}` so "
+            f"`{_base_ref}` is up to date, then use "
+            f"`git log {last_reviewed_commit}..HEAD --not {_base_ref} -p` to see "
+            "the delta. This explicitly excludes commits reachable from the base "
+            "branch — e.g. a base-branch merge that landed between reviews — so "
+            "merged-in work is not attributed to the PR author. Verify prior "
+            "feedback was addressed AND review new code thoroughly."
         )
         lines.append("")
 
