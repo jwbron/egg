@@ -4977,6 +4977,79 @@ def _rewrite_brc_history_for_pr(
     )
 
 
+def _resolve_pipeline_worktree_path(pipeline: "Pipeline", fallback: Path) -> Path:
+    """Resolve the on-disk worktree path for *pipeline*.
+
+    Prefers ``WORKTREE_BASE_DIR / pipeline.id / <repo_short>`` when it
+    exists (the same layout _run_pipeline materialises at spawn time;
+    see pipelines.py spawn block).  Falls back to *fallback* — typically
+    the state store's ``repo_path`` — when no worktree is materialised.
+    """
+    repo_short = pipeline.repo.split("/")[-1] if pipeline.repo else None
+    if repo_short:
+        candidate = WORKTREE_BASE_DIR / pipeline.id / repo_short
+        if candidate.exists():
+            return candidate
+    pipeline_wt_dir = WORKTREE_BASE_DIR / pipeline.id
+    if pipeline_wt_dir.exists():
+        # sorted() for deterministic selection when multiple subdirs exist
+        for sub in sorted(pipeline_wt_dir.iterdir()):
+            if sub.is_dir() and (sub / ".git").exists():
+                return sub
+    return fallback
+
+
+def _persist_phase_brc_history(
+    pipeline: "Pipeline",
+    store: "StateStore",
+    phase: str,
+) -> None:
+    """Persist BRC history for *phase* and commit it, best-effort.
+
+    Mirrors the per-phase write+commit sequence that ``_run_pipeline``
+    runs inline at phase completion, so external phase-transition paths
+    (the ``complete_phase`` / ``advance_phase`` REST+MCP handlers) do
+    not silently drop BRC transcripts when ``_clear_concurrent_state``
+    wipes the message store.  See #1827.
+
+    Note: this commits but does **not** push.  Callers must ensure a
+    push happens downstream — in ``advance_phase`` the spawned
+    ``_run_pipeline`` thread pushes the branch, carrying this commit
+    along; in a standalone ``complete_phase`` the caller is expected to
+    trigger a subsequent advance or push.
+    """
+    worktree_path = _resolve_pipeline_worktree_path(pipeline, store.repo_path)
+    try:
+        _write_brc_history(
+            worktree_path,
+            pipeline.id,
+            phase,
+            _brc_history_identifier(pipeline),
+        )
+    except Exception as brc_err:
+        logger.warning(
+            "Failed to persist BRC history before phase transition (continuing)",
+            pipeline_id=pipeline.id,
+            phase=phase,
+            error=str(brc_err),
+        )
+        return
+
+    try:
+        _commit_statefiles_to_worktree(
+            worktree_path,
+            f"Persist statefiles after {phase} phase",
+            pipeline_identifier=_pipeline_identifier(pipeline.issue_number, pipeline.id),
+        )
+    except subprocess.CalledProcessError as git_err:
+        logger.warning(
+            "Failed to commit BRC history before phase transition (continuing)",
+            pipeline_id=pipeline.id,
+            phase=phase,
+            error=str(git_err),
+        )
+
+
 def _build_brc_history_link_line(
     worktree_repo_path: Path,
     identifier: int | str | None,
