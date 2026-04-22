@@ -5,7 +5,7 @@
   "branch": "egg/issue-1758-worktree-fix",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "cancelled",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -203,7 +203,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-22T05:44:58.800377Z",
-  "updated_at": "2026-04-22T05:45:43.422990Z",
+  "updated_at": "2026-04-22T06:11:16.888488Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -216,5 +216,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 7
+  "version": 8
 }
