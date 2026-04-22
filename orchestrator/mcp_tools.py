@@ -775,6 +775,40 @@ PIPELINE_TOOLS = [
         },
     },
     {
+        "name": "get_service_logs",
+        "description": (
+            "Return logs from the gateway or orchestrator Deployment's backing "
+            "pod(s). Complements `get_container_logs` (which covers agent-sandbox "
+            "containers) so operators can cross-reference gateway-side spawn "
+            "failures — 'Connection refused', 'Remote end closed connection', "
+            "'push_worktree_branch returned False' — without shelling into the "
+            "cluster. Only available on the Kubernetes runtime."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "service": {
+                    "type": "string",
+                    "description": "Which service's logs to return.",
+                    "enum": ["gateway", "orchestrator"],
+                },
+                "lines": {
+                    "type": "integer",
+                    "description": "Number of log lines to return (default 100).",
+                    "default": 100,
+                },
+                "since_seconds": {
+                    "type": "integer",
+                    "description": (
+                        "Only return logs newer than this many seconds — useful for "
+                        "scoping to 'logs around when my pipeline failed at HH:MM'."
+                    ),
+                },
+            },
+            "required": ["service"],
+        },
+    },
+    {
         "name": "rebuild_and_rollout",
         "description": (
             "Kick off `make redeploy` (build image → k3s ctr images import → "
@@ -857,6 +891,7 @@ class PipelineToolHandler:
             "prune_stale_worktrees": self._handle_prune_stale_worktrees,
             "validate_network_isolation": self._handle_validate_network_isolation,
             "rebuild_and_rollout": self._handle_rebuild_and_rollout,
+            "get_service_logs": self._handle_get_service_logs,
         }
 
         handler = handlers.get(tool_name)
@@ -2249,6 +2284,27 @@ class PipelineToolHandler:
             )
         except Exception as exc:
             return {"error": f"validate_network_isolation failed: {exc}"}
+        return result.get("data", result)
+
+    def _handle_get_service_logs(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Fetch logs for the gateway or orchestrator Deployment."""
+        service = args.get("service")
+        if not service:
+            return {"error": "service is required"}
+
+        params: list[str] = [f"service={quote(str(service), safe='')}"]
+        lines = args.get("lines")
+        if lines is not None:
+            params.append(f"lines={int(lines)}")
+        since_seconds = args.get("since_seconds")
+        if since_seconds is not None:
+            params.append(f"since_seconds={int(since_seconds)}")
+
+        endpoint = "/api/v1/deployment/logs?" + "&".join(params)
+        try:
+            result = self._make_request(endpoint, method="GET", timeout=30)
+        except Exception as exc:
+            return {"error": f"get_service_logs failed: {exc}"}
         return result.get("data", result)
 
     def _handle_rebuild_and_rollout(self, args: dict[str, Any]) -> dict[str, Any]:

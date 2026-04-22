@@ -1,14 +1,17 @@
 # MCP Deployment Tools Reference
 
-The MCP server exposes five Kubernetes-facing tools that landed in
+The MCP server exposes Kubernetes-facing tools for agents and operators to
+introspect the cluster, validate committed deployment manifests, prune stale
+worktrees, confirm NetworkPolicy enforcement, read service logs, and kick
+off a rebuild+rollout without dropping to raw `kubectl` /
+`k3s ctr images import`. The first five landed in
 [#1759](https://github.com/jwbron/egg/issues/1759) to close the diagnostic
 blind spot surfaced during the Docker → k3s migration validation
 ([#1553](https://github.com/jwbron/egg/issues/1553),
-[#1692](https://github.com/jwbron/egg/issues/1692)). The tools let agents
-and operators introspect the cluster, validate committed deployment
-manifests, prune stale worktrees, confirm NetworkPolicy enforcement, and
-kick off a rebuild+rollout without dropping to raw `kubectl` /
-`k3s ctr images import`.
+[#1692](https://github.com/jwbron/egg/issues/1692));
+[`get_service_logs`](#get_service_logs) followed in
+[#1853](https://github.com/jwbron/egg/issues/1853) to cover gateway / orchestrator
+pod logs that `get_container_logs` (agent-sandbox only) does not reach.
 
 | Tool | Mutates cluster? | Runtime | Auth |
 |------|------------------|---------|------|
@@ -17,8 +20,9 @@ kick off a rebuild+rollout without dropping to raw `kubectl` /
 | [`prune_stale_worktrees`](#prune_stale_worktrees) | Yes (host filesystem) | k8s only | `@require_lifecycle_secret` on orchestrator proxy; gateway session token on the gateway route |
 | [`validate_network_isolation`](#validate_network_isolation) | Yes (spawns short-lived probe Job) | k8s only | `@require_lifecycle_secret` |
 | [`rebuild_and_rollout`](#rebuild_and_rollout) | Yes (rebuilds images + restarts Deployments) | k8s only | `@require_lifecycle_secret` |
+| [`get_service_logs`](#get_service_logs) | No | k8s only | `@require_lifecycle_secret` |
 
-All five tools live in `PIPELINE_TOOLS` (`orchestrator/mcp_tools.py`) with
+All six tools live in `PIPELINE_TOOLS` (`orchestrator/mcp_tools.py`) with
 handlers on `PipelineToolHandler`. The server is rate-limited to 30 req/min
 — the diagnostic skills that compose these tools cap themselves at
 ≤10 primitive calls per invocation. See
@@ -27,7 +31,7 @@ handlers on `PipelineToolHandler`. The server is rate-limited to 30 req/min
 
 ## Runtime Gating
 
-The four k8s-specific tools branch on the `EGG_RUNTIME` env var, which is
+The five k8s-specific tools branch on the `EGG_RUNTIME` env var, which is
 read at the orchestrator process boundary. When `EGG_RUNTIME` is unset,
 the orchestrator auto-detects: if `KUBERNETES_SERVICE_HOST` is present
 (injected into every pod by the apiserver) the runtime is inferred to be
@@ -38,7 +42,7 @@ and its provenance are returned on `get_deployment_context` as
 [#1850](https://github.com/jwbron/egg/issues/1850) tracked the earlier
 silent-docker-default that hid in-cluster misconfigs.
 
-When `EGG_RUNTIME != "kubernetes"`, the four k8s-specific tools return:
+When `EGG_RUNTIME != "kubernetes"`, the five k8s-specific tools return:
 
 ```json
 {"error": "not_available_on_runtime", "runtime": "docker"}
@@ -465,6 +469,97 @@ assert "egg-orchestrator" in result["rolled_out_images"]
 exercises this tool end-to-end — tagged `@pytest.mark.slow` and gated
 behind `EGG_INTEGRATION_REBUILD=1` so the default `make test` invocation
 does not rebuild images unless explicitly requested.
+
+## `get_service_logs`
+
+Read logs from the pod(s) backing the `gateway` or `orchestrator`
+Deployment. Complements `get_container_logs`, which covers agent-sandbox
+containers only. Added in
+[#1853](https://github.com/jwbron/egg/issues/1853) after a pipeline failed
+with three agents hitting "Connection refused" at the gateway: operators
+had no in-MCP way to confirm whether the gateway was still coming up, not
+crashing, or refusing requests for some other reason, and had to shell
+into the cluster (`kubectl logs -n egg-system deploy/gateway`) to
+self-serve.
+
+**HTTP route**: `GET /api/v1/deployment/logs`
+
+**Input schema**:
+
+```json
+{
+  "service": "gateway",
+  "lines": 100,
+  "since_seconds": 600
+}
+```
+
+- `service` is required and allowlisted to `"gateway"` or `"orchestrator"`.
+  Agent-pod logs live in the `egg-agents` namespace and are already
+  exposed through `get_container_logs`; keeping this endpoint bounded
+  avoids it turning into a generic kubectl-logs proxy.
+- `lines` defaults to 100 and is capped at 10 000 — enough for real
+  diagnostic scrollback without unbounded response sizes.
+- `since_seconds` (optional) scopes the read to "logs newer than N
+  seconds ago" — useful for "logs around when my pipeline failed at
+  HH:MM."
+
+**Output shape**:
+
+```json
+{
+  "service": "gateway",
+  "namespace": "egg-system",
+  "pods": [
+    {
+      "pod": "gateway-7d4b9c5f9-abcde",
+      "logs": "INFO ... listening on :9848\n..."
+    },
+    {
+      "pod": "gateway-7d4b9c5f9-fghij",
+      "logs": "",
+      "error": "Failed to read logs: container in CrashLoopBackOff"
+    }
+  ]
+}
+```
+
+Replicas >1 are each returned as their own `{pod, logs}` entry so the
+operator can tell which chunk came from where. Pods that encounter a
+transient non-404 failure (kubelet timeout, `CrashLoopBackOff` with no
+logs yet, etc.) include an `"error"` key so operators see partial
+results from healthy replicas. A pod that vanishes between the selector
+listing and the log read is skipped entirely.
+
+**Error shapes**:
+
+- `404` — the Deployment is not present in `egg-system`, or the
+  selector returned zero pods (fresh rollout still coming up).
+- `500` — Kubernetes API failure (selector missing, apiserver
+  unreachable).
+
+**Non-k8s runtime**:
+
+```json
+{"error": "not_available_on_runtime", "runtime": "docker"}
+```
+
+**Example MCP call** — the concrete miss from #1853, cross-referencing
+gateway logs when multiple agents hit "Connection refused" during spawn:
+
+```python
+logs = await mcp.call_tool("get_service_logs", {
+    "service": "gateway",
+    "lines": 200,
+    "since_seconds": 300,
+})
+for chunk in logs["pods"]:
+    print(chunk["pod"])
+    if "error" in chunk:
+        print(f"  [error] {chunk['error']}")
+    else:
+        print(chunk["logs"])
+```
 
 ## See Also
 

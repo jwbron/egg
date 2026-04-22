@@ -68,7 +68,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Orchestrator CLI](reference/orchestrator-cli.md) | Full `egg-orch` command reference for pipelines, phases, decisions, containers |
 | [Checkpoint Browser](reference/checkpoint-browser.md) | Full `egg-checkpoint` command reference for browsing agent session history |
 | [SDLC Contract](reference/sdlc-contract.md) | Full `egg-contract` command reference for tracking tasks, commits, decisions |
-| [MCP Deployment Tools](reference/mcp-deployment-tools.md) | Five k8s-facing MCP tools: `get_deployment_context`, `validate_deployment_manifests`, `prune_stale_worktrees`, `validate_network_isolation`, `rebuild_and_rollout` |
+| [MCP Deployment Tools](reference/mcp-deployment-tools.md) | Six k8s-facing MCP tools: `get_deployment_context`, `validate_deployment_manifests`, `prune_stale_worktrees`, `validate_network_isolation`, `rebuild_and_rollout`, `get_service_logs` |
 
 ### SDLC Pipeline Templates
 

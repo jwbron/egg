@@ -33,7 +33,7 @@ _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
-from egg_config.constants import TEST_GATEWAY_PORT  # noqa: E402
+from egg_config.constants import GATEWAY_PORT, TEST_GATEWAY_PORT  # noqa: E402
 
 
 @pytest.fixture
@@ -1226,6 +1226,153 @@ class TestRunRedeploySubprocess:
 
 
 # ---------------------------------------------------------------------------
+# get_service_logs (#1853)
+# ---------------------------------------------------------------------------
+
+
+class TestGetServiceLogsRoute:
+    """GET /api/v1/deployment/logs."""
+
+    def test_docker_runtime_returns_not_available(self, client, monkeypatch):
+        monkeypatch.setenv("EGG_RUNTIME", "docker")
+        response = client.get("/api/v1/deployment/logs?service=gateway")
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        assert data["error"] == "not_available_on_runtime"
+
+    def test_missing_service_returns_400(self, client, monkeypatch):
+        monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
+        response = client.get("/api/v1/deployment/logs")
+        assert response.status_code == 400
+        assert response.get_json()["success"] is False
+
+    def test_unknown_service_returns_400(self, client, monkeypatch):
+        monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
+        response = client.get("/api/v1/deployment/logs?service=etcd")
+        assert response.status_code == 400
+        body = response.get_json()
+        assert body["success"] is False
+        assert "gateway" in body["message"]
+        assert "orchestrator" in body["message"]
+
+    def test_invalid_since_seconds_returns_400(self, client, monkeypatch):
+        monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
+        response = client.get("/api/v1/deployment/logs?service=gateway&since_seconds=not-a-number")
+        assert response.status_code == 400
+
+    def test_happy_path_returns_pod_logs(self, client, monkeypatch):
+        """When the Deployment exists the route returns its pod logs."""
+        monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
+        monkeypatch.setenv("EGG_K8S_NAMESPACE", "egg-test")
+
+        fake_k8s = MagicMock()
+        fake_k8s.get_service_logs.return_value = {
+            "service": "gateway",
+            "namespace": "egg-test",
+            "pods": [{"pod": "gateway-abc", "logs": f"listening on :{GATEWAY_PORT}\n"}],
+        }
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "kubernetes_client": MagicMock(
+                    get_kubernetes_client=MagicMock(return_value=fake_k8s),
+                    PodNotFoundError=type("PodNotFoundError", (Exception,), {}),
+                    JobOperationError=type("JobOperationError", (Exception,), {}),
+                )
+            },
+        ):
+            response = client.get(
+                "/api/v1/deployment/logs?service=gateway&lines=50&since_seconds=120"
+            )
+
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        assert data["service"] == "gateway"
+        assert data["namespace"] == "egg-test"
+        assert data["pods"][0]["logs"].startswith("listening")
+        # The handler must have forwarded the parsed integer arguments.
+        kwargs = fake_k8s.get_service_logs.call_args.kwargs
+        assert kwargs["service"] == "gateway"
+        assert kwargs["namespace"] == "egg-test"
+        assert kwargs["tail_lines"] == 50
+        assert kwargs["since_seconds"] == 120
+
+    def test_lines_is_capped_at_max(self, client, monkeypatch):
+        """A huge ``lines`` value is clamped to the module cap."""
+        monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
+
+        from routes.deployment import _MAX_LOG_LINES
+
+        fake_k8s = MagicMock()
+        fake_k8s.get_service_logs.return_value = {
+            "service": "gateway",
+            "namespace": "egg-system",
+            "pods": [],
+        }
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "kubernetes_client": MagicMock(
+                    get_kubernetes_client=MagicMock(return_value=fake_k8s),
+                    PodNotFoundError=type("PodNotFoundError", (Exception,), {}),
+                    JobOperationError=type("JobOperationError", (Exception,), {}),
+                )
+            },
+        ):
+            client.get(f"/api/v1/deployment/logs?service=gateway&lines={_MAX_LOG_LINES * 10}")
+
+        assert fake_k8s.get_service_logs.call_args.kwargs["tail_lines"] == _MAX_LOG_LINES
+
+    def test_pod_not_found_returns_404(self, client, monkeypatch):
+        monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
+
+        PodNotFoundError = type("PodNotFoundError", (Exception,), {})
+        fake_k8s = MagicMock()
+        fake_k8s.get_service_logs.side_effect = PodNotFoundError(
+            "Deployment gateway not found in egg-system"
+        )
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "kubernetes_client": MagicMock(
+                    get_kubernetes_client=MagicMock(return_value=fake_k8s),
+                    PodNotFoundError=PodNotFoundError,
+                    JobOperationError=type("JobOperationError", (Exception,), {}),
+                )
+            },
+        ):
+            response = client.get("/api/v1/deployment/logs?service=gateway")
+
+        assert response.status_code == 404
+        assert response.get_json()["success"] is False
+
+    def test_job_operation_error_returns_500(self, client, monkeypatch):
+        monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
+
+        JobOperationError = type("JobOperationError", (Exception,), {})
+        fake_k8s = MagicMock()
+        fake_k8s.get_service_logs.side_effect = JobOperationError("api down")
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "kubernetes_client": MagicMock(
+                    get_kubernetes_client=MagicMock(return_value=fake_k8s),
+                    PodNotFoundError=type("PodNotFoundError", (Exception,), {}),
+                    JobOperationError=JobOperationError,
+                )
+            },
+        ):
+            response = client.get("/api/v1/deployment/logs?service=orchestrator")
+
+        assert response.status_code == 500
+        assert "api down" in response.get_json()["message"]
+
+
+# ---------------------------------------------------------------------------
 # Lifecycle-secret auth regression coverage (parity with #1769)
 # ---------------------------------------------------------------------------
 
@@ -1277,6 +1424,13 @@ class TestDeploymentLifecycleSecretAuth:
     def test_stream_reader_requires_bearer_token(self, client):
         response = client.get(
             "/api/v1/deployment/rebuild-and-rollout/streams/anything",
+            _lifecycle_auth=False,
+        )
+        assert response.status_code == 401
+
+    def test_get_service_logs_requires_bearer_token(self, client):
+        response = client.get(
+            "/api/v1/deployment/logs?service=gateway",
             _lifecycle_auth=False,
         )
         assert response.status_code == 401
@@ -1353,6 +1507,8 @@ def test_expected_public_symbols_are_exported():
         "_stream_mark_done",
         "_STREAM_BUFFERS",
         "_STREAM_TERMINATED",
+        "_SERVICE_LOG_ALLOWLIST",
+        "_MAX_LOG_LINES",
     ):
         assert hasattr(dep_mod, sym), f"missing public symbol: {sym}"
 

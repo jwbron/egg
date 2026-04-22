@@ -825,6 +825,161 @@ class TestGetContainerLogs:
 
 
 # ---------------------------------------------------------------------------
+# get_service_logs (#1853)
+# ---------------------------------------------------------------------------
+
+
+class TestGetServiceLogs:
+    """Tests for KubernetesClient.get_service_logs."""
+
+    def _install_apps_api(self, deployment_or_exc):
+        """Patch ``kubernetes.client.AppsV1Api`` to return ``deployment_or_exc``.
+
+        If *deployment_or_exc* is an Exception instance the patched
+        ``read_namespaced_deployment`` raises it; otherwise the value is
+        used as the return.
+        """
+        fake_apps = MagicMock()
+        if isinstance(deployment_or_exc, Exception):
+            fake_apps.read_namespaced_deployment.side_effect = deployment_or_exc
+        else:
+            fake_apps.read_namespaced_deployment.return_value = deployment_or_exc
+        return patch("kubernetes.client.AppsV1Api", return_value=fake_apps), fake_apps
+
+    def _make_deployment(self, match_labels: dict[str, str]) -> MagicMock:
+        dep = MagicMock()
+        dep.spec.selector.match_labels = dict(match_labels)
+        return dep
+
+    def test_returns_logs_for_each_matching_pod(
+        self,
+        k8s_client: KubernetesClient,
+        mock_core_api: MagicMock,
+    ):
+        dep = self._make_deployment({"app.kubernetes.io/name": "gateway"})
+        apps_patch, _ = self._install_apps_api(dep)
+
+        mock_pods = MagicMock()
+        mock_pods.items = [
+            _make_mock_pod(name="gateway-abc"),
+            _make_mock_pod(name="gateway-def"),
+        ]
+        mock_core_api.list_namespaced_pod.return_value = mock_pods
+        mock_core_api.read_namespaced_pod_log.side_effect = [
+            "gateway-abc line\n",
+            "gateway-def line\n",
+        ]
+
+        with apps_patch:
+            result = k8s_client.get_service_logs(
+                service="gateway", namespace="egg-system", tail_lines=25
+            )
+
+        assert result["service"] == "gateway"
+        assert result["namespace"] == "egg-system"
+        assert [p["pod"] for p in result["pods"]] == ["gateway-abc", "gateway-def"]
+        assert result["pods"][0]["logs"].startswith("gateway-abc")
+
+        # Label selector comes from the Deployment's matchLabels.
+        selector = mock_core_api.list_namespaced_pod.call_args.kwargs["label_selector"]
+        assert selector == "app.kubernetes.io/name=gateway"
+
+        # Tail forwarded to the pod-log call.
+        assert mock_core_api.read_namespaced_pod_log.call_args_list[0].kwargs["tail_lines"] == 25
+
+    def test_deployment_not_found_raises_pod_not_found(
+        self,
+        k8s_client: KubernetesClient,
+    ):
+        # Simulate a 404 from the apps API.
+        apps_patch, _ = self._install_apps_api(Exception("status=404 not found"))
+        with apps_patch, pytest.raises(PodNotFoundError):
+            k8s_client.get_service_logs(service="gateway", namespace="egg-system")
+
+    def test_no_pods_raises_pod_not_found(
+        self,
+        k8s_client: KubernetesClient,
+        mock_core_api: MagicMock,
+    ):
+        dep = self._make_deployment({"app.kubernetes.io/name": "gateway"})
+        apps_patch, _ = self._install_apps_api(dep)
+
+        mock_pods = MagicMock()
+        mock_pods.items = []
+        mock_core_api.list_namespaced_pod.return_value = mock_pods
+
+        with apps_patch, pytest.raises(PodNotFoundError):
+            k8s_client.get_service_logs(service="gateway", namespace="egg-system")
+
+    def test_missing_selector_raises_job_operation_error(
+        self,
+        k8s_client: KubernetesClient,
+    ):
+        dep = MagicMock()
+        dep.spec.selector.match_labels = {}
+        apps_patch, _ = self._install_apps_api(dep)
+        with apps_patch, pytest.raises(JobOperationError):
+            k8s_client.get_service_logs(service="gateway", namespace="egg-system")
+
+    def test_vanished_pod_is_skipped(
+        self,
+        k8s_client: KubernetesClient,
+        mock_core_api: MagicMock,
+    ):
+        """A pod that disappears between list and read should not fail the call."""
+        dep = self._make_deployment({"app.kubernetes.io/name": "gateway"})
+        apps_patch, _ = self._install_apps_api(dep)
+
+        mock_pods = MagicMock()
+        mock_pods.items = [
+            _make_mock_pod(name="gateway-abc"),
+            _make_mock_pod(name="gateway-gone"),
+        ]
+        mock_core_api.list_namespaced_pod.return_value = mock_pods
+        mock_core_api.read_namespaced_pod_log.side_effect = [
+            "live\n",
+            Exception("status=404 pod not found"),
+        ]
+
+        with apps_patch:
+            result = k8s_client.get_service_logs(service="gateway", namespace="egg-system")
+
+        assert [p["pod"] for p in result["pods"]] == ["gateway-abc"]
+
+    def test_per_pod_operation_error_returns_partial_results(
+        self,
+        k8s_client: KubernetesClient,
+        mock_core_api: MagicMock,
+    ):
+        """A transient non-404 error on one pod returns partial results with an error entry."""
+        dep = self._make_deployment({"app.kubernetes.io/name": "gateway"})
+        apps_patch, _ = self._install_apps_api(dep)
+
+        mock_pods = MagicMock()
+        mock_pods.items = [
+            _make_mock_pod(name="gateway-healthy"),
+            _make_mock_pod(name="gateway-crashloop"),
+        ]
+        mock_core_api.list_namespaced_pod.return_value = mock_pods
+        mock_core_api.read_namespaced_pod_log.side_effect = [
+            "healthy logs\n",
+            Exception("status=500 container in CrashLoopBackOff"),
+        ]
+
+        with apps_patch:
+            result = k8s_client.get_service_logs(service="gateway", namespace="egg-system")
+
+        assert len(result["pods"]) == 2
+        assert result["pods"][0]["pod"] == "gateway-healthy"
+        assert result["pods"][0]["logs"] == "healthy logs\n"
+        assert "error" not in result["pods"][0]
+        assert result["pods"][1]["pod"] == "gateway-crashloop"
+        assert result["pods"][1]["logs"] == ""
+        assert "error" in result["pods"][1]
+        assert "CrashLoopBackOff" in result["pods"][1]["error"]
+
+
+# ---------------------------------------------------------------------------
 # wait_for_container
 # ---------------------------------------------------------------------------
 
