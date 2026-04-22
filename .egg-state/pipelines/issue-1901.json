@@ -168,10 +168,29 @@
       "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved Questions\\n\\n**Decision 1 — Matcher semantics for coder's empty allowed_patterns**\\nAnswer: Option A — explicit catch-all ['**'] in CODER_PATTERNS.allowed_patterns. Keep deny-all-when-empty matcher semantics untouched so other roles' backstop is preserved.\\n\\n**Decision 2 — Scope of utility-role rewrites**\\nAnswer: Coder only. Do NOT rewrite autofixer or conflict_resolver in this PR. File follow-up issues for those.\\n\\n**Decision 3 — How to carve coder's .egg-state/ access**\\nAnswer: Block all of .egg-state/ and carve out .egg-state/agent-outputs/ via block_exempt_patterns. This is safer for future .egg-state/ subdirs than enumerating blocks.\\n\\n**Decision 4 — Overseer scope**\\nAnswer: OUT OF SCOPE for this PR. Overseer uses a different (narrow oversight-only) policy, not an extension-based allowlist, so the fix here does not port directly. Already filed as follow-up #1902.\\n\\n**Decision 5 — Pre-existing matcher bug for '**/tests/' directory pattern**\\nAnswer: YES — fix the matcher bug in this PR. Currently AgentFilePattern._matches_pattern does not correctly handle directory patterns ending with '/' under the '**' branch, so nested test dirs (e.g. gateway/tests/__init__.py) leak past coder's blocklist. Fix so '**/tests/' (and similar '**/<dir>/') patterns correctly match any file under a nested directory of that name.\\n\\n**Feedback Q1 — .egg/phase-permissions.json role=implementer file_restrictions**\\nAnswer: Split into three roles (coder, tester, documenter) to mirror the new three-role model. Keep the three surfaces (patterns.py, phase-permissions.json, shared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS) manually in sync in this PR.\\n\\n**Feedback Q2 — Source of truth between the three surfaces**\\nAnswer: Status quo (keep all three in sync manually) in this PR. The deeper refactor — making patterns.py authoritative and deriving phase-permissions.json and _IMPLEMENT_READONLY_DIRS from it — is tracked as follow-up #1903 and is out of scope here. Add a TODO(#1903) comment on the hand-maintained lists noting the follow-up.\\n\\n**Feedback Q3 — Preemptive blocks on future .egg-state/ subdirs**\\nAnswer: None specifically. The 'block .egg-state/ + exempt agent-outputs/' model already protects against arbitrary future subdirs. No defensive 'secrets/' or 'credentials/' entries.\\n\\n**Feedback Q4 — Ownership of skills/ markdown**\\nAnswer: Coder-owned. SKILL.md is functional agent behavior, not documentation. Preserve via block_exempt_patterns=['skills/'] as today.\\n\\n## Additional pre-refine decisions (already confirmed)\\n\\n- Overseer: out of scope for this pipeline (filed as #1902).\\n- In-container filesystem guard shared/egg_container/__init__.py:131 _IMPLEMENT_READONLY_DIRS: UPDATE in parallel with the gateway policy in this PR.\\n\\n## Follow-up issues already filed during /sdlc run\\n\\n- #1902 — Overseer file-boundary policy (oversight-only vs remediation scope)\\n- #1903 — Make patterns.py the single source of truth for file restrictions\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "How should the matcher treat an empty allowed_patterns list for the coder role?",
+      "context": "Open contract question decision-1, registered by an agent during the refine phase.",
+      "options": [
+        "Keep deny-all semantics; add an explicit catch-all pattern ('**') to CODER_PATTERNS.allowed_patterns",
+        "Change semantics: empty allowed_patterns means 'allow by default' (blocklist-only mode) across all roles",
+        "Add a new sentinel flag (e.g., allow_by_default=True) on AgentFilePattern; coder opts in",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-22T23:43:58.962624Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-22T23:25:22.973469Z",
-  "updated_at": "2026-04-22T23:43:58.333030Z",
+  "updated_at": "2026-04-22T23:43:58.973280Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -184,5 +203,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12
+  "version": 13
 }
