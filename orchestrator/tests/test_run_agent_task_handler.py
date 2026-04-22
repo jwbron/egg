@@ -156,9 +156,7 @@ class TestOptionalFieldValidation:
 
     def test_qualifier_valid_segments_accepted(self, handler):
         side_effects = _mock_success_response("issue-42-v2-hotfix")
-        with patch.object(
-            handler, "_make_request", side_effect=side_effects
-        ) as mock_req:
+        with patch.object(handler, "_make_request", side_effect=side_effects) as mock_req:
             result = handler.handle_tool_call(
                 "run_agent_task",
                 {
@@ -221,9 +219,7 @@ class TestOptionalFieldValidation:
 class TestPipelineIdDerivation:
     def test_issue_and_qualifier(self, handler):
         side_effects = _mock_success_response("issue-100-backend")
-        with patch.object(
-            handler, "_make_request", side_effect=side_effects
-        ) as mock_req:
+        with patch.object(handler, "_make_request", side_effect=side_effects) as mock_req:
             handler.handle_tool_call(
                 "run_agent_task",
                 {
@@ -234,16 +230,12 @@ class TestPipelineIdDerivation:
                     "qualifier": "backend",
                 },
             )
-        body = mock_req.call_args_list[0].kwargs.get(
-            "data"
-        ) or mock_req.call_args_list[0].args[2]
+        body = mock_req.call_args_list[0].kwargs.get("data") or mock_req.call_args_list[0].args[2]
         assert body["pipeline_id"] == "issue-100-backend"
 
     def test_issue_only(self, handler):
         side_effects = _mock_success_response("issue-100-custom")
-        with patch.object(
-            handler, "_make_request", side_effect=side_effects
-        ) as mock_req:
+        with patch.object(handler, "_make_request", side_effect=side_effects) as mock_req:
             handler.handle_tool_call(
                 "run_agent_task",
                 {
@@ -253,18 +245,14 @@ class TestPipelineIdDerivation:
                     "issue_number": 100,
                 },
             )
-        body = mock_req.call_args_list[0].kwargs.get(
-            "data"
-        ) or mock_req.call_args_list[0].args[2]
+        body = mock_req.call_args_list[0].kwargs.get("data") or mock_req.call_args_list[0].args[2]
         assert body["pipeline_id"] == "issue-100-custom"
 
     def test_pr_only_is_babysit_compatible(self, handler):
         """The plan says pr-only pipelines must use the BABYSIT ID
         (``pr-<N>``) to subsume BABYSIT internally (decision-2)."""
         side_effects = _mock_success_response("pr-42")
-        with patch.object(
-            handler, "_make_request", side_effect=side_effects
-        ) as mock_req:
+        with patch.object(handler, "_make_request", side_effect=side_effects) as mock_req:
             handler.handle_tool_call(
                 "run_agent_task",
                 {
@@ -274,16 +262,12 @@ class TestPipelineIdDerivation:
                     "pr_number": 42,
                 },
             )
-        body = mock_req.call_args_list[0].kwargs.get(
-            "data"
-        ) or mock_req.call_args_list[0].args[2]
+        body = mock_req.call_args_list[0].kwargs.get("data") or mock_req.call_args_list[0].args[2]
         assert body["pipeline_id"] == "pr-42"
 
     def test_pr_plus_qualifier(self, handler):
         side_effects = _mock_success_response("pr-42-followup")
-        with patch.object(
-            handler, "_make_request", side_effect=side_effects
-        ) as mock_req:
+        with patch.object(handler, "_make_request", side_effect=side_effects) as mock_req:
             handler.handle_tool_call(
                 "run_agent_task",
                 {
@@ -294,16 +278,12 @@ class TestPipelineIdDerivation:
                     "qualifier": "followup",
                 },
             )
-        body = mock_req.call_args_list[0].kwargs.get(
-            "data"
-        ) or mock_req.call_args_list[0].args[2]
+        body = mock_req.call_args_list[0].kwargs.get("data") or mock_req.call_args_list[0].args[2]
         assert body["pipeline_id"] == "pr-42-followup"
 
     def test_synthetic_when_no_identifier(self, handler):
         side_effects = _mock_success_response("custom-12345678")
-        with patch.object(
-            handler, "_make_request", side_effect=side_effects
-        ) as mock_req:
+        with patch.object(handler, "_make_request", side_effect=side_effects) as mock_req:
             handler.handle_tool_call(
                 "run_agent_task",
                 {
@@ -312,9 +292,7 @@ class TestPipelineIdDerivation:
                     "description": "x",
                 },
             )
-        body = mock_req.call_args_list[0].kwargs.get(
-            "data"
-        ) or mock_req.call_args_list[0].args[2]
+        body = mock_req.call_args_list[0].kwargs.get("data") or mock_req.call_args_list[0].args[2]
         assert body["pipeline_id"].startswith("custom-")
         # UUID4 hex [:8] = 8-char hex suffix.
         suffix = body["pipeline_id"].split("-", 1)[1]
@@ -330,9 +308,7 @@ class TestPipelineIdDerivation:
 class TestRequestBodyConstruction:
     def test_basic_fields_forwarded(self, handler):
         side_effects = _mock_success_response("custom-aabbccdd")
-        with patch.object(
-            handler, "_make_request", side_effect=side_effects
-        ) as mock_req:
+        with patch.object(handler, "_make_request", side_effect=side_effects) as mock_req:
             handler.handle_tool_call(
                 "run_agent_task",
                 {
@@ -342,9 +318,7 @@ class TestRequestBodyConstruction:
                     "roles": ["refiner"],
                 },
             )
-        body = mock_req.call_args_list[0].kwargs.get(
-            "data"
-        ) or mock_req.call_args_list[0].args[2]
+        body = mock_req.call_args_list[0].kwargs.get("data") or mock_req.call_args_list[0].args[2]
         assert body["mode"] == "custom"
         assert body["phase"] == "refine"
         assert body["repo"] == "owner/repo"
@@ -356,9 +330,7 @@ class TestRequestBodyConstruction:
         The forwarding body should NOT include the key so the route
         sees the default path."""
         side_effects = _mock_success_response("custom-aabbccdd")
-        with patch.object(
-            handler, "_make_request", side_effect=side_effects
-        ) as mock_req:
+        with patch.object(handler, "_make_request", side_effect=side_effects) as mock_req:
             handler.handle_tool_call(
                 "run_agent_task",
                 {
@@ -368,16 +340,12 @@ class TestRequestBodyConstruction:
                     "roles": None,
                 },
             )
-        body = mock_req.call_args_list[0].kwargs.get(
-            "data"
-        ) or mock_req.call_args_list[0].args[2]
+        body = mock_req.call_args_list[0].kwargs.get("data") or mock_req.call_args_list[0].args[2]
         assert "roles" not in body
 
     def test_analysis_and_plan_forwarded(self, handler):
         side_effects = _mock_success_response("custom-aabbccdd")
-        with patch.object(
-            handler, "_make_request", side_effect=side_effects
-        ) as mock_req:
+        with patch.object(handler, "_make_request", side_effect=side_effects) as mock_req:
             handler.handle_tool_call(
                 "run_agent_task",
                 {
@@ -388,17 +356,13 @@ class TestRequestBodyConstruction:
                     "plan": "## Plan\n\nbar",
                 },
             )
-        body = mock_req.call_args_list[0].kwargs.get(
-            "data"
-        ) or mock_req.call_args_list[0].args[2]
+        body = mock_req.call_args_list[0].kwargs.get("data") or mock_req.call_args_list[0].args[2]
         assert body["analysis"] == "## Analysis\n\nfoo"
         assert body["plan"] == "## Plan\n\nbar"
 
     def test_pr_number_forwarded(self, handler):
         side_effects = _mock_success_response("pr-42")
-        with patch.object(
-            handler, "_make_request", side_effect=side_effects
-        ) as mock_req:
+        with patch.object(handler, "_make_request", side_effect=side_effects) as mock_req:
             handler.handle_tool_call(
                 "run_agent_task",
                 {
@@ -408,16 +372,12 @@ class TestRequestBodyConstruction:
                     "pr_number": 42,
                 },
             )
-        body = mock_req.call_args_list[0].kwargs.get(
-            "data"
-        ) or mock_req.call_args_list[0].args[2]
+        body = mock_req.call_args_list[0].kwargs.get("data") or mock_req.call_args_list[0].args[2]
         assert body["pr_number"] == 42
 
     def test_config_string_parsed_as_json(self, handler):
         side_effects = _mock_success_response("custom-aabbccdd")
-        with patch.object(
-            handler, "_make_request", side_effect=side_effects
-        ) as mock_req:
+        with patch.object(handler, "_make_request", side_effect=side_effects) as mock_req:
             handler.handle_tool_call(
                 "run_agent_task",
                 {
@@ -427,9 +387,7 @@ class TestRequestBodyConstruction:
                     "config": '{"hitl_gates": false}',
                 },
             )
-        body = mock_req.call_args_list[0].kwargs.get(
-            "data"
-        ) or mock_req.call_args_list[0].args[2]
+        body = mock_req.call_args_list[0].kwargs.get("data") or mock_req.call_args_list[0].args[2]
         assert body["config"] == {"hitl_gates": False}
 
     def test_config_invalid_json_returns_error(self, handler):
@@ -466,8 +424,7 @@ class TestServerErrorHandling:
         def _raise(*a, **kw):
             http_err.read = MagicMock(
                 return_value=(
-                    b'{"message": "Invalid roles", '
-                    b'"details": {"reason": "reviewer_only_roster"}}'
+                    b'{"message": "Invalid roles", "details": {"reason": "reviewer_only_roster"}}'
                 )
             )
             raise http_err

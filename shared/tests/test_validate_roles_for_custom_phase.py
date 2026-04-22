@@ -25,7 +25,6 @@ from egg_contracts.agent_roles import (
     validate_roles_for_custom_phase,
 )
 
-
 # ---------------------------------------------------------------------------
 # Default-roster fallback (None / empty list → full phase roster)
 # ---------------------------------------------------------------------------
@@ -48,9 +47,7 @@ class TestDefaultRosterFallback:
     def test_empty_list_returns_full_roster(self):
         """Empty list is treated the same as None — the helper docstring
         says callers normally normalise None↔[]."""
-        resolved, err = validate_roles_for_custom_phase(
-            "plan", [], EGG_REPO, has_contract=True
-        )
+        resolved, err = validate_roles_for_custom_phase("plan", [], EGG_REPO, has_contract=True)
         assert err is None
         assert resolved == get_roles_for_phase(
             "plan", include_reviewers=True, repo=EGG_REPO, has_contract=True
@@ -77,9 +74,7 @@ class TestDefaultRosterFallback:
         assert AgentRole.REFINER in resolved
 
     def test_none_for_refine_phase(self):
-        resolved, err = validate_roles_for_custom_phase(
-            "refine", None, EGG_REPO, has_contract=True
-        )
+        resolved, err = validate_roles_for_custom_phase("refine", None, EGG_REPO, has_contract=True)
         assert err is None
         assert AgentRole.REFINER in resolved
 

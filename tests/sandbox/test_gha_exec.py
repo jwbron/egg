@@ -17,11 +17,9 @@ This module covers:
 
 from __future__ import annotations
 
-import importlib
-import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -70,8 +68,7 @@ class TestActionEntrypointScriptUpdated:
         assert entry.exists(), f"{entry} missing"
         body = entry.read_text()
         assert "egg_lib.gha_exec" in body, (
-            "action/entrypoint.sh must import gha_exec from egg_lib.gha_exec "
-            "after #1762"
+            "action/entrypoint.sh must import gha_exec from egg_lib.gha_exec after #1762"
         )
         assert "from egg_lib.cli import" not in body
 
@@ -100,15 +97,9 @@ class TestGhaExecHappyPath:
             patch("egg_lib.gha_exec.RuntimeContext"),
             patch("egg_lib.gha_exec.set_context"),
             patch("egg_lib.gha_exec.set_quiet_mode"),
-            patch(
-                "egg_lib.docker.ensure_gateway_networks", return_value=True
-            ),
-            patch(
-                "egg_lib.gateway.start_gateway_container", return_value=True
-            ),
-            patch(
-                "egg_lib.gha_exec.exec_in_new_container", return_value=True
-            ) as mock_exec,
+            patch("egg_lib.docker.ensure_gateway_networks", return_value=True),
+            patch("egg_lib.gateway.start_gateway_container", return_value=True),
+            patch("egg_lib.gha_exec.exec_in_new_container", return_value=True) as mock_exec,
         ):
             from egg_lib.gha_exec import gha_exec
 
@@ -121,15 +112,9 @@ class TestGhaExecHappyPath:
             patch("egg_lib.gha_exec.RuntimeContext"),
             patch("egg_lib.gha_exec.set_context"),
             patch("egg_lib.gha_exec.set_quiet_mode"),
-            patch(
-                "egg_lib.docker.ensure_gateway_networks", return_value=True
-            ),
-            patch(
-                "egg_lib.gateway.start_gateway_container", return_value=True
-            ),
-            patch(
-                "egg_lib.gha_exec.exec_in_new_container", return_value=False
-            ),
+            patch("egg_lib.docker.ensure_gateway_networks", return_value=True),
+            patch("egg_lib.gateway.start_gateway_container", return_value=True),
+            patch("egg_lib.gha_exec.exec_in_new_container", return_value=False),
         ):
             from egg_lib.gha_exec import gha_exec
 
@@ -148,9 +133,7 @@ class TestGhaExecFailurePaths:
             patch("egg_lib.gha_exec.RuntimeContext"),
             patch("egg_lib.gha_exec.set_context"),
             patch("egg_lib.gha_exec.set_quiet_mode"),
-            patch(
-                "egg_lib.docker.ensure_gateway_networks", return_value=False
-            ),
+            patch("egg_lib.docker.ensure_gateway_networks", return_value=False),
         ):
             from egg_lib.gha_exec import gha_exec
 
@@ -162,12 +145,8 @@ class TestGhaExecFailurePaths:
             patch("egg_lib.gha_exec.RuntimeContext"),
             patch("egg_lib.gha_exec.set_context"),
             patch("egg_lib.gha_exec.set_quiet_mode"),
-            patch(
-                "egg_lib.docker.ensure_gateway_networks", return_value=True
-            ),
-            patch(
-                "egg_lib.gateway.start_gateway_container", return_value=False
-            ),
+            patch("egg_lib.docker.ensure_gateway_networks", return_value=True),
+            patch("egg_lib.gateway.start_gateway_container", return_value=False),
         ):
             from egg_lib.gha_exec import gha_exec
 
@@ -179,12 +158,8 @@ class TestGhaExecFailurePaths:
             patch("egg_lib.gha_exec.RuntimeContext"),
             patch("egg_lib.gha_exec.set_context"),
             patch("egg_lib.gha_exec.set_quiet_mode"),
-            patch(
-                "egg_lib.docker.ensure_gateway_networks", return_value=True
-            ),
-            patch(
-                "egg_lib.gateway.start_gateway_container", return_value=True
-            ),
+            patch("egg_lib.docker.ensure_gateway_networks", return_value=True),
+            patch("egg_lib.gateway.start_gateway_container", return_value=True),
             patch("egg_lib.gha_exec.exec_in_new_container") as mock_exec,
         ):
             from egg_lib.gha_exec import gha_exec
@@ -209,15 +184,9 @@ class TestGhaExecModeAndCommand:
             patch("egg_lib.gha_exec.RuntimeContext"),
             patch("egg_lib.gha_exec.set_context"),
             patch("egg_lib.gha_exec.set_quiet_mode"),
-            patch(
-                "egg_lib.docker.ensure_gateway_networks", return_value=True
-            ),
-            patch(
-                "egg_lib.gateway.start_gateway_container", return_value=True
-            ),
-            patch(
-                "egg_lib.gha_exec.exec_in_new_container", return_value=True
-            ) as mock_exec,
+            patch("egg_lib.docker.ensure_gateway_networks", return_value=True),
+            patch("egg_lib.gateway.start_gateway_container", return_value=True),
+            patch("egg_lib.gha_exec.exec_in_new_container", return_value=True) as mock_exec,
         ):
             from egg_lib.gha_exec import gha_exec
 
@@ -235,15 +204,9 @@ class TestGhaExecModeAndCommand:
             patch("egg_lib.gha_exec.RuntimeContext"),
             patch("egg_lib.gha_exec.set_context"),
             patch("egg_lib.gha_exec.set_quiet_mode"),
-            patch(
-                "egg_lib.docker.ensure_gateway_networks", return_value=True
-            ),
-            patch(
-                "egg_lib.gateway.start_gateway_container", return_value=True
-            ),
-            patch(
-                "egg_lib.gha_exec.exec_in_new_container", return_value=True
-            ) as mock_exec,
+            patch("egg_lib.docker.ensure_gateway_networks", return_value=True),
+            patch("egg_lib.gateway.start_gateway_container", return_value=True),
+            patch("egg_lib.gha_exec.exec_in_new_container", return_value=True) as mock_exec,
         ):
             from egg_lib.gha_exec import gha_exec
 
@@ -260,15 +223,9 @@ class TestGhaExecModeAndCommand:
             patch("egg_lib.gha_exec.RuntimeContext"),
             patch("egg_lib.gha_exec.set_context"),
             patch("egg_lib.gha_exec.set_quiet_mode"),
-            patch(
-                "egg_lib.docker.ensure_gateway_networks", return_value=True
-            ),
-            patch(
-                "egg_lib.gateway.start_gateway_container", return_value=True
-            ),
-            patch(
-                "egg_lib.gha_exec.exec_in_new_container", return_value=True
-            ) as mock_exec,
+            patch("egg_lib.docker.ensure_gateway_networks", return_value=True),
+            patch("egg_lib.gateway.start_gateway_container", return_value=True),
+            patch("egg_lib.gha_exec.exec_in_new_container", return_value=True) as mock_exec,
         ):
             from egg_lib.gha_exec import gha_exec
 
@@ -285,15 +242,9 @@ class TestGhaExecModeAndCommand:
             patch("egg_lib.gha_exec.RuntimeContext"),
             patch("egg_lib.gha_exec.set_context"),
             patch("egg_lib.gha_exec.set_quiet_mode"),
-            patch(
-                "egg_lib.docker.ensure_gateway_networks", return_value=True
-            ),
-            patch(
-                "egg_lib.gateway.start_gateway_container", return_value=True
-            ),
-            patch(
-                "egg_lib.gha_exec.exec_in_new_container", return_value=True
-            ) as mock_exec,
+            patch("egg_lib.docker.ensure_gateway_networks", return_value=True),
+            patch("egg_lib.gateway.start_gateway_container", return_value=True),
+            patch("egg_lib.gha_exec.exec_in_new_container", return_value=True) as mock_exec,
         ):
             from egg_lib.gha_exec import gha_exec
 
@@ -328,15 +279,9 @@ class TestGhaExecExtraEnv:
             patch("egg_lib.gha_exec.RuntimeContext"),
             patch("egg_lib.gha_exec.set_context"),
             patch("egg_lib.gha_exec.set_quiet_mode"),
-            patch(
-                "egg_lib.docker.ensure_gateway_networks", return_value=True
-            ),
-            patch(
-                "egg_lib.gateway.start_gateway_container", return_value=True
-            ),
-            patch(
-                "egg_lib.gha_exec.exec_in_new_container", return_value=True
-            ) as mock_exec,
+            patch("egg_lib.docker.ensure_gateway_networks", return_value=True),
+            patch("egg_lib.gateway.start_gateway_container", return_value=True),
+            patch("egg_lib.gha_exec.exec_in_new_container", return_value=True) as mock_exec,
         ):
             from egg_lib.gha_exec import gha_exec
 
@@ -359,15 +304,9 @@ class TestGhaExecExtraEnv:
             patch("egg_lib.gha_exec.RuntimeContext"),
             patch("egg_lib.gha_exec.set_context"),
             patch("egg_lib.gha_exec.set_quiet_mode"),
-            patch(
-                "egg_lib.docker.ensure_gateway_networks", return_value=True
-            ),
-            patch(
-                "egg_lib.gateway.start_gateway_container", return_value=True
-            ),
-            patch(
-                "egg_lib.gha_exec.exec_in_new_container", return_value=True
-            ) as mock_exec,
+            patch("egg_lib.docker.ensure_gateway_networks", return_value=True),
+            patch("egg_lib.gateway.start_gateway_container", return_value=True),
+            patch("egg_lib.gha_exec.exec_in_new_container", return_value=True) as mock_exec,
         ):
             from egg_lib.gha_exec import gha_exec
 

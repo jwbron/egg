@@ -14,12 +14,9 @@ own test modules.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 from models import AgentRole, Pipeline, PipelineMode
 from pydantic import ValidationError
-
 
 # ---------------------------------------------------------------------------
 # PipelineMode.CUSTOM enum value
@@ -180,9 +177,7 @@ class TestActiveRolesValidation:
                 mode=PipelineMode.CUSTOM,
                 active_roles=["bogus_role"],
             )
-        assert "unknown" in str(exc.value).lower() or "agentrole" in str(
-            exc.value
-        ).lower()
+        assert "unknown" in str(exc.value).lower() or "agentrole" in str(exc.value).lower()
 
     def test_multiple_unknown_roles_listed(self):
         """Error message must list every invalid entry, not just the
