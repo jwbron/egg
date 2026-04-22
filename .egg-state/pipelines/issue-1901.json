@@ -263,10 +263,45 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Yes — fix the '**/tests/' directory pattern matching as part of this issue (coder would then be strictly blocked from any file under a tests/ subdirectory)\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "The '.egg/phase-permissions.json' file has a separate 'file_restrictions' section (role='implementer', blocked_patterns=['.egg-state/contracts/']) enforced by gateway/phase_filter.py::check_file_restrictions. Is that role-based phase restriction expected to stay as-is, or should it also reflect the new three-role model (e.g., split into coder/tester/documenter)?",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "Comment in shared/egg_container/__init__.py:131 says _IMPLEMENT_READONLY_DIRS 'Must stay in sync with .egg/phase-permissions.json blocked_patterns for implement'. After this rewrite, which file is authoritative, and should the container side be simplified to derive its readonly dirs from the blocklist (rather than hardcoded)?",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "Under the new model, coder gains write access to any new top-level path or file type — including hypothetical .egg-state/ subdirs that don't exist yet. Are there future .egg-state/ subdirectories you'd want coder pre-emptively blocked from (e.g., a future '.egg-state/secrets/')?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "Currently CODER_PATTERNS.allowed_patterns includes 'skills/' (a directory prefix), while DOCUMENTER_PATTERNS blocks '**/*.md' implicitly. Under the new blocklist-complement model, should 'skills/' .md files still be coder-owned (as today) or are they documenter-owned? (SKILL.md is arguably functional code describing agent behavior, but it's still markdown.)",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-04-22T23:48:10.975969Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-22T23:25:22.973469Z",
-  "updated_at": "2026-04-22T23:48:08.045931Z",
+  "updated_at": "2026-04-22T23:48:10.982366Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -279,5 +314,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22
+  "version": 23
 }
