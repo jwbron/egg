@@ -95,7 +95,8 @@ def _capture_and_cleanup_session(
     Falls back to immediate cleanup if checkpoint capture is unavailable.
 
     Uses a per-container deduplication guard to prevent multiple captures from
-    racing code paths (delete_session, cleanup_orphaned_worktrees, prune_expired).
+    racing code paths (delete_session, cleanup_orphaned_worktrees, prune_expired,
+    prune_idle).
 
     Returns:
         The completion event from async checkpoint storage, or None if capture
@@ -997,7 +998,7 @@ class SessionManager:
 
     def prune_idle_sessions(
         self,
-        idle_timeout_minutes: int = DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES,
+        idle_timeout_minutes: float = DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES,
     ) -> int:
         """Remove sessions whose ``last_seen`` is older than the idle threshold.
 
@@ -1073,8 +1074,8 @@ class SessionManager:
 
     def start_background_pruner(
         self,
-        interval_minutes: int = DEFAULT_CLEANUP_INTERVAL_MINUTES,
-        idle_timeout_minutes: int = DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES,
+        interval_minutes: float = DEFAULT_CLEANUP_INTERVAL_MINUTES,
+        idle_timeout_minutes: float = DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES,
     ) -> None:
         """Start a daemon thread that periodically prunes expired + idle sessions.
 
