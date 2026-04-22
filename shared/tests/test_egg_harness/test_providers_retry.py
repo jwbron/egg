@@ -132,7 +132,7 @@ class TestRetryProviderSuccess:
 
 class TestRetryProviderRetryableErrors:
     @pytest.mark.anyio
-    @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
+    @patch("egg_harness.providers.retry._sleep", new_callable=AsyncMock)
     async def test_retries_on_429(self, mock_sleep):
         inner = _make_inner_provider(
             [
@@ -146,7 +146,7 @@ class TestRetryProviderRetryableErrors:
         mock_sleep.assert_called_once()
 
     @pytest.mark.anyio
-    @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
+    @patch("egg_harness.providers.retry._sleep", new_callable=AsyncMock)
     async def test_retries_on_500(self, mock_sleep):
         inner = _make_inner_provider(
             [
@@ -159,7 +159,7 @@ class TestRetryProviderRetryableErrors:
         assert len(events) == 3
 
     @pytest.mark.anyio
-    @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
+    @patch("egg_harness.providers.retry._sleep", new_callable=AsyncMock)
     async def test_retries_on_502_503_504(self, mock_sleep):
         for code in (502, 503, 504):
             inner = _make_inner_provider(
@@ -173,7 +173,7 @@ class TestRetryProviderRetryableErrors:
             assert len(events) == 3
 
     @pytest.mark.anyio
-    @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
+    @patch("egg_harness.providers.retry._sleep", new_callable=AsyncMock)
     async def test_retries_on_connection_error(self, mock_sleep):
         inner = _make_inner_provider(
             [
@@ -186,7 +186,7 @@ class TestRetryProviderRetryableErrors:
         assert len(events) == 3
 
     @pytest.mark.anyio
-    @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
+    @patch("egg_harness.providers.retry._sleep", new_callable=AsyncMock)
     async def test_retries_on_read_timeout(self, mock_sleep):
         inner = _make_inner_provider(
             [
@@ -199,7 +199,7 @@ class TestRetryProviderRetryableErrors:
         assert len(events) == 3
 
     @pytest.mark.anyio
-    @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
+    @patch("egg_harness.providers.retry._sleep", new_callable=AsyncMock)
     async def test_retry_succeeds_after_transient_failure(self, mock_sleep):
         inner = _make_inner_provider(
             [
@@ -214,7 +214,7 @@ class TestRetryProviderRetryableErrors:
         assert mock_sleep.call_count == 2
 
     @pytest.mark.anyio
-    @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
+    @patch("egg_harness.providers.retry._sleep", new_callable=AsyncMock)
     async def test_max_retries_exhausted_raises(self, mock_sleep):
         err = _make_http_status_error(429)
         inner = _make_inner_provider([err, err, err, err])
@@ -319,7 +319,7 @@ class TestRetryProviderCircuitBreaker:
             await _collect_events(retry)
 
     @pytest.mark.anyio
-    @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
+    @patch("egg_harness.providers.retry._sleep", new_callable=AsyncMock)
     async def test_retryable_errors_do_not_increment_circuit(self, mock_sleep):
         inner = _make_inner_provider(
             [
@@ -341,7 +341,7 @@ class TestRetryProviderCircuitBreaker:
 class TestExponentialBackoff:
     @pytest.mark.anyio
     @patch("egg_harness.providers.retry.random.uniform", return_value=0.5)
-    @patch("egg_harness.providers.retry.asyncio.sleep", new_callable=AsyncMock)
+    @patch("egg_harness.providers.retry._sleep", new_callable=AsyncMock)
     async def test_backoff_increases_with_attempts(self, mock_sleep, mock_random):
         err = _make_http_status_error(429)
         inner = _make_inner_provider([err, err, err, _make_events()])

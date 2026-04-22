@@ -18,14 +18,18 @@ sys.modules.setdefault("docker", MagicMock())
 sys.modules.setdefault("docker.errors", MagicMock())
 sys.modules.setdefault("docker.types", MagicMock())
 
+from gateway_client import PushResult
 from routes.pipelines import _sync_worktree_with_remote
+
+_PUSH_OK = PushResult(ok=True, category="", detail="")
+_PUSH_FAIL = PushResult(ok=False, category="test", detail="mock failure")
 
 
 def _make_spawner(fetch_ok: bool = True, push_ok: bool = True) -> MagicMock:
     """Create a mock spawner with gateway.fetch_worktree_branch."""
     spawner = MagicMock()
     spawner.gateway.fetch_worktree_branch.return_value = fetch_ok
-    spawner.gateway.push_worktree_branch.return_value = push_ok
+    spawner.gateway.push_worktree_branch.return_value = _PUSH_OK if push_ok else _PUSH_FAIL
     return spawner
 
 
