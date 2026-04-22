@@ -801,15 +801,29 @@ class KubernetesSpawner:
             if role_label and isinstance(role_label, str):
                 worktree_ids_to_clean.add(f"{pipeline_id}-{role_label}")
 
-        # Also scan filesystem for any per-agent worktrees
+        # Also scan filesystem for any per-agent worktrees.  Only match
+        # entries that are either the pipeline-level worktree or a
+        # "{pipeline_id}-{role}" directory where {role} is a known
+        # AgentRole value.  A naive `startswith(f"{pipeline_id}-")`
+        # collides with longer pipeline IDs that share the prefix — e.g.
+        # cleanup of `issue-1758` would match active worktrees of
+        # `issue-1758-worktree-fix-tester`, wiping another pipeline's
+        # state mid-phase (#1865).
         if WORKTREE_BASE_DIR.exists():
-            prefix = f"{pipeline_id}-"
+            valid_suffixes = {f"-{role.value}" for role in AgentRole}
             try:
                 for entry in WORKTREE_BASE_DIR.iterdir():
-                    if entry.is_dir() and (
-                        entry.name == pipeline_id or entry.name.startswith(prefix)
-                    ):
-                        worktree_ids_to_clean.add(entry.name)
+                    if not entry.is_dir():
+                        continue
+                    name = entry.name
+                    if name == pipeline_id:
+                        worktree_ids_to_clean.add(name)
+                        continue
+                    if not name.startswith(pipeline_id):
+                        continue
+                    suffix = name[len(pipeline_id) :]
+                    if suffix in valid_suffixes:
+                        worktree_ids_to_clean.add(name)
             except Exception as e:
                 logger.warning(
                     "Filesystem worktree scan failed during cleanup",
