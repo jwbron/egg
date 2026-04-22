@@ -10,6 +10,7 @@ from kubernetes_spawner import (
     KubernetesSpawner,
     KubernetesSpawnError,
     SpawnedContainer,
+    SpawnFailureError,
     _host_to_local_volumes,
     get_kubernetes_spawner,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "ContainerSpawner",
     "ContainerSpawnError",
     "SpawnedContainer",
+    "SpawnFailureError",
     "WORKTREE_BASE_DIR",
     "_host_to_local_volumes",
     "get_container_spawner",

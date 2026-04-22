@@ -1074,6 +1074,22 @@ class KubernetesSpawnError(Exception):
     pass
 
 
+class SpawnFailureError(KubernetesSpawnError):
+    """Raised when one or more agents fail to spawn in a concurrent phase.
+
+    Subclasses KubernetesSpawnError (which is aliased as ContainerSpawnError)
+    so existing ``except (ContainerSpawnError, KubernetesSpawnError)`` handlers
+    catch it without modification. The message distinguishes spawn-time
+    failures from container exits so ``pipeline.error`` is accurate.
+    """
+
+    def __init__(self, failures: list[tuple[str, str | None]]) -> None:
+        self.failures = failures
+        parts = [f"{role}: {reason or 'unknown error'}" for role, reason in failures]
+        roles_csv = ", ".join(role for role, _ in failures)
+        super().__init__(f"Spawn failed for {roles_csv} — {'; '.join(parts)}")
+
+
 # Singleton spawner instance
 _spawner: KubernetesSpawner | None = None
 
