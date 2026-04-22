@@ -14,7 +14,7 @@ The diagnostic surface landed as two complementary skills:
 | [`/deployment-diagnose`](../../skills/deployment-diagnose/SKILL.md) | Control plane: `egg-orchestrator` + `egg-gateway` Deployments in `egg-system` | Control plane unreachable, unhealthy, or rolling restarts; `make deploy` seemingly succeeded but something is off |
 | [`/agent-diagnose`](../../skills/agent-diagnose/SKILL.md) | A single agent Pod in `egg-agents` | An agent Pod exited non-zero and the pipeline is stuck or failed |
 
-Both skills compose the five MCP tools from
+Both skills compose the six MCP tools from
 [`docs/reference/mcp-deployment-tools.md`](../reference/mcp-deployment-tools.md)
 with existing MCP primitives (`check_health`, `list_containers`,
 `get_container_logs`) into a single evidence chain — so you do not have to
