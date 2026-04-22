@@ -31,11 +31,12 @@ Why three-dot alone doesn't fix it: `git diff A...HEAD` expands to `git diff $(g
 ## Constraints
 
 - **Shallow checkouts in GHA.** The PR-code checkout in `.github/workflows/reusable-review.yml:496-501` uses `actions/checkout@v4` with default depth. `origin/<base>` may not be present without an explicit `git fetch origin <base>`. The new prompt must instruct the reviewer to fetch, or the command will fail.
-- **Orchestrator worktrees already maintain `origin/<base>`.** Cycle-1 prompts rely on this today (line 3299), so the orchestrator-side fix does not need additional fetching plumbing.
-- **Non-default base branches.** The GHA scripts currently hard-code no base awareness. `reusable-review.yml` must plumb the real base ref through an env var so PRs targeting anything other than `main` still work correctly.
+- **Orchestrator worktrees already maintain `origin/<base>`.** Cycle-1 prompts rely on this today (line 3299), so the orchestrator-side fix does not *require* additional fetching plumbing. (Whether to add a `git fetch origin <base>` nudge anyway for defence-in-depth symmetry with the GHA fix is decision-2 below.)
+- **Non-default base branches.** The GHA shell scripts currently hard-code no base-branch awareness. The fix adds a `BASE_REF` env var to the scripts; the *workflow* (`reusable-review.yml`, not consumer workflows) owns plumbing the real base ref through its existing `pr-meta` step. Consumer workflows (`on-pull-request*.yml`) are unchanged.
 - **Trusted-main checkout for prompt building** (`reusable-review.yml:481-485`). The prompt-building step runs from `main`, so any change to the shell scripts is picked up via the trusted-main checkout — there's no PR-checkout-only attack surface.
 - **Backwards compatibility.** GHA reviewer bots are already deployed in production; any change must not break PR reviews already mid-flight. The change is additive (new `BASE_REF` env var with `main` default) so deployed workflows continue to function during the rollout window.
-- **Cycle-1 full-PR reviews stay untouched.** Only the `is_delta_review` / re-review code path changes.
+- **Cycle-1 full-PR reviews stay untouched.** Only the `is_delta_review` / re-review code path changes. Note that `is_delta_review` at `pipelines.py:3294` also requires `last_reviewed_commit` truthy; cycle > 1 with a missing marker correctly falls back to the three-dot full-PR form.
+- **Output size scales with commit count.** `git log -p` output grows linearly with the number of PR-authored commits in the delta window. In practice re-review windows are small (1–10 commits); for very long-running PRs this could produce verbose output (see feedback Q2 for whether to cap this).
 
 ## Options Considered
 
