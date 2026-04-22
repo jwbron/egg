@@ -80,6 +80,21 @@ class TestHealthEndpoint:
         data = json.loads(response.data)
         assert "status" in data
 
+    def test_health_exposes_readiness_history(self, client):
+        """Gateway /health surfaces the issue #1855 readiness-history fields."""
+        response = client.get("/api/v1/health")
+        data = json.loads(response.data)
+
+        for field in (
+            "process_start_time",
+            "healthy_since",
+            "last_unhealthy_at",
+            "recent_transitions",
+        ):
+            assert field in data, f"missing {field} in gateway health response"
+        assert isinstance(data["recent_transitions"], list)
+        assert data["process_start_time"] is not None
+
 
 class TestGitExecuteEndpoint:
     """Tests for /api/v1/git/execute endpoint."""

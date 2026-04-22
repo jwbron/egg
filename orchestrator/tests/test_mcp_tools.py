@@ -41,9 +41,29 @@ def _mock_gateway_health_response(data):
 
 class TestCheckHealth:
     def test_both_healthy(self, handler):
-        mock_opener = _mock_gateway_health_response({"status": "healthy", "version": "1.0"})
+        mock_opener = _mock_gateway_health_response(
+            {
+                "status": "healthy",
+                "version": "1.0",
+                "healthy_since": "2026-04-22T03:42:15+00:00",
+                "last_unhealthy_at": "2026-04-22T03:42:14+00:00",
+                "process_start_time": "2026-04-22T03:42:00+00:00",
+                "recent_transitions": [
+                    {"ts": "2026-04-22T03:42:14+00:00", "state": "unhealthy"},
+                    {"ts": "2026-04-22T03:42:15+00:00", "state": "healthy"},
+                ],
+            }
+        )
         with patch.object(handler, "_make_request") as mock_req:
-            mock_req.return_value = {"status": "healthy"}
+            mock_req.return_value = {
+                "status": "healthy",
+                "healthy_since": "2026-04-22T03:41:00+00:00",
+                "last_unhealthy_at": None,
+                "process_start_time": "2026-04-22T03:41:00+00:00",
+                "recent_transitions": [
+                    {"ts": "2026-04-22T03:41:00+00:00", "state": "healthy"},
+                ],
+            }
             with patch("urllib.request.build_opener", return_value=mock_opener):
                 result = handler.handle_tool_call("check_health", {})
 
@@ -51,6 +71,13 @@ class TestCheckHealth:
         assert result["orchestrator"]["healthy"] is True
         assert result["gateway"]["healthy"] is True
         assert result["gateway"]["version"] == "1.0"
+
+        # Readiness history flows through per issue #1855.
+        assert result["orchestrator"]["healthy_since"] == "2026-04-22T03:41:00+00:00"
+        assert result["orchestrator"]["last_unhealthy_at"] is None
+        assert result["gateway"]["healthy_since"] == "2026-04-22T03:42:15+00:00"
+        assert result["gateway"]["last_unhealthy_at"] == "2026-04-22T03:42:14+00:00"
+        assert len(result["gateway"]["recent_transitions"]) == 2
 
     def test_orchestrator_unreachable(self, handler):
         mock_opener = _mock_gateway_health_response({"status": "healthy", "version": "1.0"})
@@ -61,6 +88,11 @@ class TestCheckHealth:
         assert result["healthy"] is False
         assert result["orchestrator"]["healthy"] is False
         assert "unreachable" in result["orchestrator"]["status"]
+        # Unreachable services report null history fields so callers can
+        # distinguish "no data" from "observed unhealthy".
+        assert result["orchestrator"]["healthy_since"] is None
+        assert result["orchestrator"]["last_unhealthy_at"] is None
+        assert result["orchestrator"]["recent_transitions"] == []
 
     def test_gateway_unreachable(self, handler):
         with patch.object(handler, "_make_request") as mock_req:
@@ -75,6 +107,9 @@ class TestCheckHealth:
         assert result["orchestrator"]["healthy"] is True
         assert result["gateway"]["healthy"] is False
         assert "unreachable" in result["gateway"]["status"]
+        assert result["gateway"]["healthy_since"] is None
+        assert result["gateway"]["last_unhealthy_at"] is None
+        assert result["gateway"]["recent_transitions"] == []
 
 
 class TestListContainers:

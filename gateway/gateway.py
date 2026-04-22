@@ -53,7 +53,13 @@ from waitress import serve
 _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists():
     sys.path.insert(0, str(_shared_path))
+from egg_health import HealthTracker
 from egg_logging import get_logger
+
+# Module-level health tracker. Updated every time the /api/v1/health
+# endpoint is evaluated so callers can distinguish "healthy since process
+# start" from "just came up / recent flapping" (see issue #1855).
+_health_tracker = HealthTracker()
 
 # Import gateway modules - try relative import first (module mode),
 # fall back to absolute import (standalone script mode in container)
@@ -589,6 +595,11 @@ def health_check() -> Response:
     # verified the Python gateway (port 9848), not Squid (port 3129).
     # See: https://github.com/jwbron/egg/issues/1387
     is_healthy = token_valid and launcher_secret_configured and squid_status["listening"]
+
+    # Record this observation so the snapshot can expose transitions (see #1855).
+    _health_tracker.record(is_healthy)
+    tracker_snapshot = _health_tracker.snapshot()
+
     response_data: dict[str, Any] = {
         "status": "healthy" if is_healthy else "degraded",
         "github_token_valid": token_valid,
@@ -597,6 +608,10 @@ def health_check() -> Response:
         "active_sessions": active_sessions,
         "service": "gateway",
         "client_ip": request.remote_addr,
+        "process_start_time": tracker_snapshot["process_start_time"],
+        "healthy_since": tracker_snapshot["healthy_since"],
+        "last_unhealthy_at": tracker_snapshot["last_unhealthy_at"],
+        "recent_transitions": tracker_snapshot["recent_transitions"],
     }
 
     # Include orchestrator status if configured
