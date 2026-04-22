@@ -8,6 +8,7 @@ reconciliation, and singleton management.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -633,8 +634,13 @@ class TestReconcilePodState:
         assert result is False
         store.save_pipeline.assert_not_called()
 
-    def test_reconcile_skips_non_running_pipelines(self):
-        """_reconcile_pod_state skips pipelines that are not RUNNING."""
+    def test_reconcile_skips_terminal_pipeline_with_no_running_records(self):
+        """Terminal pipelines with no stale RUNNING records are a cheap no-op.
+
+        Regression guard for the optimization in #1840's fix: we still
+        short-circuit terminal pipelines when there's nothing to clean
+        up — the common case.
+        """
         from kubernetes_monitor import _reconcile_pod_state
         from models import Pipeline, PipelinePhase, PipelineStatus
 
@@ -662,6 +668,142 @@ class TestReconcilePodState:
             result = _reconcile_pod_state(store, container_info)
 
         assert result is False
+        store.save_pipeline.assert_not_called()
+
+    def test_reconcile_failed_pipeline_with_stale_records_updates_records_only(self):
+        """FAILED pipelines with stale RUNNING records get records reconciled.
+
+        #1840: the old RUNNING-only guard dropped pod-exit events on
+        terminal pipelines, leaving agent/container records stuck at
+        RUNNING forever. The fix reconciles records underneath but
+        preserves the pipeline's terminal status.
+        """
+        from kubernetes_monitor import _reconcile_pod_state
+        from models import (
+            AgentExecution,
+            AgentExecutionStatus,
+            PhaseExecution,
+            Pipeline,
+            PipelinePhase,
+            PipelineStatus,
+        )
+
+        container_info = ContainerInfo(
+            container_id="uid-1",
+            container_name="job-1",
+            status=ContainerStatus.FAILED,
+            exit_code=1,
+            exited_at=datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC),
+        )
+
+        agent = AgentExecution(
+            role="coder",
+            status=AgentExecutionStatus.RUNNING,
+            container_id="uid-1",
+        )
+        ci = ContainerInfo(
+            container_id="uid-1",
+            container_name="job-1",
+            status=ContainerStatus.RUNNING,
+        )
+        phase_exec = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            status=PipelineStatus.RUNNING,
+            agents=[agent],
+            containers=[ci],
+        )
+        pipeline = Pipeline(
+            id="pipe-1",
+            issue_number=1,
+            repo="owner/repo",
+            status=PipelineStatus.FAILED,
+            current_phase=PipelinePhase.IMPLEMENT,
+            phases={"implement": phase_exec},
+        )
+        original_error = pipeline.error
+
+        store = self._make_mock_store(pipeline)
+
+        with patch("state_store.get_pipeline_state_lock") as mock_lock:
+            mock_lock.return_value.__enter__ = MagicMock()
+            mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+            result = _reconcile_pod_state(store, container_info)
+
+        assert result is True
+        store.save_pipeline.assert_called_once()
+        saved = store.save_pipeline.call_args[0][0]
+        # Records reconciled.
+        assert saved.phases["implement"].agents[0].status == AgentExecutionStatus.FAILED
+        assert saved.phases["implement"].containers[0].status == ContainerStatus.FAILED
+        # Pipeline's top-level status preserved — FAILED is terminal once set.
+        assert saved.status == PipelineStatus.FAILED
+        assert saved.error == original_error
+
+    def test_reconcile_awaiting_human_pipeline_preserves_status(self):
+        """AWAITING_HUMAN pipelines with stale RUNNING records reconcile records only.
+
+        #1840: the pipeline's top-level status must not be flipped to
+        FAILED by reconciliation — that decision belongs to the human
+        gate, not the monitor.
+        """
+        from kubernetes_monitor import _reconcile_pod_state
+        from models import (
+            AgentExecution,
+            AgentExecutionStatus,
+            PhaseExecution,
+            Pipeline,
+            PipelinePhase,
+            PipelineStatus,
+        )
+
+        container_info = ContainerInfo(
+            container_id="uid-1",
+            container_name="job-1",
+            status=ContainerStatus.FAILED,
+            exit_code=1,
+            exited_at=datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC),
+        )
+
+        agent = AgentExecution(
+            role="coder",
+            status=AgentExecutionStatus.RUNNING,
+            container_id="uid-1",
+        )
+        ci = ContainerInfo(
+            container_id="uid-1",
+            container_name="job-1",
+            status=ContainerStatus.RUNNING,
+        )
+        phase_exec = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            status=PipelineStatus.RUNNING,
+            agents=[agent],
+            containers=[ci],
+        )
+        pipeline = Pipeline(
+            id="pipe-1",
+            issue_number=1,
+            repo="owner/repo",
+            status=PipelineStatus.AWAITING_HUMAN,
+            current_phase=PipelinePhase.IMPLEMENT,
+            phases={"implement": phase_exec},
+        )
+
+        store = self._make_mock_store(pipeline)
+
+        with patch("state_store.get_pipeline_state_lock") as mock_lock:
+            mock_lock.return_value.__enter__ = MagicMock()
+            mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+            result = _reconcile_pod_state(store, container_info)
+
+        assert result is True
+        saved = store.save_pipeline.call_args[0][0]
+        assert saved.phases["implement"].agents[0].status == AgentExecutionStatus.FAILED
+        assert saved.phases["implement"].containers[0].status == ContainerStatus.FAILED
+        # AWAITING_HUMAN preserved — only the human gate can transition it.
+        assert saved.status == PipelineStatus.AWAITING_HUMAN
 
 
 # ---------------------------------------------------------------------------
@@ -778,6 +920,7 @@ class TestReconciliationSweep:
         container_id: str,
         ci_status: ContainerStatus = ContainerStatus.RUNNING,
         agent_started_at: datetime | None = None,
+        pipeline_status: Any = None,
     ):
         from models import (
             AgentExecution,
@@ -809,7 +952,7 @@ class TestReconciliationSweep:
             id="pipe-1",
             issue_number=1,
             repo="owner/repo",
-            status=PipelineStatus.RUNNING,
+            status=pipeline_status or PipelineStatus.RUNNING,
             current_phase=PipelinePhase.IMPLEMENT,
             phases={"implement": phase_exec},
         )
@@ -1010,6 +1153,79 @@ class TestReconciliationSweep:
         store.save_pipeline.assert_called_once()
         saved = store.save_pipeline.call_args[0][0]
         assert saved.status == PipelineStatus.FAILED
+
+    def test_sweep_reconciles_stale_records_on_failed_pipeline(self, monitor, mock_k8s_client):
+        """Periodic sweep cleans up stale RUNNING records on FAILED pipelines.
+
+        #1840: once a pipeline went FAILED, the sweep skipped it
+        entirely, so any agent record stuck at RUNNING (e.g. from an
+        aborted cleanup path) survived forever.
+        """
+        from models import AgentExecutionStatus, PipelineStatus
+
+        mock_k8s_client.list_containers.return_value = []
+        mock_k8s_client.list_jobs.return_value = []
+        mock_k8s_client.get_container_info.side_effect = PodNotFoundError("gone")
+        spawned_long_ago = datetime.now(UTC).replace(year=2024)
+        _, store = self._make_pipeline(
+            container_id="job-uid-1",
+            agent_started_at=spawned_long_ago,
+            pipeline_status=PipelineStatus.FAILED,
+        )
+        monitor._reconciliation_stores = [store]
+
+        with patch("state_store.get_pipeline_state_lock") as mock_lock:
+            mock_lock.return_value.__enter__ = MagicMock()
+            mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+            monitor._reconciliation_sweep()
+
+        store.save_pipeline.assert_called_once()
+        saved = store.save_pipeline.call_args[0][0]
+        # Stale agent record cleaned up.
+        assert saved.phases["implement"].agents[0].status == AgentExecutionStatus.FAILED
+        # Pipeline's own terminal status preserved.
+        assert saved.status == PipelineStatus.FAILED
+
+    def test_sweep_skips_terminal_pipeline_with_no_running_records(self, monitor, mock_k8s_client):
+        """Terminal pipelines with no stale RUNNING records remain cheap no-ops."""
+        from models import (
+            PhaseExecution,
+            Pipeline,
+            PipelinePhase,
+            PipelineStatus,
+        )
+
+        mock_k8s_client.list_containers.return_value = []
+        mock_k8s_client.list_jobs.return_value = []
+        mock_k8s_client.get_container_info.side_effect = AssertionError(
+            "should not be called when there are no RUNNING records"
+        )
+
+        phase_exec = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            status=PipelineStatus.COMPLETE,
+            agents=[],
+            containers=[],
+        )
+        pipeline = Pipeline(
+            id="pipe-1",
+            issue_number=1,
+            repo="owner/repo",
+            status=PipelineStatus.COMPLETE,
+            current_phase=PipelinePhase.IMPLEMENT,
+            phases={"implement": phase_exec},
+        )
+        store = MagicMock()
+        store.list_pipelines.return_value = [pipeline.id]
+        store.load_pipeline.return_value = pipeline
+        monitor._reconciliation_stores = [store]
+
+        with patch("state_store.get_pipeline_state_lock") as mock_lock:
+            mock_lock.return_value.__enter__ = MagicMock()
+            mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+            monitor._reconciliation_sweep()
+
+        store.save_pipeline.assert_not_called()
 
     def test_terminal_status_without_exited_at_not_reconciled(self, monitor, mock_k8s_client):
         """A half-populated terminal status (no exited_at) is skipped.

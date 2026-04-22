@@ -429,8 +429,20 @@ class KubernetesMonitor:
                 except Exception:
                     continue
 
-                if pipeline.status != PipelineStatus.RUNNING:
-                    continue
+                # Reconcile stale RUNNING records on non-RUNNING
+                # pipelines too (#1840). Skip terminal pipelines with
+                # nothing to clean up — the common case.
+                if pipeline.status not in (
+                    PipelineStatus.RUNNING,
+                    PipelineStatus.AWAITING_HUMAN,
+                ):
+                    has_running_records = any(
+                        a.status == AgentExecutionStatus.RUNNING
+                        for pe in pipeline.phases.values()
+                        for a in pe.agents
+                    )
+                    if not has_running_records:
+                        continue
 
                 current_phase_key = pipeline.current_phase.value
                 phase_execution = pipeline.phases.get(current_phase_key)
@@ -858,8 +870,27 @@ def _reconcile_pod_state(store: Any, container_info: ContainerInfo) -> bool:
             except Exception:
                 continue
 
-            if pipeline.status != PipelineStatus.RUNNING:
-                continue
+            # Reconcile stale RUNNING agent/container records even on
+            # non-RUNNING pipelines — a pipeline that went FAILED (or
+            # sits at AWAITING_HUMAN) can still have records stuck at
+            # RUNNING from aborted cleanup paths (#1837/#1840).
+            # Optimization: skip terminal pipelines that have nothing
+            # to clean up — the common case.
+            if pipeline.status not in (
+                PipelineStatus.RUNNING,
+                PipelineStatus.AWAITING_HUMAN,
+            ):
+                has_running_records = any(
+                    ci.status == ContainerStatus.RUNNING
+                    for pe in pipeline.phases.values()
+                    for ci in pe.containers
+                ) or any(
+                    a.status == AgentExecutionStatus.RUNNING
+                    for pe in pipeline.phases.values()
+                    for a in pe.agents
+                )
+                if not has_running_records:
+                    continue
 
             changed = False
 
@@ -930,19 +961,25 @@ def _reconcile_pod_state(store: Any, container_info: ContainerInfo) -> bool:
                         changed = True
 
             if changed:
-                pipeline.status = PipelineStatus.FAILED
-                pipeline.error = (
-                    "Pipeline marked FAILED: agent pod exited unexpectedly "
-                    "during execution. Restart via POST /pipelines/{id}/start."
-                )
+                # Only escalate the pipeline's own status when it was
+                # still RUNNING. Terminal states (FAILED/COMPLETE/
+                # CANCELLED) and AWAITING_HUMAN stay as-is — we only
+                # reconciled stale records underneath them.
+                if pipeline.status == PipelineStatus.RUNNING:
+                    pipeline.status = PipelineStatus.FAILED
+                    pipeline.error = (
+                        "Pipeline marked FAILED: agent pod exited unexpectedly "
+                        "during execution. Restart via POST /pipelines/{id}/start."
+                    )
                 try:
                     store.save_pipeline(
                         pipeline,
                         expected_version=pipeline.version,
                     )
                     logger.warning(
-                        "Runtime reconciliation: pipeline marked FAILED",
+                        "Runtime reconciliation: pipeline records updated",
                         pipeline_id=pipeline_id,
+                        pipeline_status=pipeline.status.value,
                     )
                     return True
                 except VersionConflictError:
