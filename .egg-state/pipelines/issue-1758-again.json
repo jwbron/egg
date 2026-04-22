@@ -5,7 +5,7 @@
   "branch": "egg/issue-1758-again",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "cancelled",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -205,7 +205,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-22T19:46:50.833364Z",
-  "updated_at": "2026-04-22T19:47:36.927665Z",
+  "updated_at": "2026-04-22T19:48:32.659514Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -218,5 +218,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 7
+  "version": 8
 }
