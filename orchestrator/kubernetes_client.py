@@ -266,8 +266,8 @@ class KubernetesClient:
         # Resource limits are applied programmatically (no YAML template).
         # Callers can override via ``kwargs["resources"]``.
         resources = kwargs.get("resources") or k8s_client.V1ResourceRequirements(
-            requests={"cpu": "250m", "memory": "384Mi"},
-            limits={"cpu": "1", "memory": "1Gi"},
+            requests={"cpu": "250m", "memory": "512Mi"},
+            limits={"cpu": "2", "memory": "2Gi"},
         )
 
         # Translate host_path_mounts → matched k8s Volumes + VolumeMounts.
