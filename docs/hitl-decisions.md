@@ -230,7 +230,11 @@ In prompt-driven mode (`egg-sdlc`), the HITL checkpoint handler (`sandbox/egg_li
 
 ### Contract Decision Bridge
 
-Contract decisions created by agents via `egg-contract add-decision` are automatically bridged to the phase gate menu in prompt-driven mode. When unanswered decisions exist in the contract JSON, the phase gate displays a `[q] Answer open questions` option that lets humans respond directly from the terminal. Approving a phase gate with unanswered questions triggers a warning prompt.
+Two complementary bridges ensure contract-scoped decisions created by agents via `egg-contract add-decision` / `egg-contract add-feedback` are surfaced to humans:
+
+**Server-side bridge (all modes):** After a phase gate is approved, `_queue_and_await_contract_decisions()` in `orchestrator/routes/pipelines.py` promotes any unresolved contract HITL decisions and feedback into the orchestrator's decision queue. HTTP/MCP callers (e.g., the `/sdlc` skill's Phase 4 handler) receive them as individual `choice` or `feedback` decisions. Once resolved, answers are written back to the contract so implement-phase agents see the human's choices. Without this bridge, contract questions registered via `egg-contract` would be silently dropped when a phase gate was approved, leaving the next phase's agents without the answers they need.
+
+**Client-side bridge (prompt-driven mode only):** In prompt-driven mode, the phase gate menu displays a `[q] Answer open questions` option when unanswered decisions exist in the contract JSON, letting humans respond from the terminal before approving. Approving a phase gate with unanswered questions triggers a warning prompt.
 
 ### Draft Document Display
 
