@@ -11,6 +11,7 @@ from consensus_wrapper import (
     _RECOVERY_USER_PROMPT,
     MAX_CONSENSUS_RESTARTS,
     MAX_READY_POLL_CYCLES,
+    STARTUP_FAILURE_WINDOW_SECONDS,
     TRANSIENT_RESTART_BACKOFF_INITIAL,
     build_consensus_wrapped_command,
 )
@@ -144,6 +145,44 @@ class TestBuildConsensusWrappedCommand:
     def test_transient_crash_constant_value(self):
         """TRANSIENT_RESTART_BACKOFF_INITIAL should be 5 (as specified in plan)."""
         assert TRANSIENT_RESTART_BACKOFF_INITIAL == 5
+
+    def test_is_startup_failure_function_in_script(self):
+        """The wrapper should contain is_startup_failure with exit-1-and-duration gating."""
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        assert "is_startup_failure()" in script
+        assert "STARTUP_FAILURE_WINDOW_SECONDS" in script
+        # Function must compare duration against the window
+        assert 'if [ "$code" -ne 1 ]' in script
+        assert 'if [ "$duration" -lt "$STARTUP_FAILURE_WINDOW_SECONDS" ]' in script
+
+    def test_default_startup_failure_window(self):
+        """Default startup_failure_window_seconds should match module constant."""
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        assert f"STARTUP_FAILURE_WINDOW_SECONDS={STARTUP_FAILURE_WINDOW_SECONDS}" in script
+
+    def test_custom_startup_failure_window(self):
+        """Should support custom startup_failure_window_seconds parameter."""
+        cmd = build_consensus_wrapped_command("Prompt", startup_failure_window_seconds=7)
+        script = cmd[2]
+        assert "STARTUP_FAILURE_WINDOW_SECONDS=7" in script
+
+    def test_agent_duration_tracking_in_script(self):
+        """The wrapper should track agent run duration around each run_agent call."""
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        assert "AGENT_START=$SECONDS" in script
+        assert "AGENT_DURATION=$((SECONDS - AGENT_START))" in script
+        # Both the initial run and the restart-loop run need tracking
+        assert script.count("AGENT_START=$SECONDS") >= 2
+
+    def test_startup_failure_check_in_nonzero_handlers(self):
+        """Both the initial and restart-loop non-zero handlers should call is_startup_failure."""
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        assert script.count('is_startup_failure "$AGENT_EXIT" "$AGENT_DURATION"') >= 2
+        assert "Startup failure" in script
 
     def test_backoff_reset_on_clean_exit(self):
         """The wrapper should reset CRASH_BACKOFF to 0 on clean agent exit."""
@@ -327,7 +366,7 @@ class TestConsensusWrapperBehavior:
             assert "consensus already reached" in result.stderr
 
     def test_nonzero_exit_without_consensus_fails(self):
-        """Non-zero agent exit without consensus should still exit with failure."""
+        """Non-transient, non-startup-window non-zero exit without consensus should still fail."""
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "egg-orch.log")
             # Create mock egg-orch that returns is_complete=false and no agents
@@ -345,12 +384,14 @@ class TestConsensusWrapperBehavior:
                 f.write('  echo "{}"\n')
                 f.write("fi\n")
             os.chmod(mock_orch, 0o755)  # nosec B103
-            self._make_failing_agent(tmpdir, exit_code=1)
+            # Use exit 42: not a signal-transient code, and not exit 1 (so the
+            # startup-failure heuristic does not apply) — must fail fast.
+            self._make_failing_agent(tmpdir, exit_code=42)
 
             cmd = build_consensus_wrapped_command("Do the work", max_restarts=2)
             result = self._run_wrapper_command(cmd, tmpdir)
 
-            assert result.returncode == 1
+            assert result.returncode == 42
             assert "NOT restarting" in result.stderr
 
     def test_nonzero_exit_with_agent_confirmed_exits_cleanly(self):
@@ -917,7 +958,7 @@ class TestConsensusWrapperBehavior:
             assert call_count >= 2
 
     def test_non_transient_nonzero_exit_does_not_restart(self):
-        """Non-transient non-zero exit (e.g. exit 1) should NOT restart."""
+        """Non-transient, non-startup-window non-zero exit (e.g. exit 42) should NOT restart."""
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "egg-orch.log")
             # Create mock egg-orch that returns is_complete=false and no agents
@@ -936,15 +977,18 @@ class TestConsensusWrapperBehavior:
                 f.write('  echo "{}"\n')
                 f.write("fi\n")
             os.chmod(mock_orch, 0o755)  # nosec B103
-            self._make_failing_agent(tmpdir, exit_code=1)
+            # Exit 42 is not a signal-transient code, not exit 1, so it should
+            # bypass both is_transient_crash and is_startup_failure.
+            self._make_failing_agent(tmpdir, exit_code=42)
 
             cmd = build_consensus_wrapped_command("Do the work", max_restarts=2)
             result = self._run_wrapper_command(cmd, tmpdir)
 
-            assert result.returncode == 1
+            assert result.returncode == 42
             assert "NOT restarting" in result.stderr
-            # Should NOT contain transient crash messages
+            # Should NOT contain transient crash or startup failure messages
             assert "Transient crash" not in result.stderr
+            assert "Startup failure" not in result.stderr
 
     def test_transient_crash_exit_255_triggers_restart(self):
         """Bun segfault exit code 255 should also trigger restart."""
@@ -1111,6 +1155,221 @@ class TestConsensusWrapperBehavior:
             with open(claude_log) as f:
                 call_count = f.read().count("---CLAUDE_CALL_START---")
             assert call_count == 3
+
+    def test_startup_failure_exit_1_triggers_restart(self):
+        """Exit 1 within startup window (socket-close on turn 1) should restart."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            claude_log = os.path.join(tmpdir, "claude.log")
+
+            counter_file = os.path.join(tmpdir, "orch_status_count")
+            call_counter = os.path.join(tmpdir, "agent_call_count")
+            mock_orch = os.path.join(tmpdir, "egg-orch")
+
+            # Mock egg-orch: consensus incomplete initially, complete on 3rd call
+            with open(mock_orch, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
+                f.write('if echo "$@" | grep -q "pipeline status"; then\n')
+                f.write("  COUNT=0\n")
+                f.write(f"  if [ -f {shlex.quote(counter_file)} ]; then\n")
+                f.write(f"    COUNT=$(cat {shlex.quote(counter_file)})\n")
+                f.write("  fi\n")
+                f.write("  COUNT=$((COUNT + 1))\n")
+                f.write(f'  echo "$COUNT" > {shlex.quote(counter_file)}\n')
+                f.write('  if [ "$COUNT" -ge 3 ]; then\n')
+                f.write(
+                    '    echo \'{"data": {"concurrent": {"consensus": '
+                    '{"is_complete": true, "agents": {}}}}}\'\n'
+                )
+                f.write("  else\n")
+                f.write(
+                    '    echo \'{"data": {"concurrent": {"consensus": '
+                    '{"is_complete": false, "agents": {}}}}}\'\n'
+                )
+                f.write("  fi\n")
+                f.write('elif echo "$@" | grep -q "message poll"; then\n')
+                f.write('  echo "[]"\n')
+                f.write("else\n")
+                f.write(
+                    '  echo \'{"data": {"concurrent": {"consensus": {"is_complete": false}}}}\'\n'
+                )
+                f.write("fi\n")
+            os.chmod(mock_orch, 0o755)  # nosec B103
+
+            # Mock agent: exits 1 immediately on first call (mimics Agent SDK
+            # surfacing an API socket-close as success=False + exit 1 at turn 1),
+            # then exits 0 on retry.
+            mock_python = os.path.join(tmpdir, "python3")
+            real_python = sys.executable
+            with open(mock_python, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write('if [ "$1" = "-m" ] && [ "$2" = "egg_agent" ]; then\n')
+                f.write("  CALL_COUNT=0\n")
+                f.write(f"  if [ -f {shlex.quote(call_counter)} ]; then\n")
+                f.write(f"    CALL_COUNT=$(cat {shlex.quote(call_counter)})\n")
+                f.write("  fi\n")
+                f.write("  CALL_COUNT=$((CALL_COUNT + 1))\n")
+                f.write(f'  echo "$CALL_COUNT" > {shlex.quote(call_counter)}\n')
+                f.write(f'  echo "---CLAUDE_CALL_START---" >> {shlex.quote(claude_log)}\n')
+                f.write(f'  echo "ARGS: $*" >> {shlex.quote(claude_log)}\n')
+                f.write(f'  echo "---CLAUDE_CALL_END---" >> {shlex.quote(claude_log)}\n')
+                f.write('  if [ "$CALL_COUNT" -eq 1 ]; then\n')
+                f.write("    exit 1\n")  # first-turn API error
+                f.write("  fi\n")
+                f.write("  exit 0\n")
+                f.write("else\n")
+                f.write(f'  exec {shlex.quote(real_python)} "$@"\n')
+                f.write("fi\n")
+            os.chmod(mock_python, 0o755)  # nosec B103
+
+            cmd = build_consensus_wrapped_command(
+                "Do the work", max_restarts=2, transient_backoff_initial=1
+            )
+            result = self._run_wrapper_command(cmd, tmpdir, timeout=30)
+
+            # Should classify exit 1 as a startup failure and retry.
+            assert "Startup failure" in result.stderr
+            assert "likely transient API/network error" in result.stderr
+            assert "NOT restarting" not in result.stderr
+            # Agent called at least twice (initial + restart)
+            with open(claude_log) as f:
+                call_count = f.read().count("---CLAUDE_CALL_START---")
+            assert call_count >= 2
+
+    def test_startup_failure_window_zero_disables_retry(self):
+        """startup_failure_window_seconds=0 disables the heuristic; exit 1 must fail fast."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            mock_orch = os.path.join(tmpdir, "egg-orch")
+            with open(mock_orch, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
+                f.write('if echo "$@" | grep -q "pipeline status"; then\n')
+                f.write(
+                    '  echo \'{"data": {"concurrent": {"consensus": '
+                    '{"is_complete": false, "agents": {}}}}}\'\n'
+                )
+                f.write('elif echo "$@" | grep -q "message poll"; then\n')
+                f.write('  echo "[]"\n')
+                f.write("else\n")
+                f.write('  echo "{}"\n')
+                f.write("fi\n")
+            os.chmod(mock_orch, 0o755)  # nosec B103
+            self._make_failing_agent(tmpdir, exit_code=1)
+
+            cmd = build_consensus_wrapped_command(
+                "Prompt", max_restarts=2, startup_failure_window_seconds=0
+            )
+            result = self._run_wrapper_command(cmd, tmpdir)
+
+            assert result.returncode == 1
+            assert "NOT restarting" in result.stderr
+            assert "Startup failure" not in result.stderr
+
+    def test_startup_failure_respects_max_restarts(self):
+        """Repeated startup failures must hit MAX_RESTARTS and exit, not loop forever."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            claude_log = os.path.join(tmpdir, "claude.log")
+            call_counter = os.path.join(tmpdir, "agent_call_count")
+            mock_orch = os.path.join(tmpdir, "egg-orch")
+            with open(mock_orch, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
+                f.write('if echo "$@" | grep -q "pipeline status"; then\n')
+                f.write(
+                    '  echo \'{"data": {"concurrent": {"consensus": '
+                    '{"is_complete": false, "agents": {}}}}}\'\n'
+                )
+                f.write('elif echo "$@" | grep -q "message poll"; then\n')
+                f.write('  echo "[]"\n')
+                f.write("else\n")
+                f.write('  echo "{}"\n')
+                f.write("fi\n")
+            os.chmod(mock_orch, 0o755)  # nosec B103
+
+            # Agent logs each call, then always exits 1 — persistent API failure.
+            mock_python = os.path.join(tmpdir, "python3")
+            real_python = sys.executable
+            with open(mock_python, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write('if [ "$1" = "-m" ] && [ "$2" = "egg_agent" ]; then\n')
+                f.write("  CALL_COUNT=0\n")
+                f.write(f"  if [ -f {shlex.quote(call_counter)} ]; then\n")
+                f.write(f"    CALL_COUNT=$(cat {shlex.quote(call_counter)})\n")
+                f.write("  fi\n")
+                f.write("  CALL_COUNT=$((CALL_COUNT + 1))\n")
+                f.write(f'  echo "$CALL_COUNT" > {shlex.quote(call_counter)}\n')
+                f.write(f'  echo "---CLAUDE_CALL_START---" >> {shlex.quote(claude_log)}\n')
+                f.write("  exit 1\n")
+                f.write("else\n")
+                f.write(f'  exec {shlex.quote(real_python)} "$@"\n')
+                f.write("fi\n")
+            os.chmod(mock_python, 0o755)  # nosec B103
+
+            cmd = build_consensus_wrapped_command(
+                "Prompt", max_restarts=2, transient_backoff_initial=1
+            )
+            result = self._run_wrapper_command(cmd, tmpdir, timeout=60)
+
+            # Should have exhausted restarts and exited 1 — not looped forever.
+            assert result.returncode == 1
+            assert "Startup failure" in result.stderr
+            assert "Max restarts" in result.stderr or "never reached CONFIRMED" in result.stderr
+            # Agent called 3 times: initial + 2 restarts
+            with open(claude_log) as f:
+                call_count = f.read().count("---CLAUDE_CALL_START---")
+            assert call_count == 3
+
+    def test_startup_failure_after_window_does_not_retry(self):
+        """Exit 1 *after* the startup window should fail fast (genuine post-work error)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            claude_log = os.path.join(tmpdir, "claude.log")
+            mock_orch = os.path.join(tmpdir, "egg-orch")
+            with open(mock_orch, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
+                f.write('if echo "$@" | grep -q "pipeline status"; then\n')
+                f.write(
+                    '  echo \'{"data": {"concurrent": {"consensus": '
+                    '{"is_complete": false, "agents": {}}}}}\'\n'
+                )
+                f.write('elif echo "$@" | grep -q "message poll"; then\n')
+                f.write('  echo "[]"\n')
+                f.write("else\n")
+                f.write('  echo "{}"\n')
+                f.write("fi\n")
+            os.chmod(mock_orch, 0o755)  # nosec B103
+
+            # Agent sleeps past the (shortened) window, then exits 1.
+            # Window=1s; agent sleeps 3s before exiting — well outside the window.
+            mock_python = os.path.join(tmpdir, "python3")
+            real_python = sys.executable
+            with open(mock_python, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write('if [ "$1" = "-m" ] && [ "$2" = "egg_agent" ]; then\n')
+                f.write(f'  echo "---CLAUDE_CALL_START---" >> {shlex.quote(claude_log)}\n')
+                f.write("  sleep 3\n")
+                f.write("  exit 1\n")
+                f.write("else\n")
+                f.write(f'  exec {shlex.quote(real_python)} "$@"\n')
+                f.write("fi\n")
+            os.chmod(mock_python, 0o755)  # nosec B103
+
+            cmd = build_consensus_wrapped_command(
+                "Prompt", max_restarts=2, startup_failure_window_seconds=1
+            )
+            result = self._run_wrapper_command(cmd, tmpdir, timeout=30)
+
+            assert result.returncode == 1
+            assert "NOT restarting" in result.stderr
+            assert "Startup failure" not in result.stderr
+            # Should run only once (no retry on post-window exit 1)
+            with open(claude_log) as f:
+                call_count = f.read().count("---CLAUDE_CALL_START---")
+            assert call_count == 1
 
     def test_non_transient_exit_code_42_does_not_restart(self):
         """Exit code 42 (application error) should NOT be treated as transient."""
