@@ -1,0 +1,303 @@
+# BRC Consensus History — refine phase
+
+Generated: 2026-04-21T20:26:04Z
+Pipeline: issue-1759-v3
+
+### [2026-04-21T20:20:55Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Refine draft for #1759: frames MCP tooling gaps as 5 tools + 2 skills, recommends single-umbrella delivery (Option A) with rebuild_and_rollout and submit_task papercut carved out, registers 7 HITL decisions and 8 feedback questions covering scope decomposition, skill layout, probe-pod design, log persistence, and host-fs safety. Flags a live gateway EGG_ORCHESTRATOR_URL misconfig surfaced in-situ as validation that validate_deployment_manifests is well-scoped.
+
+````yaml
+id: 03f3282d-eb0f-40
+phase: refine
+metadata:
+  payload:
+    summary: 'Refine draft for #1759: frames MCP tooling gaps as 5 tools + 2 skills,
+      recommends single-umbrella delivery (Option A) with rebuild_and_rollout and
+      submit_task papercut carved out, registers 7 HITL decisions and 8 feedback questions
+      covering scope decomposition, skill layout, probe-pod design, log persistence,
+      and host-fs safety. Flags a live gateway EGG_ORCHESTRATOR_URL misconfig surfaced
+      in-situ as validation that validate_deployment_manifests is well-scoped.'
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/1759-analysis.md
+    risk_considered: ''
+    commit_sha: c9bb7601bf9e1699f262e669b6868d9d97a23443
+    files_changed:
+    - .egg-state/drafts/1759-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 1
+  commit_sha: c9bb7601bf9e1699f262e669b6868d9d97a23443
+````
+
+### [2026-04-21T20:23:14Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
+
+
+Reviewed the refine analysis at .egg-state/drafts/1759-analysis.md against agent-mode design guidelines (docs/guides/agent-mode-design.md) and cross-checked the cited surfaces (orchestrator/mcp_tools.py pattern at PIPELINE_TOOLS:64-669 and PipelineToolHandler:672+, skills/ layout, orchestrator/kubernetes_client.py:943-974 singleton, gateway/worktree_manager.py:47 WORKTREE_BASE_DIR, k8s/base/ kustomize tree).
+
+### Agent-design evaluation
+
+The draft's core framing — 'MCP tools for deterministic actions / structured fetches; skills for diagnostic workflows that compose tools + judgment' (lines 18-22) — is itself exactly the tool-vs-orientation distinction docs/guides/agent-mode-design.md calls for. No anti-patterns to flag:
+
+1. **No excessive pre-fetching.** The proposed tools are narrow, deterministic primitives (validate_deployment_manifests, validate_network_isolation, prune_stale_worktrees, get_deployment_context). The skills are described as composing existing primitives, not baking in data. 'the skill should lead with whichever piece of evidence made the failure obvious, not dump everything' (quoted from the issue) is the opposite of pre-fetching.
+
+2. **No structured output for humans.** Both skills are explicitly positioned to produce 'prioritized, human-readable report[s]'. No JSON schema is proposed.
+
+3. **No post-processing pipelines.** Tool outputs feed back to the agent; the agent narrates findings directly.
+
+4. **'What' over 'how'.** The skills are framed as 'tell me what is wrong with the control plane' and 'tell me why this agent pod failed' — objective-shaped, not procedure-shaped. Matching symptoms to causes is explicitly called out as 'the judgment layer that makes this skill-shaped rather than tool-shaped', which is correct.
+
+5. **Sandbox-first security.** validate_network_isolation runtime-probes the Calico NetworkPolicies rather than trusting prompt-level rules, which is exactly the 'extend the sandbox' pattern. prune_stale_worktrees has a dry_run flag, and Decision 7 surfaces the destructive-mutation concern explicitly.
+
+6. **No direct LLM API calls / no pinned model IDs.** Nothing in the draft bypasses egg_agent or hardcodes model identifiers; all proposed work lives in orchestrator routes + MCP handlers.
+
+7. **Tool placement aligns with existing conventions.** Decision 7's recommended option (orchestrator-owned routes proxied via PipelineToolHandler) matches the pattern already established by the 23 existing tools. No new architecture smuggled in.
+
+### Non-blocking
+
+- **draft lines 28-29 (skill descriptions):** The plan phase should make sure the new skills (skills/SKILL.md files) are written as short orienting briefs — domain knowledge, evidence-chain hints, known-failure catalogue — not step-by-step procedures. The draft already nods to this ('the skill should lead with whichever piece of evidence made the failure obvious, not dump everything') but the plan phase is where the anti-pattern of 'overloading with prescriptive checklists' (agent-mode-design.md:295-303) actually lands. Worth an explicit guardrail in the plan.
+- **draft lines 135-138 (MCP rate-limit constraint):** 'A deployment-diagnose skill that fires many tool calls in sequence needs to bound itself' — plan phase should confirm whether the 30 req/min limit applies to skills invoked by an operator-side agent, and whether it needs a bump or per-role carve-out rather than asking the skill to self-throttle.
+- **Decision 2 (skill directory layout):** Adding new skills under flat skills/ is the low-friction choice and matches current convention. If #1765 (agent-facing tool discoverability for sandbox agents) lands in parallel, consider whether the operator-vs-agent split should be introduced then rather than retrofitted later — not a blocker, a sequencing note.
+- **draft lines 109-121 (in-situ gateway EGG_ORCHESTRATOR_URL bug):** Good call to surface it without smuggling the fix into #1759's scope; the separate-issue recommendation is the right agent-design move (keep scope sharp; the new validate_deployment_manifests tool is the proof-case for why this issue matters).
+
+
+````yaml
+id: c059b234-62c7-47
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/1759-analysis.md
+    - docs/guides/agent-mode-design.md
+    - orchestrator/mcp_tools.py
+    - skills/
+    reason: "\nReviewed the refine analysis at .egg-state/drafts/1759-analysis.md\
+      \ against agent-mode design guidelines (docs/guides/agent-mode-design.md) and\
+      \ cross-checked the cited surfaces (orchestrator/mcp_tools.py pattern at PIPELINE_TOOLS:64-669\
+      \ and PipelineToolHandler:672+, skills/ layout, orchestrator/kubernetes_client.py:943-974\
+      \ singleton, gateway/worktree_manager.py:47 WORKTREE_BASE_DIR, k8s/base/ kustomize\
+      \ tree).\n\n### Agent-design evaluation\n\nThe draft's core framing \u2014 'MCP\
+      \ tools for deterministic actions / structured fetches; skills for diagnostic\
+      \ workflows that compose tools + judgment' (lines 18-22) \u2014 is itself exactly\
+      \ the tool-vs-orientation distinction docs/guides/agent-mode-design.md calls\
+      \ for. No anti-patterns to flag:\n\n1. **No excessive pre-fetching.** The proposed\
+      \ tools are narrow, deterministic primitives (validate_deployment_manifests,\
+      \ validate_network_isolation, prune_stale_worktrees, get_deployment_context).\
+      \ The skills are described as composing existing primitives, not baking in data.\
+      \ 'the skill should lead with whichever piece of evidence made the failure obvious,\
+      \ not dump everything' (quoted from the issue) is the opposite of pre-fetching.\n\
+      \n2. **No structured output for humans.** Both skills are explicitly positioned\
+      \ to produce 'prioritized, human-readable report[s]'. No JSON schema is proposed.\n\
+      \n3. **No post-processing pipelines.** Tool outputs feed back to the agent;\
+      \ the agent narrates findings directly.\n\n4. **'What' over 'how'.** The skills\
+      \ are framed as 'tell me what is wrong with the control plane' and 'tell me\
+      \ why this agent pod failed' \u2014 objective-shaped, not procedure-shaped.\
+      \ Matching symptoms to causes is explicitly called out as 'the judgment layer\
+      \ that makes this skill-shaped rather than tool-shaped', which is correct.\n\
+      \n5. **Sandbox-first security.** validate_network_isolation runtime-probes the\
+      \ Calico NetworkPolicies rather than trusting prompt-level rules, which is exactly\
+      \ the 'extend the sandbox' pattern. prune_stale_worktrees has a dry_run flag,\
+      \ and Decision 7 surfaces the destructive-mutation concern explicitly.\n\n6.\
+      \ **No direct LLM API calls / no pinned model IDs.** Nothing in the draft bypasses\
+      \ egg_agent or hardcodes model identifiers; all proposed work lives in orchestrator\
+      \ routes + MCP handlers.\n\n7. **Tool placement aligns with existing conventions.**\
+      \ Decision 7's recommended option (orchestrator-owned routes proxied via PipelineToolHandler)\
+      \ matches the pattern already established by the 23 existing tools. No new architecture\
+      \ smuggled in.\n\n### Non-blocking\n\n- **draft lines 28-29 (skill descriptions):**\
+      \ The plan phase should make sure the new skills (skills/SKILL.md files) are\
+      \ written as short orienting briefs \u2014 domain knowledge, evidence-chain\
+      \ hints, known-failure catalogue \u2014 not step-by-step procedures. The draft\
+      \ already nods to this ('the skill should lead with whichever piece of evidence\
+      \ made the failure obvious, not dump everything') but the plan phase is where\
+      \ the anti-pattern of 'overloading with prescriptive checklists' (agent-mode-design.md:295-303)\
+      \ actually lands. Worth an explicit guardrail in the plan.\n- **draft lines\
+      \ 135-138 (MCP rate-limit constraint):** 'A deployment-diagnose skill that fires\
+      \ many tool calls in sequence needs to bound itself' \u2014 plan phase should\
+      \ confirm whether the 30 req/min limit applies to skills invoked by an operator-side\
+      \ agent, and whether it needs a bump or per-role carve-out rather than asking\
+      \ the skill to self-throttle.\n- **Decision 2 (skill directory layout):** Adding\
+      \ new skills under flat skills/ is the low-friction choice and matches current\
+      \ convention. If #1765 (agent-facing tool discoverability for sandbox agents)\
+      \ lands in parallel, consider whether the operator-vs-agent split should be\
+      \ introduced then rather than retrofitted later \u2014 not a blocker, a sequencing\
+      \ note.\n- **draft lines 109-121 (in-situ gateway EGG_ORCHESTRATOR_URL bug):**\
+      \ Good call to surface it without smuggling the fix into #1759's scope; the\
+      \ separate-issue recommendation is the right agent-design move (keep scope sharp;\
+      \ the new validate_deployment_manifests tool is the proof-case for why this\
+      \ issue matters).\n"
+  version: 1
+````
+
+### [2026-04-21T20:23:18Z] reviewer_agent_design (CONSENSUS_CONFIRMED): Confirmed by reviewer_agent_design
+
+````yaml
+id: 000ec34e-67bb-42
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-04-21T20:25:55Z] reviewer_refine → refiner (CONSENSUS_ACK): ACK from reviewer_refine for refiner
+
+
+Reviewed refiner's analysis at .egg-state/drafts/1759-analysis.md (447 lines) against the seven refine-phase review criteria; cross-referenced cited code paths; confirmed HITL decision/feedback registration via direct orchestrator API call (egg-contract CLI is currently non-functional from the sandbox due to the gateway EGG_ORCHESTRATOR_URL bug the refiner itself flagged, so I queried /api/v1/contracts/issue-1759-v3 directly).
+
+### Section-by-section evaluation
+
+**Problem Understanding (lines 5-37)** — Correct and complete. Captures both halves of #1759 (five MCP tools + two skills), the two recurring failure-shape patterns (identifier-translation asymmetries #1760/#1764; role/auth boundary errors #1766/#1768/#1769), and a concrete success metric ('re-run the #1692 validation pass using only the new tools/skills; does any step still require raw kubectl?'). The framing matches the issue body faithfully.
+
+**Current Behavior / Research (lines 39-121)** — Strong. Reused existing code paths are enumerated with specific line ranges. Spot-checks confirm:
+  - orchestrator/mcp_tools.py:64 — PIPELINE_TOOLS start. ✅
+  - orchestrator/mcp_tools.py:672 — class PipelineToolHandler. ✅
+  - orchestrator/mcp_tools.py:686 — handle_tool_call (23 tools wired, matches the claim of '23 tools'). ✅
+  - orchestrator/kubernetes_client.py:867-931 — _resolve_job_name (exact seam for #1760/#1764). ✅
+  - orchestrator/kubernetes_client.py:943 — get_kubernetes_client singleton. ✅
+  - orchestrator/routes/pipelines.py:390 — EGG_RUNTIME runtime dispatch. ✅
+  - gateway/worktree_manager.py:47 — WORKTREE_BASE_DIR hardcoded to /home/egg/.egg-worktrees. ✅
+  - gateway/contract_api.py:62 — _DEFAULT_ORCHESTRATOR_URL = http://egg-orchestrator:9849. ✅
+
+  The in-situ discovery of the gateway EGG_ORCHESTRATOR_URL deployment bug is correctly narrated, correctly scoped out of #1759, and independently verified: k8s/base/gateway-deployment.yaml does NOT set EGG_ORCHESTRATOR_URL, while k8s/base/orchestrator-deployment.yaml:55 does. This is exactly the class of bug validate_deployment_manifests is designed to catch, and using it as evidence-for-the-approach while refusing to smuggle the fix into #1759 is the right call.
+
+**Constraints (lines 123-165)** — Comprehensive. Covers no-new-auth, dual-runtime, rate limits (30 req/min — relevant for deployment-diagnose chains), probe pod side effects, hostPath write scope, skill discoverability, log persistence, #1763 blocking relationship, related-issue cluster, and the gateway write-boundary scope. Nothing obvious missing.
+
+**Options Analysis (lines 167-251)** — Four meaningfully different options (umbrella / tools-first-skills-later / per-item-tracker / tools-only-block-on-logs) with clearly articulated trade-offs. Option C correctly identifies evidence-gathering overlap between the two skills as a split-cost driver. Option D's pro-column honestly acknowledges that deployment-diagnose does not depend on log persistence.
+
+**Recommendation (lines 253-284)** — Clear Option A with four scoped carve-outs (drop rebuild_and_rollout per Decision 4, defer submit_task papercut per Decision 3, cap skill ambition per Decision 5, scope the gateway env bug as a separate issue). The carve-outs align with the Recommended options on each corresponding decision. Justification is grounded in the end-to-end acceptance criterion ('re-run #1692 validation') that Options B/C/D forfeit.
+
+**Open Questions / HITL registration (lines 286-430)** — Verified directly against /api/v1/contracts/issue-1759-v3:
+  - 7 HITL decisions registered (decision-1 through decision-7), each with options list and Recommended option marked. ✅
+  - 1 feedback item (feedback-1) registered with 8 open-ended questions Q1-Q8. ✅
+  - Every open question or decision point in the prose has a corresponding structured marker in the draft and a corresponding entry in the contract store. No unresolved assumptions are being silently carried forward.
+
+**Complexity Assessment (lines 434-443)** — 'High' is correct for scope covering five tools + two skills + orchestrator routes + kustomize + worktree manager + docs. Plan-phase parallelism framing is appropriate.
+
+### Non-blocking
+
+- **.egg-state/drafts/1759-analysis.md:45-47** — The citation 'check_health (mcp_tools.py:672-767)' is imprecise. The check_health schema is at mcp_tools.py:276 and the _handle_check_health handler is at mcp_tools.py:1481. Lines 672-767 are the PipelineToolHandler class header plus handle_tool_call dispatch, not the check_health logic. The substantive claim ('closest thing to a k8s tool today — ok/not-ok, no diagnostic breadth') is correct; only the line range is off. Suggest the plan phase fix the citation to 'mcp_tools.py:276 (schema) + mcp_tools.py:1481 (handler)' when referring to check_health specifically.
+- **.egg-state/drafts/1759-analysis.md:41** — 'MCP surface today (orchestrator/mcp_tools.py:64-669) — 23 tools' is accurate (handle_tool_call wires exactly 23 entries at lines 696-720), good counting.
+- **.egg-state/drafts/1759-analysis.md:109-121** — The flagged gateway EGG_ORCHESTRATOR_URL bug is real and should produce a new issue. Suggest naming it explicitly in the refine output (or in a follow-up /gh issue command from the plan phase) rather than leaving it as narrative text only — otherwise it risks falling off the radar when this pipeline closes.
+- **.egg-state/drafts/1759-analysis.md:286-430** — Consider noting inline that the egg-contract CLI path failed in this pipeline (which is why the decisions were recorded via direct API rather than the CLI), so plan-phase reviewers understand the contract data is authoritative despite 'egg-contract show' currently erroring from the sandbox.
+
+
+````yaml
+id: b5f90432-d472-44
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/1759-analysis.md
+    - orchestrator/mcp_tools.py
+    - orchestrator/kubernetes_client.py
+    - gateway/worktree_manager.py
+    - gateway/contract_api.py
+    - orchestrator/routes/pipelines.py
+    - k8s/base/gateway-deployment.yaml
+    - k8s/base/orchestrator-deployment.yaml
+    reason: "\nReviewed refiner's analysis at .egg-state/drafts/1759-analysis.md (447\
+      \ lines) against the seven refine-phase review criteria; cross-referenced cited\
+      \ code paths; confirmed HITL decision/feedback registration via direct orchestrator\
+      \ API call (egg-contract CLI is currently non-functional from the sandbox due\
+      \ to the gateway EGG_ORCHESTRATOR_URL bug the refiner itself flagged, so I queried\
+      \ /api/v1/contracts/issue-1759-v3 directly).\n\n### Section-by-section evaluation\n\
+      \n**Problem Understanding (lines 5-37)** \u2014 Correct and complete. Captures\
+      \ both halves of #1759 (five MCP tools + two skills), the two recurring failure-shape\
+      \ patterns (identifier-translation asymmetries #1760/#1764; role/auth boundary\
+      \ errors #1766/#1768/#1769), and a concrete success metric ('re-run the #1692\
+      \ validation pass using only the new tools/skills; does any step still require\
+      \ raw kubectl?'). The framing matches the issue body faithfully.\n\n**Current\
+      \ Behavior / Research (lines 39-121)** \u2014 Strong. Reused existing code paths\
+      \ are enumerated with specific line ranges. Spot-checks confirm:\n  - orchestrator/mcp_tools.py:64\
+      \ \u2014 PIPELINE_TOOLS start. \u2705\n  - orchestrator/mcp_tools.py:672 \u2014\
+      \ class PipelineToolHandler. \u2705\n  - orchestrator/mcp_tools.py:686 \u2014\
+      \ handle_tool_call (23 tools wired, matches the claim of '23 tools'). \u2705\
+      \n  - orchestrator/kubernetes_client.py:867-931 \u2014 _resolve_job_name (exact\
+      \ seam for #1760/#1764). \u2705\n  - orchestrator/kubernetes_client.py:943 \u2014\
+      \ get_kubernetes_client singleton. \u2705\n  - orchestrator/routes/pipelines.py:390\
+      \ \u2014 EGG_RUNTIME runtime dispatch. \u2705\n  - gateway/worktree_manager.py:47\
+      \ \u2014 WORKTREE_BASE_DIR hardcoded to /home/egg/.egg-worktrees. \u2705\n \
+      \ - gateway/contract_api.py:62 \u2014 _DEFAULT_ORCHESTRATOR_URL = http://egg-orchestrator:9849.\
+      \ \u2705\n\n  The in-situ discovery of the gateway EGG_ORCHESTRATOR_URL deployment\
+      \ bug is correctly narrated, correctly scoped out of #1759, and independently\
+      \ verified: k8s/base/gateway-deployment.yaml does NOT set EGG_ORCHESTRATOR_URL,\
+      \ while k8s/base/orchestrator-deployment.yaml:55 does. This is exactly the class\
+      \ of bug validate_deployment_manifests is designed to catch, and using it as\
+      \ evidence-for-the-approach while refusing to smuggle the fix into #1759 is\
+      \ the right call.\n\n**Constraints (lines 123-165)** \u2014 Comprehensive. Covers\
+      \ no-new-auth, dual-runtime, rate limits (30 req/min \u2014 relevant for deployment-diagnose\
+      \ chains), probe pod side effects, hostPath write scope, skill discoverability,\
+      \ log persistence, #1763 blocking relationship, related-issue cluster, and the\
+      \ gateway write-boundary scope. Nothing obvious missing.\n\n**Options Analysis\
+      \ (lines 167-251)** \u2014 Four meaningfully different options (umbrella / tools-first-skills-later\
+      \ / per-item-tracker / tools-only-block-on-logs) with clearly articulated trade-offs.\
+      \ Option C correctly identifies evidence-gathering overlap between the two skills\
+      \ as a split-cost driver. Option D's pro-column honestly acknowledges that deployment-diagnose\
+      \ does not depend on log persistence.\n\n**Recommendation (lines 253-284)**\
+      \ \u2014 Clear Option A with four scoped carve-outs (drop rebuild_and_rollout\
+      \ per Decision 4, defer submit_task papercut per Decision 3, cap skill ambition\
+      \ per Decision 5, scope the gateway env bug as a separate issue). The carve-outs\
+      \ align with the Recommended options on each corresponding decision. Justification\
+      \ is grounded in the end-to-end acceptance criterion ('re-run #1692 validation')\
+      \ that Options B/C/D forfeit.\n\n**Open Questions / HITL registration (lines\
+      \ 286-430)** \u2014 Verified directly against /api/v1/contracts/issue-1759-v3:\n\
+      \  - 7 HITL decisions registered (decision-1 through decision-7), each with\
+      \ options list and Recommended option marked. \u2705\n  - 1 feedback item (feedback-1)\
+      \ registered with 8 open-ended questions Q1-Q8. \u2705\n  - Every open question\
+      \ or decision point in the prose has a corresponding structured marker in the\
+      \ draft and a corresponding entry in the contract store. No unresolved assumptions\
+      \ are being silently carried forward.\n\n**Complexity Assessment (lines 434-443)**\
+      \ \u2014 'High' is correct for scope covering five tools + two skills + orchestrator\
+      \ routes + kustomize + worktree manager + docs. Plan-phase parallelism framing\
+      \ is appropriate.\n\n### Non-blocking\n\n- **.egg-state/drafts/1759-analysis.md:45-47**\
+      \ \u2014 The citation 'check_health (mcp_tools.py:672-767)' is imprecise. The\
+      \ check_health schema is at mcp_tools.py:276 and the _handle_check_health handler\
+      \ is at mcp_tools.py:1481. Lines 672-767 are the PipelineToolHandler class header\
+      \ plus handle_tool_call dispatch, not the check_health logic. The substantive\
+      \ claim ('closest thing to a k8s tool today \u2014 ok/not-ok, no diagnostic\
+      \ breadth') is correct; only the line range is off. Suggest the plan phase fix\
+      \ the citation to 'mcp_tools.py:276 (schema) + mcp_tools.py:1481 (handler)'\
+      \ when referring to check_health specifically.\n- **.egg-state/drafts/1759-analysis.md:41**\
+      \ \u2014 'MCP surface today (orchestrator/mcp_tools.py:64-669) \u2014 23 tools'\
+      \ is accurate (handle_tool_call wires exactly 23 entries at lines 696-720),\
+      \ good counting.\n- **.egg-state/drafts/1759-analysis.md:109-121** \u2014 The\
+      \ flagged gateway EGG_ORCHESTRATOR_URL bug is real and should produce a new\
+      \ issue. Suggest naming it explicitly in the refine output (or in a follow-up\
+      \ /gh issue command from the plan phase) rather than leaving it as narrative\
+      \ text only \u2014 otherwise it risks falling off the radar when this pipeline\
+      \ closes.\n- **.egg-state/drafts/1759-analysis.md:286-430** \u2014 Consider\
+      \ noting inline that the egg-contract CLI path failed in this pipeline (which\
+      \ is why the decisions were recorded via direct API rather than the CLI), so\
+      \ plan-phase reviewers understand the contract data is authoritative despite\
+      \ 'egg-contract show' currently erroring from the sandbox.\n"
+  version: 1
+````
+
+### [2026-04-21T20:25:55Z] orchestrator → refiner (STATUS): All reviewers have ACKed — ready to confirm
+
+All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: d2eb6277-da8b-48
+phase: refine
+metadata:
+  fully_acked: true
+  version: 1
+````
+
+### [2026-04-21T20:26:01Z] reviewer_refine (CONSENSUS_CONFIRMED): Confirmed by reviewer_refine
+
+````yaml
+id: 4654bf68-560b-4e
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-04-21T20:26:04Z] refiner (CONSENSUS_CONFIRMED): Confirmed by refiner
+
+````yaml
+id: 2b80862b-7c2d-4c
+phase: refine
+metadata:
+  consensus_reached: true
+````

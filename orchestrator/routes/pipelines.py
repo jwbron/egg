@@ -3864,6 +3864,8 @@ def _commit_statefiles_to_worktree(
     worktree_path: Path,
     message: str,
     pipeline_identifier: int | str | None = None,
+    *,
+    pipeline_id: str | None = None,
 ) -> None:
     """Stage and commit ``.egg-state/`` files in *worktree_path*.
 
@@ -3872,8 +3874,17 @@ def _commit_statefiles_to_worktree(
     prevents concurrent pipelines from leaking each other's state files
     into unrelated PRs (see #1390).
 
-    Falls back to staging the entire ``.egg-state/`` directory when
-    *pipeline_identifier* is ``None`` (backwards-compatibility).
+    Most ``.egg-state/`` files are prefixed with the issue number (drafts,
+    reviews, BRC history, agent-outputs), but contract files are keyed by
+    ``pipeline_id`` (e.g. ``issue-1759-v3.json``) and don't share the
+    issue-number prefix.  When *pipeline_id* is provided alongside
+    *pipeline_identifier*, files matching either prefix are staged — this
+    closes the gap where plan-phase contract updates were written to disk
+    but never committed because the glob only saw the issue-number prefix
+    (see #1829).
+
+    Falls back to staging the entire ``.egg-state/`` directory when both
+    *pipeline_identifier* and *pipeline_id* are ``None`` (backwards-compat).
 
     The commit is idempotent (skips when nothing is staged).
     Raises ``subprocess.CalledProcessError`` on git failure.
@@ -3884,6 +3895,7 @@ def _commit_statefiles_to_worktree(
         "_commit_statefiles_to_worktree: entering",
         worktree_path=str(worktree_path),
         pipeline_identifier=str(pipeline_identifier),
+        pipeline_id=str(pipeline_id),
         commit_message=message,
     )
     if not state_dir.exists():
@@ -3891,6 +3903,7 @@ def _commit_statefiles_to_worktree(
             "_commit_statefiles_to_worktree: no .egg-state directory — exiting",
             worktree_path=str(worktree_path),
             pipeline_identifier=str(pipeline_identifier),
+            pipeline_id=str(pipeline_id),
         )
         return  # Nothing to commit yet
 
@@ -3904,23 +3917,35 @@ def _commit_statefiles_to_worktree(
         str(worktree_path),
     ]
 
-    if pipeline_identifier is not None:
+    if pipeline_identifier is not None or pipeline_id is not None:
         # Scope to files belonging to this pipeline only (#1390).
         # Use prefix-anchored patterns with delimiter boundaries to avoid
         # substring false positives (e.g. pipeline 4 matching pipeline 42).
-        pid = str(pipeline_identifier)
-        pattern_dot = str(state_dir / "**" / f"{pid}.*")
-        pattern_dash = str(state_dir / "**" / f"{pid}-*")
-        matched = [
-            f
-            for f in (
-                glob.glob(pattern_dot, recursive=True) + glob.glob(pattern_dash, recursive=True)
-            )
-            if Path(f).is_file()
-        ]
+        # Union both prefixes so issue-number-prefixed files (drafts,
+        # reviews, BRC history) and pipeline-id-keyed files (contracts)
+        # are all staged (#1829).
+        prefixes: list[str] = []
+        if pipeline_identifier is not None:
+            prefixes.append(str(pipeline_identifier))
+        if pipeline_id is not None and pipeline_id not in prefixes:
+            prefixes.append(pipeline_id)
+
+        matched_set: set[str] = set()
+        for pid in prefixes:
+            escaped = glob.escape(pid)
+            pattern_dot = str(state_dir / "**" / f"{escaped}.*")
+            pattern_dash = str(state_dir / "**" / f"{escaped}-*")
+            for f in glob.glob(pattern_dot, recursive=True) + glob.glob(
+                pattern_dash, recursive=True
+            ):
+                if Path(f).is_file():
+                    matched_set.add(f)
+        matched = sorted(matched_set)
         logger.info(
             "_commit_statefiles_to_worktree: glob match results",
             pipeline_identifier=str(pipeline_identifier),
+            pipeline_id=str(pipeline_id),
+            prefixes=prefixes,
             match_count=len(matched),
             matched_paths=[str(Path(f).relative_to(worktree_path)) for f in matched[:20]],
             truncated=len(matched) > 20,
@@ -4251,6 +4276,7 @@ def _ensure_statefiles_on_branch(
             worktree_repo_path,
             f"Restore missing contract for {identifier}",
             pipeline_identifier=identifier,
+            pipeline_id=pipeline.id,
         )
         logger.info(
             "Contract file restored successfully",
@@ -4698,7 +4724,7 @@ def _finalize_pr_phase_failed(
     return True
 
 
-BRC_SUMMARY_TYPES = frozenset(
+BRC_HISTORY_TYPES = frozenset(
     {
         "CONSENSUS_PROPOSE",
         "CONSENSUS_ACK",
@@ -4706,11 +4732,6 @@ BRC_SUMMARY_TYPES = frozenset(
         "CONSENSUS_WITHDRAW",
         "CONSENSUS_CONFIRMED",
         "CONSENSUS_RE_REVIEW",
-    }
-)
-
-BRC_HISTORY_TYPES = BRC_SUMMARY_TYPES | frozenset(
-    {
         "STATUS",
         "HANDOFF",
         "QUESTION",
@@ -4719,9 +4740,6 @@ BRC_HISTORY_TYPES = BRC_SUMMARY_TYPES | frozenset(
         "OVERSEER_ALERT",
     }
 )
-
-# Backward-compatible alias for external callers
-BRC_MESSAGE_TYPES = BRC_SUMMARY_TYPES
 
 
 def _get_message_store():
@@ -4941,6 +4959,7 @@ def _rewrite_brc_history_for_pr(
             worktree_path,
             "Persist BRC history files for PR",
             pipeline_identifier=identifier,
+            pipeline_id=pipeline_id,
         )
         logger.info(
             "_rewrite_brc_history_for_pr: commit step completed successfully",
@@ -5031,184 +5050,86 @@ def _persist_phase_brc_history(
         )
 
 
-def _msg_version(m: Any) -> int:
-    """Extract the integer version from a BRC message's metadata."""
-    v = (m.metadata or {}).get("version", 0)
-    if not isinstance(v, int):
-        try:
-            v = int(v)
-        except (ValueError, TypeError):
-            v = 0
-    return v
-
-
-def _extract_body_text(m: Any, max_length: int) -> str:
-    """Extract display body text from a BRC message.
-
-    For NACK messages without a body, falls back to metadata.payload.reason.
-    Truncates to *max_length* chars with a pointer to the full history file.
-    """
-    body_text = m.body or ""
-    if m.message_type == "CONSENSUS_NACK" and not body_text:
-        payload = (m.metadata or {}).get("payload", {})
-        if isinstance(payload, dict):
-            body_text = payload.get("reason", "")
-    if body_text and len(body_text) > max_length:
-        body_text = body_text[:max_length] + "… _(full content in brc-history/*.md)_"
-    return body_text
-
-
-def _build_brc_consensus_summary(
-    pipeline_id: str,
-    identifier: int | str | None = None,
+def _build_brc_history_link_line(
+    worktree_repo_path: Path,
+    identifier: int | str | None,
 ) -> str:
-    """Build a BRC consensus summary for the PR body with inline content.
+    """Build a one-line pointer to the committed BRC history transcripts.
 
-    Retrieves BRC messages from the message store, groups by phase, and
-    produces a summary showing agent roles, message counts, whether
-    consensus was reached per phase, and the final-round proposal body
-    and ACK/NACK rationales inline.  Older rounds are wrapped in
-    ``<details>`` blocks.  Each phase block ends with a link to the
-    committed ``.egg-state/brc-history/`` artifacts.
+    Scans ``.egg-state/brc-history/`` for ``{identifier}-<phase>.md`` files
+    written by :func:`_write_brc_history` and returns a sentence linking
+    each phase's transcript, ordered by canonical execution order
+    (``refine`` → ``plan`` → ``implement`` → ``pr``; unknown names sorted
+    alphabetically after).
 
-    Returns an empty string if no BRC messages exist or the message store
-    is unavailable.  Output is capped at ~40000 characters by truncating
-    at phase-block boundaries to avoid broken markdown.
-
-    Args:
-        pipeline_id: The pipeline ID to retrieve messages for.
-        identifier: The pipeline identifier for artifact link filenames.
-            When ``None``, artifact links are omitted.
+    Returns an empty string when ``identifier`` is ``None`` or no
+    transcripts exist on disk.
     """
-    _MAX_BODY_INLINE = 2000  # Max chars for an individual inlined body
-    # GitHub's PR body limit is 65,536 chars.  40k leaves room for the PR
-    # description, test plan, pipeline context, and other sections.
-    _TOTAL_CAP = 40000
-
-    store_fn = _get_message_store()
-    if store_fn is None:
+    if identifier is None:
+        return ""
+    history_dir = worktree_repo_path / ".egg-state" / "brc-history"
+    if not history_dir.is_dir():
+        return ""
+    prefix = f"{identifier}-"
+    phases: list[str] = []
+    for path in history_dir.glob(f"{prefix}*.md"):
+        stem = path.stem
+        if stem.startswith(prefix):
+            phases.append(stem[len(prefix) :])
+    if not phases:
         return ""
 
+    canonical = [p.value for p in PipelinePhase]
+    rank = {name: i for i, name in enumerate(canonical)}
+    phases.sort(key=lambda name: (rank.get(name, len(canonical)), name))
+
+    links = ", ".join(
+        f"[`{phase}`](./.egg-state/brc-history/{identifier}-{phase}.md)" for phase in phases
+    )
+    return f"_Per-phase BRC transcripts: {links}._"
+
+
+def _pr_metadata_from_plan_draft(
+    worktree_repo_path: Path,
+    issue_number: int | None,
+    pipeline_id: str,
+) -> tuple[str | None, str, str, str]:
+    """Parse PR metadata from the plan draft on disk.
+
+    Used as a fallback in ``_build_pr_body`` when ``contract.pr`` is not
+    populated — e.g. when the plan-phase contract write did not reach the
+    branch tip (see #1829). The plan draft itself is reliably on the
+    branch even when the contract is not.
+
+    Returns ``(title, description, test_plan, manual_steps)``; ``title``
+    is ``None`` when the draft is missing, unparseable, or has no ``pr:``
+    block, signalling the caller to fall through to the next tier.
+    """
+    draft_rel = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
+    if not draft_rel:
+        return None, "", "", ""
+    plan_path = worktree_repo_path / draft_rel
+    if not plan_path.exists():
+        return None, "", "", ""
     try:
-        store = store_fn()
-        messages = store.get_messages(pipeline_id, limit=10000)
-    except Exception:
-        return ""
+        from egg_contracts.plan_parser import parse_plan
 
-    brc_messages = [m for m in messages if m.message_type in BRC_SUMMARY_TYPES]
-    if not brc_messages:
-        return ""
-
-    # Group by phase
-    by_phase: dict[str, list] = {}
-    for msg in brc_messages:
-        phase_key = msg.phase or "unknown"
-        by_phase.setdefault(phase_key, []).append(msg)
-
-    header = "## BRC Consensus Summary\n"
-    phase_blocks: list[str] = []
-
-    for phase_name, phase_msgs in by_phase.items():
-        # Exclude orchestrator from participant roles — it coordinates BRC
-        # (e.g., sends CONSENSUS_RE_REVIEW) but never sends CONSENSUS_CONFIRMED.
-        # Counting it as a participant would cause consensus to always appear
-        # unreached when a re-review cycle occurs.
-        roles = sorted({m.from_role for m in phase_msgs if m.from_role != "orchestrator"})
-        proposals = sum(1 for m in phase_msgs if m.message_type == "CONSENSUS_PROPOSE")
-        acks = sum(1 for m in phase_msgs if m.message_type == "CONSENSUS_ACK")
-        nacks = sum(1 for m in phase_msgs if m.message_type == "CONSENSUS_NACK")
-        confirmations = sum(1 for m in phase_msgs if m.message_type == "CONSENSUS_CONFIRMED")
-        confirmed_roles = {
-            m.from_role for m in phase_msgs if m.message_type == "CONSENSUS_CONFIRMED"
-        }
-        # Consensus = every agent role that sent a BRC message also sent CONFIRMED
-        all_confirmed = confirmed_roles == set(roles) and len(confirmed_roles) > 0
-
-        block_lines: list[str] = []
-        block_lines.append(f"**{phase_name}**: {', '.join(roles)}")
-        counts = []
-        if proposals:
-            counts.append(f"{proposals} proposal(s)")
-        if acks:
-            counts.append(f"{acks} ACK(s)")
-        if nacks:
-            counts.append(f"{nacks} NACK(s)")
-        if confirmations:
-            counts.append(f"{confirmations} confirmation(s)")
-        if counts:
-            block_lines.append(f"  {' · '.join(counts)}")
-        consensus_str = "✅ Consensus reached" if all_confirmed else "⏳ Consensus not reached"
-        block_lines.append(f"  {consensus_str}")
-
-        # Determine the final round (highest version number in proposals)
-        propose_versions: list[tuple[int, Any]] = []
-        for m in phase_msgs:
-            if m.message_type == "CONSENSUS_PROPOSE":
-                propose_versions.append((_msg_version(m), m))
-
-        final_version = max((v for v, _ in propose_versions), default=0) if propose_versions else 0
-
-        # Collect final-round messages and earlier-round messages
-        final_round_msgs: list[Any] = []
-        earlier_round_msgs: list[Any] = []
-        for m in phase_msgs:
-            msg_version = _msg_version(m)
-            # CONFIRMED and RE_REVIEW don't have version — always final
-            if m.message_type in ("CONSENSUS_CONFIRMED", "CONSENSUS_RE_REVIEW"):
-                final_round_msgs.append(m)
-            elif msg_version >= final_version and final_version > 0:
-                final_round_msgs.append(m)
-            elif final_version == 0:
-                # No versioned proposals — treat all as final round
-                final_round_msgs.append(m)
-            else:
-                earlier_round_msgs.append(m)
-
-        # Inline final-round content
-        if final_round_msgs:
-            block_lines.append("")
-            for m in final_round_msgs:
-                body_text = _extract_body_text(m, _MAX_BODY_INLINE)
-                if body_text:
-                    block_lines.append(f"  **{m.from_role}** ({m.message_type}): {body_text}")
-                else:
-                    block_lines.append(f"  **{m.from_role}** ({m.message_type})")
-
-        # Wrap earlier rounds in <details> if any
-        if earlier_round_msgs:
-            block_lines.append("")
-            block_lines.append("<details><summary>Earlier rounds</summary>")
-            block_lines.append("")
-            for m in earlier_round_msgs:
-                body_text = _extract_body_text(m, _MAX_BODY_INLINE)
-                if body_text:
-                    block_lines.append(f"  **{m.from_role}** ({m.message_type}): {body_text}")
-                else:
-                    block_lines.append(f"  **{m.from_role}** ({m.message_type})")
-            block_lines.append("")
-            block_lines.append("</details>")
-
-        # Artifact links
-        if identifier is not None:
-            block_lines.append("")
-            md_link = f".egg-state/brc-history/{identifier}-{phase_name}.md"
-            json_link = f".egg-state/brc-history/{identifier}-{phase_name}.json"
-            block_lines.append(
-                f"Full record: [{md_link}](./{md_link}) · [{json_link}](./{json_link})"
-            )
-
-        block_lines.append("")
-        phase_blocks.append("\n".join(block_lines))
-
-    # Assemble with truncation at phase-block boundaries to keep markdown intact
-    summary = header
-    for block in phase_blocks:
-        candidate = summary + "\n" + block
-        if len(candidate) > _TOTAL_CAP:
-            break
-        summary = candidate
-
-    return summary
+        result = parse_plan(plan_path.read_text())
+    except Exception as e:
+        logger.debug(
+            "Could not parse plan draft for PR metadata fallback",
+            path=str(plan_path),
+            error=str(e),
+        )
+        return None, "", "", ""
+    if not result.pr_title:
+        return None, "", "", ""
+    return (
+        result.pr_title,
+        result.pr_description or "",
+        result.pr_test_plan or "",
+        result.pr_manual_steps or "",
+    )
 
 
 def _build_pr_body(
@@ -5218,9 +5139,10 @@ def _build_pr_body(
     """Build a PR title and body from contract state.
 
     Uses the planner-generated PR metadata from the contract when available,
-    falling back to the issue title.  Commit logs and diff stats are omitted
-    because GitHub already displays them natively on the PR page, and including
-    them caused body-size blowups (see #1374).
+    falling back to the plan draft on disk (#1829) and then to the issue
+    title.  Commit logs and diff stats are omitted because GitHub already
+    displays them natively on the PR page, and including them caused
+    body-size blowups (see #1374).
 
     Args:
         pipeline: The pipeline state
@@ -5234,8 +5156,9 @@ def _build_pr_body(
     pr_description: str | None = None
     pr_test_plan: str = ""
     pr_manual_steps: str = ""
+    issue_title: str | None = None
 
-    # Try to load PR metadata from the contract (populated by the plan agent).
+    # Tier 1: load PR metadata from the contract (populated by the plan agent).
     # Contracts are keyed by pipeline_id after key unification (#1773).
     try:
         from egg_contracts.loader import load_contract
@@ -5246,10 +5169,8 @@ def _build_pr_body(
             pr_description = contract.pr.description
             pr_test_plan = contract.pr.test_plan
             pr_manual_steps = contract.pr.manual_steps
-
-        # Fall back to issue title if no PR title from contract
-        if not pr_title and contract.issue:
-            pr_title = contract.issue.title
+        if contract.issue:
+            issue_title = contract.issue.title
     except Exception as e:
         logger.debug(
             "Could not load contract for PR metadata",
@@ -5257,9 +5178,24 @@ def _build_pr_body(
             error=str(e),
         )
 
-    # Final fallback for title
+    # Tier 2: parse the plan draft directly when the contract has no PR
+    # metadata.  The draft is reliably on the branch even when the
+    # contract write didn't land (#1829).
     if not pr_title:
-        pr_title = f"Implementation for pipeline {pipeline.id}"
+        draft_title, draft_desc, draft_test_plan, draft_manual_steps = _pr_metadata_from_plan_draft(
+            worktree_repo_path,
+            issue_number=pipeline.issue_number,
+            pipeline_id=pipeline.id,
+        )
+        if draft_title:
+            pr_title = draft_title
+            pr_description = draft_desc
+            pr_test_plan = draft_test_plan
+            pr_manual_steps = draft_manual_steps
+
+    # Tier 3: issue title, then generic stub
+    if not pr_title:
+        pr_title = issue_title or f"Implementation for pipeline {pipeline.id}"
 
     # Assemble body
     body_parts: list[str] = []
@@ -5288,10 +5224,12 @@ def _build_pr_body(
             context_parts.append(f"Issue: #{pipeline.issue_number}")
         body_parts.append("\n".join(context_parts))
 
-    # BRC consensus summary (omitted when no BRC messages exist)
-    brc_summary = _build_brc_consensus_summary(pipeline.id, identifier=identifier)
-    if brc_summary:
-        body_parts.append(brc_summary)
+    # One-line pointer to committed BRC history transcripts.  The full
+    # per-phase record lives on the PR branch under .egg-state/brc-history/
+    # (see #1828 for why the old inline BRC Consensus Summary was removed).
+    brc_link_line = _build_brc_history_link_line(worktree_repo_path, identifier)
+    if brc_link_line:
+        body_parts.append(brc_link_line)
 
     body_parts.append("Authored-by: egg")
 
@@ -9160,6 +9098,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline_identifier=_pipeline_identifier(
                             pipeline.issue_number, pipeline_id
                         ),
+                        pipeline_id=pipeline_id,
                     )
                 except subprocess.CalledProcessError as git_err:
                     logger.error(
@@ -9626,6 +9565,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline_identifier=_pipeline_identifier(
                                 pipeline.issue_number, pipeline_id
                             ),
+                            pipeline_id=pipeline_id,
                         )
                     except subprocess.CalledProcessError as git_err:
                         logger.warning(
@@ -10061,6 +10001,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     worktree_repo_path,
                     f"Persist statefiles after {current_phase.value} phase",
                     pipeline_identifier=_pipeline_identifier(pipeline.issue_number, pipeline_id),
+                    pipeline_id=pipeline_id,
                 )
             except subprocess.CalledProcessError as git_err:
                 logger.warning(
@@ -10405,6 +10346,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline_identifier=_pipeline_identifier(
                             pipeline.issue_number, pipeline_id
                         ),
+                        pipeline_id=pipeline_id,
                     )
                 except subprocess.CalledProcessError as git_err:
                     logger.warning(
@@ -10777,6 +10719,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                                 pipeline_identifier=_pipeline_identifier(
                                     pipeline.issue_number, pipeline_id
                                 ),
+                                pipeline_id=pipeline_id,
                             )
                         except subprocess.CalledProcessError as git_err:
                             logger.warning(

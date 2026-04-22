@@ -3771,6 +3771,134 @@ def worktree_list() -> tuple[Response, int] | Response:
     return make_success("Worktrees listed", {"worktrees": worktrees})
 
 
+# Shared mutex: single lock shared by the prune route so that a
+# dry_run=true and dry_run=false call can never interleave. Local to
+# this module; tests exercise `request` against the Flask test client
+# so the process-wide lock is safe.
+_worktree_prune_lock = threading.Lock()
+
+
+def _collect_active_container_ids() -> set[str]:
+    """Return the best-effort set of container IDs that back live sessions.
+
+    Mirrors the startup-cleanup logic at module level so the prune route
+    never issues a sweep with an empty active set (which would otherwise
+    treat every worktree as an orphan — see #1759 review).
+
+    Consults:
+
+    1. Persisted sessions via :func:`get_session_manager` (primary source
+       of truth — survives gateway restarts).
+    2. ``docker ps`` when Docker is reachable (safety net for sessions
+       that outlive the session-manager snapshot).
+
+    Failures in either step degrade silently so the prune still runs —
+    the worst case is that a genuinely orphaned dir is preserved, which
+    the next scheduled prune will clean up.
+    """
+    active_container_ids: set[str] = set()
+    try:
+        session_manager = get_session_manager()
+        for session_info in session_manager.list_sessions():
+            cid = session_info.get("container_id")
+            if cid:
+                active_container_ids.add(cid)
+    except Exception as exc:
+        logger.warning(
+            "prune: session-manager active-container lookup failed",
+            error=str(exc),
+        )
+    try:
+        active_container_ids |= get_active_docker_containers()
+    except Exception as exc:
+        # Non-fatal: on k3s there is no dockerd reachable from the
+        # orchestrator's sidecar, and that is fine.
+        logger.debug(
+            "prune: docker active-container probe unavailable",
+            error=str(exc),
+        )
+    return active_container_ids
+
+
+@app.route("/api/v1/worktrees/prune", methods=["POST"])
+@require_launcher_auth
+def worktrees_prune() -> tuple[Response, int] | Response:
+    """
+    Run ``git worktree prune`` across every repo and sweep orphan dirs
+    under the worktree base.
+
+    Request body::
+
+        {"dry_run": bool = true}
+
+    When ``dry_run`` is true, returns the set of orphan directories
+    that would be removed but does not mutate the filesystem. When
+    false, removes them using the existing ``cleanup_orphaned_worktrees``
+    helper.  The active-container set is derived from the session
+    manager (plus an opportunistic ``docker ps`` fallback) so a live
+    pipeline's worktree is never mistaken for an orphan.
+
+    Proxied from the orchestrator's
+    ``/api/v1/deployment/prune-worktrees`` endpoint (#1759).
+    """
+    data = request.get_json(silent=True) or {}
+    dry_run = bool(data.get("dry_run", True))
+
+    manager = get_worktree_manager()
+
+    # Serialize all prune activity — git operations on the same repo
+    # must not interleave even if two callers hit this endpoint
+    # concurrently.
+    if not _worktree_prune_lock.acquire(timeout=60):
+        return make_error("Another worktree prune is in progress", status_code=409)
+    try:
+        active_container_ids = _collect_active_container_ids()
+        git_prune_report = manager.git_worktree_prune_all()
+        orphan_dirs = manager.list_orphan_worktree_dirs(active_containers=active_container_ids)
+
+        removed_count = 0
+        removed_paths: list[str] = []
+        if not dry_run and orphan_dirs:
+            removed_count = manager.cleanup_orphaned_worktrees(
+                active_containers=active_container_ids,
+            )
+            # Any orphan we enumerated that no longer exists on disk
+            # was removed by the helper.
+            for path in orphan_dirs:
+                try:
+                    if not Path(path).exists():
+                        removed_paths.append(path)
+                except OSError:
+                    pass
+
+        audit_log(
+            "worktrees_pruned",
+            "worktrees_prune",
+            success=True,
+            details={
+                "dry_run": dry_run,
+                "git_worktree_prune": git_prune_report,
+                "orphan_dirs_count": len(orphan_dirs),
+                "active_containers_count": len(active_container_ids),
+                "removed_count": removed_count,
+            },
+        )
+
+        return make_success(
+            "Worktree prune complete",
+            {
+                "dry_run": dry_run,
+                "git_worktree_prune": git_prune_report,
+                "orphan_dirs": orphan_dirs,
+                "active_containers_count": len(active_container_ids),
+                "removed_count": removed_count,
+                "removed_paths": removed_paths,
+            },
+        )
+    finally:
+        _worktree_prune_lock.release()
+
+
 # =============================================================================
 # Session Management Endpoints (Per-Container Repository Mode)
 # =============================================================================

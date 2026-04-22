@@ -107,7 +107,12 @@ class MessageStore:
         Args:
             pipeline_id: Pipeline ID to query.
             role: If set, return messages where to_role is this role or 'all'.
-            since_id: If set, return only messages after this message ID.
+            since_id: If set, return only messages after this message ID. If the
+                cursor is not present in the store (e.g., after a phase-boundary
+                clear or a post-compaction anchor recovery), fall back to
+                returning all messages rather than silently dropping to empty.
+                This matches the Redis backend's behavior and avoids a silent
+                delivery failure that can stall agents.
             limit: Maximum messages to return.
 
         Returns:
@@ -116,16 +121,18 @@ class MessageStore:
         with self._lock:
             msgs = list(self._messages.get(pipeline_id, []))
 
-        # Filter by since_id
+        # Filter by since_id. If the cursor is unknown, degrade to "return all"
+        # instead of returning empty, so a stale cursor doesn't silently hide
+        # new messages from a polling agent.
         if since_id:
-            found = False
-            filtered = []
-            for m in msgs:
-                if found:
-                    filtered.append(m)
-                elif m.id == since_id:
-                    found = True
-            msgs = filtered
+            found_idx = next((i for i, m in enumerate(msgs) if m.id == since_id), None)
+            if found_idx is not None:
+                msgs = msgs[found_idx + 1 :]
+            else:
+                logger.warning(
+                    "since_id not found in store; returning full history",
+                    extra={"pipeline_id": pipeline_id, "since_id": since_id},
+                )
 
         # Filter by role (messages targeted to this role or broadcast)
         if role:

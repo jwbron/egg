@@ -323,6 +323,22 @@ The k8s Deployment includes liveness and readiness probes on port 9851:
 
 ## Troubleshooting
 
+> **Tip**: For most deployment failures, start with the two diagnostic
+> skills rather than raw `kubectl`:
+>
+> - [`/deployment-diagnose`](../../skills/deployment-diagnose/SKILL.md) —
+>   control-plane triage (`egg-orchestrator` + `egg-gateway`). Produces
+>   a prioritized report with the Top finding first.
+> - [`/agent-diagnose <pipeline_id> <container_id>`](../../skills/agent-diagnose/SKILL.md) —
+>   per-agent-pod triage with a pattern-matched error classifier.
+>
+> The skills compose five k8s-facing MCP tools documented in the
+> [MCP Deployment Tools reference](../reference/mcp-deployment-tools.md).
+> See the [Deployment Diagnostics guide](deployment-diagnostics.md) for
+> when to use which skill, evidence boundaries, and the redaction
+> guarantee. The manual steps below remain useful as a fallback when the
+> skills are unavailable.
+
 ### Claude binary not found
 
 If the sandbox exits with `Claude Code CLI not found in PATH`, the Claude binary is missing from the container (failed build or changed install path).

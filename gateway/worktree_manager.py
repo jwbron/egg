@@ -1429,6 +1429,108 @@ class WorktreeManager:
 
         return repos_checked
 
+    def git_worktree_prune_all(self) -> dict[str, list[str]]:
+        """Run ``git worktree prune -v`` on each repo, returning pruned paths.
+
+        Unlike :meth:`prune_stale_worktrees` (which returns the *count* of
+        repos it ran against), this variant captures the porcelain output
+        so callers can display the specific paths git reported as stale.
+        Intended for operator-facing tooling where the set of removed
+        registrations is interesting on its own.
+
+        Returns:
+            Dict keyed by repo name, each value a list of paths git
+            reported as pruned (may be empty). Repos git skipped due to
+            locks are not present.
+        """
+        result: dict[str, list[str]] = {}
+        if not self.repos_base.exists():
+            return result
+
+        for repo_dir in self.repos_base.iterdir():
+            if not repo_dir.is_dir():
+                continue
+            git_dir = repo_dir / ".git"
+            if not git_dir.is_dir():
+                continue
+            repo_name = repo_dir.name
+            with self._get_repo_lock(repo_name):
+                try:
+                    proc = subprocess.run(
+                        git_cmd("worktree", "prune", "--verbose"),
+                        cwd=repo_dir,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        timeout=30,
+                    )
+                except subprocess.TimeoutExpired:
+                    logger.warning(
+                        "git worktree prune timed out",
+                        repo=repo_name,
+                    )
+                    continue
+                if proc.returncode != 0:
+                    logger.warning(
+                        "git worktree prune failed",
+                        repo=repo_name,
+                        stderr=proc.stderr.strip(),
+                    )
+                    continue
+                # -v output format: "Removing worktrees/<name>: <reason>"
+                paths: list[str] = []
+                for line in proc.stdout.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.lower().startswith("removing "):
+                        tail = line[len("Removing ") :]
+                        name = tail.split(":", 1)[0].strip()
+                        if name:
+                            paths.append(name)
+                result[repo_name] = paths
+        return result
+
+    def list_orphan_worktree_dirs(self, active_containers: set[str]) -> list[str]:
+        """Return absolute paths of container dirs considered orphaned.
+
+        A container dir under ``worktree_base`` is considered orphaned
+        when its name is not in *active_containers*.  Each returned path
+        is first validated via :func:`Path.resolve` +
+        ``is_relative_to(self.worktree_base)`` to protect against
+        symlink-based traversal.
+        """
+        orphans: list[str] = []
+        if not self.worktree_base.exists():
+            return orphans
+
+        base_resolved = self.worktree_base.resolve()
+        for child in self.worktree_base.iterdir():
+            if not child.is_dir():
+                continue
+            try:
+                resolved = child.resolve()
+            except OSError:
+                continue
+            # Path-traversal guard: every candidate must live under the
+            # worktree base even after symlink resolution.
+            try:
+                if not resolved.is_relative_to(base_resolved):
+                    logger.warning(
+                        "worktree dir resolves outside base; skipping",
+                        child=str(child),
+                        resolved=str(resolved),
+                    )
+                    continue
+            except AttributeError:
+                # Python <3.9 fallback (should never hit on our runtime)
+                if not str(resolved).startswith(str(base_resolved) + os.sep):
+                    continue
+            if child.name in active_containers:
+                continue
+            orphans.append(str(child))
+        return orphans
+
     def cleanup_orphaned_pack_files(
         self,
         repo_name: str | None = None,

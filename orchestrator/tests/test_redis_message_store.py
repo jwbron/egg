@@ -167,6 +167,15 @@ class TestGetMessages:
         since_msgs = store.get_messages("test-pipeline", since_id=msgs[1].id)
         assert len(since_msgs) == 3  # msgs[2], msgs[3], msgs[4]
 
+    def test_stale_since_id_returns_all_messages(self, store):
+        """A cursor that isn't in the stream (e.g., survived a phase
+        clear or came from a stale anchor) must degrade to full-history
+        replay rather than silently returning empty — matches the
+        in-memory backend and prevents the stall in issue #1814."""
+        self._add_messages(store, 3)
+        msgs = store.get_messages("test-pipeline", since_id="nonexistent-cursor-xyz")
+        assert len(msgs) == 3
+
     def test_limit(self, store):
         self._add_messages(store, 10)
         messages = store.get_messages("test-pipeline", limit=3)
