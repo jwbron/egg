@@ -7327,10 +7327,10 @@ def _run_concurrent_phase(
     # non-RUNNING pipeline, so we must finalize here).
     spawn_failures = [e for e in executions if e.status.value == "failed"]
     if spawn_failures:
-        stopped_container_ids: set[str] = set()
+        survivor_container_ids: set[str] = set()
         for e in executions:
             if e.container_id and e.status.value != "failed":
-                stopped_container_ids.add(e.container_id)
+                survivor_container_ids.add(e.container_id)
                 try:
                     spawner.backend.stop_container(e.container_id, timeout=10)
                 except Exception:
@@ -7345,7 +7345,7 @@ def _run_concurrent_phase(
                     now = datetime.now(UTC)
                     for agent_state in phase_execution.agents:
                         if (
-                            agent_state.container_id in stopped_container_ids
+                            agent_state.container_id in survivor_container_ids
                             and agent_state.status == StateAgentStatus.RUNNING
                         ):
                             agent_state.status = StateAgentStatus.FAILED
@@ -7353,7 +7353,7 @@ def _run_concurrent_phase(
                             agent_state.completed_at = now
                     for container_info in phase_execution.containers:
                         if (
-                            container_info.container_id in stopped_container_ids
+                            container_info.container_id in survivor_container_ids
                             and container_info.status == ContainerStatus.RUNNING
                         ):
                             container_info.status = ContainerStatus.FAILED

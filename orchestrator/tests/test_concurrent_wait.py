@@ -430,7 +430,14 @@ class TestPartialSpawnFailureCleanup:
 
     def _invoke(self, executions, docker_side_effect=None):
         """Run _run_concurrent_phase with the given executions and return the
-        raised SpawnFailureError plus the phase_exec used by the mock store."""
+        raised SpawnFailureError plus the phase_exec used by the mock store.
+
+        Note: ``mock_store.load_pipeline()`` always returns the same
+        ``mock_pipeline_state`` object, so mutations made by the recording
+        block (line ~7291) and the cleanup block (line ~7342) both land on
+        the same ``phase_exec``.  This mirrors production where save→load
+        round-trips through the same store within a single lock scope.
+        """
         pipeline = _make_concurrent_pipeline()
         phase_exec = _make_phase_execution()
         mock_store = MagicMock()
@@ -500,7 +507,10 @@ class TestPartialSpawnFailureCleanup:
             _make_failed_execution(AgentRole.DOCUMENTER),
         ]
 
-        _, phase_exec, _, _ = self._invoke(executions)
+        _, phase_exec, _, mock_store = self._invoke(executions)
+
+        # State must be persisted: once for recording agents, once for cleanup.
+        assert mock_store.save_pipeline.call_count >= 2
 
         survivor_agents = {
             a.role: a for a in phase_exec.agents if a.container_id in {"coder-abc", "tester-abc"}
@@ -509,6 +519,8 @@ class TestPartialSpawnFailureCleanup:
         assert survivor_agents[AgentRole.TESTER].status == AgentExecutionStatus.FAILED
         assert survivor_agents[AgentRole.CODER].error is not None
         assert survivor_agents[AgentRole.TESTER].error is not None
+        assert survivor_agents[AgentRole.CODER].completed_at is not None
+        assert survivor_agents[AgentRole.TESTER].completed_at is not None
 
         survivor_containers = {
             c.container_id: c
@@ -518,6 +530,7 @@ class TestPartialSpawnFailureCleanup:
         assert survivor_containers["coder-abc"].status == ContainerStatus.FAILED
         assert survivor_containers["tester-abc"].status == ContainerStatus.FAILED
         assert survivor_containers["coder-abc"].exited_at is not None
+        assert survivor_containers["tester-abc"].exited_at is not None
 
     def test_spawn_failure_error_message_includes_roles_and_reasons(self):
         """SpawnFailureError.__str__ identifies failed roles and their reasons
