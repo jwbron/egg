@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -8747,6 +8748,168 @@ def _sync_pipeline_decisions_to_contract(
         )
 
 
+def _queue_and_await_contract_decisions(
+    dq: Any,
+    worktree_repo_path: Path,
+    pipeline_id: str,
+    pipeline_identifier: int | str,
+    phase: PipelinePhase,
+) -> None:
+    """Promote unresolved contract decisions/feedback into the orchestrator queue.
+
+    Agents register architectural questions via ``egg-contract add-decision``
+    and ``add-feedback``.  Those writes only touch ``.egg-state/contracts/
+    {identifier}.json`` — the orchestrator's decision queue never sees them,
+    so approving the phase_gate silently drops the questions and the next
+    phase's agents have to guess (issue #1889).
+
+    This helper bridges contract-scoped questions for the current phase into
+    the orchestrator queue after phase_gate approval, so HTTP/MCP callers
+    (e.g. the ``/sdlc`` skill's Phase 4 handler) surface them as individual
+    ``choice`` / ``feedback`` decisions.  Resolutions are written back to
+    the contract so implement-phase agents see the human's answers.
+    """
+    try:
+        from egg_contracts.loader import load_contract, save_contract
+    except ImportError:
+        logger.warning(
+            "egg_contracts not available, skipping contract decision bridge",
+            pipeline_id=pipeline_id,
+        )
+        return
+
+    try:
+        contract = load_contract(pipeline_identifier, worktree_repo_path)
+    except Exception as e:
+        logger.debug(
+            "Contract not loadable, skipping contract decision bridge",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+        return
+
+    phase_value = phase.value
+    pending_decisions = [
+        d
+        for d in contract.decisions
+        if not d.resolved and (d.phase is None or getattr(d.phase, "value", d.phase) == phase_value)
+    ]
+    fb = contract.feedback
+    pending_feedback = None
+    if fb is not None and not fb.submitted:
+        fb_phase_val = getattr(fb.phase, "value", fb.phase) if fb.phase is not None else None
+        if fb_phase_val is None or fb_phase_val == phase_value:
+            pending_feedback = fb
+
+    if not pending_decisions and pending_feedback is None:
+        return
+
+    logger.info(
+        "Bridging contract decisions/feedback into orchestrator queue",
+        pipeline_id=pipeline_id,
+        phase=phase_value,
+        decision_count=len(pending_decisions),
+        has_feedback=pending_feedback is not None,
+    )
+
+    def _save_contract_update(mutator: Callable[[Any], bool]) -> None:
+        try:
+            latest = load_contract(pipeline_identifier, worktree_repo_path)
+        except Exception as e:
+            logger.warning(
+                "Could not reload contract to persist bridged resolution",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+            return
+        if not mutator(latest):
+            return
+        try:
+            save_contract(latest, worktree_repo_path)
+        except Exception as e:
+            logger.warning(
+                "Failed to save contract after bridged resolution",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+
+    for contract_decision in pending_decisions:
+        options_labels = [opt.label for opt in contract_decision.options]
+        queued = dq.queue_decision(
+            question=contract_decision.question,
+            context=(
+                f"Open contract question {contract_decision.id}, "
+                f"registered by an agent during the {phase_value} phase."
+            ),
+            options=options_labels,
+            decision_type="choice",
+            phase=phase,
+        )
+        resolved = dq.wait_for_decision(queued.id)
+        if resolved.status != DecisionStatus.RESOLVED:
+            continue
+        resolution_str = (resolved.resolution or "").strip()
+
+        def _apply(
+            latest: Any, _cd_id: str = contract_decision.id, _res: str = resolution_str
+        ) -> bool:
+            for d in latest.decisions:
+                if d.id == _cd_id:
+                    d.resolved = True
+                    d.resolution = _res
+                    d.resolved_by = "human"
+                    d.resolved_at = datetime.now(UTC)
+                    return True
+            return False
+
+        _save_contract_update(_apply)
+
+    if pending_feedback is not None:
+        questions_payload = [
+            {"id": q.id, "question": q.question, "answer": ""} for q in pending_feedback.questions
+        ]
+        queued = dq.queue_decision(
+            question=f"Open feedback request {pending_feedback.id}",
+            context=(
+                f"Open contract feedback {pending_feedback.id}, "
+                f"registered by an agent during the {phase_value} phase."
+            ),
+            options=[],
+            decision_type="feedback",
+            questions=questions_payload,
+            phase=phase,
+        )
+        resolved = dq.wait_for_decision(queued.id)
+        if resolved.status == DecisionStatus.RESOLVED:
+            answers: dict[str, str] = {}
+            try:
+                payload = json.loads(resolved.resolution or "")
+                if isinstance(payload, dict):
+                    raw_answers = payload.get("answers")
+                    if isinstance(raw_answers, dict):
+                        answers = {str(k): str(v) for k, v in raw_answers.items()}
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+            if answers:
+                fb_id = pending_feedback.id
+
+                def _apply_fb(
+                    latest: Any, _fb_id: str = fb_id, _answers: dict[str, str] = answers
+                ) -> bool:
+                    if latest.feedback is None or latest.feedback.id != _fb_id:
+                        return False
+                    for q in latest.feedback.questions:
+                        if q.id in _answers:
+                            q.answer = _answers[q.id]
+                    latest.feedback.submitted = True
+                    latest.feedback.submitted_by = "human"
+                    latest.feedback.submitted_at = datetime.now(UTC)
+                    return True
+
+                _save_contract_update(_apply_fb)
+
+
 def _persist_phase_gate_resolution(
     repo_path: Path,
     pipeline_id: str,
@@ -10140,10 +10303,22 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # Called on every successful plan completion (including after
             # HITL revision) so the contract reflects the latest approved
             # plan, not a previously rejected draft.
+            #
+            # Wrapped in try/except at the call site: #1890 showed an escape
+            # of an uncaught exception here skipped the HITL gate below,
+            # leaving the pipeline stalled until the overseer intervened.
             if current_phase.value == "plan":
-                _populate_contract_from_plan(
-                    worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
-                )
+                try:
+                    _populate_contract_from_plan(
+                        worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
+                    )
+                except Exception as pop_err:
+                    logger.warning(
+                        "Failed to populate contract from plan (continuing)",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        error=str(pop_err),
+                    )
 
             # After refine and plan phases: sync substantive HITL decisions
             # (non-phase-gate) to the contract so implement-phase agents
@@ -10151,9 +10326,17 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # phases — refine decisions inform the plan, plan decisions
             # inform the implementation.
             if current_phase.value in _HITL_GATE_PHASES:
-                _sync_pipeline_decisions_to_contract(
-                    worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
-                )
+                try:
+                    _sync_pipeline_decisions_to_contract(
+                        worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
+                    )
+                except Exception as sync_err:
+                    logger.warning(
+                        "Failed to sync pipeline decisions to contract (continuing)",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        error=str(sync_err),
+                    )
 
             # Write BRC consensus history for this phase before committing
             # statefiles so the history file is included in the commit.
@@ -10497,6 +10680,27 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             )
                             _emit_pipeline_event(pipeline, "phase.revision_requested")
                             continue  # Re-enter outer loop → re-run phase with feedback
+
+                # Before advancing, surface any contract-scoped decisions /
+                # feedback the phase's agents registered via ``egg-contract``.
+                # Without this bridge, approving the phase_gate silently
+                # discards them (#1889).  Wrapped in try/except so a bug
+                # here can never strand the pipeline.
+                try:
+                    _queue_and_await_contract_decisions(
+                        dq,
+                        worktree_repo_path,
+                        pipeline_id,
+                        _pipeline_identifier(pipeline.issue_number, pipeline_id),
+                        current_phase,
+                    )
+                except Exception as bridge_err:
+                    logger.warning(
+                        "Contract decision bridge failed (continuing)",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        error=str(bridge_err),
+                    )
 
                 # Approved — resume and advance
                 with get_pipeline_state_lock(pipeline_id):

@@ -569,7 +569,11 @@ class TestConfirmedPhasePropagation:
 
         mock_msg_store = MagicMock()
 
-        # Return enough CONFIRMED messages to trigger the fallback path
+        # Return enough CONFIRMED messages to trigger the fallback path.
+        # `coder` is omitted — it's the role sending this signal, so its
+        # CONFIRMED is added via the fallback's confirmed_roles.add(agent_role)
+        # line.  This also verifies idempotency doesn't short-circuit the
+        # fallback write when the sender has no prior CONFIRMED (#1890).
         existing_confirmed = [
             _make_brc_message(
                 pipeline_id="issue-42",
@@ -579,7 +583,7 @@ class TestConfirmedPhasePropagation:
                 body="",
                 phase="implement",
             )
-            for role in ["coder", "tester", "reviewer_code", "documenter", "reviewer_contract"]
+            for role in ["tester", "reviewer_code", "documenter", "reviewer_contract"]
         ]
         mock_msg_store.get_messages.return_value = existing_confirmed
 
