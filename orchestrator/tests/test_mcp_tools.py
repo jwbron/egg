@@ -2604,7 +2604,9 @@ class TestGetServiceLogsTool:
             result = handler.handle_tool_call("get_service_logs", {"service": "gateway"})
 
         assert "error" in result
-        assert "get_service_logs failed" in result["error"]
+        # Must hit the fallback path ("get_service_logs failed: <str(exc)>"),
+        # NOT the structured path ("get_service_logs failed (HTTP N): <detail>").
+        assert result["error"] == "get_service_logs failed: HTTP Error 502: Bad Gateway"
 
 
 class TestPipelineToolsSchemasForDeployment:
