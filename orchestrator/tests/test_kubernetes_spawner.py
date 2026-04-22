@@ -56,7 +56,7 @@ class _FakeWorktreeResult:
 
     def __post_init__(self):
         if self.worktrees is None:
-            self.worktrees = {"owner/repo": "/home/egg/.egg-worktrees/test/owner/repo"}
+            self.worktrees = {"owner/repo": "/home/egg/.egg-worktrees/test/repo"}
         if self.errors is None:
             self.errors = []
 
@@ -225,6 +225,21 @@ class TestKubernetesSpawnerInit:
     def test_empty_restart_counts(self, spawner):
         """Restart counts start empty."""
         assert spawner._restart_counts == {}
+
+
+# ---------------------------------------------------------------------------
+# Worktree allowlist validation
+# ---------------------------------------------------------------------------
+
+
+def test_roles_without_worktree_are_valid():
+    """Every entry in _ROLES_WITHOUT_WORKTREE must be a real AgentRole."""
+    from kubernetes_spawner import _ROLES_WITHOUT_WORKTREE
+
+    assert _ROLES_WITHOUT_WORKTREE.issubset(set(AgentRole)), (
+        f"Unknown roles in _ROLES_WITHOUT_WORKTREE: "
+        f"{_ROLES_WITHOUT_WORKTREE - set(AgentRole)}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -441,8 +456,16 @@ class TestSpawnAgentJob:
                 repos=["owner/repo"],
             )
 
-    def test_spawn_reviewer_without_repos_succeeds(self, spawner):
+    def test_spawn_reviewer_without_repos_succeeds(self, spawner, monkeypatch):
         """Reviewer roles can spawn without ``repos`` — they never do git."""
+        import kubernetes_spawner
+
+        # Undo the conftest autouse stub so the real guard runs.
+        monkeypatch.setattr(
+            kubernetes_spawner,
+            "_role_needs_worktree",
+            lambda role: role not in kubernetes_spawner._ROLES_WITHOUT_WORKTREE,
+        )
         result = spawner.spawn_agent_job(
             pipeline_id="pipe-1",
             agent_role=AgentRole.REVIEWER_CONTRACT,
