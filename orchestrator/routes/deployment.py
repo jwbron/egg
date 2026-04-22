@@ -736,28 +736,10 @@ def _build_probe_env() -> dict[str, str]:
     """Build the env dict for the throwaway probe Job.
 
     Explicitly omits secrets: no lifecycle secret, no session token,
-    no gateway bearer.  Mirrors ``_PROTECTED_ENV_KEYS`` in
-    ``kubernetes_spawner`` as the denylist source of truth.
+    no gateway bearer.  Uses ``PROTECTED_ENV_KEYS`` from ``redaction``
+    as the single source of truth for the denylist.
     """
-    try:
-        from kubernetes_spawner import _PROTECTED_ENV_KEYS  # type: ignore[import-untyped]
-    except Exception:
-        # Mirror the denylist from redaction.py so the double-check loop
-        # is not silently disabled when kubernetes_spawner is unavailable.
-        _PROTECTED_ENV_KEYS = frozenset(  # type: ignore[assignment]
-            {
-                "EGG_SESSION_TOKEN",
-                "GATEWAY_URL",
-                "HTTP_PROXY",
-                "HTTPS_PROXY",
-                "NO_PROXY",
-                "http_proxy",
-                "https_proxy",
-                "no_proxy",
-                "EGG_ORCHESTRATOR_URL",
-                "EGG_LIFECYCLE_SECRET",
-            }
-        )
+    from redaction import PROTECTED_ENV_KEYS as _PROTECTED_ENV_KEYS
 
     # We only expose the two URLs the probe script needs. Both happen to
     # also appear in _PROTECTED_ENV_KEYS (they're locked against agent

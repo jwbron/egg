@@ -12,9 +12,11 @@ Two public helpers:
 - :func:`redact_log_tail`: takes a log string and scrubs any Bearer JWT
   or generic API-key-shape substring.
 
-The protected-name set starts from
-:data:`orchestrator.kubernetes_spawner._PROTECTED_ENV_KEYS` (keeps a
-single source of truth for "never expose this agent-side") and adds:
+The protected-name set is defined here (with a fallback when
+:data:`orchestrator.kubernetes_spawner._PROTECTED_ENV_KEYS` is
+unavailable) and exported as :data:`PROTECTED_ENV_KEYS` so other
+modules share a single source of truth.  On top of that base set
+the module adds:
 
 - the four "well-known" credentials agents may receive
   (``GITHUB_TOKEN``, ``GH_TOKEN``, ``ANTHROPIC_API_KEY``,
@@ -54,6 +56,10 @@ except Exception:  # pragma: no cover - fallback for stripped test envs
         }
     )
 
+
+# Public alias so other modules can import the denylist from here
+# instead of duplicating the kubernetes_spawner fallback.
+PROTECTED_ENV_KEYS: frozenset[str] = _PROTECTED_ENV_KEYS
 
 # Additional named credentials that the denylist does not already cover.
 # Names are matched case-insensitively by :func:`redact_env`.
@@ -170,6 +176,7 @@ def redact_log_tail(text: str) -> str:
 
 
 __all__ = [
+    "PROTECTED_ENV_KEYS",
     "REDACTION_PLACEHOLDER",
     "redact_env",
     "redact_log_tail",
