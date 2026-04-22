@@ -10704,7 +10704,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # new thread's containers are not killed.  See #1386, #1638.
         if not pipeline_was_restarted:
             try:
-                removed = _spawner.cleanup_pipeline(pipeline_id, force=True)
+                removed = _spawner.cleanup_pipeline(
+                    pipeline_id,
+                    force=True,
+                    preserve_agent_worktrees=skip_cleanup,
+                )
                 if removed > 0:
                     logger.info(
                         "Safety-net cleanup removed orphaned containers",

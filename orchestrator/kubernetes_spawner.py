@@ -829,12 +829,18 @@ class KubernetesSpawner:
         self,
         pipeline_id: str,
         force: bool = True,
+        preserve_agent_worktrees: bool = False,
     ) -> int:
         """Clean up all Jobs and sessions for a pipeline.
 
         Args:
             pipeline_id: Pipeline ID
             force: Force removal
+            preserve_agent_worktrees: When True, skip worktree deletion so a
+                subsequent retry can reuse the pipeline-level and per-agent
+                worktrees. Jobs and gateway sessions are still removed so the
+                retry spawns fresh pods. Default False preserves the prior
+                behavior of deleting every worktree.
 
         Returns:
             Number of Jobs removed
@@ -856,6 +862,14 @@ class KubernetesSpawner:
                     job_name=job.job_name,
                     error=str(e),
                 )
+
+        if preserve_agent_worktrees:
+            logger.info(
+                "Pipeline cleanup complete (worktrees preserved for retry)",
+                pipeline_id=pipeline_id,
+                jobs_removed=removed,
+            )
+            return removed
 
         # Clean up per-agent worktrees
         worktree_ids_to_clean: set[str] = {pipeline_id}

@@ -1683,9 +1683,14 @@ class TestSafetyNetContainerCleanup:
         ):
             _run_pipeline("issue-42", Path("/repo"))
 
-        # cleanup_pipeline should have been called as safety net
+        # cleanup_pipeline should have been called as safety net.  When the
+        # pipeline ended in FAILED, the caller also passes
+        # preserve_agent_worktrees=True so a retry can reuse the worktrees
+        # (#1878).
         mock_spawner = mock_get_spawner.return_value
-        mock_spawner.cleanup_pipeline.assert_called_with("issue-42", force=True)
+        mock_spawner.cleanup_pipeline.assert_called_with(
+            "issue-42", force=True, preserve_agent_worktrees=True
+        )
 
 
 class TestInitialStatefileCommitFailure:
