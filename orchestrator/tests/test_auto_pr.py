@@ -170,6 +170,9 @@ def _write_plan_draft(tmp_path, issue_number, *, title, description, test_plan, 
 
     Mirrors the layout the planner produces, which the plan parser reads
     via ``parse_plan``.
+
+    Note: YAML is assembled via string concatenation — inputs must be
+    simple strings with no quotes, newlines, or special YAML characters.
     """
     drafts_dir = tmp_path / ".egg-state" / "drafts"
     drafts_dir.mkdir(parents=True, exist_ok=True)
@@ -227,6 +230,8 @@ class TestBuildPrBodyPlanDraftFallback:
         assert "pytest passes" in body
         assert "## Manual Steps" in body
         assert "run migration" in body
+        # Plan draft provides its own description, so the Closes link must not appear.
+        assert "Closes #42" not in body
 
     def test_uses_plan_draft_when_no_contract_at_all(self, tmp_path):
         """Plan draft is used even when contract load fails entirely."""
