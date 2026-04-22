@@ -4,12 +4,12 @@
 
 ## Problem Statement
 
-During the `issue-1762-membump` pipeline run on 2026-04-22, the orchestrator observed multiple agents using suboptimal wait heuristics that produced one or more of the following pathologies:
+During the `issue-1762-membump` pipeline run on 2026-04-22, the orchestrator observed multiple agents using suboptimal wait heuristics that produced one or more of the following pathologies (verbatim timestamps and quotes from the issue body):
 
-1. **Bus pollution from confirmation retry-loops** — `architect` emitted ~20 duplicate `CONSENSUS_CONFIRMED (pending_acks)` messages in 90s by wrapping `egg-orch consensus confirmed` in a `for i in 1..10; do ... done` shell loop.
-2. **Multi-minute blocking sleep** — `tester` ran `sleep 300 && egg-orch consensus status …`, blackholing the agent for the full 5-minute window so it could not receive NACKs, overseer nudges, or peer proposals.
-3. **Multi-iteration poll loops where the underlying primitive is already blocking** — `documenter` ran an 8-iteration loop of `egg-orch message poll --wait 60` and observed neither a NACK that arrived 6 minutes earlier (and was already in its inbox) nor an overseer nudge that arrived during the loop. The pipeline only continued because a host-side nudge eventually woke the agent up.
-4. **Free-form chatter on the bus via the QUESTION type** — `tester` posted `"Tester orienting - any ETA?"`. No agent is wired to reply, and the message just sits.
+1. **Bus pollution from confirmation retry-loops** — `architect` emitted ~20 duplicate `CONSENSUS_CONFIRMED (pending_acks)` messages between `21:10:19 → 21:12:37` (one every ~5s) by wrapping `egg-orch consensus confirmed` in a `for i in 1 2 3 4 5 6 7 8 9 10; do ... done` shell loop.
+2. **Multi-minute blocking sleep** — `tester` ran `sleep 300 && egg-orch consensus status 2>&1 && git fetch origin ...`, blackholing the agent for the full 5-minute window so it could not receive NACKs, overseer nudges, or peer proposals.
+3. **Multi-iteration poll loops where the underlying primitive is already blocking** — `documenter` ran an 8-iteration loop of `egg-orch message poll --wait 60` starting at `22:22:14`. A NACK addressed to documenter had arrived 6 minutes earlier at `22:16:08`, and an overseer nudge arrived at `22:22:42` during the loop. Documenter's tail logs showed no activity from `22:22:14 → 22:32:29` (10+ minutes of silence) while both messages sat in its inbox. The pipeline only continued because a host-side nudge eventually woke the agent up.
+4. **Free-form chatter on the bus via the QUESTION type** — `tester` posted subject `"Tester orienting - any ETA?"` at `22:11:23`. No agent is wired to reply, and the message just sits.
 
 **Desired outcome.** Agents should react to bus events within seconds rather than the 5–10-minute sleep/poll-loop windows currently observed. BRC consensus turn-around should be dominated by reasoning latency, not agent-side sleep heuristics. The orchestrator overseer should not have to nudge live agents to surface state changes that are already in their inbox.
 
@@ -38,7 +38,13 @@ So when Redis is in play, **a single `--wait 60` call is event-driven** — the 
 
 ### `egg-orch consensus confirmed` idempotency
 
-PR #1896 (commit `ae9535b99`, merged just before this issue was filed) added duplicate-emission protection in `orchestrator/routes/signals.py:1241–1294` (`_existing_confirmed_for_role`). The route now checks for a prior `CONSENSUS_CONFIRMED` from the same role in the same phase and skips both `final` (line 1456) and `pending_acks` (line 1435) writes when a prior message exists. So the `architect`-style retry loop **should** no longer pollute the bus — but the issue's observation was on a pipeline that ran around the time of the merge, so we should verify whether the symptom persists under the fixed code (see `feedback-1` Q1).
+PR #1896 (commit `ae9535b99`, merged just before this issue was filed) added duplicate-emission protection. Full call stack for `egg-orch consensus confirmed`:
+
+1. **CLI entry** — `sandbox/egg_lib/orch_cli.py:1452–1480` (`cmd_consensus_confirmed`) POSTs `{"signal_type": "consensus_confirmed", "agent_role": role}` to `/api/v1/pipelines/{pid}/signal`.
+2. **Signal dispatch** — `orchestrator/routes/signals.py:187` maps `"consensus_confirmed"` → `handle_consensus_confirmed_signal`. (A second mapping at line 1784 covers the SSE variant.) No bypass path exists — every call goes through this handler.
+3. **Dedup guard** — `handle_consensus_confirmed_signal` (line 1297) calls `_existing_confirmed_for_role` (line 1241–1294) to fetch `(has_final, has_pending)` from the message store, then skips the bus write when a prior `CONFIRMED` of the same flavor exists (line 1435 for `pending_acks`, line 1456 for `final`).
+
+So the `architect`-style retry loop **should no longer** pollute the bus under the current code. That said, the issue's observation was on a pipeline that ran very close to the merge of #1896, so we should still verify whether the symptom persists under the fixed build (see `feedback-1` Q1) before declaring item #3 closed.
 
 Note also that a separate read-only command **already exists**: `egg-orch consensus status` (`sandbox/egg_lib/orch_cli.py:1452–1525`) is a pure GET against `/api/v1/pipelines/{pid}/status`. There is no need to introduce a new "query" form — the issue's item #3 second clause is already satisfied.
 
@@ -57,10 +63,11 @@ Note also that a separate read-only command **already exists**: `egg-orch consen
 ## Constraints
 
 - **No backwards-incompatible change to the bus schema.** Pipelines mid-flight at deploy time must continue to work with whatever message types were defined at their start.
-- **In-memory store fallback must not regress.** Tests rely on `EGG_MESSAGE_STORE_BACKEND=memory`. Whether we patch the silent-fallback behavior is itself a decision (see `decision-4`).
-- **`--wait` blocking is an HTTP connection cost.** Raising the 60s cap means the orchestrator API holds open more long-lived connections per agent. We should weigh this against per-agent bus chatter saved.
+- **In-memory store fallback must not regress.** Tests rely on `EGG_MESSAGE_STORE_BACKEND=memory`. Whether we patch the silent-fallback behavior is itself a decision (see `decision-4`). **Inter-decision dependency:** if `decision-1` picks an option that includes a new blocking primitive AND `decision-4` picks "leave as-is", then CI tests running with `EGG_MESSAGE_STORE_BACKEND=memory` will silently exercise the non-blocking path and produce false green. These two decisions must be resolved together.
+- **`--wait` blocking is an HTTP connection cost.** Raising the 60s cap means the orchestrator API holds open more long-lived connections per agent. Concrete load figures: there are typically 3–7 concurrent agents per pipeline (producer + reviewers + overseer), each holding one long-lived poll socket; a typical multi-pipeline deployment runs O(10) concurrent pipelines → order-of-magnitude 30–70 simultaneous long-poll sockets. The `HTTP_PROXY` idle timeout in the sandbox's gateway (`HTTP_PROXY=gateway.egg-system.svc.cluster.local:3129`) is the operative cap — raising `--wait` beyond that will produce spurious 504s unless the gateway timeout is raised in lockstep.
 - **Redis is the only event-driven backend.** XREAD BLOCK is what makes `--wait` actually event-driven. Any new "wait for type" primitive must work over the same XREAD plus client/server filtering, or be implemented as SSE.
-- **Agent prompt is shared between models.** The BRC preamble is rendered for every concurrent-mode role; a wording change applies to all of them. Tests in `orchestrator/tests/test_pipeline_prompts.py` (lines 3262, 3287, 3503, 3514) lock in the current "STAY ALIVE" / lifecycle structure and will need updating.
+- **Agent prompt is shared between models.** The BRC preamble is rendered for every concurrent-mode role; a wording change applies to all of them. Tests in `orchestrator/tests/test_pipeline_prompts.py` lock in the current "STAY ALIVE" / lifecycle structure and will need updating — the relevant test functions are `test_reviewer_lifecycle_renumbered`, `test_directed_coordination_after_reviewer_lifecycle`, `test_directed_coordination_after_producer_lifecycle`, and the lifecycle-order assertions near those. (Line numbers drift between commits; search by test name.)
+- **Container lifecycle (decision-8).** Replacing the `consensus_wrapper.py` shell sleep loop with a long XREAD BLOCK (or SSE listener) changes shutdown semantics: a blocked Redis connection must respect SIGTERM and exit the shell within the orchestrator's graceful-shutdown grace period, otherwise the orchestrator's kill path (`SIGKILL` after grace) masks a clean "consensus reached" exit. This cuts across the wrapper's current `exit 0`/`exit 1` classification logic.
 - **Issue #1890 is closely related** — the overseer needed to manually intervene because agents weren't observing state changes promptly. Fewer agent sleeps → fewer overseer interventions → less work for the Tier 1 health check.
 
 ## Options Considered
@@ -130,7 +137,9 @@ Reasoning:
 - The idempotency fix in #1890 (already merged) covers item #3, and Option B bundles items #1, #2, and #4. **Item #5 (heartbeats) is deferrable** — once Option B is in place, overseer-side liveness inference is a cleaner problem to attack later.
 - Option C is attractive but carries enough scope risk that we should validate the simpler primitive first.
 
-The recommendation is contingent on the answers to `decision-1` (scope), `decision-2` (CLI shape), and `decision-3` (whether to raise the `--wait` cap independently). If the human picks the minimal-scope option, fall back to Option D.
+The recommendation is contingent on the answers to `decision-1` (scope), `decision-2` (CLI shape), and `decision-3` (whether to raise the `--wait` cap independently).
+
+**Explicit fallback trigger:** if `decision-1` returns "Items 1, 3, 4 only (prompt audit, idempotent CLI verification, docs) — minimal/safe scope", pivot to **Option D** (skip the new blocking primitive entirely and just ship the prompt audit and docs). If `decision-1` returns "Items 1, 4, 5" (observability-focused), shift to **Option C** (heartbeats + prompts/docs, no new wait primitive). If `decision-1` returns "All five" (full scope), implement Option C but plan the heartbeat subsystem as its own parallel track in the plan phase.
 
 ## Open Questions
 
@@ -159,6 +168,8 @@ The following decisions and feedback items have been registered with `egg-contra
 
 **Should the 60-second cap on message poll --wait be raised?**
 
+*Cost context: with 3–7 agents per pipeline × O(10) concurrent pipelines, the orchestrator holds order-of-magnitude 30–70 simultaneous long-poll sockets. The binding constraint is the sandbox HTTP proxy idle timeout (`HTTP_PROXY=gateway.egg-system.svc.cluster.local:3129`), which must be raised in lockstep with the cap or requests will 504.*
+
 - [ ] Keep 60s cap (force agents to re-poll, server holds fewer long blocking connections)
 - [ ] Raise to 300s (5 min) — matches consensus_wrapper MAX_READY_POLLS interval
 - [ ] Raise to 600s (10 min) — minimize bus chatter, rely on Redis XREAD BLOCK semantics
@@ -168,6 +179,8 @@ The following decisions and feedback items have been registered with `egg-contra
 <!-- egg-hitl-decision id=decision-4 -->
 
 **How should the existing in-memory message store behave for --wait > 0?**
+
+*Coupling note: if `decision-1` includes a new blocking primitive and this decision picks "Leave as-is", any CI test using `EGG_MESSAGE_STORE_BACKEND=memory` will silently exercise the non-blocking path and false-green. Resolve `decision-1` and `decision-4` together.*
 
 - [ ] Leave as-is: silent fallback to non-blocking (test environments only)
 - [ ] Implement true blocking via condition variable on the in-memory store
@@ -184,13 +197,22 @@ The following decisions and feedback items have been registered with `egg-contra
 - [ ] Replace with a typed REQUEST/REPLY pattern that names a target peer and times out
 - [ ] Other (explain in reply)
 
+<!-- egg-hitl-decision id=decision-6 -->
+
+**⚠️ SUPERSEDED — please answer decision-7 instead.**
+
+*This decision was registered twice against the contract due to a shell-quoting bug during `egg-contract add-decision` (the first invocation had its option text mangled by bash command substitution on inline backticks). The contract has no deletion mechanism; this block exists so the HITL gate can render a comment for `decision-6` and complete the phase. Decision-7 below carries the canonical question and correct option text. Please tick "Superseded — see decision-7" here.*
+
+- [ ] Superseded — see decision-7 (Recommended)
+- [ ] Other (explain in reply)
+
 <!-- egg-hitl-decision id=decision-7 -->
 
-**Should agent prompt changes regress-protect with explicit anti-pattern bans?**
+**Should the agent prompt regression-guard against sleep/for-loop anti-patterns, and how aggressively?**
 
-- [ ] Yes — add explicit Don'ts: "Do NOT use for-loops to wrap message poll; do NOT call sleep N to wait; rely on --wait blocking semantics"
-- [ ] No — positive guidance only ("use a single while loop with --wait 30")
-- [ ] Yes plus a sandbox-side guard: gateway rejects bash commands containing "sleep [0-9]+ &&" followed by orch CLI
+- [ ] Yes — add explicit Don'ts to the prompt preamble: "Do NOT use for-loops to wrap message poll; do NOT call sleep N to wait; rely on --wait blocking semantics"
+- [ ] No — positive guidance only ("use a single while loop with --wait 30") and trust the LLM
+- [ ] Yes plus a sandbox-side enforcement: gateway rejects bash commands matching "sleep [0-9]+ &&" followed by an orch CLI invocation
 - [ ] Other (explain in reply)
 
 <!-- egg-hitl-decision id=decision-8 -->
