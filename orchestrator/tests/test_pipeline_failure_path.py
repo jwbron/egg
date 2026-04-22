@@ -743,7 +743,9 @@ class TestContractPushHardGate:
         )
 
         # Make push fail (reconcile is internal to push_worktree_branch)
-        mock_gateway.push_worktree_branch.return_value = False
+        mock_gateway.push_worktree_branch.return_value = PushResult(
+            ok=False, category="test", detail="mock failure"
+        )
 
         worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
         mock_gateway.create_worktrees.return_value = MagicMock(

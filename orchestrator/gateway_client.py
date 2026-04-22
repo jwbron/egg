@@ -121,7 +121,7 @@ def _classify_push_stderr(stderr: str) -> str:
     s = stderr.lower()
     if "non-fast-forward" in s or "(fetch first)" in s:
         return "non_fast_forward"
-    if "authentication failed" in s or "invalid credentials" in s or "403" in s:
+    if "authentication failed" in s or "invalid credentials" in s or " 403" in s:
         return "auth_failed"
     if "permission denied" in s or ("permission to" in s and "denied" in s):
         return "permission_denied"
@@ -872,7 +872,7 @@ class GatewayClient:
         failure, the returned ``PushResult`` carries a category that
         identifies which stage of reconcile failed
         (``reconcile_fetch_failed``, ``reconcile_rebase_failed``,
-        ``reconcile_retry_failed:<inner>``) so callers can distinguish
+        ``reconcile_retry_failed/<inner>``) so callers can distinguish
         "original push was rejected and reconcile never ran" from
         "reconcile ran but retry push still failed" without reading the
         gateway source.
@@ -961,7 +961,7 @@ class GatewayClient:
         inner = retry.category or "unknown"
         return PushResult(
             ok=False,
-            category=f"reconcile_retry_failed:{inner}",
+            category=f"reconcile_retry_failed/{inner}",
             detail=retry.detail,
         )
 

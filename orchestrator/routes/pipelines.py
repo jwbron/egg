@@ -9222,7 +9222,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         )
                         push_succeeded = bool(push_result)
                         if not push_succeeded:
-                            push_err_msg = getattr(push_result, "describe", lambda: "push failed")()
+                            push_err_msg = push_result.describe()
                     except Exception as push_err:
                         push_succeeded = False
                         push_err_msg = str(push_err)

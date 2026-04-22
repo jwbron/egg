@@ -10,13 +10,13 @@ Cases covered (originally added for #1706, rewritten for #1731 to
 prefer rebase over merge and to auto-resolve conflicts under
 ``.egg-state/agent-outputs/`` by taking the remote side):
 
-- First push attempt succeeds → return True, no fetch/rebase attempted.
+- First push attempt succeeds → return PushResult(ok=True), no fetch/rebase attempted.
 - First push fails → fetch+rebase+retry path engaged.
-- Fetch failure → hard fail, no rebase attempted, return False.
-- Rebase conflict in a non-ephemeral path → rebase --abort, return False.
+- Fetch failure → hard fail, no rebase attempted, return PushResult(ok=False).
+- Rebase conflict in a non-ephemeral path → rebase --abort, return PushResult(ok=False).
 - Rebase conflict only under .egg-state/agent-outputs/ → auto-resolve and continue.
-- Rebase timeout → rebase --abort, return False.
-- Rebase succeeds but retry push still fails → return False.
+- Rebase timeout → rebase --abort, return PushResult(ok=False).
+- Rebase succeeds but retry push still fails → return PushResult(ok=False).
 - ``ref`` set (state-sync style, #1808): no reconcile — rebase is only
   meaningful when ``repo_path`` is a worktree checked out to the branch.
 """
