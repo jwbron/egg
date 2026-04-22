@@ -181,16 +181,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-22T23:43:58.962624Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-22T23:46:00.194140Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Keep deny-all semantics; add an explicit catch-all pattern ('**') to CODER_PATTERNS.allowed_patterns\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-22T23:25:22.973469Z",
-  "updated_at": "2026-04-22T23:43:58.973280Z",
+  "updated_at": "2026-04-22T23:46:00.224389Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -203,5 +203,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13
+  "version": 14
 }
