@@ -108,8 +108,8 @@ run_agent_task(
 
 ```json
 {
-  "task_id": "issue-1762-membump",
-  "status": "running",
+  "task_id": "custom-ab12cd34",
+  "status": "started",
   "message": "CUSTOM pipeline started: phase=implement, roles=['coder']"
 }
 ```
@@ -117,7 +117,7 @@ run_agent_task(
 The `task_id` is the `pipeline_id`. Monitor status via:
 
 - `GET /api/v1/pipelines/<pipeline_id>/status`
-- `egg-orch pipeline show <pipeline_id>`
+- `egg-orch pipeline get <pipeline_id>` (or `egg-orch pipeline status <pipeline_id>` for the status-only view)
 - The standard [SDLC Pipeline Guide](sdlc-pipeline.md#monitoring) endpoints.
 
 Retrieve drafts and artifacts from the pipeline branch (`branch`, or the
@@ -143,10 +143,16 @@ retrieval pattern as ISSUE-mode pipelines.
 4. **`reviewer_contract` auto-handling.** When an upstream contract
    artifact is present (via `analysis`, `plan`, or an inherited
    `issue_number`), `reviewer_contract` is eligible for inclusion and is
-   **automatically added** to the default roster. When no artifact is
+   **automatically added** to the default roster via
+   `get_roles_for_phase(phase, include_reviewers=True, repo=repo,
+   has_contract=has_contract)`. The route computes `has_contract` from
+   the presence of `analysis` / `plan` / an existing
+   `.egg-state/contracts/<pipeline_id>.json` (TASK-2-2 in the plan;
+   `orchestrator/routes/pipelines.py:957`). When no artifact is
    available, `reviewer_contract` is rejected as an explicit selection
-   and filtered out of the default roster — same filter as
-   `has_contract=False` in `get_roles_for_phase()`.
+   (`reviewer_contract_without_artifact`) and filtered out of the
+   default roster — same filter as `has_contract=False` in
+   `get_roles_for_phase()`.
 5. **Explicit over implicit.** The resolved roster is persisted on the
    pipeline record as `Pipeline.active_roles` and used by
    `_run_concurrent_phase` to seed `ConcurrentPhaseExecutor` and filter
@@ -313,15 +319,29 @@ may overwrite it during the phase — same semantics as
 
 ## Error Responses
 
-| Scenario | HTTP | Body |
+Validation errors returned by `validate_roles_for_custom_phase`
+(`shared/egg_contracts/agent_roles.py`) are surfaced by the route via
+the shape `{"details": {"reason": "<reason>"}}` (see TASK-2-1). The
+`<reason>` strings below match exactly what the helper returns, so
+programmatic callers can switch on them.
+
+| Scenario | HTTP | `details.reason` |
 |---|---|---|
-| Reviewer-only roster | 400 | `{"error": "reviewer_only_roster", "detail": "CUSTOM pipelines require at least one producer role"}` |
-| Cross-phase role | 400 | `{"error": "role_not_in_phase", "detail": "'overseer' not in refine roster"}` |
-| Unknown role | 400 | `{"error": "unknown_role", "detail": "'not_a_role' is not a valid AgentRole"}` |
-| `reviewer_contract` without artifact | 400 | `{"error": "reviewer_contract_requires_artifact"}` |
-| `pr_number` on merged/closed/fork/empty PR | 400 / 409 | Same shape as `babysit_pr` |
-| Repo not in allowlist | 400 | `{"error": "repo_not_allowed", "detail": "'owner/name' not in repositories.yaml"}` |
-| Existing pipeline conflict | 409 | `{"error": "pipeline_exists", "pipeline_id": "<existing>"}` |
+| Reviewer-only roster (no producer selected; deadlocks BRC) | 400 | `reviewer_only_roster` |
+| Cross-phase role (`overseer`, `autofixer`, `conflict_resolver`, `inspector`) | 400 | `cross_phase_role` |
+| Unknown role string, role outside phase roster, or egg-only reviewer on non-egg repo | 400 | `invalid_roles` |
+| `reviewer_contract` requested without an upstream contract artifact | 400 | `reviewer_contract_without_artifact` |
+| `phase` not one of `refine` / `plan` / `implement` | 400 | `invalid_phase` |
+| `pr_number` on merged / closed / fork / empty PR (reuses BABYSIT pre-flight) | 400 / 409 | Same body shape as `babysit_pr` |
+| Repo not in allowlist (gateway `repositories.yaml`) | 400 | (gateway-surfaced; shape matches `submit_task`) |
+| Existing pipeline with same id | 409 | (route-surfaced; shape matches `submit_task`) |
+
+All four route-level role-validation reasons (`reviewer_only_roster`,
+`cross_phase_role`, `invalid_roles`, `reviewer_contract_without_artifact`)
+are the exact strings compiled into
+`validate_roles_for_custom_phase` at `shared/egg_contracts/agent_roles.py`
+(lines ~1135–1188 in
+[`b18c645b1`](https://github.com/jwbron/egg/commit/b18c645b1)).
 
 ## Artifact Retrieval
 
@@ -331,8 +351,9 @@ contract artifacts, and reviews there during the phase. Retrieve any
 artifact with `git show`:
 
 ```bash
-# Pipeline id returned by run_agent_task
-PID=issue-1762-membump
+# Pipeline id returned by run_agent_task — use the value from your
+# response, not this placeholder.
+PID=custom-ab12cd34
 
 # Analysis draft
 git show "egg/custom-${PID}:.egg-state/drafts/${PID}-analysis.md"
@@ -364,7 +385,7 @@ show` from.
   --setup`/`--reset`/`--compose`/`--public`/`--private` flags, and the
   Docker Compose deployment path were removed alongside this tool.
   Hosts without an MCP client should use the [GitHub
-  Action](../../action/README.md) or `egg-sdlc submit-task` instead.
+  Action](../../action/README.md) or `bin/egg-sdlc submit-task` instead.
 
 ## Relationship to Other Pipelines
 
