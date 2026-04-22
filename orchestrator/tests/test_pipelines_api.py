@@ -247,9 +247,12 @@ class TestDeletePipelineBranchCleanup:
 class TestCreatePipelineMultiRepo:
     """Tests that create_pipeline resolves repo paths in multi-repo setups (#1323)."""
 
+    @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
     @patch("routes.pipelines.get_repo_path")
-    def test_create_pipeline_uses_get_repo_path(self, mock_repo_path, mock_get_store, client):
+    def test_create_pipeline_uses_get_repo_path(
+        self, mock_repo_path, mock_get_store, mock_gw, client
+    ):
         """create_pipeline should call get_repo_path() for all pipeline types."""
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
         mock_store = MagicMock()
@@ -271,10 +274,11 @@ class TestCreatePipelineMultiRepo:
         mock_repo_path.assert_called_once()
         mock_get_store.assert_called_once_with(Path("/home/egg/repos/webapp"))
 
+    @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
     @patch("routes.pipelines.get_repo_path")
     def test_create_prompt_pipeline_uses_get_repo_path(
-        self, mock_repo_path, mock_get_store, client
+        self, mock_repo_path, mock_get_store, mock_gw, client
     ):
         """Prompt-driven pipelines (no issue_number) also use get_repo_path()."""
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
@@ -298,7 +302,10 @@ class TestCreatePipelineMultiRepo:
 
     def test_get_repo_path_returns_400_when_repo_not_found(self, client, tmp_path):
         """get_repo_path() returns 400 when repo subdir is missing in multi-repo setup."""
-        with patch.dict(os.environ, {"EGG_REPO_PATH": str(tmp_path)}):
+        with patch.dict(
+            os.environ,
+            {"EGG_REPO_PATH": str(tmp_path), "EGG_GATEWAY_READY_TIMEOUT_SECONDS": "0"},
+        ):
             response = client.post(
                 "/api/v1/pipelines",
                 json={
@@ -659,10 +666,11 @@ class TestCreatePipelineJiraAndQualifier:
 class TestCreatePipelineErrorHandling:
     """Tests that create_pipeline returns detailed errors for unexpected exceptions (#1396)."""
 
+    @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
     @patch("routes.pipelines.get_repo_path")
     def test_non_state_store_error_returns_500_with_detail(
-        self, mock_repo_path, mock_get_store, client
+        self, mock_repo_path, mock_get_store, mock_gw, client
     ):
         """Non-StateStoreError exceptions should return 500 with the error type and message."""
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
@@ -683,9 +691,12 @@ class TestCreatePipelineErrorHandling:
         assert "ValueError" in body["message"]
         assert "unexpected validation failure" in body["message"]
 
+    @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
     @patch("routes.pipelines.get_repo_path")
-    def test_os_error_returns_500_with_detail(self, mock_repo_path, mock_get_store, client):
+    def test_os_error_returns_500_with_detail(
+        self, mock_repo_path, mock_get_store, mock_gw, client
+    ):
         """OSError during pipeline creation should return 500 with detail, not generic error."""
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
         mock_store = MagicMock()
