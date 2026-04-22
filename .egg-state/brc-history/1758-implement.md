@@ -1,0 +1,929 @@
+# BRC Consensus History — implement phase
+
+Generated: 2026-04-22T23:52:59Z
+Pipeline: issue-1758
+
+### [2026-04-22T23:30:26Z] documenter (STATUS): Documenter starting in parallel with coder
+
+Identified doc surfaces needing update for delta-review diff command change: docs/guides/github-automation.md (step 3 re-review diff), docs/guides/concurrent-execution.md (reviewer diff section), shared/prompts/REVIEWER-SYNC.md (diff row), action/README.md (BASE_REF). Drafting in parallel; will update again if coder's implementation changes surface.
+
+````yaml
+id: 40195737-99fe-4a
+phase: implement
+````
+
+### [2026-04-22T23:32:51Z] overseer (OVERSEER_ALERT): orchestrator-consensus-silent [medium]
+
+4 of 5 BRC agents WORKING 305s with 0 proposals — past 300s grace window
+
+Detail:
+Phase: implement (started 23:27:13Z). Coder, reviewer_code, reviewer_contract, and tester all show producer/reviewer_phase=WORKING with 0 proposals published. Documenter published 1 STATUS at 23:30:26Z (alive, drafting docs). No progress events. Message bus: 1 STATUS message. Heartbeat OK. Orchestrator/state-store/gateway all healthy. We are 5s past the post_proposal_grace_seconds=300 window with the critical coder agent still silent.
+
+Recommended action:
+Monitor 2 more cycles (~30s). If coder remains at WORKING with 0 proposals by ~400s, consider querying container logs directly or issuing a phase restart. Do not cancel — system is healthy, coder is likely in deep implementation work.
+
+````yaml
+id: e1c12c07-bbc6-4d
+phase: implement
+````
+
+### [2026-04-22T23:32:58Z] documenter (CONSENSUS_PROPOSE): Proposal from documenter
+
+Documented the PR-side-only delta re-review diff command across all reviewer-facing surfaces for #1758. Updated docs/guides/github-automation.md step 3 to describe the new 'git log <last>..HEAD --not origin/<base> -p' command with the fetch nudge and BASE_REF plumbing; added a 'Delta re-review command' subsection to docs/guides/concurrent-execution.md explaining BRC review_cycle>1 behavior in _build_review_prompt() and why two-dot/three-dot git diff do not work; added a delta-cycle note to docs/architecture/orchestrator.md's Prompt Context Scoping paragraph; documented the new BASE_REF env var on the three reviewer prompt builders in action/README.md and the reusable-review.yml auto-plumbing; split shared/prompts/REVIEWER-SYNC.md's Diff command row into first-review vs re-review/delta and added a modification-checklist item. Docs are supplementary to the coder/tester contract tasks (task-1-1..task-1-6) and do not block any task verification.
+
+````yaml
+id: 45c789f5-7429-45
+phase: implement
+metadata:
+  payload:
+    summary: 'Documented the PR-side-only delta re-review diff command across all
+      reviewer-facing surfaces for #1758. Updated docs/guides/github-automation.md
+      step 3 to describe the new ''git log <last>..HEAD --not origin/<base> -p'' command
+      with the fetch nudge and BASE_REF plumbing; added a ''Delta re-review command''
+      subsection to docs/guides/concurrent-execution.md explaining BRC review_cycle>1
+      behavior in _build_review_prompt() and why two-dot/three-dot git diff do not
+      work; added a delta-cycle note to docs/architecture/orchestrator.md''s Prompt
+      Context Scoping paragraph; documented the new BASE_REF env var on the three
+      reviewer prompt builders in action/README.md and the reusable-review.yml auto-plumbing;
+      split shared/prompts/REVIEWER-SYNC.md''s Diff command row into first-review
+      vs re-review/delta and added a modification-checklist item. Docs are supplementary
+      to the coder/tester contract tasks (task-1-1..task-1-6) and do not block any
+      task verification.'
+    attestation: {}
+    artifacts:
+    - action/README.md
+    - docs/architecture/orchestrator.md
+    - docs/guides/concurrent-execution.md
+    - docs/guides/github-automation.md
+    - shared/prompts/REVIEWER-SYNC.md
+    risk_considered: ''
+    commit_sha: 49e9b839f38a08ee9a86a1fcaf13d3c08eedf0b3
+    files_changed:
+    - action/README.md
+    - docs/architecture/orchestrator.md
+    - docs/guides/concurrent-execution.md
+    - docs/guides/github-automation.md
+    - shared/prompts/REVIEWER-SYNC.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 1
+  commit_sha: 49e9b839f38a08ee9a86a1fcaf13d3c08eedf0b3
+````
+
+### [2026-04-22T23:34:42Z] reviewer_code → documenter (CONSENSUS_ACK): ACK from reviewer_code for documenter
+
+
+Reviewed documenter's commit 49e9b839f covering 5 doc surfaces; diff +36/-3 lines. Verified each change against the contract's task-1-1..1-6 spec.
+
+### What I checked
+- action/README.md (+13 lines): 'Reviewer Delta / Re-Review Plumbing' section documents BASE_REF env var on the three builders (build-review-prompt.sh, build-agent-mode-design-review-prompt.sh, build-contract-verification-prompt.sh), the two-line 'git fetch origin ${BASE_REF}' + 'git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${BASE_REF} -p' form, defaults to main, and explicitly notes initial-review (no LAST_REVIEW_COMMIT) path is unaffected. Plumbing via reusable-review.yml pr-meta is called out.
+- docs/architecture/orchestrator.md: Prompt Context Scoping paragraph adds the delta-cycle switch; keeps the existing first-cycle three-dot 'git diff origin/{base_branch}...HEAD' description unchanged. Issue link and mechanism description are accurate.
+- docs/guides/concurrent-execution.md: New 'Delta re-review command (BRC review_cycle > 1)' subsection sits alongside the existing 'Reviewer diff command' note without replacing it. Technical explanation of 'git log A..HEAD --not origin/{base}' is correct — it enumerates commits reachable from HEAD, reachable since A, and NOT reachable from base, so base-branch merges are excluded. The note that 'a naive git diff A..HEAD or three-dot git diff A...HEAD would both show those merged-in changes, because A is an ancestor of HEAD (so the merge-base collapses to A)' is correct: when A is an ancestor of HEAD, three-dot degenerates to two-dot. Appropriate context about BRC rarely hitting delta path.
+- docs/guides/github-automation.md step 3: describes the new command accurately, mentions the git fetch nudge, documents that BASE_REF comes from pr-meta → BASE_REF, default 'main'. Explicitly notes first-cycle reviews still use the full-PR 'git diff origin/<base>...HEAD' form, matching the contract's 'initial-review branch is not touched' clause.
+- shared/prompts/REVIEWER-SYNC.md: splits the 'Diff command' alignment row into first-review vs re-review/delta rows, and adds a new modification-checklist item enumerating the three prompt builders + _build_review_prompt + BASE_REF plumbing in reusable-review.yml. This keeps the alignment matrix authoritative.
+
+### Correctness verification
+- Git-semantics claim verified: 'git log A..HEAD --not origin/base' with A as ancestor of HEAD correctly excludes commits reachable from origin/base (including merges-in of base). The 'merge-base collapses to A' explanation for why three-dot 'git diff A...HEAD' shows merged-in changes when A is an ancestor is technically accurate (git-diff 3-dot docs: 'changes on the branch containing and up to the second, starting at a common ancestor of both').
+- GitHub issue link format matches existing style (see docs/architecture/custom-harness.md line 287).
+- Doc updates precede the coder's implementation, which is a coordination risk, but the contract spec is precise enough that doc wording matches the promised code behavior. If coder deviates, documenter will need to re-propose — at that point I'll re-review accordingly.
+
+### Non-blocking
+- **docs/guides/concurrent-execution.md:831** — Minor wording nit: 'A naive git diff A..HEAD ... because A is an ancestor of HEAD (so the merge-base collapses to A)' conflates two-dot with three-dot reasoning. Two-dot 'git diff A..HEAD' is a tree-diff and doesn't involve a merge-base; only the three-dot form does. The conclusion (both show merged-in changes) is correct, but the causal explanation applies only to the three-dot form. Suggest: 'Two-dot git diff A..HEAD compares trees directly and naturally includes merged-in changes; three-dot git diff A...HEAD diffs from merge-base(A, HEAD) to HEAD, which collapses to A when A is an ancestor and therefore shows the same thing.' Not blocking — the net technical claim is right.
+- **docs/guides/github-automation.md:62-65** — Step 3 describes the new diff command but the issue-1758 explanation of *why* (base-branch merges attributed to PR) is condensed. Consider adding a short 'before/after' example in a follow-up doc PR if the distinction keeps confusing future contributors.
+- **shared/prompts/REVIEWER-SYNC.md** — Consider adding a pointer to #1758 in the 'Diff command (re-review / delta)' row so the context for the split is clickable from the sync matrix.
+
+
+````yaml
+id: 55c4042a-0c28-44
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - action/README.md
+    - docs/architecture/orchestrator.md
+    - docs/guides/concurrent-execution.md
+    - docs/guides/github-automation.md
+    - shared/prompts/REVIEWER-SYNC.md
+    reason: "\nReviewed documenter's commit 49e9b839f covering 5 doc surfaces; diff\
+      \ +36/-3 lines. Verified each change against the contract's task-1-1..1-6 spec.\n\
+      \n### What I checked\n- action/README.md (+13 lines): 'Reviewer Delta / Re-Review\
+      \ Plumbing' section documents BASE_REF env var on the three builders (build-review-prompt.sh,\
+      \ build-agent-mode-design-review-prompt.sh, build-contract-verification-prompt.sh),\
+      \ the two-line 'git fetch origin ${BASE_REF}' + 'git log ${LAST_REVIEW_COMMIT}..HEAD\
+      \ --not origin/${BASE_REF} -p' form, defaults to main, and explicitly notes\
+      \ initial-review (no LAST_REVIEW_COMMIT) path is unaffected. Plumbing via reusable-review.yml\
+      \ pr-meta is called out.\n- docs/architecture/orchestrator.md: Prompt Context\
+      \ Scoping paragraph adds the delta-cycle switch; keeps the existing first-cycle\
+      \ three-dot 'git diff origin/{base_branch}...HEAD' description unchanged. Issue\
+      \ link and mechanism description are accurate.\n- docs/guides/concurrent-execution.md:\
+      \ New 'Delta re-review command (BRC review_cycle > 1)' subsection sits alongside\
+      \ the existing 'Reviewer diff command' note without replacing it. Technical\
+      \ explanation of 'git log A..HEAD --not origin/{base}' is correct \u2014 it\
+      \ enumerates commits reachable from HEAD, reachable since A, and NOT reachable\
+      \ from base, so base-branch merges are excluded. The note that 'a naive git\
+      \ diff A..HEAD or three-dot git diff A...HEAD would both show those merged-in\
+      \ changes, because A is an ancestor of HEAD (so the merge-base collapses to\
+      \ A)' is correct: when A is an ancestor of HEAD, three-dot degenerates to two-dot.\
+      \ Appropriate context about BRC rarely hitting delta path.\n- docs/guides/github-automation.md\
+      \ step 3: describes the new command accurately, mentions the git fetch nudge,\
+      \ documents that BASE_REF comes from pr-meta \u2192 BASE_REF, default 'main'.\
+      \ Explicitly notes first-cycle reviews still use the full-PR 'git diff origin/<base>...HEAD'\
+      \ form, matching the contract's 'initial-review branch is not touched' clause.\n\
+      - shared/prompts/REVIEWER-SYNC.md: splits the 'Diff command' alignment row into\
+      \ first-review vs re-review/delta rows, and adds a new modification-checklist\
+      \ item enumerating the three prompt builders + _build_review_prompt + BASE_REF\
+      \ plumbing in reusable-review.yml. This keeps the alignment matrix authoritative.\n\
+      \n### Correctness verification\n- Git-semantics claim verified: 'git log A..HEAD\
+      \ --not origin/base' with A as ancestor of HEAD correctly excludes commits reachable\
+      \ from origin/base (including merges-in of base). The 'merge-base collapses\
+      \ to A' explanation for why three-dot 'git diff A...HEAD' shows merged-in changes\
+      \ when A is an ancestor is technically accurate (git-diff 3-dot docs: 'changes\
+      \ on the branch containing and up to the second, starting at a common ancestor\
+      \ of both').\n- GitHub issue link format matches existing style (see docs/architecture/custom-harness.md\
+      \ line 287).\n- Doc updates precede the coder's implementation, which is a coordination\
+      \ risk, but the contract spec is precise enough that doc wording matches the\
+      \ promised code behavior. If coder deviates, documenter will need to re-propose\
+      \ \u2014 at that point I'll re-review accordingly.\n\n### Non-blocking\n- **docs/guides/concurrent-execution.md:831**\
+      \ \u2014 Minor wording nit: 'A naive git diff A..HEAD ... because A is an ancestor\
+      \ of HEAD (so the merge-base collapses to A)' conflates two-dot with three-dot\
+      \ reasoning. Two-dot 'git diff A..HEAD' is a tree-diff and doesn't involve a\
+      \ merge-base; only the three-dot form does. The conclusion (both show merged-in\
+      \ changes) is correct, but the causal explanation applies only to the three-dot\
+      \ form. Suggest: 'Two-dot git diff A..HEAD compares trees directly and naturally\
+      \ includes merged-in changes; three-dot git diff A...HEAD diffs from merge-base(A,\
+      \ HEAD) to HEAD, which collapses to A when A is an ancestor and therefore shows\
+      \ the same thing.' Not blocking \u2014 the net technical claim is right.\n-\
+      \ **docs/guides/github-automation.md:62-65** \u2014 Step 3 describes the new\
+      \ diff command but the issue-1758 explanation of *why* (base-branch merges attributed\
+      \ to PR) is condensed. Consider adding a short 'before/after' example in a follow-up\
+      \ doc PR if the distinction keeps confusing future contributors.\n- **shared/prompts/REVIEWER-SYNC.md**\
+      \ \u2014 Consider adding a pointer to #1758 in the 'Diff command (re-review\
+      \ / delta)' row so the context for the split is clickable from the sync matrix.\n"
+  version: 1
+````
+
+### [2026-04-22T23:34:42Z] orchestrator → documenter (STATUS): All reviewers have ACKed — ready to confirm
+
+All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: f3c8c274-e8de-40
+phase: implement
+metadata:
+  fully_acked: true
+  version: 1
+````
+
+### [2026-04-22T23:36:19Z] tester → coder (QUESTION): Status check on implementation
+
+Tester here. My task-1-5 and task-1-6 test updates are ready in my worktree. I'm blocking on your commits for tasks 1-1 through 1-4 so I can run the tests against your implementation. Can you share status? If you've hit issues, let me know — we can collaborate on the approach.
+
+````yaml
+id: 9f528c01-80cb-4f
+phase: implement
+````
+
+### [2026-04-22T23:39:06Z] overseer (OVERSEER_ALERT): stuck-phase-transition [high]
+
+Coder committed implementation but gateway is blocking push — stuck pre-PROPOSED
+
+Detail:
+Coder completed all tasks (commit d61871d944 at 23:38:00Z) but gateway sidecar is blocking git push with 'agent role coder cannot modify these files'. Coder has been retrying multiple push variants since 23:38:03Z: egg/issue-1758-coder/work (blocked), egg/issue-1758 (blocked - file scope violation). All containers running, heartbeat OK. Coder cannot transition WORKING→PROPOSED without a successful push. Phase implement will stall permanently unless coder uses the correct push mechanism.
+
+Recommended action:
+Coder should use 'egg-orch push --scope-filter' instead of raw git push. The gateway enforces file scope rules per agent role. If coder does not self-recover in next 2-3 cycles, investigate which files in the coder's commit violate scope (likely overlapping with documenter's action/README.md). May need human intervention to adjust file scopes or merge commits.
+
+````yaml
+id: 79af7954-a6eb-45
+phase: implement
+````
+
+### [2026-04-22T23:39:47Z] documenter (CONSENSUS_CONFIRMED): Confirmed by documenter (pending_acks)
+
+Agent documenter cannot confirm: producers ['coder', 'tester'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.
+
+````yaml
+id: ab34425c-ebb5-43
+phase: implement
+metadata:
+  pending_acks: true
+````
+
+### [2026-04-22T23:39:58Z] coder → tester (HANDOFF): Code for #1758 ready — tests need update (task-1-5, task-1-6)
+
+Code changes for issue #1758 are pushed at commit 3898fc6bd508785cf61125fcc21a353d037a98e0.
+
+Summary of code change:
+- The delta re-review command switched from `git diff <sha>..HEAD` to
+  `git log <sha>..HEAD --not origin/<base> -p` (preceded by
+  `git fetch origin <base>`) across all five call sites:
+  - orchestrator/routes/pipelines.py `_build_review_prompt()`
+  - action/build-review-prompt.sh
+  - action/build-agent-mode-design-review-prompt.sh
+  - action/build-contract-verification-prompt.sh
+- reusable-review.yml now emits `base-ref` from pr-meta and passes it as
+  BASE_REF to the prompt builder.
+
+I cannot modify test files (gateway blocks coder role). Please take
+task-1-5 and task-1-6:
+
+task-1-5 — update these three test files:
+- tests/action/test_build_review_prompt.py
+- tests/action/test_build_agent_mode_design_review_prompt.py
+- tests/action/test_build_contract_verification_prompt.py
+
+For each:
+1. Replace the re-review assertion `assert "git diff <sha>..HEAD" in prompt`
+   with both:
+     assert "git fetch origin main" in prompt
+     assert "git log <sha>..HEAD --not origin/main -p" in prompt
+     assert "git diff <sha>..HEAD" not in prompt
+2. Extend the helper (`run_build_*_prompt`) with a `base_ref: str = ""`
+   kwarg that sets `env["BASE_REF"]` when truthy.
+3. Add a new TestReReview test `test_custom_base_ref_used_in_delta` that
+   passes `base_ref="develop"` and asserts:
+     - `git fetch origin develop` in prompt
+     - `git log <sha>..HEAD --not origin/develop -p` in prompt
+     - `origin/main` not in prompt
+4. Initial-review tests stay as-is.
+
+task-1-6 — orchestrator/tests/test_pipeline_prompts.py:
+- `test_delta_review_directive` (currently ~line 2338): replace
+  `assert "git diff abc123..HEAD" in prompt` with
+  `assert "git log abc123..HEAD --not origin/main -p" in prompt` and
+  `assert "git fetch origin main" in prompt`; also add
+  `assert "git diff abc123..HEAD" not in prompt`.
+- `test_delta_review_still_uses_commit_sha` (in TestReviewPromptBaseBranch,
+  currently ~line 3125): replace `assert "git diff abc123def..HEAD" in prompt`
+  with `assert "git log abc123def..HEAD --not origin/main -p" in prompt`;
+  keep the `"origin/main...HEAD" not in prompt` assertion; add
+  `assert "git diff abc123def..HEAD" not in prompt`.
+- Add a new test `test_delta_review_directive_non_default_base` under
+  TestBuildReviewPrompt (next to `test_delta_review_directive`) that
+  calls `_build_review_prompt(..., review_cycle=2,
+  last_reviewed_commit="deadbeef", base_branch="develop", ...)` and
+  asserts:
+    - `"git log deadbeef..HEAD --not origin/develop -p" in prompt`
+    - `"git fetch origin develop" in prompt`
+    - `"origin/main" not in prompt`
+- Cycle-1 tests (`origin/main...HEAD`) stay unchanged.
+
+Verify with:
+  pytest tests/action/ orchestrator/tests/test_pipeline_prompts.py
+
+Once you push, please mark task-1-5 and task-1-6 complete via
+`egg-contract complete-task`. Ping me in BRC consensus when done.
+
+````yaml
+id: 1219890e-d7de-42
+phase: implement
+````
+
+### [2026-04-22T23:40:11Z] coder (CONSENSUS_PROPOSE): Proposal from coder
+
+Implemented the core fix for issue #1758: re-review delta prompts now use 'git log <sha>..HEAD --not origin/<base> -p' instead of 'git diff <sha>..HEAD', which explicitly excludes base-branch commits merged into the PR branch since the last review. Updated all five call sites: orchestrator/routes/pipelines.py (_build_review_prompt delta command + Delta Review directive text with git fetch nudge) and the three action shell scripts (build-review-prompt.sh, build-agent-mode-design-review-prompt.sh, build-contract-verification-prompt.sh) now accept a new BASE_REF env var (default 'main'). Extended reusable-review.yml's pr-meta step to emit base-ref from the PR JSON and plumbed it to the prompt builder step. Cycle-1 three-dot 'git diff origin/<base>...HEAD' paths and initial-review paths are untouched. Verified via pytest: tests/action/ (46 pass with my local test updates) and orchestrator/tests/test_pipeline_prompts.py (301 pass). Test updates (task-1-5, task-1-6) were handed off to the tester role because the gateway blocks coder from modifying test files; I sent a detailed HANDOFF message with the exact replacement assertions so the tester can complete those cleanly. Satisfies contract tasks task-1-1, task-1-2, task-1-3, and task-1-4.
+
+````yaml
+id: a13f43cd-7b3b-4c
+phase: implement
+metadata:
+  payload:
+    summary: 'Implemented the core fix for issue #1758: re-review delta prompts now
+      use ''git log <sha>..HEAD --not origin/<base> -p'' instead of ''git diff <sha>..HEAD'',
+      which explicitly excludes base-branch commits merged into the PR branch since
+      the last review. Updated all five call sites: orchestrator/routes/pipelines.py
+      (_build_review_prompt delta command + Delta Review directive text with git fetch
+      nudge) and the three action shell scripts (build-review-prompt.sh, build-agent-mode-design-review-prompt.sh,
+      build-contract-verification-prompt.sh) now accept a new BASE_REF env var (default
+      ''main''). Extended reusable-review.yml''s pr-meta step to emit base-ref from
+      the PR JSON and plumbed it to the prompt builder step. Cycle-1 three-dot ''git
+      diff origin/<base>...HEAD'' paths and initial-review paths are untouched. Verified
+      via pytest: tests/action/ (46 pass with my local test updates) and orchestrator/tests/test_pipeline_prompts.py
+      (301 pass). Test updates (task-1-5, task-1-6) were handed off to the tester
+      role because the gateway blocks coder from modifying test files; I sent a detailed
+      HANDOFF message with the exact replacement assertions so the tester can complete
+      those cleanly. Satisfies contract tasks task-1-1, task-1-2, task-1-3, and task-1-4.'
+    attestation: {}
+    artifacts:
+    - orchestrator/routes/pipelines.py
+    - action/build-review-prompt.sh
+    - action/build-agent-mode-design-review-prompt.sh
+    - action/build-contract-verification-prompt.sh
+    - .github/workflows/reusable-review.yml
+    risk_considered: ''
+    commit_sha: 3898fc6bd508785cf61125fcc21a353d037a98e0
+    files_changed:
+    - orchestrator/routes/pipelines.py
+    - action/build-review-prompt.sh
+    - action/build-agent-mode-design-review-prompt.sh
+    - action/build-contract-verification-prompt.sh
+    - .github/workflows/reusable-review.yml
+    tests_run:
+    - tests/action/test_build_review_prompt.py
+    - tests/action/test_build_agent_mode_design_review_prompt.py
+    - tests/action/test_build_contract_verification_prompt.py
+    - orchestrator/tests/test_pipeline_prompts.py
+    tasks_satisfied:
+    - task-1-1
+    - task-1-2
+    - task-1-3
+    - task-1-4
+  version: 1
+  commit_sha: 3898fc6bd508785cf61125fcc21a353d037a98e0
+````
+
+### [2026-04-22T23:40:31Z] coder → tester (STATUS): Re: Status check — code pushed at 3898fc6bd
+
+Answer to your QUESTION: push is in — commit 3898fc6bd on egg/issue-1758.
+
+I hit the gateway file-scope block when I tried to include my test updates
+in the same commit. I reverted the test changes, committed only the
+non-test files (orchestrator/routes/pipelines.py, the three action/*.sh
+scripts, and .github/workflows/reusable-review.yml), and pushed.
+
+Your test updates should now run cleanly against my implementation.
+When you rebase onto origin/egg/issue-1758 and apply your test changes,
+the full suite should pass.
+
+See the detailed HANDOFF message I sent earlier for exact replacement
+assertions. Ping me if anything looks off in the code changes — I will
+iterate if reviewers NACK.
+
+````yaml
+id: 9e6b5a22-db30-46
+phase: implement
+````
+
+### [2026-04-22T23:41:45Z] reviewer_contract → coder (CONSENSUS_ACK): ACK from reviewer_contract for coder
+
+
+Contract verification of coder commit 3898fc6bd against phase-1 tasks.
+
+### Task-by-task verification
+
+**task-1-1 ✅ VERIFIED** — orchestrator/routes/pipelines.py:3300-3306
+The is_delta_review branch of diff_command is now `f"git log {last_reviewed_commit}..HEAD --not {_base_ref} -p"` (line 3303). Cycle-1 three-dot fallback `f"git diff {_base_ref}...HEAD"` is unchanged (line 3305). Added an explanatory comment block at L3293-3299 documenting why two-dot diff is wrong and why --not is needed.
+
+**task-1-2 ✅ VERIFIED** — orchestrator/routes/pipelines.py:3449-3462
+The Delta Review directive now references the new command `git log {last_reviewed_commit}..HEAD --not {_base_ref} -p` (line 3457) and adds a `git fetch origin {_delta_base_branch}` nudge before it (line 3455). `_delta_base_branch = base_branch or "main"` defensively handles base_branch=None so the emitted fetch is never `git fetch origin None`. Good-faith interpretation of the contract's '{base_branch}' placeholder.
+
+**task-1-3 ✅ VERIFIED** — all three prompt builders
+- action/build-review-prompt.sh:13-17 (header), 135 (base_ref default), 148 (two-part instruction)
+- action/build-agent-mode-design-review-prompt.sh:13-17 (header), 82 (base_ref default), 98 (two-part instruction)
+- action/build-contract-verification-prompt.sh:16-20 (header), 96 (base_ref default), 112 (two-part instruction)
+Each adds `local base_ref="${BASE_REF:-main}"` before the re-review block, emits `git fetch origin ${base_ref}` followed by `git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${base_ref} -p`, and documents BASE_REF in the header comment block. Initial-review branches untouched — confirmed by diff scope.
+
+**task-1-4 ✅ VERIFIED** — .github/workflows/reusable-review.yml
+Line 365 emits `base-ref=$(echo "$pr_json" | jq -r '.base.ref')` alongside the existing head-ref/head-repo/head-sha block (inside the same `{ … } >> "$GITHUB_OUTPUT"` group). Line 496 plumbs `BASE_REF: ${{ steps.pr-meta.outputs.base-ref }}` into the env block of the 'Build review prompt from trusted main branch' step. No consumer-workflow edits needed, matching the contract's 'plumbing is internal' note.
+
+### Tasks not in this commit
+
+**task-1-5 & task-1-6** — not addressed by coder
+The commit message explicitly delegates these to the tester role ('tests for the new delta command form are owned by the tester role and will be updated in a separate commit'). The gateway blocking push for coder on test files corroborates the role/scope split (see overseer alert 79af7954). Existing assertions at tests/action/test_build_review_prompt.py:169, test_build_agent_mode_design_review_prompt.py:178, test_build_contract_verification_prompt.py:148, and orchestrator/tests/test_pipeline_prompts.py:2338 all still assert the old `git diff <sha>..HEAD` form and will fail against this implementation — correctly surfacing the work the tester must do. Tester remains producer=WORKING; their proposal will be evaluated separately.
+
+### Implementation quality observations
+- The `_base_ref` vs bare-branch-name split is handled correctly: `git fetch origin <branch>` takes the bare branch name (`_delta_base_branch`), while the `--not <ref>` form takes the full remote ref (`_base_ref` = `origin/<branch>`). Both derivations flow from the single `base_branch` input.
+- Cycle-1 three-dot behavior is preserved as required by the contract.
+- With base_branch='develop', all five call sites correctly emit origin/develop, not a hardcoded origin/main (spot-checked against `_resolve_origin_ref`).
+
+### Non-blocking
+- orchestrator/routes/pipelines.py:3451 recomputes `_delta_base_branch = base_branch or "main"` even though `_base_ref` already encodes the same resolution. Minor — could factor both into a shared helper, but not a correctness issue.
+
+No contract violations in the coder's scope. ACK.
+
+
+````yaml
+id: 97fcf368-77b7-47
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/routes/pipelines.py
+    - action/build-review-prompt.sh
+    - action/build-agent-mode-design-review-prompt.sh
+    - action/build-contract-verification-prompt.sh
+    - .github/workflows/reusable-review.yml
+    reason: "\nContract verification of coder commit 3898fc6bd against phase-1 tasks.\n\
+      \n### Task-by-task verification\n\n**task-1-1 \u2705 VERIFIED** \u2014 orchestrator/routes/pipelines.py:3300-3306\n\
+      The is_delta_review branch of diff_command is now `f\"git log {last_reviewed_commit}..HEAD\
+      \ --not {_base_ref} -p\"` (line 3303). Cycle-1 three-dot fallback `f\"git diff\
+      \ {_base_ref}...HEAD\"` is unchanged (line 3305). Added an explanatory comment\
+      \ block at L3293-3299 documenting why two-dot diff is wrong and why --not is\
+      \ needed.\n\n**task-1-2 \u2705 VERIFIED** \u2014 orchestrator/routes/pipelines.py:3449-3462\n\
+      The Delta Review directive now references the new command `git log {last_reviewed_commit}..HEAD\
+      \ --not {_base_ref} -p` (line 3457) and adds a `git fetch origin {_delta_base_branch}`\
+      \ nudge before it (line 3455). `_delta_base_branch = base_branch or \"main\"\
+      ` defensively handles base_branch=None so the emitted fetch is never `git fetch\
+      \ origin None`. Good-faith interpretation of the contract's '{base_branch}'\
+      \ placeholder.\n\n**task-1-3 \u2705 VERIFIED** \u2014 all three prompt builders\n\
+      - action/build-review-prompt.sh:13-17 (header), 135 (base_ref default), 148\
+      \ (two-part instruction)\n- action/build-agent-mode-design-review-prompt.sh:13-17\
+      \ (header), 82 (base_ref default), 98 (two-part instruction)\n- action/build-contract-verification-prompt.sh:16-20\
+      \ (header), 96 (base_ref default), 112 (two-part instruction)\nEach adds `local\
+      \ base_ref=\"${BASE_REF:-main}\"` before the re-review block, emits `git fetch\
+      \ origin ${base_ref}` followed by `git log ${LAST_REVIEW_COMMIT}..HEAD --not\
+      \ origin/${base_ref} -p`, and documents BASE_REF in the header comment block.\
+      \ Initial-review branches untouched \u2014 confirmed by diff scope.\n\n**task-1-4\
+      \ \u2705 VERIFIED** \u2014 .github/workflows/reusable-review.yml\nLine 365 emits\
+      \ `base-ref=$(echo \"$pr_json\" | jq -r '.base.ref')` alongside the existing\
+      \ head-ref/head-repo/head-sha block (inside the same `{ \u2026 } >> \"$GITHUB_OUTPUT\"\
+      ` group). Line 496 plumbs `BASE_REF: ${{ steps.pr-meta.outputs.base-ref }}`\
+      \ into the env block of the 'Build review prompt from trusted main branch' step.\
+      \ No consumer-workflow edits needed, matching the contract's 'plumbing is internal'\
+      \ note.\n\n### Tasks not in this commit\n\n**task-1-5 & task-1-6** \u2014 not\
+      \ addressed by coder\nThe commit message explicitly delegates these to the tester\
+      \ role ('tests for the new delta command form are owned by the tester role and\
+      \ will be updated in a separate commit'). The gateway blocking push for coder\
+      \ on test files corroborates the role/scope split (see overseer alert 79af7954).\
+      \ Existing assertions at tests/action/test_build_review_prompt.py:169, test_build_agent_mode_design_review_prompt.py:178,\
+      \ test_build_contract_verification_prompt.py:148, and orchestrator/tests/test_pipeline_prompts.py:2338\
+      \ all still assert the old `git diff <sha>..HEAD` form and will fail against\
+      \ this implementation \u2014 correctly surfacing the work the tester must do.\
+      \ Tester remains producer=WORKING; their proposal will be evaluated separately.\n\
+      \n### Implementation quality observations\n- The `_base_ref` vs bare-branch-name\
+      \ split is handled correctly: `git fetch origin <branch>` takes the bare branch\
+      \ name (`_delta_base_branch`), while the `--not <ref>` form takes the full remote\
+      \ ref (`_base_ref` = `origin/<branch>`). Both derivations flow from the single\
+      \ `base_branch` input.\n- Cycle-1 three-dot behavior is preserved as required\
+      \ by the contract.\n- With base_branch='develop', all five call sites correctly\
+      \ emit origin/develop, not a hardcoded origin/main (spot-checked against `_resolve_origin_ref`).\n\
+      \n### Non-blocking\n- orchestrator/routes/pipelines.py:3451 recomputes `_delta_base_branch\
+      \ = base_branch or \"main\"` even though `_base_ref` already encodes the same\
+      \ resolution. Minor \u2014 could factor both into a shared helper, but not a\
+      \ correctness issue.\n\nNo contract violations in the coder's scope. ACK.\n"
+  version: 1
+````
+
+### [2026-04-22T23:41:58Z] reviewer_contract (CONSENSUS_CONFIRMED): Confirmed by reviewer_contract (pending_acks)
+
+Agent reviewer_contract cannot confirm: producers ['tester'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.
+
+````yaml
+id: 3644e8cb-d7fc-47
+phase: implement
+metadata:
+  pending_acks: true
+````
+
+### [2026-04-22T23:42:35Z] reviewer_code → coder (CONSENSUS_ACK): ACK from reviewer_code for coder
+
+
+Reviewed coder commit 3898fc6bd (source-only, +36/-6 across 5 files). Verified it maps to contract tasks 1-1..1-4. Tests (tasks 1-5/1-6) are scoped to tester; the earlier d61871d94 bundled them and hit a file-scope violation — correctly split into scope-aligned commits.
+
+### Source correctness — verified
+- **orchestrator/routes/pipelines.py:3293-3306** — is_delta_review branch of diff_command swapped to `git log {last_reviewed_commit}..HEAD --not {_base_ref} -p`; cycle-1 three-dot `git diff {_base_ref}...HEAD` unchanged. `_base_ref = _resolve_origin_ref(base_branch)` reuses the existing helper. New 4-line comment explains the attribution bug and why three-dot diff doesn't help (correct: merge-base(A, HEAD) = A when A is an ancestor of HEAD, so A...HEAD == A..HEAD).
+- **orchestrator/routes/pipelines.py:3448-3461** — Delta Review directive updated to emit `git fetch origin {_delta_base_branch}` + the new `git log` form. Prior-feedback / verdict-format sections untouched.
+- **action/build-review-prompt.sh:10-15, 132-149** — Header comment documents BASE_REF with #1758 reference; `local base_ref="${BASE_REF:-main}"` added. Step 1 of the re-review prompt now emits `git fetch origin ${base_ref}` then `git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${base_ref} -p`. Initial-review branch untouched. Same pattern verified in build-agent-mode-design-review-prompt.sh (L9-15, 78-95) and build-contract-verification-prompt.sh (L12-18, 96-113).
+- **.github/workflows/reusable-review.yml:363** — `base-ref` added to pr-meta output via `jq -r '.base.ref'`, alongside existing head-ref/head-repo/head-sha. L496: `BASE_REF: ${{ steps.pr-meta.outputs.base-ref }}` added to the Build-review-prompt step env, only — consumer workflows are unchanged.
+
+### Git semantics — verified
+`git log A..HEAD --not origin/<base> -p` ≡ `git log HEAD --not A --not origin/<base> -p`: commits reachable from HEAD, NOT reachable from A, NOT reachable from origin/<base>. This is exactly PR-authored commits pushed since the last review, excluding any base-branch merges. Researched against git rev-list docs: `A..B` is sugar for `B --not A`, and multiple `--not` sides compose by union. Correct fix for the bug in #1758.
+
+### Security — clean
+- BASE_REF is sourced from `.base.ref` in the GitHub PR API response, which GitHub constrains to valid branch names. Not a prompt-injection vector.
+- The value is interpolated into the prompt text but not executed by the shell at prompt-creation time. If the agent later runs the shown command, `origin/${base_ref}` is a git refspec argument, not a shell expression.
+- Backward compat: existing callers that do NOT pass BASE_REF get `base_ref="main"` via `${BASE_REF:-main}`, preserving prior behavior for default-main PRs.
+
+### Coordination note
+Without the tester's matching updates to tests/action/test_build_*_prompt.py and orchestrator/tests/test_pipeline_prompts.py, three existing re-review assertions (`test_includes_git_diff_instruction` ×3) and two orchestrator assertions (`test_delta_review_directive`, `test_delta_review_still_uses_commit_sha`) will fail against this source. Task-1-5 and task-1-6 are explicitly assigned to tester. I'm ACKing the coder's source-only proposal on the assumption that the tester will complement with the test updates (I'll verify when their proposal arrives).
+
+### Non-blocking
+- **orchestrator/routes/pipelines.py:3451** — `_delta_base_branch = base_branch or 'main'` does NOT tolerate `origin/<x>` prefix the way `_resolve_origin_ref` does (L4493-4496). If a caller ever mistakenly passes `base_branch="origin/develop"`, the directive will emit `git fetch origin origin/develop` while the delta command correctly says `origin/develop`. Suggest either mirror the `origin/` strip inside this stanza, or derive `_delta_base_branch` from `_base_ref.removeprefix('origin/')` for single-source consistency. In practice callers pass bare names, so this is cosmetic — not blocking.
+- **action/build-review-prompt.sh:149 + peer scripts** — Explanatory clause reads "commits from \`${base_ref}\`". Since ${base_ref} is a branch name (e.g. `main`), the wording is fine, but `commits from origin/${base_ref}` would be slightly more precise given the agent will execute `--not origin/${base_ref}`. Cosmetic.
+- **action/build-review-prompt.sh:135 + peers** — `local base_ref="${BASE_REF:-main}"` is assigned before the `if [[ -n LAST_REVIEW_COMMIT ]]` check, so it's computed even on the initial-review path where it's never referenced. Negligible cost; consider moving inside the if-branch if tidiness matters.
+- **orchestrator/routes/pipelines.py:3453-3460** — The directive now repeats the `git log … --not {_base_ref} -p` command that already appears in step 1 (L3307-3308). That matches the pre-existing pattern (old directive also repeated `git diff`), so not a regression, but the repetition is a candidate for future simplification.
+
+
+````yaml
+id: 12a3c5e1-6d0a-4a
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/routes/pipelines.py
+    - action/build-review-prompt.sh
+    - action/build-agent-mode-design-review-prompt.sh
+    - action/build-contract-verification-prompt.sh
+    - .github/workflows/reusable-review.yml
+    reason: "\nReviewed coder commit 3898fc6bd (source-only, +36/-6 across 5 files).\
+      \ Verified it maps to contract tasks 1-1..1-4. Tests (tasks 1-5/1-6) are scoped\
+      \ to tester; the earlier d61871d94 bundled them and hit a file-scope violation\
+      \ \u2014 correctly split into scope-aligned commits.\n\n### Source correctness\
+      \ \u2014 verified\n- **orchestrator/routes/pipelines.py:3293-3306** \u2014 is_delta_review\
+      \ branch of diff_command swapped to `git log {last_reviewed_commit}..HEAD --not\
+      \ {_base_ref} -p`; cycle-1 three-dot `git diff {_base_ref}...HEAD` unchanged.\
+      \ `_base_ref = _resolve_origin_ref(base_branch)` reuses the existing helper.\
+      \ New 4-line comment explains the attribution bug and why three-dot diff doesn't\
+      \ help (correct: merge-base(A, HEAD) = A when A is an ancestor of HEAD, so A...HEAD\
+      \ == A..HEAD).\n- **orchestrator/routes/pipelines.py:3448-3461** \u2014 Delta\
+      \ Review directive updated to emit `git fetch origin {_delta_base_branch}` +\
+      \ the new `git log` form. Prior-feedback / verdict-format sections untouched.\n\
+      - **action/build-review-prompt.sh:10-15, 132-149** \u2014 Header comment documents\
+      \ BASE_REF with #1758 reference; `local base_ref=\"${BASE_REF:-main}\"` added.\
+      \ Step 1 of the re-review prompt now emits `git fetch origin ${base_ref}` then\
+      \ `git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${base_ref} -p`. Initial-review\
+      \ branch untouched. Same pattern verified in build-agent-mode-design-review-prompt.sh\
+      \ (L9-15, 78-95) and build-contract-verification-prompt.sh (L12-18, 96-113).\n\
+      - **.github/workflows/reusable-review.yml:363** \u2014 `base-ref` added to pr-meta\
+      \ output via `jq -r '.base.ref'`, alongside existing head-ref/head-repo/head-sha.\
+      \ L496: `BASE_REF: ${{ steps.pr-meta.outputs.base-ref }}` added to the Build-review-prompt\
+      \ step env, only \u2014 consumer workflows are unchanged.\n\n### Git semantics\
+      \ \u2014 verified\n`git log A..HEAD --not origin/<base> -p` \u2261 `git log\
+      \ HEAD --not A --not origin/<base> -p`: commits reachable from HEAD, NOT reachable\
+      \ from A, NOT reachable from origin/<base>. This is exactly PR-authored commits\
+      \ pushed since the last review, excluding any base-branch merges. Researched\
+      \ against git rev-list docs: `A..B` is sugar for `B --not A`, and multiple `--not`\
+      \ sides compose by union. Correct fix for the bug in #1758.\n\n### Security\
+      \ \u2014 clean\n- BASE_REF is sourced from `.base.ref` in the GitHub PR API\
+      \ response, which GitHub constrains to valid branch names. Not a prompt-injection\
+      \ vector.\n- The value is interpolated into the prompt text but not executed\
+      \ by the shell at prompt-creation time. If the agent later runs the shown command,\
+      \ `origin/${base_ref}` is a git refspec argument, not a shell expression.\n\
+      - Backward compat: existing callers that do NOT pass BASE_REF get `base_ref=\"\
+      main\"` via `${BASE_REF:-main}`, preserving prior behavior for default-main\
+      \ PRs.\n\n### Coordination note\nWithout the tester's matching updates to tests/action/test_build_*_prompt.py\
+      \ and orchestrator/tests/test_pipeline_prompts.py, three existing re-review\
+      \ assertions (`test_includes_git_diff_instruction` \xD73) and two orchestrator\
+      \ assertions (`test_delta_review_directive`, `test_delta_review_still_uses_commit_sha`)\
+      \ will fail against this source. Task-1-5 and task-1-6 are explicitly assigned\
+      \ to tester. I'm ACKing the coder's source-only proposal on the assumption that\
+      \ the tester will complement with the test updates (I'll verify when their proposal\
+      \ arrives).\n\n### Non-blocking\n- **orchestrator/routes/pipelines.py:3451**\
+      \ \u2014 `_delta_base_branch = base_branch or 'main'` does NOT tolerate `origin/<x>`\
+      \ prefix the way `_resolve_origin_ref` does (L4493-4496). If a caller ever mistakenly\
+      \ passes `base_branch=\"origin/develop\"`, the directive will emit `git fetch\
+      \ origin origin/develop` while the delta command correctly says `origin/develop`.\
+      \ Suggest either mirror the `origin/` strip inside this stanza, or derive `_delta_base_branch`\
+      \ from `_base_ref.removeprefix('origin/')` for single-source consistency. In\
+      \ practice callers pass bare names, so this is cosmetic \u2014 not blocking.\n\
+      - **action/build-review-prompt.sh:149 + peer scripts** \u2014 Explanatory clause\
+      \ reads \"commits from \\`${base_ref}\\`\". Since ${base_ref} is a branch name\
+      \ (e.g. `main`), the wording is fine, but `commits from origin/${base_ref}`\
+      \ would be slightly more precise given the agent will execute `--not origin/${base_ref}`.\
+      \ Cosmetic.\n- **action/build-review-prompt.sh:135 + peers** \u2014 `local base_ref=\"\
+      ${BASE_REF:-main}\"` is assigned before the `if [[ -n LAST_REVIEW_COMMIT ]]`\
+      \ check, so it's computed even on the initial-review path where it's never referenced.\
+      \ Negligible cost; consider moving inside the if-branch if tidiness matters.\n\
+      - **orchestrator/routes/pipelines.py:3453-3460** \u2014 The directive now repeats\
+      \ the `git log \u2026 --not {_base_ref} -p` command that already appears in\
+      \ step 1 (L3307-3308). That matches the pre-existing pattern (old directive\
+      \ also repeated `git diff`), so not a regression, but the repetition is a candidate\
+      \ for future simplification.\n"
+  version: 1
+````
+
+### [2026-04-22T23:43:41Z] coder → tester (STATUS): Reviewers ACKed — waiting on you
+
+FYI: reviewer_contract and reviewer_code have both ACKed my proposal
+(commit 3898fc6bd). Consensus state blocks on your producer proposal
+(task-1-5, task-1-6) plus your ACK of mine as a reviewer.
+
+Your test changes from your worktree should rebase cleanly on top of
+origin/egg/issue-1758 (at 3898fc6bd). If you hit issues, let me know.
+
+When you push and propose, I'll immediately ACK your proposal as a
+reviewer if it matches the contract. Then consensus should lock in.
+
+````yaml
+id: a57dba03-c2f7-4a
+phase: implement
+````
+
+### [2026-04-22T23:51:25Z] tester (CONSENSUS_PROPOSE): Proposal from tester
+
+Tester contract deliverables for #1758 are complete. Wrote tasks 1-5 and 1-6 test updates in commit 445b189cb covering tests/action/ (3 files) and orchestrator/tests/test_pipeline_prompts.py. Replaced existing 'git diff <sha>..HEAD' re-review assertions with assertions for the new 'git log <sha>..HEAD --not origin/<base> -p' form plus the 'git fetch origin <base>' nudge, and added explicit negative assertions ensuring the old two-dot diff is gone. Extended test helpers to accept a base_ref kwarg (plumbed as BASE_REF env). Added 4 new regression tests: one per action script exercising base_ref='develop' plus two in test_pipeline_prompts.py (non-default-base delta review for code reviewer, and contract reviewer delta with base_branch='develop') — these fail if base_branch isn't threaded through. Cycle-1 assertions stay unchanged. All 369 focused prompt tests pass against coder's implementation (commit 3898fc6bd). Full 'make lint' passes (ruff check + ruff format + mypy + shellcheck + custom checks). Full test suite was also run; 11634 passed. The 53 failures + 27 errors are all in unrelated network/Kubernetes mock tests (gateway_client, kubernetes_client, deployment_routes, sandbox gateway tests) that fail in this sandbox due to HTTP 403 and no k8s API — they are pre-existing environment issues, not caused by #1758 changes, and do not touch any file modified in this phase.
+
+````yaml
+id: b65ed7e7-5aed-47
+phase: implement
+metadata:
+  payload:
+    summary: "Tester contract deliverables for #1758 are complete. Wrote tasks 1-5\
+      \ and 1-6 test updates in commit 445b189cb covering tests/action/ (3 files)\
+      \ and orchestrator/tests/test_pipeline_prompts.py. Replaced existing 'git diff\
+      \ <sha>..HEAD' re-review assertions with assertions for the new 'git log <sha>..HEAD\
+      \ --not origin/<base> -p' form plus the 'git fetch origin <base>' nudge, and\
+      \ added explicit negative assertions ensuring the old two-dot diff is gone.\
+      \ Extended test helpers to accept a base_ref kwarg (plumbed as BASE_REF env).\
+      \ Added 4 new regression tests: one per action script exercising base_ref='develop'\
+      \ plus two in test_pipeline_prompts.py (non-default-base delta review for code\
+      \ reviewer, and contract reviewer delta with base_branch='develop') \u2014 these\
+      \ fail if base_branch isn't threaded through. Cycle-1 assertions stay unchanged.\
+      \ All 369 focused prompt tests pass against coder's implementation (commit 3898fc6bd).\
+      \ Full 'make lint' passes (ruff check + ruff format + mypy + shellcheck + custom\
+      \ checks). Full test suite was also run; 11634 passed. The 53 failures + 27\
+      \ errors are all in unrelated network/Kubernetes mock tests (gateway_client,\
+      \ kubernetes_client, deployment_routes, sandbox gateway tests) that fail in\
+      \ this sandbox due to HTTP 403 and no k8s API \u2014 they are pre-existing environment\
+      \ issues, not caused by #1758 changes, and do not touch any file modified in\
+      \ this phase."
+    attestation: {}
+    artifacts:
+    - tests/action/test_build_review_prompt.py
+    - tests/action/test_build_agent_mode_design_review_prompt.py
+    - tests/action/test_build_contract_verification_prompt.py
+    - orchestrator/tests/test_pipeline_prompts.py
+    risk_considered: ''
+    commit_sha: 445b189cb0d83a869cef6a98d708eed75d3ab32f
+    files_changed:
+    - tests/action/test_build_review_prompt.py
+    - tests/action/test_build_agent_mode_design_review_prompt.py
+    - tests/action/test_build_contract_verification_prompt.py
+    - orchestrator/tests/test_pipeline_prompts.py
+    tests_run:
+    - tests/action/test_build_review_prompt.py::TestReReview::test_includes_git_log_instruction
+    - tests/action/test_build_review_prompt.py::TestReReview::test_custom_base_ref_threaded_through
+    - tests/action/test_build_agent_mode_design_review_prompt.py::TestReReview::test_includes_git_log_instruction
+    - tests/action/test_build_agent_mode_design_review_prompt.py::TestReReview::test_custom_base_ref_threaded_through
+    - tests/action/test_build_contract_verification_prompt.py::TestReVerification::test_includes_git_log_instruction
+    - tests/action/test_build_contract_verification_prompt.py::TestReVerification::test_custom_base_ref_threaded_through
+    - orchestrator/tests/test_pipeline_prompts.py::TestBuildReviewPrompt::test_delta_review_directive
+    - orchestrator/tests/test_pipeline_prompts.py::TestReviewPromptBaseBranch::test_delta_review_still_uses_commit_sha
+    - orchestrator/tests/test_pipeline_prompts.py::TestReviewPromptBaseBranch::test_delta_review_with_non_default_base_branch
+    - orchestrator/tests/test_pipeline_prompts.py::TestReviewPromptBaseBranch::test_delta_review_contract_reviewer_uses_base_branch
+    tasks_satisfied:
+    - task-1-5
+    - task-1-6
+  version: 1
+  commit_sha: 445b189cb0d83a869cef6a98d708eed75d3ab32f
+````
+
+### [2026-04-22T23:51:29Z] tester → reviewer_code (HANDOFF): Tester work ready for your BRC review
+
+Tester proposal pushed (commit 445b189cb). Test updates for tasks 1-5 and 1-6 are in tests/action/ (3 files) and orchestrator/tests/test_pipeline_prompts.py. All 369 focused prompt tests pass against the coder's implementation. Full make lint clean. Ready for your review.
+
+````yaml
+id: e1ae0fed-45be-45
+phase: implement
+````
+
+### [2026-04-22T23:51:44Z] reviewer_contract (CONSENSUS_CONFIRMED): Confirmed by reviewer_contract
+
+````yaml
+id: 08d62d47-bd69-4f
+phase: implement
+metadata:
+  consensus_reached: false
+````
+
+### [2026-04-22T23:51:53Z] documenter (CONSENSUS_CONFIRMED): Confirmed by documenter
+
+````yaml
+id: 85ba4333-00a3-44
+phase: implement
+metadata:
+  consensus_reached: false
+````
+
+### [2026-04-22T23:52:39Z] reviewer_code → tester (CONSENSUS_ACK): ACK from reviewer_code for tester
+
+
+Reviewed tester commit 445b189cb (4 files, +164/-14). Verified that the test changes correctly validate the coder's source changes (3898fc6bd) and that contract tasks 1-5 and 1-6 are satisfied end-to-end.
+
+### Scope — verified against contract
+- task-1-5 (three action script test files): ✓
+  * helper in each file extended with `base_ref: str = ""` kwarg that sets `BASE_REF` env var when non-empty
+  * `test_includes_git_diff_instruction` → `test_includes_git_log_instruction` in each file; assertions replaced with the new `git log <sha>..HEAD --not origin/main -p` + `git fetch origin main` pair; explicit `"git diff <sha>..HEAD" not in prompt` regression guard
+  * new `test_custom_base_ref_threaded_through` per file with `base_ref="develop"` asserting `git fetch origin develop`, `git log <sha>..HEAD --not origin/develop -p`, and `"origin/main" not in prompt`
+  * initial-review assertions untouched (confirmed by diff inspection)
+- task-1-6 (orchestrator/tests/test_pipeline_prompts.py): ✓
+  * `test_delta_review_directive`: old `git diff abc123..HEAD` replaced with `git log abc123..HEAD --not origin/main -p` + `git fetch origin main`; explicit exclusion of the old form
+  * `test_delta_review_still_uses_commit_sha`: updated to new command form; retains the `origin/main...HEAD` (three-dot) absence check for delta reviews; adds old-form-gone guard
+  * new `test_delta_review_with_non_default_base_branch` with `base_branch="develop"`: asserts develop threads through both fetch and log lines, and that `origin/main` does not leak (the regression the contract specifically calls out)
+
+### Bonus coverage beyond contract
+- new `test_delta_review_contract_reviewer_uses_base_branch`: verifies the contract reviewer path also threads base_branch through the delta command. Not explicitly requested by task-1-6 but a valuable defensive test — the orchestrator's `reviewer_type="contract"` path uses the same `_build_review_prompt()` and the same `_base_ref`, so this prevents future regressions if the two paths diverge.
+
+### Correctness check (against coder 3898fc6bd)
+Traced the source → test alignment manually:
+- For `base_branch=None` / `base_branch="main"`: `_resolve_origin_ref` returns `"origin/main"`; diff_command emits `"git log abc123..HEAD --not origin/main -p"`; Delta Review directive emits same plus `"git fetch origin main"`. Tests assert both. ✓
+- For `base_branch="develop"`: `_resolve_origin_ref` returns `"origin/develop"`; `_delta_base_branch = "develop"`; diff_command emits `"git log <sha>..HEAD --not origin/develop -p"`; directive emits `"git fetch origin develop"`. Tests assert both. ✓
+- Verified shared/prompts/*.md contain no `origin/main` literal (checked with grep), so the `"origin/main" not in prompt` assertion in `test_delta_review_with_non_default_base_branch` and the three action tests will pass reliably when base_branch=develop — the prompt body, review criteria, and conventions don't reintroduce origin/main text.
+- Tester's commit log states: "All 369 prompt-related tests (tests/action/ + test_pipeline_prompts.py) pass against the coder's implementation (commit 3898fc6bd). Full lint passes; mypy clean on test files." Matches my inspection-level trace.
+
+### Regression guard quality
+Every updated re-review test now explicitly asserts `"git diff <sha>..HEAD" not in prompt` — this is the right belt-and-suspenders for #1758 because a silent regression to the old two-dot form was exactly the bug we were fixing. A reviewer reading these tests in future will immediately see why the old form is forbidden on the delta path.
+
+### Combined with coder's source
+Together with coder commit 3898fc6bd, the full implementation (all 6 contract tasks) is coherent: source + tests + docs all align on the same command shape and BASE_REF plumbing. No stale assertions remain.
+
+### Non-blocking
+- **tests/action/test_build_review_prompt.py:143** — `test_generates_rereview_prompt`'s docstring still reads `"Re-review uses git diff from last reviewed commit."` although the body of that test only asserts prompt identity markers, not the diff command. Cosmetic stale docstring not covered by tester's scope rewrite (the test still passes). Worth a follow-up polish pass but not blocking.
+- **orchestrator/tests/test_pipeline_prompts.py** — The new `test_delta_review_contract_reviewer_uses_base_branch` assumes the contract-reviewer code path reuses the same `_build_review_prompt` delta branch as the code reviewer (it does — reviewer_type only affects review_criteria text, not diff_command). Safe as-is; doc comment could note that the test is guarding against a future refactor that accidentally branches the delta command by reviewer_type.
+- **Helper signature consistency** — the three action-test helpers accept `base_ref: str = ""` and only set `BASE_REF` when truthy. Fine, matches the existing `last_review_commit` empty-string pattern.
+
+
+````yaml
+id: cc051060-fc37-46
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - tests/action/test_build_review_prompt.py
+    - tests/action/test_build_agent_mode_design_review_prompt.py
+    - tests/action/test_build_contract_verification_prompt.py
+    - orchestrator/tests/test_pipeline_prompts.py
+    reason: "\nReviewed tester commit 445b189cb (4 files, +164/-14). Verified that\
+      \ the test changes correctly validate the coder's source changes (3898fc6bd)\
+      \ and that contract tasks 1-5 and 1-6 are satisfied end-to-end.\n\n### Scope\
+      \ \u2014 verified against contract\n- task-1-5 (three action script test files):\
+      \ \u2713\n  * helper in each file extended with `base_ref: str = \"\"` kwarg\
+      \ that sets `BASE_REF` env var when non-empty\n  * `test_includes_git_diff_instruction`\
+      \ \u2192 `test_includes_git_log_instruction` in each file; assertions replaced\
+      \ with the new `git log <sha>..HEAD --not origin/main -p` + `git fetch origin\
+      \ main` pair; explicit `\"git diff <sha>..HEAD\" not in prompt` regression guard\n\
+      \  * new `test_custom_base_ref_threaded_through` per file with `base_ref=\"\
+      develop\"` asserting `git fetch origin develop`, `git log <sha>..HEAD --not\
+      \ origin/develop -p`, and `\"origin/main\" not in prompt`\n  * initial-review\
+      \ assertions untouched (confirmed by diff inspection)\n- task-1-6 (orchestrator/tests/test_pipeline_prompts.py):\
+      \ \u2713\n  * `test_delta_review_directive`: old `git diff abc123..HEAD` replaced\
+      \ with `git log abc123..HEAD --not origin/main -p` + `git fetch origin main`;\
+      \ explicit exclusion of the old form\n  * `test_delta_review_still_uses_commit_sha`:\
+      \ updated to new command form; retains the `origin/main...HEAD` (three-dot)\
+      \ absence check for delta reviews; adds old-form-gone guard\n  * new `test_delta_review_with_non_default_base_branch`\
+      \ with `base_branch=\"develop\"`: asserts develop threads through both fetch\
+      \ and log lines, and that `origin/main` does not leak (the regression the contract\
+      \ specifically calls out)\n\n### Bonus coverage beyond contract\n- new `test_delta_review_contract_reviewer_uses_base_branch`:\
+      \ verifies the contract reviewer path also threads base_branch through the delta\
+      \ command. Not explicitly requested by task-1-6 but a valuable defensive test\
+      \ \u2014 the orchestrator's `reviewer_type=\"contract\"` path uses the same\
+      \ `_build_review_prompt()` and the same `_base_ref`, so this prevents future\
+      \ regressions if the two paths diverge.\n\n### Correctness check (against coder\
+      \ 3898fc6bd)\nTraced the source \u2192 test alignment manually:\n- For `base_branch=None`\
+      \ / `base_branch=\"main\"`: `_resolve_origin_ref` returns `\"origin/main\"`;\
+      \ diff_command emits `\"git log abc123..HEAD --not origin/main -p\"`; Delta\
+      \ Review directive emits same plus `\"git fetch origin main\"`. Tests assert\
+      \ both. \u2713\n- For `base_branch=\"develop\"`: `_resolve_origin_ref` returns\
+      \ `\"origin/develop\"`; `_delta_base_branch = \"develop\"`; diff_command emits\
+      \ `\"git log <sha>..HEAD --not origin/develop -p\"`; directive emits `\"git\
+      \ fetch origin develop\"`. Tests assert both. \u2713\n- Verified shared/prompts/*.md\
+      \ contain no `origin/main` literal (checked with grep), so the `\"origin/main\"\
+      \ not in prompt` assertion in `test_delta_review_with_non_default_base_branch`\
+      \ and the three action tests will pass reliably when base_branch=develop \u2014\
+      \ the prompt body, review criteria, and conventions don't reintroduce origin/main\
+      \ text.\n- Tester's commit log states: \"All 369 prompt-related tests (tests/action/\
+      \ + test_pipeline_prompts.py) pass against the coder's implementation (commit\
+      \ 3898fc6bd). Full lint passes; mypy clean on test files.\" Matches my inspection-level\
+      \ trace.\n\n### Regression guard quality\nEvery updated re-review test now explicitly\
+      \ asserts `\"git diff <sha>..HEAD\" not in prompt` \u2014 this is the right\
+      \ belt-and-suspenders for #1758 because a silent regression to the old two-dot\
+      \ form was exactly the bug we were fixing. A reviewer reading these tests in\
+      \ future will immediately see why the old form is forbidden on the delta path.\n\
+      \n### Combined with coder's source\nTogether with coder commit 3898fc6bd, the\
+      \ full implementation (all 6 contract tasks) is coherent: source + tests + docs\
+      \ all align on the same command shape and BASE_REF plumbing. No stale assertions\
+      \ remain.\n\n### Non-blocking\n- **tests/action/test_build_review_prompt.py:143**\
+      \ \u2014 `test_generates_rereview_prompt`'s docstring still reads `\"Re-review\
+      \ uses git diff from last reviewed commit.\"` although the body of that test\
+      \ only asserts prompt identity markers, not the diff command. Cosmetic stale\
+      \ docstring not covered by tester's scope rewrite (the test still passes). Worth\
+      \ a follow-up polish pass but not blocking.\n- **orchestrator/tests/test_pipeline_prompts.py**\
+      \ \u2014 The new `test_delta_review_contract_reviewer_uses_base_branch` assumes\
+      \ the contract-reviewer code path reuses the same `_build_review_prompt` delta\
+      \ branch as the code reviewer (it does \u2014 reviewer_type only affects review_criteria\
+      \ text, not diff_command). Safe as-is; doc comment could note that the test\
+      \ is guarding against a future refactor that accidentally branches the delta\
+      \ command by reviewer_type.\n- **Helper signature consistency** \u2014 the three\
+      \ action-test helpers accept `base_ref: str = \"\"` and only set `BASE_REF`\
+      \ when truthy. Fine, matches the existing `last_review_commit` empty-string\
+      \ pattern.\n"
+  version: 1
+````
+
+### [2026-04-22T23:52:39Z] orchestrator → tester (STATUS): All reviewers have ACKed — ready to confirm
+
+All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 7f3c72a1-546f-4e
+phase: implement
+metadata:
+  fully_acked: true
+  version: 1
+````
+
+### [2026-04-22T23:52:45Z] reviewer_code (CONSENSUS_CONFIRMED): Confirmed by reviewer_code
+
+````yaml
+id: 713ebbd1-0394-4c
+phase: implement
+metadata:
+  consensus_reached: false
+````
+
+### [2026-04-22T23:52:47Z] tester → coder (CONSENSUS_ACK): ACK from tester for coder
+
+Reviewed all 5 files in coder's commit 3898fc6bd. Verified the implementation against contract tasks 1-1 through 1-4 and against my own test updates (tests pass).
+
+### Correctness (all clean)
+- **orchestrator/routes/pipelines.py:3297** — `diff_command` ternary now emits `f"git log {last_reviewed_commit}..HEAD --not {_base_ref} -p"` only when `is_delta_review` is true; cycle-1 three-dot `git diff {_base_ref}...HEAD` branch preserved exactly. `_base_ref = _resolve_origin_ref(base_branch)` correctly resolves to `origin/main` (or `origin/<base>` for non-default bases) — verified by `test_delta_review_with_non_default_base_branch` which exercises `base_branch="develop"` and asserts `origin/develop` lands in the prompt.
+- **orchestrator/routes/pipelines.py:3448** — Delta Review directive rewritten to name the new `git log ... --not {_base_ref} -p` command and adds a `git fetch origin {_delta_base_branch}` nudge. `_delta_base_branch = base_branch or "main"` correctly yields the bare branch name for the fetch target. The directive text clearly explains why the command excludes merged-in base-branch work.
+- **action/build-review-prompt.sh, build-agent-mode-design-review-prompt.sh, build-contract-verification-prompt.sh** — all three accept `BASE_REF` via `local base_ref="${BASE_REF:-main}"`; re-review step 1 is the two-part instruction `git fetch origin ${base_ref}` then `git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${base_ref} -p`. Initial-review branch untouched in all three. File header BASE_REF block is documented identically across all three, with the #1758 cross-reference.
+- **.github/workflows/reusable-review.yml:365** — new `base-ref` output from `jq -r '.base.ref'` on existing `pr_json`, plumbed through to the prompt-builder step's env at L497 as `BASE_REF: ${{ steps.pr-meta.outputs.base-ref }}`. No consumer-workflow edits needed. jq expression reuses the already-fetched `$pr_json` — no extra API call.
+
+### Security
+- Shell variables for `base_ref` and `LAST_REVIEW_COMMIT` are consistently quoted in prompt text. The prompt is text only — not executed from this code path — so there's no command-injection surface introduced here.
+- The jq output on a non-main base still lands inside a double-quoted env var in YAML, and BASE_REF is substituted into shell variables via `${BASE_REF:-main}` — no injection path.
+- `shellcheck` passes clean on all three scripts (full `make lint` is clean).
+
+### Verification
+- All 369 focused tests pass (`tests/action/` + `orchestrator/tests/test_pipeline_prompts.py`), including my new non-default-base regression tests.
+- `make lint` passes: ruff check / format / mypy / shellcheck / custom checks all green.
+- Cycle-1 three-dot form (`git diff origin/<base>...HEAD`) and initial-review path are verified untouched by passing regression tests (`test_base_branch_produces_correct_diff_command`, `test_no_base_branch_falls_back_to_origin_main`, etc.)
+
+### Non-blocking
+- **orchestrator/routes/pipelines.py:3451** — `_delta_base_branch = base_branch or "main"` duplicates the bare-branch-name computation that already lives inside `_resolve_origin_ref(base_branch)` (which strips the `origin/` prefix if callers double-prefix). Could derive the fetch target from `_base_ref` (e.g. `_base_ref.removeprefix("origin/")`) to have a single source of truth, but the current form is clearer and more obvious to readers; no bug.
+- **pipelines.py:3455** — the directive text says "commits from `<base_ref>` that were merged into the PR branch since your last review". Strictly, `--not origin/<base>` excludes **all** commits reachable from `origin/<base>`, not only those merged since last review. The user-facing phrasing is a minor simplification but it conveys the right intent for LLM reviewers. Not blocking.
+
+````yaml
+id: 36104541-4a14-43
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/routes/pipelines.py
+    - action/build-review-prompt.sh
+    - action/build-agent-mode-design-review-prompt.sh
+    - action/build-contract-verification-prompt.sh
+    - .github/workflows/reusable-review.yml
+    reason: "Reviewed all 5 files in coder's commit 3898fc6bd. Verified the implementation\
+      \ against contract tasks 1-1 through 1-4 and against my own test updates (tests\
+      \ pass).\n\n### Correctness (all clean)\n- **orchestrator/routes/pipelines.py:3297**\
+      \ \u2014 `diff_command` ternary now emits `f\"git log {last_reviewed_commit}..HEAD\
+      \ --not {_base_ref} -p\"` only when `is_delta_review` is true; cycle-1 three-dot\
+      \ `git diff {_base_ref}...HEAD` branch preserved exactly. `_base_ref = _resolve_origin_ref(base_branch)`\
+      \ correctly resolves to `origin/main` (or `origin/<base>` for non-default bases)\
+      \ \u2014 verified by `test_delta_review_with_non_default_base_branch` which\
+      \ exercises `base_branch=\"develop\"` and asserts `origin/develop` lands in\
+      \ the prompt.\n- **orchestrator/routes/pipelines.py:3448** \u2014 Delta Review\
+      \ directive rewritten to name the new `git log ... --not {_base_ref} -p` command\
+      \ and adds a `git fetch origin {_delta_base_branch}` nudge. `_delta_base_branch\
+      \ = base_branch or \"main\"` correctly yields the bare branch name for the fetch\
+      \ target. The directive text clearly explains why the command excludes merged-in\
+      \ base-branch work.\n- **action/build-review-prompt.sh, build-agent-mode-design-review-prompt.sh,\
+      \ build-contract-verification-prompt.sh** \u2014 all three accept `BASE_REF`\
+      \ via `local base_ref=\"${BASE_REF:-main}\"`; re-review step 1 is the two-part\
+      \ instruction `git fetch origin ${base_ref}` then `git log ${LAST_REVIEW_COMMIT}..HEAD\
+      \ --not origin/${base_ref} -p`. Initial-review branch untouched in all three.\
+      \ File header BASE_REF block is documented identically across all three, with\
+      \ the #1758 cross-reference.\n- **.github/workflows/reusable-review.yml:365**\
+      \ \u2014 new `base-ref` output from `jq -r '.base.ref'` on existing `pr_json`,\
+      \ plumbed through to the prompt-builder step's env at L497 as `BASE_REF: ${{\
+      \ steps.pr-meta.outputs.base-ref }}`. No consumer-workflow edits needed. jq\
+      \ expression reuses the already-fetched `$pr_json` \u2014 no extra API call.\n\
+      \n### Security\n- Shell variables for `base_ref` and `LAST_REVIEW_COMMIT` are\
+      \ consistently quoted in prompt text. The prompt is text only \u2014 not executed\
+      \ from this code path \u2014 so there's no command-injection surface introduced\
+      \ here.\n- The jq output on a non-main base still lands inside a double-quoted\
+      \ env var in YAML, and BASE_REF is substituted into shell variables via `${BASE_REF:-main}`\
+      \ \u2014 no injection path.\n- `shellcheck` passes clean on all three scripts\
+      \ (full `make lint` is clean).\n\n### Verification\n- All 369 focused tests\
+      \ pass (`tests/action/` + `orchestrator/tests/test_pipeline_prompts.py`), including\
+      \ my new non-default-base regression tests.\n- `make lint` passes: ruff check\
+      \ / format / mypy / shellcheck / custom checks all green.\n- Cycle-1 three-dot\
+      \ form (`git diff origin/<base>...HEAD`) and initial-review path are verified\
+      \ untouched by passing regression tests (`test_base_branch_produces_correct_diff_command`,\
+      \ `test_no_base_branch_falls_back_to_origin_main`, etc.)\n\n### Non-blocking\n\
+      - **orchestrator/routes/pipelines.py:3451** \u2014 `_delta_base_branch = base_branch\
+      \ or \"main\"` duplicates the bare-branch-name computation that already lives\
+      \ inside `_resolve_origin_ref(base_branch)` (which strips the `origin/` prefix\
+      \ if callers double-prefix). Could derive the fetch target from `_base_ref`\
+      \ (e.g. `_base_ref.removeprefix(\"origin/\")`) to have a single source of truth,\
+      \ but the current form is clearer and more obvious to readers; no bug.\n- **pipelines.py:3455**\
+      \ \u2014 the directive text says \"commits from `<base_ref>` that were merged\
+      \ into the PR branch since your last review\". Strictly, `--not origin/<base>`\
+      \ excludes **all** commits reachable from `origin/<base>`, not only those merged\
+      \ since last review. The user-facing phrasing is a minor simplification but\
+      \ it conveys the right intent for LLM reviewers. Not blocking."
+  version: 1
+````
+
+### [2026-04-22T23:52:47Z] orchestrator → coder (STATUS): All reviewers have ACKed — ready to confirm
+
+All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 8b79b592-36ca-44
+phase: implement
+metadata:
+  fully_acked: true
+  version: 1
+````
+
+### [2026-04-22T23:52:55Z] coder (CONSENSUS_CONFIRMED): Confirmed by coder
+
+````yaml
+id: b7e1cf96-211b-49
+phase: implement
+metadata:
+  consensus_reached: false
+````
+
+### [2026-04-22T23:52:59Z] tester (CONSENSUS_CONFIRMED): Confirmed by tester
+
+````yaml
+id: b7d4b803-6c07-4b
+phase: implement
+metadata:
+  consensus_reached: true
+````
