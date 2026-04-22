@@ -850,6 +850,7 @@ class TestToolRouting:
             "prune_stale_worktrees",
             "validate_network_isolation",
             "rebuild_and_rollout",
+            "get_service_logs",
         }
         assert tool_names == expected
 
@@ -2502,8 +2503,81 @@ class TestRebuildAndRolloutTool:
         assert "poll" in result["error"].lower()
 
 
+class TestGetServiceLogsTool:
+    """``get_service_logs`` — thin GET proxy with query-string construction."""
+
+    def test_requires_service(self, handler):
+        result = handler.handle_tool_call("get_service_logs", {})
+        assert result.get("error") == "service is required"
+
+    def test_forwards_service_lines_and_since_seconds(self, handler):
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={
+                "success": True,
+                "data": {
+                    "service": "gateway",
+                    "namespace": "egg-system",
+                    "pods": [{"pod": "gateway-abc", "logs": "ok"}],
+                },
+            },
+        ) as mock_req:
+            result = handler.handle_tool_call(
+                "get_service_logs",
+                {"service": "gateway", "lines": 50, "since_seconds": 300},
+            )
+
+        # The args go into the query string, not the body.
+        endpoint = mock_req.call_args.args[0]
+        assert endpoint.startswith("/api/v1/deployment/logs?")
+        assert "service=gateway" in endpoint
+        assert "lines=50" in endpoint
+        assert "since_seconds=300" in endpoint
+        assert mock_req.call_args.kwargs["method"] == "GET"
+        assert result["pods"][0]["pod"] == "gateway-abc"
+
+    def test_service_is_url_encoded(self, handler):
+        """Any odd characters in service are url-encoded, not splatted raw."""
+        with patch.object(
+            handler,
+            "_make_request",
+            return_value={"success": True, "data": {}},
+        ) as mock_req:
+            handler.handle_tool_call("get_service_logs", {"service": "a/b c"})
+        endpoint = mock_req.call_args.args[0]
+        assert "service=a%2Fb%20c" in endpoint
+
+    def test_http_failure_wraps_into_error(self, handler):
+        with patch.object(handler, "_make_request", side_effect=RuntimeError("gateway down")):
+            result = handler.handle_tool_call("get_service_logs", {"service": "gateway"})
+        assert "error" in result
+        assert "get_service_logs failed" in result["error"]
+
+
 class TestPipelineToolsSchemasForDeployment:
     """Guard the input-schema shape of the five new tools."""
+
+    def test_get_service_logs_enumerates_allowed_services(self):
+        from mcp_tools import PIPELINE_TOOLS
+
+        tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
+        schema = tools_by_name["get_service_logs"]["inputSchema"]
+        props = schema["properties"]
+        assert schema.get("required") == ["service"]
+        assert set(props["service"].get("enum", [])) == {"gateway", "orchestrator"}
+        assert props["lines"]["default"] == 100
+
+    def test_get_service_logs_enum_matches_route_allowlist(self):
+        """MCP schema enum and route allowlist must stay in sync."""
+        from mcp_tools import PIPELINE_TOOLS
+        from routes.deployment import _SERVICE_LOG_ALLOWLIST
+
+        tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
+        schema_enum = set(
+            tools_by_name["get_service_logs"]["inputSchema"]["properties"]["service"]["enum"]
+        )
+        assert schema_enum == _SERVICE_LOG_ALLOWLIST
 
     def test_validate_network_isolation_requires_pipeline_id(self):
         from mcp_tools import PIPELINE_TOOLS
