@@ -654,7 +654,11 @@ class TestWrapperStaleTrackerFallback:
                 f.write("fi\n")
             os.chmod(mock_python, 0o755)  # nosec B103
 
-            cmd = build_consensus_wrapped_command("Do the work", max_restarts=2)
+            # Disable the startup-failure retry heuristic — this test targets
+            # the tracker/bus-fallback path, not retry-on-exit-1 behavior.
+            cmd = build_consensus_wrapped_command(
+                "Do the work", max_restarts=2, startup_failure_window_seconds=0
+            )
             result = self._run_wrapper_command(cmd, tmpdir, agent_role="coder")
 
             # Should fail because agent is genuinely not confirmed
