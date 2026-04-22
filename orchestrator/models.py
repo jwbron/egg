@@ -177,6 +177,14 @@ class AgentExecution(BaseModel):
         return data
 
     container_id: str | None = Field(default=None, description="Container ID if running")
+    container_info: ContainerInfo | None = Field(
+        default=None,
+        description=(
+            "Full ContainerInfo from the spawner, carrying backend-specific "
+            "fields (e.g. pod_name, namespace, job_name on Kubernetes). "
+            "Optional for backward compatibility with older state files."
+        ),
+    )
     started_at: datetime | None = Field(default=None, description="When started")
     completed_at: datetime | None = Field(default=None, description="When completed")
     commit: str | None = Field(default=None, description="Commit SHA if changes made")
