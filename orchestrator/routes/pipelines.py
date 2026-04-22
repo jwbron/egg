@@ -3260,10 +3260,16 @@ def _build_review_prompt(
 
     # Delta review: for re-reviews with a known last-reviewed commit,
     # instruct the reviewer to focus on the delta.
+    #
+    # For re-reviews, we use `git log <last>..HEAD --not <base> -p` rather
+    # than a two-dot `git diff` so that commits merged in from the base
+    # branch between reviews are excluded. A two-dot snapshot diff would
+    # otherwise mis-attribute that merged-in work to the PR author
+    # (see issue #1758).
     is_delta_review = review_cycle > 1 and last_reviewed_commit and not draft_path
     _base_ref = _resolve_origin_ref(base_branch)
     diff_command = (
-        f"git diff {last_reviewed_commit}..HEAD"
+        f"git log {last_reviewed_commit}..HEAD --not {_base_ref} -p"
         if is_delta_review
         else f"git diff {_base_ref}...HEAD"
     )
@@ -3411,11 +3417,19 @@ def _build_review_prompt(
 
     # Delta review directive for re-reviews
     if is_delta_review:
+        _fetch_base = (base_branch or "main").strip() or "main"
+        if _fetch_base.startswith("origin/"):
+            _fetch_base = _fetch_base[len("origin/") :]
         lines.append("## Delta Review\n")
         lines.append(
             f"This is review cycle {review_cycle}. Focus on new changes since your "
-            f"last review. Use `git diff {last_reviewed_commit}..HEAD` to see the "
-            "delta. Verify prior feedback was addressed AND review new code thoroughly."
+            f"last review. First run `git fetch origin {_fetch_base}` so the base "
+            f"ref is up to date, then use "
+            f"`git log {last_reviewed_commit}..HEAD --not {_base_ref} -p` to see "
+            "the delta. This command excludes any commits merged in from the base "
+            "branch so you review only work authored on the PR branch since the "
+            "last review. Verify prior feedback was addressed AND review new code "
+            "thoroughly."
         )
         lines.append("")
 

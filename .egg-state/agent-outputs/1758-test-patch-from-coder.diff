@@ -1,0 +1,254 @@
+diff --git a/orchestrator/tests/test_pipeline_prompts.py b/orchestrator/tests/test_pipeline_prompts.py
+index d23c371a4..8fd5d020f 100644
+--- a/orchestrator/tests/test_pipeline_prompts.py
++++ b/orchestrator/tests/test_pipeline_prompts.py
+@@ -2335,9 +2335,33 @@ class TestBuildReviewPrompt:
+             last_reviewed_commit="abc123",
+         )
+         assert "## Delta Review" in prompt
+-        assert "git diff abc123..HEAD" in prompt
++        # New form excludes commits merged in from the base branch between
++        # reviews (see #1758). The two-dot snapshot diff must not appear.
++        assert "git fetch origin main" in prompt
++        assert "git log abc123..HEAD --not origin/main -p" in prompt
++        assert "git diff abc123..HEAD" not in prompt
+         assert "cycle 2" in prompt
+ 
++    def test_delta_review_directive_non_default_base(self):
++        """Delta review threads a non-default base_branch through to the delta command."""
++        prompt = _build_review_prompt(
++            phase="implement",
++            pipeline_id="test-pipe",
++            pipeline_mode="issue",
++            reviewer_type="code",
++            issue_number=100,
++            review_cycle=2,
++            last_reviewed_commit="abc123",
++            base_branch="develop",
++        )
++        assert "## Delta Review" in prompt
++        assert "git fetch origin develop" in prompt
++        assert "git log abc123..HEAD --not origin/develop -p" in prompt
++        # The delta command must target the actual base branch, not fall back
++        # to origin/main.
++        delta_section = prompt.split("## Delta Review", 1)[1].split("##", 1)[0]
++        assert "origin/main" not in delta_section
++
+     def test_first_review_no_delta_section(self):
+         """First review cycle does not include delta review section."""
+         prompt = _build_review_prompt(
+@@ -3111,7 +3135,7 @@ class TestReviewPromptBaseBranch:
+         assert "HEAD~10" not in prompt
+ 
+     def test_delta_review_still_uses_commit_sha(self):
+-        """Delta review (cycle > 1 with last_reviewed_commit) still uses commit SHA."""
++        """Delta review (cycle > 1 with last_reviewed_commit) uses git log excluding base branch."""
+         prompt = _build_review_prompt(
+             phase="implement",
+             pipeline_id="test-pipe",
+@@ -3122,7 +3146,11 @@ class TestReviewPromptBaseBranch:
+             last_reviewed_commit="abc123def",
+             base_branch="main",
+         )
+-        assert "git diff abc123def..HEAD" in prompt
++        # New form: `git log <sha>..HEAD --not origin/<base> -p` excludes
++        # commits merged in from the base branch (see #1758). The old
++        # two-dot snapshot diff must no longer appear.
++        assert "git log abc123def..HEAD --not origin/main -p" in prompt
++        assert "git diff abc123def..HEAD" not in prompt
+         # base_branch diff should NOT be the primary diff command for delta reviews
+         assert "origin/main...HEAD" not in prompt
+ 
+diff --git a/tests/action/test_build_agent_mode_design_review_prompt.py b/tests/action/test_build_agent_mode_design_review_prompt.py
+index c7d9de82e..deca156f8 100644
+--- a/tests/action/test_build_agent_mode_design_review_prompt.py
++++ b/tests/action/test_build_agent_mode_design_review_prompt.py
+@@ -16,6 +16,7 @@ def run_build_prompt(
+     github_repository: str,
+     last_review_commit: str = "",
+     runner_temp: str = "",
++    base_ref: str = "",
+ ) -> tuple[int, str, str]:
+     """Run build-agent-mode-design-review-prompt.sh with the given environment variables.
+ 
+@@ -29,6 +30,9 @@ def run_build_prompt(
+     if last_review_commit:
+         env["LAST_REVIEW_COMMIT"] = last_review_commit
+ 
++    if base_ref:
++        env["BASE_REF"] = base_ref
++
+     # Use a temp directory if not specified
+     if not runner_temp:
+         runner_temp = tempfile.gettempdir()
+@@ -163,19 +167,37 @@ class TestReReview:
+             assert "This is a **re-review**" in prompt
+             assert "abc123def456" in prompt
+ 
+-    def test_includes_git_diff_instruction(self) -> None:
+-        """Re-review instructs to use git diff from last commit."""
++    def test_includes_git_log_delta_instruction(self) -> None:
++        """Re-review instructs to use git log delta from last commit, excluding base branch."""
++        with tempfile.TemporaryDirectory() as tmpdir:
++            returncode, stdout, stderr = run_build_prompt(
++                pr_number="123",
++                github_repository="owner/repo",
++                last_review_commit="abc123def456",
++                runner_temp=tmpdir,
++            )
++
++            assert returncode == 0
++            prompt = read_prompt_file(tmpdir, "123")
++            assert "git fetch origin main" in prompt
++            assert "git log abc123def456..HEAD --not origin/main -p" in prompt
++            assert "git diff abc123def456..HEAD" not in prompt
++
++    def test_respects_base_ref_env_var(self) -> None:
++        """BASE_REF env var threads through to the delta command."""
+         with tempfile.TemporaryDirectory() as tmpdir:
+             returncode, stdout, stderr = run_build_prompt(
+                 pr_number="123",
+                 github_repository="owner/repo",
+                 last_review_commit="abc123def456",
+                 runner_temp=tmpdir,
++                base_ref="develop",
+             )
+ 
+             assert returncode == 0
+             prompt = read_prompt_file(tmpdir, "123")
+-            assert "git diff abc123def456..HEAD" in prompt
++            assert "git fetch origin develop" in prompt
++            assert "git log abc123def456..HEAD --not origin/develop -p" in prompt
+ 
+     def test_includes_agent_mode_design_focus(self) -> None:
+         """Re-review includes agent-mode design focus."""
+diff --git a/tests/action/test_build_contract_verification_prompt.py b/tests/action/test_build_contract_verification_prompt.py
+index e7d526868..c62f37725 100644
+--- a/tests/action/test_build_contract_verification_prompt.py
++++ b/tests/action/test_build_contract_verification_prompt.py
+@@ -16,6 +16,7 @@ def run_build_contract_prompt(
+     github_repository: str,
+     last_review_commit: str = "",
+     runner_temp: str = "",
++    base_ref: str = "",
+ ) -> tuple[int, str, str]:
+     """Run build-contract-verification-prompt.sh with the given environment variables.
+ 
+@@ -29,6 +30,9 @@ def run_build_contract_prompt(
+     if last_review_commit:
+         env["LAST_REVIEW_COMMIT"] = last_review_commit
+ 
++    if base_ref:
++        env["BASE_REF"] = base_ref
++
+     if not runner_temp:
+         runner_temp = tempfile.gettempdir()
+     env["RUNNER_TEMP"] = runner_temp
+@@ -133,19 +137,37 @@ class TestReVerification:
+             assert "Re-verify" in prompt or "re-review" in prompt.lower()
+             assert "abc123def456" in prompt
+ 
+-    def test_includes_git_diff_instruction(self) -> None:
+-        """Re-verification instructs to use git diff from last commit."""
++    def test_includes_git_log_delta_instruction(self) -> None:
++        """Re-verification instructs to use git log delta from last commit, excluding base branch."""
++        with tempfile.TemporaryDirectory() as tmpdir:
++            returncode, _, _ = run_build_contract_prompt(
++                pr_number="50",
++                github_repository="owner/repo",
++                last_review_commit="abc123def456",
++                runner_temp=tmpdir,
++            )
++
++            assert returncode == 0
++            prompt = read_prompt_file(tmpdir, "50")
++            assert "git fetch origin main" in prompt
++            assert "git log abc123def456..HEAD --not origin/main -p" in prompt
++            assert "git diff abc123def456..HEAD" not in prompt
++
++    def test_respects_base_ref_env_var(self) -> None:
++        """BASE_REF env var threads through to the delta command."""
+         with tempfile.TemporaryDirectory() as tmpdir:
+             returncode, _, _ = run_build_contract_prompt(
+                 pr_number="50",
+                 github_repository="owner/repo",
+                 last_review_commit="abc123def456",
+                 runner_temp=tmpdir,
++                base_ref="develop",
+             )
+ 
+             assert returncode == 0
+             prompt = read_prompt_file(tmpdir, "50")
+-            assert "git diff abc123def456..HEAD" in prompt
++            assert "git fetch origin develop" in prompt
++            assert "git log abc123def456..HEAD --not origin/develop -p" in prompt
+ 
+ 
+ class TestRequiredVariables:
+diff --git a/tests/action/test_build_review_prompt.py b/tests/action/test_build_review_prompt.py
+index 2ae2f431b..ef179eab7 100644
+--- a/tests/action/test_build_review_prompt.py
++++ b/tests/action/test_build_review_prompt.py
+@@ -16,6 +16,7 @@ def run_build_review_prompt(
+     github_repository: str,
+     last_review_commit: str = "",
+     runner_temp: str = "",
++    base_ref: str = "",
+ ) -> tuple[int, str, str]:
+     """Run build-review-prompt.sh with the given environment variables.
+ 
+@@ -29,6 +30,9 @@ def run_build_review_prompt(
+     if last_review_commit:
+         env["LAST_REVIEW_COMMIT"] = last_review_commit
+ 
++    if base_ref:
++        env["BASE_REF"] = base_ref
++
+     # Use a temp directory if not specified
+     if not runner_temp:
+         runner_temp = tempfile.gettempdir()
+@@ -154,19 +158,41 @@ class TestReReview:
+             assert "This is a **re-review**" in prompt
+             assert "abc123def456" in prompt
+ 
+-    def test_includes_git_diff_instruction(self) -> None:
+-        """Re-review instructs to use git diff from last commit."""
++    def test_includes_git_log_delta_instruction(self) -> None:
++        """Re-review instructs to use git log delta from last commit, excluding base branch."""
++        with tempfile.TemporaryDirectory() as tmpdir:
++            returncode, stdout, stderr = run_build_review_prompt(
++                pr_number="123",
++                github_repository="owner/repo",
++                last_review_commit="abc123def456",
++                runner_temp=tmpdir,
++            )
++
++            assert returncode == 0
++            prompt = read_prompt_file(tmpdir, "123")
++            # The new form excludes base-branch commits merged in between
++            # reviews so the reviewer only sees PR-authored work (see #1758).
++            assert "git fetch origin main" in prompt
++            assert "git log abc123def456..HEAD --not origin/main -p" in prompt
++            # The old two-dot snapshot diff must no longer appear.
++            assert "git diff abc123def456..HEAD" not in prompt
++
++    def test_respects_base_ref_env_var(self) -> None:
++        """BASE_REF env var threads through to the delta command."""
+         with tempfile.TemporaryDirectory() as tmpdir:
+             returncode, stdout, stderr = run_build_review_prompt(
+                 pr_number="123",
+                 github_repository="owner/repo",
+                 last_review_commit="abc123def456",
+                 runner_temp=tmpdir,
++                base_ref="develop",
+             )
+ 
+             assert returncode == 0
+             prompt = read_prompt_file(tmpdir, "123")
+-            assert "git diff abc123def456..HEAD" in prompt
++            assert "git fetch origin develop" in prompt
++            assert "git log abc123def456..HEAD --not origin/develop -p" in prompt
++            assert "origin/main" not in prompt.split("## Review Rules")[0]
+ 
+     def test_includes_check_previous_feedback(self) -> None:
+         """Re-review instructs to check previous review comments."""
