@@ -3932,8 +3932,9 @@ def _commit_statefiles_to_worktree(
 
         matched_set: set[str] = set()
         for pid in prefixes:
-            pattern_dot = str(state_dir / "**" / f"{pid}.*")
-            pattern_dash = str(state_dir / "**" / f"{pid}-*")
+            escaped = glob.escape(pid)
+            pattern_dot = str(state_dir / "**" / f"{escaped}.*")
+            pattern_dash = str(state_dir / "**" / f"{escaped}-*")
             for f in glob.glob(pattern_dot, recursive=True) + glob.glob(
                 pattern_dash, recursive=True
             ):
