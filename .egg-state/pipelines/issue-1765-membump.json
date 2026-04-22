@@ -5,7 +5,7 @@
   "branch": "egg/issue-1765-membump",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "cancelled",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -300,7 +300,7 @@
     }
   ],
   "created_at": "2026-04-22T20:29:39.959311Z",
-  "updated_at": "2026-04-22T20:52:29.623606Z",
+  "updated_at": "2026-04-22T20:57:45.459177Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -313,5 +313,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 17
+  "version": 18
 }
