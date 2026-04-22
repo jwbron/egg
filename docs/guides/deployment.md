@@ -370,6 +370,35 @@ Fix by adding the env var to your gateway Deployment:
 
 **Missing or invalid credentials**: Configuration errors (missing key file, invalid credentials) are detected immediately and do not trigger retries. The gateway logs a warning and continues running, but GitHub operations will fail.
 
+### Pipeline submission returns 503 (gateway not ready)
+
+On fresh deploys or pod restarts the orchestrator may be accepting requests while the gateway HTTP listener is still coming up. Without a readiness gate, the first pipeline submission would proceed, reach the gateway during worktree creation or per-agent fan-out, and cascade into per-agent `ConnectionRefused` errors that are hard to diagnose.
+
+The orchestrator now waits for the gateway to become healthy before creating a pipeline. If the gateway doesn't become healthy within the timeout, the API returns HTTP 503 with a `Retry-After` header and a `gateway_not_ready` reason code:
+
+```json
+{
+  "success": false,
+  "message": "Gateway not ready after 60s (status=unreachable): Connection refused. Retry once the gateway has finished starting up.",
+  "details": {
+    "reason": "gateway_not_ready",
+    "gateway_status": "unreachable",
+    "gateway_error": "Connection refused",
+    "timeout_seconds": 60
+  }
+}
+```
+
+**To tune the wait**: set `EGG_GATEWAY_READY_TIMEOUT_SECONDS` on the orchestrator (default: `60`). Increase it if your gateway routinely takes longer than 60 seconds to start under load:
+
+```yaml
+# In your orchestrator Deployment
+- name: EGG_GATEWAY_READY_TIMEOUT_SECONDS
+  value: "120"
+```
+
+**To disable the gate**: set `EGG_GATEWAY_READY_TIMEOUT_SECONDS=0`. Use this only in environments where gateway startup is managed out-of-band (e.g., integration test harnesses that ensure the gateway is healthy before submitting pipelines).
+
 ### Agent pod cannot reach gateway
 
 1. Verify gateway is healthy: `kubectl get pods -n egg-system`
