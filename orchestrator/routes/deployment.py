@@ -742,7 +742,22 @@ def _build_probe_env() -> dict[str, str]:
     try:
         from kubernetes_spawner import _PROTECTED_ENV_KEYS  # type: ignore[import-untyped]
     except Exception:
-        _PROTECTED_ENV_KEYS = frozenset()  # type: ignore[assignment]
+        # Mirror the denylist from redaction.py so the double-check loop
+        # is not silently disabled when kubernetes_spawner is unavailable.
+        _PROTECTED_ENV_KEYS = frozenset(  # type: ignore[assignment]
+            {
+                "EGG_SESSION_TOKEN",
+                "GATEWAY_URL",
+                "HTTP_PROXY",
+                "HTTPS_PROXY",
+                "NO_PROXY",
+                "http_proxy",
+                "https_proxy",
+                "no_proxy",
+                "EGG_ORCHESTRATOR_URL",
+                "EGG_LIFECYCLE_SECRET",
+            }
+        )
 
     # We only expose the two URLs the probe script needs. Both happen to
     # also appear in _PROTECTED_ENV_KEYS (they're locked against agent
@@ -1061,9 +1076,13 @@ _REBUILD_LOCK = threading.Lock()
 _REBUILD_IN_PROGRESS = False
 _REBUILD_ACTIVE_STREAM_ID: str | None = None
 
-# Rolling per-stream buffer.  Each stream is a deque of events that
-# the consumer reads via
-# GET /api/v1/deployment/rebuild-and-rollout/streams/<id>.
+# Per-stream buffer.  Each stream is a deque of events that the consumer
+# reads via GET /api/v1/deployment/rebuild-and-rollout/streams/<id>.
+# Unbounded within a single stream — the retention reaper caps total
+# stream count and streams are short-lived (bounded by
+# _REDEPLOY_SUBPROCESS_TIMEOUT_SEC).  A maxlen here would silently
+# evict old events while the cursor (next_since) keeps incrementing,
+# causing positional slices to return empty batches.
 _STREAM_BUFFERS: dict[str, deque[dict[str, Any]]] = {}
 _STREAM_TERMINATION_TS: dict[str, float] = {}
 _STREAM_LOCK = threading.Lock()
@@ -1085,7 +1104,7 @@ _REDEPLOY_SUBPROCESS_TIMEOUT_SEC = 1800
 
 def _stream_append(stream_id: str, event: dict[str, Any]) -> None:
     with _STREAM_LOCK:
-        buf = _STREAM_BUFFERS.setdefault(stream_id, deque(maxlen=2048))
+        buf = _STREAM_BUFFERS.setdefault(stream_id, deque())
         buf.append(event)
 
 

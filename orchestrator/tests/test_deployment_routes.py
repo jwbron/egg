@@ -989,6 +989,9 @@ class TestRunRedeploySubprocess:
             def wait(self):
                 return 0
 
+            def poll(self):
+                return 0
+
         _run_redeploy_subprocess("test-stream", str(tmp_path), runner=_FakePopen)
 
         events, done = dep_mod._stream_snapshot("test-stream")
