@@ -186,10 +186,10 @@
         {
           "container_id": "f21fa35d-da54-4d78-8f0f-b6bb9fa76826",
           "container_name": "egg-sandbox-egg-agent-issue-1762-membump-risk-analyst",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-22T20:58:39.120607Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-22T21:53:27Z",
+          "exit_code": 0,
           "agent_role": "risk_analyst",
           "session_token": null,
           "pod_name": null,
@@ -243,7 +243,7 @@
           "container_id": "f21fa35d-da54-4d78-8f0f-b6bb9fa76826",
           "container_info": null,
           "started_at": "2026-04-22T20:58:39.120613Z",
-          "completed_at": "2026-04-22T21:29:21.747567Z",
+          "completed_at": "2026-04-22T21:53:29.351713Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -317,7 +317,7 @@
     }
   ],
   "created_at": "2026-04-22T20:29:39.197819Z",
-  "updated_at": "2026-04-22T21:36:57.238269Z",
+  "updated_at": "2026-04-22T21:53:29.351890Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -330,5 +330,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 19
+  "version": 20
 }
